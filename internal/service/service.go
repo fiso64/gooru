@@ -17,6 +17,25 @@ type Service struct {
 	Store *database.Store
 }
 
+// resolvePath canonicalizes a path. If the path exists, it resolves any
+// symlinks to their final target. If it doesn't exist, it returns the
+// absolute path of the input to allow for clean "file not found" errors later.
+func resolvePath(filePath string) (string, error) {
+	// If a file doesn't exist, os.Lstat is the first to tell us. We don't
+	// try to resolve symlinks in this case, just return its absolute path.
+	if _, err := os.Lstat(filePath); os.IsNotExist(err) {
+		return filepath.Abs(filePath)
+	}
+
+	// If the file exists, resolve any symlinks to get the canonical path.
+	resolvedPath, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Abs(resolvedPath)
+}
+
 // NewService creates a new Service.
 func NewService(store *database.Store) *Service {
 	return &Service{Store: store}
@@ -24,7 +43,7 @@ func NewService(store *database.Store) *Service {
 
 // TagFile tags a single file with the given tags.
 func (s *Service) TagFile(filePath string, tags []string) error {
-	absPath, err := filepath.Abs(filePath)
+	absPath, err := resolvePath(filePath)
 	if err != nil {
 		return err
 	}
@@ -72,7 +91,7 @@ func (s *Service) TagFile(filePath string, tags []string) error {
 
 // UntagFile untags a single file with the given tags.
 func (s *Service) UntagFile(filePath string, tags []string) error {
-	absPath, err := filepath.Abs(filePath)
+	absPath, err := resolvePath(filePath)
 	if err != nil {
 		return err
 	}
@@ -112,7 +131,7 @@ func (s *Service) UntagFile(filePath string, tags []string) error {
 // SetTagsForFile sets the tags for a single file, replacing any existing tags.
 // If the tags slice is empty, all tags are removed.
 func (s *Service) SetTagsForFile(filePath string, tags []string) error {
-	absPath, err := filepath.Abs(filePath)
+	absPath, err := resolvePath(filePath)
 	if err != nil {
 		return err
 	}
@@ -165,7 +184,7 @@ func (s *Service) SetTagsForFile(filePath string, tags []string) error {
 
 // GetTagsForFile retrieves all tags for a given file.
 func (s *Service) GetTagsForFile(filePath string) ([]string, error) {
-	absPath, err := filepath.Abs(filePath)
+	absPath, err := resolvePath(filePath)
 	if err != nil {
 		return nil, err
 	}
