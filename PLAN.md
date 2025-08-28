@@ -1,7 +1,7 @@
 
 ### **Project `gooru`: Backend CLI Plan (Revised)**
 
-This plan outlines the architecture and components for a high-performance, file-tagging command-line tool.
+This plan outlines the INITIAL architecture and components for a high-performance, file-tagging command-line tool.
 
 #### **Guiding Principles**
 
