@@ -2,3 +2,4 @@ go.sum
 *.db
 test*.txt
 *.exe
+install.bat

@@ -213,6 +213,12 @@ func (s *Store) DisassociateTag(q Querier, hash string, tagID int64) error {
 	return err
 }
 
+// ClearTagsForContent removes all tag associations for a given content hash. The database trigger will handle updating the cache.
+func (s *Store) ClearTagsForContent(q Querier, hash string) error {
+	_, err := q.Exec("DELETE FROM content_tags WHERE content_hash = ?", hash)
+	return err
+}
+
 // GetTagsForContent retrieves all tags for a given content hash.
 func (s *Store) GetTagsForContent(hash string) ([]string, error) {
 	query := `

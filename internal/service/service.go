@@ -109,6 +109,60 @@ func (s *Service) UntagFile(filePath string, tags []string) error {
 	return tx.Commit()
 }
 
+// SetTagsForFile sets the tags for a single file, replacing any existing tags.
+// If the tags slice is empty, all tags are removed.
+func (s *Service) SetTagsForFile(filePath string, tags []string) error {
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return err // File doesn't exist or is not accessible
+	}
+
+	hash, err := hashing.HashFile(absPath)
+	if err != nil {
+		return err
+	}
+
+	tx, err := s.Store.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // Rollback on error
+
+	// Ensure content and location records exist
+	if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
+		return err
+	}
+	ext := filepath.Ext(absPath)
+	if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+		return err
+	}
+
+	// Clear all existing tags for this content
+	if err := s.Store.ClearTagsForContent(tx, hash); err != nil {
+		return err
+	}
+
+	// Add the new tags
+	for _, tagName := range tags {
+		parsedTag := query.ParseTag(tagName)
+		tagID, err := s.Store.GetOrCreateTag(tx, parsedTag.Key, parsedTag.Value)
+		if err != nil {
+			return err
+		}
+
+		if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 // GetTagsForFile retrieves all tags for a given file.
 func (s *Service) GetTagsForFile(filePath string) ([]string, error) {
 	absPath, err := filepath.Abs(filePath)
