@@ -240,6 +240,11 @@ func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error)
     return s.Store.GetFilesInfoByTagsAnd(parsedTags)
 }
 
+// GetAllTags retrieves all tags from the database.
+func (s *Service) GetAllTags() ([]string, error) {
+	return s.Store.GetAllTags()
+}
+
 // EditPath manually updates a file's path in the database.
 func (s *Service) EditPath(oldPath, newPath string) error {
 	// The database layer needs absolute paths for consistency,

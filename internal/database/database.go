@@ -642,3 +642,27 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag) ([]types.FileInfo,
 	}
 	return files, nil
 }
+
+// GetAllTags retrieves all unique tags from the database.
+func (s *Store) GetAllTags() ([]string, error) {
+	query := `SELECT key, value FROM tags ORDER BY key, value`
+	rows, err := s.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		if key == "" {
+			tags = append(tags, value)
+		} else {
+			tags = append(tags, key+":"+value)
+		}
+	}
+	return tags, nil
+}
