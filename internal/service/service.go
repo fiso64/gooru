@@ -240,6 +240,23 @@ func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error)
     return s.Store.GetFilesInfoByTagsAnd(parsedTags)
 }
 
+// EditPath manually updates a file's path in the database.
+func (s *Service) EditPath(oldPath, newPath string) error {
+	// The database layer needs absolute paths for consistency,
+	// but we pass the original paths as well for clearer error messages.
+	absOldPath, err := resolvePath(oldPath)
+	if err != nil {
+		return fmt.Errorf("could not resolve old path '%s': %w", oldPath, err)
+	}
+
+	absNewPath, err := resolvePath(newPath)
+	if err != nil {
+		return fmt.Errorf("could not resolve new path '%s': %w", newPath, err)
+	}
+
+	return s.Store.UpdatePath(absOldPath, absNewPath, oldPath, newPath)
+}
+
 // NeedsRelink performs a fast check using filesystem metadata to see if a relink is necessary.
 func (s *Service) NeedsRelink(dirs []string) (bool, error) {
 	absDirs, err := toAbsolutePaths(dirs)

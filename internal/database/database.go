@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -455,6 +456,43 @@ func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove
 	}
 
 	return stats, tx.Commit()
+}
+
+// UpdatePath updates a location's path, with checks for existence.
+func (s *Store) UpdatePath(absOldPath, absNewPath, displayOldPath, displayNewPath string) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Check if new path already exists
+	var dummy int
+	err = tx.QueryRow("SELECT 1 FROM locations WHERE path = ?", absNewPath).Scan(&dummy)
+	if err != sql.ErrNoRows {
+		if err == nil { // A row was found
+			return fmt.Errorf("new path already exists in database: %s", displayNewPath)
+		}
+		return fmt.Errorf("db check for new path failed: %w", err) // Other DB error
+	}
+
+	// 2. Perform the update
+	res, err := tx.Exec("UPDATE locations SET path = ? WHERE path = ?", absNewPath, absOldPath)
+	if err != nil {
+		return err
+	}
+
+	// 3. Check if the update was successful
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("old path not found in database: %s", displayOldPath)
+	}
+
+	return tx.Commit()
 }
 
 // ListFilesByTagsAnd retrieves all file paths for a given set of tags (AND query).
