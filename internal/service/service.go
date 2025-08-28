@@ -48,7 +48,8 @@ func (s *Service) TagFile(filePath string, tags []string) error {
 		return err
 	}
 
-	if err := s.Store.GetOrCreateLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix()); err != nil {
+	ext := filepath.Ext(absPath)
+	if err := s.Store.GetOrCreateLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
 		return err
 	}
 
@@ -124,17 +125,32 @@ func (s *Service) GetTagsForFile(filePath string) ([]string, error) {
 
 // ListAllFiles lists all files known to the system.
 func (s *Service) ListAllFiles() ([]string, error) {
-	return s.Store.ListAllFiles()
+    return s.Store.ListAllFiles()
 }
 
 // ListFilesByTag lists all files associated with a given tag.
 func (s *Service) ListFilesByTag(tag string) ([]string, error) {
-	return s.Store.ListFilesByTag(tag)
+    return s.Store.ListFilesByTag(tag)
 }
 
 // ListFilesByTagsAnd lists all files associated with a given set of tags (AND query).
 func (s *Service) ListFilesByTagsAnd(tags []string) ([]string, error) {
-	return s.Store.ListFilesByTagsAnd(tags)
+    return s.Store.ListFilesByTagsAnd(tags)
+}
+
+// GetAllFilesInfo gets detailed info for all files known to the system.
+func (s *Service) GetAllFilesInfo() ([]types.FileInfo, error) {
+    return s.Store.GetAllFilesInfo()
+}
+
+// GetFilesInfoByTag gets detailed info for all files associated with a given tag.
+func (s *Service) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
+    return s.Store.GetFilesInfoByTag(tag)
+}
+
+// GetFilesInfoByTagsAnd gets detailed info for all files associated with a given set of tags (AND query).
+func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
+    return s.Store.GetFilesInfoByTagsAnd(tags)
 }
 
 // NeedsRelink performs a fast check using filesystem metadata to see if a relink is necessary.

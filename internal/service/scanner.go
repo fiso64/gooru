@@ -95,9 +95,10 @@ func (s *Service) scanWorker(wg *sync.WaitGroup, jobs <-chan scanJob, results ch
 		result := scanResult{path: job.path, err: err}
 		if err == nil {
 			result.info = types.LocationInfo{
-				Hash:    hash,
-				Size:    fileSize,
-				ModTime: job.info.ModTime().Unix(),
+				Hash:      hash,
+				Size:      fileSize,
+				ModTime:   job.info.ModTime().Unix(),
+				Extension: filepath.Ext(job.path),
 			}
 		}
 		results <- result

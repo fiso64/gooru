@@ -49,6 +49,8 @@ func createTables(db *sql.DB) error {
 			path TEXT NOT NULL UNIQUE,
 			size_bytes INTEGER NOT NULL,
 			mod_time INTEGER NOT NULL,
+			extension TEXT NOT NULL,
+			tags_cache TEXT NOT NULL DEFAULT '',
 			FOREIGN KEY (content_hash) REFERENCES contents(hash) ON DELETE CASCADE
 		);`,
 		`CREATE TABLE IF NOT EXISTS tags (
@@ -88,8 +90,9 @@ func (s *Store) GetOrCreateContent(q Querier, hash string) error {
 }
 
 // GetOrCreateLocation ensures a file path for a given content hash exists.
-func (s *Store) GetOrCreateLocation(q Querier, hash, path string, size int64, modTime int64) error {
-	_, err := q.Exec("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time) VALUES (?, ?, ?, ?)", hash, path, size, modTime)
+// It initializes the tags_cache to an empty string.
+func (s *Store) GetOrCreateLocation(q Querier, hash, path string, size int64, modTime int64, extension string) error {
+	_, err := q.Exec("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES (?, ?, ?, ?, ?, '')", hash, path, size, modTime, extension)
 	return err
 }
 
@@ -132,15 +135,39 @@ func (s *Store) GetTagID(name string) (int64, error) {
 	return id, err
 }
 
-// AssociateTag links a tag with a content hash.
+// AssociateTag links a tag with a content hash and updates the cache.
 func (s *Store) AssociateTag(q Querier, hash string, tagID int64) error {
 	_, err := q.Exec("INSERT OR IGNORE INTO content_tags (content_hash, tag_id) VALUES (?, ?)", hash, tagID)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.updateTagsCacheForContent(q, hash)
 }
 
-// DisassociateTag removes a link between a tag and a content hash.
+// DisassociateTag removes a link between a tag and a content hash and updates the cache.
 func (s *Store) DisassociateTag(q Querier, hash string, tagID int64) error {
 	_, err := q.Exec("DELETE FROM content_tags WHERE content_hash = ? AND tag_id = ?", hash, tagID)
+	if err != nil {
+		return err
+	}
+	return s.updateTagsCacheForContent(q, hash)
+}
+
+// updateTagsCacheForContent recalculates and stores the tag string for a given content hash.
+func (s *Store) updateTagsCacheForContent(q Querier, hash string) error {
+	var cachedTags string
+	query := `
+		SELECT IFNULL(GROUP_CONCAT(t.name ORDER BY t.name), '')
+		FROM tags t
+		JOIN content_tags ct ON t.id = ct.tag_id
+		WHERE ct.content_hash = ?`
+	
+	err := q.QueryRow(query, hash).Scan(&cachedTags)
+	if err != nil {
+		return err
+	}
+
+	_, err = q.Exec("UPDATE locations SET tags_cache = ? WHERE content_hash = ?", cachedTags, hash)
 	return err
 }
 
@@ -267,7 +294,7 @@ func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
 func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInfo, error) {
 	locations := make(map[string]types.LocationInfo)
 	for _, dir := range dirs {
-		rows, err := s.DB.Query("SELECT path, content_hash, size_bytes, mod_time FROM locations WHERE path LIKE ?", dir+string(filepath.Separator)+"%")
+		rows, err := s.DB.Query("SELECT path, content_hash, size_bytes, mod_time, extension FROM locations WHERE path LIKE ?", dir+string(filepath.Separator)+"%")
 		if err != nil {
 			return nil, err
 		}
@@ -276,7 +303,7 @@ func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInf
 		for rows.Next() {
 			var path string
 			var info types.LocationInfo
-			if err := rows.Scan(&path, &info.Hash, &info.Size, &info.ModTime); err != nil {
+			if err := rows.Scan(&path, &info.Hash, &info.Size, &info.ModTime, &info.Extension); err != nil {
 				return nil, err
 			}
 			locations[path] = info
@@ -318,15 +345,15 @@ func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove
 		const batchSize = 250
 		var args []interface{}
 		var queryBuilder strings.Builder
-		queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time) VALUES ")
+		queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
 
 		itemsInBatch := 0
 		for path, info := range toAdd {
 			if itemsInBatch > 0 {
 				queryBuilder.WriteString(", ")
 			}
-			queryBuilder.WriteString("(?, ?, ?, ?)")
-			args = append(args, info.Hash, path, info.Size, info.ModTime)
+			queryBuilder.WriteString("(?, ?, ?, ?, ?)")
+			args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension)
 			itemsInBatch++
 
 			if itemsInBatch >= batchSize {
@@ -336,8 +363,10 @@ func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove
 				}
 				added, _ := res.RowsAffected()
 				stats.LocationsAdded += int(added)
-				itemsInBatch, args, queryBuilder = 0, nil, strings.Builder{}
-				queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path) VALUES ")
+				itemsInBatch = 0
+				args = nil
+				queryBuilder.Reset()
+				queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
 			}
 		}
 
@@ -395,4 +424,95 @@ func (s *Store) ListFilesByTagsAnd(tags []string) ([]string, error) {
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+// GetAllFilesInfo retrieves detailed info for all files from the database using the cache.
+func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
+	query := `SELECT path, size_bytes, tags_cache FROM locations ORDER BY path`
+
+	rows, err := s.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		if err := rows.Scan(&file.Path, &file.Size, &file.Tags); err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, nil
+}
+
+// GetFilesInfoByTag retrieves info for all files for a given tag using the cache.
+func (s *Store) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
+	query := `
+		SELECT l.path, l.size_bytes, l.tags_cache
+		FROM locations l
+		JOIN content_tags ct ON l.content_hash = ct.content_hash
+		JOIN tags t ON ct.tag_id = t.id
+		WHERE t.name = ?
+		ORDER BY l.path`
+
+	rows, err := s.DB.Query(query, tag)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		if err := rows.Scan(&file.Path, &file.Size, &file.Tags); err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, nil
+}
+
+// GetFilesInfoByTagsAnd retrieves info for all files for a given set of tags (AND query) using the cache.
+func (s *Store) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
+	if len(tags) == 0 {
+		return []types.FileInfo{}, nil
+	}
+
+	query := `
+		SELECT l.path, l.size_bytes, l.tags_cache
+		FROM locations l
+		WHERE l.content_hash IN (
+			SELECT ct.content_hash
+			FROM content_tags ct
+			JOIN tags t ON ct.tag_id = t.id
+			WHERE t.name IN (?` + strings.Repeat(",?", len(tags)-1) + `)
+			GROUP BY ct.content_hash
+			HAVING COUNT(DISTINCT t.name) = ?
+		)
+		ORDER BY l.path
+	`
+
+	args := make([]interface{}, len(tags)+1)
+	for i, tag := range tags {
+		args[i] = tag
+	}
+	args[len(tags)] = len(tags)
+
+	rows, err := s.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		if err := rows.Scan(&file.Path, &file.Size, &file.Tags); err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, nil
 }
