@@ -5,7 +5,7 @@ This plan outlines the INITIAL architecture and components for a high-performanc
 
 #### **Guiding Principles**
 
-1.  **Performance First:** All technical decisions will prioritize speed, from hashing to database queries. The tool must feel instantaneous.
+1.  **Performance First:** All technical decisions will prioritize speed, from hashing to database queries. The tool must feel instantaneous. It must scale to millions of files.
 2.  **Clean Architecture:** Logic will be strictly separated into distinct layers (CLI, Service, Database) to ensure maintainability and testability.
 3.  **Content-Centric:** A file's identity is its content hash. This makes the system resilient to file renames, moves, and duplicates.
 
