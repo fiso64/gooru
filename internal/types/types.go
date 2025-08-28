@@ -14,6 +14,12 @@ type RelinkStats struct {
 	LocationsRemoved int
 }
 
+// RelinkResult holds the outcome of a relink scan before any destructive actions.
+type RelinkResult struct {
+	Stats           RelinkStats
+	UnrelinkedFiles []FileInfo
+}
+
 // LocationInfo holds metadata about a file's location.
 type LocationInfo struct {
 	Hash      string

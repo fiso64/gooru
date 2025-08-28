@@ -368,7 +368,7 @@ func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
 func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInfo, error) {
 	locations := make(map[string]types.LocationInfo)
 	for _, dir := range dirs {
-		rows, err := s.DB.Query("SELECT path, content_hash, size_bytes, mod_time, extension FROM locations WHERE path LIKE ?", dir+string(filepath.Separator)+"%")
+		rows, err := s.DB.Query("SELECT path, content_hash, size_bytes, mod_time, extension, tags_cache FROM locations WHERE path LIKE ?", dir+string(filepath.Separator)+"%")
 		if err != nil {
 			return nil, err
 		}
@@ -377,7 +377,7 @@ func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInf
 		for rows.Next() {
 			var path string
 			var info types.LocationInfo
-			if err := rows.Scan(&path, &info.Hash, &info.Size, &info.ModTime, &info.Extension); err != nil {
+			if err := rows.Scan(&path, &info.Hash, &info.Size, &info.ModTime, &info.Extension, &info.TagsCache); err != nil {
 				return nil, err
 			}
 			locations[path] = info
@@ -386,76 +386,84 @@ func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInf
 	return locations, nil
 }
 
-// ApplyRelinkChanges transactionally removes old paths and adds new ones.
-func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove []string) (types.RelinkStats, error) {
-	stats := types.RelinkStats{}
-	if len(toAdd) == 0 && len(toRemove) == 0 {
-		return stats, nil // Nothing to do
+// ApplyRelinkAdditions transactionally adds new locations.
+func (s *Store) ApplyRelinkAdditions(toAdd map[string]types.LocationInfo) (int, error) {
+	if len(toAdd) == 0 {
+		return 0, nil
 	}
 
 	tx, err := s.DB.Begin()
 	if err != nil {
-		return stats, err
+		return 0, err
 	}
 	defer tx.Rollback()
 
-	// 1. Batch remove obsolete locations
-	if len(toRemove) > 0 {
-		query := "DELETE FROM locations WHERE path IN (?" + strings.Repeat(",?", len(toRemove)-1) + ")"
-		args := make([]interface{}, len(toRemove))
-		for i, v := range toRemove {
-			args[i] = v
-		}
-		res, err := tx.Exec(query, args...)
-		if err != nil {
-			return stats, err
-		}
-		removed, _ := res.RowsAffected()
-		stats.LocationsRemoved = int(removed)
-	}
+	var locationsAdded int
+	const batchSize = 250
+	var args []interface{}
+	var queryBuilder strings.Builder
+	// The tags_cache is now populated by triggers, so we don't insert it here.
+	queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
 
-	// 2. Batch insert new locations
-	if len(toAdd) > 0 {
-		const batchSize = 250
-		var args []interface{}
-		var queryBuilder strings.Builder
-		// The tags_cache is now populated by triggers, so we don't insert it here.
-		queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
-
-		itemsInBatch := 0
-		for path, info := range toAdd {
-			if itemsInBatch > 0 {
-				queryBuilder.WriteString(", ")
-			}
-			queryBuilder.WriteString("(?, ?, ?, ?, ?)")
-			args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension)
-			itemsInBatch++
-
-			if itemsInBatch >= batchSize {
-				res, err := tx.Exec(queryBuilder.String(), args...)
-				if err != nil {
-					return stats, err
-				}
-				added, _ := res.RowsAffected()
-				stats.LocationsAdded += int(added)
-				itemsInBatch = 0
-				args = nil
-				queryBuilder.Reset()
-				queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
-			}
-		}
-
+	itemsInBatch := 0
+	for path, info := range toAdd {
 		if itemsInBatch > 0 {
+			queryBuilder.WriteString(", ")
+		}
+		queryBuilder.WriteString("(?, ?, ?, ?, ?)")
+		args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension)
+		itemsInBatch++
+
+		if itemsInBatch >= batchSize {
 			res, err := tx.Exec(queryBuilder.String(), args...)
 			if err != nil {
-				return stats, err
+				return 0, err
 			}
 			added, _ := res.RowsAffected()
-			stats.LocationsAdded += int(added)
+			locationsAdded += int(added)
+			itemsInBatch = 0
+			args = nil
+			queryBuilder.Reset()
+			queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
 		}
 	}
 
-	return stats, tx.Commit()
+	if itemsInBatch > 0 {
+		res, err := tx.Exec(queryBuilder.String(), args...)
+		if err != nil {
+			return 0, err
+		}
+		added, _ := res.RowsAffected()
+		locationsAdded += int(added)
+	}
+
+	return locationsAdded, tx.Commit()
+}
+
+// RemoveLocationsByPath transactionally removes locations by their paths.
+func (s *Store) RemoveLocationsByPath(paths []string) (int, error) {
+	if len(paths) == 0 {
+		return 0, nil
+	}
+
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	query := "DELETE FROM locations WHERE path IN (?" + strings.Repeat(",?", len(paths)-1) + ")"
+	args := make([]interface{}, len(paths))
+	for i, v := range paths {
+		args[i] = v
+	}
+	res, err := tx.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	removed, _ := res.RowsAffected()
+
+	return int(removed), tx.Commit()
 }
 
 // UpdatePath updates a location's path, with checks for existence.

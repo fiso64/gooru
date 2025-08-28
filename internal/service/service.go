@@ -285,34 +285,36 @@ func (s *Service) NeedsRelink(dirs []string) (bool, error) {
 	return false, nil // Everything matches.
 }
 
-// Relink performs a high-performance concurrent scan of the given directories
-// and updates the database with the findings.
-func (s *Service) Relink(dirs []string) (types.RelinkStats, error) {
+// Relink performs a high-performance concurrent scan of the given directories,
+// applies additions, and returns files that are no longer linked.
+func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
+	result := types.RelinkResult{}
 	absDirs, err := toAbsolutePaths(dirs)
 	if err != nil {
-		return types.RelinkStats{}, err
+		return result, err
 	}
 
-	// 1. Get initial state from the database. This must happen first.
+	// 1. Get initial state from the database.
 	dbLocations, err := s.Store.GetLocationsForDirs(absDirs)
 	if err != nil {
-		return types.RelinkStats{}, fmt.Errorf("could not get db locations: %w", err)
+		return result, fmt.Errorf("could not get db locations: %w", err)
 	}
 	sizeToHashes, err := s.Store.GetSizeToHashesMap()
 	if err != nil {
-		return types.RelinkStats{}, fmt.Errorf("could not build size-to-hash map: %w", err)
+		return result, fmt.Errorf("could not build size-to-hash map: %w", err)
 	}
 	knownHashes, err := s.Store.GetAllContentHashes()
 	if err != nil {
-		return types.RelinkStats{}, fmt.Errorf("could not get known hashes: %w", err)
+		return result, fmt.Errorf("could not get known hashes: %w", err)
 	}
 	hashToTagsCache, err := s.Store.GetHashToTagsCacheMap()
 	if err != nil {
-		return types.RelinkStats{}, fmt.Errorf("could not get tags cache: %w", err)
+		return result, fmt.Errorf("could not get tags cache: %w", err)
 	}
 
 	// 2. Perform the intelligent, targeted filesystem scan.
 	fsLocations, filesScanned := s.scanDirsConcurrently(absDirs, sizeToHashes)
+	result.Stats.FilesScanned = filesScanned
 
 	// 3. Compute the difference ("diff") between the two states.
 	toAdd := make(map[string]types.LocationInfo)
@@ -324,7 +326,6 @@ func (s *Service) Relink(dirs []string) (types.RelinkStats, error) {
 		// Add if path is new, or if path exists but hash is different.
 		if !existsInDb || dbInfo.Hash != fsInfo.Hash {
 			if _, contentIsKnown := knownHashes[fsInfo.Hash]; contentIsKnown {
-				// Content is known, so preserve its tags cache.
 				fsInfo.TagsCache = hashToTagsCache[fsInfo.Hash]
 				toAdd[path] = fsInfo
 			}
@@ -337,17 +338,28 @@ func (s *Service) Relink(dirs []string) (types.RelinkStats, error) {
 		// Remove if path no longer exists on disk, or if it exists but now has a different hash
 		if !existsOnFs || fsInfo.Hash != dbInfo.Hash {
 			toRemove = append(toRemove, path)
+			// Build FileInfo for the CLI to display
+			result.UnrelinkedFiles = append(result.UnrelinkedFiles, types.FileInfo{
+				Path: path,
+				Size: dbInfo.Size,
+				Tags: dbInfo.TagsCache,
+			})
 		}
 	}
 
-	// 4. Apply the changes transactionally.
-	stats, err := s.Store.ApplyRelinkChanges(toAdd, toRemove)
+	// 4. Apply only the additions.
+	locationsAdded, err := s.Store.ApplyRelinkAdditions(toAdd)
 	if err != nil {
-		return types.RelinkStats{}, err
+		return result, err
 	}
+	result.Stats.LocationsAdded = locationsAdded
 
-	stats.FilesScanned = filesScanned
-	return stats, nil
+	return result, nil
+}
+
+// PruneLocations removes a list of file paths from the database.
+func (s *Service) PruneLocations(paths []string) (int, error) {
+	return s.Store.RemoveLocationsByPath(paths)
 }
 
 func toAbsolutePaths(paths []string) ([]string, error) {
