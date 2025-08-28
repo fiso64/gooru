@@ -26,7 +26,7 @@ Multi-file mode (requires -m flag and '--' separator):
   gooru untag -m /path/one.txt /path/two.png -- tag1 tag2`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if multiFileUntag {
-			return handleMultiFileUntag(args)
+			return handleMultiFileUntag(cmd, args)
 		}
 		return handleSingleFileUntag(args)
 	},
@@ -45,14 +45,8 @@ func handleSingleFileUntag(args []string) error {
 	return nil
 }
 
-func handleMultiFileUntag(args []string) error {
-	separatorIndex := -1
-	for i, arg := range args {
-		if arg == "--" {
-			separatorIndex = i
-			break
-		}
-	}
+func handleMultiFileUntag(cmd *cobra.Command, args []string) error {
+	separatorIndex := cmd.Flags().ArgsLenAtDash()
 
 	if separatorIndex == -1 {
 		return errors.New("usage: gooru untag -m <file1> [file2...] -- <tag1> [tag2...]\n(missing '--' separator)")
@@ -60,12 +54,12 @@ func handleMultiFileUntag(args []string) error {
 	if separatorIndex == 0 {
 		return errors.New("no files provided before '--' separator")
 	}
-	if separatorIndex == len(args)-1 {
+	if separatorIndex == len(args) {
 		return errors.New("no tags provided after '--' separator")
 	}
 
 	files := args[:separatorIndex]
-	tags := args[separatorIndex+1:]
+	tags := args[separatorIndex:]
 
 	for _, filePath := range files {
 		if err := svc.UntagFile(filePath, tags); err != nil {
