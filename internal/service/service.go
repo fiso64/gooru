@@ -49,7 +49,8 @@ func (s *Service) TagFile(filePath string, tags []string) error {
 	}
 
 	ext := filepath.Ext(absPath)
-	if err := s.Store.GetOrCreateLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+	// Use UpdateContentLocation to handle file moves correctly.
+	if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
 		return err
 	}
 
@@ -202,6 +203,10 @@ func (s *Service) Relink(dirs []string) (types.RelinkStats, error) {
 	if err != nil {
 		return types.RelinkStats{}, fmt.Errorf("could not get known hashes: %w", err)
 	}
+	hashToTagsCache, err := s.Store.GetHashToTagsCacheMap()
+	if err != nil {
+		return types.RelinkStats{}, fmt.Errorf("could not get tags cache: %w", err)
+	}
 
 	// 2. Perform the intelligent, targeted filesystem scan.
 	fsLocations, filesScanned := s.scanDirsConcurrently(absDirs, sizeToHashes)
@@ -216,6 +221,8 @@ func (s *Service) Relink(dirs []string) (types.RelinkStats, error) {
 		// Add if path is new, or if path exists but hash is different.
 		if !existsInDb || dbInfo.Hash != fsInfo.Hash {
 			if _, contentIsKnown := knownHashes[fsInfo.Hash]; contentIsKnown {
+				// Content is known, so preserve its tags cache.
+				fsInfo.TagsCache = hashToTagsCache[fsInfo.Hash]
 				toAdd[path] = fsInfo
 			}
 		}

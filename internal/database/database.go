@@ -66,6 +66,33 @@ func createTables(db *sql.DB) error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_locations_path ON locations(path);`,
 		`CREATE INDEX IF NOT EXISTS idx_content_tags_tag_id ON content_tags(tag_id);`,
+
+		/* TRIGGERS FOR MAINTAINING tags_cache */
+		`CREATE TRIGGER IF NOT EXISTS update_tags_cache_on_insert
+		AFTER INSERT ON content_tags
+		BEGIN
+			UPDATE locations
+			SET tags_cache = (
+				SELECT IFNULL(GROUP_CONCAT(t.name ORDER BY t.name), '')
+				FROM tags t
+				JOIN content_tags ct ON t.id = ct.tag_id
+				WHERE ct.content_hash = NEW.content_hash
+			)
+			WHERE content_hash = NEW.content_hash;
+		END;`,
+
+		`CREATE TRIGGER IF NOT EXISTS update_tags_cache_on_delete
+		AFTER DELETE ON content_tags
+		BEGIN
+			UPDATE locations
+			SET tags_cache = (
+				SELECT IFNULL(GROUP_CONCAT(t.name ORDER BY t.name), '')
+				FROM tags t
+				JOIN content_tags ct ON t.id = ct.tag_id
+				WHERE ct.content_hash = OLD.content_hash
+			)
+			WHERE content_hash = OLD.content_hash;
+		END;`,
 	}
 
 	for _, stmt := range statements {
@@ -93,6 +120,18 @@ func (s *Store) GetOrCreateContent(q Querier, hash string) error {
 // It initializes the tags_cache to an empty string.
 func (s *Store) GetOrCreateLocation(q Querier, hash, path string, size int64, modTime int64, extension string) error {
 	_, err := q.Exec("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES (?, ?, ?, ?, ?, '')", hash, path, size, modTime, extension)
+	return err
+}
+
+// UpdateContentLocation atomically replaces the location for a given content hash.
+// This handles file moves/renames cleanly.
+func (s *Store) UpdateContentLocation(q Querier, hash, path string, size int64, modTime int64, extension string) error {
+	// Remove any old locations for this content.
+	if _, err := q.Exec("DELETE FROM locations WHERE content_hash = ?", hash); err != nil {
+		return err
+	}
+	// Insert the new, current location. The tags_cache will be updated by AssociateTag.
+	_, err := q.Exec("INSERT INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES (?, ?, ?, ?, ?, '')", hash, path, size, modTime, extension)
 	return err
 }
 
@@ -135,39 +174,15 @@ func (s *Store) GetTagID(name string) (int64, error) {
 	return id, err
 }
 
-// AssociateTag links a tag with a content hash and updates the cache.
+// AssociateTag links a tag with a content hash. The database trigger will handle updating the cache.
 func (s *Store) AssociateTag(q Querier, hash string, tagID int64) error {
 	_, err := q.Exec("INSERT OR IGNORE INTO content_tags (content_hash, tag_id) VALUES (?, ?)", hash, tagID)
-	if err != nil {
-		return err
-	}
-	return s.updateTagsCacheForContent(q, hash)
+	return err
 }
 
-// DisassociateTag removes a link between a tag and a content hash and updates the cache.
+// DisassociateTag removes a link between a tag and a content hash. The database trigger will handle updating the cache.
 func (s *Store) DisassociateTag(q Querier, hash string, tagID int64) error {
 	_, err := q.Exec("DELETE FROM content_tags WHERE content_hash = ? AND tag_id = ?", hash, tagID)
-	if err != nil {
-		return err
-	}
-	return s.updateTagsCacheForContent(q, hash)
-}
-
-// updateTagsCacheForContent recalculates and stores the tag string for a given content hash.
-func (s *Store) updateTagsCacheForContent(q Querier, hash string) error {
-	var cachedTags string
-	query := `
-		SELECT IFNULL(GROUP_CONCAT(t.name ORDER BY t.name), '')
-		FROM tags t
-		JOIN content_tags ct ON t.id = ct.tag_id
-		WHERE ct.content_hash = ?`
-	
-	err := q.QueryRow(query, hash).Scan(&cachedTags)
-	if err != nil {
-		return err
-	}
-
-	_, err = q.Exec("UPDATE locations SET tags_cache = ? WHERE content_hash = ?", cachedTags, hash)
 	return err
 }
 
@@ -211,6 +226,26 @@ func (s *Store) ListAllFiles() ([]string, error) {
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+// GetHashToTagsCacheMap retrieves a map of content hashes to their cached tag strings.
+func (s *Store) GetHashToTagsCacheMap() (map[string]string, error) {
+	// We only need one entry per hash, so GROUP BY is appropriate.
+	rows, err := s.DB.Query("SELECT content_hash, tags_cache FROM locations GROUP BY content_hash")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cacheMap := make(map[string]string)
+	for rows.Next() {
+		var hash, cache string
+		if err := rows.Scan(&hash, &cache); err != nil {
+			return nil, err
+		}
+		cacheMap[hash] = cache
+	}
+	return cacheMap, nil
 }
 
 // ListFilesByTag retrieves all file paths for a given tag.
@@ -345,15 +380,15 @@ func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove
 		const batchSize = 250
 		var args []interface{}
 		var queryBuilder strings.Builder
-		queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
+		queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES ")
 
 		itemsInBatch := 0
 		for path, info := range toAdd {
 			if itemsInBatch > 0 {
 				queryBuilder.WriteString(", ")
 			}
-			queryBuilder.WriteString("(?, ?, ?, ?, ?)")
-			args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension)
+			queryBuilder.WriteString("(?, ?, ?, ?, ?, ?)")
+			args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension, info.TagsCache)
 			itemsInBatch++
 
 			if itemsInBatch >= batchSize {
@@ -366,7 +401,7 @@ func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove
 				itemsInBatch = 0
 				args = nil
 				queryBuilder.Reset()
-				queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
+				queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES ")
 			}
 		}
 
@@ -388,7 +423,7 @@ func (s *Store) ListFilesByTagsAnd(tags []string) ([]string, error) {
 	if len(tags) == 0 {
 		return []string{}, nil
 	}
-	
+
 	query := `
 		SELECT l.path
 		FROM locations l

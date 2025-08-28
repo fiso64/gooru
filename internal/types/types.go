@@ -13,6 +13,7 @@ type LocationInfo struct {
 	Size      int64
 	ModTime   int64 // Unix time
 	Extension string
+	TagsCache string
 }
 
 // FileInfo holds all displayable information about a file.
