@@ -1,5 +1,12 @@
 package types
 
+// ParsedTag represents a tag split into its key and value.
+// For simple tags, Key is an empty string.
+type ParsedTag struct {
+	Key   string
+	Value string
+}
+
 // RelinkStats provides statistics about the relink operation.
 type RelinkStats struct {
 	FilesScanned     int

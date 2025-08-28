@@ -55,7 +55,9 @@ func createTables(db *sql.DB) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS tags (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL UNIQUE COLLATE NOCASE
+			key TEXT NOT NULL COLLATE NOCASE,
+			value TEXT NOT NULL COLLATE NOCASE,
+			UNIQUE(key, value)
 		);`,
 		`CREATE TABLE IF NOT EXISTS content_tags (
 			content_hash TEXT NOT NULL,
@@ -73,10 +75,14 @@ func createTables(db *sql.DB) error {
 		BEGIN
 			UPDATE locations
 			SET tags_cache = (
-				SELECT IFNULL(GROUP_CONCAT(t.name ORDER BY t.name), '')
-				FROM tags t
-				JOIN content_tags ct ON t.id = ct.tag_id
-				WHERE ct.content_hash = NEW.content_hash
+				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
+				FROM (
+					SELECT CASE WHEN t.key = '' THEN t.value ELSE t.key || ':' || t.value END AS tag_str
+					FROM tags t
+					JOIN content_tags ct ON t.id = ct.tag_id
+					WHERE ct.content_hash = NEW.content_hash
+					ORDER BY t.key, t.value
+				)
 			)
 			WHERE content_hash = NEW.content_hash;
 		END;`,
@@ -86,10 +92,14 @@ func createTables(db *sql.DB) error {
 		BEGIN
 			UPDATE locations
 			SET tags_cache = (
-				SELECT IFNULL(GROUP_CONCAT(t.name ORDER BY t.name), '')
-				FROM tags t
-				JOIN content_tags ct ON t.id = ct.tag_id
-				WHERE ct.content_hash = OLD.content_hash
+				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
+				FROM (
+					SELECT CASE WHEN t.key = '' THEN t.value ELSE t.key || ':' || t.value END AS tag_str
+					FROM tags t
+					JOIN content_tags ct ON t.id = ct.tag_id
+					WHERE ct.content_hash = OLD.content_hash
+					ORDER BY t.key, t.value
+				)
 			)
 			WHERE content_hash = OLD.content_hash;
 		END;`,
@@ -148,10 +158,10 @@ func (s *Store) FindContentHashByPath(path string) (string, error) {
 	return hash, nil
 }
 
-// GetOrCreateTag finds a tag by name or creates it, returning its ID.
-func (s *Store) GetOrCreateTag(q Querier, name string) (int64, error) {
+// GetOrCreateTag finds a tag by key/value or creates it, returning its ID.
+func (s *Store) GetOrCreateTag(q Querier, key, value string) (int64, error) {
 	var id int64
-	err := q.QueryRow("SELECT id FROM tags WHERE name = ?", name).Scan(&id)
+	err := q.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", key, value).Scan(&id)
 	if err == nil {
 		return id, nil // Found it
 	}
@@ -160,17 +170,17 @@ func (s *Store) GetOrCreateTag(q Querier, name string) (int64, error) {
 	}
 
 	// Not found, so create it
-	res, err := q.Exec("INSERT INTO tags (name) VALUES (?)", name)
+	res, err := q.Exec("INSERT INTO tags (key, value) VALUES (?, ?)", key, value)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-// GetTagID retrieves a tag's ID by its name.
-func (s *Store) GetTagID(name string) (int64, error) {
+// GetTagID retrieves a tag's ID by its key/value.
+func (s *Store) GetTagID(key, value string) (int64, error) {
 	var id int64
-	err := s.DB.QueryRow("SELECT id FROM tags WHERE name = ?", name).Scan(&id)
+	err := s.DB.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", key, value).Scan(&id)
 	return id, err
 }
 
@@ -188,11 +198,12 @@ func (s *Store) DisassociateTag(q Querier, hash string, tagID int64) error {
 
 // GetTagsForContent retrieves all tags for a given content hash.
 func (s *Store) GetTagsForContent(hash string) ([]string, error) {
-	rows, err := s.DB.Query(`
-		SELECT t.name 
+	query := `
+		SELECT t.key, t.value
 		FROM tags t 
 		JOIN content_tags ct ON t.id = ct.tag_id 
-		WHERE ct.content_hash = ? ORDER BY t.name`, hash)
+		WHERE ct.content_hash = ? ORDER BY t.key, t.value`
+	rows, err := s.DB.Query(query, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -200,11 +211,15 @@ func (s *Store) GetTagsForContent(hash string) ([]string, error) {
 
 	var tags []string
 	for rows.Next() {
-		var tag string
-		if err := rows.Scan(&tag); err != nil {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
 			return nil, err
 		}
-		tags = append(tags, tag)
+		if key == "" {
+			tags = append(tags, value)
+		} else {
+			tags = append(tags, key+":"+value)
+		}
 	}
 	return tags, nil
 }
@@ -249,13 +264,13 @@ func (s *Store) GetHashToTagsCacheMap() (map[string]string, error) {
 }
 
 // ListFilesByTag retrieves all file paths for a given tag.
-func (s *Store) ListFilesByTag(tag string) ([]string, error) {
+func (s *Store) ListFilesByTag(key, value string) ([]string, error) {
 	rows, err := s.DB.Query(`
 		SELECT l.path
 		FROM locations l
 		JOIN content_tags ct ON l.content_hash = ct.content_hash
 		JOIN tags t ON ct.tag_id = t.id
-		WHERE t.name = ? ORDER BY l.path`, tag)
+		WHERE t.key = ? AND t.value = ? ORDER BY l.path`, key, value)
 	if err != nil {
 		return nil, err
 	}
@@ -419,10 +434,18 @@ func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove
 }
 
 // ListFilesByTagsAnd retrieves all file paths for a given set of tags (AND query).
-func (s *Store) ListFilesByTagsAnd(tags []string) ([]string, error) {
+func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag) ([]string, error) {
 	if len(tags) == 0 {
 		return []string{}, nil
 	}
+
+	var whereClauses []string
+	var args []interface{}
+	for _, tag := range tags {
+		whereClauses = append(whereClauses, "(t.key = ? AND t.value = ?)")
+		args = append(args, tag.Key, tag.Value)
+	}
+	whereCondition := strings.Join(whereClauses, " OR ")
 
 	query := `
 		SELECT l.path
@@ -431,18 +454,13 @@ func (s *Store) ListFilesByTagsAnd(tags []string) ([]string, error) {
 			SELECT ct.content_hash
 			FROM content_tags ct
 			JOIN tags t ON ct.tag_id = t.id
-			WHERE t.name IN (?` + strings.Repeat(",?", len(tags)-1) + `)
+			WHERE ` + whereCondition + `
 			GROUP BY ct.content_hash
-			HAVING COUNT(DISTINCT t.name) = ?
+			HAVING COUNT(t.id) = ?
 		)
 		ORDER BY l.path
 	`
-
-	args := make([]interface{}, len(tags)+1)
-	for i, tag := range tags {
-		args[i] = tag
-	}
-	args[len(tags)] = len(tags)
+	args = append(args, len(tags))
 
 	rows, err := s.DB.Query(query, args...)
 	if err != nil {
@@ -483,16 +501,16 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 }
 
 // GetFilesInfoByTag retrieves info for all files for a given tag using the cache.
-func (s *Store) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
+func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	query := `
 		SELECT l.path, l.size_bytes, l.tags_cache
 		FROM locations l
 		JOIN content_tags ct ON l.content_hash = ct.content_hash
 		JOIN tags t ON ct.tag_id = t.id
-		WHERE t.name = ?
+		WHERE t.key = ? AND t.value = ?
 		ORDER BY l.path`
 
-	rows, err := s.DB.Query(query, tag)
+	rows, err := s.DB.Query(query, key, value)
 	if err != nil {
 		return nil, err
 	}
@@ -510,10 +528,18 @@ func (s *Store) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
 }
 
 // GetFilesInfoByTagsAnd retrieves info for all files for a given set of tags (AND query) using the cache.
-func (s *Store) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
+func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag) ([]types.FileInfo, error) {
 	if len(tags) == 0 {
 		return []types.FileInfo{}, nil
 	}
+
+	var whereClauses []string
+	var args []interface{}
+	for _, tag := range tags {
+		whereClauses = append(whereClauses, "(t.key = ? AND t.value = ?)")
+		args = append(args, tag.Key, tag.Value)
+	}
+	whereCondition := strings.Join(whereClauses, " OR ")
 
 	query := `
 		SELECT l.path, l.size_bytes, l.tags_cache
@@ -522,18 +548,13 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
 			SELECT ct.content_hash
 			FROM content_tags ct
 			JOIN tags t ON ct.tag_id = t.id
-			WHERE t.name IN (?` + strings.Repeat(",?", len(tags)-1) + `)
+			WHERE ` + whereCondition + `
 			GROUP BY ct.content_hash
-			HAVING COUNT(DISTINCT t.name) = ?
+			HAVING COUNT(t.id) = ?
 		)
 		ORDER BY l.path
 	`
-
-	args := make([]interface{}, len(tags)+1)
-	for i, tag := range tags {
-		args[i] = tag
-	}
-	args[len(tags)] = len(tags)
+	args = append(args, len(tags))
 
 	rows, err := s.DB.Query(query, args...)
 	if err != nil {

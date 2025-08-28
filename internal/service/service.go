@@ -8,6 +8,7 @@ import (
 
 	"gooru.local/gooru/internal/database"
 	"gooru.local/gooru/internal/hashing"
+	"gooru.local/gooru/internal/query"
 	"gooru.local/gooru/internal/types"
 )
 
@@ -55,7 +56,8 @@ func (s *Service) TagFile(filePath string, tags []string) error {
 	}
 
 	for _, tagName := range tags {
-		tagID, err := s.Store.GetOrCreateTag(tx, tagName)
+		parsedTag := query.ParseTag(tagName)
+		tagID, err := s.Store.GetOrCreateTag(tx, parsedTag.Key, parsedTag.Value)
 		if err != nil {
 			return err
 		}
@@ -90,7 +92,8 @@ func (s *Service) UntagFile(filePath string, tags []string) error {
 	defer tx.Rollback()
 
 	for _, tagName := range tags {
-		tagID, err := s.Store.GetTagID(tagName)
+		parsedTag := query.ParseTag(tagName)
+		tagID, err := s.Store.GetTagID(parsedTag.Key, parsedTag.Value)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				continue // Tag doesn't exist, so nothing to remove.
@@ -131,12 +134,17 @@ func (s *Service) ListAllFiles() ([]string, error) {
 
 // ListFilesByTag lists all files associated with a given tag.
 func (s *Service) ListFilesByTag(tag string) ([]string, error) {
-    return s.Store.ListFilesByTag(tag)
+    parsedTag := query.ParseTag(tag)
+    return s.Store.ListFilesByTag(parsedTag.Key, parsedTag.Value)
 }
 
 // ListFilesByTagsAnd lists all files associated with a given set of tags (AND query).
 func (s *Service) ListFilesByTagsAnd(tags []string) ([]string, error) {
-    return s.Store.ListFilesByTagsAnd(tags)
+    parsedTags := make([]types.ParsedTag, len(tags))
+    for i, t := range tags {
+        parsedTags[i] = query.ParseTag(t)
+    }
+    return s.Store.ListFilesByTagsAnd(parsedTags)
 }
 
 // GetAllFilesInfo gets detailed info for all files known to the system.
@@ -146,12 +154,17 @@ func (s *Service) GetAllFilesInfo() ([]types.FileInfo, error) {
 
 // GetFilesInfoByTag gets detailed info for all files associated with a given tag.
 func (s *Service) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
-    return s.Store.GetFilesInfoByTag(tag)
+    parsedTag := query.ParseTag(tag)
+    return s.Store.GetFilesInfoByTag(parsedTag.Key, parsedTag.Value)
 }
 
 // GetFilesInfoByTagsAnd gets detailed info for all files associated with a given set of tags (AND query).
 func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
-    return s.Store.GetFilesInfoByTagsAnd(tags)
+    parsedTags := make([]types.ParsedTag, len(tags))
+    for i, t := range tags {
+        parsedTags[i] = query.ParseTag(t)
+    }
+    return s.Store.GetFilesInfoByTagsAnd(parsedTags)
 }
 
 // NeedsRelink performs a fast check using filesystem metadata to see if a relink is necessary.
