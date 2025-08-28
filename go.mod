@@ -1,4 +1,4 @@
-module gooru
+module gooru.local/gooru
 
 go 1.24.2
 

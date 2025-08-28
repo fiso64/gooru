@@ -1,15 +1,11 @@
 /*
-Copyright © 2025 NAME HERE <EMAIL ADDRESS>
-
+Copyright © 2025 Your Name
 */
 package cmd
 
 import (
 	"fmt"
-	"os"
 
-	"gooru/internal/database"
-	"gooru/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -17,33 +13,24 @@ import (
 var gettagsCmd = &cobra.Command{
 	Use:   "gettags <filepath>",
 	Short: "Gets all tags for a given file.",
-	Long:  `Gets all tags for a given file.`, // Note: Using backticks for multiline string literal here, which is idiomatic Go and handles newlines correctly without explicit escaping.
-	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) != 1 {
-			fmt.Println("Usage: gooru gettags <filepath>")
-			os.Exit(1)
-		}
-
-		db, err := database.InitDB("gooru.db")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error initializing database: %v\n", err)
-			os.Exit(1)
-		}
-		defer db.Close()
-
-		service := service.NewService(db)
-
+	Long:  `Retrieves and lists all tags associated with a specific file.`,
+	Args:  cobra.ExactArgs(1), // Enforce exactly one argument
+	RunE: func(cmd *cobra.Command, args []string) error {
 		filePath := args[0]
-
-		tags, err := service.GetTagsForFile(filePath)
+		tags, err := svc.GetTagsForFile(filePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting tags for file: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("error getting tags for file: %w", err)
+		}
+
+		if len(tags) == 0 {
+			fmt.Printf("No tags found for '%s'.\n", filePath)
+			return nil
 		}
 
 		for _, tag := range tags {
 			fmt.Println(tag)
 		}
+		return nil
 	},
 }
 

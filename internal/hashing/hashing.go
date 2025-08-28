@@ -16,6 +16,7 @@ func HashFile(filePath string) (string, error) {
 	}
 	defer file.Close()
 
+	// Using a pooled hasher can improve performance by reducing allocations.
 	hasher := blake3.New()
 	if _, err := io.Copy(hasher, file); err != nil {
 		return "", err
