@@ -70,6 +70,23 @@ func createTables(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_content_tags_tag_id ON content_tags(tag_id);`,
 
 		/* TRIGGERS FOR MAINTAINING tags_cache */
+		`CREATE TRIGGER IF NOT EXISTS populate_tags_cache_on_location_insert
+		AFTER INSERT ON locations
+		BEGIN
+			UPDATE locations
+			SET tags_cache = (
+				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
+				FROM (
+					SELECT CASE WHEN t.key = '' THEN t.value ELSE t.key || ':' || t.value END AS tag_str
+					FROM tags t
+					JOIN content_tags ct ON t.id = ct.tag_id
+					WHERE ct.content_hash = NEW.content_hash
+					ORDER BY t.key, t.value
+				)
+			)
+			WHERE id = NEW.id;
+		END;`,
+
 		`CREATE TRIGGER IF NOT EXISTS update_tags_cache_on_insert
 		AFTER INSERT ON content_tags
 		BEGIN
@@ -127,9 +144,9 @@ func (s *Store) GetOrCreateContent(q Querier, hash string) error {
 }
 
 // GetOrCreateLocation ensures a file path for a given content hash exists.
-// It initializes the tags_cache to an empty string.
+// The tags_cache will be populated by a database trigger.
 func (s *Store) GetOrCreateLocation(q Querier, hash, path string, size int64, modTime int64, extension string) error {
-	_, err := q.Exec("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES (?, ?, ?, ?, ?, '')", hash, path, size, modTime, extension)
+	_, err := q.Exec("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES (?, ?, ?, ?, ?)", hash, path, size, modTime, extension)
 	return err
 }
 
@@ -140,8 +157,8 @@ func (s *Store) UpdateContentLocation(q Querier, hash, path string, size int64, 
 	if _, err := q.Exec("DELETE FROM locations WHERE content_hash = ?", hash); err != nil {
 		return err
 	}
-	// Insert the new, current location. The tags_cache will be updated by AssociateTag.
-	_, err := q.Exec("INSERT INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES (?, ?, ?, ?, ?, '')", hash, path, size, modTime, extension)
+	// Insert the new, current location. The new trigger will populate the tags_cache automatically.
+	_, err := q.Exec("INSERT INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES (?, ?, ?, ?, ?)", hash, path, size, modTime, extension)
 	return err
 }
 
@@ -395,15 +412,16 @@ func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove
 		const batchSize = 250
 		var args []interface{}
 		var queryBuilder strings.Builder
-		queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES ")
+		// The tags_cache is now populated by triggers, so we don't insert it here.
+		queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
 
 		itemsInBatch := 0
 		for path, info := range toAdd {
 			if itemsInBatch > 0 {
 				queryBuilder.WriteString(", ")
 			}
-			queryBuilder.WriteString("(?, ?, ?, ?, ?, ?)")
-			args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension, info.TagsCache)
+			queryBuilder.WriteString("(?, ?, ?, ?, ?)")
+			args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension)
 			itemsInBatch++
 
 			if itemsInBatch >= batchSize {
@@ -416,7 +434,7 @@ func (s *Store) ApplyRelinkChanges(toAdd map[string]types.LocationInfo, toRemove
 				itemsInBatch = 0
 				args = nil
 				queryBuilder.Reset()
-				queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension, tags_cache) VALUES ")
+				queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
 			}
 		}
 
