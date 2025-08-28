@@ -121,6 +121,17 @@ func createTables(db *sql.DB) error {
 			)
 			WHERE content_hash = OLD.content_hash;
 		END;`,
+
+		/* TRIGGER FOR CLEANING UP ORPHANED TAGS */
+		`CREATE TRIGGER IF NOT EXISTS cleanup_orphan_tags_on_delete
+		AFTER DELETE ON content_tags
+		BEGIN
+			DELETE FROM tags
+			WHERE id = OLD.tag_id
+			AND NOT EXISTS (
+				SELECT 1 FROM content_tags WHERE tag_id = OLD.tag_id
+			);
+		END;`,
 	}
 
 	for _, stmt := range statements {
