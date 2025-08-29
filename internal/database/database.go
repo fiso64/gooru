@@ -68,6 +68,7 @@ func createTables(db *sql.DB) error {
 			FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_locations_path ON locations(path);`,
+		`CREATE INDEX IF NOT EXISTS idx_locations_content_hash ON locations(content_hash);`,
 		`CREATE INDEX IF NOT EXISTS idx_content_tags_tag_id ON content_tags(tag_id);`,
 
 		/* TRIGGERS FOR MAINTAINING tags_cache */
@@ -150,9 +151,18 @@ type Querier interface {
 }
 
 // GetOrCreateContent inserts a content hash if it doesn't exist.
-func (s *Store) GetOrCreateContent(q Querier, hash string) error {
-	_, err := q.Exec("INSERT OR IGNORE INTO contents (hash) VALUES (?)", hash)
-	return err
+// It returns true if a new row was inserted, indicating brand new content.
+func (s *Store) GetOrCreateContent(q Querier, hash string) (bool, error) {
+	res, err := q.Exec("INSERT OR IGNORE INTO contents (hash) VALUES (?)", hash)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		// This path is highly unlikely with go-sqlite3 but handle it for robustness.
+		return false, err
+	}
+	return rowsAffected > 0, nil
 }
 
 // GetOrCreateLocation ensures a file path for a given content hash exists.

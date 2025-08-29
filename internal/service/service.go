@@ -78,18 +78,30 @@ func (s *Service) TagFiles(filePaths []string, tags []string, progressCb func(fi
 		}
 
 		// From here on, errors are DB-related and should cause a rollback.
-		if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
+		isNewContent, err := s.Store.GetOrCreateContent(tx, hash)
+		if err != nil {
 			return err
 		}
+
 		ext := filepath.Ext(absPath)
-		if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-			return err
+		if isNewContent {
+			// This content has never been seen before. A simple INSERT is sufficient
+			// and much faster than the DELETE/INSERT pattern in UpdateContentLocation.
+			if err := s.Store.GetOrCreateLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+				return err
+			}
+		} else {
+			// This content hash already exists. The file may have been moved or renamed.
+			// Use the logic that handles this by replacing the old path with the new one.
+			if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+				return err
+			}
 		}
-		// for _, tagID := range tagIDs {
-		// 	if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
-		// 		return err
-		// 	}
-		// }
+		for _, tagID := range tagIDs {
+			if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
+				return err
+			}
+		}
 
 		progressCb(filePath, nil) // Success for this file
 	}
@@ -189,12 +201,24 @@ func (s *Service) SetTagsForFiles(filePaths []string, tags []string, progressCb 
 		}
 
 		// DB operations start here
-		if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
+		isNewContent, err := s.Store.GetOrCreateContent(tx, hash)
+		if err != nil {
 			return err
 		}
+
 		ext := filepath.Ext(absPath)
-		if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-			return err
+		if isNewContent {
+			// This content has never been seen before. A simple INSERT is sufficient
+			// and much faster than the DELETE/INSERT pattern in UpdateContentLocation.
+			if err := s.Store.GetOrCreateLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+				return err
+			}
+		} else {
+			// This content hash already exists. The file may have been moved or renamed.
+			// Use the logic that handles this by replacing the old path with the new one.
+			if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+				return err
+			}
 		}
 		if err := s.Store.ClearTagsForContent(tx, hash); err != nil {
 			return err
