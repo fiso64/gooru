@@ -25,9 +25,9 @@ type MoveInfo struct {
 // RelinkResult holds the outcome of a relink scan before any destructive actions.
 type RelinkResult struct {
 	Stats           RelinkStats
-	ProposedMoves   []MoveInfo       // Files that appear to have been moved/renamed.
-	ProposedAdds    []LocationInfo   // New locations for existing content (duplicates).
-	ProposedDeletes []FileInfo       // Files in DB that are no longer on disk.
+	ProposedMoves   []MoveInfo     // Files that appear to have been moved/renamed.
+	ProposedAdds    []LocationInfo // New locations for existing content (duplicates).
+	ProposedDeletes []FileInfo     // Files in DB that are no longer on disk.
 }
 
 // LocationInfo holds metadata about a file's location.
