@@ -1012,5 +1012,57 @@ func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) error {
 	return nil
 }
 
+// UpdateLocationPath updates a location's path using the provided querier (e.g., a transaction).
+// It performs a simple update without any pre-checks.
+func (s *Store) UpdateLocationPath(q Querier, oldPath, newPath string) error {
+	_, err := q.Exec("UPDATE locations SET path = ? WHERE path = ?", newPath, oldPath)
+	return err
+}
+
+// BatchGetPathsForHashes finds all known paths for a given batch of content hashes.
+func (s *Store) BatchGetPathsForHashes(q Querier, hashes []string) (map[string][]string, error) {
+	if len(hashes) == 0 {
+		return make(map[string][]string), nil
+	}
+	pathMap := make(map[string][]string)
+	const columns = 1
+	batchSize := maxVars / columns
+
+	for i := 0; i < len(hashes); i += batchSize {
+		end := i + batchSize
+		if end > len(hashes) {
+			end = len(hashes)
+		}
+		batch := hashes[i:end]
+
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		query := "SELECT content_hash, path FROM locations WHERE content_hash IN (" + placeholders + ")"
+		args := make([]interface{}, len(batch))
+		for j, h := range batch {
+			args[j] = h
+		}
+
+		rows, err := q.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var hash, path string
+			if err := rows.Scan(&hash, &path); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			pathMap[hash] = append(pathMap[hash], path)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return pathMap, nil
+}
+
 
 
