@@ -432,6 +432,20 @@ func (s *Store) ApplyRelinkAdditions(toAdd map[string]types.LocationInfo) (int, 
 	}
 	defer tx.Rollback()
 
+	added, err := s.ApplyRelinkAdditionsTx(tx, toAdd)
+	if err != nil {
+		return 0, err
+	}
+
+	return added, tx.Commit()
+}
+
+// ApplyRelinkAdditionsTx adds new locations within an existing transaction.
+func (s *Store) ApplyRelinkAdditionsTx(q Querier, toAdd map[string]types.LocationInfo) (int, error) {
+	if len(toAdd) == 0 {
+		return 0, nil
+	}
+
 	var locationsAdded int
 	const batchSize = 250
 	var args []interface{}
@@ -449,7 +463,7 @@ func (s *Store) ApplyRelinkAdditions(toAdd map[string]types.LocationInfo) (int, 
 		itemsInBatch++
 
 		if itemsInBatch >= batchSize {
-			res, err := tx.Exec(queryBuilder.String(), args...)
+			res, err := q.Exec(queryBuilder.String(), args...)
 			if err != nil {
 				return 0, err
 			}
@@ -463,7 +477,7 @@ func (s *Store) ApplyRelinkAdditions(toAdd map[string]types.LocationInfo) (int, 
 	}
 
 	if itemsInBatch > 0 {
-		res, err := tx.Exec(queryBuilder.String(), args...)
+		res, err := q.Exec(queryBuilder.String(), args...)
 		if err != nil {
 			return 0, err
 		}
@@ -471,7 +485,7 @@ func (s *Store) ApplyRelinkAdditions(toAdd map[string]types.LocationInfo) (int, 
 		locationsAdded += int(added)
 	}
 
-	return locationsAdded, tx.Commit()
+	return locationsAdded, nil
 }
 
 // RemoveLocationsByPath transactionally removes locations by their paths.
@@ -486,18 +500,45 @@ func (s *Store) RemoveLocationsByPath(paths []string) (int, error) {
 	}
 	defer tx.Rollback()
 
-	query := "DELETE FROM locations WHERE path IN (?" + strings.Repeat(",?", len(paths)-1) + ")"
-	args := make([]interface{}, len(paths))
-	for i, v := range paths {
-		args[i] = v
-	}
-	res, err := tx.Exec(query, args...)
+	removed, err := s.RemoveLocationsByPathTx(tx, paths)
 	if err != nil {
 		return 0, err
 	}
-	removed, _ := res.RowsAffected()
 
-	return int(removed), tx.Commit()
+	return removed, tx.Commit()
+}
+
+// RemoveLocationsByPathTx removes locations by their paths within an existing transaction.
+func (s *Store) RemoveLocationsByPathTx(q Querier, paths []string) (int, error) {
+	if len(paths) == 0 {
+		return 0, nil
+	}
+	const columns = 1
+	batchSize := maxVars / columns
+
+	var totalRemoved int
+	for i := 0; i < len(paths); i += batchSize {
+		end := i + batchSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+		batch := paths[i:end]
+
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		query := "DELETE FROM locations WHERE path IN (" + placeholders + ")"
+		args := make([]interface{}, len(batch))
+		for j, v := range batch {
+			args[j] = v
+		}
+		res, err := q.Exec(query, args...)
+		if err != nil {
+			return 0, err
+		}
+		removed, _ := res.RowsAffected()
+		totalRemoved += int(removed)
+	}
+
+	return totalRemoved, nil
 }
 
 // UpdatePath updates a location's path, with checks for existence.

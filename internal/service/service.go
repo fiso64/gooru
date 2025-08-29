@@ -600,8 +600,7 @@ func (s *Service) NeedsRelink(dirs []string) (bool, error) {
 	return false, nil // Everything matches.
 }
 
-// Relink performs a high-performance concurrent scan of the given directories,
-// applies additions, and returns files that are no longer linked.
+// Relink performs a "dry run" scan to find proposed changes between the database and the filesystem.
 func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
 	result := types.RelinkResult{}
 	absDirs, err := toAbsolutePaths(dirs)
@@ -618,41 +617,59 @@ func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
 	if err != nil {
 		return result, fmt.Errorf("could not build size-to-hash map: %w", err)
 	}
-	knownHashes, err := s.Store.GetAllContentHashes()
-	if err != nil {
-		return result, fmt.Errorf("could not get known hashes: %w", err)
-	}
-	hashToTagsCache, err := s.Store.GetHashToTagsCacheMap()
-	if err != nil {
-		return result, fmt.Errorf("could not get tags cache: %w", err)
-	}
 
 	// 2. Perform the intelligent, targeted filesystem scan.
 	fsLocations, filesScanned := s.scanDirsConcurrently(absDirs, sizeToHashes)
 	result.Stats.FilesScanned = filesScanned
 
-	// 3. Compute the difference ("diff") between the two states.
-	toAdd := make(map[string]types.LocationInfo)
-
-	// Check for new or changed files on disk
-	for path, fsInfo := range fsLocations {
-		dbInfo, existsInDb := dbLocations[path]
-		// Add if path is new, or if path exists but hash is different.
-		if !existsInDb || dbInfo.Hash != fsInfo.Hash {
-			if _, contentIsKnown := knownHashes[fsInfo.Hash]; contentIsKnown {
-				fsInfo.TagsCache = hashToTagsCache[fsInfo.Hash]
-				toAdd[path] = fsInfo
-			}
-		}
+	// 3. Reconcile states.
+	handledDbPaths := make(map[string]bool)
+	fsHashToPaths := make(map[string][]string)
+	for path, info := range fsLocations {
+		fsHashToPaths[info.Hash] = append(fsHashToPaths[info.Hash], path)
 	}
 
-	// Check for files that were removed from disk or whose content changed
+	// 3a. Find moves and unchanged files.
+	for dbPath, dbInfo := range dbLocations {
+		// Check for unchanged files first
+		fsInfo, existsOnFs := fsLocations[dbPath]
+		if existsOnFs && fsInfo.Hash == dbInfo.Hash {
+			handledDbPaths[dbPath] = true
+			delete(fsLocations, dbPath) // This fs location is accounted for
+			continue
+		}
+
+		// Check if content has moved
+		if newPaths, contentExistsOnFs := fsHashToPaths[dbInfo.Hash]; contentExistsOnFs {
+			for i, newPath := range newPaths {
+				if _, isHandled := fsLocations[newPath]; !isHandled {
+					continue // This path was an unchanged file or already used for a move.
+				}
+
+				result.ProposedMoves = append(result.ProposedMoves, types.MoveInfo{
+					OldPath: dbPath,
+					NewPath: newPath,
+					Size:    dbInfo.Size,
+					Tags:    dbInfo.TagsCache,
+				})
+				handledDbPaths[dbPath] = true
+				delete(fsLocations, newPath)       // This fs location is accounted for
+				fsHashToPaths[dbInfo.Hash][i] = "" // Mark this path as used
+				goto nextDbPath                    // Move to the next db path
+			}
+		}
+	nextDbPath:
+	}
+
+	// 3b. Any remaining fsLocations are new locations for existing content (duplicates).
+	for _, fsInfo := range fsLocations {
+		result.ProposedAdds = append(result.ProposedAdds, fsInfo)
+	}
+
+	// 3c. Any unhandled dbLocations are genuine deletions.
 	for path, dbInfo := range dbLocations {
-		fsInfo, existsOnFs := fsLocations[path]
-		// Remove if path no longer exists on disk, or if it exists but now has a different hash
-		if !existsOnFs || fsInfo.Hash != dbInfo.Hash {
-			// Build FileInfo for the CLI to display
-			result.UnrelinkedFiles = append(result.UnrelinkedFiles, types.FileInfo{
+		if !handledDbPaths[path] {
+			result.ProposedDeletes = append(result.ProposedDeletes, types.FileInfo{
 				Path: path,
 				Size: dbInfo.Size,
 				Tags: dbInfo.TagsCache,
@@ -660,15 +677,65 @@ func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
 		}
 	}
 
-	// 4. Apply only the additions.
-	locationsAdded, err := s.Store.ApplyRelinkAdditions(toAdd)
-	if err != nil {
-		return result, err
-	}
-	result.Stats.LocationsAdded = locationsAdded
-
 	return result, nil
 }
+
+// ApplyRelinkChanges executes the changes proposed by a Relink dry run.
+func (s *Service) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkStats, error) {
+	stats := types.RelinkStats{}
+	if len(changes.ProposedMoves) == 0 && len(changes.ProposedAdds) == 0 && len(changes.ProposedDeletes) == 0 {
+		return stats, nil
+	}
+
+	tx, err := s.Store.DB.Begin()
+	if err != nil {
+		return stats, err
+	}
+	defer tx.Rollback()
+
+	// 1. Apply moves
+	for _, move := range changes.ProposedMoves {
+		if err := s.Store.UpdateLocationPath(tx, move.OldPath, move.NewPath); err != nil {
+			return stats, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", move.OldPath, move.NewPath, err)
+		}
+	}
+	// A move counts as an update. We'll add it to LocationsAdded for a combined stat.
+	stats.LocationsAdded += len(changes.ProposedMoves)
+
+	// 2. Apply additions
+	if len(changes.ProposedAdds) > 0 {
+		toAdd := make(map[string]types.LocationInfo)
+		for _, add := range changes.ProposedAdds {
+			toAdd[add.Path] = add
+		}
+
+		addedCount, err := s.Store.ApplyRelinkAdditionsTx(tx, toAdd)
+		if err != nil {
+			return stats, fmt.Errorf("failed to apply additions: %w", err)
+		}
+		stats.LocationsAdded += addedCount
+	}
+
+	// 3. Apply deletions
+	if len(changes.ProposedDeletes) > 0 {
+		pathsToDelete := make([]string, len(changes.ProposedDeletes))
+		for i, del := range changes.ProposedDeletes {
+			pathsToDelete[i] = del.Path
+		}
+		removedCount, err := s.Store.RemoveLocationsByPathTx(tx, pathsToDelete)
+		if err != nil {
+			return stats, fmt.Errorf("failed to apply deletions: %w", err)
+		}
+		stats.LocationsRemoved = removedCount
+	}
+
+	if err := tx.Commit(); err != nil {
+		return stats, err
+	}
+
+	return stats, nil
+}
+
 
 // PruneLocations removes a list of file paths from the database.
 func (s *Service) PruneLocations(paths []string) (int, error) {
