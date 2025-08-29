@@ -439,7 +439,7 @@ func (s *Service) ListFilesByTagsAnd(tags []string) ([]string, error) {
 }
 
 // ListFilesByQuery parses and executes a complex query expression.
-func (s *Service) ListFilesByQuery(expression string) ([]string, error) {
+func (s *Service) ListFilesByQuery(expression string, debug bool) ([]string, error) {
 	if strings.TrimSpace(expression) == "" {
 		return []string{}, nil
 	}
@@ -452,6 +452,15 @@ func (s *Service) ListFilesByQuery(expression string) ([]string, error) {
 	if sqlQuery == "" {
 		return []string{}, nil
 	}
+
+	if debug {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
+		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
+		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
+		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
+		fmt.Fprintf(os.Stderr, "-------------\n")
+	}
+
 	return s.Store.GetPathsByContentQuery(sqlQuery, args)
 }
 
@@ -476,7 +485,7 @@ func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error)
 }
 
 // GetFilesInfoByQuery parses and executes a complex query expression, returning full file info.
-func (s *Service) GetFilesInfoByQuery(expression string) ([]types.FileInfo, error) {
+func (s *Service) GetFilesInfoByQuery(expression string, debug bool) ([]types.FileInfo, error) {
 	if strings.TrimSpace(expression) == "" {
 		return []types.FileInfo{}, nil
 	}
@@ -489,6 +498,15 @@ func (s *Service) GetFilesInfoByQuery(expression string) ([]types.FileInfo, erro
 	if sqlQuery == "" {
 		return []types.FileInfo{}, nil
 	}
+
+	if debug {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
+		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
+		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
+		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
+		fmt.Fprintf(os.Stderr, "-------------\n")
+	}
+
 	return s.Store.GetFilesInfoByContentQuery(sqlQuery, args)
 }
 

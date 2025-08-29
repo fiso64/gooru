@@ -74,3 +74,14 @@ This phase delivers the powerful `list` command functionality.
 *   **Goal:** To translate a user-friendly expression string into a single, highly efficient SQL query.
 
 *   **Strategy:** A dedicated parser will be built to analyze the expression's structure (parentheses, AND, OR, NOT, and tag names). It will then dynamically construct a SQL query that uses set operations (`UNION`, `INTERSECT`, `EXCEPT`). This approach delegates the complex logical filtering to the optimized SQLite query engine, which is vastly more performant than processing these operations in Go. The final result from the database will be the precise list of content hashes matching the user's criteria.
+*   
+
+Definitive examples:
+
+"cat" -> show files with tag cat. This already works.
+"cat outside" -> show files with tags cat AND outside
+"cat & outside" -> same thing
+"cat | dog" -> show files with tags cat OR dog
+"cat -outside" -> show files with tags cat AND NOT outside
+"(cat | dog) outside" -> complex expression should be parsed correctly
+"location:england" -> this should be handled correctly as well.

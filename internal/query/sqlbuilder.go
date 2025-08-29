@@ -12,7 +12,7 @@ type SQLBuilder struct {
 
 // Build generates the SQL query from the AST.
 func Build(expr *Expression) (string, []interface{}) {
-	if expr == nil {
+	if expr == nil || len(expr.Or) == 0 {
 		return "", nil
 	}
 	b := &SQLBuilder{}
@@ -22,84 +22,56 @@ func Build(expr *Expression) (string, []interface{}) {
 
 // buildExpression handles OR nodes (UNION).
 func (b *SQLBuilder) buildExpression(expr *Expression) {
-	if expr == nil || expr.Left == nil {
-		return
-	}
-
-	isSubQuery := len(expr.Right) > 0
-	if isSubQuery {
-		b.query.WriteString("(")
-	}
-
-	b.buildAndExpression(expr.Left)
-
-	for _, right := range expr.Right {
-		b.query.WriteString(" UNION ")
-		b.buildAndExpression(right.Right)
-	}
-
-	if isSubQuery {
-		b.query.WriteString(")")
+	for i, andTerm := range expr.Or {
+		if i > 0 {
+			b.query.WriteString(" UNION ")
+		}
+		b.buildAndTerm(andTerm)
 	}
 }
 
-// buildAndExpression handles AND (INTERSECT) and EXCEPT nodes.
-func (b *SQLBuilder) buildAndExpression(expr *AndExpression) {
-	if expr == nil || (expr.Left == nil && len(expr.Right) == 0) {
-		return
-	}
-
-	// The logic is a chain of set operations. We must establish the first set
-	// in the chain before appending the operations.
-	var initialTerm *Term
-	var subsequentOps []*OpTerm
-
-	if expr.Left != nil {
-		// Case 1: Expression starts with a tag, e.g., "tag1 & tag2"
-		initialTerm = expr.Left
-		subsequentOps = expr.Right
-	} else {
-		// Case 2: Expression starts with an operator, e.g., "-tag1 & tag2"
-		// The first "set" is now the universal set.
-		b.query.WriteString(`(SELECT hash FROM contents)`)
-		// All of expr.Right are subsequent operations on this universal set.
-		subsequentOps = expr.Right
-	}
-
-	// Build the query for the first set if it exists.
-	if initialTerm != nil {
-		b.buildTerm(initialTerm)
-	}
-
-	// Apply all subsequent operations.
-	for _, op := range subsequentOps {
-		opStr := strings.TrimSpace(op.Operator)
-		switch opStr {
-		case "-":
-			b.query.WriteString(" EXCEPT ")
-		default: // & or implicit
+// buildAndTerm handles AND nodes (INTERSECT).
+func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
+	for i, term := range andTerm.And {
+		if i > 0 {
 			b.query.WriteString(" INTERSECT ")
 		}
-		b.buildTerm(op.Right)
+		b.buildTerm(term)
 	}
 }
 
-// buildTerm handles individual tags or sub-expressions.
+// buildTerm handles NOT nodes (EXCEPT).
 func (b *SQLBuilder) buildTerm(term *Term) {
-	if term.SubExpr != nil {
-		// Explicitly wrap sub-expressions in parentheses to enforce
-		// the user's intended precedence from the query string.
+	if term.Not {
+		// A negated term `U - A` must be parenthesized to ensure correct
+		// precedence when used in a larger compound statement.
 		b.query.WriteString("(")
-		b.buildExpression(term.SubExpr)
+		b.query.WriteString("SELECT hash FROM contents EXCEPT ")
+		b.buildFactor(term.Factor)
 		b.query.WriteString(")")
-	} else if term.Tag != nil {
-		b.buildTagQuery(*term.Tag)
+	} else {
+		b.buildFactor(term.Factor)
+	}
+}
+
+// buildFactor handles the base cases: a tag or a sub-expression.
+func (b *SQLBuilder) buildFactor(factor *Factor) {
+	if factor.SubExpr != nil {
+		// A user-defined group must be converted into a valid SELECT statement
+		// (a derived table) so it can be legally used as an operand for
+		// operators like INTERSECT. Adding `AS t` provides a required alias.
+		b.query.WriteString("(SELECT hash FROM (")
+		b.buildExpression(factor.SubExpr)
+		b.query.WriteString(") AS t)")
+	} else if factor.Tag != nil {
+		b.buildTagQuery(*factor.Tag)
 	}
 }
 
 // buildTagQuery generates the base SELECT statement for a single tag.
 func (b *SQLBuilder) buildTagQuery(tagStr string) {
 	parsed := ParseTag(tagStr)
+	// A simple SELECT is a valid operand and does not need wrapping.
 	b.query.WriteString(
 		`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ?`,
 	)

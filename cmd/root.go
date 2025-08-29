@@ -16,6 +16,7 @@ import (
 var (
 	store   *database.Store
 	svc     *service.Service
+	debug   bool
 	rootCmd = &cobra.Command{
 		Use:   "gooru",
 		Short: "A blazing-fast local file tagger.",
@@ -50,5 +51,5 @@ func Execute() {
 }
 
 func init() {
-	// Future global flags can be defined here.
+	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging of generated SQL queries")
 }
