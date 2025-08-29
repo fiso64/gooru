@@ -16,7 +16,7 @@ import (
 var (
 	store   *database.Store
 	svc     *service.Service
-	debug   bool
+	verbose bool
 	rootCmd = &cobra.Command{
 		Use:   "gooru",
 		Short: "A blazing-fast local file tagger.",
@@ -26,7 +26,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed to get db path: %w", err)
 			}
-			store, err = database.NewStore(dbPath)
+			store, err = database.NewStore(dbPath, verbose)
 			if err != nil {
 				return fmt.Errorf("failed to initialize database: %w", err)
 			}
@@ -51,5 +51,5 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug logging of generated SQL queries")
+	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose logging, including SQL statements")
 }

@@ -25,6 +25,12 @@ To provide multiple file arguments, the -m/--multi flag is required.
 When using -m, the output is always in the format 'file ;; tags' for consistency.`,
 	Args: cobra.MinimumNArgs(1), // Enforce at least one argument
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if verbose {
+			fmt.Fprintf(cmd.OutOrStderr(), "--- VERBOSE ---\n")
+			fmt.Fprintf(cmd.OutOrStderr(), "Command: gettags\n")
+			fmt.Fprintf(cmd.OutOrStderr(), "Input Args: %v\n", args)
+			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
+		}
 		if !multiFileGetTags && len(args) > 1 {
 			return errors.New("multiple file arguments require the -m/--multi flag")
 		}

@@ -3,6 +3,9 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"io"
+	"log"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -11,11 +14,18 @@ import (
 )
 
 type Store struct {
-	DB *sql.DB
+	DB     *sql.DB
+	logger *log.Logger
+}
+
+// Tx is a transaction wrapper that logs queries.
+type Tx struct {
+	*sql.Tx
+	logger *log.Logger
 }
 
 // NewStore initializes the database connection and creates the schema if it doesn't exist.
-func NewStore(dataSourceName string) (*Store, error) {
+func NewStore(dataSourceName string, verbose bool) (*Store, error) {
 	db, err := sql.Open("sqlite3", dataSourceName)
 	if err != nil {
 		return nil, err
@@ -29,12 +39,57 @@ func NewStore(dataSourceName string) (*Store, error) {
 		return nil, err
 	}
 
-	return &Store{DB: db}, nil
+	var logOutput io.Writer
+	if verbose {
+		logOutput = os.Stderr
+	} else {
+		logOutput = io.Discard
+	}
+	logger := log.New(logOutput, "SQL: ", log.Ltime|log.Lmicroseconds)
+
+	return &Store{DB: db, logger: logger}, nil
 }
 
 // Close closes the database connection.
 func (s *Store) Close() error {
 	return s.DB.Close()
+}
+
+// Begin starts a new transaction.
+func (s *Store) Begin() (*Tx, error) {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	return &Tx{Tx: tx, logger: s.logger}, nil
+}
+
+// Querier implementations for logging on Store
+func (s *Store) Exec(query string, args ...interface{}) (sql.Result, error) {
+	s.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	return s.DB.Exec(query, args...)
+}
+func (s *Store) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	s.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	return s.DB.Query(query, args...)
+}
+func (s *Store) QueryRow(query string, args ...interface{}) *sql.Row {
+	s.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	return s.DB.QueryRow(query, args...)
+}
+
+// Querier implementations for logging on Tx
+func (tx *Tx) Exec(query string, args ...interface{}) (sql.Result, error) {
+	tx.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	return tx.Tx.Exec(query, args...)
+}
+func (tx *Tx) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	tx.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	return tx.Tx.Query(query, args...)
+}
+func (tx *Tx) QueryRow(query string, args ...interface{}) *sql.Row {
+	tx.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	return tx.Tx.QueryRow(query, args...)
 }
 
 // createTables creates the necessary tables and indexes for the application.
@@ -188,7 +243,7 @@ func (s *Store) UpdateContentLocation(q Querier, hash, path string, size int64, 
 // FindContentHashByPath finds a content hash by its file path.
 func (s *Store) FindContentHashByPath(path string) (string, error) {
 	var hash string
-	err := s.DB.QueryRow("SELECT content_hash FROM locations WHERE path = ?", path).Scan(&hash)
+	err := s.QueryRow("SELECT content_hash FROM locations WHERE path = ?", path).Scan(&hash)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil // Return empty string and no error if not found
@@ -201,7 +256,7 @@ func (s *Store) FindContentHashByPath(path string) (string, error) {
 // GetLocationByPath finds a location's metadata by its file path.
 func (s *Store) GetLocationByPath(path string) (types.LocationInfo, error) {
 	var loc types.LocationInfo
-	err := s.DB.QueryRow("SELECT content_hash, size_bytes, mod_time FROM locations WHERE path = ?", path).Scan(&loc.Hash, &loc.Size, &loc.ModTime)
+	err := s.QueryRow("SELECT content_hash, size_bytes, mod_time FROM locations WHERE path = ?", path).Scan(&loc.Hash, &loc.Size, &loc.ModTime)
 	if err != nil {
 		// This will correctly propagate sql.ErrNoRows
 		return types.LocationInfo{}, err
@@ -232,7 +287,7 @@ func (s *Store) GetOrCreateTag(q Querier, key, value string) (int64, error) {
 // GetTagID retrieves a tag's ID by its key/value.
 func (s *Store) GetTagID(key, value string) (int64, error) {
 	var id int64
-	err := s.DB.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", key, value).Scan(&id)
+	err := s.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", key, value).Scan(&id)
 	return id, err
 }
 
@@ -261,7 +316,7 @@ func (s *Store) GetTagsForContent(hash string) ([]string, error) {
 		FROM tags t 
 		JOIN content_tags ct ON t.id = ct.tag_id 
 		WHERE ct.content_hash = ? ORDER BY t.key, t.value`
-	rows, err := s.DB.Query(query, hash)
+	rows, err := s.Query(query, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +339,7 @@ func (s *Store) GetTagsForContent(hash string) ([]string, error) {
 
 // ListAllFiles retrieves all file paths from the database.
 func (s *Store) ListAllFiles() ([]string, error) {
-	rows, err := s.DB.Query("SELECT path FROM locations ORDER BY path")
+	rows, err := s.Query("SELECT path FROM locations ORDER BY path")
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +359,7 @@ func (s *Store) ListAllFiles() ([]string, error) {
 // GetHashToTagsCacheMap retrieves a map of content hashes to their cached tag strings.
 func (s *Store) GetHashToTagsCacheMap() (map[string]string, error) {
 	// We only need one entry per hash, so GROUP BY is appropriate.
-	rows, err := s.DB.Query("SELECT content_hash, tags_cache FROM locations GROUP BY content_hash")
+	rows, err := s.Query("SELECT content_hash, tags_cache FROM locations GROUP BY content_hash")
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +378,7 @@ func (s *Store) GetHashToTagsCacheMap() (map[string]string, error) {
 
 // ListFilesByTag retrieves all file paths for a given tag.
 func (s *Store) ListFilesByTag(key, value string) ([]string, error) {
-	rows, err := s.DB.Query(`
+	rows, err := s.Query(`
 		SELECT l.path
 		FROM locations l
 		JOIN content_tags ct ON l.content_hash = ct.content_hash
@@ -347,7 +402,7 @@ func (s *Store) ListFilesByTag(key, value string) ([]string, error) {
 
 // GetAllContentHashes retrieves a set of all known content hashes for fast lookups.
 func (s *Store) GetAllContentHashes() (map[string]struct{}, error) {
-	rows, err := s.DB.Query("SELECT hash FROM contents")
+	rows, err := s.Query("SELECT hash FROM contents")
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +421,7 @@ func (s *Store) GetAllContentHashes() (map[string]struct{}, error) {
 
 // GetSizeToHashesMap retrieves a map of file sizes to a list of hashes of files with that size.
 func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
-	rows, err := s.DB.Query("SELECT size_bytes, content_hash FROM locations")
+	rows, err := s.Query("SELECT size_bytes, content_hash FROM locations")
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +457,7 @@ func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
 func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInfo, error) {
 	locations := make(map[string]types.LocationInfo)
 	for _, dir := range dirs {
-		rows, err := s.DB.Query("SELECT path, content_hash, size_bytes, mod_time, extension, tags_cache FROM locations WHERE path LIKE ?", dir+string(filepath.Separator)+"%")
+		rows, err := s.Query("SELECT path, content_hash, size_bytes, mod_time, extension, tags_cache FROM locations WHERE path LIKE ?", dir+string(filepath.Separator)+"%")
 		if err != nil {
 			return nil, err
 		}
@@ -426,7 +481,7 @@ func (s *Store) ApplyRelinkAdditions(toAdd map[string]types.LocationInfo) (int, 
 		return 0, nil
 	}
 
-	tx, err := s.DB.Begin()
+	tx, err := s.Begin()
 	if err != nil {
 		return 0, err
 	}
@@ -494,7 +549,7 @@ func (s *Store) RemoveLocationsByPath(paths []string) (int, error) {
 		return 0, nil
 	}
 
-	tx, err := s.DB.Begin()
+	tx, err := s.Begin()
 	if err != nil {
 		return 0, err
 	}
@@ -543,7 +598,7 @@ func (s *Store) RemoveLocationsByPathTx(q Querier, paths []string) (int, error) 
 
 // UpdatePath updates a location's path, with checks for existence.
 func (s *Store) UpdatePath(absOldPath, absNewPath, displayOldPath, displayNewPath string) error {
-	tx, err := s.DB.Begin()
+	tx, err := s.Begin()
 	if err != nil {
 		return err
 	}
@@ -607,7 +662,7 @@ func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag) ([]string, error) {
 	`
 	args = append(args, len(tags))
 
-	rows, err := s.DB.Query(query, args...)
+	rows, err := s.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -628,7 +683,7 @@ func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag) ([]string, error) {
 func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 	query := `SELECT path, size_bytes, tags_cache FROM locations ORDER BY path`
 
-	rows, err := s.DB.Query(query)
+	rows, err := s.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -655,7 +710,7 @@ func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 		WHERE t.key = ? AND t.value = ?
 		ORDER BY l.path`
 
-	rows, err := s.DB.Query(query, key, value)
+	rows, err := s.Query(query, key, value)
 	if err != nil {
 		return nil, err
 	}
@@ -701,7 +756,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag) ([]types.FileInfo,
 	`
 	args = append(args, len(tags))
 
-	rows, err := s.DB.Query(query, args...)
+	rows, err := s.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -721,7 +776,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag) ([]types.FileInfo,
 // GetAllTags retrieves all unique tags from the database.
 func (s *Store) GetAllTags() ([]string, error) {
 	query := `SELECT key, value FROM tags ORDER BY key, value`
-	rows, err := s.DB.Query(query)
+	rows, err := s.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -964,7 +1019,7 @@ func (s *Store) BatchFindContentHashesByPaths(paths []string) (map[string]string
 			args[j] = p
 		}
 
-		rows, err := s.DB.Query(query, args...)
+		rows, err := s.Query(query, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -1004,7 +1059,7 @@ func (s *Store) BatchGetLocationsByPaths(paths []string) (map[string]types.Locat
 			args[j] = p
 		}
 
-		rows, err := s.DB.Query(query, args...)
+		rows, err := s.Query(query, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -1115,7 +1170,7 @@ func (s *Store) GetPathsByContentQuery(query string, args []interface{}) ([]stri
 		ORDER BY l.path
 	`, query)
 
-	rows, err := s.DB.Query(finalQuery, args...)
+	rows, err := s.Query(finalQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1141,7 +1196,7 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 		ORDER BY l.path
 	`, query)
 
-	rows, err := s.DB.Query(finalQuery, args...)
+	rows, err := s.Query(finalQuery, args...)
 	if err != nil {
 		return nil, err
 	}

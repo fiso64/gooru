@@ -20,6 +20,12 @@ without needing to perform a full 'relink' scan. The content hash
 is not affected.`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if verbose {
+			fmt.Fprintf(cmd.OutOrStderr(), "--- VERBOSE ---\n")
+			fmt.Fprintf(cmd.OutOrStderr(), "Command: editpath\n")
+			fmt.Fprintf(cmd.OutOrStderr(), "Input Args: %v\n", args)
+			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
+		}
 		oldPath := args[0]
 		newPath := args[1]
 

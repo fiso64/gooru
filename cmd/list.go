@@ -39,7 +39,7 @@ Expressions support AND, OR, and NOT logic with grouping.
         if expression == "" {
             paths, err = svc.ListAllFiles()
         } else {
-            paths, err = svc.ListFilesByQuery(expression, debug)
+            paths, err = svc.ListFilesByQuery(expression, verbose)
         }
 
         if err != nil {

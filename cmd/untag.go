@@ -55,6 +55,14 @@ Multi-file mode (for complex file lists):
 			tags = args[1:]
 		}
 
+		if verbose {
+			fmt.Fprintf(cmd.OutOrStderr(), "--- VERBOSE ---\n")
+			fmt.Fprintf(cmd.OutOrStderr(), "Command: untag\n")
+			fmt.Fprintf(cmd.OutOrStderr(), "Parsed File Specs: %v\n", fileSpecs)
+			fmt.Fprintf(cmd.OutOrStderr(), "Parsed Tags: %v\n", tags)
+			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
+		}
+
 		files, err := expandFileArgs(fileSpecs)
 		if err != nil {
 			return fmt.Errorf("error expanding file arguments: %w", err)

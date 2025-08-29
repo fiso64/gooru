@@ -147,7 +147,7 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 	}
 
 	// Phase 3: Transactional untagging.
-	tx, err := s.Store.DB.Begin()
+	tx, err := s.Store.Begin()
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 	}
 
 	// Phase 3: The Transaction.
-	tx, err := s.Store.DB.Begin()
+	tx, err := s.Store.Begin()
 	if err != nil {
 		return err
 	}
@@ -439,7 +439,7 @@ func (s *Service) ListFilesByTagsAnd(tags []string) ([]string, error) {
 }
 
 // ListFilesByQuery parses and executes a complex query expression.
-func (s *Service) ListFilesByQuery(expression string, debug bool) ([]string, error) {
+func (s *Service) ListFilesByQuery(expression string, verbose bool) ([]string, error) {
 	if strings.TrimSpace(expression) == "" {
 		return []string{}, nil
 	}
@@ -453,7 +453,7 @@ func (s *Service) ListFilesByQuery(expression string, debug bool) ([]string, err
 		return []string{}, nil
 	}
 
-	if debug {
+	if verbose {
 		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
 		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
 		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
@@ -485,7 +485,7 @@ func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error)
 }
 
 // GetFilesInfoByQuery parses and executes a complex query expression, returning full file info.
-func (s *Service) GetFilesInfoByQuery(expression string, debug bool) ([]types.FileInfo, error) {
+func (s *Service) GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error) {
 	if strings.TrimSpace(expression) == "" {
 		return []types.FileInfo{}, nil
 	}
@@ -499,7 +499,7 @@ func (s *Service) GetFilesInfoByQuery(expression string, debug bool) ([]types.Fi
 		return []types.FileInfo{}, nil
 	}
 
-	if debug {
+	if verbose {
 		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
 		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
 		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
@@ -521,7 +521,7 @@ func (s *Service) reconcileMoves(potentialMoves map[string]string) error {
 		return nil
 	}
 
-	tx, err := s.Store.DB.Begin()
+	tx, err := s.Store.Begin()
 	if err != nil {
 		return err
 	}
@@ -687,7 +687,7 @@ func (s *Service) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSt
 		return stats, nil
 	}
 
-	tx, err := s.Store.DB.Begin()
+	tx, err := s.Store.Begin()
 	if err != nil {
 		return stats, err
 	}

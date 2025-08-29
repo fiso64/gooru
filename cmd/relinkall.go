@@ -32,6 +32,12 @@ It will propose a set of changes (moves, new duplicate locations, deletions)
 and ask for a single confirmation before applying them.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if verbose {
+			fmt.Fprintf(cmd.OutOrStderr(), "--- VERBOSE ---\n")
+			fmt.Fprintf(cmd.OutOrStderr(), "Command: relinkall\n")
+			fmt.Fprintf(cmd.OutOrStderr(), "Input Dirs: %v\n", args)
+			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
+		}
 		fmt.Println("Checking for changed or moved files...")
 		needsScan, err := svc.NeedsRelink(args)
 		if err != nil {
