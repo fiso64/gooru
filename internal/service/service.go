@@ -34,79 +34,9 @@ func NewService(store *database.Store) *Service {
 	return &Service{Store: store}
 }
 
-// TagFiles tags multiple files with the given tags. It processes each file
-// individually but uses a single transaction for all database operations,
-// committing at the end. If a database error occurs, the entire operation
-// is rolled back. Filesystem errors (e.g., file not found) are reported
-// via the progress callback and do not stop the processing of other files.
+// TagFiles adds tags to multiple files using a high-performance batching strategy.
 func (s *Service) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
-	tx, err := s.Store.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Pre-parse and get tag IDs to avoid doing it in the loop
-	tagIDs := make([]int64, 0, len(tags))
-	for _, tagName := range tags {
-		parsedTag := query.ParseTag(tagName)
-		tagID, err := s.Store.GetOrCreateTag(tx, parsedTag.Key, parsedTag.Value)
-		if err != nil {
-			// This is a DB error, so we fail the whole batch.
-			return fmt.Errorf("could not get or create tag '%s': %w", tagName, err)
-		}
-		tagIDs = append(tagIDs, tagID)
-	}
-
-	for _, filePath := range filePaths {
-		absPath, err := resolvePath(filePath)
-		if err != nil {
-			progressCb(filePath, err)
-			continue
-		}
-
-		info, err := os.Stat(absPath)
-		if err != nil {
-			progressCb(filePath, err)
-			continue
-		}
-
-		hash, err := hashing.HashFile(absPath)
-		if err != nil {
-			progressCb(filePath, err)
-			continue
-		}
-
-		// From here on, errors are DB-related and should cause a rollback.
-		isNewContent, err := s.Store.GetOrCreateContent(tx, hash)
-		if err != nil {
-			return err
-		}
-
-		ext := filepath.Ext(absPath)
-		if isNewContent {
-			// This content has never been seen before. A simple INSERT is sufficient
-			// and much faster than the DELETE/INSERT pattern in UpdateContentLocation.
-			if err := s.Store.GetOrCreateLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-				return err
-			}
-		} else {
-			// This content hash already exists. The file may have been moved or renamed.
-			// Use the logic that handles this by replacing the old path with the new one.
-			if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-				return err
-			}
-		}
-		for _, tagID := range tagIDs {
-			if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
-				return err
-			}
-		}
-
-		progressCb(filePath, nil) // Success for this file
-	}
-
-	return tx.Commit()
+	return s.tagOperation(filePaths, tags, progressCb, false)
 }
 
 // UntagFiles untags multiple files with the given tags in a single transaction.
@@ -159,27 +89,21 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 	return tx.Commit()
 }
 
-// SetTagsForFiles sets the tags for multiple files, replacing any existing tags.
-// If the tags slice is empty, all tags are removed. This is performed in a
-// single transaction.
+// SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
 func (s *Service) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
-	tx, err := s.Store.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return s.tagOperation(filePaths, tags, progressCb, true)
+}
 
-	// Pre-parse and get tag IDs to avoid doing it in the loop
-	tagIDs := make([]int64, 0, len(tags))
-	for _, tagName := range tags {
-		parsedTag := query.ParseTag(tagName)
-		tagID, err := s.Store.GetOrCreateTag(tx, parsedTag.Key, parsedTag.Value)
-		if err != nil {
-			// This is a DB error, so we fail the whole batch.
-			return fmt.Errorf("could not get or create tag '%s': %w", tagName, err)
-		}
-		tagIDs = append(tagIDs, tagID)
+// tagOperation is the shared, high-performance batching logic for tag and settags.
+func (s *Service) tagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), isSet bool) error {
+	// 1. Pre-process all files to gather data before starting the transaction.
+	type fileData struct {
+		path string // original path for callbacks
+		info types.LocationInfo
 	}
+	allFileData := make([]fileData, 0, len(filePaths))
+	allHashes := make([]string, 0, len(filePaths))
+	locationsToUpsert := make(map[string]types.LocationInfo, len(filePaths))
 
 	for _, filePath := range filePaths {
 		absPath, err := resolvePath(filePath)
@@ -187,51 +111,86 @@ func (s *Service) SetTagsForFiles(filePaths []string, tags []string, progressCb 
 			progressCb(filePath, err)
 			continue
 		}
-
 		info, err := os.Stat(absPath)
 		if err != nil {
 			progressCb(filePath, err)
 			continue
 		}
-
 		hash, err := hashing.HashFile(absPath)
 		if err != nil {
 			progressCb(filePath, err)
 			continue
 		}
-
-		// DB operations start here
-		isNewContent, err := s.Store.GetOrCreateContent(tx, hash)
-		if err != nil {
-			return err
+		locInfo := types.LocationInfo{
+			Path:      absPath, // For BatchUpsertLocations
+			Hash:      hash,
+			Size:      info.Size(),
+			ModTime:   info.ModTime().Unix(),
+			Extension: filepath.Ext(absPath),
 		}
-
-		ext := filepath.Ext(absPath)
-		if isNewContent {
-			// This content has never been seen before. A simple INSERT is sufficient
-			// and much faster than the DELETE/INSERT pattern in UpdateContentLocation.
-			if err := s.Store.GetOrCreateLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-				return err
-			}
-		} else {
-			// This content hash already exists. The file may have been moved or renamed.
-			// Use the logic that handles this by replacing the old path with the new one.
-			if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-				return err
-			}
-		}
-		if err := s.Store.ClearTagsForContent(tx, hash); err != nil {
-			return err
-		}
-		for _, tagID := range tagIDs {
-			if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
-				return err
-			}
-		}
-		progressCb(filePath, nil) // Success
+		allFileData = append(allFileData, fileData{path: filePath, info: locInfo})
+		allHashes = append(allHashes, hash)
+		locationsToUpsert[absPath] = locInfo
 	}
 
-	return tx.Commit()
+	// 2. Start transaction and perform all DB operations in batches.
+	tx, err := s.Store.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 2a. Get or create all necessary tags.
+	parsedTags := make([]types.ParsedTag, len(tags))
+	for i, t := range tags {
+		parsedTags[i] = query.ParseTag(t)
+	}
+	tagIDMap, err := s.Store.BatchGetOrCreateTags(tx, parsedTags)
+	if err != nil {
+		return fmt.Errorf("failed to get or create tags: %w", err)
+	}
+
+	// 2b. Ensure all content hashes exist.
+	if err := s.Store.BatchInsertContents(tx, allHashes); err != nil {
+		return fmt.Errorf("failed to batch insert contents: %w", err)
+	}
+
+	// 2c. Insert or update all file locations.
+	if err := s.Store.BatchUpsertLocations(tx, locationsToUpsert); err != nil {
+		return fmt.Errorf("failed to batch upsert locations: %w", err)
+	}
+
+	// 2d. (For settags) Clear all previous tag associations for the files.
+	if isSet {
+		if err := s.Store.BatchClearTagsForContent(tx, allHashes); err != nil {
+			return fmt.Errorf("failed to batch clear tags: %w", err)
+		}
+	}
+
+	// 2e. Associate all new tags.
+	if len(tags) > 0 {
+		pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
+		for _, hash := range allHashes {
+			for _, tagStr := range tags {
+				pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
+			}
+		}
+		if err := s.Store.BatchAssociateTags(tx, pairs); err != nil {
+			return fmt.Errorf("failed to batch associate tags: %w", err)
+		}
+	}
+
+	// 3. Commit the transaction. If any step failed, it will be rolled back.
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// 4. Report success for all processed files.
+	for _, data := range allFileData {
+		progressCb(data.path, nil)
+	}
+
+	return nil
 }
 
 // GetTagsForFile retrieves all tags for a given file.

@@ -22,6 +22,7 @@ type RelinkResult struct {
 
 // LocationInfo holds metadata about a file's location.
 type LocationInfo struct {
+	Path      string // The absolute path of the file
 	Hash      string
 	Size      int64
 	ModTime   int64 // Unix time

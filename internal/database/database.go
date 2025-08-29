@@ -687,3 +687,203 @@ func (s *Store) GetAllTags() ([]string, error) {
 	}
 	return tags, nil
 }
+
+// Batch Helpers
+
+const (
+	// maxVars is a safe limit for SQLite's SQLITE_MAX_VARIABLE_NUMBER, which defaults to 999
+	maxVars = 900
+)
+
+func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (map[string]int64, error) {
+	tagIDMap := make(map[string]int64)
+
+	// 1. First, try to fetch all existing tags in one query
+	if len(parsedTags) > 0 {
+		var placeholders []string
+		var args []interface{}
+		for _, t := range parsedTags {
+			placeholders = append(placeholders, "(?, ?)")
+			args = append(args, t.Key, t.Value)
+		}
+		query := `SELECT id, key, value FROM tags WHERE (key, value) IN (` + strings.Join(placeholders, ",") + `)`
+
+		rows, err := q.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id int64
+			var key, value string
+			if err := rows.Scan(&id, &key, &value); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			tagStr := value
+			if key != "" {
+				tagStr = key + ":" + value
+			}
+			tagIDMap[tagStr] = id
+		}
+		rows.Close()
+	}
+
+	// 2. Insert any tags that weren't found
+	for _, t := range parsedTags {
+		tagStr := t.Value
+		if t.Key != "" {
+			tagStr = t.Key + ":" + t.Value
+		}
+		if _, exists := tagIDMap[tagStr]; !exists {
+			res, err := q.Exec("INSERT OR IGNORE INTO tags (key, value) VALUES (?, ?)", t.Key, t.Value)
+			if err != nil {
+				return nil, err
+			}
+			id, err := res.LastInsertId()
+			if err != nil {
+				return nil, err
+			}
+			// If LastInsertId is 0, another concurrent transaction might have inserted it. Re-query.
+			if id == 0 {
+				err := q.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", t.Key, t.Value).Scan(&id)
+				if err != nil {
+					return nil, err
+				}
+			}
+			tagIDMap[tagStr] = id
+		}
+	}
+
+	return tagIDMap, nil
+}
+
+func (s *Store) BatchInsertContents(q Querier, hashes []string) error {
+	if len(hashes) == 0 {
+		return nil
+	}
+	const columns = 1 // hash
+	batchSize := maxVars / columns
+
+	for i := 0; i < len(hashes); i += batchSize {
+		end := i + batchSize
+		if end > len(hashes) {
+			end = len(hashes)
+		}
+		batch := hashes[i:end]
+
+		placeholders := strings.Repeat("(?),", len(batch)-1) + "(?)"
+		query := "INSERT OR IGNORE INTO contents (hash) VALUES " + placeholders
+		args := make([]interface{}, len(batch))
+		for j, h := range batch {
+			args[j] = h
+		}
+
+		if _, err := q.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.LocationInfo) error {
+	if len(locations) == 0 {
+		return nil
+	}
+	const columns = 5 // content_hash, path, size_bytes, mod_time, extension
+	batchSize := maxVars / columns
+
+	locs := make([]types.LocationInfo, 0, len(locations))
+	paths := make([]string, 0, len(locations))
+	for path, loc := range locations {
+		locs = append(locs, loc)
+		paths = append(paths, path)
+	}
+
+	for i := 0; i < len(locs); i += batchSize {
+		end := i + batchSize
+		if end > len(locs) {
+			end = len(locs)
+		}
+		batch := locs[i:end]
+
+		var placeholders []string
+		var args []interface{}
+		for _, loc := range batch {
+			placeholders = append(placeholders, "(?, ?, ?, ?, ?)")
+			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.Extension)
+		}
+		query := `INSERT INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ` +
+			strings.Join(placeholders, ",") +
+			` ON CONFLICT(path) DO UPDATE SET
+				content_hash=excluded.content_hash,
+				size_bytes=excluded.size_bytes,
+				mod_time=excluded.mod_time,
+				extension=excluded.extension`
+
+		if _, err := q.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) BatchClearTagsForContent(q Querier, hashes []string) error {
+	if len(hashes) == 0 {
+		return nil
+	}
+	const columns = 1
+	batchSize := maxVars / columns
+
+	for i := 0; i < len(hashes); i += batchSize {
+		end := i + batchSize
+		if end > len(hashes) {
+			end = len(hashes)
+		}
+		batch := hashes[i:end]
+
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		query := "DELETE FROM content_tags WHERE content_hash IN (" + placeholders + ")"
+		args := make([]interface{}, len(batch))
+		for j, h := range batch {
+			args[j] = h
+		}
+
+		if _, err := q.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type ContentTagPair struct {
+	ContentHash string
+	TagID       int64
+}
+
+func (s *Store) BatchAssociateTags(q Querier, pairs []ContentTagPair) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+	const columns = 2
+	batchSize := maxVars / columns
+
+	for i := 0; i < len(pairs); i += batchSize {
+		end := i + batchSize
+		if end > len(pairs) {
+			end = len(pairs)
+		}
+		batch := pairs[i:end]
+
+		placeholders := strings.Repeat("(?,?),", len(batch)-1) + "(?,?)"
+		query := "INSERT OR IGNORE INTO content_tags (content_hash, tag_id) VALUES " + placeholders
+		args := make([]interface{}, 0, len(batch)*2)
+		for _, p := range batch {
+			args = append(args, p.ContentHash, p.TagID)
+		}
+
+		if _, err := q.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
