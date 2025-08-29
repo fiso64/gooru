@@ -34,7 +34,7 @@ func Build(expr *Expression) (string, []interface{}) {
 func (b *SQLBuilder) buildExpression(expr *Expression) {
 	isCompound := len(expr.Or) > 1
 	if isCompound {
-		b.query.WriteString(fmt.Sprintf("SELECT hash FROM ("))
+		b.query.WriteString("SELECT hash FROM (")
 	}
 
 	for i, andTerm := range expr.Or {
@@ -53,7 +53,7 @@ func (b *SQLBuilder) buildExpression(expr *Expression) {
 func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
 	isCompound := len(andTerm.And) > 1
 	if isCompound {
-		b.query.WriteString(fmt.Sprintf("SELECT hash FROM ("))
+		b.query.WriteString("SELECT hash FROM (")
 	}
 
 	for i, term := range andTerm.And {
@@ -72,7 +72,7 @@ func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
 // and must be wrapped to be a valid SELECT statement.
 func (b *SQLBuilder) buildTerm(term *Term) {
 	if term.Not {
-		b.query.WriteString(fmt.Sprintf("SELECT hash FROM (SELECT hash FROM contents EXCEPT "))
+		b.query.WriteString("SELECT hash FROM (SELECT hash FROM contents EXCEPT ")
 		b.buildFactor(term.Factor)
 		b.query.WriteString(fmt.Sprintf(") AS %s", b.newAlias()))
 	} else {

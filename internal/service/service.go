@@ -272,7 +272,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 					if result.err != nil {
 						errMsg = fmt.Sprintf("hashing failed: %v", result.err)
 					}
-					progressCb(originalPath, fmt.Errorf(errMsg))
+					progressCb(originalPath, fmt.Errorf("%s", errMsg))
 					processedPaths[originalPath] = true
 				}
 				continue
@@ -633,7 +633,6 @@ func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
 
 	// 3. Compute the difference ("diff") between the two states.
 	toAdd := make(map[string]types.LocationInfo)
-	toRemove := make([]string, 0)
 
 	// Check for new or changed files on disk
 	for path, fsInfo := range fsLocations {
@@ -652,7 +651,6 @@ func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
 		fsInfo, existsOnFs := fsLocations[path]
 		// Remove if path no longer exists on disk, or if it exists but now has a different hash
 		if !existsOnFs || fsInfo.Hash != dbInfo.Hash {
-			toRemove = append(toRemove, path)
 			// Build FileInfo for the CLI to display
 			result.UnrelinkedFiles = append(result.UnrelinkedFiles, types.FileInfo{
 				Path: path,
