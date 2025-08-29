@@ -17,8 +17,7 @@ type Service struct {
 	Store *database.Store
 }
 
-// resolvePath canonicalizes a path. If the path exists, it resolves any
-// symlinks to their final target. If it doesn't exist, it returns the
+// resolvePath canonicalizes a path. If it doesn't exist, it returns the
 // absolute path of the input to allow for clean "file not found" errors later.
 func resolvePath(filePath string) (string, error) {
 	// If a file doesn't exist, os.Lstat is the first to tell us. We don't
@@ -27,13 +26,7 @@ func resolvePath(filePath string) (string, error) {
 		return filepath.Abs(filePath)
 	}
 
-	// If the file exists, resolve any symlinks to get the canonical path.
-	resolvedPath, err := filepath.EvalSymlinks(filePath)
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Abs(resolvedPath)
+	return filepath.Abs(filePath)
 }
 
 // NewService creates a new Service.
@@ -84,19 +77,22 @@ func (s *Service) TagFiles(filePaths []string, tags []string, progressCb func(fi
 			continue
 		}
 
-		// From here on, errors are DB-related and should cause a rollback.
-		if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
-			return err
-		}
-		ext := filepath.Ext(absPath)
-		if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-			return err
-		}
-		for _, tagID := range tagIDs {
-			if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
-				return err
-			}
-		}
+		_ = hash
+		_ = info
+
+		// // From here on, errors are DB-related and should cause a rollback.
+		// if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
+		// 	return err
+		// }
+		// ext := filepath.Ext(absPath)
+		// if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+		// 	return err
+		// }
+		// for _, tagID := range tagIDs {
+		// 	if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
+		// 		return err
+		// 	}
+		// }
 		progressCb(filePath, nil) // Success for this file
 	}
 
@@ -236,42 +232,42 @@ func (s *Service) GetTagsForFile(filePath string) ([]string, error) {
 
 // ListAllFiles lists all files known to the system.
 func (s *Service) ListAllFiles() ([]string, error) {
-    return s.Store.ListAllFiles()
+	return s.Store.ListAllFiles()
 }
 
 // ListFilesByTag lists all files associated with a given tag.
 func (s *Service) ListFilesByTag(tag string) ([]string, error) {
-    parsedTag := query.ParseTag(tag)
-    return s.Store.ListFilesByTag(parsedTag.Key, parsedTag.Value)
+	parsedTag := query.ParseTag(tag)
+	return s.Store.ListFilesByTag(parsedTag.Key, parsedTag.Value)
 }
 
 // ListFilesByTagsAnd lists all files associated with a given set of tags (AND query).
 func (s *Service) ListFilesByTagsAnd(tags []string) ([]string, error) {
-    parsedTags := make([]types.ParsedTag, len(tags))
-    for i, t := range tags {
-        parsedTags[i] = query.ParseTag(t)
-    }
-    return s.Store.ListFilesByTagsAnd(parsedTags)
+	parsedTags := make([]types.ParsedTag, len(tags))
+	for i, t := range tags {
+		parsedTags[i] = query.ParseTag(t)
+	}
+	return s.Store.ListFilesByTagsAnd(parsedTags)
 }
 
 // GetAllFilesInfo gets detailed info for all files known to the system.
 func (s *Service) GetAllFilesInfo() ([]types.FileInfo, error) {
-    return s.Store.GetAllFilesInfo()
+	return s.Store.GetAllFilesInfo()
 }
 
 // GetFilesInfoByTag gets detailed info for all files associated with a given tag.
 func (s *Service) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
-    parsedTag := query.ParseTag(tag)
-    return s.Store.GetFilesInfoByTag(parsedTag.Key, parsedTag.Value)
+	parsedTag := query.ParseTag(tag)
+	return s.Store.GetFilesInfoByTag(parsedTag.Key, parsedTag.Value)
 }
 
 // GetFilesInfoByTagsAnd gets detailed info for all files associated with a given set of tags (AND query).
 func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
-    parsedTags := make([]types.ParsedTag, len(tags))
-    for i, t := range tags {
-        parsedTags[i] = query.ParseTag(t)
-    }
-    return s.Store.GetFilesInfoByTagsAnd(parsedTags)
+	parsedTags := make([]types.ParsedTag, len(tags))
+	for i, t := range tags {
+		parsedTags[i] = query.ParseTag(t)
+	}
+	return s.Store.GetFilesInfoByTagsAnd(parsedTags)
 }
 
 // GetAllTags retrieves all tags from the database.
