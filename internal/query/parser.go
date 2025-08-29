@@ -1,6 +1,7 @@
 package query
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/alecthomas/participle/v2"
@@ -41,7 +42,7 @@ var (
 		{Name: "QuotedString", Pattern: `"(\\"|[^"])*"`},
 		// A tag cannot start with a hyphen to avoid ambiguity with the NOT operator.
 		{Name: "Tag", Pattern: `[a-zA-Z0-9_./\\][a-zA-Z0-9_./\\:-]*`},
-		{Name: "Operator", Pattern: `[|()&-]`},
+		{Name: "Operator", Pattern: `[|()&!-]`},
 		{Name: "Whitespace", Pattern: `\s+`},
 	})
 
@@ -53,13 +54,35 @@ var (
 		// but implicit AND (a sequence of terms) is often sufficient and cleaner.
 		// The current grammar `@@+` handles implicit AND.
 	)
+
+	// Regex for normalizing user-friendly query syntax to parser-friendly syntax.
+	// case-insensitive ' or ' becomes ' | '
+	reOr = regexp.MustCompile(`(?i)\s+or\s+`)
+	// case-insensitive ' and ' becomes ' '
+	reAnd = regexp.MustCompile(`(?i)\s+and\s+`)
+	// case-insensitive 'not ' becomes '-'
+	reNot = regexp.MustCompile(`(?i)\bnot\s+`)
 )
 
 // Parse takes a query expression string and returns the parsed AST.
 func Parse(expression string) (*Expression, error) {
-	// Participle's parser doesn't consume "&" as an operator, it treats it as a tag.
-	// We can manually replace it with a space to support it as an implicit AND separator.
-	// A more advanced grammar could handle it, but this is a simple and effective solution.
-	expression = strings.ReplaceAll(expression, "&", " ")
-	return parser.ParseString("", expression)
+	// Pre-process the expression to normalize operators to what the grammar expects.
+	// This is simpler than a complex grammar and handles user-friendly syntax.
+	// The target syntax for the parser is:
+	// AND: space
+	// OR:  |
+	// NOT: -
+
+	// Normalize OR
+	s := reOr.ReplaceAllString(expression, " | ")
+
+	// Normalize AND
+	s = reAnd.ReplaceAllString(s, " ")
+	s = strings.ReplaceAll(s, "&", " ")
+
+	// Normalize NOT
+	s = reNot.ReplaceAllString(s, "-")
+	s = strings.ReplaceAll(s, "!", "-")
+
+	return parser.ParseString("", s)
 }
