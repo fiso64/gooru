@@ -32,10 +32,10 @@ var gettagsCmd = &cobra.Command{
 			for _, filePath := range files {
 				tags, err := svc.GetTagsForFile(filePath)
 				if err != nil {
-					fmt.Printf("%s: [ERROR: %v]\n", filePath, err)
+					fmt.Printf("%s ;; [ERROR: %v]\n", filePath, err)
 					continue
 				}
-				fmt.Printf("%s: %s\n", filePath, strings.Join(tags, ", "))
+				fmt.Printf("%s ;; %s\n", filePath, strings.Join(tags, ", "))
 			}
 		} else {
 			// Single-file output (original behavior)
