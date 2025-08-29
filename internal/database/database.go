@@ -70,6 +70,7 @@ func createTables(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_locations_path ON locations(path);`,
 		`CREATE INDEX IF NOT EXISTS idx_locations_content_hash ON locations(content_hash);`,
 		`CREATE INDEX IF NOT EXISTS idx_content_tags_tag_id ON content_tags(tag_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_locations_extension_lower ON locations(lower(extension));`,
 
 		/* TRIGGERS FOR MAINTAINING tags_cache */
 		`CREATE TRIGGER IF NOT EXISTS populate_tags_cache_on_location_insert

@@ -91,9 +91,25 @@ func (b *SQLBuilder) buildFactor(factor *Factor) {
 	}
 }
 
-// buildTagQuery generates the base, simple SELECT statement for a single tag.
+// buildTagQuery generates the base, simple SELECT statement for a single tag,
+// handling both normal tags and virtual metadata tags.
 func (b *SQLBuilder) buildTagQuery(tagStr string) {
 	parsed := ParseTag(tagStr)
-	b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ?`)
-	b.args = append(b.args, parsed.Key, parsed.Value)
+
+	switch parsed.Key {
+	case "ext":
+		// Query against the indexed, lowercase extension in the locations table.
+		b.query.WriteString(`SELECT content_hash as hash FROM locations WHERE lower(extension) = lower(?)`)
+		value := parsed.Value
+		// Add leading dot to extension if missing, for user convenience.
+		if value != "" && !strings.HasPrefix(value, ".") {
+			value = "." + value
+		}
+		b.args = append(b.args, value)
+	// Add other virtual tags like 'size', 'path', etc. here in the future.
+	default:
+		// Default behavior for user-defined tags
+		b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ?`)
+		b.args = append(b.args, parsed.Key, parsed.Value)
+	}
 }

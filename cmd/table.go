@@ -25,7 +25,8 @@ Expressions support AND, OR, and NOT logic with grouping.
 - Explicit AND:   gooru table "video & family"
 - OR:             gooru table "video | photo"
 - NOT (EXCEPT):   gooru table "family - work"
-- Grouping:       gooru table "(photo | video) holiday -work"`,
+- Grouping:       gooru table "(photo | video) holiday -work"
+- By extension:   gooru table "ext:mp4 | ext:mov"`,
     RunE: func(cmd *cobra.Command, args []string) error {
         var files []types.FileInfo
         var err error
