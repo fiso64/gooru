@@ -342,14 +342,6 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 	}
 
 	// Phase 3b: Batch database operations for all remaining files.
-	parsedTags := make([]types.ParsedTag, len(tags))
-	for i, t := range tags {
-		parsedTags[i] = query.ParseTag(t)
-	}
-	tagIDMap, err := s.Store.BatchGetOrCreateTags(tx, parsedTags)
-	if err != nil {
-		return fmt.Errorf("failed to get or create tags: %w", err)
-	}
 	if err := s.Store.BatchInsertContents(tx, allHashes); err != nil {
 		return fmt.Errorf("failed to batch insert contents: %w", err)
 	}
@@ -362,6 +354,16 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 		}
 	}
 	if len(tags) > 0 {
+		// Get/create tags *after* clearing, so we don't fetch IDs that might get deleted by the cleanup trigger.
+		parsedTags := make([]types.ParsedTag, len(tags))
+		for i, t := range tags {
+			parsedTags[i] = query.ParseTag(t)
+		}
+		tagIDMap, err := s.Store.BatchGetOrCreateTags(tx, parsedTags)
+		if err != nil {
+			return fmt.Errorf("failed to get or create tags: %w", err)
+		}
+
 		pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
 		for _, hash := range allHashes {
 			for _, tagStr := range tags {
