@@ -1064,5 +1064,57 @@ func (s *Store) BatchGetPathsForHashes(q Querier, hashes []string) (map[string][
 	return pathMap, nil
 }
 
+// GetPathsByContentQuery executes a complex query for content hashes and returns their paths.
+func (s *Store) GetPathsByContentQuery(query string, args []interface{}) ([]string, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_hashes(hash) AS (%s)
+		SELECT l.path
+		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
+		ORDER BY l.path
+	`, query)
+
+	rows, err := s.DB.Query(finalQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var paths []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
+}
+
+// GetFilesInfoByContentQuery executes a complex query for content hashes and returns their full info.
+func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]types.FileInfo, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_hashes(hash) AS (%s)
+		SELECT l.path, l.size_bytes, l.tags_cache
+		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
+		ORDER BY l.path
+	`, query)
+
+	rows, err := s.DB.Query(finalQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		if err := rows.Scan(&file.Path, &file.Size, &file.Tags); err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
 
 

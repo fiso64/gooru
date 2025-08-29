@@ -4,43 +4,41 @@ Copyright © 2025 Your Name
 package cmd
 
 import (
-    "errors"
-    "fmt"
-    "strings"
+	"fmt"
+	"strings"
 
-    "gooru.local/gooru/internal/display"
-    "gooru.local/gooru/internal/query"
-    "gooru.local/gooru/internal/types"
-    "github.com/spf13/cobra"
+	"gooru.local/gooru/internal/display"
+	"gooru.local/gooru/internal/types"
+	"github.com/spf13/cobra"
 )
 
 // tableCmd represents the table command
 var tableCmd = &cobra.Command{
     Use:   "table [expression]",
     Short: "Lists files and their tags in a table.",
-    Long: `Lists files and their associated data in a formatted table based on a tag expression.
+    Long: `Lists files and their tags in a table based on a tag expression.
 If no expression is provided, all files are listed.
-Example: gooru table "tag1 AND tag2"`,
+
+Expressions support AND, OR, and NOT logic with grouping.
+- Simple tag:     gooru table video
+- Implicit AND:   gooru table "video family"
+- Explicit AND:   gooru table "video & family"
+- OR:             gooru table "video | photo"
+- NOT (EXCEPT):   gooru table "family - work"
+- Grouping:       gooru table "(photo | video) holiday -work"`,
     RunE: func(cmd *cobra.Command, args []string) error {
         var files []types.FileInfo
         var err error
 
-        switch len(args) {
-        case 0:
+        expression := ""
+        if len(args) > 0 {
+            expression = strings.Join(args, " ")
+        }
+
+        if expression == "" {
             files, err = svc.GetAllFilesInfo()
-        case 1:
-            expression := args[0]
-            // This logic will be replaced by the advanced parser from Phase 4
-            if strings.Contains(strings.ToUpper(expression), "AND") {
-                tags := query.Parse(expression)
-                files, err = svc.GetFilesInfoByTagsAnd(tags)
-            } else {
-                // Trim spaces in case the user quotes a single tag " tag1 "
-                tag := strings.TrimSpace(expression)
-                files, err = svc.GetFilesInfoByTag(tag)
-            }
-        default:
-            return errors.New("table command takes zero or one argument")
+        } else {
+            files, err = svc.GetFilesInfoByQuery(expression)
         }
 
         if err != nil {

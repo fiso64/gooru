@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gooru.local/gooru/internal/database"
 	"gooru.local/gooru/internal/query"
@@ -437,6 +438,23 @@ func (s *Service) ListFilesByTagsAnd(tags []string) ([]string, error) {
 	return s.Store.ListFilesByTagsAnd(parsedTags)
 }
 
+// ListFilesByQuery parses and executes a complex query expression.
+func (s *Service) ListFilesByQuery(expression string) ([]string, error) {
+	if strings.TrimSpace(expression) == "" {
+		return []string{}, nil
+	}
+	ast, err := query.Parse(expression)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse query: %w", err)
+	}
+
+	sqlQuery, args := query.Build(ast)
+	if sqlQuery == "" {
+		return []string{}, nil
+	}
+	return s.Store.GetPathsByContentQuery(sqlQuery, args)
+}
+
 // GetAllFilesInfo gets detailed info for all files known to the system.
 func (s *Service) GetAllFilesInfo() ([]types.FileInfo, error) {
 	return s.Store.GetAllFilesInfo()
@@ -455,6 +473,23 @@ func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error)
 		parsedTags[i] = query.ParseTag(t)
 	}
 	return s.Store.GetFilesInfoByTagsAnd(parsedTags)
+}
+
+// GetFilesInfoByQuery parses and executes a complex query expression, returning full file info.
+func (s *Service) GetFilesInfoByQuery(expression string) ([]types.FileInfo, error) {
+	if strings.TrimSpace(expression) == "" {
+		return []types.FileInfo{}, nil
+	}
+	ast, err := query.Parse(expression)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse query: %w", err)
+	}
+
+	sqlQuery, args := query.Build(ast)
+	if sqlQuery == "" {
+		return []types.FileInfo{}, nil
+	}
+	return s.Store.GetFilesInfoByContentQuery(sqlQuery, args)
 }
 
 // GetAllTags retrieves all tags from the database.
