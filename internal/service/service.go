@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"gooru.local/gooru/internal/database"
-	"gooru.local/gooru/internal/hashing"
 	"gooru.local/gooru/internal/query"
 	"gooru.local/gooru/internal/types"
 )
@@ -165,15 +164,6 @@ func (s *Service) SetTagsForFiles(filePaths []string, tags []string, progressCb 
 
 // tagOperation is the shared, high-performance batching logic for tag and settags.
 func (s *Service) tagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), isSet bool) error {
-	// 1. Pre-process all files to gather data before starting the transaction.
-	type fileData struct {
-		path string // original path for callbacks
-		info types.LocationInfo
-	}
-	allFileData := make([]fileData, 0, len(filePaths))
-	allHashes := make([]string, 0, len(filePaths))
-	locationsToUpsert := make(map[string]types.LocationInfo, len(filePaths))
-
 	// 1a. Resolve paths and collect absolute paths for DB query.
 	absPaths := make([]string, 0, len(filePaths))
 	originalPathMap := make(map[string]string, len(filePaths))
@@ -193,27 +183,69 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 		return fmt.Errorf("could not get existing file data: %w", err)
 	}
 
+	// 1c. Determine which files actually need to be hashed.
+	filesToHash := make([]string, 0)
+	for _, absPath := range absPaths {
+		info, err := os.Stat(absPath)
+		if err != nil {
+			progressCb(originalPathMap[absPath], err)
+			continue
+		}
+
+		dbInfo, existsInDb := dbLocations[absPath]
+		// If file is in DB and unchanged, we don't need to hash it.
+		if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
+			continue
+		}
+		// Otherwise, it's new or modified. Add it to the hashing queue.
+		filesToHash = append(filesToHash, absPath)
+	}
+
+	// 1d. Concurrently hash all the necessary files. This is the performance gain.
+	hashResults := concurrentlyHashFiles(filesToHash)
+
+	// 1e. Pre-process all files again to gather final data before the transaction.
+	type fileData struct {
+		path string // original path for callbacks
+		info types.LocationInfo
+	}
+	allFileData := make([]fileData, 0, len(filePaths))
+	allHashes := make([]string, 0, len(filePaths))
+	locationsToUpsert := make(map[string]types.LocationInfo, len(filePaths))
+	processedPaths := make(map[string]bool)
+
 	for _, absPath := range absPaths {
 		originalPath := originalPathMap[absPath]
 		info, err := os.Stat(absPath)
 		if err != nil {
-			progressCb(originalPath, err)
+			if !processedPaths[originalPath] {
+				progressCb(originalPath, err)
+				processedPaths[originalPath] = true
+			}
 			continue
 		}
 
 		var hash string
 		dbInfo, existsInDb := dbLocations[absPath]
 
-		// Check if file is unchanged. If so, trust the DB hash.
 		if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
 			hash = dbInfo.Hash
 		} else {
-			// Otherwise, file is new or modified, so we must hash it.
-			hash, err = hashing.HashFile(absPath)
-			if err != nil {
-				progressCb(originalPath, err)
+			// Get the pre-computed hash from our concurrent process
+			result, ok := hashResults[absPath]
+			if !ok || result.err != nil {
+				// This case covers files that failed to stat earlier, or hashing errors.
+				if !processedPaths[originalPath] {
+					errMsg := "file processing failed"
+					if result.err != nil {
+						errMsg = fmt.Sprintf("hashing failed: %v", result.err)
+					}
+					progressCb(originalPath, fmt.Errorf(errMsg))
+					processedPaths[originalPath] = true
+				}
 				continue
 			}
+			hash = result.hash
 		}
 
 		locInfo := types.LocationInfo{
@@ -226,6 +258,10 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 		allFileData = append(allFileData, fileData{path: originalPath, info: locInfo})
 		allHashes = append(allHashes, hash)
 		locationsToUpsert[absPath] = locInfo
+	}
+
+	if len(allFileData) == 0 {
+		return nil // No files could be processed.
 	}
 
 	// 2. Start transaction and perform all DB operations in batches.
