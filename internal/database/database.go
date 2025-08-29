@@ -928,6 +928,48 @@ func (s *Store) BatchFindContentHashesByPaths(paths []string) (map[string]string
 	return pathMap, nil
 }
 
+func (s *Store) BatchGetLocationsByPaths(paths []string) (map[string]types.LocationInfo, error) {
+	if len(paths) == 0 {
+		return make(map[string]types.LocationInfo), nil
+	}
+	locationMap := make(map[string]types.LocationInfo)
+	const columns = 1
+	batchSize := maxVars / columns
+
+	for i := 0; i < len(paths); i += batchSize {
+		end := i + batchSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+		batch := paths[i:end]
+
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		query := "SELECT path, content_hash, size_bytes, mod_time FROM locations WHERE path IN (" + placeholders + ")"
+		args := make([]interface{}, len(batch))
+		for j, p := range batch {
+			args[j] = p
+		}
+
+		rows, err := s.DB.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var path string
+			var loc types.LocationInfo
+			if err := rows.Scan(&path, &loc.Hash, &loc.Size, &loc.ModTime); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			loc.Path = path
+			locationMap[path] = loc
+		}
+		rows.Close()
+	}
+	return locationMap, nil
+}
+
 func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) error {
 	if len(pairs) == 0 {
 		return nil

@@ -138,22 +138,48 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 	allHashes := make([]string, 0, len(filePaths))
 	locationsToUpsert := make(map[string]types.LocationInfo, len(filePaths))
 
-	for _, filePath := range filePaths {
-		absPath, err := resolvePath(filePath)
+	// 1a. Resolve paths and collect absolute paths for DB query.
+	absPaths := make([]string, 0, len(filePaths))
+	originalPathMap := make(map[string]string, len(filePaths))
+	for _, fp := range filePaths {
+		absPath, err := resolvePath(fp)
 		if err != nil {
-			progressCb(filePath, err)
+			progressCb(fp, err)
 			continue
 		}
+		absPaths = append(absPaths, absPath)
+		originalPathMap[absPath] = fp
+	}
+
+	// 1b. Get existing location data from the DB in one batch.
+	dbLocations, err := s.Store.BatchGetLocationsByPaths(absPaths)
+	if err != nil {
+		return fmt.Errorf("could not get existing file data: %w", err)
+	}
+
+	for _, absPath := range absPaths {
+		originalPath := originalPathMap[absPath]
 		info, err := os.Stat(absPath)
 		if err != nil {
-			progressCb(filePath, err)
+			progressCb(originalPath, err)
 			continue
 		}
-		hash, err := hashing.HashFile(absPath)
-		if err != nil {
-			progressCb(filePath, err)
-			continue
+
+		var hash string
+		dbInfo, existsInDb := dbLocations[absPath]
+
+		// Check if file is unchanged. If so, trust the DB hash.
+		if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
+			hash = dbInfo.Hash
+		} else {
+			// Otherwise, file is new or modified, so we must hash it.
+			hash, err = hashing.HashFile(absPath)
+			if err != nil {
+				progressCb(originalPath, err)
+				continue
+			}
 		}
+
 		locInfo := types.LocationInfo{
 			Path:      absPath, // For BatchUpsertLocations
 			Hash:      hash,
@@ -161,7 +187,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 			ModTime:   info.ModTime().Unix(),
 			Extension: filepath.Ext(absPath),
 		}
-		allFileData = append(allFileData, fileData{path: filePath, info: locInfo})
+		allFileData = append(allFileData, fileData{path: originalPath, info: locInfo})
 		allHashes = append(allHashes, hash)
 		locationsToUpsert[absPath] = locInfo
 	}
