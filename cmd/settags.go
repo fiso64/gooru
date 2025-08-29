@@ -60,17 +60,29 @@ Multi-file mode (for complex file lists):
 			return nil
 		}
 
-		for _, filePath := range files {
-			if err := svc.SetTagsForFile(filePath, tags); err != nil {
+		var filesFailed int
+		progressCb := func(filePath string, err error) {
+			if err != nil {
+				filesFailed++
 				fmt.Printf("Failed to set tags for '%s': %v\n", filePath, err)
-				continue // Continue with the next file
-			}
-			if len(tags) > 0 {
-				fmt.Printf("Set tags for '%s' to: %s\n", filePath, strings.Join(tags, ", "))
 			} else {
-				fmt.Printf("Removed all tags from '%s'\n", filePath)
+				if len(tags) > 0 {
+					fmt.Printf("Set tags for '%s' to: %s\n", filePath, strings.Join(tags, ", "))
+				} else {
+					fmt.Printf("Removed all tags from '%s'\n", filePath)
+				}
 			}
 		}
+
+		if err := svc.SetTagsForFiles(files, tags, progressCb); err != nil {
+			// This will be a DB error that caused a rollback.
+			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+		}
+
+		if filesFailed > 0 {
+			fmt.Printf("\nWarning: %d file(s) failed to process.\n", filesFailed)
+		}
+
 		return nil
 	},
 }

@@ -41,142 +41,176 @@ func NewService(store *database.Store) *Service {
 	return &Service{Store: store}
 }
 
-// TagFile tags a single file with the given tags.
-func (s *Service) TagFile(filePath string, tags []string) error {
-	absPath, err := resolvePath(filePath)
-	if err != nil {
-		return err
-	}
-
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return err // File doesn't exist or is not accessible
-	}
-
-	hash, err := hashing.HashFile(absPath)
-	if err != nil {
-		return err
-	}
-
-	tx, err := s.Store.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() // Rollback on error
-
-	if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
-		return err
-	}
-
-	ext := filepath.Ext(absPath)
-	// Use UpdateContentLocation to handle file moves correctly.
-	if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-		return err
-	}
-
-	for _, tagName := range tags {
-		parsedTag := query.ParseTag(tagName)
-		tagID, err := s.Store.GetOrCreateTag(tx, parsedTag.Key, parsedTag.Value)
-		if err != nil {
-			return err
-		}
-
-		if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
-}
-
-// UntagFile untags a single file with the given tags.
-func (s *Service) UntagFile(filePath string, tags []string) error {
-	absPath, err := resolvePath(filePath)
-	if err != nil {
-		return err
-	}
-
-	hash, err := s.Store.FindContentHashByPath(absPath)
-	if err != nil {
-		return err
-	}
-	if hash == "" {
-		return fmt.Errorf("file not found in database: %s", filePath)
-	}
-
+// TagFiles tags multiple files with the given tags. It processes each file
+// individually but uses a single transaction for all database operations,
+// committing at the end. If a database error occurs, the entire operation
+// is rolled back. Filesystem errors (e.g., file not found) are reported
+// via the progress callback and do not stop the processing of other files.
+func (s *Service) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
 	tx, err := s.Store.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
+	// Pre-parse and get tag IDs to avoid doing it in the loop
+	tagIDs := make([]int64, 0, len(tags))
 	for _, tagName := range tags {
 		parsedTag := query.ParseTag(tagName)
-		tagID, err := s.Store.GetTagID(parsedTag.Key, parsedTag.Value)
+		tagID, err := s.Store.GetOrCreateTag(tx, parsedTag.Key, parsedTag.Value)
 		if err != nil {
-			if err == sql.ErrNoRows {
-				continue // Tag doesn't exist, so nothing to remove.
-			}
-			return err // A real error occurred.
+			// This is a DB error, so we fail the whole batch.
+			return fmt.Errorf("could not get or create tag '%s': %w", tagName, err)
+		}
+		tagIDs = append(tagIDs, tagID)
+	}
+
+	for _, filePath := range filePaths {
+		absPath, err := resolvePath(filePath)
+		if err != nil {
+			progressCb(filePath, err)
+			continue
 		}
 
-		if err := s.Store.DisassociateTag(tx, hash, tagID); err != nil {
+		info, err := os.Stat(absPath)
+		if err != nil {
+			progressCb(filePath, err)
+			continue
+		}
+
+		hash, err := hashing.HashFile(absPath)
+		if err != nil {
+			progressCb(filePath, err)
+			continue
+		}
+
+		// From here on, errors are DB-related and should cause a rollback.
+		if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
 			return err
 		}
+		ext := filepath.Ext(absPath)
+		if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+			return err
+		}
+		for _, tagID := range tagIDs {
+			if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
+				return err
+			}
+		}
+		progressCb(filePath, nil) // Success for this file
 	}
 
 	return tx.Commit()
 }
 
-// SetTagsForFile sets the tags for a single file, replacing any existing tags.
-// If the tags slice is empty, all tags are removed.
-func (s *Service) SetTagsForFile(filePath string, tags []string) error {
-	absPath, err := resolvePath(filePath)
-	if err != nil {
-		return err
-	}
-
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return err // File doesn't exist or is not accessible
-	}
-
-	hash, err := hashing.HashFile(absPath)
-	if err != nil {
-		return err
-	}
-
+// UntagFiles untags multiple files with the given tags in a single transaction.
+func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
 	tx, err := s.Store.DB.Begin()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() // Rollback on error
+	defer tx.Rollback()
 
-	// Ensure content and location records exist
-	if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
+	// Pre-fetch tag IDs
+	tagIDs := make([]int64, 0, len(tags))
+	for _, tagName := range tags {
+		parsedTag := query.ParseTag(tagName)
+		tagID, err := s.Store.GetTagID(parsedTag.Key, parsedTag.Value)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				continue // Tag doesn't exist, so we can't untag it anyway.
+			}
+			return err // A real DB error.
+		}
+		tagIDs = append(tagIDs, tagID)
+	}
+
+	for _, filePath := range filePaths {
+		absPath, err := resolvePath(filePath)
+		if err != nil {
+			progressCb(filePath, err)
+			continue
+		}
+
+		hash, err := s.Store.FindContentHashByPath(absPath)
+		if err != nil {
+			// This is a DB error, fail the batch.
+			return err
+		}
+		if hash == "" {
+			progressCb(filePath, fmt.Errorf("file not found in database"))
+			continue
+		}
+
+		for _, tagID := range tagIDs {
+			if err := s.Store.DisassociateTag(tx, hash, tagID); err != nil {
+				return err // DB error
+			}
+		}
+		progressCb(filePath, nil) // Success
+	}
+
+	return tx.Commit()
+}
+
+// SetTagsForFiles sets the tags for multiple files, replacing any existing tags.
+// If the tags slice is empty, all tags are removed. This is performed in a
+// single transaction.
+func (s *Service) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+	tx, err := s.Store.DB.Begin()
+	if err != nil {
 		return err
 	}
-	ext := filepath.Ext(absPath)
-	if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-		return err
-	}
+	defer tx.Rollback()
 
-	// Clear all existing tags for this content
-	if err := s.Store.ClearTagsForContent(tx, hash); err != nil {
-		return err
-	}
-
-	// Add the new tags
+	// Pre-parse and get tag IDs to avoid doing it in the loop
+	tagIDs := make([]int64, 0, len(tags))
 	for _, tagName := range tags {
 		parsedTag := query.ParseTag(tagName)
 		tagID, err := s.Store.GetOrCreateTag(tx, parsedTag.Key, parsedTag.Value)
 		if err != nil {
-			return err
+			// This is a DB error, so we fail the whole batch.
+			return fmt.Errorf("could not get or create tag '%s': %w", tagName, err)
+		}
+		tagIDs = append(tagIDs, tagID)
+	}
+
+	for _, filePath := range filePaths {
+		absPath, err := resolvePath(filePath)
+		if err != nil {
+			progressCb(filePath, err)
+			continue
 		}
 
-		if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
+		info, err := os.Stat(absPath)
+		if err != nil {
+			progressCb(filePath, err)
+			continue
+		}
+
+		hash, err := hashing.HashFile(absPath)
+		if err != nil {
+			progressCb(filePath, err)
+			continue
+		}
+
+		// DB operations start here
+		if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
 			return err
 		}
+		ext := filepath.Ext(absPath)
+		if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+			return err
+		}
+		if err := s.Store.ClearTagsForContent(tx, hash); err != nil {
+			return err
+		}
+		for _, tagID := range tagIDs {
+			if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
+				return err
+			}
+		}
+		progressCb(filePath, nil) // Success
 	}
 
 	return tx.Commit()

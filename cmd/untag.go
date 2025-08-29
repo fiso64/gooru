@@ -62,13 +62,25 @@ Multi-file mode (for complex file lists):
 			return nil
 		}
 
-		for _, filePath := range files {
-			if err := svc.UntagFile(filePath, tags); err != nil {
+		var filesFailed int
+		progressCb := func(filePath string, err error) {
+			if err != nil {
+				filesFailed++
 				fmt.Printf("Failed to untag '%s': %v\n", filePath, err)
-				continue // Continue with the next file
+			} else {
+				fmt.Printf("Untagged '%s' with: %s\n", filePath, strings.Join(tags, ", "))
 			}
-			fmt.Printf("Untagged '%s' with: %s\n", filePath, strings.Join(tags, ", "))
 		}
+
+		if err := svc.UntagFiles(files, tags, progressCb); err != nil {
+			// This will be a DB error that caused a rollback.
+			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+		}
+
+		if filesFailed > 0 {
+			fmt.Printf("\nWarning: %d file(s) failed to process.\n", filesFailed)
+		}
+
 		return nil
 	},
 }
