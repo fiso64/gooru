@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var multiFileSetTags bool
+var (
+	multiFileSetTags    bool
+	setTagsShowProgress bool
+)
 
 // settagsCmd represents the settags command
 var settagsCmd = &cobra.Command{
@@ -65,7 +68,7 @@ Multi-file mode (for complex file lists):
 			if err != nil {
 				filesFailed++
 				fmt.Printf("Failed to set tags for '%s': %v\n", filePath, err)
-			} else {
+			} else if setTagsShowProgress {
 				if len(tags) > 0 {
 					fmt.Printf("Set tags for '%s' to: %s\n", filePath, strings.Join(tags, ", "))
 				} else {
@@ -90,4 +93,5 @@ Multi-file mode (for complex file lists):
 func init() {
 	rootCmd.AddCommand(settagsCmd)
 	settagsCmd.Flags().BoolVarP(&multiFileSetTags, "multi", "m", false, "Enable multi-file settags mode")
+	settagsCmd.Flags().BoolVarP(&setTagsShowProgress, "progress", "p", false, "Show progress for each file processed")
 }

@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var multiFileTag bool
+var (
+	multiFileTag    bool
+	tagShowProgress bool
+)
 
 // tagCmd represents the tag command
 var tagCmd = &cobra.Command{
@@ -67,7 +70,7 @@ Multi-file mode (for complex file lists):
 			if err != nil {
 				filesFailed++
 				fmt.Printf("Failed to tag '%s': %v\n", filePath, err)
-			} else {
+			} else if tagShowProgress {
 				fmt.Printf("Tagged '%s' with: %s\n", filePath, strings.Join(tags, ", "))
 			}
 		}
@@ -88,4 +91,5 @@ Multi-file mode (for complex file lists):
 func init() {
 	rootCmd.AddCommand(tagCmd)
 	tagCmd.Flags().BoolVarP(&multiFileTag, "multi", "m", false, "Enable multi-file tagging mode")
+	tagCmd.Flags().BoolVarP(&tagShowProgress, "progress", "p", false, "Show progress for each file processed")
 }

@@ -77,22 +77,20 @@ func (s *Service) TagFiles(filePaths []string, tags []string, progressCb func(fi
 			continue
 		}
 
-		_ = hash
-		_ = info
-
-		// // From here on, errors are DB-related and should cause a rollback.
-		// if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
-		// 	return err
-		// }
-		// ext := filepath.Ext(absPath)
-		// if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
-		// 	return err
-		// }
+		// From here on, errors are DB-related and should cause a rollback.
+		if err := s.Store.GetOrCreateContent(tx, hash); err != nil {
+			return err
+		}
+		ext := filepath.Ext(absPath)
+		if err := s.Store.UpdateContentLocation(tx, hash, absPath, info.Size(), info.ModTime().Unix(), ext); err != nil {
+			return err
+		}
 		// for _, tagID := range tagIDs {
 		// 	if err := s.Store.AssociateTag(tx, hash, tagID); err != nil {
 		// 		return err
 		// 	}
 		// }
+
 		progressCb(filePath, nil) // Success for this file
 	}
 

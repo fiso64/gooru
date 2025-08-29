@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var multiFileUntag bool
+var (
+	multiFileUntag    bool
+	untagShowProgress bool
+)
 
 // untagCmd represents the untag command
 var untagCmd = &cobra.Command{
@@ -67,7 +70,7 @@ Multi-file mode (for complex file lists):
 			if err != nil {
 				filesFailed++
 				fmt.Printf("Failed to untag '%s': %v\n", filePath, err)
-			} else {
+			} else if untagShowProgress {
 				fmt.Printf("Untagged '%s' with: %s\n", filePath, strings.Join(tags, ", "))
 			}
 		}
@@ -88,4 +91,5 @@ Multi-file mode (for complex file lists):
 func init() {
 	rootCmd.AddCommand(untagCmd)
 	untagCmd.Flags().BoolVarP(&multiFileUntag, "multi", "m", false, "Enable multi-file untagging mode")
+	untagCmd.Flags().BoolVarP(&untagShowProgress, "progress", "p", false, "Show progress for each file processed")
 }
