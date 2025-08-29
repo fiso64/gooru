@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ func (s *Service) TagFiles(filePaths []string, tags []string, progressCb func(fi
 	return s.tagOperation(filePaths, tags, progressCb, false)
 }
 
-// UntagFiles untags multiple files with the given tags using a high-performance batching strategy.
+// UntagFiles untags multiple files with the given tags, with safety checks.
 func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
 	if len(tags) == 0 {
 		// Nothing to do, report success for all files found.
@@ -61,10 +62,50 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 		originalPathMap[absPath] = fp
 	}
 
-	// 2. Fetch data from DB in batches *before* the transaction.
-	pathHash, err := s.Store.BatchFindContentHashesByPaths(absPaths)
+	// 2. Fetch existing data from DB and file system.
+	dbLocations, err := s.Store.BatchGetLocationsByPaths(absPaths)
 	if err != nil {
-		return fmt.Errorf("failed to look up file hashes: %w", err)
+		return fmt.Errorf("failed to look up file locations: %w", err)
+	}
+
+	validHashes := make(map[string]struct{})
+	processedPaths := make(map[string]bool)
+
+	for _, absPath := range absPaths {
+		originalPath := originalPathMap[absPath]
+		fsInfo, err := os.Stat(absPath)
+		if err != nil {
+			progressCb(originalPath, err)
+			processedPaths[originalPath] = true
+			continue
+		}
+
+		dbInfo, existsInDb := dbLocations[absPath]
+		if !existsInDb {
+			progressCb(originalPath, fmt.Errorf("file not found in database"))
+			processedPaths[originalPath] = true
+			continue
+		}
+
+		if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+			progressCb(originalPath, fmt.Errorf("file has been modified; please re-tag it first"))
+			processedPaths[originalPath] = true
+			continue
+		}
+
+		// If all checks pass, this hash is valid for untagging.
+		validHashes[dbInfo.Hash] = struct{}{}
+	}
+
+	// If no valid files were found, we are done.
+	if len(validHashes) == 0 {
+		// Report success for any file paths that didn't have errors but were not processed (e.g., empty input)
+		for _, fp := range filePaths {
+			if !processedPaths[fp] {
+				progressCb(fp, nil)
+			}
+		}
+		return nil
 	}
 
 	// 3. Start transaction for the write operations.
@@ -79,16 +120,14 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
 	}
-	// We use BatchGetOrCreateTags which safely handles non-existent tags.
-	// We only care about the returned map of existing/newly created tags.
 	tagIDMap, err := s.Store.BatchGetOrCreateTags(tx, parsedTags)
 	if err != nil {
 		return fmt.Errorf("failed to look up tags: %w", err)
 	}
 
 	// 3b. Prepare the batch disassociation.
-	pairsToDisassociate := make([]database.ContentTagPair, 0, len(pathHash)*len(tags))
-	for _, hash := range pathHash {
+	pairsToDisassociate := make([]database.ContentTagPair, 0, len(validHashes)*len(tags))
+	for hash := range validHashes {
 		for _, tagStr := range tags {
 			if tagID, ok := tagIDMap[tagStr]; ok {
 				pairsToDisassociate = append(pairsToDisassociate, database.ContentTagPair{
@@ -109,12 +148,9 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 		return err
 	}
 
-	// 5. Report success/failure via callback.
-	for _, absPath := range absPaths {
-		originalPath := originalPathMap[absPath]
-		if _, ok := pathHash[absPath]; !ok {
-			progressCb(originalPath, fmt.Errorf("file not found in database"))
-		} else {
+	// 5. Report success for all files that were not processed with an error.
+	for _, originalPath := range filePaths {
+		if !processedPaths[originalPath] {
 			progressCb(originalPath, nil)
 		}
 	}
@@ -252,22 +288,38 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 	return nil
 }
 
-// GetTagsForFile retrieves all tags for a given file.
+// GetTagsForFile retrieves all tags for a given file, with a safety check.
 func (s *Service) GetTagsForFile(filePath string) ([]string, error) {
 	absPath, err := resolvePath(filePath)
 	if err != nil {
 		return nil, err
 	}
-	hash, err := s.Store.FindContentHashByPath(absPath)
+
+	// Safety Check
+	fsInfo, err := os.Stat(absPath)
 	if err != nil {
+		// If file doesn't exist on disk, it can't have tags.
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
 		return nil, err
 	}
-	if hash == "" {
-		// Return empty slice if file is not in DB, it's not an error.
+
+	dbInfo, err := s.Store.GetLocationByPath(absPath)
+	if err != nil {
+		// If not in DB, it has no tags.
+		if err == sql.ErrNoRows {
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("database lookup failed: %w", err)
+	}
+
+	// If metadata doesn't match, treat as not in DB.
+	if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
 		return []string{}, nil
 	}
 
-	return s.Store.GetTagsForContent(hash)
+	return s.Store.GetTagsForContent(dbInfo.Hash)
 }
 
 // ListAllFiles lists all files known to the system.
