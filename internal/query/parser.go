@@ -62,7 +62,33 @@ var (
 	reAnd = regexp.MustCompile(`(?i)\s+and\s+`)
 	// case-insensitive 'not ' becomes '-'
 	reNot = regexp.MustCompile(`(?i)\bnot\s+`)
+	// virtual type tag (e.g. type:img)
+	reType = regexp.MustCompile(`\btype:(img|vid)\b`)
 )
+
+var virtualTypeTags = map[string][]string{
+	"img": {"jpg", "jpeg", "png", "gif", "webp", ".ico", "heic", "heif", "bmp", "tiff", "raw", "cr2", "nef", "arw", "orf"},
+	"vid": {"mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "mpeg", "mpg"},
+}
+
+// expandVirtualTypeTags replaces `type:img` or `type:vid` with an OR-group of corresponding extensions.
+func expandVirtualTypeTags(expression string) string {
+	return reType.ReplaceAllStringFunc(expression, func(match string) string {
+		parts := strings.SplitN(match, ":", 2)
+		if len(parts) < 2 {
+			return match // Should not happen with this regex
+		}
+		typeName := parts[1]
+		if extensions, ok := virtualTypeTags[typeName]; ok {
+			var expanded []string
+			for _, ext := range extensions {
+				expanded = append(expanded, "ext:"+ext)
+			}
+			return "(" + strings.Join(expanded, " | ") + ")"
+		}
+		return match
+	})
+}
 
 // Parse takes a query expression string and returns the parsed AST.
 func Parse(expression string) (*Expression, error) {
@@ -73,8 +99,12 @@ func Parse(expression string) (*Expression, error) {
 	// OR:  |
 	// NOT: -
 
+	// 1. Expand virtual type tags like `type:img` into `(ext:jpg | ext:png ...)`.
+	s := expandVirtualTypeTags(expression)
+
+	// 2. Normalize user-friendly operators.
 	// Normalize OR
-	s := reOr.ReplaceAllString(expression, " | ")
+	s = reOr.ReplaceAllString(s, " | ")
 
 	// Normalize AND
 	s = reAnd.ReplaceAllString(s, " ")
