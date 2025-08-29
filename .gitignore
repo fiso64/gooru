@@ -3,3 +3,4 @@ go.sum
 test*.txt
 *.exe
 install.bat
+test.bat
