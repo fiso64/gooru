@@ -1,7 +1,6 @@
 package service
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,54 +38,88 @@ func (s *Service) TagFiles(filePaths []string, tags []string, progressCb func(fi
 	return s.tagOperation(filePaths, tags, progressCb, false)
 }
 
-// UntagFiles untags multiple files with the given tags in a single transaction.
+// UntagFiles untags multiple files with the given tags using a high-performance batching strategy.
 func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+	if len(tags) == 0 {
+		// Nothing to do, report success for all files found.
+		for _, fp := range filePaths {
+			progressCb(fp, nil)
+		}
+		return nil
+	}
+
+	// 1. Pre-process to gather file paths.
+	absPaths := make([]string, 0, len(filePaths))
+	originalPathMap := make(map[string]string, len(filePaths))
+	for _, fp := range filePaths {
+		absPath, err := resolvePath(fp)
+		if err != nil {
+			progressCb(fp, err)
+			continue
+		}
+		absPaths = append(absPaths, absPath)
+		originalPathMap[absPath] = fp
+	}
+
+	// 2. Fetch data from DB in batches *before* the transaction.
+	pathHash, err := s.Store.BatchFindContentHashesByPaths(absPaths)
+	if err != nil {
+		return fmt.Errorf("failed to look up file hashes: %w", err)
+	}
+
+	// 3. Start transaction for the write operations.
 	tx, err := s.Store.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	// Pre-fetch tag IDs
-	tagIDs := make([]int64, 0, len(tags))
-	for _, tagName := range tags {
-		parsedTag := query.ParseTag(tagName)
-		tagID, err := s.Store.GetTagID(parsedTag.Key, parsedTag.Value)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				continue // Tag doesn't exist, so we can't untag it anyway.
-			}
-			return err // A real DB error.
-		}
-		tagIDs = append(tagIDs, tagID)
+	// 3a. Get all necessary tag IDs.
+	parsedTags := make([]types.ParsedTag, len(tags))
+	for i, t := range tags {
+		parsedTags[i] = query.ParseTag(t)
+	}
+	// We use BatchGetOrCreateTags which safely handles non-existent tags.
+	// We only care about the returned map of existing/newly created tags.
+	tagIDMap, err := s.Store.BatchGetOrCreateTags(tx, parsedTags)
+	if err != nil {
+		return fmt.Errorf("failed to look up tags: %w", err)
 	}
 
-	for _, filePath := range filePaths {
-		absPath, err := resolvePath(filePath)
-		if err != nil {
-			progressCb(filePath, err)
-			continue
-		}
-
-		hash, err := s.Store.FindContentHashByPath(absPath)
-		if err != nil {
-			// This is a DB error, fail the batch.
-			return err
-		}
-		if hash == "" {
-			progressCb(filePath, fmt.Errorf("file not found in database"))
-			continue
-		}
-
-		for _, tagID := range tagIDs {
-			if err := s.Store.DisassociateTag(tx, hash, tagID); err != nil {
-				return err // DB error
+	// 3b. Prepare the batch disassociation.
+	pairsToDisassociate := make([]database.ContentTagPair, 0, len(pathHash)*len(tags))
+	for _, hash := range pathHash {
+		for _, tagStr := range tags {
+			if tagID, ok := tagIDMap[tagStr]; ok {
+				pairsToDisassociate = append(pairsToDisassociate, database.ContentTagPair{
+					ContentHash: hash,
+					TagID:       tagID,
+				})
 			}
 		}
-		progressCb(filePath, nil) // Success
 	}
 
-	return tx.Commit()
+	// 3c. Execute the batch delete.
+	if err := s.Store.BatchDisassociateTags(tx, pairsToDisassociate); err != nil {
+		return fmt.Errorf("failed to batch disassociate tags: %w", err)
+	}
+
+	// 4. Commit.
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// 5. Report success/failure via callback.
+	for _, absPath := range absPaths {
+		originalPath := originalPathMap[absPath]
+		if _, ok := pathHash[absPath]; !ok {
+			progressCb(originalPath, fmt.Errorf("file not found in database"))
+		} else {
+			progressCb(originalPath, nil)
+		}
+	}
+
+	return nil
 }
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.

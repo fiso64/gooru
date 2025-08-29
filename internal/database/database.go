@@ -887,3 +887,76 @@ func (s *Store) BatchAssociateTags(q Querier, pairs []ContentTagPair) error {
 	}
 	return nil
 }
+
+func (s *Store) BatchFindContentHashesByPaths(paths []string) (map[string]string, error) {
+	if len(paths) == 0 {
+		return make(map[string]string), nil
+	}
+	pathMap := make(map[string]string)
+	const columns = 1
+	batchSize := maxVars / columns
+
+	for i := 0; i < len(paths); i += batchSize {
+		end := i + batchSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+		batch := paths[i:end]
+
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		query := "SELECT path, content_hash FROM locations WHERE path IN (" + placeholders + ")"
+		args := make([]interface{}, len(batch))
+		for j, p := range batch {
+			args[j] = p
+		}
+
+		rows, err := s.DB.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var path, hash string
+			if err := rows.Scan(&path, &hash); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			pathMap[path] = hash
+		}
+		rows.Close()
+	}
+	return pathMap, nil
+}
+
+func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+	const columns = 2
+	batchSize := maxVars / columns
+
+	for i := 0; i < len(pairs); i += batchSize {
+		end := i + batchSize
+		if end > len(pairs) {
+			end = len(pairs)
+		}
+		batch := pairs[i:end]
+
+		// Using row values `(content_hash, tag_id) IN (...)` is highly efficient.
+		placeholders := strings.Repeat("(?,?),", len(batch)-1) + "(?,?)"
+		query := "DELETE FROM content_tags WHERE (content_hash, tag_id) IN (VALUES " + placeholders + ")"
+
+		args := make([]interface{}, 0, len(batch)*2)
+		for _, p := range batch {
+			args = append(args, p.ContentHash, p.TagID)
+		}
+
+		if _, err := q.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+
+
