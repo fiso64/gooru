@@ -109,7 +109,15 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 	// Add other virtual tags like 'size', 'path', etc. here in the future.
 	default:
 		// Default behavior for user-defined tags
-		b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ?`)
-		b.args = append(b.args, parsed.Key, parsed.Value)
+		if parsed.Value == "" {
+			// Query for a simple tag ("reaction") or all tags under a key ("reaction:").
+			// This matches all tags where the key is "reaction", regardless of value.
+			b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ?`)
+			b.args = append(b.args, parsed.Key)
+		} else {
+			// Query for a specific key:value pair.
+			b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ?`)
+			b.args = append(b.args, parsed.Key, parsed.Value)
+		}
 	}
 }

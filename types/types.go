@@ -1,7 +1,7 @@
 package types
 
 // ParsedTag represents a tag split into its key and value.
-// For simple tags, Key is an empty string.
+// For simple tags, Value is an empty string.
 type ParsedTag struct {
 	Key   string
 	Value string

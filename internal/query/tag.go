@@ -6,14 +6,14 @@ import (
 )
 
 // ParseTag parses a tag string (e.g., "key:value" or "value") into a ParsedTag.
-// A tag is considered key-value if it contains a non-empty key before the first colon.
-// Otherwise, it's a simple tag where the whole string is the value.
+// If a colon is present, it's a key:value pair.
+// Otherwise, the entire string is the key, and the value is empty.
 func ParseTag(tag string) types.ParsedTag {
 	parts := strings.SplitN(tag, ":", 2)
-	// A key-value tag must have a non-empty key.
-	if len(parts) == 2 && parts[0] != "" {
+	if len(parts) == 2 {
+		// Handles "key:value" and "key:" (value is empty string)
 		return types.ParsedTag{Key: parts[0], Value: parts[1]}
 	}
-	// Otherwise, it's a simple tag, and the whole string is the value.
-	return types.ParsedTag{Key: "", Value: tag}
+	// Handles "key" (simple tag)
+	return types.ParsedTag{Key: tag, Value: ""}
 }

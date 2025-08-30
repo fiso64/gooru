@@ -135,7 +135,7 @@ func createTables(db *sql.DB) error {
 			SET tags_cache = (
 				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
 				FROM (
-					SELECT CASE WHEN t.key = '' THEN t.value ELSE t.key || ':' || t.value END AS tag_str
+					SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str
 					FROM tags t
 					JOIN content_tags ct ON t.id = ct.tag_id
 					WHERE ct.content_hash = NEW.content_hash
@@ -152,7 +152,7 @@ func createTables(db *sql.DB) error {
 			SET tags_cache = (
 				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
 				FROM (
-					SELECT CASE WHEN t.key = '' THEN t.value ELSE t.key || ':' || t.value END AS tag_str
+					SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str
 					FROM tags t
 					JOIN content_tags ct ON t.id = ct.tag_id
 					WHERE ct.content_hash = NEW.content_hash
@@ -169,7 +169,7 @@ func createTables(db *sql.DB) error {
 			SET tags_cache = (
 				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
 				FROM (
-					SELECT CASE WHEN t.key = '' THEN t.value ELSE t.key || ':' || t.value END AS tag_str
+					SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str
 					FROM tags t
 					JOIN content_tags ct ON t.id = ct.tag_id
 					WHERE ct.content_hash = OLD.content_hash
@@ -328,8 +328,8 @@ func (s *Store) GetTagsForContent(hash string) ([]string, error) {
 		if err := rows.Scan(&key, &value); err != nil {
 			return nil, err
 		}
-		if key == "" {
-			tags = append(tags, value)
+		if value == "" {
+			tags = append(tags, key)
 		} else {
 			tags = append(tags, key+":"+value)
 		}
@@ -788,8 +788,8 @@ func (s *Store) GetAllTags() ([]string, error) {
 		if err := rows.Scan(&key, &value); err != nil {
 			return nil, err
 		}
-		if key == "" {
-			tags = append(tags, value)
+		if value == "" {
+			tags = append(tags, key)
 		} else {
 			tags = append(tags, key+":"+value)
 		}
@@ -801,7 +801,7 @@ func (s *Store) GetAllTags() ([]string, error) {
 func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 	query := `
 		SELECT
-			CASE WHEN t.key = '' THEN t.value ELSE t.key || ':' || t.value END AS tag_str,
+			CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str,
 			COUNT(ct.content_hash) as usage_count
 		FROM
 			tags t
@@ -859,8 +859,10 @@ func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (m
 				rows.Close()
 				return nil, err
 			}
-			tagStr := value
-			if key != "" {
+			var tagStr string
+			if value == "" {
+				tagStr = key
+			} else {
 				tagStr = key + ":" + value
 			}
 			tagIDMap[tagStr] = id
@@ -870,10 +872,13 @@ func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (m
 
 	// 2. Insert any tags that weren't found
 	for _, t := range parsedTags {
-		tagStr := t.Value
-		if t.Key != "" {
+		var tagStr string
+		if t.Value == "" {
+			tagStr = t.Key
+		} else {
 			tagStr = t.Key + ":" + t.Value
 		}
+
 		if _, exists := tagIDMap[tagStr]; !exists {
 			res, err := q.Exec("INSERT OR IGNORE INTO tags (key, value) VALUES (?, ?)", t.Key, t.Value)
 			if err != nil {
