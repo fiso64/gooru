@@ -12,14 +12,14 @@ import (
 )
 
 var (
-	multiFileTag      bool
+	multiInputTag     bool
 	tagShowProgress   bool
 	tagExpressionMode bool
 )
 
 // tagCmd represents the tag command
 var tagCmd = &cobra.Command{
-	Use:   "tag <file/dir/glob> <tag1> [tag2...]",
+	Use:   "tag <source> <tag1> [tag2...]",
 	Short: "Tags files with one or more tags.",
 	Long: `Tags files with the given tags.
 The source can be file paths, directories, glob patterns, or a query expression.
@@ -28,8 +28,9 @@ Default mode:
   gooru tag <file/dir/glob> <tag1> [tag2...]
   Example: gooru tag "photos/*.jpg" vacation summer
 
-Multi-file mode (for complex file lists):
+Multi-input mode (for complex file/expression lists):
   gooru tag -m /path/one.txt /path/two.png -- tag1 tag2
+  gooru tag -e -m tag1 and tag2 -- newtag
 
 Expression mode (tag files matching a query):
   gooru tag -e "photo -vacation" needs_review`,
@@ -37,7 +38,7 @@ Expression mode (tag files matching a query):
 		var fileSpecs []string
 		var tags []string
 
-		if multiFileTag {
+		if multiInputTag {
 			separatorIndex := cmd.Flags().ArgsLenAtDash()
 
 			if separatorIndex == -1 {
@@ -54,7 +55,7 @@ Expression mode (tag files matching a query):
 			tags = args[separatorIndex:]
 		} else {
 			if len(args) < 2 {
-				return errors.New("usage: gooru tag <file/dir/glob> <tag1> [tag2...]")
+				return errors.New("usage: gooru tag <source> <tag1> [tag2...]")
 			}
 			fileSpecs = args[0:1]
 			tags = args[1:]
@@ -121,7 +122,7 @@ Expression mode (tag files matching a query):
 
 func init() {
 	rootCmd.AddCommand(tagCmd)
-	tagCmd.Flags().BoolVarP(&multiFileTag, "multi", "m", false, "Enable multi-file tagging mode")
+	tagCmd.Flags().BoolVarP(&multiInputTag, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
 	tagCmd.Flags().BoolVarP(&tagShowProgress, "progress", "p", false, "Show progress for each file processed")
 	tagCmd.Flags().BoolVarP(&tagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 }

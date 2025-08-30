@@ -12,14 +12,14 @@ import (
 )
 
 var (
-	multiFileSetTags      bool
+	multiInputSetTags     bool
 	setTagsShowProgress   bool
 	setTagsExpressionMode bool
 )
 
 // settagsCmd represents the settags command
 var settagsCmd = &cobra.Command{
-	Use:   "settags <file/dir/glob> [tag1] [tag2...]",
+	Use:   "settags <source> [tag1] [tag2...]",
 	Short: "Sets the tags for files, replacing all existing ones.",
 	Long: `Sets the tags for files, replacing any existing tags.
 The source can be file paths, directories, glob patterns, or a query expression.
@@ -28,8 +28,9 @@ If no tags are provided, all existing tags will be removed from the matching fil
 Default mode:
   gooru settags "archive/*.zip" archived
 
-Multi-file mode (for complex file lists):
+Multi-input mode (for complex file/expression lists):
   gooru settags -m /path/one.txt /path/two.png -- tag1 tag2
+  gooru settags -e -m tag1 and tag2 -- newtag
 
 Expression mode (set tags for files matching a query):
   gooru settags -e "project:alpha" archived version:1.0
@@ -38,7 +39,7 @@ Expression mode (set tags for files matching a query):
 		var fileSpecs []string
 		var tags []string
 
-		if multiFileSetTags {
+		if multiInputSetTags {
 			separatorIndex := cmd.Flags().ArgsLenAtDash()
 
 			if separatorIndex == -1 {
@@ -52,7 +53,7 @@ Expression mode (set tags for files matching a query):
 			tags = args[separatorIndex:]
 		} else {
 			if len(args) < 1 {
-				return errors.New("usage: gooru settags <file/dir/glob> [tag1] [tag2...]")
+				return errors.New("usage: gooru settags <source> [tag1] [tag2...]")
 			}
 			fileSpecs = args[0:1]
 			tags = args[1:]
@@ -122,7 +123,7 @@ Expression mode (set tags for files matching a query):
 
 func init() {
 	rootCmd.AddCommand(settagsCmd)
-	settagsCmd.Flags().BoolVarP(&multiFileSetTags, "multi", "m", false, "Enable multi-file settags mode")
+	settagsCmd.Flags().BoolVarP(&multiInputSetTags, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
 	settagsCmd.Flags().BoolVarP(&setTagsShowProgress, "progress", "p", false, "Show progress for each file processed")
 	settagsCmd.Flags().BoolVarP(&setTagsExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 }

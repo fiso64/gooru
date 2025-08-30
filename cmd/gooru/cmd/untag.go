@@ -12,14 +12,14 @@ import (
 )
 
 var (
-	multiFileUntag      bool
+	multiInputUntag     bool
 	untagShowProgress   bool
 	untagExpressionMode bool
 )
 
 // untagCmd represents the untag command
 var untagCmd = &cobra.Command{
-	Use:   "untag <file/dir/glob> [tag1] [tag2...]",
+	Use:   "untag <source> [tag1] [tag2...]",
 	Short: "Removes tags from files. If no tags are given, all tags are removed.",
 	Long: `Removes one or more tags from files.
 The source can be file paths, directories, glob patterns, or a query expression.
@@ -29,9 +29,9 @@ Default mode:
   gooru untag "tmp/*" temporary
   gooru untag "archive.zip"  # Removes all tags from archive.zip
 
-Multi-file mode (for complex file lists):
+Multi-input mode (for complex file/expression lists):
   gooru untag -m file1.txt file2.png -- tag1 tag2
-  gooru untag -m file1.txt file2.png --         # Removes all tags
+  gooru untag -e -m tag1 and tag2 -- oldtag
 
 Expression mode (untag files matching a query):
   gooru untag -e "temporary" temporary
@@ -40,7 +40,7 @@ Expression mode (untag files matching a query):
 		var fileSpecs []string
 		var tags []string
 
-		if multiFileUntag {
+		if multiInputUntag {
 			separatorIndex := cmd.Flags().ArgsLenAtDash()
 
 			if separatorIndex == -1 {
@@ -54,7 +54,7 @@ Expression mode (untag files matching a query):
 			tags = args[separatorIndex:]
 		} else {
 			if len(args) < 1 {
-				return errors.New("usage: gooru untag <file/dir/glob> [tag1]...")
+				return errors.New("usage: gooru untag <source> [tag1]...")
 			}
 			fileSpecs = args[0:1]
 			tags = args[1:]
@@ -133,7 +133,7 @@ Expression mode (untag files matching a query):
 
 func init() {
 	rootCmd.AddCommand(untagCmd)
-	untagCmd.Flags().BoolVarP(&multiFileUntag, "multi", "m", false, "Enable multi-file untagging mode")
+	untagCmd.Flags().BoolVarP(&multiInputUntag, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
 	untagCmd.Flags().BoolVarP(&untagShowProgress, "progress", "p", false, "Show progress for each file processed")
 	untagCmd.Flags().BoolVarP(&untagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 }
