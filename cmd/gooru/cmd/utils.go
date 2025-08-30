@@ -47,9 +47,12 @@ func expandFileArgs(args []string) ([]string, error) {
 func processPath(path string, seen map[string]struct{}, files *[]string) error {
 	info, err := os.Stat(path)
 	if err != nil {
-		// File might not exist. For tagging, this is a valid case (the service layer
-		// will return an os.Stat error). We can ignore the error here.
-		return nil
+		if os.IsNotExist(err) {
+			// For tagging, a non-existent file is not an error at this expansion stage.
+			return nil
+		}
+		// For other errors (e.g., permission denied), they should be propagated.
+		return err
 	}
 
 	if info.IsDir() {

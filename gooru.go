@@ -40,13 +40,19 @@ func (c *Client) Close() error {
 // resolvePath canonicalizes a path. If it doesn't exist, it returns the
 // absolute path of the input to allow for clean "file not found" errors later.
 func resolvePath(filePath string) (string, error) {
-	// If a file doesn't exist, os.Lstat is the first to tell us. We don't
-	// try to resolve symlinks in this case, just return its absolute path.
-	if _, err := os.Lstat(filePath); os.IsNotExist(err) {
-		return filepath.Abs(filePath)
+	// First, get the absolute path. This can fail if the working directory is invalid.
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return "", err
 	}
 
-	return filepath.Abs(filePath)
+	// Now, check for filesystem errors other than NotExist (e.g., permission denied).
+	// We ignore NotExist because the service layer is equipped to handle it.
+	if _, err := os.Lstat(filePath); err != nil && !os.IsNotExist(err) {
+		return "", err // Return the actual filesystem error.
+	}
+
+	return absPath, nil
 }
 
 // TagFiles adds tags to multiple files using a high-performance batching strategy.
