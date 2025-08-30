@@ -12,16 +12,18 @@ import (
 )
 
 var (
-	multiFileUntag    bool
-	untagShowProgress bool
+	multiFileUntag      bool
+	untagShowProgress   bool
+	untagExpressionMode bool
 )
 
 // untagCmd represents the untag command
 var untagCmd = &cobra.Command{
 	Use:   "untag <file/dir/glob> [tag1] [tag2...]",
 	Short: "Removes tags from files. If no tags are given, all tags are removed.",
-	Long: `Removes one or more tags from files. If no tags are provided, it removes ALL tags from the files, acting like 'settags' with no tags.
-File arguments can be paths, directories, or glob patterns.
+	Long: `Removes one or more tags from files.
+The source can be file paths, directories, glob patterns, or a query expression.
+If no tags are provided, it removes ALL tags from the matching files.
 
 Default mode:
   gooru untag "tmp/*" temporary
@@ -29,7 +31,11 @@ Default mode:
 
 Multi-file mode (for complex file lists):
   gooru untag -m file1.txt file2.png -- tag1 tag2
-  gooru untag -m file1.txt file2.png --         # Removes all tags`,
+  gooru untag -m file1.txt file2.png --         # Removes all tags
+
+Expression mode (untag files matching a query):
+  gooru untag -e "temporary" temporary
+  gooru untag -e "archived" # Removes all tags`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var fileSpecs []string
 		var tags []string
@@ -57,14 +63,31 @@ Multi-file mode (for complex file lists):
 		if verbose {
 			fmt.Fprintf(cmd.OutOrStderr(), "--- VERBOSE ---\n")
 			fmt.Fprintf(cmd.OutOrStderr(), "Command: untag\n")
-			fmt.Fprintf(cmd.OutOrStderr(), "Parsed File Specs: %v\n", fileSpecs)
+			if untagExpressionMode {
+				fmt.Fprintf(cmd.OutOrStderr(), "Parsed Expression: %v\n", fileSpecs)
+			} else {
+				fmt.Fprintf(cmd.OutOrStderr(), "Parsed File Specs: %v\n", fileSpecs)
+			}
 			fmt.Fprintf(cmd.OutOrStderr(), "Parsed Tags: %v\n", tags)
 			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
 		}
 
-		files, err := expandFileArgs(fileSpecs)
-		if err != nil {
-			return fmt.Errorf("error expanding file arguments: %w", err)
+		var files []string
+		var err error
+		if untagExpressionMode {
+			if len(fileSpecs) == 0 {
+				return errors.New("expression mode (-e) requires an expression")
+			}
+			expression := strings.Join(fileSpecs, " ")
+			files, err = svc.ListFilesByQuery(expression, verbose)
+			if err != nil {
+				return fmt.Errorf("error evaluating expression: %w", err)
+			}
+		} else {
+			files, err = expandFileArgs(fileSpecs)
+			if err != nil {
+				return fmt.Errorf("error expanding file arguments: %w", err)
+			}
 		}
 
 		if len(files) == 0 {
@@ -112,4 +135,5 @@ func init() {
 	rootCmd.AddCommand(untagCmd)
 	untagCmd.Flags().BoolVarP(&multiFileUntag, "multi", "m", false, "Enable multi-file untagging mode")
 	untagCmd.Flags().BoolVarP(&untagShowProgress, "progress", "p", false, "Show progress for each file processed")
+	untagCmd.Flags().BoolVarP(&untagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 }

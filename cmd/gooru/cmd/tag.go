@@ -12,22 +12,27 @@ import (
 )
 
 var (
-	multiFileTag    bool
-	tagShowProgress bool
+	multiFileTag      bool
+	tagShowProgress   bool
+	tagExpressionMode bool
 )
 
 // tagCmd represents the tag command
 var tagCmd = &cobra.Command{
 	Use:   "tag <file/dir/glob> <tag1> [tag2...]",
 	Short: "Tags files with one or more tags.",
-	Long: `Tags files with the given tags. File arguments can be paths, directories, or glob patterns.
+	Long: `Tags files with the given tags.
+The source can be file paths, directories, glob patterns, or a query expression.
 
 Default mode:
   gooru tag <file/dir/glob> <tag1> [tag2...]
   Example: gooru tag "photos/*.jpg" vacation summer
 
 Multi-file mode (for complex file lists):
-  gooru tag -m /path/one.txt /path/two.png -- tag1 tag2`,
+  gooru tag -m /path/one.txt /path/two.png -- tag1 tag2
+
+Expression mode (tag files matching a query):
+  gooru tag -e "photo -vacation" needs_review`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var fileSpecs []string
 		var tags []string
@@ -58,14 +63,32 @@ Multi-file mode (for complex file lists):
 		if verbose {
 			fmt.Fprintf(cmd.OutOrStderr(), "--- VERBOSE ---\n")
 			fmt.Fprintf(cmd.OutOrStderr(), "Command: tag\n")
-			fmt.Fprintf(cmd.OutOrStderr(), "Parsed File Specs: %v\n", fileSpecs)
+			if tagExpressionMode {
+				fmt.Fprintf(cmd.OutOrStderr(), "Parsed Expression: %v\n", fileSpecs)
+			} else {
+				fmt.Fprintf(cmd.OutOrStderr(), "Parsed File Specs: %v\n", fileSpecs)
+			}
 			fmt.Fprintf(cmd.OutOrStderr(), "Parsed Tags: %v\n", tags)
 			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
 		}
 
-		files, err := expandFileArgs(fileSpecs)
-		if err != nil {
-			return fmt.Errorf("error expanding file arguments: %w", err)
+		var files []string
+		var err error
+
+		if tagExpressionMode {
+			if len(fileSpecs) == 0 {
+				return errors.New("expression mode (-e) requires an expression")
+			}
+			expression := strings.Join(fileSpecs, " ")
+			files, err = svc.ListFilesByQuery(expression, verbose)
+			if err != nil {
+				return fmt.Errorf("error evaluating expression: %w", err)
+			}
+		} else {
+			files, err = expandFileArgs(fileSpecs)
+			if err != nil {
+				return fmt.Errorf("error expanding file arguments: %w", err)
+			}
 		}
 
 		if len(files) == 0 {
@@ -100,4 +123,5 @@ func init() {
 	rootCmd.AddCommand(tagCmd)
 	tagCmd.Flags().BoolVarP(&multiFileTag, "multi", "m", false, "Enable multi-file tagging mode")
 	tagCmd.Flags().BoolVarP(&tagShowProgress, "progress", "p", false, "Show progress for each file processed")
+	tagCmd.Flags().BoolVarP(&tagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 }
