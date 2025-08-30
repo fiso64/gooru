@@ -1244,5 +1244,70 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 	return files, rows.Err()
 }
 
+// BatchClearTagsByContentQueryTx removes all tag associations for content matching a subquery.
+func (s *Store) BatchClearTagsByContentQueryTx(q Querier, subQuery string, args []interface{}) (int64, error) {
+	query := fmt.Sprintf("DELETE FROM content_tags WHERE content_hash IN (%s)", subQuery)
+	res, err := q.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// BatchAssociateTagsByContentQueryTx associates tags with content matching a subquery.
+func (s *Store) BatchAssociateTagsByContentQueryTx(q Querier, subQuery string, args []interface{}, tagIDs []int64) (int64, error) {
+	if len(tagIDs) == 0 {
+		return 0, nil
+	}
+
+	var totalAffected int64
+	for _, tagID := range tagIDs {
+		// We use a subquery to select the hashes and a constant for the tag_id.
+		query := fmt.Sprintf(
+			"INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM (%s)",
+			subQuery,
+		)
+
+		finalArgs := make([]interface{}, 0, len(args)+1)
+		finalArgs = append(finalArgs, tagID)
+		finalArgs = append(finalArgs, args...)
+
+		res, err := q.Exec(query, finalArgs...)
+		if err != nil {
+			return 0, err
+		}
+		affected, _ := res.RowsAffected()
+		totalAffected += affected
+	}
+
+	return totalAffected, nil
+}
+
+// BatchDisassociateTagsByContentQueryTx disassociates tags from content matching a subquery.
+func (s *Store) BatchDisassociateTagsByContentQueryTx(q Querier, subQuery string, args []interface{}, tagIDs []int64) (int64, error) {
+	if len(tagIDs) == 0 {
+		return 0, nil
+	}
+
+	placeholders := strings.Repeat("?,", len(tagIDs)-1) + "?"
+	query := fmt.Sprintf(
+		"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
+		placeholders,
+		subQuery,
+	)
+
+	finalArgs := make([]interface{}, 0, len(args)+len(tagIDs))
+	for _, id := range tagIDs {
+		finalArgs = append(finalArgs, id)
+	}
+	finalArgs = append(finalArgs, args...)
+
+	res, err := q.Exec(query, finalArgs...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 
 

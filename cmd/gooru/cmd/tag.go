@@ -73,47 +73,44 @@ Expression mode (tag files matching a query):
 			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
 		}
 
-		var files []string
-		var err error
-
 		if tagExpressionMode {
 			if len(fileSpecs) == 0 {
 				return errors.New("expression mode (-e) requires an expression")
 			}
 			expression := strings.Join(fileSpecs, " ")
-			files, err = svc.ListFilesByQuery(expression, verbose)
+			affected, err := svc.TagFilesByQuery(expression, tags)
 			if err != nil {
-				return fmt.Errorf("error evaluating expression: %w", err)
+				return fmt.Errorf("a database error occurred: %w", err)
 			}
+			fmt.Printf("Added %d tag associations matching expression.\n", affected)
 		} else {
-			files, err = expandFileArgs(fileSpecs)
+			files, err := expandFileArgs(fileSpecs)
 			if err != nil {
 				return fmt.Errorf("error expanding file arguments: %w", err)
 			}
-		}
-
-		if len(files) == 0 {
-			fmt.Println("No files found to tag.")
-			return nil
-		}
-
-		var filesFailed int
-		progressCb := func(filePath string, err error) {
-			if err != nil {
-				filesFailed++
-				fmt.Printf("Failed to tag '%s': %v\n", filePath, err)
-			} else if tagShowProgress {
-				fmt.Printf("Tagged '%s' with: %s\n", filePath, strings.Join(tags, ", "))
+			if len(files) == 0 {
+				fmt.Println("No files found to tag.")
+				return nil
 			}
-		}
 
-		if err := svc.TagFiles(files, tags, progressCb); err != nil {
-			// This will be a DB error that caused a rollback.
-			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
-		}
+			var filesFailed int
+			progressCb := func(filePath string, err error) {
+				if err != nil {
+					filesFailed++
+					fmt.Printf("Failed to tag '%s': %v\n", filePath, err)
+				} else if tagShowProgress {
+					fmt.Printf("Tagged '%s' with: %s\n", filePath, strings.Join(tags, ", "))
+				}
+			}
 
-		if filesFailed > 0 {
-			fmt.Printf("\nWarning: %d file(s) failed to process.\n", filesFailed)
+			if err := svc.TagFiles(files, tags, progressCb); err != nil {
+				// This will be a DB error that caused a rollback.
+				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+			}
+
+			if filesFailed > 0 {
+				fmt.Printf("\nWarning: %d file(s) failed to process.\n", filesFailed)
+			}
 		}
 
 		return nil

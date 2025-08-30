@@ -71,50 +71,53 @@ Expression mode (set tags for files matching a query):
 			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
 		}
 
-		var files []string
-		var err error
 		if setTagsExpressionMode {
 			if len(fileSpecs) == 0 {
 				return errors.New("expression mode (-e) requires an expression")
 			}
 			expression := strings.Join(fileSpecs, " ")
-			files, err = svc.ListFilesByQuery(expression, verbose)
+			affected, err := svc.SetTagsForFilesByQuery(expression, tags)
 			if err != nil {
-				return fmt.Errorf("error evaluating expression: %w", err)
+				return fmt.Errorf("a database error occurred: %w", err)
+			}
+			if len(tags) > 0 {
+				fmt.Printf("Set tags for %d file(s) matching expression.\n", affected)
+			} else {
+				fmt.Printf("Removed all tags from %d file(s) matching expression.\n", affected)
 			}
 		} else {
-			files, err = expandFileArgs(fileSpecs)
+			files, err := expandFileArgs(fileSpecs)
 			if err != nil {
 				return fmt.Errorf("error expanding file arguments: %w", err)
 			}
-		}
 
-		if len(files) == 0 {
-			fmt.Println("No files found to set tags on.")
-			return nil
-		}
+			if len(files) == 0 {
+				fmt.Println("No files found to set tags on.")
+				return nil
+			}
 
-		var filesFailed int
-		progressCb := func(filePath string, err error) {
-			if err != nil {
-				filesFailed++
-				fmt.Printf("Failed to set tags for '%s': %v\n", filePath, err)
-			} else if setTagsShowProgress {
-				if len(tags) > 0 {
-					fmt.Printf("Set tags for '%s' to: %s\n", filePath, strings.Join(tags, ", "))
-				} else {
-					fmt.Printf("Removed all tags from '%s'\n", filePath)
+			var filesFailed int
+			progressCb := func(filePath string, err error) {
+				if err != nil {
+					filesFailed++
+					fmt.Printf("Failed to set tags for '%s': %v\n", filePath, err)
+				} else if setTagsShowProgress {
+					if len(tags) > 0 {
+						fmt.Printf("Set tags for '%s' to: %s\n", filePath, strings.Join(tags, ", "))
+					} else {
+						fmt.Printf("Removed all tags from '%s'\n", filePath)
+					}
 				}
 			}
-		}
 
-		if err := svc.SetTagsForFiles(files, tags, progressCb); err != nil {
-			// This will be a DB error that caused a rollback.
-			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
-		}
+			if err := svc.SetTagsForFiles(files, tags, progressCb); err != nil {
+				// This will be a DB error that caused a rollback.
+				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+			}
 
-		if filesFailed > 0 {
-			fmt.Printf("\nWarning: %d file(s) failed to process.\n", filesFailed)
+			if filesFailed > 0 {
+				fmt.Printf("\nWarning: %d file(s) failed to process.\n", filesFailed)
+			}
 		}
 
 		return nil

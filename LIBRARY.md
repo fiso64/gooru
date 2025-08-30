@@ -55,6 +55,26 @@ err := client.TagFiles(files, tags, func(filePath string, err error) {
 // handle potential database error
 ```
 
+### Tagging by Query
+
+For maximum performance when tagging large sets of files that match a query, use the `ByQuery` variants. These methods operate directly on the database using the query expression, avoiding the overhead of fetching and iterating through file paths in your application. They do not support progress callbacks but return a count of affected records.
+
+- **`TagFilesByQuery(expression string, tags []string) (int, error)`**: Adds tags to all files matching the query expression. Returns the number of new tag associations created.
+
+- **`SetTagsForFilesByQuery(expression string, tags []string) (int, error)`**: Sets the tags for all files matching the query, replacing existing ones. Returns the number of files affected.
+
+- **`UntagFilesByQuery(expression string, tags []string) (int, error)`**: Removes specific tags from all files matching the query. If `tags` is empty, it removes *all* tags from the matching files. Returns the number of tag associations removed.
+
+**Example:**
+```go
+// Add the 'archived' tag to all files that are not tagged 'important'
+count, err := client.TagFilesByQuery("-important", []string{"archived"})
+if err != nil {
+    // handle error
+}
+fmt.Printf("Archived %d items.\n", count)
+```
+
 ### Retrieving Files and Tags
 
 - **`GetTagsForFile(filePath string) ([]string, error)`**: Retrieves all tags for a single file. Performs a safety check against the file's metadata to ensure it hasn't changed.

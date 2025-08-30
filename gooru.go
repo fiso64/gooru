@@ -29,6 +29,20 @@ func New(dbPath string, verbose bool) (*Client, error) {
 	return &Client{store: store}, nil
 }
 
+// buildQuery is a helper to parse an expression and build the SQL subquery.
+func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
+	if strings.TrimSpace(expression) == "" {
+		return "", nil, nil
+	}
+	ast, err := query.Parse(expression)
+	if err != nil {
+		return "", nil, fmt.Errorf("could not parse query: %w", err)
+	}
+
+	sqlQuery, args := query.Build(ast)
+	return sqlQuery, args, nil
+}
+
 // Close closes the underlying database connection.
 func (c *Client) Close() error {
 	if c.store != nil {
@@ -62,26 +76,26 @@ func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(fil
 
 // UntagFiles untags multiple files with the given tags, with safety checks and intelligent move detection.
 func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
-    if len(tags) == 0 {
-        if progressCb != nil {
-            for _, fp := range filePaths {
-                progressCb(fp, nil)
-            }
-        }
-        return nil
-    }
+	if len(tags) == 0 {
+		if progressCb != nil {
+			for _, fp := range filePaths {
+				progressCb(fp, nil)
+			}
+		}
+		return nil
+	}
 
 	// Phase 1: Pre-process, hash where necessary, and detect moves.
 	absPaths := make([]string, 0, len(filePaths))
 	originalPathMap := make(map[string]string, len(filePaths))
 	for _, fp := range filePaths {
-        absPath, err := resolvePath(fp)
-        if err != nil {
-            if progressCb != nil {
-                progressCb(fp, err)
-            }
-            continue
-        }
+		absPath, err := resolvePath(fp)
+		if err != nil {
+			if progressCb != nil {
+				progressCb(fp, err)
+			}
+			continue
+		}
 		absPaths = append(absPaths, absPath)
 		originalPathMap[absPath] = fp
 	}
@@ -132,52 +146,52 @@ func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(f
 
 	for _, absPath := range absPaths {
 		originalPath := originalPathMap[absPath]
-        fsInfo, err := os.Stat(absPath)
-        if err != nil {
-            if !processedPaths[originalPath] {
-                if progressCb != nil {
-                    progressCb(originalPath, err)
-                }
-                processedPaths[originalPath] = true
-            }
-            continue
-        }
+		fsInfo, err := os.Stat(absPath)
+		if err != nil {
+			if !processedPaths[originalPath] {
+				if progressCb != nil {
+					progressCb(originalPath, err)
+				}
+				processedPaths[originalPath] = true
+			}
+			continue
+		}
 
 		dbInfo, existsInDb := dbLocations[absPath]
-        if !existsInDb {
-            if !processedPaths[originalPath] {
-                if progressCb != nil {
-                    progressCb(originalPath, fmt.Errorf("file not found in database"))
-                }
-                processedPaths[originalPath] = true
-            }
-            continue
-        }
+		if !existsInDb {
+			if !processedPaths[originalPath] {
+				if progressCb != nil {
+					progressCb(originalPath, fmt.Errorf("file not found in database"))
+				}
+				processedPaths[originalPath] = true
+			}
+			continue
+		}
 
-        // Critical safety check: only untag if file content is what we expect.
-        if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-            if !processedPaths[originalPath] {
-                if progressCb != nil {
-                    progressCb(originalPath, fmt.Errorf("file has been modified; please re-tag it first"))
-                }
-                processedPaths[originalPath] = true
-            }
-            continue
-        }
+		// Critical safety check: only untag if file content is what we expect.
+		if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+			if !processedPaths[originalPath] {
+				if progressCb != nil {
+					progressCb(originalPath, fmt.Errorf("file has been modified; please re-tag it first"))
+				}
+				processedPaths[originalPath] = true
+			}
+			continue
+		}
 
 		validHashes[dbInfo.Hash] = struct{}{}
 	}
 
-    if len(validHashes) == 0 {
-        if progressCb != nil {
-            for _, originalPath := range filePaths {
-                if !processedPaths[originalPath] {
-                    progressCb(originalPath, nil)
-                }
-            }
-        }
-        return nil
-    }
+	if len(validHashes) == 0 {
+		if progressCb != nil {
+			for _, originalPath := range filePaths {
+				if !processedPaths[originalPath] {
+					progressCb(originalPath, nil)
+				}
+			}
+		}
+		return nil
+	}
 
 	// Phase 3: Transactional untagging.
 	tx, err := c.store.Begin()
@@ -215,15 +229,163 @@ func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(f
 		return err
 	}
 
-    if progressCb != nil {
-        for _, originalPath := range filePaths {
-            if !processedPaths[originalPath] {
-                progressCb(originalPath, nil)
-            }
-        }
-    }
+	if progressCb != nil {
+		for _, originalPath := range filePaths {
+			if !processedPaths[originalPath] {
+				progressCb(originalPath, nil)
+			}
+		}
+	}
 
 	return nil
+}
+
+// TagFilesByQuery adds tags to all files matching a query expression.
+// Returns the number of tags added (which may be different from files affected if tags already existed).
+func (c *Client) TagFilesByQuery(expression string, tags []string) (int, error) {
+	if len(tags) == 0 {
+		return 0, nil
+	}
+	sqlQuery, args, err := c.buildQuery(expression)
+	if err != nil {
+		return 0, err
+	}
+	if sqlQuery == "" {
+		return 0, nil
+	}
+
+	tx, err := c.store.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	parsedTags := make([]types.ParsedTag, len(tags))
+	for i, t := range tags {
+		parsedTags[i] = query.ParseTag(t)
+	}
+	tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get or create tags: %w", err)
+	}
+
+	tagIDs := make([]int64, 0, len(tags))
+	for _, tagStr := range tags {
+		tagIDs = append(tagIDs, tagIDMap[tagStr])
+	}
+
+	affected, err := c.store.BatchAssociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(affected), tx.Commit()
+}
+
+// UntagFilesByQuery removes tags from all files matching a query expression.
+// If tags is empty, it removes ALL tags from matching files.
+// Returns the number of tags removed.
+func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error) {
+	sqlQuery, args, err := c.buildQuery(expression)
+	if err != nil {
+		return 0, err
+	}
+	if sqlQuery == "" {
+		return 0, nil
+	}
+
+	tx, err := c.store.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var affected int64
+	if len(tags) == 0 {
+		// Clear all tags
+		affected, err = c.store.BatchClearTagsByContentQueryTx(tx, sqlQuery, args)
+	} else {
+		// Untag specific tags
+		parsedTags := make([]types.ParsedTag, len(tags))
+		for i, t := range tags {
+			parsedTags[i] = query.ParseTag(t)
+		}
+		tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
+		if err != nil {
+			return 0, fmt.Errorf("failed to look up tags: %w", err)
+		}
+
+		tagIDs := make([]int64, 0, len(tags))
+		for _, tagStr := range tags {
+			if id, ok := tagIDMap[tagStr]; ok {
+				tagIDs = append(tagIDs, id)
+			}
+		}
+
+		if len(tagIDs) > 0 {
+			affected, err = c.store.BatchDisassociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs)
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	return int(affected), tx.Commit()
+}
+
+// SetTagsForFilesByQuery sets tags for all files matching a query expression, replacing existing ones.
+// Returns the number of content items affected.
+func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, error) {
+	sqlQuery, args, err := c.buildQuery(expression)
+	if err != nil {
+		return 0, err
+	}
+	if sqlQuery == "" {
+		return 0, nil
+	}
+
+	tx, err := c.store.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	// 1. Clear existing tags
+	if _, err := c.store.BatchClearTagsByContentQueryTx(tx, sqlQuery, args); err != nil {
+		return 0, fmt.Errorf("failed to clear existing tags: %w", err)
+	}
+
+	// 2. Add new tags
+	if len(tags) > 0 {
+		parsedTags := make([]types.ParsedTag, len(tags))
+		for i, t := range tags {
+			parsedTags[i] = query.ParseTag(t)
+		}
+		tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get or create new tags: %w", err)
+		}
+
+		tagIDs := make([]int64, 0, len(tags))
+		for _, tagStr := range tags {
+			tagIDs = append(tagIDs, tagIDMap[tagStr])
+		}
+
+		if _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs); err != nil {
+			return 0, fmt.Errorf("failed to associate new tags: %w", err)
+		}
+	}
+
+	// For Set, it's hard to get a meaningful "affected" count. The number of *files*
+	// is more useful. We can get this by running a COUNT on the subquery.
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s)", sqlQuery)
+	var count int
+	if err := tx.QueryRow(countQuery, args...).Scan(&count); err != nil {
+		// Don't fail the whole transaction, just return 0 for the count.
+		count = 0
+	}
+
+	return count, tx.Commit()
 }
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
