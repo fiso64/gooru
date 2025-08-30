@@ -7,15 +7,13 @@ import (
 	"fmt"
 	"os"
 
-	"gooru.local/gooru/internal/config"
-	"gooru.local/gooru/internal/database"
-	"gooru.local/gooru/internal/service"
+	"gooru.local/gooru"
+	"gooru.local/gooru/cmd/gooru/config"
 	"github.com/spf13/cobra"
 )
 
 var (
-	store   *database.Store
-	svc     *service.Service
+	svc     *gooru.Client
 	verbose bool
 	rootCmd = &cobra.Command{
 		Use:   "gooru",
@@ -26,16 +24,15 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed to get db path: %w", err)
 			}
-			store, err = database.NewStore(dbPath, verbose)
+			svc, err = gooru.New(dbPath, verbose)
 			if err != nil {
-				return fmt.Errorf("failed to initialize database: %w", err)
+				return fmt.Errorf("failed to initialize gooru client: %w", err)
 			}
-			svc = service.NewService(store)
 			return nil
 		},
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
-			if store != nil {
-				store.Close()
+			if svc != nil {
+				svc.Close()
 			}
 		},
 	}

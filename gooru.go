@@ -1,4 +1,4 @@
-package service
+package gooru
 
 import (
 	"database/sql"
@@ -8,13 +8,33 @@ import (
 	"strings"
 
 	"gooru.local/gooru/internal/database"
+	"gooru.local/gooru/internal/hashing"
 	"gooru.local/gooru/internal/query"
-	"gooru.local/gooru/internal/types"
+	"gooru.local/gooru/internal/scanning"
+	"gooru.local/gooru/types"
 )
 
-// Service encapsulates the core business logic.
-type Service struct {
-	Store *database.Store
+// Client encapsulates the core business logic.
+type Client struct {
+	store *database.Store
+}
+
+// New creates a new Client and initializes the database connection.
+// The caller is responsible for calling Close() on the returned client.
+func New(dbPath string, verbose bool) (*Client, error) {
+	store, err := database.NewStore(dbPath, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+	return &Client{store: store}, nil
+}
+
+// Close closes the underlying database connection.
+func (c *Client) Close() error {
+	if c.store != nil {
+		return c.store.Close()
+	}
+	return nil
 }
 
 // resolvePath canonicalizes a path. If it doesn't exist, it returns the
@@ -29,18 +49,13 @@ func resolvePath(filePath string) (string, error) {
 	return filepath.Abs(filePath)
 }
 
-// NewService creates a new Service.
-func NewService(store *database.Store) *Service {
-	return &Service{Store: store}
-}
-
 // TagFiles adds tags to multiple files using a high-performance batching strategy.
-func (s *Service) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
-	return s.tagOperation(filePaths, tags, progressCb, false)
+func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+	return c.tagOperation(filePaths, tags, progressCb, false)
 }
 
 // UntagFiles untags multiple files with the given tags, with safety checks and intelligent move detection.
-func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
 	if len(tags) == 0 {
 		for _, fp := range filePaths {
 			progressCb(fp, nil)
@@ -61,7 +76,7 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 		originalPathMap[absPath] = fp
 	}
 
-	dbLocations, err := s.Store.BatchGetLocationsByPaths(absPaths)
+	dbLocations, err := c.store.BatchGetLocationsByPaths(absPaths)
 	if err != nil {
 		return fmt.Errorf("failed to look up file locations: %w", err)
 	}
@@ -79,20 +94,20 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 
 	// If there are potential moves, reconcile them first.
 	if len(filesToHash) > 0 {
-		hashResults := concurrentlyHashFiles(filesToHash)
+		hashResults := hashing.ConcurrentlyHashFiles(filesToHash)
 		potentialMoves := make(map[string]string)
 		for _, res := range hashResults {
-			if res.err == nil {
-				potentialMoves[res.hash] = res.filePath
+			if res.Err == nil {
+				potentialMoves[res.Hash] = res.FilePath
 			}
 		}
 
-		if err := s.reconcileMoves(potentialMoves); err != nil {
+		if err := c.reconcileMoves(potentialMoves); err != nil {
 			return fmt.Errorf("failed to reconcile moved files: %w", err)
 		}
 
 		// Re-fetch location info for the files that were just moved.
-		newlyFoundLocations, err := s.Store.BatchGetLocationsByPaths(filesToHash)
+		newlyFoundLocations, err := c.store.BatchGetLocationsByPaths(filesToHash)
 		if err != nil {
 			return fmt.Errorf("failed to re-fetch reconciled locations: %w", err)
 		}
@@ -147,7 +162,7 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 	}
 
 	// Phase 3: Transactional untagging.
-	tx, err := s.Store.Begin()
+	tx, err := c.store.Begin()
 	if err != nil {
 		return err
 	}
@@ -157,7 +172,7 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
 	}
-	tagIDMap, err := s.Store.BatchGetOrCreateTags(tx, parsedTags)
+	tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
 	if err != nil {
 		return fmt.Errorf("failed to look up tags: %w", err)
 	}
@@ -174,7 +189,7 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 		}
 	}
 
-	if err := s.Store.BatchDisassociateTags(tx, pairsToDisassociate); err != nil {
+	if err := c.store.BatchDisassociateTags(tx, pairsToDisassociate); err != nil {
 		return fmt.Errorf("failed to batch disassociate tags: %w", err)
 	}
 
@@ -192,12 +207,12 @@ func (s *Service) UntagFiles(filePaths []string, tags []string, progressCb func(
 }
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
-func (s *Service) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
-	return s.tagOperation(filePaths, tags, progressCb, true)
+func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+	return c.tagOperation(filePaths, tags, progressCb, true)
 }
 
 // tagOperation is the shared, high-performance batching logic for tag and settags.
-func (s *Service) tagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), isSet bool) error {
+func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), isSet bool) error {
 	// Phase 1: Collect info from FS and DB, and hash necessary files.
 	// 1a. Resolve paths and collect absolute paths.
 	absPaths := make([]string, 0, len(filePaths))
@@ -213,7 +228,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 	}
 
 	// 1b. Get existing location data from the DB.
-	dbLocations, err := s.Store.BatchGetLocationsByPaths(absPaths)
+	dbLocations, err := c.store.BatchGetLocationsByPaths(absPaths)
 	if err != nil {
 		return fmt.Errorf("could not get existing file data: %w", err)
 	}
@@ -234,7 +249,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 	}
 
 	// 1d. Concurrently hash all the necessary files.
-	hashResults := concurrentlyHashFiles(filesToHash)
+	hashResults := hashing.ConcurrentlyHashFiles(filesToHash)
 
 	// Phase 2: Prepare data structures for transaction, identifying potential moves.
 	type fileData struct {
@@ -266,18 +281,18 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 			hash = dbInfo.Hash
 		} else {
 			result, ok := hashResults[absPath]
-			if !ok || result.err != nil {
+			if !ok || result.Err != nil {
 				if !processedPaths[originalPath] {
 					errMsg := "file processing failed"
-					if result.err != nil {
-						errMsg = fmt.Sprintf("hashing failed: %v", result.err)
+					if result.Err != nil {
+						errMsg = fmt.Sprintf("hashing failed: %v", result.Err)
 					}
 					progressCb(originalPath, fmt.Errorf("%s", errMsg))
 					processedPaths[originalPath] = true
 				}
 				continue
 			}
-			hash = result.hash
+			hash = result.Hash
 			wasHashed = true
 		}
 
@@ -302,7 +317,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 	}
 
 	// Phase 3: The Transaction.
-	tx, err := s.Store.Begin()
+	tx, err := c.store.Begin()
 	if err != nil {
 		return err
 	}
@@ -315,7 +330,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 			hashesToCheck = append(hashesToCheck, hash)
 		}
 
-		hashToOldPaths, err := s.Store.BatchGetPathsForHashes(tx, hashesToCheck)
+		hashToOldPaths, err := c.store.BatchGetPathsForHashes(tx, hashesToCheck)
 		if err != nil {
 			return fmt.Errorf("failed to check for existing content paths: %w", err)
 		}
@@ -329,7 +344,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 				}
 				if _, statErr := os.Stat(oldPath); os.IsNotExist(statErr) {
 					// Confirmed move! The old path is gone.
-					if err := s.Store.UpdateLocationPath(tx, oldPath, newPath); err != nil {
+					if err := c.store.UpdateLocationPath(tx, oldPath, newPath); err != nil {
 						return fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
 					}
 					// This was a move, so don't also treat it as a new location to insert.
@@ -342,14 +357,14 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 	}
 
 	// Phase 3b: Batch database operations for all remaining files.
-	if err := s.Store.BatchInsertContents(tx, allHashes); err != nil {
+	if err := c.store.BatchInsertContents(tx, allHashes); err != nil {
 		return fmt.Errorf("failed to batch insert contents: %w", err)
 	}
-	if err := s.Store.BatchUpsertLocations(tx, locationsToUpsert); err != nil {
+	if err := c.store.BatchUpsertLocations(tx, locationsToUpsert); err != nil {
 		return fmt.Errorf("failed to batch upsert locations: %w", err)
 	}
 	if isSet {
-		if err := s.Store.BatchClearTagsForContent(tx, allHashes); err != nil {
+		if err := c.store.BatchClearTagsForContent(tx, allHashes); err != nil {
 			return fmt.Errorf("failed to batch clear tags: %w", err)
 		}
 	}
@@ -359,7 +374,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 		for i, t := range tags {
 			parsedTags[i] = query.ParseTag(t)
 		}
-		tagIDMap, err := s.Store.BatchGetOrCreateTags(tx, parsedTags)
+		tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
 		if err != nil {
 			return fmt.Errorf("failed to get or create tags: %w", err)
 		}
@@ -370,7 +385,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 				pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
 			}
 		}
-		if err := s.Store.BatchAssociateTags(tx, pairs); err != nil {
+		if err := c.store.BatchAssociateTags(tx, pairs); err != nil {
 			return fmt.Errorf("failed to batch associate tags: %w", err)
 		}
 	}
@@ -387,7 +402,7 @@ func (s *Service) tagOperation(filePaths []string, tags []string, progressCb fun
 }
 
 // GetTagsForFile retrieves all tags for a given file, with a safety check.
-func (s *Service) GetTagsForFile(filePath string) ([]string, error) {
+func (c *Client) GetTagsForFile(filePath string) ([]string, error) {
 	absPath, err := resolvePath(filePath)
 	if err != nil {
 		return nil, err
@@ -403,7 +418,7 @@ func (s *Service) GetTagsForFile(filePath string) ([]string, error) {
 		return nil, err
 	}
 
-	dbInfo, err := s.Store.GetLocationByPath(absPath)
+	dbInfo, err := c.store.GetLocationByPath(absPath)
 	if err != nil {
 		// If not in DB, it has no tags.
 		if err == sql.ErrNoRows {
@@ -417,31 +432,31 @@ func (s *Service) GetTagsForFile(filePath string) ([]string, error) {
 		return []string{}, nil
 	}
 
-	return s.Store.GetTagsForContent(dbInfo.Hash)
+	return c.store.GetTagsForContent(dbInfo.Hash)
 }
 
 // ListAllFiles lists all files known to the system.
-func (s *Service) ListAllFiles() ([]string, error) {
-	return s.Store.ListAllFiles()
+func (c *Client) ListAllFiles() ([]string, error) {
+	return c.store.ListAllFiles()
 }
 
 // ListFilesByTag lists all files associated with a given tag.
-func (s *Service) ListFilesByTag(tag string) ([]string, error) {
+func (c *Client) ListFilesByTag(tag string) ([]string, error) {
 	parsedTag := query.ParseTag(tag)
-	return s.Store.ListFilesByTag(parsedTag.Key, parsedTag.Value)
+	return c.store.ListFilesByTag(parsedTag.Key, parsedTag.Value)
 }
 
 // ListFilesByTagsAnd lists all files associated with a given set of tags (AND query).
-func (s *Service) ListFilesByTagsAnd(tags []string) ([]string, error) {
+func (c *Client) ListFilesByTagsAnd(tags []string) ([]string, error) {
 	parsedTags := make([]types.ParsedTag, len(tags))
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
 	}
-	return s.Store.ListFilesByTagsAnd(parsedTags)
+	return c.store.ListFilesByTagsAnd(parsedTags)
 }
 
 // ListFilesByQuery parses and executes a complex query expression.
-func (s *Service) ListFilesByQuery(expression string, verbose bool) ([]string, error) {
+func (c *Client) ListFilesByQuery(expression string, verbose bool) ([]string, error) {
 	if strings.TrimSpace(expression) == "" {
 		return []string{}, nil
 	}
@@ -463,31 +478,31 @@ func (s *Service) ListFilesByQuery(expression string, verbose bool) ([]string, e
 		fmt.Fprintf(os.Stderr, "-------------\n")
 	}
 
-	return s.Store.GetPathsByContentQuery(sqlQuery, args)
+	return c.store.GetPathsByContentQuery(sqlQuery, args)
 }
 
 // GetAllFilesInfo gets detailed info for all files known to the system.
-func (s *Service) GetAllFilesInfo() ([]types.FileInfo, error) {
-	return s.Store.GetAllFilesInfo()
+func (c *Client) GetAllFilesInfo() ([]types.FileInfo, error) {
+	return c.store.GetAllFilesInfo()
 }
 
 // GetFilesInfoByTag gets detailed info for all files associated with a given tag.
-func (s *Service) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
+func (c *Client) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
 	parsedTag := query.ParseTag(tag)
-	return s.Store.GetFilesInfoByTag(parsedTag.Key, parsedTag.Value)
+	return c.store.GetFilesInfoByTag(parsedTag.Key, parsedTag.Value)
 }
 
 // GetFilesInfoByTagsAnd gets detailed info for all files associated with a given set of tags (AND query).
-func (s *Service) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
+func (c *Client) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
 	parsedTags := make([]types.ParsedTag, len(tags))
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
 	}
-	return s.Store.GetFilesInfoByTagsAnd(parsedTags)
+	return c.store.GetFilesInfoByTagsAnd(parsedTags)
 }
 
 // GetFilesInfoByQuery parses and executes a complex query expression, returning full file info.
-func (s *Service) GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error) {
+func (c *Client) GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error) {
 	if strings.TrimSpace(expression) == "" {
 		return []types.FileInfo{}, nil
 	}
@@ -509,21 +524,21 @@ func (s *Service) GetFilesInfoByQuery(expression string, verbose bool) ([]types.
 		fmt.Fprintf(os.Stderr, "-------------\n")
 	}
 
-	return s.Store.GetFilesInfoByContentQuery(sqlQuery, args)
+	return c.store.GetFilesInfoByContentQuery(sqlQuery, args)
 }
 
 // GetAllTags retrieves all tags from the database.
-func (s *Service) GetAllTags() ([]string, error) {
-	return s.Store.GetAllTags()
+func (c *Client) GetAllTags() ([]string, error) {
+	return c.store.GetAllTags()
 }
 
 // reconcileMoves checks for and atomically updates the paths of moved files.
-func (s *Service) reconcileMoves(potentialMoves map[string]string) error {
+func (c *Client) reconcileMoves(potentialMoves map[string]string) error {
 	if len(potentialMoves) == 0 {
 		return nil
 	}
 
-	tx, err := s.Store.Begin()
+	tx, err := c.store.Begin()
 	if err != nil {
 		return err
 	}
@@ -534,7 +549,7 @@ func (s *Service) reconcileMoves(potentialMoves map[string]string) error {
 		hashesToCheck = append(hashesToCheck, hash)
 	}
 
-	hashToOldPaths, err := s.Store.BatchGetPathsForHashes(tx, hashesToCheck)
+	hashToOldPaths, err := c.store.BatchGetPathsForHashes(tx, hashesToCheck)
 	if err != nil {
 		return fmt.Errorf("failed to check for existing content paths: %w", err)
 	}
@@ -546,7 +561,7 @@ func (s *Service) reconcileMoves(potentialMoves map[string]string) error {
 				continue
 			}
 			if _, statErr := os.Stat(oldPath); os.IsNotExist(statErr) {
-				if err := s.Store.UpdateLocationPath(tx, oldPath, newPath); err != nil {
+				if err := c.store.UpdateLocationPath(tx, oldPath, newPath); err != nil {
 					return fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
 				}
 				break // Handled move for this content hash.
@@ -558,7 +573,7 @@ func (s *Service) reconcileMoves(potentialMoves map[string]string) error {
 }
 
 // EditPath manually updates a file's path in the database.
-func (s *Service) EditPath(oldPath, newPath string) error {
+func (c *Client) EditPath(oldPath, newPath string) error {
 	// The database layer needs absolute paths for consistency,
 	// but we pass the original paths as well for clearer error messages.
 	absOldPath, err := resolvePath(oldPath)
@@ -571,16 +586,16 @@ func (s *Service) EditPath(oldPath, newPath string) error {
 		return fmt.Errorf("could not resolve new path '%s': %w", newPath, err)
 	}
 
-	return s.Store.UpdatePath(absOldPath, absNewPath, oldPath, newPath)
+	return c.store.UpdatePath(absOldPath, absNewPath, oldPath, newPath)
 }
 
 // NeedsRelink performs a fast check using filesystem metadata to see if a relink is necessary.
-func (s *Service) NeedsRelink(dirs []string) (bool, error) {
+func (c *Client) NeedsRelink(dirs []string) (bool, error) {
 	absDirs, err := toAbsolutePaths(dirs)
 	if err != nil {
 		return false, err
 	}
-	dbLocations, err := s.Store.GetLocationsForDirs(absDirs)
+	dbLocations, err := c.store.GetLocationsForDirs(absDirs)
 	if err != nil {
 		return false, err
 	}
@@ -603,7 +618,7 @@ func (s *Service) NeedsRelink(dirs []string) (bool, error) {
 }
 
 // Relink performs a "dry run" scan to find proposed changes between the database and the filesystem.
-func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
+func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	result := types.RelinkResult{}
 	absDirs, err := toAbsolutePaths(dirs)
 	if err != nil {
@@ -611,17 +626,17 @@ func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
 	}
 
 	// 1. Get initial state from the database.
-	dbLocations, err := s.Store.GetLocationsForDirs(absDirs)
+	dbLocations, err := c.store.GetLocationsForDirs(absDirs)
 	if err != nil {
 		return result, fmt.Errorf("could not get db locations: %w", err)
 	}
-	sizeToHashes, err := s.Store.GetSizeToHashesMap()
+	sizeToHashes, err := c.store.GetSizeToHashesMap()
 	if err != nil {
 		return result, fmt.Errorf("could not build size-to-hash map: %w", err)
 	}
 
 	// 2. Perform the intelligent, targeted filesystem scan.
-	fsLocations, filesScanned := s.scanDirsConcurrently(absDirs, sizeToHashes)
+	fsLocations, filesScanned := scanning.DirsConcurrently(absDirs, sizeToHashes)
 	result.Stats.FilesScanned = filesScanned
 
 	// 3. Reconcile states.
@@ -683,13 +698,13 @@ func (s *Service) Relink(dirs []string) (types.RelinkResult, error) {
 }
 
 // ApplyRelinkChanges executes the changes proposed by a Relink dry run.
-func (s *Service) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkStats, error) {
+func (c *Client) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkStats, error) {
 	stats := types.RelinkStats{}
 	if len(changes.ProposedMoves) == 0 && len(changes.ProposedAdds) == 0 && len(changes.ProposedDeletes) == 0 {
 		return stats, nil
 	}
 
-	tx, err := s.Store.Begin()
+	tx, err := c.store.Begin()
 	if err != nil {
 		return stats, err
 	}
@@ -697,7 +712,7 @@ func (s *Service) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSt
 
 	// 1. Apply moves
 	for _, move := range changes.ProposedMoves {
-		if err := s.Store.UpdateLocationPath(tx, move.OldPath, move.NewPath); err != nil {
+		if err := c.store.UpdateLocationPath(tx, move.OldPath, move.NewPath); err != nil {
 			return stats, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", move.OldPath, move.NewPath, err)
 		}
 	}
@@ -711,7 +726,7 @@ func (s *Service) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSt
 			toAdd[add.Path] = add
 		}
 
-		addedCount, err := s.Store.ApplyRelinkAdditionsTx(tx, toAdd)
+		addedCount, err := c.store.ApplyRelinkAdditionsTx(tx, toAdd)
 		if err != nil {
 			return stats, fmt.Errorf("failed to apply additions: %w", err)
 		}
@@ -724,7 +739,7 @@ func (s *Service) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSt
 		for i, del := range changes.ProposedDeletes {
 			pathsToDelete[i] = del.Path
 		}
-		removedCount, err := s.Store.RemoveLocationsByPathTx(tx, pathsToDelete)
+		removedCount, err := c.store.RemoveLocationsByPathTx(tx, pathsToDelete)
 		if err != nil {
 			return stats, fmt.Errorf("failed to apply deletions: %w", err)
 		}
@@ -738,10 +753,9 @@ func (s *Service) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSt
 	return stats, nil
 }
 
-
 // PruneLocations removes a list of file paths from the database.
-func (s *Service) PruneLocations(paths []string) (int, error) {
-	return s.Store.RemoveLocationsByPath(paths)
+func (c *Client) PruneLocations(paths []string) (int, error) {
+	return c.store.RemoveLocationsByPath(paths)
 }
 
 func toAbsolutePaths(paths []string) ([]string, error) {

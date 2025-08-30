@@ -1,4 +1,4 @@
-package service
+package scanning
 
 import (
 	"io/fs"
@@ -7,31 +7,31 @@ import (
 	"sync"
 
 	"gooru.local/gooru/internal/hashing"
-	"gooru.local/gooru/internal/types"
+	"gooru.local/gooru/types"
 )
 
-type scanJob struct {
+type job struct {
 	path string
 	info fs.FileInfo
 }
 
-type scanResult struct {
+type result struct {
 	path    string
 	info    types.LocationInfo
 	err     error
 	skipped bool
 }
 
-// scanDirsConcurrently intelligently scans directories, only hashing files whose size matches a known file.
-func (s *Service) scanDirsConcurrently(dirs []string, sizeToHashes map[int64][]string) (map[string]types.LocationInfo, int) {
-	jobs := make(chan scanJob)
-	results := make(chan scanResult)
+// DirsConcurrently intelligently scans directories, only hashing files whose size matches a known file.
+func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string) (map[string]types.LocationInfo, int) {
+	jobs := make(chan job)
+	results := make(chan result)
 
 	var wg sync.WaitGroup
 	numWorkers := runtime.NumCPU()
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
-		go s.scanWorker(&wg, jobs, results, sizeToHashes)
+		go worker(&wg, jobs, results, sizeToHashes)
 	}
 
 	var walkWg sync.WaitGroup
@@ -46,7 +46,7 @@ func (s *Service) scanDirsConcurrently(dirs []string, sizeToHashes map[int64][]s
 				if !de.IsDir() {
 					info, err := de.Info()
 					if err == nil {
-						jobs <- scanJob{path: path, info: info}
+						jobs <- job{path: path, info: info}
 					}
 				}
 				return nil
@@ -79,28 +79,28 @@ func (s *Service) scanDirsConcurrently(dirs []string, sizeToHashes map[int64][]s
 	return foundFiles, filesScanned
 }
 
-// scanWorker is a worker goroutine that processes scan jobs.
-func (s *Service) scanWorker(wg *sync.WaitGroup, jobs <-chan scanJob, results chan<- scanResult, sizeToHashes map[int64][]string) {
+// worker is a worker goroutine that processes scan jobs.
+func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHashes map[int64][]string) {
 	defer wg.Done()
 	for job := range jobs {
 		fileSize := job.info.Size()
 		if _, ok := sizeToHashes[fileSize]; !ok {
 			// This file's size does not match any known file. Skip it entirely.
-			results <- scanResult{path: job.path, err: nil, skipped: true}
+			results <- result{path: job.path, err: nil, skipped: true}
 			continue
 		}
 
 		// Only hash files that could possibly be a match.
 		hash, err := hashing.HashFile(job.path)
-		result := scanResult{path: job.path, err: err}
+		res := result{path: job.path, err: err}
 		if err == nil {
-			result.info = types.LocationInfo{
+			res.info = types.LocationInfo{
 				Hash:      hash,
 				Size:      fileSize,
 				ModTime:   job.info.ModTime().Unix(),
 				Extension: filepath.Ext(job.path),
 			}
 		}
-		results <- result
+		results <- res
 	}
 }

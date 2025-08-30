@@ -9,8 +9,8 @@ import (
 	"os"
 	"strings"
 
-	"gooru.local/gooru/internal/display"
-	"gooru.local/gooru/internal/types"
+	"gooru.local/gooru/cmd/gooru/display"
+	"gooru.local/gooru/types"
 	"github.com/spf13/cobra"
 )
 

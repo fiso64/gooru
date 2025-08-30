@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"gooru.local/gooru/internal/types"
+	"gooru.local/gooru/types"
 )
 
 // ListHeaders defines the column headers for the list command output.

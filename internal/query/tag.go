@@ -1,7 +1,7 @@
 package query
 
 import (
-	"gooru.local/gooru/internal/types"
+	"gooru.local/gooru/types"
 	"strings"
 )
 
