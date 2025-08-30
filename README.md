@@ -12,4 +12,4 @@ This project is currently under development.
 
 ## TODO
 
-- Test performance on a large and a huge db.
+- Test database performance on a large and a huge db.
