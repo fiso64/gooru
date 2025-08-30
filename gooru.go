@@ -562,6 +562,11 @@ func (c *Client) GetAllTags() ([]string, error) {
 	return c.store.GetAllTags()
 }
 
+// GetAllTagsWithCounts retrieves all tags and their usage counts, sorted by count descending.
+func (c *Client) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
+	return c.store.GetAllTagsWithCounts()
+}
+
 // reconcileMoves checks for and atomically updates the paths of moved files.
 func (c *Client) reconcileMoves(potentialMoves map[string]string) error {
 	if len(potentialMoves) == 0 {

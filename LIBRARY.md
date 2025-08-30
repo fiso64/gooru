@@ -61,6 +61,8 @@ err := client.TagFiles(files, tags, func(filePath string, err error) {
 
 - **`GetAllTags() ([]string, error)`**: Returns a sorted list of all unique tags in the database.
 
+- **`GetAllTagsWithCounts() ([]types.TagWithCount, error)`**: Returns a list of all tags and their usage counts, sorted by count (descending). The `TagWithCount` struct has `Tag` (string) and `Count` (int) fields.
+
 - **`ListFilesByQuery(expression string, verbose bool) ([]string, error)`**: The most powerful query method. Parses a complex query expression and returns a list of matching file paths.
     - **Expression Syntax**: `tag1`, `"tag1 tag2"` (AND), `"tag1 | tag2"` (OR), `tag1 -tag2` (NOT), `(tag1 | tag2) -tag3` (grouping), `ext:jpg`, `type:img`.
 

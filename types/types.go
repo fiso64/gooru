@@ -46,3 +46,9 @@ type FileInfo struct {
 	Size int64
 	Tags string // Comma-separated string of tags
 }
+
+// TagWithCount holds a tag and its usage count.
+type TagWithCount struct {
+	Tag   string
+	Count int
+}

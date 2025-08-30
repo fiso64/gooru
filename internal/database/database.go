@@ -797,6 +797,37 @@ func (s *Store) GetAllTags() ([]string, error) {
 	return tags, nil
 }
 
+// GetAllTagsWithCounts retrieves all tags and their usage counts.
+func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
+	query := `
+		SELECT
+			CASE WHEN t.key = '' THEN t.value ELSE t.key || ':' || t.value END AS tag_str,
+			COUNT(ct.content_hash) as usage_count
+		FROM
+			tags t
+		JOIN
+			content_tags ct ON t.id = ct.tag_id
+		GROUP BY
+			t.id
+		ORDER BY
+			usage_count DESC, tag_str ASC`
+	rows, err := s.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []types.TagWithCount
+	for rows.Next() {
+		var item types.TagWithCount
+		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
+			return nil, err
+		}
+		tags = append(tags, item)
+	}
+	return tags, nil
+}
+
 // Batch Helpers
 
 const (
