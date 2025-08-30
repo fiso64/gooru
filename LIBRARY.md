@@ -40,7 +40,7 @@ The library provides high-performance, transactional methods for tagging files.
 
 - **`UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error`**: Removes specific tags from multiple files.
 
-The `progressCb` is a callback that is invoked for each file processed, reporting either success (`err == nil`) or failure.
+The `progressCb` is an optional callback that, if provided, is invoked for each file processed, reporting either success (`err == nil`) or failure.
 
 **Example:**
 ```go

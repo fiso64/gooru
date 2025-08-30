@@ -62,22 +62,26 @@ func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(fil
 
 // UntagFiles untags multiple files with the given tags, with safety checks and intelligent move detection.
 func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
-	if len(tags) == 0 {
-		for _, fp := range filePaths {
-			progressCb(fp, nil)
-		}
-		return nil
-	}
+    if len(tags) == 0 {
+        if progressCb != nil {
+            for _, fp := range filePaths {
+                progressCb(fp, nil)
+            }
+        }
+        return nil
+    }
 
 	// Phase 1: Pre-process, hash where necessary, and detect moves.
 	absPaths := make([]string, 0, len(filePaths))
 	originalPathMap := make(map[string]string, len(filePaths))
 	for _, fp := range filePaths {
-		absPath, err := resolvePath(fp)
-		if err != nil {
-			progressCb(fp, err)
-			continue
-		}
+        absPath, err := resolvePath(fp)
+        if err != nil {
+            if progressCb != nil {
+                progressCb(fp, err)
+            }
+            continue
+        }
 		absPaths = append(absPaths, absPath)
 		originalPathMap[absPath] = fp
 	}
@@ -128,44 +132,52 @@ func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(f
 
 	for _, absPath := range absPaths {
 		originalPath := originalPathMap[absPath]
-		fsInfo, err := os.Stat(absPath)
-		if err != nil {
-			if !processedPaths[originalPath] {
-				progressCb(originalPath, err)
-				processedPaths[originalPath] = true
-			}
-			continue
-		}
+        fsInfo, err := os.Stat(absPath)
+        if err != nil {
+            if !processedPaths[originalPath] {
+                if progressCb != nil {
+                    progressCb(originalPath, err)
+                }
+                processedPaths[originalPath] = true
+            }
+            continue
+        }
 
 		dbInfo, existsInDb := dbLocations[absPath]
-		if !existsInDb {
-			if !processedPaths[originalPath] {
-				progressCb(originalPath, fmt.Errorf("file not found in database"))
-				processedPaths[originalPath] = true
-			}
-			continue
-		}
+        if !existsInDb {
+            if !processedPaths[originalPath] {
+                if progressCb != nil {
+                    progressCb(originalPath, fmt.Errorf("file not found in database"))
+                }
+                processedPaths[originalPath] = true
+            }
+            continue
+        }
 
-		// Critical safety check: only untag if file content is what we expect.
-		if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-			if !processedPaths[originalPath] {
-				progressCb(originalPath, fmt.Errorf("file has been modified; please re-tag it first"))
-				processedPaths[originalPath] = true
-			}
-			continue
-		}
+        // Critical safety check: only untag if file content is what we expect.
+        if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+            if !processedPaths[originalPath] {
+                if progressCb != nil {
+                    progressCb(originalPath, fmt.Errorf("file has been modified; please re-tag it first"))
+                }
+                processedPaths[originalPath] = true
+            }
+            continue
+        }
 
 		validHashes[dbInfo.Hash] = struct{}{}
 	}
 
-	if len(validHashes) == 0 {
-		for _, originalPath := range filePaths {
-			if !processedPaths[originalPath] {
-				progressCb(originalPath, nil)
-			}
-		}
-		return nil
-	}
+    if len(validHashes) == 0 {
+        if progressCb != nil {
+            for _, originalPath := range filePaths {
+                if !processedPaths[originalPath] {
+                    progressCb(originalPath, nil)
+                }
+            }
+        }
+        return nil
+    }
 
 	// Phase 3: Transactional untagging.
 	tx, err := c.store.Begin()
@@ -203,11 +215,13 @@ func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(f
 		return err
 	}
 
-	for _, originalPath := range filePaths {
-		if !processedPaths[originalPath] {
-			progressCb(originalPath, nil)
-		}
-	}
+    if progressCb != nil {
+        for _, originalPath := range filePaths {
+            if !processedPaths[originalPath] {
+                progressCb(originalPath, nil)
+            }
+        }
+    }
 
 	return nil
 }
@@ -224,11 +238,13 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 	absPaths := make([]string, 0, len(filePaths))
 	originalPathMap := make(map[string]string, len(filePaths))
 	for _, fp := range filePaths {
-		absPath, err := resolvePath(fp)
-		if err != nil {
-			progressCb(fp, err)
-			continue
-		}
+        absPath, err := resolvePath(fp)
+        if err != nil {
+            if progressCb != nil {
+                progressCb(fp, err)
+            }
+            continue
+        }
 		absPaths = append(absPaths, absPath)
 		originalPathMap[absPath] = fp
 	}
@@ -241,12 +257,14 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 
 	// 1c. Determine which files actually need to be hashed.
 	filesToHash := make([]string, 0)
-	for _, absPath := range absPaths {
-		info, err := os.Stat(absPath)
-		if err != nil {
-			progressCb(originalPathMap[absPath], err)
-			continue
-		}
+    for _, absPath := range absPaths {
+        info, err := os.Stat(absPath)
+        if err != nil {
+            if progressCb != nil {
+                progressCb(originalPathMap[absPath], err)
+            }
+            continue
+        }
 		dbInfo, existsInDb := dbLocations[absPath]
 		if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
 			continue
@@ -269,15 +287,17 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 	processedPaths := make(map[string]bool)
 
 	for _, absPath := range absPaths {
-		originalPath := originalPathMap[absPath]
-		info, err := os.Stat(absPath)
-		if err != nil {
-			if !processedPaths[originalPath] {
-				progressCb(originalPath, err)
-				processedPaths[originalPath] = true
-			}
-			continue
-		}
+        originalPath := originalPathMap[absPath]
+        info, err := os.Stat(absPath)
+        if err != nil {
+            if !processedPaths[originalPath] {
+                if progressCb != nil {
+                    progressCb(originalPath, err)
+                }
+                processedPaths[originalPath] = true
+            }
+            continue
+        }
 
 		var hash string
 		dbInfo, existsInDb := dbLocations[absPath]
@@ -287,17 +307,19 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 			hash = dbInfo.Hash
 		} else {
 			result, ok := hashResults[absPath]
-			if !ok || result.Err != nil {
-				if !processedPaths[originalPath] {
-					errMsg := "file processing failed"
-					if result.Err != nil {
-						errMsg = fmt.Sprintf("hashing failed: %v", result.Err)
-					}
-					progressCb(originalPath, fmt.Errorf("%s", errMsg))
-					processedPaths[originalPath] = true
-				}
-				continue
-			}
+            if !ok || result.Err != nil {
+                if !processedPaths[originalPath] {
+                    errMsg := "file processing failed"
+                    if result.Err != nil {
+                        errMsg = fmt.Sprintf("hashing failed: %v", result.Err)
+                    }
+                    if progressCb != nil {
+                        progressCb(originalPath, fmt.Errorf("%s", errMsg))
+                    }
+                    processedPaths[originalPath] = true
+                }
+                continue
+            }
 			hash = result.Hash
 			wasHashed = true
 		}
@@ -400,9 +422,11 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 		return err
 	}
 
-	for _, data := range allFileData {
-		progressCb(data.path, nil)
-	}
+    if progressCb != nil {
+        for _, data := range allFileData {
+            progressCb(data.path, nil)
+        }
+    }
 
 	return nil
 }
