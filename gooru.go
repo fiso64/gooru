@@ -465,6 +465,45 @@ func (c *Client) GetTagsForFile(filePath string) ([]string, error) {
 	return c.store.GetTagsForContent(dbInfo.Hash)
 }
 
+// GetFileInfoForFile retrieves file info for a given file, with a safety check.
+func (c *Client) GetFileInfoForFile(filePath string) (types.FileInfo, error) {
+	absPath, err := resolvePath(filePath)
+	if err != nil {
+		return types.FileInfo{Path: filePath}, err
+	}
+
+	// Safety Check
+	fsInfo, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// File not on disk. We can't guarantee its tags, return minimal info.
+			return types.FileInfo{Path: filePath}, nil
+		}
+		return types.FileInfo{Path: filePath}, err
+	}
+
+	dbInfo, err := c.store.GetLocationByPath(absPath)
+	if err != nil {
+		// If not in DB, it has no tags.
+		if err == sql.ErrNoRows {
+			return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, nil
+		}
+		return types.FileInfo{Path: filePath}, fmt.Errorf("database lookup failed: %w", err)
+	}
+
+	// If metadata doesn't match, treat as not in DB.
+	if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+		return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, nil
+	}
+
+	// Matched, return full info.
+	return types.FileInfo{
+		Path: filePath, // use original path for display
+		Size: dbInfo.Size,
+		Tags: dbInfo.TagsCache,
+	}, nil
+}
+
 // ListAllFiles lists all files known to the system.
 func (c *Client) ListAllFiles() ([]string, error) {
 	return c.store.ListAllFiles()

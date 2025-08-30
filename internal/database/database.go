@@ -256,7 +256,7 @@ func (s *Store) FindContentHashByPath(path string) (string, error) {
 // GetLocationByPath finds a location's metadata by its file path.
 func (s *Store) GetLocationByPath(path string) (types.LocationInfo, error) {
 	var loc types.LocationInfo
-	err := s.QueryRow("SELECT content_hash, size_bytes, mod_time FROM locations WHERE path = ?", path).Scan(&loc.Hash, &loc.Size, &loc.ModTime)
+	err := s.QueryRow("SELECT content_hash, size_bytes, mod_time, tags_cache FROM locations WHERE path = ?", path).Scan(&loc.Hash, &loc.Size, &loc.ModTime, &loc.TagsCache)
 	if err != nil {
 		// This will correctly propagate sql.ErrNoRows
 		return types.LocationInfo{}, err

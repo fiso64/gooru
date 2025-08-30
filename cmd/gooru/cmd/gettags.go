@@ -6,8 +6,9 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"strings"
 
+	"gooru.local/gooru/cmd/gooru/display"
+	"gooru.local/gooru/types"
 	"github.com/spf13/cobra"
 )
 
@@ -21,8 +22,9 @@ var gettagsCmd = &cobra.Command{
 	Short: "Gets all tags for given files.",
 	Long: `Retrieves and lists all tags associated with specific files, directories, or glob patterns.
 
-To provide multiple file arguments, the -m/--multi flag is required.
-When using -m, the output is always in the format 'file ;; tags' for consistency.`,
+If a single file is matched, its tags are listed one per line.
+If multiple files are matched (via globs, directories, or the -m flag),
+the output is a table of paths and their associated tags.`,
 	Args: cobra.MinimumNArgs(1), // Enforce at least one argument
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if verbose {
@@ -45,16 +47,19 @@ When using -m, the output is always in the format 'file ;; tags' for consistency
 			return nil
 		}
 
-		// Use multi-line format if -m is specified OR if more than one file is found from a single arg (e.g. glob).
+		// Use table format if -m is specified OR if more than one file is found from a single arg (e.g. glob).
 		if multiFileGetTags || len(files) > 1 {
+			fileInfos := make([]types.FileInfo, 0, len(files))
 			for _, filePath := range files {
-				tags, err := svc.GetTagsForFile(filePath)
+				info, err := svc.GetFileInfoForFile(filePath)
 				if err != nil {
-					fmt.Printf("%s ;; [ERROR: %v]\n", filePath, err)
+					// Don't pollute table output with errors, send to stderr
+					fmt.Fprintf(cmd.ErrOrStderr(), "error processing '%s': %v\n", filePath, err)
 					continue
 				}
-				fmt.Printf("%s ;; %s\n", filePath, strings.Join(tags, ", "))
+				fileInfos = append(fileInfos, info)
 			}
+			display.PrintTable(fileInfos, "PATH", "TAGS")
 		} else {
 			// Single-file output (original behavior)
 			filePath := files[0]
@@ -78,5 +83,5 @@ When using -m, the output is always in the format 'file ;; tags' for consistency
 
 func init() {
 	rootCmd.AddCommand(gettagsCmd)
-	gettagsCmd.Flags().BoolVarP(&multiFileGetTags, "multi", "m", false, "Use multi-file mode for consistent 'file ;; tags' output")
+	gettagsCmd.Flags().BoolVarP(&multiFileGetTags, "multi", "m", false, "Process multiple file arguments and force table output")
 }
