@@ -1,4 +1,4 @@
-package hashing
+package hashes
 
 import (
 	"encoding/hex"
@@ -8,8 +8,8 @@ import (
 	"github.com/zeebo/blake3"
 )
 
-// HashFile computes the BLAKE3 hash of a file and returns it as a hex string.
-func HashFile(filePath string) (string, error) {
+// HashFileFull computes the BLAKE3 hash of a file and returns it as a hex string.
+func HashFileFull(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return "", err
