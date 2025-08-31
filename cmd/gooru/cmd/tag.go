@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gooru.local/gooru/types"
 	"github.com/spf13/cobra"
 )
 
@@ -102,15 +103,27 @@ Expression mode (tag files matching a query):
 				}
 			}
 
-			affected, err := svc.TagFiles(files, tags, progressCb)
+			result, err := svc.TagFiles(files, tags, progressCb)
 			if err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
 			}
 
+			for _, n := range result.Notifications {
+				switch n.Kind {
+				case types.NotificationKindModified:
+					fmt.Printf("Updated database for modified file: '%s'\n", n.OriginalPath)
+					if len(n.OrphanedTags) > 0 {
+						fmt.Printf("WARNING: '%s' was modified. The old version's tags [%s] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.\n", n.OriginalPath, strings.Join(n.OrphanedTags, ", "))
+					}
+				case types.NotificationKindMoveDetected:
+					fmt.Printf("Detected move for known content: '%s' -> '%s'\n", n.OldPath, n.NewPath)
+				}
+			}
+
 			if filesSucceeded > 0 {
-				if affected > 0 {
-					fmt.Printf("Added %d new tag association(s) to %d file(s).\n", affected, filesSucceeded)
+				if result.AffectedCount > 0 {
+					fmt.Printf("Added %d new tag association(s) to %d file(s).\n", result.AffectedCount, filesSucceeded)
 				} else {
 					fmt.Printf("Processed %d file(s); all specified tags were already present.\n", filesSucceeded)
 				}

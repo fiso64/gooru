@@ -64,6 +64,31 @@ type RelinkResult struct {
 	ProposedDeletes []FileInfo     // Files in DB that are no longer on disk.
 }
 
+// NotificationKind describes the type of a notification generated during an operation.
+type NotificationKind int
+
+const (
+	// NotificationKindMoveDetected indicates a file was moved/renamed.
+	NotificationKindMoveDetected NotificationKind = iota
+	// NotificationKindModified indicates a file's content was updated in the database.
+	NotificationKindModified
+)
+
+// Notification provides structured information about events that occurred during an operation.
+type Notification struct {
+	Kind         NotificationKind
+	OriginalPath string   // The path the user provided.
+	OldPath      string   // For moves, the path stored in the DB.
+	NewPath      string   // For moves, the new path on disk.
+	OrphanedTags []string // For modifications, tags of the old content.
+}
+
+// TagOperationResult holds the results of a path-based tagging operation.
+type TagOperationResult struct {
+	AffectedCount int
+	Notifications []Notification
+}
+
 // LocationInfo holds metadata about a file's location.
 type LocationInfo struct {
 	Path      string // The absolute path of the file

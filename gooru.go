@@ -128,29 +128,26 @@ func resolvePath(filePath string) (string, error) {
 }
 
 // TagFiles adds tags to multiple files using a high-performance batching strategy.
-// Returns the number of new tag associations created.
-func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error) {
+// Returns the number of new tag associations created and a list of notifications.
+func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
 	if err := query.ValidateTags(tags); err != nil {
-		return 0, err
+		return types.TagOperationResult{}, err
 	}
-	affected, err := c.performTagOperation(filePaths, tags, progressCb, opTag)
-	return int(affected), err
+	return c.performTagOperation(filePaths, tags, progressCb, opTag)
 }
 
 // UntagFiles removes tags from files. If no tags are provided, all tags are removed.
-// Returns the number of tag associations removed.
-func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error) {
+// Returns the number of tag associations removed and a list of notifications.
+func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
 	if err := query.ValidateTags(tags); err != nil {
-		return 0, err
+		return types.TagOperationResult{}, err
 	}
 	if len(tags) == 0 {
 		// Clearing all tags is equivalent to `settags` with no tags.
 		// For settags, we'll return the number of tags cleared.
-		affected, err := c.performTagOperation(filePaths, []string{}, progressCb, opSetTags)
-		return int(affected), err
+		return c.performTagOperation(filePaths, []string{}, progressCb, opSetTags)
 	}
-	affected, err := c.performTagOperation(filePaths, tags, progressCb, opUntag)
-	return int(affected), err
+	return c.performTagOperation(filePaths, tags, progressCb, opUntag)
 }
 
 // TagFilesByQuery adds tags to all files matching a query expression.
@@ -349,19 +346,38 @@ func (c *Client) DeleteFilesByQuery(expression string) (int, error) {
 }
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
-// Returns the total number of changes (associations removed + associations added).
-func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error) {
+// Returns the total number of changes (associations removed + associations added) and a list of notifications.
+func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
 	if err := query.ValidateTags(tags); err != nil {
-		return 0, err
+		return types.TagOperationResult{}, err
 	}
-	affected, err := c.performTagOperation(filePaths, tags, progressCb, opSetTags)
-	return int(affected), err
+	return c.performTagOperation(filePaths, tags, progressCb, opSetTags)
 }
 
-// performTagOperation is the unified, high-performance batching logic for tag, settags, and untag.
-// It returns the number of tag associations that were changed (added or removed).
-func (c *Client) performTagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), kind opKind) (int64, error) {
-	// Phase 1: Collect info from FS and DB, and hash necessary files.
+// fileData is an internal struct for tracking file state during a tagging operation.
+type fileData struct {
+	path         string // original path for callbacks
+	info         types.LocationInfo
+	wasModified  bool
+	orphanedTags []string
+}
+
+// fileStateAnalysis holds the results of analyzing the initial state of files before a transaction.
+type fileStateAnalysis struct {
+	allFileData       []fileData
+	allHashes         []string
+	locationsToUpsert map[string]types.LocationInfo
+	potentialMoves    map[string]string // hash -> newPath
+}
+
+// analyzeFileStates performs all filesystem and hashing operations to prepare for a tagging transaction.
+func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath string, err error)) (*fileStateAnalysis, error) {
+	analysis := &fileStateAnalysis{
+		locationsToUpsert: make(map[string]types.LocationInfo),
+		potentialMoves:    make(map[string]string),
+	}
+	processedPaths := make(map[string]bool)
+
 	// 1a. Resolve paths and collect absolute paths.
 	absPaths := make([]string, 0, len(filePaths))
 	originalPathMap := make(map[string]string, len(filePaths))
@@ -380,7 +396,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	// 1b. Get existing location data from the DB.
 	dbLocations, err := c.store.BatchGetLocationsByPaths(absPaths)
 	if err != nil {
-		return 0, fmt.Errorf("could not get existing file data: %w", err)
+		return nil, fmt.Errorf("could not get existing file data: %w", err)
 	}
 
 	// 1c. Determine which files actually need to be hashed.
@@ -403,19 +419,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	// 1d. Concurrently hash all the necessary files.
 	hashResults := c.hasher.ConcurrentlyHashFiles(filesToHash)
 
-	// Phase 2: Prepare data structures for transaction, identifying moves and modifications.
-	type fileData struct {
-		path         string // original path for callbacks
-		info         types.LocationInfo
-		wasModified  bool
-		orphanedTags []string
-	}
-	allFileData := make([]fileData, 0, len(filePaths))
-	allHashes := make([]string, 0, len(filePaths))
-	locationsToUpsert := make(map[string]types.LocationInfo)
-	potentialMoves := make(map[string]string) // hash -> newPath
-	processedPaths := make(map[string]bool)
-
+	// Phase 2: Prepare data structures for transaction.
 	for _, absPath := range absPaths {
 		originalPath := originalPathMap[absPath]
 		info, err := os.Stat(absPath)
@@ -459,14 +463,14 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 		}
 
 		if wasHashed {
-			potentialMoves[hash] = absPath
+			analysis.potentialMoves[hash] = absPath
 		}
 
 		var orphanedTags []string
 		if isModification {
 			oldTags, err := c.store.GetTagsForContent(dbInfo.Hash)
 			if err != nil && err != sql.ErrNoRows {
-				// Log? For now, just proceed. The user operation should not fail.
+				// Log? For now, just proceed.
 			} else {
 				orphanedTags = oldTags
 			}
@@ -479,69 +483,21 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			ModTime:   info.ModTime().Unix(),
 			Extension: filepath.Ext(absPath),
 		}
-		allFileData = append(allFileData, fileData{
+		analysis.allFileData = append(analysis.allFileData, fileData{
 			path:         originalPath,
 			info:         locInfo,
 			wasModified:  isModification,
 			orphanedTags: orphanedTags,
 		})
-		allHashes = append(allHashes, hash)
-		locationsToUpsert[absPath] = locInfo
+		analysis.allHashes = append(analysis.allHashes, hash)
+		analysis.locationsToUpsert[absPath] = locInfo
 	}
 
-	if len(allFileData) == 0 {
-		return 0, nil // No files could be processed.
-	}
+	return analysis, nil
+}
 
-	movesHandled := make(map[string]string) // newPath -> oldPath
-
-	// Phase 3: The Transaction.
-	tx, err := c.store.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-
-	// 3a: Intelligently handle file moves.
-	if len(potentialMoves) > 0 {
-		hashesToCheck := make([]string, 0, len(potentialMoves))
-		for hash := range potentialMoves {
-			hashesToCheck = append(hashesToCheck, hash)
-		}
-		hashToOldPaths, err := c.store.BatchGetPathsForHashes(tx, hashesToCheck)
-		if err != nil {
-			return 0, fmt.Errorf("failed to check for existing content paths: %w", err)
-		}
-		for hash, oldPaths := range hashToOldPaths {
-			newPath := potentialMoves[hash]
-			for _, oldPath := range oldPaths {
-				if oldPath == newPath {
-					continue
-				}
-				if _, statErr := os.Stat(oldPath); os.IsNotExist(statErr) {
-					// The old path is gone, confirming this is a move.
-					// We must update the location with the new path AND new metadata.
-					newLocationInfo := locationsToUpsert[newPath]
-					if err := c.store.UpdateMovedLocation(tx, oldPath, newLocationInfo); err != nil {
-						return 0, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
-					}
-					delete(locationsToUpsert, newPath)
-					movesHandled[newPath] = oldPath // Track the handled move for notification.
-					break
-				}
-			}
-		}
-	}
-
-	// 3b: Batch upsert contents and locations.
-	if err := c.store.BatchInsertContents(tx, allHashes); err != nil {
-		return 0, fmt.Errorf("failed to batch insert contents: %w", err)
-	}
-	if err := c.store.BatchUpsertLocations(tx, locationsToUpsert); err != nil {
-		return 0, fmt.Errorf("failed to batch upsert locations: %w", err)
-	}
-
-	// 3c: Perform the specific tagging operation.
+// applyTaggingOperationInTx contains the switch logic for tag, settags, and untag.
+func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tags []string, kind opKind) (int64, error) {
 	var affectedCount int64
 	switch kind {
 	case opTag:
@@ -554,8 +510,8 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			if err != nil {
 				return 0, fmt.Errorf("failed to get or create tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
-			for _, hash := range allHashes {
+			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
+			for _, hash := range hashes {
 				for _, tagStr := range tags {
 					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
 				}
@@ -567,7 +523,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			affectedCount = affected
 		}
 	case opSetTags:
-		cleared, err := c.store.BatchClearTagsForContent(tx, allHashes)
+		cleared, err := c.store.BatchClearTagsForContent(tx, hashes)
 		if err != nil {
 			return 0, fmt.Errorf("failed to batch clear tags: %w", err)
 		}
@@ -581,8 +537,8 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			if err != nil {
 				return 0, fmt.Errorf("failed to get or create tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
-			for _, hash := range allHashes {
+			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
+			for _, hash := range hashes {
 				for _, tagStr := range tags {
 					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
 				}
@@ -599,13 +555,12 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			for i, t := range tags {
 				parsedTags[i] = query.ParseTag(t)
 			}
-			// For untag, we only care about tags that already exist.
 			tagIDMap, err := c.store.BatchGetTags(tx, parsedTags)
 			if err != nil {
 				return 0, fmt.Errorf("failed to look up tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
-			for _, hash := range allHashes {
+			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
+			for _, hash := range hashes {
 				for _, tagStr := range tags {
 					if tagID, ok := tagIDMap[tagStr]; ok {
 						pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagID})
@@ -619,32 +574,110 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			affectedCount = affected
 		}
 	}
+	return affectedCount, nil
+}
 
-	if err := tx.Commit(); err != nil {
-		return 0, err
+// executeTaggingTransaction performs all database writes for a tagging operation.
+func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind) (int64, map[string]string, error) {
+	movesHandled := make(map[string]string) // newPath -> oldPath
+	tx, err := c.store.Begin()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer tx.Rollback()
+
+	// 1. Intelligently handle file moves.
+	if len(analysis.potentialMoves) > 0 {
+		hashesToCheck := make([]string, 0, len(analysis.potentialMoves))
+		for hash := range analysis.potentialMoves {
+			hashesToCheck = append(hashesToCheck, hash)
+		}
+		hashToOldPaths, err := c.store.BatchGetPathsForHashes(tx, hashesToCheck)
+		if err != nil {
+			return 0, nil, fmt.Errorf("failed to check for existing content paths: %w", err)
+		}
+		for hash, oldPaths := range hashToOldPaths {
+			newPath := analysis.potentialMoves[hash]
+			for _, oldPath := range oldPaths {
+				if oldPath == newPath {
+					continue
+				}
+				if _, statErr := os.Stat(oldPath); os.IsNotExist(statErr) {
+					newLocationInfo := analysis.locationsToUpsert[newPath]
+					if err := c.store.UpdateMovedLocation(tx, oldPath, newLocationInfo); err != nil {
+						return 0, nil, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
+					}
+					delete(analysis.locationsToUpsert, newPath)
+					movesHandled[newPath] = oldPath
+					break
+				}
+			}
+		}
 	}
 
-	// Phase 4: Notifications and Progress Callback.
-	for _, data := range allFileData {
+	// 2. Batch upsert contents and locations.
+	if err := c.store.BatchInsertContents(tx, analysis.allHashes); err != nil {
+		return 0, nil, fmt.Errorf("failed to batch insert contents: %w", err)
+	}
+	if err := c.store.BatchUpsertLocations(tx, analysis.locationsToUpsert); err != nil {
+		return 0, nil, fmt.Errorf("failed to batch upsert locations: %w", err)
+	}
+
+	// 3. Perform the specific tagging operation.
+	affectedCount, err := c.applyTaggingOperationInTx(tx, analysis.allHashes, tags, kind)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return affectedCount, movesHandled, tx.Commit()
+}
+
+// performTagOperation is the refactored, high-level coordinator for all path-based tagging.
+func (c *Client) performTagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), kind opKind) (types.TagOperationResult, error) {
+	result := types.TagOperationResult{}
+
+	// Phase 1 & 2: Analyze file states (FS interactions and hashing).
+	analysis, err := c.analyzeFileStates(filePaths, progressCb)
+	if err != nil {
+		return result, err
+	}
+
+	if len(analysis.allFileData) == 0 {
+		return result, nil // No files could be processed.
+	}
+
+	// Phase 3: The Transaction (all DB writes).
+	affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind)
+	if err != nil {
+		return result, err
+	}
+	result.AffectedCount = int(affectedCount)
+
+	// Phase 4: Build Notifications and call Progress Callback.
+	for _, data := range analysis.allFileData {
 		if data.wasModified {
-			fmt.Printf("Updated database for modified file: '%s'\n", data.path)
-			if len(data.orphanedTags) > 0 {
-				fmt.Printf("WARNING: '%s' was modified. The old version's tags [%s] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.\n", data.path, strings.Join(data.orphanedTags, ", "))
-			}
+			result.Notifications = append(result.Notifications, types.Notification{
+				Kind:         types.NotificationKindModified,
+				OriginalPath: data.path,
+				OrphanedTags: data.orphanedTags,
+			})
 		} else if oldPath, ok := movesHandled[data.info.Path]; ok {
-			// A file can't be modified and moved in the same operation, so this is an `else if`.
-			// The old path is retrieved from the database, and data.path is the original user argument.
-			fmt.Printf("Detected move for known content: '%s' -> '%s'\n", oldPath, data.path)
+			result.Notifications = append(result.Notifications, types.Notification{
+				Kind:         types.NotificationKindMoveDetected,
+				OriginalPath: data.path,
+				OldPath:      oldPath,
+				NewPath:      data.path,
+			})
 		}
 	}
 
 	if progressCb != nil {
-		for _, data := range allFileData {
+		for _, data := range analysis.allFileData {
 			progressCb(data.path, nil)
 		}
 	}
 
-	return affectedCount, nil
+	return result, nil
 }
 
 // GetTagsForFile retrieves all tags for a given file, with a safety check and status.
@@ -834,46 +867,6 @@ func (c *Client) GetAllTags() ([]string, error) {
 // GetAllTagsWithCounts retrieves all tags and their usage counts, sorted by count descending.
 func (c *Client) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 	return c.store.GetAllTagsWithCounts()
-}
-
-// reconcileMoves checks for and atomically updates the paths of moved files.
-func (c *Client) reconcileMoves(potentialMoves map[string]string) error {
-	if len(potentialMoves) == 0 {
-		return nil
-	}
-
-	tx, err := c.store.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	hashesToCheck := make([]string, 0, len(potentialMoves))
-	for hash := range potentialMoves {
-		hashesToCheck = append(hashesToCheck, hash)
-	}
-
-	hashToOldPaths, err := c.store.BatchGetPathsForHashes(tx, hashesToCheck)
-	if err != nil {
-		return fmt.Errorf("failed to check for existing content paths: %w", err)
-	}
-
-	for hash, oldPaths := range hashToOldPaths {
-		newPath := potentialMoves[hash]
-		for _, oldPath := range oldPaths {
-			if oldPath == newPath {
-				continue
-			}
-			if _, statErr := os.Stat(oldPath); os.IsNotExist(statErr) {
-				if err := c.store.UpdateLocationPath(tx, oldPath, newPath); err != nil {
-					return fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
-				}
-				break // Handled move for this content hash.
-			}
-		}
-	}
-
-	return tx.Commit()
 }
 
 // EditPath manually updates a file's path in the database.
