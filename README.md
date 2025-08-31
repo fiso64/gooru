@@ -10,8 +10,8 @@ The initial add is prohibitibely slow for 10GB+ files. This means that as of rig
 Consider a general tagger. We want to optimize these two properties:
 
 1. Performance
-2. Reliablity (detects changes in files)
-3. Persistence (e.g. tags preserved when moving) without user intervention.
+2. Reliablity (Content Change Detection)
+3. Persistence (Surviving Moves/Renames) without user intervention.
 
 An improvement in one will typically result in a decrease of the others. You can't have all three.
 
