@@ -231,6 +231,17 @@ func createTables(q Querier) error {
 				SELECT 1 FROM content_tags WHERE tag_id = OLD.tag_id
 			);
 		END;`,
+
+		/* TRIGGER FOR CLEANING UP ORPHANED CONTENT */
+		`CREATE TRIGGER IF NOT EXISTS cleanup_orphan_content_on_delete
+		AFTER DELETE ON locations
+		BEGIN
+			DELETE FROM contents
+			WHERE hash = OLD.content_hash
+			AND NOT EXISTS (
+				SELECT 1 FROM locations WHERE content_hash = OLD.content_hash
+			);
+		END;`,
 	}
 
 	for _, stmt := range statements {
@@ -1402,6 +1413,17 @@ func (s *Store) BatchDisassociateTagsByContentQueryTx(q Querier, subQuery string
 	finalArgs = append(finalArgs, args...)
 
 	res, err := q.Exec(query, finalArgs...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// RemoveLocationsByContentQueryTx removes locations for content matching a subquery.
+// The cleanup_orphan_content_on_delete trigger will handle cleaning up content and tags.
+func (s *Store) RemoveLocationsByContentQueryTx(q Querier, subQuery string, args []interface{}) (int64, error) {
+	query := fmt.Sprintf("DELETE FROM locations WHERE content_hash IN (%s)", subQuery)
+	res, err := q.Exec(query, args...)
 	if err != nil {
 		return 0, err
 	}

@@ -304,6 +304,34 @@ func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, 
 	return count, tx.Commit()
 }
 
+// DeleteFilesByQuery removes file records from the database that match a query expression.
+// This permanently removes the location records and any associated content/tags if they become orphaned.
+// Returns the number of location records removed.
+func (c *Client) DeleteFilesByQuery(expression string) (int, error) {
+	sqlQuery, args, err := c.buildQuery(expression)
+	if err != nil {
+		return 0, err
+	}
+	if sqlQuery == "" {
+		return 0, nil
+	}
+
+	tx, err := c.store.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	// The trigger `cleanup_orphan_content_on_delete` will handle cleaning up content
+	// and tags if all locations for a piece of content are removed.
+	affected, err := c.store.RemoveLocationsByContentQueryTx(tx, sqlQuery, args)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(affected), tx.Commit()
+}
+
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
 func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
 	if err := query.ValidateTags(tags); err != nil {
