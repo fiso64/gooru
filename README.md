@@ -33,7 +33,7 @@ Arguably, the best high performance approach is an inode+metadata-based tagger, 
 
 ### The Partial Hash Tagger
 
-A file's identity is composed of its filesize, together with a set of hashes taken from strategic non-overlapping data chunks (e.g., the first 64KB, the middle 64KB, the last 64KB).
+A file's identity is composed of its filesize, together with a set of hashes taken from strategic non-overlapping data chunks (e.g., 10 equally spaced 64KB chunks).
 
 DANGER: Not as reliable as full hashing. It can't be.
 
