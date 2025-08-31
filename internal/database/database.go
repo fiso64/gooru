@@ -1352,5 +1352,64 @@ func (s *Store) BatchDisassociateTagsByContentQueryTx(q Querier, subQuery string
 	return res.RowsAffected()
 }
 
+// UpdateLocationMetadata updates the size and modtime for a given path.
+func (s *Store) UpdateLocationMetadata(path string, size int64, modTime int64) error {
+	_, err := s.Exec("UPDATE locations SET size_bytes = ?, mod_time = ? WHERE path = ?", size, modTime, path)
+	return err
+}
+
+// TransferTagsAndRehashLocation transactionally updates a location to a new content hash,
+// moving all tags from the old hash to the new one.
+func (s *Store) TransferTagsAndRehashLocation(oldHash, newHash string, newLoc types.LocationInfo) error {
+	tx, err := s.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Check if the new hash represents existing content.
+	var dummy int
+	err = tx.QueryRow("SELECT 1 FROM contents WHERE hash = ? LIMIT 1", newHash).Scan(&dummy)
+	newContentExists := err == nil
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check for new content existence: %w", err)
+	}
+
+	if newContentExists {
+		// The new content is a duplicate of something else. Merge tags from the old content into it.
+		_, err := tx.Exec(`
+			INSERT OR IGNORE INTO content_tags (content_hash, tag_id)
+			SELECT ?, tag_id FROM content_tags WHERE content_hash = ?`, newHash, oldHash)
+		if err != nil {
+			return fmt.Errorf("failed to merge tags to existing content: %w", err)
+		}
+	} else {
+		// This is brand new content. Insert it and re-assign all tags from the old content.
+		if _, err := tx.Exec("INSERT INTO contents (hash) VALUES (?)", newHash); err != nil {
+			return fmt.Errorf("failed to insert new content: %w", err)
+		}
+		if _, err := tx.Exec("UPDATE content_tags SET content_hash = ? WHERE content_hash = ?", newHash, oldHash); err != nil {
+			return fmt.Errorf("failed to reassign tags: %w", err)
+		}
+	}
+
+	// 2. Update the location record to point to the new hash and metadata.
+	// The triggers will handle updating the tags_cache.
+	_, err = tx.Exec(`
+		UPDATE locations SET content_hash = ?, size_bytes = ?, mod_time = ?, extension = ?
+		WHERE path = ?`, newHash, newLoc.Size, newLoc.ModTime, newLoc.Extension, newLoc.Path)
+	if err != nil {
+		return fmt.Errorf("failed to update location record: %w", err)
+	}
+
+	// 3. Delete the old, now-obsolete content record.
+	// This will cascade-delete its (now empty or merged) tag associations from content_tags.
+	if _, err := tx.Exec("DELETE FROM contents WHERE hash = ?", oldHash); err != nil {
+		return fmt.Errorf("failed to delete old content record: %w", err)
+	}
+
+	return tx.Commit()
+}
+
 
 

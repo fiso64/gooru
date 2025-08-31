@@ -8,8 +8,22 @@ const (
 	StatusOK FileStatus = iota
 	// StatusModified means the file is in the DB but its metadata differs.
 	StatusModified
-	// StatusNotInDB means the file path is not in the database, though the file may exist on disk.
+// StatusNotInDB means the file path is not in the database, though the file may exist on disk.
 	StatusNotInDB
+)
+
+// RehashStatus indicates the result of a rehash operation for a single file.
+type RehashStatus int
+
+const (
+	// StatusRehashed means the file was modified and its content record was updated.
+	StatusRehashed RehashStatus = iota
+	// StatusSkippedUnchanged means the file was not modified and was skipped.
+	StatusSkippedUnchanged
+	// StatusSkippedNotInDB means the file was not in the database and was skipped.
+	StatusSkippedNotInDB
+	// StatusMetadataUpdated means the file content was identical but metadata was updated.
+	StatusMetadataUpdated
 )
 
 // ParsedTag represents a tag split into its key and value.

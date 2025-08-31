@@ -915,6 +915,71 @@ func (c *Client) PruneLocations(paths []string) (int, error) {
 	return c.store.RemoveLocationsByPath(paths)
 }
 
+// RehashFiles updates the content record for files that have been modified on disk, preserving their tags.
+func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error)) {
+	for _, originalPath := range filePaths {
+		absPath, err := resolvePath(originalPath)
+		if err != nil {
+			progressCb(originalPath, 0, err)
+			continue
+		}
+
+		dbInfo, err := c.store.GetLocationByPath(absPath)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				progressCb(originalPath, types.StatusSkippedNotInDB, nil)
+			} else {
+				progressCb(originalPath, 0, fmt.Errorf("database lookup failed: %w", err))
+			}
+			continue
+		}
+
+		fsInfo, err := os.Stat(absPath)
+		if err != nil {
+			progressCb(originalPath, 0, err) // e.g., file deleted from disk
+			continue
+		}
+
+		if fsInfo.Size() == dbInfo.Size && fsInfo.ModTime().Unix() == dbInfo.ModTime {
+			progressCb(originalPath, types.StatusSkippedUnchanged, nil)
+			continue
+		}
+
+		// File has been modified, proceed with rehash.
+		newHash, err := hashing.HashFile(absPath)
+		if err != nil {
+			progressCb(originalPath, 0, fmt.Errorf("hashing failed: %w", err))
+			continue
+		}
+
+		// Edge case: metadata changed, but content is identical. Just update metadata.
+		if newHash == dbInfo.Hash {
+			err := c.store.UpdateLocationMetadata(absPath, fsInfo.Size(), fsInfo.ModTime().Unix())
+			if err != nil {
+				progressCb(originalPath, 0, fmt.Errorf("metadata update failed: %w", err))
+			} else {
+				progressCb(originalPath, types.StatusMetadataUpdated, nil)
+			}
+			continue
+		}
+
+		// Full rehash: content has changed, transfer tags.
+		newLocInfo := types.LocationInfo{
+			Path:      absPath,
+			Hash:      newHash,
+			Size:      fsInfo.Size(),
+			ModTime:   fsInfo.ModTime().Unix(),
+			Extension: filepath.Ext(absPath),
+		}
+		err = c.store.TransferTagsAndRehashLocation(dbInfo.Hash, newHash, newLocInfo)
+		if err != nil {
+			progressCb(originalPath, 0, fmt.Errorf("transaction failed: %w", err))
+		} else {
+			progressCb(originalPath, types.StatusRehashed, nil)
+		}
+	}
+}
+
 func toAbsolutePaths(paths []string) ([]string, error) {
 	absPaths := make([]string, len(paths))
 	for i, p := range paths {
