@@ -61,15 +61,26 @@ All operations are methods on the `gooru.Client` struct.
 
 ### Tag Validation
 
-All methods that accept tag strings (either directly or within a query expression) enforce a strict validation policy. An invalid tag will cause the method to return an error.
+The library enforces a strict validation policy for tags.
 
-The rules for a valid tag are:
--   It must only contain printable ASCII characters (characters 33-126). **Spaces are not allowed.**
+#### General Syntax Rules (for all operations)
+
+The following rules apply to tags whether you are creating them or using them in a query:
+-   A tag must only contain printable ASCII characters (characters 33-126). **Spaces are not allowed.**
 -   The key part of a `key:value` tag cannot be empty.
 -   A tag (or the key/value parts of a `key:value` tag) cannot start or end with the characters `-`, `!`, or `:`.
 
-**Valid examples:** `photo`, `project:alpha`, `version-1.0`, `needs_review`
-**Invalid examples:** `"my tag"` (contains space), `!important` (starts with `!`), `final-` (ends with `-`), `:work` (empty key), `project:v1:` (value ends with `:`)
+**Valid syntax examples:** `photo`, `project:alpha`, `version-1.0`, `needs_review`
+**Invalid syntax examples:** `"my tag"` (contains space), `!important` (starts with `!`), `final-` (ends with `-`), `:work` (empty key), `project:v1:` (value ends with `:`)
+
+#### Reserved Keywords (for creating/setting tags)
+
+When you are applying tags to a file (e.g., using `TagFiles`, `SetTagsForFiles`), an additional rule applies:
+-   The tag key cannot be `ext` or `type`, as these are reserved for special query syntax.
+
+This means you can search for files using `ext:jpg`, but you cannot create a tag with the key `ext`. Methods that create tags will return an error if you attempt to use a reserved keyword.
+
+**Invalid tags to apply:** `ext:backup`, `type:document`.
 
 **Note on Simple Tags vs. Key-Only Queries:**
 

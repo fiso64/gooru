@@ -5,12 +5,14 @@ import (
 	"strings"
 )
 
-// ValidateTag checks if a tag string conforms to the required format.
-// Rules:
-// 1. Only printable ASCII characters (no spaces) are allowed.
-// 2. The tag, and its key/value parts, cannot start or end with '-', '!', or ':'.
-// 3. The key part of a tag cannot be empty.
-func ValidateTag(tag string) error {
+var reservedTagKeys = map[string]struct{}{
+	"ext":  {},
+	"type": {},
+}
+
+// validateTagSyntax checks if a tag string conforms to the required syntactic format.
+// It does not check for reserved keywords, making it suitable for validating query expressions.
+func validateTagSyntax(tag string) error {
 	if tag == "" {
 		return fmt.Errorf("tag cannot be empty")
 	}
@@ -54,6 +56,21 @@ func ValidateTag(tag string) error {
 	return nil
 }
 
+// ValidateTag checks if a tag is valid for a user to apply to a file.
+// It checks both syntax and for reserved keywords.
+func ValidateTag(tag string) error {
+	if err := validateTagSyntax(tag); err != nil {
+		return err
+	}
+
+	parsed := ParseTag(tag)
+	if _, isReserved := reservedTagKeys[strings.ToLower(parsed.Key)]; isReserved {
+		return fmt.Errorf("tag key '%s' is a reserved keyword for special queries and cannot be used for tagging", parsed.Key)
+	}
+
+	return nil
+}
+
 // ValidateTags applies ValidateTag to a slice of tags.
 func ValidateTags(tags []string) error {
 	for _, tag := range tags {
@@ -64,7 +81,8 @@ func ValidateTags(tags []string) error {
 	return nil
 }
 
-// ValidateAST recursively traverses a query AST and validates all tag strings.
+// ValidateAST recursively traverses a query AST and validates the syntax of all tag strings.
+// It allows reserved keywords since they are valid in a query context.
 func ValidateAST(expr *Expression) error {
 	if expr == nil {
 		return nil
@@ -104,7 +122,8 @@ func validateFactor(factor *Factor) error {
 		return ValidateAST(factor.SubExpr)
 	}
 	if factor.Tag != nil {
-		return ValidateTag(*factor.Tag)
+		// Use the syntax-only validator for query expressions.
+		return validateTagSyntax(*factor.Tag)
 	}
 	return nil
 }
