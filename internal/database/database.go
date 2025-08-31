@@ -24,18 +24,46 @@ type Tx struct {
 	logger *log.Logger
 }
 
-// NewStore initializes the database connection and creates the schema if it doesn't exist.
-func NewStore(dataSourceName string, verbose bool) (*Store, error) {
+// InitStore creates a new database file, initializes the schema, and stores the hashing strategy.
+func InitStore(dataSourceName string, strategy types.HashingStrategy, verbose bool) error {
 	db, err := sql.Open("sqlite3", dataSourceName)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err = db.Ping(); err != nil {
+		return err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err = createTables(tx); err != nil {
+		return err
+	}
+
+	if _, err = tx.Exec("INSERT INTO meta (key, value) VALUES (?, ?)", "hashing_strategy", strategy); err != nil {
+		return fmt.Errorf("failed to save hashing strategy: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// NewStore opens an existing database connection. It does not perform initialization.
+func NewStore(dataSourceName string, verbose bool) (*Store, error) {
+	// Add `_journal=WAL` for better concurrency, though it's less critical for a CLI tool.
+	// Add `_foreign_keys=on` to enforce foreign key constraints.
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL", dataSourceName))
 	if err != nil {
 		return nil, err
 	}
 
 	if err = db.Ping(); err != nil {
-		return nil, err
-	}
-
-	if err = createTables(db); err != nil {
+		db.Close()
 		return nil, err
 	}
 
@@ -92,9 +120,23 @@ func (tx *Tx) QueryRow(query string, args ...interface{}) *sql.Row {
 	return tx.Tx.QueryRow(query, args...)
 }
 
+// GetHashingStrategy reads the configured hashing strategy from the meta table.
+func (s *Store) GetHashingStrategy() (types.HashingStrategy, error) {
+	var strategy string
+	err := s.QueryRow("SELECT value FROM meta WHERE key = 'hashing_strategy'").Scan(&strategy)
+	if err != nil {
+		return "", err // Propagates sql.ErrNoRows if not found
+	}
+	return types.HashingStrategy(strategy), nil
+}
+
 // createTables creates the necessary tables and indexes for the application.
-func createTables(db *sql.DB) error {
+func createTables(q Querier) error {
 	statements := []string{
+		`CREATE TABLE IF NOT EXISTS meta (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS contents (
 			hash TEXT PRIMARY KEY,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -192,8 +234,8 @@ func createTables(db *sql.DB) error {
 	}
 
 	for _, stmt := range statements {
-		if _, err := db.Exec(stmt); err != nil {
-			return err
+		if _, err := q.Exec(stmt); err != nil {
+			return fmt.Errorf("failed to execute schema statement: %w", err)
 		}
 	}
 

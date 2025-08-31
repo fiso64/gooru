@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"sync"
 
-	"gooru.local/gooru/internal/hashing"
+	"gooru.local/gooru/internal/hashing/hashes"
 	"gooru.local/gooru/types"
 )
 
@@ -90,11 +90,15 @@ func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHa
 			continue
 		}
 
-		// Only hash files that could possibly be a match.
-		hash, err := hashing.HashFile(job.path)
+		// This function is only used by relink, which is a library concern.
+		// For simplicity, we'll hard-code the fastest hashing method here, as
+		// relink's performance is paramount and its job is to find *existing*
+		// content, which doesn't strictly need the DB's configured reliability.
+		hash, err := hashes.HashFile(job.path)
 		res := result{path: job.path, err: err}
 		if err == nil {
 			res.info = types.LocationInfo{
+				Path:      job.path,
 				Hash:      hash,
 				Size:      fileSize,
 				ModTime:   job.info.ModTime().Unix(),

@@ -2,6 +2,7 @@ package gooru
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,19 +23,64 @@ const (
 	opUntag
 )
 
+var (
+	// ErrDBUninitialized is returned when the database has not been set up.
+	ErrDBUninitialized = errors.New("database not initialized")
+)
+
+// Init creates and initializes a new Gooru database with a chosen hashing strategy.
+// It will overwrite an existing file, so the caller is responsible for any checks.
+func Init(dbPath string, strategy types.HashingStrategy, verbose bool) error {
+	// The `init` command is responsible for checking if a valid database already exists.
+	// This function proceeds with initialization, overwriting if necessary.
+	if err := database.InitStore(dbPath, strategy, verbose); err != nil {
+		// Clean up the partially created db file on failure
+		_ = os.Remove(dbPath)
+		return fmt.Errorf("failed to initialize database: %w", err)
+	}
+	return nil
+}
+
 // Client encapsulates the core business logic.
 type Client struct {
-	store *database.Store
+	store  *database.Store
+	hasher *hashing.Hasher
 }
 
 // New creates a new Client and initializes the database connection.
+// It will return ErrDBUninitialized if the database has not been created with `gooru init`.
 // The caller is responsible for calling Close() on the returned client.
 func New(dbPath string, verbose bool) (*Client, error) {
 	store, err := database.NewStore(dbPath, verbose)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+		// This can happen if the file doesn't exist.
+		if os.IsNotExist(err) {
+			return nil, ErrDBUninitialized
+		}
+		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-	return &Client{store: store}, nil
+
+	strategy, err := store.GetHashingStrategy()
+	if err != nil {
+		// If we can't get the strategy, the DB is likely uninitialized or corrupt.
+		store.Close()
+		// A more robust check for an uninitialized DB.
+		// sql.ErrNoRows happens if the meta table exists but is empty.
+		// "no such table" happens if the schema was never created.
+		// Both indicate an uninitialized state.
+		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table") {
+			return nil, ErrDBUninitialized
+		}
+		return nil, fmt.Errorf("could not read hashing strategy: %w", err)
+	}
+
+	hasher, err := hashing.NewHasher(strategy)
+	if err != nil {
+		store.Close()
+		return nil, fmt.Errorf("failed to initialize hasher: %w", err)
+	}
+
+	return &Client{store: store, hasher: hasher}, nil
 }
 
 // buildQuery is a helper to parse an expression and build the SQL subquery.
@@ -286,7 +332,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	}
 
 	// 1d. Concurrently hash all the necessary files.
-	hashResults := hashing.ConcurrentlyHashFiles(filesToHash)
+	hashResults := c.hasher.ConcurrentlyHashFiles(filesToHash)
 
 	// Phase 2: Prepare data structures for transaction, identifying moves and modifications.
 	type fileData struct {
@@ -968,7 +1014,7 @@ func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, st
 		}
 
 		// File has been modified, proceed with rehash.
-		newHash, err := hashing.HashFile(absPath)
+		newHash, err := c.hasher.HashFile(absPath)
 		if err != nil {
 			progressCb(originalPath, 0, fmt.Errorf("hashing failed: %w", err))
 			continue

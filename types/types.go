@@ -1,5 +1,15 @@
 package types
 
+// HashingStrategy defines the method used to hash files.
+type HashingStrategy string
+
+const (
+	// StrategyPartial uses file size and hashes of strategic chunks. Fast for large files.
+	StrategyPartial HashingStrategy = "partial"
+	// StrategyFull hashes the entire file content. Most reliable, but slow for large files.
+	StrategyFull HashingStrategy = "full"
+)
+
 // FileStatus indicates the state of a file relative to the database.
 type FileStatus int
 
@@ -8,7 +18,7 @@ const (
 	StatusOK FileStatus = iota
 	// StatusModified means the file is in the DB but its metadata differs.
 	StatusModified
-// StatusNotInDB means the file path is not in the database, though the file may exist on disk.
+	// StatusNotInDB means the file path is not in the database, though the file may exist on disk.
 	StatusNotInDB
 )
 
