@@ -42,10 +42,8 @@ type RelinkStats struct {
 
 // MoveInfo describes a file that appears to have been moved.
 type MoveInfo struct {
-	OldPath string
-	NewPath string
-	Size    int64
-	Tags    string
+	OldPath     string
+	NewLocation LocationInfo
 }
 
 // RelinkResult holds the outcome of a relink scan before any destructive actions.

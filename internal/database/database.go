@@ -596,8 +596,8 @@ func (s *Store) RemoveLocationsByPathTx(q Querier, paths []string) (int, error) 
 	return totalRemoved, nil
 }
 
-// UpdatePath updates a location's path, with checks for existence.
-func (s *Store) UpdatePath(absOldPath, absNewPath, displayOldPath, displayNewPath string) error {
+// UpdatePath updates a location's path and metadata, with checks for existence.
+func (s *Store) UpdatePath(absOldPath string, newInfo types.LocationInfo, displayOldPath, displayNewPath string) error {
 	tx, err := s.Begin()
 	if err != nil {
 		return err
@@ -606,7 +606,7 @@ func (s *Store) UpdatePath(absOldPath, absNewPath, displayOldPath, displayNewPat
 
 	// 1. Check if new path already exists
 	var dummy int
-	err = tx.QueryRow("SELECT 1 FROM locations WHERE path = ?", absNewPath).Scan(&dummy)
+	err = tx.QueryRow("SELECT 1 FROM locations WHERE path = ?", newInfo.Path).Scan(&dummy)
 	if err != sql.ErrNoRows {
 		if err == nil { // A row was found
 			return fmt.Errorf("new path already exists in database: %s", displayNewPath)
@@ -615,7 +615,11 @@ func (s *Store) UpdatePath(absOldPath, absNewPath, displayOldPath, displayNewPat
 	}
 
 	// 2. Perform the update
-	res, err := tx.Exec("UPDATE locations SET path = ? WHERE path = ?", absNewPath, absOldPath)
+	res, err := tx.Exec(`
+		UPDATE locations SET path = ?, size_bytes = ?, mod_time = ?, extension = ?
+		WHERE path = ?`,
+		newInfo.Path, newInfo.Size, newInfo.ModTime, newInfo.Extension, absOldPath,
+	)
 	if err != nil {
 		return err
 	}
@@ -1187,6 +1191,16 @@ func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) error {
 // It performs a simple update without any pre-checks.
 func (s *Store) UpdateLocationPath(q Querier, oldPath, newPath string) error {
 	_, err := q.Exec("UPDATE locations SET path = ? WHERE path = ?", newPath, oldPath)
+	return err
+}
+
+// UpdateMovedLocation updates a location's path and metadata. Used for applying relink changes for moved files.
+func (s *Store) UpdateMovedLocation(q Querier, oldPath string, newInfo types.LocationInfo) error {
+	_, err := q.Exec(`
+		UPDATE locations
+		SET path = ?, size_bytes = ?, mod_time = ?, extension = ?
+		WHERE path = ?`,
+		newInfo.Path, newInfo.Size, newInfo.ModTime, newInfo.Extension, oldPath)
 	return err
 }
 

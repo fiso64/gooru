@@ -404,7 +404,10 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 					continue
 				}
 				if _, statErr := os.Stat(oldPath); os.IsNotExist(statErr) {
-					if err := c.store.UpdateLocationPath(tx, oldPath, newPath); err != nil {
+					// The old path is gone, confirming this is a move.
+					// We must update the location with the new path AND new metadata.
+					newLocationInfo := locationsToUpsert[newPath]
+					if err := c.store.UpdateMovedLocation(tx, oldPath, newLocationInfo); err != nil {
 						return fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
 					}
 					delete(locationsToUpsert, newPath)
@@ -738,12 +741,25 @@ func (c *Client) EditPath(oldPath, newPath string) error {
 		return fmt.Errorf("could not resolve old path '%s': %w", oldPath, err)
 	}
 
+	// For a manual edit, we must get the metadata from the new file on disk.
+	fsInfo, err := os.Stat(newPath)
+	if err != nil {
+		return fmt.Errorf("could not stat new path '%s': %w", newPath, err)
+	}
+
 	absNewPath, err := resolvePath(newPath)
 	if err != nil {
 		return fmt.Errorf("could not resolve new path '%s': %w", newPath, err)
 	}
 
-	return c.store.UpdatePath(absOldPath, absNewPath, oldPath, newPath)
+	newInfo := types.LocationInfo{
+		Path:      absNewPath,
+		Size:      fsInfo.Size(),
+		ModTime:   fsInfo.ModTime().Unix(),
+		Extension: filepath.Ext(absNewPath),
+	}
+
+	return c.store.UpdatePath(absOldPath, newInfo, oldPath, newPath)
 }
 
 // NeedsRelink performs a fast check using filesystem metadata to see if a relink is necessary.
@@ -820,11 +836,17 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 					continue // This path was an unchanged file or already used for a move.
 				}
 
+				// Get the full info for the new location from the scan results.
+				newLocationInfo, locationFound := fsLocations[newPath]
+				if !locationFound {
+					// This should be logically impossible due to the preceding checks,
+					// but handle defensively.
+					continue
+				}
+
 				result.ProposedMoves = append(result.ProposedMoves, types.MoveInfo{
-					OldPath: dbPath,
-					NewPath: newPath,
-					Size:    dbInfo.Size,
-					Tags:    dbInfo.TagsCache,
+					OldPath:     dbPath,
+					NewLocation: newLocationInfo,
 				})
 				handledDbPaths[dbPath] = true
 				delete(fsLocations, newPath)       // This fs location is accounted for
@@ -869,8 +891,8 @@ func (c *Client) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSta
 
 	// 1. Apply moves
 	for _, move := range changes.ProposedMoves {
-		if err := c.store.UpdateLocationPath(tx, move.OldPath, move.NewPath); err != nil {
-			return stats, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", move.OldPath, move.NewPath, err)
+		if err := c.store.UpdateMovedLocation(tx, move.OldPath, move.NewLocation); err != nil {
+			return stats, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", move.OldPath, move.NewLocation.Path, err)
 		}
 	}
 	// A move counts as an update. We'll add it to LocationsAdded for a combined stat.

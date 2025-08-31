@@ -69,7 +69,7 @@ and ask for a single confirmation before applying them.`,
 		if hasMoves {
 			fmt.Println("\n[MOVED / RENAMED]")
 			for _, move := range result.ProposedMoves {
-				fmt.Printf("  %s  ->  %s\n", move.OldPath, move.NewPath)
+				fmt.Printf("  %s  ->  %s\n", move.OldPath, move.NewLocation.Path)
 			}
 		}
 
