@@ -13,7 +13,6 @@ import (
 
 var (
 	multiInputSetTags     bool
-	setTagsShowProgress   bool
 	setTagsExpressionMode bool
 )
 
@@ -96,23 +95,27 @@ Expression mode (set tags for files matching a query):
 				return nil
 			}
 
-			var filesFailed int
+			var filesFailed, filesSucceeded int
 			progressCb := func(filePath string, err error) {
 				if err != nil {
 					filesFailed++
 					fmt.Printf("Failed to set tags for '%s': %v\n", filePath, err)
-				} else if setTagsShowProgress {
-					if len(tags) > 0 {
-						fmt.Printf("Set tags for '%s' to: %s\n", filePath, strings.Join(tags, ", "))
-					} else {
-						fmt.Printf("Removed all tags from '%s'\n", filePath)
-					}
+				} else {
+					filesSucceeded++
 				}
 			}
 
 			if err := svc.SetTagsForFiles(files, tags, progressCb); err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+			}
+
+			if filesSucceeded > 0 {
+				if len(tags) > 0 {
+					fmt.Printf("Set tags for %d file(s).\n", filesSucceeded)
+				} else {
+					fmt.Printf("Removed all tags from %d file(s).\n", filesSucceeded)
+				}
 			}
 
 			if filesFailed > 0 {
@@ -127,6 +130,5 @@ Expression mode (set tags for files matching a query):
 func init() {
 	rootCmd.AddCommand(settagsCmd)
 	settagsCmd.Flags().BoolVarP(&multiInputSetTags, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
-	settagsCmd.Flags().BoolVarP(&setTagsShowProgress, "progress", "p", false, "Show progress for each file processed")
 	settagsCmd.Flags().BoolVarP(&setTagsExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 }

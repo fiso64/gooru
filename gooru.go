@@ -193,8 +193,8 @@ func (c *Client) TagFilesByQuery(expression string, tags []string) (int, error) 
 }
 
 // UntagFilesByQuery removes tags from all files matching a query expression.
-// If tags is empty, it removes ALL tags from matching files.
-// Returns the number of tags removed.
+// If tags is empty, it removes ALL tags from matching files and returns the number of files affected.
+// Otherwise, it returns the number of tag associations removed.
 func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error) {
 	if err := query.ValidateTags(tags); err != nil {
 		return 0, err
@@ -213,31 +213,41 @@ func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error
 	}
 	defer tx.Rollback()
 
-	var affected int64
 	if len(tags) == 0 {
-		// Clear all tags
-		affected, err = c.store.BatchClearTagsByContentQueryTx(tx, sqlQuery, args)
-	} else {
-		// Untag specific tags
-		parsedTags := make([]types.ParsedTag, len(tags))
-		for i, t := range tags {
-			parsedTags[i] = query.ParseTag(t)
-		}
-		tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
-		if err != nil {
-			return 0, fmt.Errorf("failed to look up tags: %w", err)
+		// Clear all tags and report file count.
+		if _, err := c.store.BatchClearTagsByContentQueryTx(tx, sqlQuery, args); err != nil {
+			return 0, fmt.Errorf("failed to clear tags: %w", err)
 		}
 
-		tagIDs := make([]int64, 0, len(tags))
-		for _, tagStr := range tags {
-			if id, ok := tagIDMap[tagStr]; ok {
-				tagIDs = append(tagIDs, id)
-			}
+		countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s)", sqlQuery)
+		var count int
+		if err := tx.QueryRow(countQuery, args...).Scan(&count); err != nil {
+			// Don't fail the transaction, just return 0 for the count.
+			count = 0
 		}
+		return count, tx.Commit()
+	}
 
-		if len(tagIDs) > 0 {
-			affected, err = c.store.BatchDisassociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs)
+	// Untag specific tags
+	var affected int64
+	parsedTags := make([]types.ParsedTag, len(tags))
+	for i, t := range tags {
+		parsedTags[i] = query.ParseTag(t)
+	}
+	tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
+	if err != nil {
+		return 0, fmt.Errorf("failed to look up tags: %w", err)
+	}
+
+	tagIDs := make([]int64, 0, len(tags))
+	for _, tagStr := range tags {
+		if id, ok := tagIDMap[tagStr]; ok {
+			tagIDs = append(tagIDs, id)
 		}
+	}
+
+	if len(tagIDs) > 0 {
+		affected, err = c.store.BatchDisassociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs)
 	}
 	if err != nil {
 		return 0, err

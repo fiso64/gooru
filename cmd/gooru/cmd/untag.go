@@ -13,7 +13,6 @@ import (
 
 var (
 	multiInputUntag     bool
-	untagShowProgress   bool
 	untagExpressionMode bool
 )
 
@@ -88,7 +87,7 @@ Expression mode (untag files matching a query):
 			if len(tags) > 0 {
 				fmt.Printf("Removed %d tag associations matching expression.\n", affected)
 			} else {
-				fmt.Printf("Removed all tags from content matching expression.\n")
+				fmt.Printf("Removed all tags from %d file(s) matching expression.\n", affected)
 			}
 		} else {
 			files, err := expandFileArgs(fileSpecs)
@@ -100,23 +99,27 @@ Expression mode (untag files matching a query):
 				return nil
 			}
 
-			var filesFailed int
+			var filesFailed, filesSucceeded int
 			progressCb := func(filePath string, err error) {
 				if err != nil {
 					filesFailed++
 					fmt.Printf("Failed to process '%s': %v\n", filePath, err)
-				} else if untagShowProgress {
-					if len(tags) > 0 {
-						fmt.Printf("Removed tags from '%s': %s\n", filePath, strings.Join(tags, ", "))
-					} else {
-						fmt.Printf("Removed all tags from '%s'\n", filePath)
-					}
+				} else {
+					filesSucceeded++
 				}
 			}
 
 			if err := svc.UntagFiles(files, tags, progressCb); err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+			}
+
+			if filesSucceeded > 0 {
+				if len(tags) > 0 {
+					fmt.Printf("Removed tags from %d file(s).\n", filesSucceeded)
+				} else {
+					fmt.Printf("Removed all tags from %d file(s).\n", filesSucceeded)
+				}
 			}
 
 			if filesFailed > 0 {
@@ -131,6 +134,5 @@ Expression mode (untag files matching a query):
 func init() {
 	rootCmd.AddCommand(untagCmd)
 	untagCmd.Flags().BoolVarP(&multiInputUntag, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
-	untagCmd.Flags().BoolVarP(&untagShowProgress, "progress", "p", false, "Show progress for each file processed")
 	untagCmd.Flags().BoolVarP(&untagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 }

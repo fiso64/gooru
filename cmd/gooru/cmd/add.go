@@ -9,9 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	addShowProgress bool
-)
+var ()
 
 // addCmd represents the add command
 var addCmd = &cobra.Command{
@@ -48,21 +46,23 @@ will automatically add and track any new files it's given.`,
 			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
 		}
 
-		var filesFailed int
+		var filesFailed, filesSucceeded int
 		progressCb := func(filePath string, err error) {
 			if err != nil {
 				filesFailed++
 				fmt.Printf("Failed to process '%s': %v\n", filePath, err)
-			} else if addShowProgress {
-				// The service layer prints detailed move/modify messages.
-				// This is just a simple confirmation for each file when -p is on.
-				fmt.Printf("Processed '%s'\n", filePath)
+			} else {
+				filesSucceeded++
 			}
 		}
 
 		// `add` is just `tag` with no tags.
 		if err := svc.TagFiles(files, []string{}, progressCb); err != nil {
 			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+		}
+
+		if filesSucceeded > 0 {
+			fmt.Printf("Processed %d file(s).\n", filesSucceeded)
 		}
 
 		if filesFailed > 0 {
@@ -75,5 +75,4 @@ will automatically add and track any new files it's given.`,
 
 func init() {
 	rootCmd.AddCommand(addCmd)
-	addCmd.Flags().BoolVarP(&addShowProgress, "progress", "p", false, "Show progress for each file processed")
 }

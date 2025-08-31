@@ -9,9 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	rehashShowProgress bool
-)
+var ()
 
 // rehashCmd represents the rehash command
 var rehashCmd = &cobra.Command{
@@ -36,32 +34,35 @@ will not add new, untracked files.`,
 			return nil
 		}
 
-		processedCount := 0
+		var rehashedCount, updatedCount, errorCount int
+
 		progressCb := func(path string, status types.RehashStatus, err error) {
-			processedCount++
 			if err != nil {
+				errorCount++
 				fmt.Printf("Error rehashing '%s': %v\n", path, err)
 				return
 			}
 			switch status {
 			case types.StatusRehashed:
-				fmt.Printf("Rehashed '%s'\n", path)
-			case types.StatusSkippedUnchanged:
-				if rehashShowProgress {
-					fmt.Printf("Skipped '%s': file is already up-to-date.\n", path)
-				}
+				rehashedCount++
 			case types.StatusSkippedNotInDB:
 				// This is a critical piece of user guidance. Always show it, regardless of progress flag.
 				fmt.Printf("Skipped '%s': path not found in database. To update the location of a moved file, use: 'gooru editpath <oldpath> <newpath>'\n", path)
 			case types.StatusMetadataUpdated:
-				fmt.Printf("Updated metadata for '%s'\n", path)
+				updatedCount++
 			}
 		}
 
 		svc.RehashFiles(files, progressCb)
 
-		if processedCount == 0 {
-			fmt.Println("No files were processed.")
+		if rehashedCount > 0 || updatedCount > 0 {
+			fmt.Printf("Rehash complete. %d file(s) rehashed, %d metadata record(s) updated.\n", rehashedCount, updatedCount)
+		} else if len(files) > 0 && errorCount == 0 {
+			fmt.Println("Rehash complete. No files required updates.")
+		}
+
+		if errorCount > 0 {
+			fmt.Printf("Warning: %d error(s) occurred during rehash.\n", errorCount)
 		}
 
 		return nil
@@ -70,5 +71,4 @@ will not add new, untracked files.`,
 
 func init() {
 	rootCmd.AddCommand(rehashCmd)
-	rehashCmd.Flags().BoolVarP(&rehashShowProgress, "progress", "p", false, "Show detailed progress for all files, including skipped ones.")
 }
