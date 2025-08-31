@@ -1,48 +1,70 @@
+# Spec: File Change Heuristics
 
-Status: ???
+**Version:** 1.0
+**Status:** Implemented
 
-To optimize performance, Gooru will occasionally use mod time and filesize instead of computing the file's hash.
+---
 
-### Case 1: `ModTime/Size` as a Heuristic for an **UNCHANGED** File
+## 1. Abstract
 
-In these scenarios, a matching modification time (and size) is used as a shortcut to trust the database's information and **avoid expensive operations**.
+To optimize performance and ensure data integrity, Gooru uses file metadata (size and modification time) as a heuristic to quickly determine if a file's content has changed since it was last recorded in the database. This document specifies how different commands react to this heuristic, distinguishing between a "fast path" for unchanged files and a "safe update path" for changed files.
 
-1.  **Skipping Re-Hashing During Tagging (`TagFiles`, `SetTagsForFiles`)**
-    *   **Context:** When you run the `tag` or `settags` command.
-    *   **Mechanism:** Before adding a file to the list of files that need to be hashed, the system compares its current on-disk `size` and `ModTime` with the values stored in the database for that file path.
-    *   **Result if Match:** If they match, the system assumes the file's content is identical to what's recorded. It skips reading and hashing the file entirely and reuses the existing content hash from the database.
-    *   **Purpose:** This is a critical **performance optimization**. It avoids the significant I/O and CPU cost of re-hashing large files that have not been modified, making the tagging of existing files nearly instantaneous.
+## 2. Scenario 1: On-Disk Metadata MATCHES Database Record
 
-2.  **Skipping a Full Filesystem Scan (`NeedsRelink`)**
-    *   **Context:** During the initial, fast pre-check phase of the `relinkall` command.
-    *   **Mechanism:** The system queries the database for all known file paths within the specified directories. It then iterates through this list, performing a quick `stat` call on each file to get its current `size` and `ModTime`.
-    *   **Result if All Match:** If every single file in the database exists on disk and its metadata matches the stored record, the `NeedsRelink` check returns `false`.
-    *   **Purpose:** To determine that the database is perfectly synchronized with the filesystem **without performing a full scan**. This allows the `relinkall` command to finish immediately with an "up-to-date" message, providing a very fast user experience when no files have been moved or changed.
+This is the **fast path**. When a file's current size and modification time are identical to the values stored in the database for its path, the system assumes the content is unchanged. This allows it to avoid expensive operations.
 
-### Case 2: `ModTime/Size` as a Heuristic for a **CHANGED** File
+*   **Operations Affected:**
+    *   `tag`, `settags`, `untag`: The system reuses the known content hash from the database without reading or re-hashing the file. This makes tagging operations on existing, unchanged files nearly instantaneous.
+    *   `gettags`: The system confidently returns the cached tags associated with the known content hash.
+    *   `relinkall` (pre-check): The `NeedsRelink` check passes for this file. If all files pass, the entire `relinkall` command can exit immediately, reporting that the database is synchronized.
 
-In these scenarios, a mismatched modification time (or size) indicates that the file on disk is different from the one recorded in the database. This triggers a specific action to either update the database or prevent an unsafe operation.
+*   **Purpose:** Performance optimization. Avoids redundant I/O and CPU work.
 
-1.  **Triggering Re-Hashing and Record Updates (`TagFiles`, `SetTagsForFiles`)**
-    *   **Context:** When you run the `tag` or `settags` command.
-    *   **Mechanism:** If a file's on-disk `size` or `ModTime` *does not* match what's in the database.
-    *   **Result if Mismatch:** The system assumes the content has changed. It proceeds to re-read and re-hash the file to generate a new content hash. The database record for that file path is updated with this new hash and metadata *before* the new tags are applied.
-    *   **Purpose:** To **ensure data integrity**. This guarantees that tags are always associated with the content that is *currently* present at a given file path, correctly handling file edits.
+## 3. Scenario 2: On-Disk Metadata DOES NOT MATCH Database Record
 
-2.  **Preventing an `Untag` Operation as a Safety Measure (`UntagFiles`)**
-    *   **Context:** When you run the `untag` command with specific tags to remove.
-    *   **Mechanism:** If the file's on-disk `size` or `ModTime` does not match the database record.
-    *   **Result if Mismatch:** The `untag` operation is **aborted for that specific file**, and an error is reported (e.g., "file has been modified"). The system refuses to remove tags from the old content record.
-    *   **Purpose:** ???
+This is the **safe update path**. When a file's size or modification time differs from the database record, the system assumes the content has changed and that the database record for that path is stale.
 
-3.  **Withholding Stale Information (`GetTagsForFile`, `GetFileInfoForFile`)**
-    *   **Context:** When you ask for the tags of a single file using the `gettags` command.
-    *   **Mechanism:** If the file's on-disk `size` or `ModTime` does not match the database record.
-    *   **Result if Mismatch:** The system acts as if the file is not in the database and returns an empty list of tags.
-    *   **Purpose:** To **prevent displaying misleading data**. The tags stored in the database belong to the *previous* version of the file's content. Showing them would be incorrect for the new, modified file.
+The system's reaction depends on the nature of the command.
 
-4.  **Triggering a Full Filesystem Scan (`NeedsRelink`)**
-    *   **Context:** During the initial pre-check of the `relinkall` command.
-    *   **Mechanism:** If the metadata check finds *any* file whose on-disk `size` or `ModTime` does not match its database record, or if a file in the database is missing from disk.
-    *   **Result if Mismatch:** The `NeedsRelink` check immediately returns `true`.
-    *   **Purpose:** To signal that the database is out of sync with the filesystem. This result instructs the `relinkall` command to proceed with the more comprehensive and resource-intensive `Relink` scan to find out exactly what has moved, been renamed, or been deleted.
+### Behavior A: Update and Proceed
+
+This behavior ensures that user actions always apply to the *current* state of the file on disk.
+
+*   **Operations Affected:**
+    *   `tag`, `settags`, `untag`
+
+*   **Mechanism:**
+    1.  The system assumes the content has changed.
+    2.  It re-reads and re-hashes the file to generate a new content hash.
+    3.  It updates the database record for that file path, linking it to the new hash and metadata.
+    4.  The user is notified that the database was updated for a modified file. If the old content had tags, a warning about the orphaned tags is also displayed.
+    5.  The original tagging operation then proceeds on the new content hash.
+
+*   **Purpose:** Data integrity and a seamless user experience. Tags are always associated with the content that is currently present at a given file path.
+
+### Behavior B: Withhold Stale Information
+
+This behavior prevents the system from displaying misleading information to the user.
+
+*   **Operations Affected:**
+    *   `gettags`, `GetFileInfoForFile`
+
+*   **Mechanism:**
+    1.  The system sees that the on-disk file does not match the database record.
+    2.  It concludes that the tags stored in the database belong to the *previous* version of the file and are not valid for the current content.
+    3.  It acts as if the file is not in the database, returning an empty list of tags.
+
+*   **Purpose:** Accuracy. Avoids showing tags that belong to old, different content.
+
+### Behavior C: Trigger Full Scan
+
+This behavior signals that a broader synchronization is needed.
+
+*   **Operations Affected:**
+    *   `relinkall` (pre-check)
+
+*   **Mechanism:**
+    1.  The `NeedsRelink` check finds a file whose metadata does not match its database record (or a file that is missing entirely).
+    2.  It immediately returns `true`.
+
+*   **Purpose:** To confirm that the database is out of sync with the filesystem, instructing the `relinkall` command to proceed with its more comprehensive scan to find all moves, duplicates, and deletions.

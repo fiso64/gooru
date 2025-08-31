@@ -43,25 +43,27 @@ Traditional file systems and tagging tools tie metadata to a file's path. If a u
 
 **Example 1: Tagging and Renaming**
 ```bash
-# Initial State: photo.jpg exists, is not in the DB.
+# 1. Initial State: photo.jpg exists, is not in the DB.
 $ gooru tag photo.jpg vacation summer
 # System computes hash H_A for photo.jpg and applies tags.
 
+# 2. User renames the file on the filesystem.
 $ mv photo.jpg holiday.jpg
-# User renames the file.
 
-$ gooru gettags holiday.jpg
-# This fails, as the system only knows about "photo.jpg"
-# TODO: Define this in operations/information_retrieval.md.
+# 3. User tags the "new" file. Gooru recognizes the content.
+$ gooru tag holiday.jpg trip
+# Expected Output:
+Detected move for known content: '/path/to/photo.jpg' -> '/path/to/holiday.jpg'
 
-$ gooru relinkall .
-# The relink command finds that the content H_A is now at "holiday.jpg".
-# It updates the locations table.
+# 4. Internally, Gooru has updated its locations table to point to the new
+#    path for hash H_A and then added the new tag.
 
+# 5. Retrieving tags for the new path now shows all associated tags.
 $ gooru gettags holiday.jpg
 # Expected Output:
-vacation
 summer
+trip
+vacation
 ```
 
 ## 5. Edge Cases & Unresolved Questions

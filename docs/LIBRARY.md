@@ -55,6 +55,15 @@ err := client.TagFiles(files, tags, func(filePath string, err error) {
 // handle potential database error
 ```
 
+**File Modification and Move Handling**
+
+All three path-based tagging functions (`TagFiles`, `SetTagsForFiles`, and `UntagFiles`) intelligently handle cases where a file has been modified or moved since it was last seen.
+
+- If a file path points to content that has been **modified** (different size or modtime), the system automatically re-hashes the file, updates the database to point the path to the new content, and proceeds with the tagging operation on the new content. The old content's tags are left orphaned in the database.
+- If a file path is new, but its content hash matches an existing file that is now missing from its old path, the system treats this as a **move/rename**. It updates the path in the database and applies the operation.
+
+In both cases, the operation succeeds on the current state of the file, ensuring data integrity and resilience to filesystem changes. Note that these automatic updates print notifications to standard output, which may not be desirable in all library contexts.
+
 ### Tagging by Query
 
 For maximum performance when tagging large sets of files that match a query, use the `ByQuery` variants. These methods operate directly on the database using the query expression, avoiding the overhead of fetching and iterating through file paths in your application. They do not support progress callbacks but return a count of affected records.
