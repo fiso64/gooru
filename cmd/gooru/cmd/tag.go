@@ -48,14 +48,14 @@ Expression mode (tag files matching a query):
 				return errors.New("no files provided before '--' separator")
 			}
 			if separatorIndex == len(args) {
-				return errors.New("no tags provided after '--' separator")
+				return errors.New("no tags provided after '--' separator. To add files without tags, use the 'add' command")
 			}
 
 			fileSpecs = args[:separatorIndex]
 			tags = args[separatorIndex:]
 		} else {
 			if len(args) < 2 {
-				return errors.New("usage: gooru tag <source> <tag1> [tag2...]")
+				return errors.New("usage: gooru tag <source> <tag1> [tag2...]. To add files without tags, use the 'add' command")
 			}
 			fileSpecs = args[0:1]
 			tags = args[1:]

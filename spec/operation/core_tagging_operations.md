@@ -54,6 +54,20 @@ If a file on disk has a different size or modification time than its database re
 
 This policy ensures that user actions always apply to the current state of the file on disk while preventing silent data loss by explicitly informing the user about orphaned tags.
 
+### 4.3. Command-Specific Behavior
+
+*   **`add`**
+    *   **Operation:** Adds files to the database without applying tags. This is the canonical way to start tracking files. It uses the same powerful file ingestion logic as `tag` to handle new, moved, and duplicate content.
+
+*   **`tag`**
+    *   **Operation:** Additive. Requires at least one tag. `INSERT OR IGNORE` into `content_tags`. It never removes existing tags.
+
+*   **`settags`**
+    *   **Operation:** Declarative/Destructive. It first performs a `DELETE` on all existing tags for the content, then `INSERT`s the new tags. If no new tags are provided, this effectively clears all tags from the content.
+
+*   **`untag`**
+    *   **Operation:** Subtractive. It performs a `DELETE` on specific tags.
+
 ## 5. Edge Cases & Unresolved Questions
 
 *   **What if a file has no tags, and the user runs `untag`?**
