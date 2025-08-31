@@ -81,7 +81,7 @@ the output is a table of paths and their associated tags.`,
 				case types.StatusModified:
 					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: '%s' has been modified. Tags for the previous version are not shown. Please re-tag the file to update it.\n", filePath)
 				case types.StatusNotInDB:
-					fmt.Printf("No tags found for '%s'. If this file was recently moved or renamed, try running 'gooru relinkall .'\n", filePath)
+					fmt.Printf("No tags found for '%s'. To track this file (especially if it was moved or renamed), use: 'gooru add \"%s\"'\n", filePath, filePath)
 				case types.StatusOK:
 					fmt.Printf("No tags found for '%s'.\n", filePath)
 				}

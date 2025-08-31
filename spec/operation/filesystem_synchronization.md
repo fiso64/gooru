@@ -7,7 +7,7 @@
 
 ## 1. Abstract
 
-This spec defines the `relinkall` command, a user-initiated process to synchronize the Gooru database with the state of the filesystem. It detects and applies changes for moved, renamed, and deleted files, ensuring the database's `locations` table remains accurate.
+This spec defines the `relinkall` command, a user-initiated process for bulk synchronization between the Gooru database and the filesystem. It is designed to find all moved, renamed, and deleted files within a large directory where the specific changes may be unknown to the user. It complements the more surgical `add` command by handling these broad, directory-level changes.
 
 ## 2. Problem Statement / Motivation
 
