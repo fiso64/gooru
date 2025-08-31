@@ -1,7 +1,7 @@
 # Spec: Core Tagging Operations
 
-**Version:** 1.0
-**Status:** ???
+**Version:** 1.1
+**Status:** Proposed
 
 ---
 
@@ -11,7 +11,7 @@ This document specifies the behavior of the primary database modification comman
 
 ## 2. Problem Statement / Motivation
 
-The core utility of Gooru is applying and managing tags. Users need a clear, fast, and predictable way to perform the three fundamental tagging actions: adding tags, replacing all tags, and removing specific tags. The behavior of these commands must be safe and robust, especially when the filesystem's state has changed since the last operation.
+The core utility of Gooru is applying and managing tags. Users need a clear, fast, and predictable way to perform the three fundamental tagging actions: adding tags, replacing all tags, and removing specific tags. The behavior of these commands must be safe and robust, especially when the filesystem's state has changed since the last operation. It should be clear to the user when the system is automatically updating its records for a modified file.
 
 ## 3. Goals and Non-Goals
 
@@ -20,6 +20,7 @@ The core utility of Gooru is applying and managing tags. Users need a clear, fas
 *   Define the syntax and behavior for `tag` (additive), `settags` (declarative/destructive), and `untag` (subtractive).
 *   Support both individual file paths and bulk operations via query expressions.
 *   Establish a clear, safe, and predictable policy for handling files that have been modified on disk.
+*   Ensure users are always notified when a file modification is detected and handled automatically.
 *   Ensure all database modifications are transactional.
 
 ### Non-Goals
@@ -29,7 +30,7 @@ The core utility of Gooru is applying and managing tags. Users need a clear, fas
 
 ## 4. Proposed Solution & Technical Design
 
-The three commands share common logic for parsing arguments (files vs. expressions) and interacting with the database. Their primary distinction lies in the final database operation and, crucially, in their safety-check behavior.
+The three commands share common logic for parsing arguments (files vs. expressions) and interacting with the database. Their primary distinction lies in the final database operation. Their behavior when encountering modified files is now unified.
 
 ### 4.1. Common Behavior
 
@@ -40,36 +41,18 @@ The three commands share common logic for parsing arguments (files vs. expressio
 
 ### 4.2. Behavior on File Modification (Path Mode Only)
 
-This is the most critical rule. It defines how the system resolves the ambiguity of a file path pointing to content that is different from what the database has on record.
+This is a critical rule defining how the system handles a file path that points to content different from what the database has on record for that path. The behavior is now consistent across all tagging commands (`tag`, `settags`, `untag`).
 
-The behavior is determined by the **risk profile** of the command:
+If a file on disk has a different size or modification time than its database record, the system will **always** perform the following pre-flight steps before executing the requested command:
 
-*   **Low-Risk (Declarative/Additive Actions): `tag`, `settags [tags...]`**
-    *   **Action:** If a file on disk has a different size or modification time than its database record, the system will:
-        1.  Re-hash the file to get its new content hash (`H_B`).
-        2.  Update the `locations` table to associate the file path with this new hash. This orphans the old hash (`H_A`).
-        3.  Apply the requested tags to the new hash (`H_B`).
-    *   **Feedback:** The command will succeed but will print a clear warning at the end of the operation, informing the user that one or more files were modified and that old tag data may be orphaned. It will advise running `relinkall` to review.
+1.  **Re-hash:** The file is re-hashed to get its new content hash (`H_B`).
+2.  **Update Location:** The `locations` table is updated to associate the file path with this new hash, size, and modification time. This action orphans the old content hash (`H_A`) which is no longer associated with this path. The orphaned hash and its associated tags remain in the database.
+3.  **Notify User:** A message is printed to standard output informing the user that the file was updated. For example: `Updated database for modified file: 'path/to/file.txt'`.
+4.  **Warn on Orphaned Tags:** After the update, the system checks if the orphaned hash (`H_A`) had any tags.
+    *   If it did, an additional, prominent **WARNING** is printed. For example: `WARNING: 'path/to/file.txt' was modified. The old version's tags [tag1, tag2] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.`
+5.  **Proceed:** After these steps are complete for the modified file, the original command (`tag`, `settags`, or `untag`) proceeds as requested, operating on the **new** content hash (`H_B`).
 
-*   **High-Risk (Corrective/Destructive Actions): `untag`, `settags` (with no tags)**
-    *   **Action:** If a file on disk has a different size or modification time than its database record, the system will **halt the operation for that specific file.**
-    *   **Feedback:** An error will be printed for the specific file (e.g., `"Failed to process 'file.txt': file has been modified; please re-tag it first"`). This prevents the user from accidentally performing a destructive action on the wrong content and ensures they are aware of the desynchronization.
-
-### 4.3. Command-Specific Behavior
-
-*   **`tag`**
-    *   **Operation:** Additive. `INSERT OR IGNORE` into `content_tags`. It never removes existing tags.
-    *   **Safety Profile:** Low-Risk.
-
-*   **`settags`**
-    *   **Operation:** Declarative/Destructive. It first performs a `DELETE` on all existing tags for the content, then `INSERT`s the new tags.
-    *   **Safety Profile:**
-        *   With tags provided: **Low-Risk**.
-        *   With **no tags** provided (clearing all tags): **High-Risk**.
-
-*   **`untag`**
-    *   **Operation:** Subtractive. It performs a `DELETE` on specific tags.
-    *   **Safety Profile:** **High-Risk**.
+This policy ensures that user actions always apply to the current state of the file on disk while preventing silent data loss by explicitly informing the user about orphaned tags.
 
 ## 5. Edge Cases & Unresolved Questions
 
@@ -82,6 +65,9 @@ The behavior is determined by the **risk profile** of the command:
 
 ## 6. Alternatives
 
+*   **Alternative: Differentiate behavior based on command risk.**
+    *   **Description:** The previous version of this spec proposed that "safe" commands like `tag` would auto-update, while "unsafe" commands like `untag` would error out on a modified file.
+    *   **Rejected:** This leads to inconsistent and unpredictable behavior for the user. A user should not have to remember which commands have which safety profile. The new unified approach is simpler, more transparent, and safer because it always informs the user of what happened and why.
 *   **Alternative: Always error on mismatch.**
-    *   **Rejected:** Too restrictive. A user who intentionally edits and then tags a file would be forced to run a separate command in between, which is poor UX.
-*   **Alternative: Prompt the user, and add --yes, --no.**
+    *   **Description:** Never automatically re-hash and update a modified file.
+    *   **Rejected:** Too restrictive. A user who intentionally edits and then tags a file would be forced to run a separate command in between, which is poor UX. The notification and warning system provides the necessary safety net.
