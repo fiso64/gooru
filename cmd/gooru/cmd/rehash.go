@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"gooru.local/gooru/cmd/gooru/display"
 	"gooru.local/gooru/types"
 	"github.com/spf13/cobra"
 )
@@ -32,7 +33,7 @@ will not add new, untracked files.`,
 
 		if len(expansionResult.NotFound) > 0 {
 			for _, notFound := range expansionResult.NotFound {
-				fmt.Fprintf(cmd.ErrOrStderr(), "Error: path not found: %s\n", notFound)
+				display.Errorf("path not found: %s", notFound)
 			}
 			return fmt.Errorf("aborted due to path errors")
 		}
@@ -48,7 +49,7 @@ will not add new, untracked files.`,
 		progressCb := func(path string, status types.RehashStatus, err error) {
 			if err != nil {
 				errorCount++
-				fmt.Printf("Error rehashing '%s': %v\n", path, err)
+				display.Errorf("rehashing '%s': %v", path, err)
 				return
 			}
 			switch status {
@@ -71,7 +72,7 @@ will not add new, untracked files.`,
 		}
 
 		if errorCount > 0 {
-			fmt.Printf("Warning: %d error(s) occurred during rehash.\n", errorCount)
+			display.Warnf("%d error(s) occurred during rehash.", errorCount)
 		}
 
 		return nil

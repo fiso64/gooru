@@ -132,7 +132,7 @@ Expression mode (untag files matching a query):
 				case types.NotificationKindModified:
 					fmt.Printf("Updated database for modified file: '%s'\n", n.OriginalPath)
 					if len(n.OrphanedTags) > 0 {
-						fmt.Printf("WARNING: '%s' was modified. The old version's tags [%s] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.\n", n.OriginalPath, strings.Join(n.OrphanedTags, ", "))
+						display.Warnf("'%s' was modified. The old version's tags [%s] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.", n.OriginalPath, strings.Join(n.OrphanedTags, ", "))
 					}
 				case types.NotificationKindMoveDetected:
 					fmt.Printf("Detected move for known content: '%s' -> '%s'\n", n.OldPath, n.NewPath)
