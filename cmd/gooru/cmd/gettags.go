@@ -38,11 +38,19 @@ the output is a table of paths and their associated tags.`,
 			return errors.New("multiple file arguments require the -m/--multi flag")
 		}
 
-		files, err := expandFileArgs(args)
+		expansionResult, err := expandFileArgs(args)
 		if err != nil {
 			return fmt.Errorf("error expanding file arguments: %w", err)
 		}
 
+		if len(expansionResult.NotFound) > 0 {
+			for _, notFound := range expansionResult.NotFound {
+				display.Errorf("path not found: %s", notFound)
+			}
+			return fmt.Errorf("aborted due to path errors")
+		}
+
+		files := expansionResult.Found
 		if len(files) == 0 {
 			fmt.Println("No matching files found.")
 			return nil
@@ -59,7 +67,7 @@ the output is a table of paths and their associated tags.`,
 					continue
 				}
 				if status == types.StatusModified {
-					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: '%s' has been modified. Tags for the previous version are not shown in the table.\n", filePath)
+					display.Warnf("'%s' has been modified. Tags for the previous version are not shown in the table.", filePath)
 				}
 				fileInfos = append(fileInfos, info)
 			}
@@ -79,7 +87,7 @@ the output is a table of paths and their associated tags.`,
 			if len(tags) == 0 {
 				switch status {
 				case types.StatusModified:
-					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: '%s' has been modified. Tags for the previous version are not shown. Please re-tag the file to update it.\n", filePath)
+					display.Warnf("'%s' has been modified. Tags for the previous version are not shown. Please re-tag the file to update it.", filePath)
 				case types.StatusNotInDB:
 					fmt.Printf("No tags found for '%s'. To track this file (especially if it was moved or renamed), use: 'gooru add \"%s\"'\n", filePath, filePath)
 				case types.StatusOK:

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gooru.local/gooru/cmd/gooru/display"
 	"gooru.local/gooru/types"
 	"github.com/spf13/cobra"
 )
@@ -32,12 +33,21 @@ Note: You do not need to run 'add' before 'tag'. The 'tag' command
 will automatically add and track any new files it's given.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		files, err := expandFileArgs(args)
+		expansionResult, err := expandFileArgs(args)
 		if err != nil {
 			return fmt.Errorf("error expanding file arguments: %w", err)
 		}
+
+		for _, notFound := range expansionResult.NotFound {
+			display.Warnf("skipping path not found: %s", notFound)
+		}
+
+		files := expansionResult.Found
 		if len(files) == 0 {
-			fmt.Println("No matching files found to add.")
+			// Only print if there were no "not found" warnings, to avoid redundancy.
+			if len(expansionResult.NotFound) == 0 {
+				fmt.Println("No matching files found to add.")
+			}
 			return nil
 		}
 
@@ -81,7 +91,8 @@ will automatically add and track any new files it's given.`,
 		}
 
 		if filesFailed > 0 {
-			fmt.Printf("\nWarning: %d file(s) failed to process.\n", filesFailed)
+			fmt.Println() // For spacing
+			display.Warnf("%d file(s) failed to process.", filesFailed)
 		}
 
 		return nil

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gooru.local/gooru/cmd/gooru/display"
 	"gooru.local/gooru/types"
 	"github.com/spf13/cobra"
 )
@@ -86,13 +87,21 @@ Expression mode (set tags for files matching a query):
 				fmt.Printf("Removed all tags from %d file(s) matching expression.\n", affected)
 			}
 		} else {
-			files, err := expandFileArgs(fileSpecs)
+			expansionResult, err := expandFileArgs(fileSpecs)
 			if err != nil {
 				return fmt.Errorf("error expanding file arguments: %w", err)
 			}
 
+			for _, notFound := range expansionResult.NotFound {
+				display.Warnf("skipping path not found: %s", notFound)
+			}
+
+			files := expansionResult.Found
 			if len(files) == 0 {
-				fmt.Println("No files found to set tags on.")
+				// Only print if there were no "not found" warnings, to avoid redundancy.
+				if len(expansionResult.NotFound) == 0 {
+					fmt.Println("No files found to set tags on.")
+				}
 				return nil
 			}
 
@@ -137,7 +146,8 @@ Expression mode (set tags for files matching a query):
 			}
 
 			if filesFailed > 0 {
-				fmt.Printf("\nWarning: %d file(s) failed to process.\n", filesFailed)
+				fmt.Println() // For spacing
+				display.Warnf("%d file(s) failed to process.", filesFailed)
 			}
 		}
 

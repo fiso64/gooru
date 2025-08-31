@@ -957,6 +957,7 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	}
 
 	// 3a. Find moves and unchanged files.
+dbPathLoop:
 	for dbPath, dbInfo := range dbLocations {
 		// Check for unchanged files first
 		fsInfo, existsOnFs := fsLocations[dbPath]
@@ -988,10 +989,9 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 				handledDbPaths[dbPath] = true
 				delete(fsLocations, newPath)       // This fs location is accounted for
 				fsHashToPaths[dbInfo.Hash][i] = "" // Mark this path as used
-				goto nextDbPath                    // Move to the next db path
+				continue dbPathLoop                // Move to the next db path
 			}
 		}
-	nextDbPath:
 	}
 
 	// 3b. Any remaining fsLocations are new locations for existing content (duplicates).

@@ -25,10 +25,19 @@ This command only operates on paths that are already known to the database. It
 will not add new, untracked files.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		files, err := expandFileArgs(args)
+		expansionResult, err := expandFileArgs(args)
 		if err != nil {
 			return fmt.Errorf("error expanding file arguments: %w", err)
 		}
+
+		if len(expansionResult.NotFound) > 0 {
+			for _, notFound := range expansionResult.NotFound {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Error: path not found: %s\n", notFound)
+			}
+			return fmt.Errorf("aborted due to path errors")
+		}
+
+		files := expansionResult.Found
 		if len(files) == 0 {
 			fmt.Println("No matching files found to rehash.")
 			return nil

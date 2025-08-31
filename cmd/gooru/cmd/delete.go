@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gooru.local/gooru/cmd/gooru/display"
 	"github.com/spf13/cobra"
 )
 
@@ -47,10 +48,19 @@ also permanently removed from the database. This action cannot be undone.`,
 			}
 			fmt.Printf("Deleted %d file record(s) matching expression.\n", affected)
 		} else {
-			files, err := expandFileArgs(args)
+			expansionResult, err := expandFileArgs(args)
 			if err != nil {
 				return fmt.Errorf("error expanding file arguments: %w", err)
 			}
+			if len(expansionResult.NotFound) > 0 {
+				for _, notFound := range expansionResult.NotFound {
+					display.Errorf("path not found: %s", notFound)
+				}
+				// Fail fast for destructive commands
+				return fmt.Errorf("aborted due to path errors")
+			}
+
+			files := expansionResult.Found
 			if len(files) == 0 {
 				fmt.Println("No matching files found to delete.")
 				return nil
