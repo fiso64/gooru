@@ -59,6 +59,23 @@ defer client.Close() // IMPORTANT: Always close the client when done.
 
 All operations are methods on the `gooru.Client` struct.
 
+### Tag Validation
+
+All methods that accept tag strings (either directly or within a query expression) enforce a strict validation policy. An invalid tag will cause the method to return an error.
+
+The rules for a valid tag are:
+-   It must only contain printable ASCII characters (characters 33-126). **Spaces are not allowed.**
+-   The key part of a `key:value` tag cannot be empty.
+-   A tag (or the key/value parts of a `key:value` tag) cannot start or end with the characters `-`, `!`, or `:`.
+
+**Valid examples:** `photo`, `project:alpha`, `version-1.0`, `needs_review`
+**Invalid examples:** `"my tag"` (contains space), `!important` (starts with `!`), `final-` (ends with `-`), `:work` (empty key), `project:v1:` (value ends with `:`)
+
+**Note on Simple Tags vs. Key-Only Queries:**
+
+- When **tagging**, `tag` and `tag:` are treated identically. Both create a simple tag in the database with `key='tag'` and an empty value.
+- When **querying**, a simple tag like `photo` in an expression (`gooru list photo`) acts as a "key-only" search. It will match all content that has *any* tag with the key `photo`, including the simple tag `photo` as well as key-value tags like `photo:album1` and `photo:vacation`.
+
 ### Tagging Files
 
 The library provides high-performance, transactional methods for tagging files.

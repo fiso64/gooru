@@ -93,6 +93,10 @@ func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 		return "", nil, fmt.Errorf("could not parse query: %w", err)
 	}
 
+	if err := query.ValidateAST(ast); err != nil {
+		return "", nil, fmt.Errorf("invalid tag in query: %w", err)
+	}
+
 	sqlQuery, args := query.Build(ast)
 	return sqlQuery, args, nil
 }
@@ -125,11 +129,17 @@ func resolvePath(filePath string) (string, error) {
 
 // TagFiles adds tags to multiple files using a high-performance batching strategy.
 func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+	if err := query.ValidateTags(tags); err != nil {
+		return err
+	}
 	return c.performTagOperation(filePaths, tags, progressCb, opTag)
 }
 
 // UntagFiles removes tags from files. If no tags are provided, all tags are removed.
 func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+	if err := query.ValidateTags(tags); err != nil {
+		return err
+	}
 	if len(tags) == 0 {
 		// Clearing all tags is equivalent to `settags` with no tags.
 		return c.performTagOperation(filePaths, []string{}, progressCb, opSetTags)
@@ -140,6 +150,9 @@ func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(f
 // TagFilesByQuery adds tags to all files matching a query expression.
 // Returns the number of tags added (which may be different from files affected if tags already existed).
 func (c *Client) TagFilesByQuery(expression string, tags []string) (int, error) {
+	if err := query.ValidateTags(tags); err != nil {
+		return 0, err
+	}
 	if len(tags) == 0 {
 		return 0, nil
 	}
@@ -183,6 +196,9 @@ func (c *Client) TagFilesByQuery(expression string, tags []string) (int, error) 
 // If tags is empty, it removes ALL tags from matching files.
 // Returns the number of tags removed.
 func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error) {
+	if err := query.ValidateTags(tags); err != nil {
+		return 0, err
+	}
 	sqlQuery, args, err := c.buildQuery(expression)
 	if err != nil {
 		return 0, err
@@ -233,6 +249,9 @@ func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error
 // SetTagsForFilesByQuery sets tags for all files matching a query expression, replacing existing ones.
 // Returns the number of content items affected.
 func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, error) {
+	if err := query.ValidateTags(tags); err != nil {
+		return 0, err
+	}
 	sqlQuery, args, err := c.buildQuery(expression)
 	if err != nil {
 		return 0, err
@@ -287,6 +306,9 @@ func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, 
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
 func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+	if err := query.ValidateTags(tags); err != nil {
+		return err
+	}
 	return c.performTagOperation(filePaths, tags, progressCb, opSetTags)
 }
 
@@ -643,12 +665,18 @@ func (c *Client) ListAllFiles() ([]string, error) {
 
 // ListFilesByTag lists all files associated with a given tag.
 func (c *Client) ListFilesByTag(tag string) ([]string, error) {
+	if err := query.ValidateTag(tag); err != nil {
+		return nil, err
+	}
 	parsedTag := query.ParseTag(tag)
 	return c.store.ListFilesByTag(parsedTag.Key, parsedTag.Value)
 }
 
 // ListFilesByTagsAnd lists all files associated with a given set of tags (AND query).
 func (c *Client) ListFilesByTagsAnd(tags []string) ([]string, error) {
+	if err := query.ValidateTags(tags); err != nil {
+		return nil, err
+	}
 	parsedTags := make([]types.ParsedTag, len(tags))
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
@@ -664,6 +692,10 @@ func (c *Client) ListFilesByQuery(expression string, verbose bool) ([]string, er
 	ast, err := query.Parse(expression)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse query: %w", err)
+	}
+
+	if err := query.ValidateAST(ast); err != nil {
+		return nil, fmt.Errorf("invalid tag in query: %w", err)
 	}
 
 	sqlQuery, args := query.Build(ast)
@@ -689,12 +721,18 @@ func (c *Client) GetAllFilesInfo() ([]types.FileInfo, error) {
 
 // GetFilesInfoByTag gets detailed info for all files associated with a given tag.
 func (c *Client) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
+	if err := query.ValidateTag(tag); err != nil {
+		return nil, err
+	}
 	parsedTag := query.ParseTag(tag)
 	return c.store.GetFilesInfoByTag(parsedTag.Key, parsedTag.Value)
 }
 
 // GetFilesInfoByTagsAnd gets detailed info for all files associated with a given set of tags (AND query).
 func (c *Client) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
+	if err := query.ValidateTags(tags); err != nil {
+		return nil, err
+	}
 	parsedTags := make([]types.ParsedTag, len(tags))
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
@@ -710,6 +748,10 @@ func (c *Client) GetFilesInfoByQuery(expression string, verbose bool) ([]types.F
 	ast, err := query.Parse(expression)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse query: %w", err)
+	}
+
+	if err := query.ValidateAST(ast); err != nil {
+		return nil, fmt.Errorf("invalid tag in query: %w", err)
 	}
 
 	sqlQuery, args := query.Build(ast)
