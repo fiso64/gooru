@@ -953,7 +953,7 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	}
 
 	// 2. Perform the intelligent, targeted filesystem scan.
-	fsLocations, filesScanned := scanning.DirsConcurrently(absDirs, sizeToHashes)
+	fsLocations, filesScanned := scanning.DirsConcurrently(absDirs, sizeToHashes, c.hasher)
 	result.Stats.FilesScanned = filesScanned
 
 	// 3. Reconcile states.

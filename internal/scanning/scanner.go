@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"sync"
 
-	"gooru.local/gooru/internal/hashing/hashes"
+	"gooru.local/gooru/internal/hashing"
 	"gooru.local/gooru/types"
 )
 
@@ -23,7 +23,7 @@ type result struct {
 }
 
 // DirsConcurrently intelligently scans directories, only hashing files whose size matches a known file.
-func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string) (map[string]types.LocationInfo, int) {
+func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *hashing.Hasher) (map[string]types.LocationInfo, int) {
 	jobs := make(chan job)
 	results := make(chan result)
 
@@ -31,7 +31,7 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string) (map[strin
 	numWorkers := runtime.NumCPU()
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
-		go worker(&wg, jobs, results, sizeToHashes)
+		go worker(&wg, jobs, results, sizeToHashes, hasher)
 	}
 
 	var walkWg sync.WaitGroup
@@ -80,7 +80,7 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string) (map[strin
 }
 
 // worker is a worker goroutine that processes scan jobs.
-func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHashes map[int64][]string) {
+func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHashes map[int64][]string, hasher *hashing.Hasher) {
 	defer wg.Done()
 	for job := range jobs {
 		fileSize := job.info.Size()
@@ -90,11 +90,8 @@ func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHa
 			continue
 		}
 
-		// This function is only used by relink, which is a library concern.
-		// For simplicity, we'll hard-code the fastest hashing method here, as
-		// relink's performance is paramount and its job is to find *existing*
-		// content, which doesn't strictly need the DB's configured reliability.
-		hash, err := hashes.HashFile(job.path)
+		// Use the provided hasher, which is configured according to the database's strategy.
+		hash, err := hasher.HashFile(job.path)
 		res := result{path: job.path, err: err}
 		if err == nil {
 			res.info = types.LocationInfo{
