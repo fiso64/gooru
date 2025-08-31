@@ -14,6 +14,14 @@ import (
 	"gooru.local/gooru/types"
 )
 
+type opKind int
+
+const (
+	opTag opKind = iota
+	opSetTags
+	opUntag
+)
+
 // Client encapsulates the core business logic.
 type Client struct {
 	store *database.Store
@@ -71,173 +79,16 @@ func resolvePath(filePath string) (string, error) {
 
 // TagFiles adds tags to multiple files using a high-performance batching strategy.
 func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
-	return c.tagOperation(filePaths, tags, progressCb, false)
+	return c.performTagOperation(filePaths, tags, progressCb, opTag)
 }
 
-// UntagFiles untags multiple files with the given tags, with safety checks and intelligent move detection.
+// UntagFiles removes tags from files. If no tags are provided, all tags are removed.
 func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
 	if len(tags) == 0 {
-		if progressCb != nil {
-			for _, fp := range filePaths {
-				progressCb(fp, nil)
-			}
-		}
-		return nil
+		// Clearing all tags is equivalent to `settags` with no tags.
+		return c.performTagOperation(filePaths, []string{}, progressCb, opSetTags)
 	}
-
-	// Phase 1: Pre-process, hash where necessary, and detect moves.
-	absPaths := make([]string, 0, len(filePaths))
-	originalPathMap := make(map[string]string, len(filePaths))
-	for _, fp := range filePaths {
-		absPath, err := resolvePath(fp)
-		if err != nil {
-			if progressCb != nil {
-				progressCb(fp, err)
-			}
-			continue
-		}
-		absPaths = append(absPaths, absPath)
-		originalPathMap[absPath] = fp
-	}
-
-	dbLocations, err := c.store.BatchGetLocationsByPaths(absPaths)
-	if err != nil {
-		return fmt.Errorf("failed to look up file locations: %w", err)
-	}
-
-	// Find files not in the DB by path, which might have been moved.
-	filesToHash := make([]string, 0)
-	for _, absPath := range absPaths {
-		if _, exists := dbLocations[absPath]; !exists {
-			// Check if file exists on disk before attempting to hash it.
-			if _, err := os.Stat(absPath); err == nil {
-				filesToHash = append(filesToHash, absPath)
-			}
-		}
-	}
-
-	// If there are potential moves, reconcile them first.
-	if len(filesToHash) > 0 {
-		hashResults := hashing.ConcurrentlyHashFiles(filesToHash)
-		potentialMoves := make(map[string]string)
-		for _, res := range hashResults {
-			if res.Err == nil {
-				potentialMoves[res.Hash] = res.FilePath
-			}
-		}
-
-		if err := c.reconcileMoves(potentialMoves); err != nil {
-			return fmt.Errorf("failed to reconcile moved files: %w", err)
-		}
-
-		// Re-fetch location info for the files that were just moved.
-		newlyFoundLocations, err := c.store.BatchGetLocationsByPaths(filesToHash)
-		if err != nil {
-			return fmt.Errorf("failed to re-fetch reconciled locations: %w", err)
-		}
-		for path, loc := range newlyFoundLocations {
-			dbLocations[path] = loc
-		}
-	}
-
-	// Phase 2: Perform the untag operation on all valid files.
-	validHashes := make(map[string]struct{})
-	processedPaths := make(map[string]bool)
-
-	for _, absPath := range absPaths {
-		originalPath := originalPathMap[absPath]
-		fsInfo, err := os.Stat(absPath)
-		if err != nil {
-			if !processedPaths[originalPath] {
-				if progressCb != nil {
-					progressCb(originalPath, err)
-				}
-				processedPaths[originalPath] = true
-			}
-			continue
-		}
-
-		dbInfo, existsInDb := dbLocations[absPath]
-		if !existsInDb {
-			if !processedPaths[originalPath] {
-				if progressCb != nil {
-					progressCb(originalPath, fmt.Errorf("file not found in database"))
-				}
-				processedPaths[originalPath] = true
-			}
-			continue
-		}
-
-		// Critical safety check: only untag if file content is what we expect.
-		if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-			if !processedPaths[originalPath] {
-				if progressCb != nil {
-					progressCb(originalPath, fmt.Errorf("file has been modified; please re-tag it first"))
-				}
-				processedPaths[originalPath] = true
-			}
-			continue
-		}
-
-		validHashes[dbInfo.Hash] = struct{}{}
-	}
-
-	if len(validHashes) == 0 {
-		if progressCb != nil {
-			for _, originalPath := range filePaths {
-				if !processedPaths[originalPath] {
-					progressCb(originalPath, nil)
-				}
-			}
-		}
-		return nil
-	}
-
-	// Phase 3: Transactional untagging.
-	tx, err := c.store.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	parsedTags := make([]types.ParsedTag, len(tags))
-	for i, t := range tags {
-		parsedTags[i] = query.ParseTag(t)
-	}
-	tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
-	if err != nil {
-		return fmt.Errorf("failed to look up tags: %w", err)
-	}
-
-	pairsToDisassociate := make([]database.ContentTagPair, 0, len(validHashes)*len(tags))
-	for hash := range validHashes {
-		for _, tagStr := range tags {
-			if tagID, ok := tagIDMap[tagStr]; ok {
-				pairsToDisassociate = append(pairsToDisassociate, database.ContentTagPair{
-					ContentHash: hash,
-					TagID:       tagID,
-				})
-			}
-		}
-	}
-
-	if err := c.store.BatchDisassociateTags(tx, pairsToDisassociate); err != nil {
-		return fmt.Errorf("failed to batch disassociate tags: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	if progressCb != nil {
-		for _, originalPath := range filePaths {
-			if !processedPaths[originalPath] {
-				progressCb(originalPath, nil)
-			}
-		}
-	}
-
-	return nil
+	return c.performTagOperation(filePaths, tags, progressCb, opUntag)
 }
 
 // TagFilesByQuery adds tags to all files matching a query expression.
@@ -390,23 +241,23 @@ func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, 
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
 func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
-	return c.tagOperation(filePaths, tags, progressCb, true)
+	return c.performTagOperation(filePaths, tags, progressCb, opSetTags)
 }
 
-// tagOperation is the shared, high-performance batching logic for tag and settags.
-func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), isSet bool) error {
+// performTagOperation is the unified, high-performance batching logic for tag, settags, and untag.
+func (c *Client) performTagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), kind opKind) error {
 	// Phase 1: Collect info from FS and DB, and hash necessary files.
 	// 1a. Resolve paths and collect absolute paths.
 	absPaths := make([]string, 0, len(filePaths))
 	originalPathMap := make(map[string]string, len(filePaths))
 	for _, fp := range filePaths {
-        absPath, err := resolvePath(fp)
-        if err != nil {
-            if progressCb != nil {
-                progressCb(fp, err)
-            }
-            continue
-        }
+		absPath, err := resolvePath(fp)
+		if err != nil {
+			if progressCb != nil {
+				progressCb(fp, err)
+			}
+			continue
+		}
 		absPaths = append(absPaths, absPath)
 		originalPathMap[absPath] = fp
 	}
@@ -419,17 +270,17 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 
 	// 1c. Determine which files actually need to be hashed.
 	filesToHash := make([]string, 0)
-    for _, absPath := range absPaths {
-        info, err := os.Stat(absPath)
-        if err != nil {
-            if progressCb != nil {
-                progressCb(originalPathMap[absPath], err)
-            }
-            continue
-        }
+	for _, absPath := range absPaths {
+		info, err := os.Stat(absPath)
+		if err != nil {
+			if progressCb != nil {
+				progressCb(originalPathMap[absPath], err)
+			}
+			continue
+		}
 		dbInfo, existsInDb := dbLocations[absPath]
 		if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
-			continue
+			continue // Unchanged, no hash needed.
 		}
 		filesToHash = append(filesToHash, absPath)
 	}
@@ -437,10 +288,12 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 	// 1d. Concurrently hash all the necessary files.
 	hashResults := hashing.ConcurrentlyHashFiles(filesToHash)
 
-	// Phase 2: Prepare data structures for transaction, identifying potential moves.
+	// Phase 2: Prepare data structures for transaction, identifying moves and modifications.
 	type fileData struct {
-		path string // original path for callbacks
-		info types.LocationInfo
+		path         string // original path for callbacks
+		info         types.LocationInfo
+		wasModified  bool
+		orphanedTags []string
 	}
 	allFileData := make([]fileData, 0, len(filePaths))
 	allHashes := make([]string, 0, len(filePaths))
@@ -449,45 +302,59 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 	processedPaths := make(map[string]bool)
 
 	for _, absPath := range absPaths {
-        originalPath := originalPathMap[absPath]
-        info, err := os.Stat(absPath)
-        if err != nil {
-            if !processedPaths[originalPath] {
-                if progressCb != nil {
-                    progressCb(originalPath, err)
-                }
-                processedPaths[originalPath] = true
-            }
-            continue
-        }
+		originalPath := originalPathMap[absPath]
+		info, err := os.Stat(absPath)
+		if err != nil {
+			if !processedPaths[originalPath] {
+				if progressCb != nil {
+					progressCb(originalPath, err)
+				}
+				processedPaths[originalPath] = true
+			}
+			continue
+		}
 
 		var hash string
 		dbInfo, existsInDb := dbLocations[absPath]
 		wasHashed := false
+		isModification := false
 
 		if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
 			hash = dbInfo.Hash
 		} else {
 			result, ok := hashResults[absPath]
-            if !ok || result.Err != nil {
-                if !processedPaths[originalPath] {
-                    errMsg := "file processing failed"
-                    if result.Err != nil {
-                        errMsg = fmt.Sprintf("hashing failed: %v", result.Err)
-                    }
-                    if progressCb != nil {
-                        progressCb(originalPath, fmt.Errorf("%s", errMsg))
-                    }
-                    processedPaths[originalPath] = true
-                }
-                continue
-            }
+			if !ok || result.Err != nil {
+				if !processedPaths[originalPath] {
+					errMsg := "file processing failed"
+					if result.Err != nil {
+						errMsg = fmt.Sprintf("hashing failed: %v", result.Err)
+					}
+					if progressCb != nil {
+						progressCb(originalPath, fmt.Errorf("%s", errMsg))
+					}
+					processedPaths[originalPath] = true
+				}
+				continue
+			}
 			hash = result.Hash
 			wasHashed = true
+			if existsInDb {
+				isModification = true
+			}
 		}
 
 		if wasHashed {
 			potentialMoves[hash] = absPath
+		}
+
+		var orphanedTags []string
+		if isModification {
+			oldTags, err := c.store.GetTagsForContent(dbInfo.Hash)
+			if err != nil && err != sql.ErrNoRows {
+				// Log? For now, just proceed. The user operation should not fail.
+			} else {
+				orphanedTags = oldTags
+			}
 		}
 
 		locInfo := types.LocationInfo{
@@ -497,7 +364,12 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 			ModTime:   info.ModTime().Unix(),
 			Extension: filepath.Ext(absPath),
 		}
-		allFileData = append(allFileData, fileData{path: originalPath, info: locInfo})
+		allFileData = append(allFileData, fileData{
+			path:         originalPath,
+			info:         locInfo,
+			wasModified:  isModification,
+			orphanedTags: orphanedTags,
+		})
 		allHashes = append(allHashes, hash)
 		locationsToUpsert[absPath] = locInfo
 	}
@@ -506,6 +378,8 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 		return nil // No files could be processed.
 	}
 
+	movesHandled := make(map[string]string) // newPath -> oldPath
+
 	// Phase 3: The Transaction.
 	tx, err := c.store.Begin()
 	if err != nil {
@@ -513,70 +387,109 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 	}
 	defer tx.Rollback()
 
-	// Phase 3a: Intelligently handle file moves.
+	// 3a: Intelligently handle file moves.
 	if len(potentialMoves) > 0 {
 		hashesToCheck := make([]string, 0, len(potentialMoves))
 		for hash := range potentialMoves {
 			hashesToCheck = append(hashesToCheck, hash)
 		}
-
 		hashToOldPaths, err := c.store.BatchGetPathsForHashes(tx, hashesToCheck)
 		if err != nil {
 			return fmt.Errorf("failed to check for existing content paths: %w", err)
 		}
-
 		for hash, oldPaths := range hashToOldPaths {
 			newPath := potentialMoves[hash]
 			for _, oldPath := range oldPaths {
-				// If old path is the same as new path, it can't be a move.
 				if oldPath == newPath {
 					continue
 				}
 				if _, statErr := os.Stat(oldPath); os.IsNotExist(statErr) {
-					// Confirmed move! The old path is gone.
 					if err := c.store.UpdateLocationPath(tx, oldPath, newPath); err != nil {
 						return fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
 					}
-					// This was a move, so don't also treat it as a new location to insert.
 					delete(locationsToUpsert, newPath)
-					// We've handled the move for this content, stop checking its other old paths.
+					movesHandled[newPath] = oldPath // Track the handled move for notification.
 					break
 				}
 			}
 		}
 	}
 
-	// Phase 3b: Batch database operations for all remaining files.
+	// 3b: Batch upsert contents and locations.
 	if err := c.store.BatchInsertContents(tx, allHashes); err != nil {
 		return fmt.Errorf("failed to batch insert contents: %w", err)
 	}
 	if err := c.store.BatchUpsertLocations(tx, locationsToUpsert); err != nil {
 		return fmt.Errorf("failed to batch upsert locations: %w", err)
 	}
-	if isSet {
+
+	// 3c: Perform the specific tagging operation.
+	switch kind {
+	case opTag:
+		if len(tags) > 0 {
+			parsedTags := make([]types.ParsedTag, len(tags))
+			for i, t := range tags {
+				parsedTags[i] = query.ParseTag(t)
+			}
+			tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
+			if err != nil {
+				return fmt.Errorf("failed to get or create tags: %w", err)
+			}
+			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
+			for _, hash := range allHashes {
+				for _, tagStr := range tags {
+					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
+				}
+			}
+			if err := c.store.BatchAssociateTags(tx, pairs); err != nil {
+				return fmt.Errorf("failed to batch associate tags: %w", err)
+			}
+		}
+	case opSetTags:
 		if err := c.store.BatchClearTagsForContent(tx, allHashes); err != nil {
 			return fmt.Errorf("failed to batch clear tags: %w", err)
 		}
-	}
-	if len(tags) > 0 {
-		// Get/create tags *after* clearing, so we don't fetch IDs that might get deleted by the cleanup trigger.
-		parsedTags := make([]types.ParsedTag, len(tags))
-		for i, t := range tags {
-			parsedTags[i] = query.ParseTag(t)
-		}
-		tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
-		if err != nil {
-			return fmt.Errorf("failed to get or create tags: %w", err)
-		}
-
-		pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
-		for _, hash := range allHashes {
-			for _, tagStr := range tags {
-				pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
+		if len(tags) > 0 {
+			parsedTags := make([]types.ParsedTag, len(tags))
+			for i, t := range tags {
+				parsedTags[i] = query.ParseTag(t)
+			}
+			tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
+			if err != nil {
+				return fmt.Errorf("failed to get or create tags: %w", err)
+			}
+			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
+			for _, hash := range allHashes {
+				for _, tagStr := range tags {
+					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
+				}
+			}
+			if err := c.store.BatchAssociateTags(tx, pairs); err != nil {
+				return fmt.Errorf("failed to batch associate tags: %w", err)
 			}
 		}
-		if err := c.store.BatchAssociateTags(tx, pairs); err != nil {
-			return fmt.Errorf("failed to batch associate tags: %w", err)
+	case opUntag:
+		if len(tags) > 0 {
+			parsedTags := make([]types.ParsedTag, len(tags))
+			for i, t := range tags {
+				parsedTags[i] = query.ParseTag(t)
+			}
+			// For untag, we only care about tags that already exist.
+			tagIDMap, err := c.store.BatchGetTags(tx, parsedTags)
+			if err != nil {
+				return fmt.Errorf("failed to look up tags: %w", err)
+			}
+			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
+			for _, hash := range allHashes {
+				for _, tagStr := range tags {
+					if tagID, ok := tagIDMap[tagStr]; ok {
+						pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagID})
+					}
+				}
+			}
+			if err := c.store.BatchDisassociateTags(tx, pairs); err != nil {
+				return fmt.Errorf("failed to batch disassociate tags: %w", err)
+			}
 		}
 	}
 
@@ -584,11 +497,25 @@ func (c *Client) tagOperation(filePaths []string, tags []string, progressCb func
 		return err
 	}
 
-    if progressCb != nil {
-        for _, data := range allFileData {
-            progressCb(data.path, nil)
-        }
-    }
+	// Phase 4: Notifications and Progress Callback.
+	for _, data := range allFileData {
+		if data.wasModified {
+			fmt.Printf("Updated database for modified file: '%s'\n", data.path)
+			if len(data.orphanedTags) > 0 {
+				fmt.Printf("WARNING: '%s' was modified. The old version's tags [%s] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.\n", data.path, strings.Join(data.orphanedTags, ", "))
+			}
+		} else if oldPath, ok := movesHandled[data.info.Path]; ok {
+			// A file can't be modified and moved in the same operation, so this is an `else if`.
+			// The old path is retrieved from the database, and data.path is the original user argument.
+			fmt.Printf("Detected move for known content: '%s' -> '%s'\n", oldPath, data.path)
+		}
+	}
+
+	if progressCb != nil {
+		for _, data := range allFileData {
+			progressCb(data.path, nil)
+		}
+	}
 
 	return nil
 }

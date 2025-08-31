@@ -1,7 +1,7 @@
 # Spec: Core Tagging Operations
 
 **Version:** 1.1
-**Status:** Proposed
+**Status:** Implemented
 
 ---
 

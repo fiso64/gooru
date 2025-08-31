@@ -111,18 +111,9 @@ Expression mode (untag files matching a query):
 				}
 			}
 
-			var opErr error
-			if len(tags) == 0 {
-				// No tags provided, so clear all tags. This is the same as `settags` with no tags.
-				opErr = svc.SetTagsForFiles(files, tags, progressCb)
-			} else {
-				// Tags provided, so perform a normal untag operation.
-				opErr = svc.UntagFiles(files, tags, progressCb)
-			}
-
-			if opErr != nil {
+			if err := svc.UntagFiles(files, tags, progressCb); err != nil {
 				// This will be a DB error that caused a rollback.
-				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", opErr)
+				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
 			}
 
 			if filesFailed > 0 {
