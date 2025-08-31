@@ -25,9 +25,9 @@ All three types of taggers can be combined with metadata heuristics (like modtim
 In this framework, gooru is a hash-based tagger that uses size and modtime heuristics to improve performance. Gooru's specific implementation of the heuristic leads to the following properties:
 - Low performance: It is still terrible whenever it needs to hash, but is excellent whenever we trust the heuristic.
 - Good reliability: Reliability is no longer excellent, as the two different files can have the same size+modtime. Sometimes we trust the heuristic that the file is unchanged.
+- Excellent persistence: Same as the hash-based tagger, but faster. For the relinkall command, gooru only uses the filesize as a necessary condition for files to be the same, not a sufficient one. 
 
-Arguably, the best non-hash based approach is an inode+metadata-based tagger. Two ways to do it:
-1. A change in inode OR metadata means new file. 
+Arguably, the best non-hash based approach is an inode+metadata-based tagger. Note that there is more than one way to implement it.
 
 ## TODO
 
