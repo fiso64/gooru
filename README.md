@@ -31,21 +31,13 @@ For common filesystems like ntfs and ext4, there might not be way to strictly im
 
 Arguably, the best high performance approach is an inode+metadata-based tagger, or:
 
-### The "Incremental Assembler" Tagger
+### The Partial Hash Tagger
 
-This is a high-performance tagger that minimizes initial work by building a file's identity progressively.
+A file's identity is composed of its filesize, together with a set of hashes taken from strategic non-overlapping data chunks (e.g., the first 64KB, the middle 64KB, the last 64KB).
 
-**Core Idea:** A file's unique ID is assembled from a series of hashes of small, non-overlapping data chunks (e.g., the first 4KB, the middle 4KB, etc.). The system only computes the minimum number of chunks needed to distinguish a file from all others in the database.
+DANGER: Not as reliable as full hashing. It can't be.
 
-**How it Works:**
-1.  **On `add`:** It computes only the first chunk's hash. If this hash is unique, it's done. If it collides with an existing file, it then computes the *next* chunk for both files and compares again, repeating this process only until the collision is resolved.
-2.  **On `relinkall`:** To find a moved/renamed file, it incrementally computes each chunk's hash and queries the database, stopping as soon as a unique match is found.
-3.  **Persistence:** Tags are linked to a stable, internal `content_id` that never changes, even as more hash chunks are added to resolve collisions.
-
-Tradeoff: Reliability. Changes might not be detected due to the small initial partial hash. Maybe try:
-
-1. For Speed on add: Use the fast, incremental hash to find a unique slot.
-2. For Reliability on rehash: When modtime changes, use a full, deterministic, multi-part hash (e.g., hash of first 8KB + middle 8KB + last 8KB) to verify the content's integrity.
+However, the performance would improve massively.
 
 ## TODO
 
