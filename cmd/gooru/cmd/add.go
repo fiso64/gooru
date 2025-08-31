@@ -57,7 +57,7 @@ will automatically add and track any new files it's given.`,
 		}
 
 		// `add` is just `tag` with no tags.
-		if err := svc.TagFiles(files, []string{}, progressCb); err != nil {
+		if _, err := svc.TagFiles(files, []string{}, progressCb); err != nil {
 			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
 		}
 

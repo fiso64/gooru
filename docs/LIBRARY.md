@@ -91,11 +91,11 @@ This means you can search for files using `ext:jpg`, but you cannot create a tag
 
 The library provides high-performance, transactional methods for tagging files.
 
-- **`TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error`**: Adds one or more tags to multiple files. It's additive and won't remove existing tags.
+- **`TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error)`**: Adds one or more tags to multiple files. It's additive and won't remove existing tags. Returns the number of *new* tag associations created.
 
-- **`SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error`**: Sets the tags for multiple files, replacing all existing tags. If `tags` is empty, it removes all tags.
+- **`SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error)`**: Sets the tags for multiple files, replacing all existing tags. If `tags` is empty, it removes all tags. Returns the total number of tag associations changed (removed + added).
 
-- **`UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error`**: Removes specific tags from multiple files.
+- **`UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error)`**: Removes specific tags from multiple files. If `tags` is empty, it removes all tags from the files. Returns the number of tag associations that were actually removed.
 
 The `progressCb` is an optional callback that, if provided, is invoked for each file processed, reporting either success (`err == nil`) or failure.
 

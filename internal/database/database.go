@@ -1067,13 +1067,14 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 	return nil
 }
 
-func (s *Store) BatchClearTagsForContent(q Querier, hashes []string) error {
+func (s *Store) BatchClearTagsForContent(q Querier, hashes []string) (int64, error) {
 	if len(hashes) == 0 {
-		return nil
+		return 0, nil
 	}
 	const columns = 1
 	batchSize := maxVars / columns
 
+	var totalAffected int64
 	for i := 0; i < len(hashes); i += batchSize {
 		end := i + batchSize
 		if end > len(hashes) {
@@ -1088,11 +1089,14 @@ func (s *Store) BatchClearTagsForContent(q Querier, hashes []string) error {
 			args[j] = h
 		}
 
-		if _, err := q.Exec(query, args...); err != nil {
-			return err
+		res, err := q.Exec(query, args...)
+		if err != nil {
+			return 0, err
 		}
+		affected, _ := res.RowsAffected()
+		totalAffected += affected
 	}
-	return nil
+	return totalAffected, nil
 }
 
 type ContentTagPair struct {
@@ -1100,13 +1104,14 @@ type ContentTagPair struct {
 	TagID       int64
 }
 
-func (s *Store) BatchAssociateTags(q Querier, pairs []ContentTagPair) error {
+func (s *Store) BatchAssociateTags(q Querier, pairs []ContentTagPair) (int64, error) {
 	if len(pairs) == 0 {
-		return nil
+		return 0, nil
 	}
 	const columns = 2
 	batchSize := maxVars / columns
 
+	var totalAffected int64
 	for i := 0; i < len(pairs); i += batchSize {
 		end := i + batchSize
 		if end > len(pairs) {
@@ -1121,11 +1126,14 @@ func (s *Store) BatchAssociateTags(q Querier, pairs []ContentTagPair) error {
 			args = append(args, p.ContentHash, p.TagID)
 		}
 
-		if _, err := q.Exec(query, args...); err != nil {
-			return err
+		res, err := q.Exec(query, args...)
+		if err != nil {
+			return 0, err
 		}
+		affected, _ := res.RowsAffected()
+		totalAffected += affected
 	}
-	return nil
+	return totalAffected, nil
 }
 
 func (s *Store) BatchFindContentHashesByPaths(paths []string) (map[string]string, error) {
@@ -1210,13 +1218,14 @@ func (s *Store) BatchGetLocationsByPaths(paths []string) (map[string]types.Locat
 	return locationMap, nil
 }
 
-func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) error {
+func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) (int64, error) {
 	if len(pairs) == 0 {
-		return nil
+		return 0, nil
 	}
 	const columns = 2
 	batchSize := maxVars / columns
 
+	var totalAffected int64
 	for i := 0; i < len(pairs); i += batchSize {
 		end := i + batchSize
 		if end > len(pairs) {
@@ -1233,11 +1242,14 @@ func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) error {
 			args = append(args, p.ContentHash, p.TagID)
 		}
 
-		if _, err := q.Exec(query, args...); err != nil {
-			return err
+		res, err := q.Exec(query, args...)
+		if err != nil {
+			return 0, err
 		}
+		affected, _ := res.RowsAffected()
+		totalAffected += affected
 	}
-	return nil
+	return totalAffected, nil
 }
 
 // UpdateLocationPath updates a location's path using the provided querier (e.g., a transaction).

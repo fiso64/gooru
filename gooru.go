@@ -128,23 +128,29 @@ func resolvePath(filePath string) (string, error) {
 }
 
 // TagFiles adds tags to multiple files using a high-performance batching strategy.
-func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+// Returns the number of new tag associations created.
+func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error) {
 	if err := query.ValidateTags(tags); err != nil {
-		return err
+		return 0, err
 	}
-	return c.performTagOperation(filePaths, tags, progressCb, opTag)
+	affected, err := c.performTagOperation(filePaths, tags, progressCb, opTag)
+	return int(affected), err
 }
 
 // UntagFiles removes tags from files. If no tags are provided, all tags are removed.
-func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+// Returns the number of tag associations removed.
+func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error) {
 	if err := query.ValidateTags(tags); err != nil {
-		return err
+		return 0, err
 	}
 	if len(tags) == 0 {
 		// Clearing all tags is equivalent to `settags` with no tags.
-		return c.performTagOperation(filePaths, []string{}, progressCb, opSetTags)
+		// For settags, we'll return the number of tags cleared.
+		affected, err := c.performTagOperation(filePaths, []string{}, progressCb, opSetTags)
+		return int(affected), err
 	}
-	return c.performTagOperation(filePaths, tags, progressCb, opUntag)
+	affected, err := c.performTagOperation(filePaths, tags, progressCb, opUntag)
+	return int(affected), err
 }
 
 // TagFilesByQuery adds tags to all files matching a query expression.
@@ -343,15 +349,18 @@ func (c *Client) DeleteFilesByQuery(expression string) (int, error) {
 }
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
-func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) error {
+// Returns the total number of changes (associations removed + associations added).
+func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error) {
 	if err := query.ValidateTags(tags); err != nil {
-		return err
+		return 0, err
 	}
-	return c.performTagOperation(filePaths, tags, progressCb, opSetTags)
+	affected, err := c.performTagOperation(filePaths, tags, progressCb, opSetTags)
+	return int(affected), err
 }
 
 // performTagOperation is the unified, high-performance batching logic for tag, settags, and untag.
-func (c *Client) performTagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), kind opKind) error {
+// It returns the number of tag associations that were changed (added or removed).
+func (c *Client) performTagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), kind opKind) (int64, error) {
 	// Phase 1: Collect info from FS and DB, and hash necessary files.
 	// 1a. Resolve paths and collect absolute paths.
 	absPaths := make([]string, 0, len(filePaths))
@@ -371,7 +380,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	// 1b. Get existing location data from the DB.
 	dbLocations, err := c.store.BatchGetLocationsByPaths(absPaths)
 	if err != nil {
-		return fmt.Errorf("could not get existing file data: %w", err)
+		return 0, fmt.Errorf("could not get existing file data: %w", err)
 	}
 
 	// 1c. Determine which files actually need to be hashed.
@@ -481,7 +490,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	}
 
 	if len(allFileData) == 0 {
-		return nil // No files could be processed.
+		return 0, nil // No files could be processed.
 	}
 
 	movesHandled := make(map[string]string) // newPath -> oldPath
@@ -489,7 +498,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	// Phase 3: The Transaction.
 	tx, err := c.store.Begin()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 
@@ -501,7 +510,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 		}
 		hashToOldPaths, err := c.store.BatchGetPathsForHashes(tx, hashesToCheck)
 		if err != nil {
-			return fmt.Errorf("failed to check for existing content paths: %w", err)
+			return 0, fmt.Errorf("failed to check for existing content paths: %w", err)
 		}
 		for hash, oldPaths := range hashToOldPaths {
 			newPath := potentialMoves[hash]
@@ -514,7 +523,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 					// We must update the location with the new path AND new metadata.
 					newLocationInfo := locationsToUpsert[newPath]
 					if err := c.store.UpdateMovedLocation(tx, oldPath, newLocationInfo); err != nil {
-						return fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
+						return 0, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", oldPath, newPath, err)
 					}
 					delete(locationsToUpsert, newPath)
 					movesHandled[newPath] = oldPath // Track the handled move for notification.
@@ -526,13 +535,14 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 
 	// 3b: Batch upsert contents and locations.
 	if err := c.store.BatchInsertContents(tx, allHashes); err != nil {
-		return fmt.Errorf("failed to batch insert contents: %w", err)
+		return 0, fmt.Errorf("failed to batch insert contents: %w", err)
 	}
 	if err := c.store.BatchUpsertLocations(tx, locationsToUpsert); err != nil {
-		return fmt.Errorf("failed to batch upsert locations: %w", err)
+		return 0, fmt.Errorf("failed to batch upsert locations: %w", err)
 	}
 
 	// 3c: Perform the specific tagging operation.
+	var affectedCount int64
 	switch kind {
 	case opTag:
 		if len(tags) > 0 {
@@ -542,7 +552,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			}
 			tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
 			if err != nil {
-				return fmt.Errorf("failed to get or create tags: %w", err)
+				return 0, fmt.Errorf("failed to get or create tags: %w", err)
 			}
 			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
 			for _, hash := range allHashes {
@@ -550,14 +560,18 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
 				}
 			}
-			if err := c.store.BatchAssociateTags(tx, pairs); err != nil {
-				return fmt.Errorf("failed to batch associate tags: %w", err)
+			affected, err := c.store.BatchAssociateTags(tx, pairs)
+			if err != nil {
+				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
 			}
+			affectedCount = affected
 		}
 	case opSetTags:
-		if err := c.store.BatchClearTagsForContent(tx, allHashes); err != nil {
-			return fmt.Errorf("failed to batch clear tags: %w", err)
+		cleared, err := c.store.BatchClearTagsForContent(tx, allHashes)
+		if err != nil {
+			return 0, fmt.Errorf("failed to batch clear tags: %w", err)
 		}
+		var associated int64
 		if len(tags) > 0 {
 			parsedTags := make([]types.ParsedTag, len(tags))
 			for i, t := range tags {
@@ -565,7 +579,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			}
 			tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
 			if err != nil {
-				return fmt.Errorf("failed to get or create tags: %w", err)
+				return 0, fmt.Errorf("failed to get or create tags: %w", err)
 			}
 			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
 			for _, hash := range allHashes {
@@ -573,10 +587,12 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
 				}
 			}
-			if err := c.store.BatchAssociateTags(tx, pairs); err != nil {
-				return fmt.Errorf("failed to batch associate tags: %w", err)
+			associated, err = c.store.BatchAssociateTags(tx, pairs)
+			if err != nil {
+				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
 			}
 		}
+		affectedCount = cleared + associated
 	case opUntag:
 		if len(tags) > 0 {
 			parsedTags := make([]types.ParsedTag, len(tags))
@@ -586,7 +602,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 			// For untag, we only care about tags that already exist.
 			tagIDMap, err := c.store.BatchGetTags(tx, parsedTags)
 			if err != nil {
-				return fmt.Errorf("failed to look up tags: %w", err)
+				return 0, fmt.Errorf("failed to look up tags: %w", err)
 			}
 			pairs := make([]database.ContentTagPair, 0, len(allHashes)*len(tags))
 			for _, hash := range allHashes {
@@ -596,14 +612,16 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 					}
 				}
 			}
-			if err := c.store.BatchDisassociateTags(tx, pairs); err != nil {
-				return fmt.Errorf("failed to batch disassociate tags: %w", err)
+			affected, err := c.store.BatchDisassociateTags(tx, pairs)
+			if err != nil {
+				return 0, fmt.Errorf("failed to batch disassociate tags: %w", err)
 			}
+			affectedCount = affected
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Phase 4: Notifications and Progress Callback.
@@ -626,7 +644,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 		}
 	}
 
-	return nil
+	return affectedCount, nil
 }
 
 // GetTagsForFile retrieves all tags for a given file, with a safety check and status.

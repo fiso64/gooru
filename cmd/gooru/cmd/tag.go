@@ -102,13 +102,18 @@ Expression mode (tag files matching a query):
 				}
 			}
 
-			if err := svc.TagFiles(files, tags, progressCb); err != nil {
+			affected, err := svc.TagFiles(files, tags, progressCb)
+			if err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
 			}
 
 			if filesSucceeded > 0 {
-				fmt.Printf("Tagged %d file(s).\n", filesSucceeded)
+				if affected > 0 {
+					fmt.Printf("Added %d new tag association(s) to %d file(s).\n", affected, filesSucceeded)
+				} else {
+					fmt.Printf("Processed %d file(s); all specified tags were already present.\n", filesSucceeded)
+				}
 			}
 
 			if filesFailed > 0 {

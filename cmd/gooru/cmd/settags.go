@@ -105,16 +105,21 @@ Expression mode (set tags for files matching a query):
 				}
 			}
 
-			if err := svc.SetTagsForFiles(files, tags, progressCb); err != nil {
+			affected, err := svc.SetTagsForFiles(files, tags, progressCb)
+			if err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
 			}
 
 			if filesSucceeded > 0 {
 				if len(tags) > 0 {
+					// The 'affected' count for settags (cleared+added) is not intuitive for users.
+					// The simple message is clearer.
 					fmt.Printf("Set tags for %d file(s).\n", filesSucceeded)
 				} else {
-					fmt.Printf("Removed all tags from %d file(s).\n", filesSucceeded)
+					// This is for `settags file` (with no tags), which clears all tags.
+					// Here, 'affected' is the number of cleared tags, which is useful.
+					fmt.Printf("Removed %d tag association(s) from %d file(s).\n", affected, filesSucceeded)
 				}
 			}
 

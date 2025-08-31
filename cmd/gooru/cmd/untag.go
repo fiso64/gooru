@@ -109,16 +109,22 @@ Expression mode (untag files matching a query):
 				}
 			}
 
-			if err := svc.UntagFiles(files, tags, progressCb); err != nil {
+			affected, err := svc.UntagFiles(files, tags, progressCb)
+			if err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
 			}
 
 			if filesSucceeded > 0 {
 				if len(tags) > 0 {
-					fmt.Printf("Removed tags from %d file(s).\n", filesSucceeded)
+					if affected > 0 {
+						fmt.Printf("Removed %d tag association(s) from %d file(s).\n", affected, filesSucceeded)
+					} else {
+						fmt.Printf("Processed %d file(s); no matching tags were found to remove.\n", filesSucceeded)
+					}
 				} else {
-					fmt.Printf("Removed all tags from %d file(s).\n", filesSucceeded)
+					// This is the "remove all" case. `affected` will be the number of tags removed.
+					fmt.Printf("Removed %d tag association(s) from %d file(s).\n", affected, filesSucceeded)
 				}
 			}
 
