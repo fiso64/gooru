@@ -16,14 +16,20 @@ var (
 // addCmd represents the add command
 var addCmd = &cobra.Command{
 	Use:   "add <file/dir/glob...>",
-	Short: "Adds files to be tracked by Gooru.",
-	Long: `Adds one or more files to the Gooru database to be tracked.
+	Short: "Adds or links files to be tracked by Gooru.",
+	Long: `Adds or links one or more files to the Gooru database.
 
-This command is the primary way to add files to the system without applying tags.
-It intelligently handles:
-- New files: Adds a new content record.
+This is the primary command for tracking a file without immediately applying tags.
+It also serves as a powerful tool to synchronize a specific file that has
+been moved, renamed, or copied.
+
+The 'add' command intelligently handles several scenarios:
+- New files: Adds a new content record to the database.
 - Moved/renamed files: Detects the move and updates the file's path.
-- Duplicates: Adds the new path as another location for existing content.`,
+- Duplicates: Links the new path as another location for existing content.
+
+Note: You do not need to run 'add' before 'tag'. The 'tag' command
+will automatically add and track any new files it's given.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		files, err := expandFileArgs(args)
