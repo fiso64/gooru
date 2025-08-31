@@ -1,5 +1,17 @@
 package types
 
+// FileStatus indicates the state of a file relative to the database.
+type FileStatus int
+
+const (
+	// StatusOK means the file is in the DB and its metadata matches.
+	StatusOK FileStatus = iota
+	// StatusModified means the file is in the DB but its metadata differs.
+	StatusModified
+	// StatusNotInDB means the file path is not in the database, though the file may exist on disk.
+	StatusNotInDB
+)
+
 // ParsedTag represents a tag split into its key and value.
 // For simple tags, Value is an empty string.
 type ParsedTag struct {

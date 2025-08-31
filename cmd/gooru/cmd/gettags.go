@@ -6,6 +6,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"gooru.local/gooru/cmd/gooru/display"
 	"gooru.local/gooru/types"
@@ -51,25 +52,39 @@ the output is a table of paths and their associated tags.`,
 		if multiFileGetTags || len(files) > 1 {
 			fileInfos := make([]types.FileInfo, 0, len(files))
 			for _, filePath := range files {
-				info, err := svc.GetFileInfoForFile(filePath)
+				info, status, err := svc.GetFileInfoForFile(filePath)
 				if err != nil {
 					// Don't pollute table output with errors, send to stderr
 					fmt.Fprintf(cmd.ErrOrStderr(), "error processing '%s': %v\n", filePath, err)
 					continue
 				}
+				if status == types.StatusModified {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: '%s' has been modified. Tags for the previous version are not shown in the table.\n", filePath)
+				}
 				fileInfos = append(fileInfos, info)
 			}
 			display.PrintTable(fileInfos, "PATH", "TAGS")
 		} else {
-			// Single-file output (original behavior)
+			// Single-file output with helpful messages.
 			filePath := files[0]
-			tags, err := svc.GetTagsForFile(filePath)
+			tags, status, err := svc.GetTagsForFile(filePath)
 			if err != nil {
-				return fmt.Errorf("error getting tags for file: %w", err)
+				if os.IsNotExist(err) {
+					fmt.Printf("File not found: %s\n", filePath)
+					return nil
+				}
+				return fmt.Errorf("error getting tags for '%s': %w", filePath, err)
 			}
 
 			if len(tags) == 0 {
-				fmt.Printf("No tags found for '%s'.\n", filePath)
+				switch status {
+				case types.StatusModified:
+					fmt.Fprintf(cmd.ErrOrStderr(), "Warning: '%s' has been modified. Tags for the previous version are not shown. Please re-tag the file to update it.\n", filePath)
+				case types.StatusNotInDB:
+					fmt.Printf("No tags found for '%s'. If this file was recently moved or renamed, try running 'gooru relinkall .'\n", filePath)
+				case types.StatusOK:
+					fmt.Printf("No tags found for '%s'.\n", filePath)
+				}
 				return nil
 			}
 

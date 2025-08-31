@@ -520,69 +520,63 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	return nil
 }
 
-// GetTagsForFile retrieves all tags for a given file, with a safety check.
-func (c *Client) GetTagsForFile(filePath string) ([]string, error) {
+// GetTagsForFile retrieves all tags for a given file, with a safety check and status.
+func (c *Client) GetTagsForFile(filePath string) ([]string, types.FileStatus, error) {
 	absPath, err := resolvePath(filePath)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	// Safety Check
 	fsInfo, err := os.Stat(absPath)
 	if err != nil {
-		// If file doesn't exist on disk, it can't have tags.
-		if os.IsNotExist(err) {
-			return []string{}, nil
-		}
-		return nil, err
+		// Propagate FS errors like permission denied or file not existing.
+		return nil, 0, err
 	}
 
 	dbInfo, err := c.store.GetLocationByPath(absPath)
 	if err != nil {
-		// If not in DB, it has no tags.
 		if err == sql.ErrNoRows {
-			return []string{}, nil
+			// File exists on disk but not in DB.
+			return []string{}, types.StatusNotInDB, nil
 		}
-		return nil, fmt.Errorf("database lookup failed: %w", err)
+		return nil, 0, fmt.Errorf("database lookup failed: %w", err)
 	}
 
-	// If metadata doesn't match, treat as not in DB.
+	// File is in DB, now check for modification.
 	if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-		return []string{}, nil
+		return []string{}, types.StatusModified, nil
 	}
 
-	return c.store.GetTagsForContent(dbInfo.Hash)
+	// File is in DB and matches.
+	tags, err := c.store.GetTagsForContent(dbInfo.Hash)
+	return tags, types.StatusOK, err
 }
 
-// GetFileInfoForFile retrieves file info for a given file, with a safety check.
-func (c *Client) GetFileInfoForFile(filePath string) (types.FileInfo, error) {
+// GetFileInfoForFile retrieves file info for a given file, with a safety check and status.
+func (c *Client) GetFileInfoForFile(filePath string) (types.FileInfo, types.FileStatus, error) {
 	absPath, err := resolvePath(filePath)
 	if err != nil {
-		return types.FileInfo{Path: filePath}, err
+		return types.FileInfo{Path: filePath}, 0, err
 	}
 
-	// Safety Check
 	fsInfo, err := os.Stat(absPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// File not on disk. We can't guarantee its tags, return minimal info.
-			return types.FileInfo{Path: filePath}, nil
-		}
-		return types.FileInfo{Path: filePath}, err
+		// Propagate FS errors. Caller can handle os.IsNotExist if they want.
+		return types.FileInfo{Path: filePath}, 0, err
 	}
 
 	dbInfo, err := c.store.GetLocationByPath(absPath)
 	if err != nil {
-		// If not in DB, it has no tags.
 		if err == sql.ErrNoRows {
-			return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, nil
+			// File exists on disk but not in DB.
+			return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusNotInDB, nil
 		}
-		return types.FileInfo{Path: filePath}, fmt.Errorf("database lookup failed: %w", err)
+		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("database lookup failed: %w", err)
 	}
 
-	// If metadata doesn't match, treat as not in DB.
+	// File is in DB, now check for modification.
 	if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-		return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, nil
+		return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusModified, nil
 	}
 
 	// Matched, return full info.
@@ -590,7 +584,7 @@ func (c *Client) GetFileInfoForFile(filePath string) (types.FileInfo, error) {
 		Path: filePath, // use original path for display
 		Size: dbInfo.Size,
 		Tags: dbInfo.TagsCache,
-	}, nil
+	}, types.StatusOK, nil
 }
 
 // ListAllFiles lists all files known to the system.
