@@ -1,7 +1,7 @@
 # Spec: The `rehash` Command
 
 **Version:** 1.0
-**Status:** Proposed
+**Status:** Implemented
 
 ---
 

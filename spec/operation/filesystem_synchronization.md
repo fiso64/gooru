@@ -1,42 +1,51 @@
 # Spec: Filesystem Synchronization
 
 **Version:** 1.0
-**Status:** TODO: Complete this spec (add editpath, prune)
+**Status:** Implemented
 
 ---
 
 ## 1. Abstract
 
-This spec defines the `relinkall` command, a user-initiated process for bulk synchronization between the Gooru database and the filesystem. It is designed to find all moved, renamed, and deleted files within a large directory where the specific changes may be unknown to the user. It complements the more surgical `add` command by handling these broad, directory-level changes.
+This spec defines user-initiated processes for synchronizing the Gooru database with the filesystem. It covers the `relinkall` command, which performs bulk updates for entire directories, and the `editpath` command, which provides a surgical way to update the location of a single known file. These commands ensure that tags remain associated with their content even after files are moved, renamed, or deleted.
 
 ## 2. Problem Statement / Motivation
 
-Because Gooru does not actively monitor the filesystem, the database can become stale when users move, rename, or delete files. A file renamed on disk will appear "untagged" because the database still has its old path on record. A deleted file leaves an obsolete record in the database.
+Because Gooru does not actively monitor the filesystem, the database can become stale when users move, rename, or delete files. A file renamed on disk will appear "untagged" because the database still has its old path on record, while a deleted file leaves an obsolete record.
 
-*   **User Story:** As a user, after I reorganize my files, I want a fast way to update the Gooru database to reflect the new locations of my tagged content, so that I can find my files by their tags again.
+*   **User Story (Bulk):** As a user, after I reorganize an entire project directory, I want a fast way to update the Gooru database to reflect all the new locations of my tagged content, so that I can find my files by their tags again.
+*   **User Story (Surgical):** As a user, when I rename a single important file, I want to immediately tell Gooru its new name without scanning the whole directory, so that its record is updated instantly.
 
 ## 3. Goals and Non-Goals
 
 ### Goals
 
-*   Provide a command (`relinkall`) to scan directories and find changes.
-*   The command must correctly identify content that has been moved or renamed.
-*   The command must identify new file paths that are duplicates of existing content.
-*   The command must identify database records for files that have been deleted from disk.
-*   The process must be safe, first proposing changes in a "dry run" and requiring user confirmation before modifying the database.
-*   The scan must be highly performant, avoiding re-hashing files whenever possible.
+*   Provide a command (`relinkall`) for broad, directory-level synchronization.
+*   Provide a command (`editpath`) for surgical, single-file path updates.
+*   Correctly identify content that has been moved or renamed.
+*   Identify new file paths that are duplicates of existing content.
+*   Identify and propose the removal of database records for files deleted from disk.
+*   Ensure the `relinkall` process is safe by proposing changes in a "dry run" and requiring user confirmation.
+*   Ensure scans are highly performant by avoiding unnecessary file hashing.
 
 ### Non-Goals
 
 *   `relinkall` will **not** add brand new, never-before-seen content to the database. Its purpose is to find existing content, not to perform an initial import. That is the job of the `tag` command.
 
-## 4. Proposed Solution & Technical Design
+## 4. Commands and Design
+
+### 4.1 The `relinkall` Command (Bulk Synchronization)
+
+The `relinkall` command is designed for synchronizing large directories where many changes may have occurred.
 
 *   **User-Facing Changes:**
-    *   A new command: `relinkall <dir1> [dir2...]`.
-    *   The command will first perform a fast metadata check (`NeedsRelink`). If no changes are detected, it will exit immediately.
-    *   If changes are likely, it will perform a full scan and present a summary of proposed changes (Moves, Adds, Deletes).
-    *   It will prompt the user for confirmation `[Y/n]` before applying any changes. Flags `-y`/`--yes` and `-n`/`--no` can be used for scripting.
+    *   Command: `relinkall <dir1> [dir2...]`.
+    *   The command first performs a fast metadata check (`NeedsRelink`). If no changes are detected, it exits immediately, reporting that everything is up-to-date.
+    *   If changes are likely, it performs a full scan and presents a summary of proposed changes:
+        *   **[MOVED / RENAMED]:** Known content found at a new path, with the old path now empty.
+        *   **[NEW LOCATIONS / DUPLICATES]:** Known content found at an additional path.
+        *   **[DELETED FROM DISK]:** Paths in the database that no longer exist on the filesystem. This is how obsolete records are pruned.
+    *   It prompts the user for confirmation `[Y/n]` before applying any changes. Flags `-y`/`--yes` and `-n`/`--no` can be used for scripting.
 
 *   **Internal Logic (The Scan):**
     1.  **Pre-computation:** Fetch all known file sizes from the DB into a `sizeToHashes` map. This is a critical optimization.
@@ -49,7 +58,36 @@ Because Gooru does not actively monitor the filesystem, the database can become 
     1.  **Moves:** Perform `UPDATE locations SET path = ? WHERE path = ?`.
     2.  **Adds:** Perform `INSERT INTO locations (...)`.
     3.  **Deletes:** Perform `DELETE FROM locations WHERE path IN (...)`.
-    4.  All database modifications must occur within a single transaction.
+    4.  All database modifications occur within a single transaction for safety.
+
+### 4.2 The `editpath` Command (Surgical Update)
+
+The `editpath` command is for the simple case where a user knows a single file has been moved or renamed and wants to update its path directly.
+
+*   **User-Facing Changes:**
+    *   Command: `editpath <oldpath> <newpath>`.
+    *   Provides a simple success message upon completion.
+
+*   **Internal Logic:**
+    1.  The command takes two arguments, `oldpath` and `newpath`.
+    2.  It performs a direct `UPDATE locations SET path = ? WHERE path = ?` query.
+    3.  It includes safety checks to ensure the `oldpath` exists in the database and the `newpath` does not, preventing accidental overwrites of other tracked files.
+    4.  The operation is atomic.
+
+### 4.3 The `add` Command (Implicit Surgical Relink)
+
+In addition to the explicit `editpath` command, the `add` command (and by extension, `tag`) also serves as a powerful and intuitive tool for surgical relinking.
+
+*   **User-Facing Behavior:**
+    *   Command: `add <newpath>`
+    *   When a user `add`s a file that was moved or renamed, the system intelligently detects the move and updates its internal record instead of creating a new one. The user only needs to know the file's current location.
+
+*   **Internal Logic:**
+    1.  When `add <newpath>` is run, the system hashes the file at `newpath`.
+    2.  It discovers this hash already exists in the database, associated with `<oldpath>`.
+    3.  It checks the filesystem and finds that `<oldpath>` no longer exists.
+    4.  It concludes this is a move/rename and atomically updates the `locations` table, changing the path from `<oldpath>` to `<newpath>`.
+    5.  This makes `add` a convenient alternative to `editpath`, as it doesn't require the user to remember the file's original path.
 
 ## 5. Edge Cases & Unresolved Questions
 

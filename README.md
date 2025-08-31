@@ -4,13 +4,7 @@ Gooru is a high-performance, content-centric command-line tool for tagging and o
 
 This project is currently under development.
 
-## Core Commands
 
-- `gooru add <files...>`: Add files to the database to be tracked.
-- `gooru tag <files...> <tags...>`: Add tags to files.
-- `gooru untag <files...> [tags...]`: Remove tags from files.
-- `gooru list [expression]`: List files matching a tag expression.
-- `gooru relinkall <dirs...>`: Scan directories to find moved/renamed files.
 
 ## TODO
 

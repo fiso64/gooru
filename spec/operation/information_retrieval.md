@@ -1,7 +1,7 @@
 # Spec: Information Retrieval Operations
 
 **Version:** 1.0
-**Status:** Proposed
+**Status:** Implemented
 
 ---
 
@@ -46,7 +46,7 @@ The `gettags` command is unique because it takes a direct file path as input, cr
 *   **Case 3: Path is NOT in DB.**
     *   **Mechanism:** The database lookup fails. The command then performs a check to see if the file exists on the filesystem.
     *   **Result (if file exists on disk):** No tags are returned. A helpful message is printed to the user.
-    *   **Example Output:** `No tags found for 'path/to/file.txt'. If this file was recently moved or renamed, try running 'gooru relinkall .'`
+    *   **Example Output:** `No tags found for 'path/to/file.txt'. To track this file (especially if it was moved or renamed), use: 'gooru add "path/to/file.txt"'`
     *   **Result (if file does not exist on disk):** A standard "No matching files found" or similar message is shown.
 
 This design preserves the performance of `gettags` while actively guiding the user toward the correct synchronization workflow when discrepancies are found.
