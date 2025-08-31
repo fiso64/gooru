@@ -44,14 +44,17 @@ Expression mode (untag files matching a query):
 			separatorIndex := cmd.Flags().ArgsLenAtDash()
 
 			if separatorIndex == -1 {
-				return errors.New("usage: gooru untag -m <file1>... -- [tag1]...\n(missing '--' separator)")
+				// No '--' separator, treat all arguments as file specs and remove all tags.
+				fileSpecs = args
+				tags = []string{}
+			} else {
+				// Separator found, split files and tags.
+				if separatorIndex == 0 {
+					return errors.New("no files provided before '--' separator")
+				}
+				fileSpecs = args[:separatorIndex]
+				tags = args[separatorIndex:]
 			}
-			if separatorIndex == 0 {
-				return errors.New("no files provided before '--' separator")
-			}
-
-			fileSpecs = args[:separatorIndex]
-			tags = args[separatorIndex:]
 		} else {
 			if len(args) < 1 {
 				return errors.New("usage: gooru untag <source> [tag1]...")
