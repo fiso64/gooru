@@ -9,6 +9,7 @@ import (
 
 	"gooru.local/gooru"
 	"gooru.local/gooru/cmd/gooru/config"
+	"gooru.local/gooru/cmd/gooru/display"
 	"github.com/spf13/cobra"
 )
 
@@ -50,8 +51,17 @@ var (
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	// By setting SilenceErrors and SilenceUsage to true, we can handle error
+	// and usage printing ourselves. This allows for custom colored output and
+	// prevents the usage string from printing on every error.
+	rootCmd.SilenceErrors = true
+	rootCmd.SilenceUsage = true
 	err := rootCmd.Execute()
 	if err != nil {
+		// Use our custom Errorf function to print the error in red.
+		// Cobra's default behavior is to print "Error: <err.Error()>" to stderr.
+		// We replicate this but with color.
+		display.Errorf("%v", err)
 		os.Exit(1)
 	}
 }
