@@ -13,15 +13,44 @@ import "gooru.local/gooru"
 
 ## Initialization
 
-The primary entrypoint to the library is the `gooru.Client`. To create a new client, use `gooru.New()`:
+Using the Gooru library is a two-step process: initializing a database and then creating a client to connect to it.
+
+### Step 1: Initializing the Database
+
+Before you can use Gooru, you must initialize a database file. This is a one-time operation that creates the necessary tables and, crucially, sets the **hashing strategy** for the database. This choice is permanent.
+
+Use the `gooru.Init()` function for this:
+```go
+import "gooru.local/gooru/types"
+
+// dbPath is the path where the SQLite database file will be created.
+dbPath := "/path/to/gooru.db"
+
+// Choose a hashing strategy. This determines the trade-off between
+// performance and reliability for large files.
+// - types.StrategyPartial: (Recommended) Very fast. Identifies files by their size
+//   plus hashes of a few small data chunks. Ideal for large media libraries.
+// - types.StrategyFull: Slower for large files but provides maximum reliability by
+//   hashing the entire file content. Best for critical documents.
+strategy := types.StrategyPartial
+
+// The verbose flag logs SQL queries to stderr.
+err := gooru.Init(dbPath, strategy, false)
+if err != nil {
+    // handle error (e.g., if the file already exists)
+}
+```
+
+### Step 2: Creating a Client
+
+Once the database is initialized, you can create a `gooru.Client` to interact with it. The client will automatically detect and use the hashing strategy that was set during initialization.
 
 ```go
-// dbPath is the path to the SQLite database file (e.g., "/path/to/gooru.db").
-// The directory will be created if it doesn't exist.
-// Set verbose to true to log SQL queries to stderr.
+// dbPath points to your *initialized* database file.
 client, err := gooru.New(dbPath, false)
 if err != nil {
-    // handle error
+    // This will return `gooru.ErrDBUninitialized` if `gooru.Init()` was not run.
+    // Handle other potential errors.
 }
 defer client.Close() // IMPORTANT: Always close the client when done.
 ```

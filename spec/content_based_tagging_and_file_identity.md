@@ -34,7 +34,7 @@ Traditional file systems and tagging tools tie metadata to a file's path. If a u
 *   **User-Facing Changes:** The core tagging commands will operate on file paths. Internally, these paths will be resolved to content hashes. The user experience should feel seamless; they provide a path, and the system handles the content mapping.
 
 *   **Internal Logic:**
-    1.  When a file is tagged for the first time, the system will compute its BLAKE3 hash.
+    1.  When a file is tagged for the first time, the system will compute its content hash using the hashing strategy (`partial` or `full`) chosen when the database was created.
     2.  This hash is stored in a `contents` table.
     3.  The file's path, size, and modification time are stored in a `locations` table, linked to the content hash.
     4.  Tags are stored in a `tags` table and linked to the content hash in a `content_tags` junction table.
