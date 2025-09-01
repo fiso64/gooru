@@ -32,7 +32,7 @@ REST with pagination is functional but cannot match the low latency and efficien
 ### Non-Goals
 
 *   This API is not intended for casual, one-off exploration with tools like `curl`. It is designed for programmatic use with gRPC client libraries.
-*   It will not replace the REST API, but rather supplement it.
+*   It will not replace the REST API, but rather offer a high-performance alternative.
 
 ## 4. Proposed Solution & Technical Design
 
