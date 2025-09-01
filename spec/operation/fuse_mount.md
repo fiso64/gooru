@@ -7,7 +7,7 @@
 
 ## 1. Abstract
 
-This document specifies the `gooru mount` command, which provides a FUSE-based virtual filesystem. The filesystem presents a live, navigable view of the Gooru database, allowing users to interact with their tagged files via standard GUI file managers and command-line tools. The presentation of the filesystem can be explicitly controlled by the user to be either a flat list of results or a hierarchical, tag-based browsing structure.
+This document specifies the `gooru mount` command, which provides a cross-platform virtual filesystem. The filesystem presents a live, navigable view of the Gooru database, allowing users to interact with their tagged files via standard GUI file managers and command-line tools. The presentation of the filesystem can be explicitly controlled by the user to be either a flat list of results or a hierarchical, tag-based browsing structure.
 
 ## 2. Problem Statement / Motivation
 
@@ -91,7 +91,18 @@ The initial query for `vacation` returns `A.jpg` and `B.pdf`. The unique tags ac
 ```
 Navigating to `/mnt/gooru/photo/` shows `A.jpg` (as it has both `vacation` and `photo`). The user can interactively drill down from the initial result set.
 
-### 4.2. Common Technical Implementation
+### 4.2. Cross-Platform Technical Implementation
+
+The virtual filesystem will be implemented using the `cgofuse` library, which provides a single, consistent, cross-platform API for Go. This allows Gooru to maintain one codebase for the virtual filesystem that runs natively on all supported operating systems.
+
+The end-user will need to install the appropriate underlying driver for their platform:
+*   **Windows:** [WinFsp (Windows File System Proxy)](https://winfsp.dev/) must be installed.
+*   **macOS:** [macFUSE](https://osxfuse.github.io/) must be installed.
+*   **Linux:** The `libfuse` library must be installed (e.g., via `sudo apt-get install libfuse-dev` on Debian/Ubuntu or `sudo dnf install fuse-devel` on Fedora).
+
+The application must provide clear instructions for these prerequisites.
+
+*   **File Proxies:** On all platforms, files in the virtual filesystem will be presented as regular files, not symlinks. The `cgofuse` driver will proxy I/O requests (e.g., `read`) to the real files on disk to ensure universal compatibility with features like thumbnail generation and file previews.
 
 *   **File Proxies:** All files in the virtual filesystem will be presented as **regular files**, not symlinks. The FUSE driver will proxy `read` requests to the real files on disk to ensure universal thumbnail and preview support.
 
@@ -118,8 +129,8 @@ This design provides a robust way to discover, manage, and communicate with mult
 
 *   **Filename Collisions:** Two files with the same name (e.g., `/a/report.pdf`, `/b/report.pdf`) might appear in the same virtual directory.
     *   **Decision:** The FUSE driver must disambiguate them. It will append a differentiator based on the file's content hash, like `report-<hash_prefix>.pdf`.
-*   **Invalid Directory Names:** Tags can contain characters that are invalid in filenames on some operating systems (e.g., `:` on Windows).
-    *   **Decision:** The FUSE driver will sanitize tag names for presentation, replacing invalid characters with a safe substitute (e.g., `_`). The internal logic will map the sanitized name back to the original tag.
+*   **Invalid Directory Names:** Tags can contain characters that are invalid in filenames on some operating systems (e.g., `:` is disallowed in Windows filenames).
+    *   **Decision:** The virtual filesystem driver will sanitize tag names for presentation, replacing invalid characters with a safe substitute (e.g., replacing `:` with `_`). The internal logic will map the sanitized name back to the original tag when processing paths.
 *   **Live Updates:** The filesystem is a live view. If a file is tagged in another terminal, the changes will be reflected the next time a directory in the mount is accessed (e.g., via `ls` or a GUI refresh), as this triggers a new database query.
 *   **Stale Mounts:** A `mount` process might crash without cleaning up its runtime file.
     *   **Decision:** The `gooru remote` and `gooru remote list` commands will always perform a health check by verifying that the PID in the runtime file corresponds to a running process. If not, they will exclude the mount and automatically clean up the orphaned runtime files.
