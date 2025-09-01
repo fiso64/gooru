@@ -112,3 +112,12 @@ type TagWithCount struct {
 	Tag   string
 	Count int
 }
+
+// MountInfo holds metadata about a running mount process.
+// This is serialized to JSON in the runtime directory.
+type MountInfo struct {
+	PID        int    `json:"pid"`
+	MountPoint string `json:"mount_point"`
+	Port       int    `json:"port"`
+	ID         string `json:"id"`
+}

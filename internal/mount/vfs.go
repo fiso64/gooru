@@ -2,6 +2,7 @@ package mount
 
 import (
 	"fmt"
+	"gooru.local/gooru"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,8 +21,12 @@ const (
 // GooruVFS implements the fuse.FileSystemInterface.
 type GooruVFS struct {
 	fuse.FileSystemBase
+	svc            *gooru.Client
+	currentQuery   string
 	files          []types.FileInfo
 	virtualFiles   map[string]string // map virtual filename to real filepath
+	stateMu        sync.RWMutex      // Protects files, virtualFiles, currentQuery
+
 	fileMode       uint32
 	dirMode        uint32
 	uid            uint32
@@ -29,13 +34,15 @@ type GooruVFS struct {
 	lastError      error
 	openFiles      map[uint64]*os.File
 	nextFileHandle uint64
-	mu             sync.Mutex
+	openFileMu     sync.Mutex // Protects openFiles, nextFileHandle
 }
 
 // NewGooruVFS creates a new virtual filesystem for the given files.
-func NewGooruVFS(files []types.FileInfo) *GooruVFS {
+func NewGooruVFS(svc *gooru.Client, initialQuery string, initialFiles []types.FileInfo) *GooruVFS {
 	vfs := &GooruVFS{
-		files:          files,
+		svc:            svc,
+		currentQuery:   initialQuery,
+		files:          initialFiles,
 		virtualFiles:   make(map[string]string),
 		fileMode:       0444, // Read-only for user
 		dirMode:        0555, // Read/execute for user
@@ -44,11 +51,14 @@ func NewGooruVFS(files []types.FileInfo) *GooruVFS {
 		openFiles:      make(map[uint64]*os.File),
 		nextFileHandle: 1,
 	}
+	// Initial population doesn't need a lock.
 	vfs.populateVirtualFiles()
 	return vfs
 }
 
 func (vfs *GooruVFS) populateVirtualFiles() {
+	// This method should be called with the write lock held.
+	vfs.virtualFiles = make(map[string]string)
 	basenameCounts := make(map[string]int)
 	basenameFiles := make(map[string][]types.FileInfo)
 
@@ -76,8 +86,50 @@ func (vfs *GooruVFS) populateVirtualFiles() {
 	}
 }
 
+// UpdateQuery re-runs a query and updates the filesystem view.
+func (vfs *GooruVFS) UpdateQuery(expression string) error {
+	var files []types.FileInfo
+	var err error
+	if expression == "" {
+		files, err = vfs.svc.GetAllFilesInfo()
+	} else {
+		// The vfs doesn't know about the verbose flag, so pass false.
+		files, err = vfs.svc.GetFilesInfoByQuery(expression, false)
+	}
+	if err != nil {
+		return err
+	}
+
+	vfs.stateMu.Lock()
+	defer vfs.stateMu.Unlock()
+	vfs.files = files
+	vfs.currentQuery = expression
+	vfs.populateVirtualFiles()
+
+	return nil
+}
+
+// ResolveVirtualPath finds the real path for a given virtual path.
+func (vfs *GooruVFS) ResolveVirtualPath(vpath string) (string, bool) {
+	vfs.stateMu.RLock()
+	defer vfs.stateMu.RUnlock()
+	// vpath will come in as "/<filename>", need to strip leading slash.
+	realPath, ok := vfs.virtualFiles[strings.TrimPrefix(vpath, "/")]
+	return realPath, ok
+}
+
+// GetCurrentQuery returns the current query expression.
+func (vfs *GooruVFS) GetCurrentQuery() string {
+	vfs.stateMu.RLock()
+	defer vfs.stateMu.RUnlock()
+	return vfs.currentQuery
+}
+
 // Getattr gets file attributes.
 func (vfs *GooruVFS) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int) {
+	vfs.stateMu.RLock()
+	defer vfs.stateMu.RUnlock()
+
 	if path == "/" {
 		stat.Mode = fuse.S_IFDIR | vfs.dirMode
 		stat.Nlink = 1
@@ -108,6 +160,8 @@ func (vfs *GooruVFS) Readdir(path string,
 	fill func(name string, stat *fuse.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) (errc int) {
+	vfs.stateMu.RLock()
+	defer vfs.stateMu.RUnlock()
 
 	if path != "/" {
 		return 0 - fuse.ENOENT
@@ -124,10 +178,10 @@ func (vfs *GooruVFS) Readdir(path string,
 
 // Open opens a file.
 func (vfs *GooruVFS) Open(path string, flags int) (errc int, fh uint64) {
-	vfs.mu.Lock()
-	defer vfs.mu.Unlock()
-
+	vfs.stateMu.RLock()
 	realPath, ok := vfs.virtualFiles[path[1:]]
+	vfs.stateMu.RUnlock()
+
 	if !ok {
 		return 0 - fuse.ENOENT, 0
 	}
@@ -143,6 +197,8 @@ func (vfs *GooruVFS) Open(path string, flags int) (errc int, fh uint64) {
 		return 0 - fuse.ENOENT, 0
 	}
 
+	vfs.openFileMu.Lock()
+	defer vfs.openFileMu.Unlock()
 	fh = vfs.nextFileHandle
 	vfs.openFiles[fh] = file
 	vfs.nextFileHandle++
@@ -151,7 +207,10 @@ func (vfs *GooruVFS) Open(path string, flags int) (errc int, fh uint64) {
 
 // Read reads from an open file.
 func (vfs *GooruVFS) Read(path string, buff []byte, ofst int64, fh uint64) (n int) {
+	vfs.openFileMu.Lock()
 	file, ok := vfs.openFiles[fh]
+	vfs.openFileMu.Unlock()
+
 	if !ok {
 		return 0 - fuse.EBADF
 	}
@@ -166,8 +225,8 @@ func (vfs *GooruVFS) Read(path string, buff []byte, ofst int64, fh uint64) (n in
 
 // Release closes an open file.
 func (vfs *GooruVFS) Release(path string, fh uint64) (errc int) {
-	vfs.mu.Lock()
-	defer vfs.mu.Unlock()
+	vfs.openFileMu.Lock()
+	defer vfs.openFileMu.Unlock()
 
 	file, ok := vfs.openFiles[fh]
 	if !ok {

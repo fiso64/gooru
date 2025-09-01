@@ -12,9 +12,23 @@ func GetDBPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dbDir := filepath.Join(home, ".config", "gooru")
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
+	configDir := filepath.Join(home, ".config", "gooru")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return "", err
 	}
-	return filepath.Join(dbDir, "gooru.db"), nil
+	return filepath.Join(configDir, "gooru.db"), nil
+}
+
+// GetRunDirPath returns the path to the runtime directory.
+// It creates the directory ~/.config/gooru/run if it doesn't exist.
+func GetRunDirPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	runDir := filepath.Join(home, ".config", "gooru", "run")
+	if err := os.MkdirAll(runDir, 0755); err != nil {
+		return "", err
+	}
+	return runDir, nil
 }

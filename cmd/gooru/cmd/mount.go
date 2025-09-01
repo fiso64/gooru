@@ -1,8 +1,15 @@
 package cmd
 
 import (
+	"bufio"
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"gooru.local/gooru"
+	"gooru.local/gooru/cmd/gooru/config"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -45,56 +52,49 @@ This feature requires a FUSE implementation to be installed on your system:
 			expression = strings.Join(args[1:], " ")
 		}
 
-		isDriveLetter := false
-		if runtime.GOOS == "windows" {
-			// Check for drive letter format like "G:" on the original argument
-			if len(mountpoint) == 2 && mountpoint[1] == ':' && ((mountpoint[0] >= 'a' && mountpoint[0] <= 'z') || (mountpoint[0] >= 'A' && mountpoint[0] <= 'Z')) {
-				isDriveLetter = true
-			}
+		// 1. Finalize mountpoint path and check validity
+		absMountpoint, err := resolveMountpoint(mountpoint)
+		if err != nil {
+			return err
+		}
+		mountpoint = absMountpoint
+
+		// 2. Setup IPC and runtime registration
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return fmt.Errorf("could not start IPC listener: %w", err)
+		}
+		defer listener.Close()
+		port := listener.Addr().(*net.TCPAddr).Port
+
+		runDir, err := config.GetRunDirPath()
+		if err != nil {
+			return fmt.Errorf("could not get runtime directory: %w", err)
 		}
 
-		// For non-drive letters, we resolve the path and expect an empty directory.
-		if !isDriveLetter {
-			absMountpoint, err := filepath.Abs(mountpoint)
-			if err != nil {
-				return fmt.Errorf("could not resolve mount point path '%s': %w", mountpoint, err)
-			}
-			mountpoint = filepath.Clean(absMountpoint)
+		mountID := generateMountID(mountpoint)
+		runtimeFile := filepath.Join(runDir, mountID+".json")
 
-			info, err := os.Stat(mountpoint)
-			if err != nil {
-				if os.IsNotExist(err) {
-					if err := os.MkdirAll(mountpoint, 0755); err != nil {
-						return fmt.Errorf("failed to create mount point directory '%s': %w", mountpoint, err)
-					}
-				} else {
-					return fmt.Errorf("failed to access mount point '%s': %w", mountpoint, err)
-				}
-			} else {
-				if !info.IsDir() {
-					return fmt.Errorf("mount point '%s' is not a directory", mountpoint)
-				}
-				dir, err := os.Open(mountpoint)
-				if err != nil {
-					return fmt.Errorf("failed to open mount point directory for checking: %w", err)
-				}
-				defer dir.Close()
-				_, err = dir.Readdir(1)
-				if err != io.EOF {
-					return fmt.Errorf("mount point directory '%s' must be empty", mountpoint)
-				}
-			}
+		mountInfo := types.MountInfo{
+			PID:        os.Getpid(),
+			MountPoint: mountpoint,
+			Port:       port,
+			ID:         mountID,
 		}
-		// For drive letters, we pass them directly to the mount function without checks.
 
-		fmt.Println("Querying database for file list...")
-		var files []types.FileInfo
-		var err error
-		if expression == "" {
-			files, err = svc.GetAllFilesInfo()
-		} else {
-			files, err = svc.GetFilesInfoByQuery(expression, verbose)
+		// Check for existing mount
+		if _, err := os.Stat(runtimeFile); err == nil {
+			return fmt.Errorf("mount point '%s' appears to be active already", mountpoint)
 		}
+
+		if err := writeRuntimeFile(runtimeFile, mountInfo); err != nil {
+			return fmt.Errorf("could not write runtime file: %w", err)
+		}
+		defer os.Remove(runtimeFile) // Cleanup on exit
+
+		// 3. Get initial file list
+		fmt.Println("Querying database for initial file list...")
+		files, err := getInitialFiles(svc, expression)
 		if err != nil {
 			return fmt.Errorf("error listing files: %w", err)
 		}
@@ -103,10 +103,14 @@ This feature requires a FUSE implementation to be installed on your system:
 			fmt.Println("No files found for the given query. Mount will be empty.")
 		}
 
-		vfs := mount.NewGooruVFS(files)
+		// 4. Setup VFS and FUSE host
+		vfs := mount.NewGooruVFS(svc, expression, files)
 		host := fuse.NewFileSystemHost(vfs)
 
-		// Set up a channel to listen for OS signals
+		// 5. Start IPC Server
+		go serveIPC(listener, vfs)
+
+		// 6. Setup signal handling for graceful unmount
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		go func() {
@@ -114,7 +118,9 @@ This feature requires a FUSE implementation to be installed on your system:
 			host.Unmount()
 		}()
 
-		fmt.Printf("Mounting filesystem at '%s'. Press Ctrl-C to unmount.\n", mountpoint)
+		fmt.Printf("Mounting filesystem at '%s'.\n", mountpoint)
+		fmt.Printf("IPC server listening on 127.0.0.1:%d.\n", port)
+		fmt.Println("Press Ctrl-C to unmount.")
 
 		// This helper will be called in a goroutine before the blocking mount call.
 		openMountPoint := func() {
@@ -127,6 +133,7 @@ This feature requires a FUSE implementation to be installed on your system:
 			}
 		}
 
+		// 7. Mount (blocking call)
 		// The Mount function is blocking. We must not use it on the main thread on macOS
 		if runtime.GOOS == "darwin" {
 			go openMountPoint()
@@ -146,7 +153,7 @@ This feature requires a FUSE implementation to be installed on your system:
 			}
 			fmt.Println("\nUnmounted.")
 		}
-		
+
 		return nil
 	},
 }
@@ -169,4 +176,126 @@ func openExplorer(path string) error {
 		cmd = exec.Command("xdg-open", path)
 	}
 	return cmd.Start()
+}
+
+func resolveMountpoint(path string) (string, error) {
+	isDriveLetter := false
+	if runtime.GOOS == "windows" {
+		if len(path) == 2 && path[1] == ':' && ((path[0] >= 'a' && path[0] <= 'z') || (path[0] >= 'A' && path[0] <= 'Z')) {
+			isDriveLetter = true
+		}
+	}
+
+	if isDriveLetter {
+		return strings.ToUpper(path), nil
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("could not resolve mount point path '%s': %w", path, err)
+	}
+	mountpoint := filepath.Clean(absPath)
+
+	info, err := os.Stat(mountpoint)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(mountpoint, 0755); err != nil {
+				return "", fmt.Errorf("failed to create mount point directory '%s': %w", mountpoint, err)
+			}
+		} else {
+			return "", fmt.Errorf("failed to access mount point '%s': %w", mountpoint, err)
+		}
+	} else {
+		if !info.IsDir() {
+			return "", fmt.Errorf("mount point '%s' is not a directory", mountpoint)
+		}
+		dir, err := os.Open(mountpoint)
+		if err != nil {
+			return "", fmt.Errorf("failed to open mount point directory for checking: %w", err)
+		}
+		defer dir.Close()
+		_, err = dir.Readdir(1)
+		if err != io.EOF {
+			return "", fmt.Errorf("mount point directory '%s' must be empty", mountpoint)
+		}
+	}
+	return mountpoint, nil
+}
+
+func getInitialFiles(svc *gooru.Client, expression string) ([]types.FileInfo, error) {
+	if expression == "" {
+		return svc.GetAllFilesInfo()
+	}
+	return svc.GetFilesInfoByQuery(expression, verbose)
+}
+
+func generateMountID(absPath string) string {
+	hasher := sha1.New()
+	hasher.Write([]byte(absPath))
+	return hex.EncodeToString(hasher.Sum(nil))[:12]
+}
+
+func writeRuntimeFile(path string, info types.MountInfo) error {
+	data, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func serveIPC(listener net.Listener, vfs *mount.GooruVFS) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			// Listener was closed, so exit.
+			return
+		}
+		go handleIPCConnection(conn, vfs)
+	}
+}
+
+func handleIPCConnection(conn net.Conn, vfs *mount.GooruVFS) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return // e.g., client disconnected
+		}
+		line = strings.TrimSpace(line)
+		parts := strings.SplitN(line, " ", 2)
+		cmd := parts[0]
+
+		switch cmd {
+		case "PING":
+			conn.Write([]byte("PONG\n"))
+		case "GET_QUERY":
+			query := vfs.GetCurrentQuery()
+			fmt.Fprintf(conn, "OK %s\n", query)
+		case "SET_QUERY":
+			if len(parts) < 2 {
+				conn.Write([]byte("ERROR missing query expression\n"))
+				continue
+			}
+			query := parts[1]
+			if err := vfs.UpdateQuery(query); err != nil {
+				fmt.Fprintf(conn, "ERROR %v\n", err)
+			} else {
+				conn.Write([]byte("OK\n"))
+			}
+		case "RESOLVE":
+			if len(parts) < 2 {
+				conn.Write([]byte("ERROR missing virtual path\n"))
+				continue
+			}
+			vpath := parts[1]
+			if realPath, ok := vfs.ResolveVirtualPath(vpath); ok {
+				fmt.Fprintf(conn, "OK %s\n", realPath)
+			} else {
+				conn.Write([]byte("ERROR not found\n"))
+			}
+		default:
+			conn.Write([]byte("ERROR unknown command\n"))
+		}
+	}
 }
