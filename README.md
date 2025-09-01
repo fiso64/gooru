@@ -29,4 +29,5 @@ More advanced: Full search+tagging tui built with tview, perhaps even with thumb
 ### 4. FUSE Virtual Filesystem
 
 Provide a command to mount the Gooru database as a virtual filesystem, where directories represent tags and files are symlinks to their actual locations. This would allow users to browse their tagged collection using standard GUI file managers.
+
 Another option: `gooru mount <expression..>` will create a virtual filesystem containing items matching expression.
