@@ -81,8 +81,9 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// resolvePath canonicalizes a path. If it doesn't exist, it returns the
-// absolute path of the input to allow for clean "file not found" errors later.
+// resolvePath canonicalizes a path. If it's a virtual path, it resolves it to a real one.
+// If it doesn't exist, it returns the absolute path of the input to allow for clean
+// "file not found" errors later.
 func resolvePath(filePath string) (string, error) {
 	// First, get the absolute path. This can fail if the working directory is invalid.
 	absPath, err := filepath.Abs(filePath)
@@ -90,9 +91,24 @@ func resolvePath(filePath string) (string, error) {
 		return "", err
 	}
 
-	// Now, check for filesystem errors other than NotExist (e.g., permission denied).
+	// NEW: Check if this is a virtual path and resolve it to a real path.
+	realPath, wasVirtual, err := resolveIfVirtual(absPath)
+	if err != nil {
+		// Propagate specific errors from the virtual resolution, like os.ErrNotExist.
+		if os.IsNotExist(err) {
+			return "", err
+		}
+		return "", fmt.Errorf("virtual path resolution failed for '%s': %w", filePath, err)
+	}
+	if wasVirtual {
+		// The path was virtual and has been resolved. The new "real" path is now absPath.
+		// We trust the mount process to have returned a valid, absolute path.
+		absPath = realPath
+	}
+
+	// Now, check for filesystem errors other than NotExist (e.g., permission denied) on the real path.
 	// We ignore NotExist because the service layer is equipped to handle it.
-	if _, err := os.Lstat(filePath); err != nil && !os.IsNotExist(err) {
+	if _, err := os.Lstat(absPath); err != nil && !os.IsNotExist(err) {
 		return "", err // Return the actual filesystem error.
 	}
 

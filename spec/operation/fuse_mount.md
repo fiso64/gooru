@@ -1,6 +1,6 @@
 # Spec: FUSE Virtual Filesystem (`mount` command)
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** Proposed
 
 ---
@@ -25,6 +25,7 @@ Users need an intuitive way to explore their tagged file collection that goes be
 
 *   Provide a `mount` command that creates a virtual filesystem view of the database based on a query expression.
 *   Allow the user to explicitly choose between a flat or hierarchical presentation via a command-line flag.
+*   Provide an optional "live" mode that automatically refreshes the view when accessed, at a potential performance cost.
 *   Ensure full support for OS-native features like thumbnails and previews.
 *   Allow other `gooru` commands to operate correctly on files referenced by their virtual paths.
 *   Provide an IPC mechanism for other applications to dynamically update the query powering the filesystem view.
@@ -38,14 +39,31 @@ Users need an intuitive way to explore their tagged file collection that goes be
 
 The user will have direct control over the filesystem's structure via a command-line flag.
 
-*   **Command Syntax:** `gooru mount <mountpoint> [expression..] [--hierarchical] [--open]`
-*   **Aliases:** `-h` for `--hierarchical`, `-o` for `--open`.
+*   **Command Syntax:** `gooru mount <mountpoint> [expression..] [--hierarchical] [--open] [--live]`
+*   **Aliases:** `-r` for `--hierarchical`, `-o` for `--open`, `-l` for `--live`.
 *   **Flags:**
     *   `--open, -o`: After a successful mount, open the mount point in the system's default file explorer.
+    *   `--live, -l`: Enables live mode. The database query is re-run every time a directory is accessed (e.g., on a file explorer refresh). This ensures the view is always up-to-date but may impact performance on very large queries.
 
-### 4.1. Filesystem Modes
+### 4.1. Refresh Behavior: Snapshot vs. Live Mode
 
-The mode is determined by the presence of the `--hierarchical` flag, not by the expression.
+The user can control how "live" the filesystem view is, which involves a direct trade-off with performance.
+
+*   **Snapshot Mode (Default):**
+    *   **Trigger:** The `--live` flag is **not** present.
+    *   **Behavior:** The mount process executes the query **once** at startup (or when updated via `gooru remote`) and caches the results in memory. All subsequent directory listings read from this in-memory cache.
+    *   **Pros:** Extremely fast and responsive, even for queries with hundreds of thousands of results. Puts zero load on the database during browsing.
+    *   **Cons:** The view can become stale. If files are tagged or untagged in another terminal, the changes will not be reflected in the mount until the query is manually re-run with `gooru remote query ...`.
+
+*   **Live Mode:**
+    *   **Trigger:** The `--live` or `-l` flag **is** present.
+    *   **Behavior:** The mount process re-executes its database query every time a directory's contents are requested (e.g., when a user presses F5 in a file explorer or runs `ls`).
+    *   **Pros:** The view is always up-to-date, reflecting the current state of the database without any manual intervention.
+    *   **Cons:** Introduces latency. Each refresh takes as long as the database query. This can be noticeable for very large or complex queries. It also puts a recurring load on the database, as background OS processes (thumbnailers, indexers) may trigger refreshes frequently.
+
+### 4.2. Filesystem Structure Modes
+
+The structural mode is determined by the presence of the `--hierarchical` flag, not by the expression.
 
 #### Mode 1: Flat Mode (Default)
 
@@ -65,7 +83,7 @@ The structure would be a single directory containing `A.jpg` and `B.pdf`.
 
 This mode is for discovery and interactive filtering.
 
-*   **Trigger:** The `--hierarchical` or `-h` flag **is** present.
+*   **Trigger:** The `--hierarchical` or `-r` flag **is** present.
 *   **Structure:** The filesystem is a multi-level directory hierarchy representing tag intersections based on the files matching the initial `expression`.
     *   The **root** of the mount contains directories for each tag present on the files matching the initial expression. It also contains the files themselves.
     *   Navigating into a subdirectory (`/<tag1>/<tag2>/`) acts as an implicit `AND` query, further filtering the view to show only files and co-occurring tags that match all tags in the path *in addition to* the initial expression.
@@ -133,7 +151,9 @@ This design provides a robust way to discover, manage, and communicate with mult
     *   **Decision:** The FUSE driver must disambiguate them. It will append a differentiator based on the file's content hash, like `report-<hash_prefix>.pdf`.
 *   **Invalid Directory Names:** Tags can contain characters that are invalid in filenames on some operating systems (e.g., `:` is disallowed in Windows filenames).
     *   **Decision:** The virtual filesystem driver will sanitize tag names for presentation, replacing invalid characters with a safe substitute (e.g., replacing `:` with `_`). The internal logic will map the sanitized name back to the original tag when processing paths.
-*   **Live Updates:** The filesystem is a live view. If a file is tagged in another terminal, the changes will be reflected the next time a directory in the mount is accessed (e.g., via `ls` or a GUI refresh), as this triggers a new database query.
+*   **Live Updates:**
+    *   **In Snapshot Mode (default):** The view is **not** live. Changes made in another terminal will not be visible until the query is manually refreshed via `gooru remote query...`.
+    *   **In Live Mode (`--live`):** The view is live. Changes will be reflected the next time the directory is accessed (e.g., via `ls` or a GUI refresh), as this triggers a fresh database query.
 *   **Stale Mounts:** A `mount` process might crash without cleaning up its runtime file.
     *   **Decision:** The `gooru remote` and `gooru remote list` commands will always perform a health check by verifying that the PID in the runtime file corresponds to a running process. If not, they will exclude the mount and automatically clean up the orphaned runtime files.
 

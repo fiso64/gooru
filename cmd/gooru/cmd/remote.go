@@ -1,20 +1,12 @@
 package cmd
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
-	"gooru.local/gooru/cmd/gooru/config"
-	"gooru.local/gooru/types"
-	"io/fs"
-	"net"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"text/tabwriter"
-	"time"
 
+	"gooru.local/gooru/internal/ipc"
 	"github.com/spf13/cobra"
 )
 
@@ -33,12 +25,7 @@ var remoteListCmd = &cobra.Command{
 	Short: "Lists all active mount points.",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		runDir, err := config.GetRunDirPath()
-		if err != nil {
-			return fmt.Errorf("could not get runtime directory: %w", err)
-		}
-
-		mounts, err := findActiveMounts(runDir)
+		mounts, err := ipc.FindActiveMounts()
 		if err != nil {
 			return fmt.Errorf("could not find active mounts: %w", err)
 		}
@@ -74,7 +61,7 @@ If no expression is provided, the mount's current query is printed.`,
 			isSet = true
 		}
 
-		mount, err := findMountByPath(mountpoint)
+		mount, err := ipc.FindMountByPath(mountpoint)
 		if err != nil {
 			return err
 		}
@@ -86,7 +73,7 @@ If no expression is provided, the mount's current query is printed.`,
 			command = "GET_QUERY\n"
 		}
 
-		response, err := sendIPCCommand(mount.Port, command)
+		response, err := ipc.SendIPCCommand(mount.Port, command)
 		if err != nil {
 			return err
 		}
@@ -115,97 +102,4 @@ func init() {
 	rootCmd.AddCommand(remoteCmd)
 	remoteCmd.AddCommand(remoteListCmd)
 	remoteCmd.AddCommand(remoteQueryCmd)
-}
-
-func resolveRemoteTargetPath(path string) (string, error) {
-	isDriveLetter := false
-	if runtime.GOOS == "windows" {
-		if len(path) == 2 && path[1] == ':' && ((path[0] >= 'a' && path[0] <= 'z') || (path[0] >= 'A' && path[0] <= 'Z')) {
-			isDriveLetter = true
-		}
-	}
-
-	if isDriveLetter {
-		return strings.ToUpper(path), nil
-	}
-
-	// For non-drive letters, get the cleaned absolute path.
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return "", fmt.Errorf("could not resolve path '%s': %w", path, err)
-	}
-	return filepath.Clean(absPath), nil
-}
-
-func findActiveMounts(runDir string) ([]types.MountInfo, error) {
-	var mounts []types.MountInfo
-	err := filepath.WalkDir(runDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".json") {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil // Skip unreadable files
-			}
-			var info types.MountInfo
-			if err := json.Unmarshal(data, &info); err != nil {
-				return nil // Skip malformed files
-			}
-
-			// Health check
-			resp, err := sendIPCCommand(info.Port, "PING\n")
-			if err == nil && resp == "PONG" {
-				mounts = append(mounts, info)
-			} else {
-				// Stale file, clean it up
-				os.Remove(path)
-			}
-		}
-		return nil
-	})
-	return mounts, err
-}
-
-func findMountByPath(path string) (types.MountInfo, error) {
-	canonicalPath, err := resolveRemoteTargetPath(path)
-	if err != nil {
-		return types.MountInfo{}, err
-	}
-
-	runDir, err := config.GetRunDirPath()
-	if err != nil {
-		return types.MountInfo{}, err
-	}
-
-	mounts, err := findActiveMounts(runDir)
-	if err != nil {
-		return types.MountInfo{}, err
-	}
-
-	for _, mount := range mounts {
-		if mount.MountPoint == canonicalPath {
-			return mount, nil
-		}
-	}
-	return types.MountInfo{}, fmt.Errorf("no active mount found for path: %s", path)
-}
-
-func sendIPCCommand(port int, command string) (string, error) {
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-	if err != nil {
-		return "", fmt.Errorf("could not connect to mount process: %w", err)
-	}
-	defer conn.Close()
-
-	if _, err := conn.Write([]byte(command)); err != nil {
-		return "", fmt.Errorf("failed to send command: %w", err)
-	}
-
-	response, err := bufio.NewReader(conn).ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-	return strings.TrimSpace(response), nil
 }

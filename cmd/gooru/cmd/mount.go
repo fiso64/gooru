@@ -28,6 +28,7 @@ import (
 
 var (
 	mountOpenExplorer bool
+	mountLive         bool
 )
 
 // mountCmd represents the mount command
@@ -104,7 +105,7 @@ This feature requires a FUSE implementation to be installed on your system:
 		}
 
 		// 4. Setup VFS and FUSE host
-		vfs := mount.NewGooruVFS(svc, expression, files)
+		vfs := mount.NewGooruVFS(svc, expression, files, mountLive)
 		host := fuse.NewFileSystemHost(vfs)
 
 		// 5. Start IPC Server
@@ -161,6 +162,7 @@ This feature requires a FUSE implementation to be installed on your system:
 func init() {
 	rootCmd.AddCommand(mountCmd)
 	mountCmd.Flags().BoolVarP(&mountOpenExplorer, "open", "o", false, "Open the mount point in the file explorer after mounting")
+	mountCmd.Flags().BoolVarP(&mountLive, "live", "l", false, "Enable live refresh (re-queries database on directory access)")
 }
 
 func openExplorer(path string) error {

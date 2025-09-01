@@ -23,9 +23,10 @@ type GooruVFS struct {
 	fuse.FileSystemBase
 	svc            *gooru.Client
 	currentQuery   string
+	isLive         bool              // If true, re-query on every directory read.
 	files          []types.FileInfo
 	virtualFiles   map[string]string // map virtual filename to real filepath
-	stateMu        sync.RWMutex      // Protects files, virtualFiles, currentQuery
+	stateMu        sync.RWMutex      // Protects files, virtualFiles, currentQuery, isLive
 
 	fileMode       uint32
 	dirMode        uint32
@@ -38,10 +39,11 @@ type GooruVFS struct {
 }
 
 // NewGooruVFS creates a new virtual filesystem for the given files.
-func NewGooruVFS(svc *gooru.Client, initialQuery string, initialFiles []types.FileInfo) *GooruVFS {
+func NewGooruVFS(svc *gooru.Client, initialQuery string, initialFiles []types.FileInfo, isLive bool) *GooruVFS {
 	vfs := &GooruVFS{
 		svc:            svc,
 		currentQuery:   initialQuery,
+		isLive:         isLive,
 		files:          initialFiles,
 		virtualFiles:   make(map[string]string),
 		fileMode:       0444, // Read-only for user
@@ -109,6 +111,34 @@ func (vfs *GooruVFS) UpdateQuery(expression string) error {
 	return nil
 }
 
+// refreshQuery re-runs the current query and updates the file list.
+func (vfs *GooruVFS) refreshQuery() error {
+	// Get the current query with a read lock to be thread-safe.
+	vfs.stateMu.RLock()
+	currentQuery := vfs.currentQuery
+	vfs.stateMu.RUnlock()
+
+	// Perform the potentially slow DB query without holding any locks.
+	var files []types.FileInfo
+	var err error
+	if currentQuery == "" {
+		files, err = vfs.svc.GetAllFilesInfo()
+	} else {
+		files, err = vfs.svc.GetFilesInfoByQuery(currentQuery, false)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Now, acquire a write lock to update the internal state.
+	vfs.stateMu.Lock()
+	defer vfs.stateMu.Unlock()
+	vfs.files = files
+	vfs.populateVirtualFiles()
+
+	return nil
+}
+
 // ResolveVirtualPath finds the real path for a given virtual path.
 func (vfs *GooruVFS) ResolveVirtualPath(vpath string) (string, bool) {
 	vfs.stateMu.RLock()
@@ -160,6 +190,15 @@ func (vfs *GooruVFS) Readdir(path string,
 	fill func(name string, stat *fuse.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) (errc int) {
+
+	if vfs.isLive {
+		// Re-run the query to get fresh data.
+		if err := vfs.refreshQuery(); err != nil {
+			fmt.Fprintf(os.Stderr, "vfs: live refresh failed: %v\n", err)
+			return 0 - fuse.EIO // Input/output error
+		}
+	}
+
 	vfs.stateMu.RLock()
 	defer vfs.stateMu.RUnlock()
 
