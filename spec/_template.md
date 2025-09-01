@@ -67,7 +67,7 @@ List every tricky scenario you can think of.
 *   What are the failure modes and expected error messages?
 *   etc.
 
-For each point, make a clear **Decision:** on how it will be handled.
+For specs in the "Proposed" or later stage, a clear **Decision:** on how the edge case will be handled must be included.
 
 ## 6. Performance Considerations
 
