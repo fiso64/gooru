@@ -738,7 +738,7 @@ func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag) ([]string, error) {
 
 // GetAllFilesInfo retrieves detailed info for all files from the database using the cache.
 func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
-	query := `SELECT path, content_hash, size_bytes, tags_cache FROM locations ORDER BY path`
+	query := `SELECT path, content_hash, size_bytes, mod_time, tags_cache FROM locations ORDER BY path`
 
 	rows, err := s.Query(query)
 	if err != nil {
@@ -749,7 +749,7 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.Tags); err != nil {
+		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &file.Tags); err != nil {
 			return nil, err
 		}
 		files = append(files, file)
@@ -760,7 +760,7 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 // GetFilesInfoByTag retrieves info for all files for a given tag using the cache.
 func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	query := `
-		SELECT l.path, l.content_hash, l.size_bytes, l.tags_cache
+		SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
 		FROM locations l
 		JOIN content_tags ct ON l.content_hash = ct.content_hash
 		JOIN tags t ON ct.tag_id = t.id
@@ -776,7 +776,7 @@ func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.Tags); err != nil {
+		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &file.Tags); err != nil {
 			return nil, err
 		}
 		files = append(files, file)
@@ -799,7 +799,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag) ([]types.FileInfo,
 	whereCondition := strings.Join(whereClauses, " OR ")
 
 	query := `
-		SELECT l.path, l.content_hash, l.size_bytes, l.tags_cache
+		SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
 		FROM locations l
 		WHERE l.content_hash IN (
 			SELECT ct.content_hash
@@ -822,7 +822,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag) ([]types.FileInfo,
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.Tags); err != nil {
+		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &file.Tags); err != nil {
 			return nil, err
 		}
 		files = append(files, file)
@@ -1344,7 +1344,7 @@ func (s *Store) GetPathsByContentQuery(query string, args []interface{}) ([]stri
 func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]types.FileInfo, error) {
 	finalQuery := fmt.Sprintf(`
 		WITH result_hashes(hash) AS (%s)
-		SELECT l.path, l.content_hash, l.size_bytes, l.tags_cache
+		SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
 		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
 		ORDER BY l.path
 	`, query)
@@ -1358,7 +1358,7 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.Tags); err != nil {
+		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &file.Tags); err != nil {
 			return nil, err
 		}
 		files = append(files, file)

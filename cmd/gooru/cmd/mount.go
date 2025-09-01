@@ -29,6 +29,7 @@ import (
 var (
 	mountOpenExplorer bool
 	mountLive         bool
+	mountHierarchical bool
 )
 
 // mountCmd represents the mount command
@@ -38,7 +39,11 @@ var mountCmd = &cobra.Command{
 	Long: `Mounts a read-only virtual filesystem at the specified mount point.
 The filesystem presents a live view of the Gooru database.
 
-The view is a flat directory containing all files that match the given expression.
+Two modes are available:
+- Flat (default): A single directory containing all files matching the expression.
+- Hierarchical (--hierarchical): A browsable directory structure where folders
+  are tags, allowing for interactive filtering.
+
 If no expression is provided, all files in the database are listed.
 
 This feature requires a FUSE implementation to be installed on your system:
@@ -105,7 +110,7 @@ This feature requires a FUSE implementation to be installed on your system:
 		}
 
 		// 4. Setup VFS and FUSE host
-		vfs := mount.NewGooruVFS(svc, expression, files, mountLive)
+		vfs := mount.NewGooruVFS(svc, expression, files, mountLive, mountHierarchical)
 		host := fuse.NewFileSystemHost(vfs)
 
 		// 5. Start IPC Server
@@ -163,6 +168,7 @@ func init() {
 	rootCmd.AddCommand(mountCmd)
 	mountCmd.Flags().BoolVarP(&mountOpenExplorer, "open", "o", false, "Open the mount point in the file explorer after mounting")
 	mountCmd.Flags().BoolVarP(&mountLive, "live", "l", false, "Enable live refresh (re-queries database on directory access)")
+	mountCmd.Flags().BoolVarP(&mountHierarchical, "hierarchical", "r", false, "Enable hierarchical tag-based directory browsing")
 }
 
 func openExplorer(path string) error {
