@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"gooru.local/gooru"
 	"gooru.local/gooru/types"
@@ -14,8 +16,22 @@ import (
 type App struct {
 	gooruClient *gooru.Client
 	tviewApp    *tview.Application
-	input       *tview.InputField
-	results     *tview.Table
+
+	// Layout components.
+	mainFlex  *tview.Flex
+	sidePanel *tview.Flex
+
+	// Interactive widgets.
+	input     *tview.InputField
+	results   *tview.Table
+	thumbnail *ImageView
+	tagEditor *tview.InputField
+	helpText  *tview.TextView
+
+	// State.
+	currentFiles       []types.FileInfo
+	selectedFile       *types.FileInfo
+	imageLoadRequestID uint64 // Used for debouncing image loads.
 }
 
 // NewApp creates a new TUI application.
@@ -29,6 +45,8 @@ func NewApp(client *gooru.Client) (*App, error) {
 }
 
 func (a *App) initComponents() {
+	// --- Widgets ---
+
 	// Search Input Field
 	a.input = tview.NewInputField().
 		SetLabel("Search: ").
@@ -42,124 +60,216 @@ func (a *App) initComponents() {
 		SetSelectable(true, false). // rows selectable, not columns
 		SetFixed(1, 0)              // Fix the header row.
 
+	// Thumbnail View
+	a.thumbnail = NewImageView(a.tviewApp)
+
+	// Tag Editor
+	a.tagEditor = tview.NewInputField().
+		SetLabel("Tags: ").
+		SetFieldBackgroundColor(tcell.ColorDarkSlateGray)
+
 	// Help text footer
-	help := tview.NewTextView().
-		SetText("In Search: Down to focus results | In Results: Up/Down to navigate, Esc or type to search | 'q' to quit").
+	a.helpText = tview.NewTextView().
+		SetText("Tab: cycle focus | Enter in search: run | Enter in tags: save | q: quit").
 		SetTextColor(tcell.ColorGray).
 		SetTextAlign(tview.AlignCenter)
 
-	// Layout
-	flex := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(a.input, 1, 1, true).
-		AddItem(a.results, 0, 1, false).
-		AddItem(help, 1, 1, false)
+	// --- Layout ---
 
-	a.tviewApp.SetRoot(flex, true)
+	// Left panel contains search input and results table.
+	leftPanel := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(a.input, 1, 0, true).
+		AddItem(a.results, 0, 1, false)
+
+	// Right side panel contains thumbnail and tag editor.
+	a.sidePanel = tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(a.thumbnail, 0, 1, false).
+		AddItem(a.tagEditor, 1, 0, false)
+	a.sidePanel.SetBorder(true).SetTitle(" Details ")
+
+	// Main layout is a horizontal flex with left and right panels.
+	a.mainFlex = tview.NewFlex().
+		AddItem(leftPanel, 0, 2, true).
+		AddItem(a.sidePanel, 40, 1, false)
+
+	// Root layout is a vertical flex with the main content and the help text.
+	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(a.mainFlex, 0, 1, true).
+		AddItem(a.helpText, 1, 0, false)
+
+	a.tviewApp.SetRoot(root, true)
 	a.setupEventHandlers()
 }
 
 func (a *App) setupEventHandlers() {
+	// When Enter is pressed in search, run the search and move focus to results.
 	a.input.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
-			a.runSearch()
+			a.runSearch(a.input.GetText(), true)
 		}
 	})
 
-	// Capture input for the search field.
-	a.input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		// On Down arrow, move focus to the results table if it's not empty.
-		if event.Key() == tcell.KeyDown {
-			if a.results.GetRowCount() > 1 { // More than just the header
-				a.tviewApp.SetFocus(a.results)
-				return nil // Event handled
+	// When Enter is pressed in tag editor, save the tags and refresh.
+	a.tagEditor.SetDoneFunc(func(key tcell.Key) {
+		if key != tcell.KeyEnter || a.selectedFile == nil {
+			return
+		}
+
+		newTagsRaw := strings.Split(a.tagEditor.GetText(), " ")
+		var newTags []string
+		for _, t := range newTagsRaw {
+			if t != "" {
+				newTags = append(newTags, t)
 			}
 		}
-		return event // Process all other events normally
+
+		// Must capture the path and query for the goroutine, as state can change.
+		selectedPath := a.selectedFile.Path
+		currentSearchQuery := a.input.GetText()
+
+		// Run the blocking database operation in a background goroutine.
+		go func() {
+			_, err := a.gooruClient.SetTagsForFiles([]string{selectedPath}, newTags, nil)
+
+			// After the DB write is done, queue the UI update to run on the main thread.
+			a.tviewApp.QueueUpdateDraw(func() {
+				if err != nil {
+					a.helpText.SetText(fmt.Sprintf("[red]Error saving tags: %v", err))
+					return
+				}
+				// Refresh search results to show new tags, and ensure focus is on results.
+				a.runSearch(currentSearchQuery, true)
+			})
+		}()
 	})
 
-	// Global key handler
+	// When selection in the results table changes, update the side panel.
+	a.results.SetSelectionChangedFunc(func(row, column int) {
+		// row is 1-based, index is 0-based. row 0 is header.
+		if row < 1 || row > len(a.currentFiles) {
+			a.selectedFile = nil
+			a.thumbnail.SetImage("")
+			a.tagEditor.SetText("")
+			return
+		}
+
+		selected := a.currentFiles[row-1]
+		a.selectedFile = &selected
+		a.tagEditor.SetText(strings.ReplaceAll(selected.Tags, ",", " "))
+
+		// Debounce image loading: only load the image if the user pauses scrolling.
+		currentRequestID := atomic.AddUint64(&a.imageLoadRequestID, 1)
+		go func() {
+			// Wait a short moment to see if another selection event occurs.
+			time.Sleep(150 * time.Millisecond)
+			// If no new selection has been made, proceed with loading the image.
+			if atomic.LoadUint64(&a.imageLoadRequestID) == currentRequestID {
+				a.thumbnail.SetImage(selected.Path)
+			}
+		}()
+	})
+
+	// Global key handler for focus cycling and quitting.
+	focusableWidgets := []tview.Primitive{a.input, a.results, a.tagEditor}
+	currentFocusIndex := 0
 	a.tviewApp.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		// Handle events when the results table has focus
-		if a.tviewApp.GetFocus() == a.results {
-			// If a letter/number is typed, switch focus back to the input field.
-			if event.Key() == tcell.KeyRune {
-				a.tviewApp.SetFocus(a.input)
-				return event // Forward the event to the now-focused input field.
-			}
-			// Pressing Esc also returns focus to the input field.
-			if event.Key() == tcell.KeyEscape {
-				a.tviewApp.SetFocus(a.input)
-				return nil // Don't forward the escape key.
-			}
-		}
-
-		// Press 'q' to quit, unless the input field is focused.
-		if event.Rune() == 'q' && a.tviewApp.GetFocus() != a.input {
-			a.tviewApp.Stop()
+		switch event.Key() {
+		case tcell.KeyTab:
+			currentFocusIndex = (currentFocusIndex + 1) % len(focusableWidgets)
+			a.tviewApp.SetFocus(focusableWidgets[currentFocusIndex])
+			return nil
+		case tcell.KeyBacktab:
+			currentFocusIndex = (currentFocusIndex - 1 + len(focusableWidgets)) % len(focusableWidgets)
+			a.tviewApp.SetFocus(focusableWidgets[currentFocusIndex])
 			return nil
 		}
 
+		if event.Rune() == 'q' && a.tviewApp.GetFocus() != a.input && a.tviewApp.GetFocus() != a.tagEditor {
+			a.tviewApp.Stop()
+			return nil
+		}
 		return event
 	})
 }
 
-func (a *App) runSearch() {
-	query := a.input.GetText()
-	a.results.Clear() // Clear previous results
-
-	// Set headers and column properties for stable widths
+func (a *App) runSearch(query string, setFocusOnResults bool) {
 	headers := []string{"PATH", "SIZE", "TAGS"}
-	expansions := []int{5, 1, 4} // Proportional widths
-	for i, header := range headers {
-		cell := tview.NewTableCell(header).
-			SetTextColor(tcell.ColorYellow).
-			SetAlign(tview.AlignLeft).
-			SetSelectable(false).
-			SetExpansion(expansions[i])
-		a.results.SetCell(0, i, cell)
-	}
+	expansions := []int{5, 1, 4}
 
-	var files []types.FileInfo
-	var err error
+	// ---- UI Update: Phase 1 (Immediate Feedback) ----
+	// This part is queued to run on the main UI thread, making this function safe
+	// to call from any goroutine.
+	a.tviewApp.QueueUpdateDraw(func() {
+		a.results.Clear()
+		a.selectedFile = nil
+		a.currentFiles = nil
+		a.thumbnail.SetImage("")
+		a.tagEditor.SetText("")
 
-	if strings.TrimSpace(query) == "" {
-		files, err = a.gooruClient.GetAllFilesInfo()
-	} else {
-		// The service layer doesn't know about verbose mode from the TUI.
-		files, err = a.gooruClient.GetFilesInfoByQuery(query, false)
-	}
-
-	if err != nil {
-		// Display the error in the table
-		a.results.SetCell(1, 0, tview.NewTableCell(fmt.Sprintf("Error: %v", err)).
-			SetTextColor(tcell.ColorRed).
-			SetExpansion(3)) // Span across all columns
-		return
-	}
-
-	if len(files) == 0 {
-		a.results.SetCell(1, 0, tview.NewTableCell("No results found.").
-			SetTextColor(tcell.ColorGray).
-			SetExpansion(3))
-	} else {
-		for row, file := range files {
-			// Data for the current row
-			rowData := []string{
-				file.Path,
-				humanReadableSize(file.Size),
-				strings.ReplaceAll(file.Tags, ",", ", "),
-			}
-			// Create cells for the row, applying the expansion factors.
-			for col, data := range rowData {
-				cell := tview.NewTableCell(data).
-					SetExpansion(expansions[col])
-				a.results.SetCell(row+1, col, cell)
-			}
+		for i, header := range headers {
+			cell := tview.NewTableCell(header).
+				SetTextColor(tcell.ColorYellow).
+				SetAlign(tview.AlignLeft).
+				SetSelectable(false).
+				SetExpansion(expansions[i])
+			a.results.SetCell(0, i, cell)
 		}
-	}
+		a.results.SetCell(1, 0, tview.NewTableCell("Searching...").
+			SetTextColor(tcell.ColorGray).
+			SetExpansion(1).SetMaxWidth(0))
+	})
 
-	a.tviewApp.SetFocus(a.results)
+	// ---- Background Task: Blocking I/O ----
+	// The database query runs in a separate goroutine to not block the UI.
+	go func() {
+		var files []types.FileInfo
+		var err error
+
+		if strings.TrimSpace(query) == "" {
+			files, err = a.gooruClient.GetAllFilesInfo()
+		} else {
+			files, err = a.gooruClient.GetFilesInfoByQuery(query, false)
+		}
+
+		// ---- UI Update: Phase 2 (Display Results) ----
+		// This part is scheduled to run back on the main UI thread.
+		a.tviewApp.QueueUpdateDraw(func() {
+			a.results.Clear() // Clear the "Searching..." message
+			for i, header := range headers { // Re-add headers
+				cell := tview.NewTableCell(header).SetTextColor(tcell.ColorYellow).SetAlign(tview.AlignLeft).SetSelectable(false).SetExpansion(expansions[i])
+				a.results.SetCell(0, i, cell)
+			}
+
+			if err != nil {
+				a.results.SetCell(1, 0, tview.NewTableCell(fmt.Sprintf("Error: %v", err)).
+					SetTextColor(tcell.ColorRed).
+					SetExpansion(1).SetMaxWidth(0))
+				return
+			}
+
+			a.currentFiles = files // Cache the results
+
+			if len(files) == 0 {
+				a.results.SetCell(1, 0, tview.NewTableCell("No results found.").
+					SetTextColor(tcell.ColorGray).
+					SetExpansion(1).SetMaxWidth(0))
+			} else {
+				for row, file := range files {
+					rowData := []string{file.Path, humanReadableSize(file.Size), strings.ReplaceAll(file.Tags, ",", ", ")}
+					for col, data := range rowData {
+						cell := tview.NewTableCell(data).SetExpansion(expansions[col])
+						a.results.SetCell(row+1, col, cell)
+					}
+				}
+				a.results.Select(1, 0)
+			}
+
+			if setFocusOnResults {
+				a.tviewApp.SetFocus(a.results)
+			}
+		})
+		// ------------------------------------------------
+	}()
 }
 
 // humanReadableSize converts a size in bytes to a human-readable string.
@@ -178,5 +288,10 @@ func humanReadableSize(size int64) string {
 
 // Run starts the TUI application.
 func (a *App) Run() error {
-	return a.tviewApp.Run()
+	// Kick off the initial search in a background goroutine.
+	// It will schedule UI updates via QueueUpdateDraw once the app is running.
+	go a.runSearch("", false)
+
+	// Set initial focus and run the application's main event loop.
+	return a.tviewApp.SetFocus(a.input).Run()
 }

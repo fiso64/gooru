@@ -4,12 +4,14 @@ go 1.24.2
 
 require (
 	github.com/alecthomas/participle/v2 v2.1.1
-	github.com/gdamore/tcell/v2 v2.8.1
+	github.com/gdamore/tcell/v2 v2.9.0
 	github.com/mattn/go-sqlite3 v1.14.32
+	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
 	github.com/rivo/tview v0.42.0
 	github.com/spf13/cobra v1.9.1
 	github.com/winfsp/cgofuse v1.6.0
 	github.com/zeebo/blake3 v0.2.4
+	golang.org/x/image v0.19.0
 )
 
 require (
@@ -20,7 +22,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
-	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/term v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
+	golang.org/x/term v0.34.0 // indirect
+	golang.org/x/text v0.28.0 // indirect
 )
