@@ -103,10 +103,12 @@ func (a *App) initComponents() {
 
 func (a *App) setupEventHandlers() {
 	// When Enter is pressed in search, run the search and move focus to results.
-	a.input.SetDoneFunc(func(key tcell.Key) {
-		if key == tcell.KeyEnter {
+	a.input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEnter {
 			a.runSearch(a.input.GetText(), true)
+			return nil // Consume the event.
 		}
+		return event // Pass other events to the default handler.
 	})
 
 	// When Enter is pressed in tag editor, save the tags and refresh.
