@@ -16,6 +16,8 @@ Users need an intuitive way to explore their tagged file collection that goes be
 *   **User Story 1:** As a user, I want to browse my files in my standard file manager by clicking through tags as if they were folders, so I can visually discover and filter my collection.
 *   **User Story 2:** As a user, after running a specific search, I want to see all the resulting files in a single folder, so I can easily select them, open them, or drag them into another application.
 *   **User Story 3:** As a user, I want to be able to tag a file I found in the virtual filesystem by its virtual path, so I don't have to find its "real" location first.
+*   **User Story 4:** As a developer of a GUI front-end, I want to be able to programmatically change the query of a mounted Gooru filesystem so that I can provide a search bar that dynamically updates the file manager's view.
+*   **User Story 5:** As a user running multiple `gooru mount` instances, I want an easy way to list them and send commands to the correct one without ambiguity.
 
 ## 3. Goals and Non-Goals
 
@@ -25,6 +27,7 @@ Users need an intuitive way to explore their tagged file collection that goes be
 *   Allow the user to explicitly choose between a flat or hierarchical presentation via a command-line flag.
 *   Ensure full support for OS-native features like thumbnails and previews.
 *   Allow other `gooru` commands to operate correctly on files referenced by their virtual paths.
+*   Provide an IPC mechanism for other applications to dynamically update the query powering the filesystem view.
 *   Ensure all filesystem operations are performant and reflect the live state of the database.
 
 ### Non-Goals
@@ -91,11 +94,25 @@ Navigating to `/mnt/gooru/photo/` shows `A.jpg` (as it has both `vacation` and `
 ### 4.2. Common Technical Implementation
 
 *   **File Proxies:** All files in the virtual filesystem will be presented as **regular files**, not symlinks. The FUSE driver will proxy `read` requests to the real files on disk to ensure universal thumbnail and preview support.
-*   **Path Resolution:** To allow commands like `gooru tag` to work with virtual paths, an Inter-Process Communication (IPC) mechanism (e.g., a local socket) will be used.
-    1. The `mount` process will listen on a well-known socket.
-    2. Other `gooru` commands will check if a given file path is on a `gooru-fs` filesystem (identified by its unique type).
-    3. If it is, the command will connect to the socket, send the virtual path, and receive the real, canonical path back from the `mount` process.
-    4. All core `gooru` logic will operate exclusively on these resolved, canonical paths.
+
+*   **Instance Management and IPC:** To robustly manage multiple concurrent mounts, each `mount` process will register itself in a well-known runtime directory.
+    1.  **Runtime Directory:** A directory at `~/.config/gooru/run/` will store information about active mounts.
+    2.  **Mount Lifecycle:**
+        *   **On start:** The `gooru mount` command will canonicalize its mount point path. It will generate a stable identifier (e.g., a short hash of the canonical path). It will then create a file in the runtime directory (e.g., `~/.config/gooru/run/<id>.json`) containing its Process ID (PID), the path to its unique IPC socket, and the mount point path itself. If this file already exists and the PID is active, the command will fail, preventing two mounts on the same directory.
+        *   **On exit:** The `mount` process will register a signal handler to ensure it cleans up its runtime file and IPC socket upon termination (`SIGINT`, `SIGTERM`).
+    3.  **IPC Protocol:** The process will listen on its unique IPC socket for simple, newline-delimited commands:
+        *   `SET_QUERY <expression>`: Updates the filesystem's view to match the new expression.
+        *   `GET_QUERY`: Returns the current query expression.
+        *   `RESOLVE <virtual_path>`: Returns the canonical, real path for a given virtual path.
+        *   `PING`: A health check command, returns `PONG`.
+
+*   **Remote Control and Path Resolution:**
+    *   A new command group, `gooru remote`, will be the user's interface for managing active mounts.
+    *   **`gooru remote list`**: This command will scan the runtime directory, check that the PIDs in the files are active, and print a table of all running mounts (e.g., Mount Point, PID, Current Query).
+    *   **`gooru remote <mountpoint> query [new_expression...]`**: This command will find the correct mount by reading the runtime files, connect to its specific IPC socket, and send the `SET_QUERY` or `GET_QUERY` command.
+    *   **Internal Path Resolution:** Other `gooru` commands (like `tag`, `untag`) will use the same discovery mechanism. When given a virtual path, they will find the corresponding running mount via the runtime files, connect to its IPC socket, send a `RESOLVE` command, and then operate on the returned real path.
+
+This design provides a robust way to discover, manage, and communicate with multiple, independent `gooru mount` instances.
 
 ## 5. Edge Cases & Unresolved Questions
 
@@ -104,3 +121,5 @@ Navigating to `/mnt/gooru/photo/` shows `A.jpg` (as it has both `vacation` and `
 *   **Invalid Directory Names:** Tags can contain characters that are invalid in filenames on some operating systems (e.g., `:` on Windows).
     *   **Decision:** The FUSE driver will sanitize tag names for presentation, replacing invalid characters with a safe substitute (e.g., `_`). The internal logic will map the sanitized name back to the original tag.
 *   **Live Updates:** The filesystem is a live view. If a file is tagged in another terminal, the changes will be reflected the next time a directory in the mount is accessed (e.g., via `ls` or a GUI refresh), as this triggers a new database query.
+*   **Stale Mounts:** A `mount` process might crash without cleaning up its runtime file.
+    *   **Decision:** The `gooru remote` and `gooru remote list` commands will always perform a health check by verifying that the PID in the runtime file corresponds to a running process. If not, they will exclude the mount and automatically clean up the orphaned runtime files.
