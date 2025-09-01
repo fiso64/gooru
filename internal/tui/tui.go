@@ -102,13 +102,17 @@ func (a *App) initComponents() {
 }
 
 func (a *App) setupEventHandlers() {
-	// When Enter is pressed in search, run the search and move focus to results.
-	a.input.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEnter {
-			a.runSearch(a.input.GetText(), true)
-			return nil // Consume the event.
+	// When Enter is pressed in search, run the search.
+	a.input.SetDoneFunc(func(key tcell.Key) {
+		// We only want to search when Enter is pressed. Other keys like Tab/Escape
+		// are handled by the global input capture and should not trigger a search.
+		if key == tcell.KeyEnter {
+			// The entire search process must be in a goroutine.
+			// Calling QueueUpdateDraw from an event handler (like SetDoneFunc)
+			// without a goroutine will cause a deadlock, as the main UI loop
+			// is waiting for the handler to return before it can process the queue.
+			go a.runSearch(a.input.GetText(), true)
 		}
-		return event // Pass other events to the default handler.
 	})
 
 	// When Enter is pressed in tag editor, save the tags and refresh.
