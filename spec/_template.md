@@ -31,7 +31,8 @@ Describe the problem this feature solves from a user's perspective. What pain po
 
 A detailed description of the proposed changes. This should cover:
 
-*   **User-Facing Changes:** New commands, new flags, changes in output text.
+*   **User-Facing Changes (cmd):** New commands, new flags, changes in output text.
+*   **Public API changes:** New methods, new options, changes.
 *   **Internal Logic:** High-level description of how the system will work. How will data flow? What new functions or modules might be needed?
 *   **Database Schema Changes:** (If any)
 
