@@ -38,8 +38,10 @@ Users need an intuitive way to explore their tagged file collection that goes be
 
 The user will have direct control over the filesystem's structure via a command-line flag.
 
-*   **Command Syntax:** `gooru mount <mountpoint> [expression..] [--hierarchical]`
-*   **Alias:** `-h` for `--hierarchical`.
+*   **Command Syntax:** `gooru mount <mountpoint> [expression..] [--hierarchical] [--open]`
+*   **Aliases:** `-h` for `--hierarchical`, `-o` for `--open`.
+*   **Flags:**
+    *   `--open, -o`: After a successful mount, open the mount point in the system's default file explorer.
 
 ### 4.1. Filesystem Modes
 

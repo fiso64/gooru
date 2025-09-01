@@ -6,6 +6,7 @@ require (
 	github.com/alecthomas/participle/v2 v2.1.1
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/spf13/cobra v1.9.1
+	github.com/winfsp/cgofuse v1.6.0
 	github.com/zeebo/blake3 v0.2.4
 )
 

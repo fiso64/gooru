@@ -102,6 +102,7 @@ type LocationInfo struct {
 // FileInfo holds all displayable information about a file.
 type FileInfo struct {
 	Path string
+	Hash string
 	Size int64
 	Tags string // Comma-separated string of tags
 }
