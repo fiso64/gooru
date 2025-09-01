@@ -1,7 +1,7 @@
 # Spec: FUSE Virtual Filesystem (`mount` command)
 
 **Version:** 1.2
-**Status:** Proposed
+**Status:** Implemented
 
 ---
 
@@ -16,8 +16,6 @@ Users need an intuitive way to explore their tagged file collection that goes be
 *   **User Story 1:** As a user, I want to browse my files in my standard file manager by clicking through tags as if they were folders, so I can visually discover and filter my collection.
 *   **User Story 2:** As a user, after running a specific search, I want to see all the resulting files in a single folder, so I can easily select them, open them, or drag them into another application.
 *   **User Story 3:** As a user, I want to be able to tag a file I found in the virtual filesystem by its virtual path, so I don't have to find its "real" location first.
-*   **User Story 4:** As a developer of a GUI front-end, I want to be able to programmatically change the query of a mounted Gooru filesystem so that I can provide a search bar that dynamically updates the file manager's view.
-*   **User Story 5:** As a user running multiple `gooru mount` instances, I want an easy way to list them and send commands to the correct one without ambiguity.
 
 ## 3. Goals and Non-Goals
 
@@ -159,13 +157,12 @@ This design provides a robust way to discover, manage, and communicate with mult
 
 ## 6. Performance Considerations
 
-The design prioritizes responsive user interaction, with performance characteristics varying by use case.
+The implementation prioritizes a responsive user experience, especially during interactive browsing.
 
-*   **Mount Launch & Query Updates:** Performance is dictated by database query speed. For most queries, this will be nearly instantaneous.
-*   **Browsing:**
-    *   **Flat Mode (default):** Excellent performance. The initial query result is cached in memory, making directory listings instant.
-    *   **Hierarchical Mode:** Good performance. Each navigation triggers a live database query. A slight latency may be noticeable when entering virtual directories corresponding to very large file sets.
-*   **Tagging via Virtual Filesystem:** Operations on single virtual paths will have a negligible performance impact. Batch operations on thousands of virtual paths may be slower than on real paths due to the per-file IPC path resolution overhead.
-*   **Tagging Normal (Non-Virtual) Files:** The impact is imperceptible. The new path resolution logic requires that every gooru api method taking a file path first checks if that path belongs to a virtual filesystem. This check involves scanning the ~/.config/gooru/run/ directory for active mount configurations. 
-    *   If no mounts are active, this check is extremely fast (a single directory existence check). Instant.
-    *   If mounts are active, the command must read one or more small JSON files and perform a string prefix comparison. Still very fast.
+*   **Thumbnail Generation & File Lookups:** An initial performance bottleneck was identified where OS thumbnail generation in hierarchical mode triggered a cascade of inefficient file lookups. This has been resolved by implementing a short-lived, in-memory cache (`dirCache`) that memoizes a directory's contents for the duration of a single view operation (e.g., one `ls` command or one folder view in a GUI). This makes browsing directories with many files and thumbnails instantaneous.
+
+*   **Browsing Latency (Live Mode):** In live mode (`--live`), each directory navigation or refresh triggers a fresh database query. For most queries, this is imperceptible. For very complex queries against millions of records, a slight latency may be noticeable. In the default "snapshot" mode, browsing is always instant as it reads from the in-memory cache.
+
+*   **Filename Disambiguation at Scale:** The logic for detecting filename collisions and appending a hash prefix (e.g., `report-<hash>.pdf`) runs in Go code every time a directory is listed. While extremely fast for directories containing thousands of files, this can become a minor CPU bottleneck if a single virtual directory contains an exceptionally large number of files (e.g., >50,000). This is a scaling consideration for extreme use cases, not a day-to-day performance issue. Future optimization could involve moving this disambiguation logic into a more complex SQL query.
+
+*   **IPC & Path Resolution:** The overhead for resolving virtual paths to real paths via IPC is minimal. For commands operating on non-virtual paths, the check to see if any mounts are active is extremely fast and has no noticeable impact.
