@@ -144,7 +144,9 @@ func (a *App) setupEventHandlers() {
 					return
 				}
 				// Refresh search results to show new tags, and ensure focus is on results.
-				a.runSearch(currentSearchQuery, true)
+				// This must also be in a goroutine to prevent deadlock, as runSearch
+				// itself will queue updates.
+				go a.runSearch(currentSearchQuery, true)
 			})
 		}()
 	})
