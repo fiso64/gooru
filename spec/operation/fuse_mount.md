@@ -123,3 +123,16 @@ This design provides a robust way to discover, manage, and communicate with mult
 *   **Live Updates:** The filesystem is a live view. If a file is tagged in another terminal, the changes will be reflected the next time a directory in the mount is accessed (e.g., via `ls` or a GUI refresh), as this triggers a new database query.
 *   **Stale Mounts:** A `mount` process might crash without cleaning up its runtime file.
     *   **Decision:** The `gooru remote` and `gooru remote list` commands will always perform a health check by verifying that the PID in the runtime file corresponds to a running process. If not, they will exclude the mount and automatically clean up the orphaned runtime files.
+
+## 6. Performance Considerations
+
+The design prioritizes responsive user interaction, with performance characteristics varying by use case.
+
+*   **Mount Launch & Query Updates:** Performance is dictated by database query speed. For most queries, this will be nearly instantaneous.
+*   **Browsing:**
+    *   **Flat Mode (default):** Excellent performance. The initial query result is cached in memory, making directory listings instant.
+    *   **Hierarchical Mode:** Good performance. Each navigation triggers a live database query. A slight latency may be noticeable when entering virtual directories corresponding to very large file sets.
+*   **Tagging via Virtual Filesystem:** Operations on single virtual paths will have a negligible performance impact. Batch operations on thousands of virtual paths may be slower than on real paths due to the per-file IPC path resolution overhead.
+*   **Tagging Normal (Non-Virtual) Files:** The impact is imperceptible. The new path resolution logic requires that every gooru api method taking a file path first checks if that path belongs to a virtual filesystem. This check involves scanning the ~/.config/gooru/run/ directory for active mount configurations. 
+    *   If no mounts are active, this check is extremely fast (a single directory existence check). Instant.
+    *   If mounts are active, the command must read one or more small JSON files and perform a string prefix comparison. Still very fast.

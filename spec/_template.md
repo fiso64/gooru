@@ -65,14 +65,22 @@ List every tricky scenario you can think of.
 *   What about empty input?
 *   How does this interact with other commands (`tag` vs `settags`)?
 *   What are the failure modes and expected error messages?
-*   Are there any performance considerations?
 *   etc.
 
 For each point, make a clear **Decision:** on how it will be handled.
 
-## 6. Alternatives Considered
+## 6. Performance Considerations
 
-Briefly describe any alternative solutions you thought of and why you rejected them.
+A brief analysis of the performance implications of the proposed changes.
 
-*   **Alternative A:** Why it's not as good.
+*   **Impact on Core Operations:** (e.g., tagging, listing) - will it be faster, slower, or unchanged? By how much?
+*   **Scalability:** How does this feature perform with a very large database (millions of files/tags)?
+*   **Resource Usage:** Any significant changes in memory or CPU consumption?
+
+## 7. Alternatives Considered
+
+Briefly describe any alternative solutions you thought of (if any) and why you rejected them.
+
+*   **Alternative A:** Possible alternative, perhaps requiring more discussion.
 *   **Alternative B:** Why it's not as good.
+*   **Alternative C:** Why it's not as good.
