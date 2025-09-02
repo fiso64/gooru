@@ -113,8 +113,9 @@ func TestClient_TagFiles(t *testing.T) {
 
 	// IMPORTANT DO NOT MODIFY
 	// THIS TEST WILL FAIL, at least on windows. The file size is unchanged and it happens sufficiently fast for modtime
-	// to also remain the same, which means it won't be detected as a change by the size+modtime heuristic.
+	// to also remain the same (metadata caching?), which means it won't be detected as a change by the size+modtime heuristic.
 	// This is dangerous for scripted use or programmatic api consumers.
+	// Note that some filesystems have 2 second timestamp resolution, which will make this much more common.
 	// TODO: Think.
 	t.Run("tagging a modified file updates record and orphans old tags", func(t *testing.T) {
 		t.Parallel()
