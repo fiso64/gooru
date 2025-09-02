@@ -40,11 +40,12 @@ type Factor struct {
 var (
 	queryLexer = lexer.MustSimple([]lexer.SimpleRule{
 		{Name: "QuotedString", Pattern: `"(\\"|[^"])*"`},
-		// A tag cannot start with a hyphen to avoid ambiguity with the NOT operator.
-		{Name: "Tag", Pattern: `[a-zA-Z0-9_./\\][a-zA-Z0-9_./\\:-]*`},
-		{Name: "Operator", Pattern: `[|()&!-]`},
-		{Name: "Whitespace", Pattern: `\s+`},
-	})
+	// A tag can start with '@' for meta-tags. The value part of a regular tag can be '*'.
+	// It cannot start with a hyphen to avoid ambiguity with the NOT operator.
+	{Name: "Tag", Pattern: `(@[a-zA-Z0-9_]+)|([a-zA-Z0-9_./\\][a-zA-Z0-9_./\\:*-]*)`},
+	{Name: "Operator", Pattern: `[|()&!-]`},
+	{Name: "Whitespace", Pattern: `\s+`},
+})
 
 	parser = participle.MustBuild[Expression](
 		participle.Lexer(queryLexer),

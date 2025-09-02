@@ -25,7 +25,9 @@ Expressions support AND, OR, and NOT logic with grouping.
 - Simple tag:     gooru count video
 - Implicit AND:   gooru count "video family"
 - OR:             gooru count "video | photo"
-- NOT (EXCEPT):   gooru count "family - work"`,
+- NOT (EXCEPT):   gooru count "family - work"
+- Meta-queries:   gooru count "@tagged"
+                  gooru count "location:*"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var count int
 		var err error

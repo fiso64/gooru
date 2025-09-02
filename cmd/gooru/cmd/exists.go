@@ -28,7 +28,12 @@ This is a high-performance check that stops searching as soon as a single match 
 Example:
   if gooru exists "photo vacation"; then
     echo "Vacation photos found!"
-  fi`,
+  fi
+
+Meta-queries are also supported:
+  if gooru exists "@tagged"; then ...
+  if gooru exists "-@tagged"; then ...
+`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		expression := ""
 		if len(args) > 0 {

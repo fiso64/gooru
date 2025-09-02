@@ -10,16 +10,25 @@ var reservedTagKeys = map[string]struct{}{
 	"type": {},
 }
 
-// validateTagSyntax checks if a tag string conforms to the required syntactic format.
-// It does not check for reserved keywords, making it suitable for validating query expressions.
+// validateTagSyntax checks if a tag string conforms to the required syntactic format for a query.
+// It does not check for reserved keywords.
 func validateTagSyntax(tag string) error {
 	if tag == "" {
 		return fmt.Errorf("tag cannot be empty")
 	}
 
+	// Handle special meta-tags like @tagged
+	if strings.HasPrefix(tag, "@") {
+		if tag == "@tagged" {
+			return nil // This is a valid meta-tag for queries.
+		}
+		return fmt.Errorf("invalid meta-tag '%s'; only @tagged is supported", tag)
+	}
+
 	for _, r := range tag {
 		// Printable ASCII is 32-126. Space (32) is disallowed.
-		if r <= ' ' || r > '~' {
+		// '*' is allowed as a special character in the value part for queries.
+		if (r <= ' ' || r > '~') && r != '*' {
 			return fmt.Errorf("tag '%s' contains invalid characters; only printable ASCII (no spaces) allowed", tag)
 		}
 	}
@@ -28,6 +37,10 @@ func validateTagSyntax(tag string) error {
 	validatePart := func(part string, isKey bool) error {
 		if isKey && part == "" {
 			return fmt.Errorf("tag '%s' has an empty key part", tag)
+		}
+		// The wildcard '*' is only allowed as the entire value, not as part of it.
+		if !isKey && part != "*" && strings.Contains(part, "*") {
+			return fmt.Errorf("the '*' wildcard must be the only character in a tag's value (e.g., 'key:*')")
 		}
 		if strings.HasPrefix(part, "-") || strings.HasPrefix(part, "!") || strings.HasPrefix(part, ":") {
 			return fmt.Errorf("tag part '%s' in '%s' cannot start with '-', '!', or ':'", part, tag)
@@ -57,10 +70,20 @@ func validateTagSyntax(tag string) error {
 }
 
 // ValidateTag checks if a tag is valid for a user to apply to a file.
-// It checks both syntax and for reserved keywords.
+// It checks syntax, for reserved keywords, and for special query characters.
 func ValidateTag(tag string) error {
-	if err := validateTagSyntax(tag); err != nil {
+	// First, run the query syntax validator to check for fundamental structural issues.
+	// We must temporarily replace '*' as it's a valid query char but not a valid tagging char.
+	if err := validateTagSyntax(strings.ReplaceAll(tag, "*", "_")); err != nil {
 		return err
+	}
+
+	// Now, perform checks specific to creating tags.
+	if strings.HasPrefix(tag, "@") {
+		return fmt.Errorf("tags cannot start with the special character '@'")
+	}
+	if strings.Contains(tag, "*") {
+		return fmt.Errorf("tags cannot contain the special character '*'")
 	}
 
 	parsed := ParseTag(tag)

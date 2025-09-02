@@ -94,6 +94,19 @@ func (b *SQLBuilder) buildFactor(factor *Factor) {
 // buildTagQuery generates the base, simple SELECT statement for a single tag,
 // handling both normal tags and virtual metadata tags.
 func (b *SQLBuilder) buildTagQuery(tagStr string) {
+	// Handle meta-tags first, as they don't follow the key:value structure.
+	if strings.HasPrefix(tagStr, "@") {
+		switch tagStr {
+		case "@tagged":
+			b.query.WriteString(`SELECT DISTINCT content_hash as hash FROM content_tags`)
+		// In the future, other meta-tags like @orphaned could be added here.
+		default:
+			// For now, treat unknown meta-tags as "no results".
+			b.query.WriteString(`SELECT NULL as hash WHERE 0`)
+		}
+		return
+	}
+
 	parsed := ParseTag(tagStr)
 
 	switch parsed.Key {
@@ -109,15 +122,25 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 	// Add other virtual tags like 'size', 'path', etc. here in the future.
 	default:
 		// Default behavior for user-defined tags
-		if parsed.Value == "" {
-			// Query for a simple tag ("reaction") or all tags under a key ("reaction:").
-			// This matches all tags where the key is "reaction", regardless of value.
-			b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ?`)
+		if parsed.Value == "*" {
+			// Query for a key with any non-empty value (e.g., "location:*").
+			b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value != ''`)
 			b.args = append(b.args, parsed.Key)
-		} else {
-			// Query for a specific key:value pair.
+		} else if parsed.Value != "" {
+			// Query for a specific key:value pair (e.g., "location:home").
 			b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ?`)
 			b.args = append(b.args, parsed.Key, parsed.Value)
+		} else {
+			// This is the ambiguous case: `location` vs `location:`
+			if strings.HasSuffix(tagStr, ":") {
+				// The user explicitly typed the colon, so they want an empty value (e.g., "location:").
+				b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ''`)
+				b.args = append(b.args, parsed.Key)
+			} else {
+				// Query for a key, regardless of value (e.g., "location").
+				b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ?`)
+				b.args = append(b.args, parsed.Key)
+			}
 		}
 	}
 }
