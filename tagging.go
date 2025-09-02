@@ -154,59 +154,81 @@ func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error
 // SetTagsForFilesByQuery sets tags for all files matching a query expression, replacing existing ones.
 // Returns the number of content items affected.
 func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, error) {
-	if err := query.ValidateTags(tags); err != nil {
-		return 0, err
-	}
-	sqlQuery, args, err := c.buildQuery(expression)
-	if err != nil {
-		return 0, err
-	}
-	if sqlQuery == "" {
-		return 0, nil
-	}
+    if err := query.ValidateTags(tags); err != nil {
+        return 0, err
+    }
+    sqlQuery, args, err := c.buildQuery(expression)
+    if err != nil {
+        return 0, err
+    }
+    if sqlQuery == "" {
+        return 0, nil
+    }
 
-	tx, err := c.store.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
+    tx, err := c.store.Begin()
+    if err != nil {
+        return 0, err
+    }
+    defer tx.Rollback()
 
-	// 1. Clear existing tags
-	if _, err := c.store.BatchClearTagsByContentQueryTx(tx, sqlQuery, args); err != nil {
-		return 0, fmt.Errorf("failed to clear existing tags: %w", err)
-	}
+    // 1. Clear existing tags
+    if _, err := c.store.BatchClearTagsByContentQueryTx(tx, sqlQuery, args); err != nil {
+        return 0, fmt.Errorf("failed to clear existing tags: %w", err)
+    }
 
-	// 2. Add new tags
-	if len(tags) > 0 {
-		parsedTags := make([]types.ParsedTag, len(tags))
-		for i, t := range tags {
-			parsedTags[i] = query.ParseTag(t)
-		}
-		tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get or create new tags: %w", err)
-		}
+    // 2. Add new tags
+    if len(tags) > 0 {
+        parsedTags := make([]types.ParsedTag, len(tags))
+        for i, t := range tags {
+            parsedTags[i] = query.ParseTag(t)
+        }
+        tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
+        if err != nil {
+            return 0, fmt.Errorf("failed to get or create new tags: %w", err)
+        }
 
-		tagIDs := make([]int64, 0, len(tags))
-		for _, tagStr := range tags {
-			tagIDs = append(tagIDs, tagIDMap[tagStr])
-		}
+        tagIDs := make([]int64, 0, len(tags))
+        for _, tagStr := range tags {
+            tagIDs = append(tagIDs, tagIDMap[tagStr])
+        }
 
-		if _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs); err != nil {
-			return 0, fmt.Errorf("failed to associate new tags: %w", err)
-		}
-	}
+        if _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs); err != nil {
+            return 0, fmt.Errorf("failed to associate new tags: %w", err)
+        }
+    }
 
-	// For Set, it's hard to get a meaningful "affected" count. The number of *files*
-	// is more useful. We can get this by running a COUNT on the subquery.
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s)", sqlQuery)
-	var count int
-	if err := tx.QueryRow(countQuery, args...).Scan(&count); err != nil {
-		// Don't fail the whole transaction, just return 0 for the count.
-		count = 0
-	}
+    // For Set, it's hard to get a meaningful "affected" count. The number of *files*
+    // is more useful. We can get this by running a COUNT on the subquery.
+    countQuery := fmt.Sprintf("SELECT COUNT(*) FROM (%s)", sqlQuery)
+    var count int
+    if err := tx.QueryRow(countQuery, args...).Scan(&count); err != nil {
+        // Don't fail the whole transaction, just return 0 for the count.
+        count = 0
+    }
 
-	return count, tx.Commit()
+    return count, tx.Commit()
+}
+
+// RenameTag renames an existing tag to a new name across the entire database.
+// The new name must not already exist.
+func (c *Client) RenameTag(oldName, newName string) error {
+    // The new tag name must be valid for creation.
+    if err := query.ValidateTag(newName); err != nil {
+        return fmt.Errorf("invalid new tag name: %w", err)
+    }
+    // The old tag name must have valid syntax. Building a minimal AST and validating
+    // it is the public way to check syntax without checking for reserved keywords.
+    if err := query.ValidateAST(&query.Expression{Or: []*query.AndTerm{{And: []*query.Term{{Factor: &query.Factor{Tag: &oldName}}}}}}); err != nil {
+        return fmt.Errorf("invalid old tag name: %w", err)
+    }
+    if oldName == newName {
+        return fmt.Errorf("old and new tag names are identical")
+    }
+
+    oldParsedTag := query.ParseTag(oldName)
+    newParsedTag := query.ParseTag(newName)
+
+    return c.store.RenameTag(oldParsedTag, newParsedTag)
 }
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.

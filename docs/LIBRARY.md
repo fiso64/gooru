@@ -225,3 +225,16 @@ For cases where you know a file has moved and want to update the database withou
 ### Manual Content Management
 
 - **`RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error))`**: Explicitly updates the content record for files that have been modified on disk. For each file, it calculates the new content hash and transactionally transfers all existing tags from the old content record to the new one, preserving the file's tagged identity. This is the primary library function for managing the lifecycle of a file that is expected to change over time. The `progressCb` is invoked for each file, reporting its final status (e.g., `StatusRehashed`, `StatusSkippedUnchanged`).
+
+### Tag Management
+
+- **`RenameTag(oldName, newName string) error`**: Atomically renames a tag across the entire database. The `newName` must be a valid tag format and must not already exist. The `oldName` must exist. All file tag caches are automatically updated.
+
+**Example:**
+```go
+// Rename all instances of the tag 'project:alpha' to 'project:beta'
+err := client.RenameTag("project:alpha", "project:beta")
+if err != nil {
+    // handle error (e.g., if 'project:beta' already exists)
+}
+```
