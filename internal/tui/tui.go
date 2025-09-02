@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -70,7 +72,7 @@ func (a *App) initComponents() {
 
 	// Help text footer
 	a.helpText = tview.NewTextView().
-		SetText("Tab: cycle focus | Enter in search: run | Enter in tags: save | q: quit").
+		SetText("Tab: cycle focus | Enter in table: open file | Enter in search: run | Enter in tags: save | q: quit").
 		SetTextColor(tcell.ColorGray).
 		SetTextAlign(tview.AlignCenter)
 
@@ -149,6 +151,18 @@ func (a *App) setupEventHandlers() {
 				go a.runSearch(currentSearchQuery, true)
 			})
 		}()
+	})
+
+	// When Enter is pressed on a selected row in the results table, open the file.
+	a.results.SetSelectedFunc(func(row, column int) {
+		// row is 1-based, index is 0-based. row 0 is header.
+		if row < 1 || row > len(a.currentFiles) {
+			return
+		}
+		selected := a.currentFiles[row-1]
+		if err := openFile(selected.Path); err != nil {
+			a.helpText.SetText(fmt.Sprintf("[red]Error: %v", err))
+		}
 	})
 
 	// When selection in the results table changes, update the side panel.
@@ -278,6 +292,20 @@ func (a *App) runSearch(query string, setFocusOnResults bool) {
 		})
 		// ------------------------------------------------
 	}()
+}
+
+// openFile opens a file path with the system's default application.
+func openFile(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/C", "start", "", path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default: // linux, freebsd, openbsd, netbsd
+		cmd = exec.Command("xdg-open", path)
+	}
+	return cmd.Start()
 }
 
 // humanReadableSize converts a size in bytes to a human-readable string.

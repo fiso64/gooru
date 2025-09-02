@@ -20,8 +20,3 @@ Automatically apply a common set of tags to any file being added or tagged withi
 
 *   **Use Case:** A user organizes their work by client and project (e.g., `/work/client-a/project-x/`). They place a `.gooru-tags` file in `/work/client-a/` containing `client:a`. Now, any file they add from within that directory or its subdirectories, like `gooru add /work/client-a/project-x/brief.pdf`, will automatically be tagged with `client:a`, reducing manual effort and ensuring consistency.
 *   Question/Problem: Implemented as above, a new file in a directory with associated auto-tags will not automatically obtain these tags until user `add`s it. Confusing/unintuitive?
-
-### 3. Interactive Triage Mode
-
-Create a command that iterates through files matching a query, presenting them one by one and prompting the user to apply tags interactively.
-More advanced: Full search+tagging tui built with tview, perhaps even with thumbnail display capability (show images in a grid). 
