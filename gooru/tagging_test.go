@@ -111,6 +111,9 @@ func TestClient_TagFiles(t *testing.T) {
 		assert.Equal(t, 0, result.AffectedCount, "Re-applying a tag should affect 0 new associations")
 	})
 
+	// IMPORTANT DO NOT MODIFY
+	// THIS TEST WILL FAIL.
+	// TODO: Think.
 	t.Run("tagging a modified file updates record and orphans old tags", func(t *testing.T) {
 		t.Parallel()
 		dbPath := setupTestDB(t)
