@@ -1346,25 +1346,6 @@ func (s *Store) GetHashesByContentQueryTx(q Querier, subQuery string, args []int
 	return hashes, rows.Err()
 }
 
-// GetHashesByContentQueryTx executes a complex query for content hashes and returns them within a transaction.
-func (s *Store) GetHashesByContentQueryTx(q Querier, subQuery string, args []interface{}) ([]string, error) {
-	rows, err := q.Query(subQuery, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var hashes []string
-	for rows.Next() {
-		var hash string
-		if err := rows.Scan(&hash); err != nil {
-			return nil, err
-		}
-		hashes = append(hashes, hash)
-	}
-	return hashes, rows.Err()
-}
-
 // BatchClearTagsByContentQueryTx removes all tag associations for content matching a subquery.
 func (s *Store) BatchClearTagsByContentQueryTx(q Querier, subQuery string, args []interface{}) (int64, error) {
 	query := fmt.Sprintf("DELETE FROM content_tags WHERE content_hash IN (%s)", subQuery)
@@ -1450,146 +1431,146 @@ func (s *Store) UpdateLocationMetadata(path string, size int64, modTime int64) e
 // BatchGetTagCounts retrieves the files_count for a batch of tags.
 // Returns a map of the original tag string to its count.
 func (s *Store) BatchGetTagCounts(parsedTags []types.ParsedTag) (map[string]int, error) {
-    counts := make(map[string]int)
-    if len(parsedTags) == 0 {
-        return counts, nil
-    }
+	counts := make(map[string]int)
+	if len(parsedTags) == 0 {
+		return counts, nil
+	}
 
-    var placeholders []string
-    var args []interface{}
-    for _, t := range parsedTags {
-        placeholders = append(placeholders, "(?, ?)")
-        args = append(args, t.Key, t.Value)
-    }
-    // Note: Using row value constructor `(key, value) IN ((?,?), ...)`
-    query := `SELECT key, value, files_count FROM tags WHERE (key, value) IN (` + strings.Join(placeholders, ",") + `)`
+	var placeholders []string
+	var args []interface{}
+	for _, t := range parsedTags {
+		placeholders = append(placeholders, "(?, ?)")
+		args = append(args, t.Key, t.Value)
+	}
+	// Note: Using row value constructor `(key, value) IN ((?,?), ...)`
+	query := `SELECT key, value, files_count FROM tags WHERE (key, value) IN (` + strings.Join(placeholders, ",") + `)`
 
-    rows, err := s.Query(query, args...)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	rows, err := s.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    for rows.Next() {
-        var key, value string
-        var count int
-        if err := rows.Scan(&key, &value, &count); err != nil {
-            return nil, err
-        }
-        var tagStr string
-        if value == "" {
-            tagStr = key
-        } else {
-            tagStr = key + ":" + value
-        }
-        counts[tagStr] = count
-    }
-    return counts, rows.Err()
+	for rows.Next() {
+		var key, value string
+		var count int
+		if err := rows.Scan(&key, &value, &count); err != nil {
+			return nil, err
+		}
+		var tagStr string
+		if value == "" {
+			tagStr = key
+		} else {
+			tagStr = key + ":" + value
+		}
+		counts[tagStr] = count
+	}
+	return counts, rows.Err()
 }
 
 // TransferTagsAndRehashLocation transactionally updates a location to a new content hash,
 // moving all tags from the old hash to the new one.
 func (s *Store) TransferTagsAndRehashLocation(oldHash, newHash string, newLoc types.LocationInfo) error {
-    tx, err := s.Begin()
-    if err != nil {
-        return err
-    }
-    defer tx.Rollback()
+	tx, err := s.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-    // 1. Check if the new hash represents existing content.
-    var dummy int
-    err = tx.QueryRow("SELECT 1 FROM contents WHERE hash = ? LIMIT 1", newHash).Scan(&dummy)
-    newContentExists := err == nil
-    if err != nil && err != sql.ErrNoRows {
-        return fmt.Errorf("failed to check for new content existence: %w", err)
-    }
+	// 1. Check if the new hash represents existing content.
+	var dummy int
+	err = tx.QueryRow("SELECT 1 FROM contents WHERE hash = ? LIMIT 1", newHash).Scan(&dummy)
+	newContentExists := err == nil
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check for new content existence: %w", err)
+	}
 
-    if newContentExists {
-        // The new content is a duplicate of something else. Merge tags from the old content into it.
-        _, err := tx.Exec(`
+	if newContentExists {
+		// The new content is a duplicate of something else. Merge tags from the old content into it.
+		_, err := tx.Exec(`
             INSERT OR IGNORE INTO content_tags (content_hash, tag_id)
             SELECT ?, tag_id FROM content_tags WHERE content_hash = ?`, newHash, oldHash)
-        if err != nil {
-            return fmt.Errorf("failed to merge tags to existing content: %w", err)
-        }
-    } else {
-        // This is brand new content. Insert it and re-assign all tags from the old content.
-        if _, err := tx.Exec("INSERT INTO contents (hash) VALUES (?)", newHash); err != nil {
-            return fmt.Errorf("failed to insert new content: %w", err)
-        }
-        if _, err := tx.Exec("UPDATE content_tags SET content_hash = ? WHERE content_hash = ?", newHash, oldHash); err != nil {
-            return fmt.Errorf("failed to reassign tags: %w", err)
-        }
-    }
+		if err != nil {
+			return fmt.Errorf("failed to merge tags to existing content: %w", err)
+		}
+	} else {
+		// This is brand new content. Insert it and re-assign all tags from the old content.
+		if _, err := tx.Exec("INSERT INTO contents (hash) VALUES (?)", newHash); err != nil {
+			return fmt.Errorf("failed to insert new content: %w", err)
+		}
+		if _, err := tx.Exec("UPDATE content_tags SET content_hash = ? WHERE content_hash = ?", newHash, oldHash); err != nil {
+			return fmt.Errorf("failed to reassign tags: %w", err)
+		}
+	}
 
-    // 2. Update the location record to point to the new hash and metadata.
-    // The triggers will handle updating the tags_cache.
-    _, err = tx.Exec(`
+	// 2. Update the location record to point to the new hash and metadata.
+	// The triggers will handle updating the tags_cache.
+	_, err = tx.Exec(`
         UPDATE locations SET content_hash = ?, size_bytes = ?, mod_time = ?, extension = ?
         WHERE path = ?`, newHash, newLoc.Size, newLoc.ModTime, newLoc.Extension, newLoc.Path)
-    if err != nil {
-        return fmt.Errorf("failed to update location record: %w", err)
-    }
+	if err != nil {
+		return fmt.Errorf("failed to update location record: %w", err)
+	}
 
-    // 3. Delete the old, now-obsolete content record.
-    // This will cascade-delete its (now empty or merged) tag associations from content_tags.
-    if _, err := tx.Exec("DELETE FROM contents WHERE hash = ?", oldHash); err != nil {
-        return fmt.Errorf("failed to delete old content record: %w", err)
-    }
+	// 3. Delete the old, now-obsolete content record.
+	// This will cascade-delete its (now empty or merged) tag associations from content_tags.
+	if _, err := tx.Exec("DELETE FROM contents WHERE hash = ?", oldHash); err != nil {
+		return fmt.Errorf("failed to delete old content record: %w", err)
+	}
 
-    return tx.Commit()
+	return tx.Commit()
 }
 
 // formatTag is a helper to format a ParsedTag back to a string for display in errors.
 func formatTag(tag types.ParsedTag) string {
-    if tag.Value == "" {
-        return tag.Key
-    }
-    return tag.Key + ":" + tag.Value
+	if tag.Value == "" {
+		return tag.Key
+	}
+	return tag.Key + ":" + tag.Value
 }
 
 // RenameTag atomically renames a tag. It will return an error if the new
 // tag name already exists or if the old tag name does not exist.
 // It also handles updating the tags_cache for all affected files.
 func (s *Store) RenameTag(oldTag, newTag types.ParsedTag) error {
-    tx, err := s.Begin()
-    if err != nil {
-        return err
-    }
-    defer tx.Rollback()
+	tx, err := s.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-    // 1. Check if new tag already exists.
-    var newTagExists int
-    err = tx.QueryRow("SELECT 1 FROM tags WHERE key = ? AND value = ? LIMIT 1", newTag.Key, newTag.Value).Scan(&newTagExists)
-    if err != nil && err != sql.ErrNoRows {
-        return fmt.Errorf("failed to check for new tag existence: %w", err)
-    }
-    if err == nil { // No error means a row was found
-        return fmt.Errorf("new tag '%s' already exists", formatTag(newTag))
-    }
+	// 1. Check if new tag already exists.
+	var newTagExists int
+	err = tx.QueryRow("SELECT 1 FROM tags WHERE key = ? AND value = ? LIMIT 1", newTag.Key, newTag.Value).Scan(&newTagExists)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("failed to check for new tag existence: %w", err)
+	}
+	if err == nil { // No error means a row was found
+		return fmt.Errorf("new tag '%s' already exists", formatTag(newTag))
+	}
 
-    // 2. Find old tag ID.
-    var oldTagID int64
-    err = tx.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", oldTag.Key, oldTag.Value).Scan(&oldTagID)
-    if err == sql.ErrNoRows {
-        return fmt.Errorf("tag '%s' not found", formatTag(oldTag))
-    }
-    if err != nil {
-        return fmt.Errorf("failed to find old tag: %w", err)
-    }
+	// 2. Find old tag ID.
+	var oldTagID int64
+	err = tx.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", oldTag.Key, oldTag.Value).Scan(&oldTagID)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("tag '%s' not found", formatTag(oldTag))
+	}
+	if err != nil {
+		return fmt.Errorf("failed to find old tag: %w", err)
+	}
 
-    // 3. Update the tag.
-    _, err = tx.Exec("UPDATE tags SET key = ?, value = ? WHERE id = ?", newTag.Key, newTag.Value, oldTagID)
-    if err != nil {
-        // This could be a UNIQUE constraint violation if there's a race condition,
-        // though the initial check should prevent it.
-        return fmt.Errorf("failed to update tag: %w", err)
-    }
+	// 3. Update the tag.
+	_, err = tx.Exec("UPDATE tags SET key = ?, value = ? WHERE id = ?", newTag.Key, newTag.Value, oldTagID)
+	if err != nil {
+		// This could be a UNIQUE constraint violation if there's a race condition,
+		// though the initial check should prevent it.
+		return fmt.Errorf("failed to update tag: %w", err)
+	}
 
-    // 4. Invalidate and rebuild the tags_cache for all affected content.
-    // We update the cache on all `locations` records whose `content_hash`
-    // is associated with the renamed tag.
-    rebuildCacheQuery := `
+	// 4. Invalidate and rebuild the tags_cache for all affected content.
+	// We update the cache on all `locations` records whose `content_hash`
+	// is associated with the renamed tag.
+	rebuildCacheQuery := `
         UPDATE locations
         SET tags_cache = (
             SELECT IFNULL(GROUP_CONCAT(tag_str), '')
@@ -1603,10 +1584,10 @@ func (s *Store) RenameTag(oldTag, newTag types.ParsedTag) error {
         )
         WHERE content_hash IN (SELECT content_hash FROM content_tags WHERE tag_id = ?)`
 
-    _, err = tx.Exec(rebuildCacheQuery, oldTagID)
-    if err != nil {
-        return fmt.Errorf("failed to update tags cache for affected files: %w", err)
-    }
+	_, err = tx.Exec(rebuildCacheQuery, oldTagID)
+	if err != nil {
+		return fmt.Errorf("failed to update tags cache for affected files: %w", err)
+	}
 
-    return tx.Commit()
+	return tx.Commit()
 }
