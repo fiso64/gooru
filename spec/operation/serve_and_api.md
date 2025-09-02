@@ -8,15 +8,14 @@
 
 ## 1. Abstract
 
-This document specifies the `gooru serve` command, which runs a persistent daemon process providing a comprehensive, local RESTful API for all Gooru functionality. This server is the primary mechanism for third-party applications (GUIs, scripts, other tools) to programmatically interact with a Gooru database. It is designed to be stable, responsive, and safe by managing concurrent requests, handling long-running operations according to client preference, and acting as a process manager for FUSE mounts.
+This document specifies the `gooru serve` command, which runs a persistent daemon process providing a comprehensive, local RESTful API for all Gooru functionality. This server is the primary mechanism for third-party applications (GUIs, scripts, other tools) to programmatically interact with a Gooru database. It is designed to be stable, responsive, and safe by managing concurrent requests, and handling long-running operations according to client preference.
 
 ## 2. Problem Statement / Motivation
 
-While the Gooru CLI is powerful for direct user interaction, it is not suitable for programmatic control by other applications. A third-party GUI or a Python script cannot easily or reliably parse CLI output to get structured data or manage complex state like a FUSE mount.
+While the Gooru CLI is powerful for direct user interaction, it is not suitable for programmatic control by other applications. A third-party GUI or a Python script cannot easily or reliably parse CLI output to get structured data.
 
 *   **User Story (GUI Developer):** As a GUI developer, I need a stable, documented, and machine-readable API so I can build a graphical interface on top of Gooru without shelling out to the CLI.
 *   **User Story (Scripter):** As a data scientist, I want to tag thousands of files from a Python script based on their contents, so I need an efficient way to send batch commands to Gooru and handle the results without blocking my script unnecessarily.
-*   **User Story (System Integrator):** As an integrator, I need a way to launch and control a FUSE mount as part of a larger workflow, which must be managed programmatically.
 
 ## 3. Goals and Non-Goals
 
@@ -26,7 +25,6 @@ While the Gooru CLI is powerful for direct user interaction, it is not suitable 
 *   Expose all core Gooru library functionality via a RESTful JSON API.
 *   Handle concurrent API requests safely, ensuring database integrity.
 *   Provide a clear, client-driven mechanism for performing and monitoring long-running operations asynchronously to prevent client-side timeouts.
-*   Provide API endpoints to programmatically manage the lifecycle of FUSE mounts.
 *   The API must be the single point of contact for third-party applications.
 
 ### Non-Goals
@@ -108,23 +106,13 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
     *   Body: `{"paths": ["/path/one", "/path/two"]}`
 *   `GET /api/v1/jobs/{job_id}`: Gets the status of any async job.
 
-#### FUSE Mounts (Process Management)
-
-*   `POST /api/v1/mounts`: Creates and starts a new FUSE mount. This is a fast operation that returns immediately after the worker process is spawned.
-    *   Body: `{"path": "/mount/point", "query": "...", "hierarchical": false}`
-    *   Response: `201 Created` with the mount object, including a unique `mount_id`.
-*   `GET /api/v1/mounts`: Lists all active FUSE mounts managed by this server.
-*   `GET /api/v1/mounts/{mount_id}`: Gets the details of a specific mount.
-*   `PATCH /api/v1/mounts/{mount_id}`: Updates a running mount (e.g., changes its query).
-    *   Body: `{"query": "new-expression"}`
-*   `DELETE /api/v1/mounts/{mount_id}`: Stops and unmounts a FUSE mount.
-
 ## 5. Edge Cases & Unresolved Questions
 
-*   **Server Crash:** If the `gooru serve` process crashes, all in-memory state (including the job queue) is lost. Running jobs (goroutines) are terminated. FUSE mounts (separate processes) become "orphaned" but will continue to run. The `gooru remote list` CLI command will be able to see these orphaned mounts and could offer a way to clean them up.
+*   **Server Crash:** If the `gooru serve` process crashes, all in-memory state (including the job queue) is lost. Running jobs (goroutines) are terminated.
 *   **Database Locking:** The serial write queue architecture is the explicit solution to prevent the server from deadlocking itself or failing due to "database is locked" errors.
 *   **Invalid API Input:** Endpoints will return `400 Bad Request` with a clear JSON error message detailing the validation failure.
 
 ## 6. Alternatives Considered
 
 *   **gRPC API:** An alternative to REST/JSON. Can achieve much higher performance due to smaller payloads, multiplexing and streaming, but is not as common. Might want to offer both.
+*   **Exposing mounting through the server:** Rejected for now due to higher complexity and no use case.
