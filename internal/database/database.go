@@ -1327,6 +1327,44 @@ func (s *Store) ExistsByContentQuery(query string, args []interface{}) (bool, er
 	return found, err
 }
 
+// GetHashesByContentQueryTx executes a complex query for content hashes and returns them within a transaction.
+func (s *Store) GetHashesByContentQueryTx(q Querier, subQuery string, args []interface{}) ([]string, error) {
+	rows, err := q.Query(subQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hashes []string
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes, rows.Err()
+}
+
+// GetHashesByContentQueryTx executes a complex query for content hashes and returns them within a transaction.
+func (s *Store) GetHashesByContentQueryTx(q Querier, subQuery string, args []interface{}) ([]string, error) {
+	rows, err := q.Query(subQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hashes []string
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes, rows.Err()
+}
+
 // BatchClearTagsByContentQueryTx removes all tag associations for content matching a subquery.
 func (s *Store) BatchClearTagsByContentQueryTx(q Querier, subQuery string, args []interface{}) (int64, error) {
 	query := fmt.Sprintf("DELETE FROM content_tags WHERE content_hash IN (%s)", subQuery)
