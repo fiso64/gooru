@@ -94,16 +94,19 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 		term := ast.Or[0].And[0]
 		if !term.Not && term.Factor.SubExpr == nil && term.Factor.Tag != nil {
 			tagStr := *term.Factor.Tag
-			parsedTag := query.ParseTag(tagStr)
-			// This optimization only applies to user tags, not virtual tags like ext:
-			if parsedTag.Key != "ext" && parsedTag.Key != "type" {
-				if parsedTag.Value == "" {
-					// Key-only query, e.g. `gooru count photo`
-					// This must count distinct files, not sum tag counts.
-					return c.store.GetCountForKey(parsedTag.Key)
+			// This optimization does not apply to meta-tags like @tagged
+			if !strings.HasPrefix(tagStr, "@") {
+				parsedTag := query.ParseTag(tagStr)
+				// This optimization only applies to user tags, not virtual tags like ext:
+				if parsedTag.Key != "ext" && parsedTag.Key != "type" {
+					if parsedTag.Value == "" {
+						// Key-only query, e.g. `gooru count photo`
+						// This must count distinct files, not sum tag counts.
+						return c.store.GetCountForKey(parsedTag.Key)
+					}
+					// Key-value query, e.g. `gooru count "photo:album1"`
+					return c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
 				}
-				// Key-value query, e.g. `gooru count "photo:album1"`
-				return c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
 			}
 		}
 	}
@@ -151,17 +154,20 @@ func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, erro
 		term := ast.Or[0].And[0]
 		if !term.Not && term.Factor.SubExpr == nil && term.Factor.Tag != nil {
 			tagStr := *term.Factor.Tag
-			parsedTag := query.ParseTag(tagStr)
-			// This optimization only applies to user tags, not virtual tags like ext:
-			if parsedTag.Key != "ext" && parsedTag.Key != "type" {
-				if parsedTag.Value == "" {
-					// Key-only query, e.g., `gooru exists photo`
-					return c.store.ExistsForKey(parsedTag.Key)
+			// This optimization does not apply to meta-tags like @tagged
+			if !strings.HasPrefix(tagStr, "@") {
+				parsedTag := query.ParseTag(tagStr)
+				// This optimization only applies to user tags, not virtual tags like ext:
+				if parsedTag.Key != "ext" && parsedTag.Key != "type" {
+					if parsedTag.Value == "" {
+						// Key-only query, e.g., `gooru exists photo`
+						return c.store.ExistsForKey(parsedTag.Key)
+					}
+					// Key-value query, e.g., `gooru exists "photo:album1"`
+					// Using the pre-calculated count is faster than a new query.
+					count, err := c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
+					return count > 0, err
 				}
-				// Key-value query, e.g., `gooru exists "photo:album1"`
-				// Using the pre-calculated count is faster than a new query.
-				count, err := c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
-				return count > 0, err
 			}
 		}
 	}

@@ -99,8 +99,8 @@ func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
 
     if len(positiveTerms) == 0 {
         // Case: The query is composed entirely of negative terms (e.g., "-a -b").
-        // We start with the set of all content and filter it down.
-        b.query.WriteString("SELECT hash FROM contents WHERE 1=1")
+        // We start with the set of all content that has a location and filter it down.
+        b.query.WriteString("SELECT DISTINCT content_hash as hash FROM locations WHERE 1=1")
         for _, term := range negativeTerms {
             b.query.WriteString(" AND hash NOT IN (")
             b.buildFactor(term.Factor)
@@ -134,7 +134,8 @@ func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
 // The logic for complex ANDs with negations is handled in buildAndTerm.
 func (b *SQLBuilder) buildTerm(term *Term) {
     if term.Not {
-        b.query.WriteString("SELECT hash FROM contents WHERE hash NOT IN (")
+        // The base set for a negation must be files that actually exist (have a location).
+        b.query.WriteString("SELECT DISTINCT content_hash as hash FROM locations WHERE content_hash NOT IN (")
         b.buildFactor(term.Factor)
         b.query.WriteString(")")
     } else {
@@ -160,7 +161,8 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
     if strings.HasPrefix(tagStr, "@") {
         switch tagStr {
         case "@tagged":
-            b.query.WriteString(`SELECT DISTINCT content_hash as hash FROM content_tags`)
+            // Query for all content that is both tagged AND has a location.
+            b.query.WriteString(`SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash`)
         // In the future, other meta-tags like @orphaned could be added here.
         default:
             // For now, treat unknown meta-tags as "no results".
@@ -174,7 +176,7 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
     switch parsed.Key {
     case "ext":
         // Query against the indexed, lowercase extension in the locations table.
-        b.query.WriteString(`SELECT content_hash as hash FROM locations WHERE lower(extension) = lower(?)`)
+        b.query.WriteString(`SELECT DISTINCT content_hash as hash FROM locations WHERE lower(extension) = lower(?)`)
         value := parsed.Value
         // Add leading dot to extension if missing, for user convenience.
         if value != "" && !strings.HasPrefix(value, ".") {
@@ -183,24 +185,28 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
         b.args = append(b.args, value)
     // Add other virtual tags like 'size', 'path', etc. here in the future.
     default:
-        // Default behavior for user-defined tags
+        // Default behavior for user-defined tags.
+        // The common prefix ensures we only consider content that has a location.
+        queryPrefix := `SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
+        b.query.WriteString(queryPrefix)
+
         if parsed.Value == "*" {
             // Query for a key with any non-empty value (e.g., "location:*").
-            b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value != ''`)
+            b.query.WriteString(`t.key = ? AND t.value != ''`)
             b.args = append(b.args, parsed.Key)
         } else if parsed.Value != "" {
             // Query for a specific key:value pair (e.g., "location:home").
-            b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ?`)
+            b.query.WriteString(`t.key = ? AND t.value = ?`)
             b.args = append(b.args, parsed.Key, parsed.Value)
         } else {
             // This is the ambiguous case: `location` vs `location:`
             if strings.HasSuffix(tagStr, ":") {
                 // The user explicitly typed the colon, so they want an empty value (e.g., "location:").
-                b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ? AND t.value = ''`)
+                b.query.WriteString(`t.key = ? AND t.value = ''`)
                 b.args = append(b.args, parsed.Key)
             } else {
                 // Query for a key, regardless of value (e.g., "location").
-                b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE t.key = ?`)
+                b.query.WriteString(`t.key = ?`)
                 b.args = append(b.args, parsed.Key)
             }
         }
