@@ -49,22 +49,58 @@ func (b *SQLBuilder) buildExpression(expr *Expression) {
 	}
 }
 
-// buildAndTerm handles AND nodes. If there are multiple AND operands, it wraps the result.
+// buildAndTerm handles AND nodes. It constructs a single SELECT statement with
+// IN and NOT IN clauses, which is generally more performant than using INTERSECT
+// as it gives the query planner more optimization opportunities.
 func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
-	isCompound := len(andTerm.And) > 1
-	if isCompound {
-		b.query.WriteString("SELECT hash FROM (")
+	// If there's only one term, we don't need complex AND logic; just build the term.
+	if len(andTerm.And) == 1 {
+		b.buildTerm(andTerm.And[0])
+		return
 	}
 
-	for i, term := range andTerm.And {
-		if i > 0 {
-			b.query.WriteString(" INTERSECT ")
+	var positiveTerms []*Term
+	var negativeTerms []*Term
+
+	for _, term := range andTerm.And {
+		if term.Not {
+			negativeTerms = append(negativeTerms, term)
+		} else {
+			positiveTerms = append(positiveTerms, term)
 		}
-		b.buildTerm(term)
 	}
 
-	if isCompound {
-		b.query.WriteString(fmt.Sprintf(") AS %s", b.newAlias()))
+	if len(positiveTerms) == 0 {
+		// Case: The query is composed entirely of negative terms, e.g., "-a -b".
+		// We start with the set of all content and filter it down.
+		b.query.WriteString("SELECT hash FROM contents WHERE 1=1")
+		for _, term := range negativeTerms {
+			b.query.WriteString(" AND hash NOT IN (")
+			b.buildFactor(term.Factor)
+			b.query.WriteString(")")
+		}
+		return
+	}
+
+	// Case: The query has at least one positive term, e.g., "a & b & -c".
+	// We use the first positive term as the base set to query from. This is
+	// often a good heuristic, as it immediately limits the scope.
+	b.query.WriteString("SELECT hash FROM (")
+	b.buildFactor(positiveTerms[0].Factor)
+	b.query.WriteString(fmt.Sprintf(") AS %s WHERE 1=1", b.newAlias()))
+
+	// Filter this base set by requiring matches in all other positive terms.
+	for i := 1; i < len(positiveTerms); i++ {
+		b.query.WriteString(" AND hash IN (")
+		b.buildFactor(positiveTerms[i].Factor)
+		b.query.WriteString(")")
+	}
+
+	// Further filter the set by excluding matches from all negative terms.
+	for _, term := range negativeTerms {
+		b.query.WriteString(" AND hash NOT IN (")
+		b.buildFactor(term.Factor)
+		b.query.WriteString(")")
 	}
 }
 
