@@ -113,6 +113,61 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 	return c.store.GetCountByContentQuery(sqlQuery, args)
 }
 
+// ExistsFilesByQuery checks if any files match a query expression.
+// It is optimized to be faster than counting by stopping at the first match.
+func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, error) {
+	trimmedExpr := strings.TrimSpace(expression)
+	if trimmedExpr == "" {
+		count, err := c.store.CountAllFiles()
+		return count > 0, err
+	}
+
+	ast, err := query.Parse(trimmedExpr)
+	if err != nil {
+		return false, fmt.Errorf("could not parse query: %w", err)
+	}
+
+	if err := query.ValidateAST(ast); err != nil {
+		return false, fmt.Errorf("invalid tag in query: %w", err)
+	}
+
+	// Optimization for simple, single-tag queries
+	if len(ast.Or) == 1 && len(ast.Or[0].And) == 1 {
+		term := ast.Or[0].And[0]
+		if !term.Not && term.Factor.SubExpr == nil && term.Factor.Tag != nil {
+			tagStr := *term.Factor.Tag
+			parsedTag := query.ParseTag(tagStr)
+			// This optimization only applies to user tags, not virtual tags like ext:
+			if parsedTag.Key != "ext" && parsedTag.Key != "type" {
+				if parsedTag.Value == "" {
+					// Key-only query, e.g., `gooru exists photo`
+					return c.store.ExistsForKey(parsedTag.Key)
+				}
+				// Key-value query, e.g., `gooru exists "photo:album1"`
+				// Using the pre-calculated count is faster than a new query.
+				count, err := c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
+				return count > 0, err
+			}
+		}
+	}
+
+	// Fallback to full query for complex expressions
+	sqlQuery, args := query.Build(ast)
+	if sqlQuery == "" {
+		return false, nil
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
+		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
+		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
+		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
+		fmt.Fprintf(os.Stderr, "-------------\n")
+	}
+
+	return c.store.ExistsByContentQuery(sqlQuery, args)
+}
+
 // GetFileInfoForFile retrieves file info for a given file, with a safety check and status.
 func (c *Client) GetFileInfoForFile(filePath string) (types.FileInfo, types.FileStatus, error) {
 	absPath, err := resolvePath(filePath)

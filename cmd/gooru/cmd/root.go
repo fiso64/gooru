@@ -58,6 +58,11 @@ func Execute() {
 	rootCmd.SilenceUsage = true
 	err := rootCmd.Execute()
 	if err != nil {
+		// Special case for the 'exists' command to return a non-zero exit code
+		// for a "false" result, which is not a true error.
+		if err == ErrExitCode1 {
+			os.Exit(1)
+		}
 		// Use our custom Errorf function to print the error in red.
 		// Cobra's default behavior is to print "Error: <err.Error()>" to stderr.
 		// We replicate this but with color.

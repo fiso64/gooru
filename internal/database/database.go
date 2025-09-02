@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gooru.local/gooru/types"
 	_ "github.com/mattn/go-sqlite3"
+	"gooru.local/gooru/types"
 )
 
 type Store struct {
@@ -133,8 +133,6 @@ func (s *Store) IsInitialized() (bool, error) {
 	}
 	return true, nil
 }
-
-
 
 type Querier interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
@@ -772,38 +770,6 @@ func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 	return tags, nil
 }
 
-// getAllTagsWithCountsSlow is the original, unoptimized query. It is kept as a fallback
-// for edge cases where a database might not be fully migrated but is still being read.
-func (s *Store) getAllTagsWithCountsSlow(q Querier) ([]types.TagWithCount, error) {
-	query := `
-		SELECT
-			CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str,
-			COUNT(ct.content_hash) as usage_count
-		FROM
-			tags t
-		JOIN
-			content_tags ct ON t.id = ct.tag_id
-		GROUP BY
-			t.id
-		ORDER BY
-			usage_count DESC, tag_str ASC`
-	rows, err := q.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tags []types.TagWithCount
-	for rows.Next() {
-		var item types.TagWithCount
-		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
-			return nil, err
-		}
-		tags = append(tags, item)
-	}
-	return tags, nil
-}
-
 // GetCountForTag gets the pre-calculated usage count for a specific tag.
 func (s *Store) GetCountForTag(key, value string) (int, error) {
 	var count int
@@ -828,6 +794,25 @@ func (s *Store) GetCountForKey(key string) (int, error) {
 		return 0, nil
 	}
 	return count, err
+}
+
+// ExistsForKey checks if any file exists for a given tag key.
+func (s *Store) ExistsForKey(key string) (bool, error) {
+	var dummy int
+	query := `
+		SELECT 1
+		FROM content_tags ct
+		JOIN tags t ON ct.tag_id = t.id
+		WHERE t.key = ? LIMIT 1
+	`
+	err := s.QueryRow(query, key).Scan(&dummy)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Batch Helpers
@@ -978,10 +963,8 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 	batchSize := maxVars / columns
 
 	locs := make([]types.LocationInfo, 0, len(locations))
-	paths := make([]string, 0, len(locations))
-	for path, loc := range locations {
+	for _, loc := range locations {
 		locs = append(locs, loc)
-		paths = append(paths, path)
 	}
 
 	for i := 0; i < len(locs); i += batchSize {
@@ -1321,6 +1304,15 @@ func (s *Store) GetCountByContentQuery(query string, args []interface{}) (int, e
 	return count, err
 }
 
+// ExistsByContentQuery executes a complex query and checks for the existence of any match.
+func (s *Store) ExistsByContentQuery(query string, args []interface{}) (bool, error) {
+	finalQuery := fmt.Sprintf(`SELECT EXISTS (%s)`, query)
+
+	var found bool
+	err := s.QueryRow(finalQuery, args...).Scan(&found)
+	return found, err
+}
+
 // BatchClearTagsByContentQueryTx removes all tag associations for content matching a subquery.
 func (s *Store) BatchClearTagsByContentQueryTx(q Querier, subQuery string, args []interface{}) (int64, error) {
 	query := fmt.Sprintf("DELETE FROM content_tags WHERE content_hash IN (%s)", subQuery)
@@ -1455,6 +1447,3 @@ func (s *Store) TransferTagsAndRehashLocation(oldHash, newHash string, newLoc ty
 
 	return tx.Commit()
 }
-
-
-
