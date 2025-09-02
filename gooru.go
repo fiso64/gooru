@@ -11,9 +11,13 @@ import (
 	"gooru.local/gooru/types"
 )
 
+const libraryDBVersion = 1 // Represents the database version this library code is compatible with.
+
 var (
 	// ErrDBUninitialized is returned when the database has not been set up.
 	ErrDBUninitialized = errors.New("database not initialized")
+	// ErrDBVersionMismatch is returned when the library version is incompatible with the database schema version.
+	ErrDBVersionMismatch = errors.New("database version mismatch: the application version is incompatible with the database file")
 )
 
 // Init creates and initializes a new Gooru database with a chosen hashing strategy.
@@ -78,6 +82,17 @@ func New(dbPath string, verbose bool) (*Client, error) {
 	if err := database.RunMigrations(store.DB, dbPath); err != nil {
 		store.Close()
 		return nil, fmt.Errorf("failed to apply database migrations: %w", err)
+	}
+
+	// Check for breaking changes compatibility.
+	dbVersion, err := store.GetDBVersion()
+	if err != nil {
+		store.Close()
+		return nil, fmt.Errorf("could not read database version: %w", err)
+	}
+	if dbVersion != libraryDBVersion {
+		store.Close()
+		return nil, fmt.Errorf("%w (db version: %d, library expects: %d)", ErrDBVersionMismatch, dbVersion, libraryDBVersion)
 	}
 
 	strategy, err := store.GetHashingStrategy()

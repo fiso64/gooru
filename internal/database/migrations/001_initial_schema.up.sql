@@ -5,6 +5,10 @@ CREATE TABLE meta (
     value TEXT NOT NULL
 );
 
+-- The db_version tracks breaking changes in application logic (e.g. hashing algorithm),
+-- not just schema changes.
+INSERT INTO meta (key, value) VALUES ('db_version', '1');
+
 CREATE TABLE contents (
     hash TEXT PRIMARY KEY,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

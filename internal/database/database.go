@@ -119,6 +119,20 @@ func (s *Store) SetHashingStrategy(strategy types.HashingStrategy) error {
 	return err
 }
 
+// GetDBVersion reads the application-level database version from the meta table.
+func (s *Store) GetDBVersion() (int, error) {
+	var version int
+	err := s.QueryRow("SELECT value FROM meta WHERE key = 'db_version'").Scan(&version)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// If the key doesn't exist, it's an un-versioned or corrupt DB.
+			return 0, fmt.Errorf("db_version key not found in meta table")
+		}
+		return 0, err
+	}
+	return version, nil
+}
+
 // IsInitialized checks if the database schema appears to be initialized.
 func (s *Store) IsInitialized() (bool, error) {
 	var name string
