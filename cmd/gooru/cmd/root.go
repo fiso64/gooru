@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"os"
 
-	"gooru.local/gooru"
-	"gooru.local/gooru/cmd/gooru/config"
-	"gooru.local/gooru/cmd/gooru/display"
 	"github.com/spf13/cobra"
+	"gooru.local/cmd/gooru/config"
+	"gooru.local/cmd/gooru/display"
+	"gooru.local/gooru"
 )
 
 var (

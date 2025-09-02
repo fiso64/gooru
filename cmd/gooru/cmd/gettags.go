@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"os"
 
-	"gooru.local/gooru/cmd/gooru/display"
-	"gooru.local/gooru/types"
 	"github.com/spf13/cobra"
+	"gooru.local/cmd/gooru/display"
+	"gooru.local/types"
 )
 
 var (

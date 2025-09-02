@@ -2,10 +2,11 @@ package hashing
 
 import (
 	"fmt"
-	"gooru.local/gooru/internal/hashing/hashes"
-	"gooru.local/gooru/types"
 	"runtime"
 	"sync"
+
+	"gooru.local/types"
+	"gooru.local/internal/hashing/hashes"
 )
 
 // hashFunc is a function signature for any file hashing implementation.

@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"gooru.local/gooru/internal/scanning"
-	"gooru.local/gooru/types"
+	"gooru.local/types"
+	"gooru.local/internal/scanning"
 )
 
 // DeleteFilesByQuery removes file records from the database that match a query expression.

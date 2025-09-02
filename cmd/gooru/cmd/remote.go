@@ -6,8 +6,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"gooru.local/gooru/internal/ipc"
 	"github.com/spf13/cobra"
+	"gooru.local/internal/ipc"
 )
 
 var remoteCmd = &cobra.Command{

@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"gooru.local/gooru/cmd/gooru/display"
 	"github.com/spf13/cobra"
+	"gooru.local/cmd/gooru/display"
 )
 
 var (

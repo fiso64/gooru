@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
-	"gooru.local/gooru/types"
+	"gooru.local/types"
 )
 
 type Store struct {

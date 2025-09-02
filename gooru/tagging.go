@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"gooru.local/gooru/internal/database"
-	"gooru.local/gooru/internal/query"
-	"gooru.local/gooru/types"
+	"gooru.local/types"
+	"gooru.local/internal/database"
+	"gooru.local/internal/query"
 )
 
 type opKind int

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/winfsp/cgofuse/fuse"
-	"gooru.local/gooru/types"
+	"gooru.local/types"
 )
 
 const (

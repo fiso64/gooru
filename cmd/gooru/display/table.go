@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"gooru.local/gooru/types"
+	"gooru.local/types"
 )
 
 // PrintTable formats and prints a list of files as a table.

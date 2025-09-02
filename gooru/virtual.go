@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gooru.local/gooru/internal/ipc"
+	"gooru.local/internal/ipc"
 )
 
 // resolveIfVirtual checks if a given absolute path falls within an active mount point.

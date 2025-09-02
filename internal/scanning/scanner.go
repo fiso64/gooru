@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"sync"
 
-	"gooru.local/gooru/internal/hashing"
-	"gooru.local/gooru/types"
+	"gooru.local/types"
+	"gooru.local/internal/hashing"
 )
 
 type job struct {

@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"gooru.local/gooru"
-	"gooru.local/gooru/cmd/gooru/config"
 	"io"
 	"net"
 	"os"
@@ -19,11 +17,13 @@ import (
 	"syscall"
 	"time"
 
-	"gooru.local/gooru/cmd/gooru/display"
-	"gooru.local/gooru/internal/mount"
-	"gooru.local/gooru/types"
 	"github.com/spf13/cobra"
 	"github.com/winfsp/cgofuse/fuse"
+	"gooru.local/cmd/gooru/config"
+	"gooru.local/cmd/gooru/display"
+	"gooru.local/gooru"
+	"gooru.local/types"
+	"gooru.local/internal/mount"
 )
 
 var (

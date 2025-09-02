@@ -1,6 +1,6 @@
 package query
 
-import "gooru.local/gooru/types"
+import "gooru.local/types"
 
 // ExtractTags traverses a query AST and returns a unique list of all user-defined
 // tag strings (e.g., "key:value", "key"). It ignores virtual tags like "ext:".

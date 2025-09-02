@@ -1,7 +1,7 @@
 package config
 
 import (
-	"gooru.local/gooru/internal/config"
+	"gooru.local/internal/config"
 )
 
 // GetDBPath returns the path to the SQLite database file.

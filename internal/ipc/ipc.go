@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"gooru.local/gooru/internal/config"
-	"gooru.local/gooru/types"
+	"gooru.local/types"
+	"gooru.local/internal/config"
 )
 
 // SendIPCCommand connects to a TCP port, sends a command, and returns the response.

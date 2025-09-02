@@ -6,13 +6,13 @@ package cmd
 import (
 	"bufio"
 	"fmt"
-	"gooru.local/gooru"
-	"gooru.local/gooru/cmd/gooru/config"
-	"gooru.local/gooru/types"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gooru.local/cmd/gooru/config"
+	"gooru.local/gooru"
+	"gooru.local/types"
 )
 
 // initCmd represents the init command

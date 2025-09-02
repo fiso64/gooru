@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"gooru.local/gooru/internal/database"
-	"gooru.local/gooru/internal/hashing"
-	"gooru.local/gooru/types"
+	"gooru.local/types"
+	"gooru.local/internal/database"
+	"gooru.local/internal/hashing"
 )
 
 const libraryDBVersion = 1 // Represents the database version this library code is compatible with.

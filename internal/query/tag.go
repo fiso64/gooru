@@ -1,8 +1,9 @@
 package query
 
 import (
-	"gooru.local/gooru/types"
 	"strings"
+
+	"gooru.local/types"
 )
 
 // ParseTag parses a tag string (e.g., "key:value" or "value") into a ParsedTag.

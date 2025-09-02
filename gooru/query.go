@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"gooru.local/gooru/internal/query"
-	"gooru.local/gooru/types"
+	"gooru.local/types"
+	"gooru.local/internal/query"
 )
 
 // buildQuery is a helper to parse an expression, gather tag statistics, and build an optimized SQL subquery.
