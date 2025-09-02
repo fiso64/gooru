@@ -91,11 +91,11 @@ This means you can search for files using `ext:jpg`, but you cannot create a tag
 
 The library provides high-performance, transactional methods for tagging files.
 
-- **`TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error)`**: Adds one or more tags to multiple files. It's additive and won't remove existing tags. Returns the number of *new* tag associations created.
+- **`TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error)`**: Adds one or more tags to multiple files. It's additive and won't remove existing tags. Returns a `TagOperationResult` containing the number of *new* tag associations created and a list of notifications about file moves or modifications.
 
-- **`SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error)`**: Sets the tags for multiple files, replacing all existing tags. If `tags` is empty, it removes all tags. Returns the total number of tag associations changed (removed + added).
+- **`SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error)`**: Sets the tags for multiple files, replacing all existing tags. If `tags` is empty, it removes all tags. Returns a `TagOperationResult` containing the total number of tag associations changed (removed + added) and a list of notifications.
 
-- **`UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (int, error)`**: Removes specific tags from multiple files. If `tags` is empty, it removes all tags from the files. Returns the number of tag associations that were actually removed.
+- **`UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error)`**: Removes specific tags from multiple files. If `tags` is empty, it removes all tags from the files. Returns a `TagOperationResult` containing the number of tag associations removed and a list of notifications.
 
 The `progressCb` is an optional callback that, if provided, is invoked for each file processed, reporting either success (`err == nil`) or failure.
 
@@ -114,12 +114,12 @@ err := client.TagFiles(files, tags, func(filePath string, err error) {
 
 **File Modification and Move Handling**
 
-All three path-based tagging functions (`TagFiles`, `SetTagsForFiles`, and `UntagFiles`) intelligently handle cases where a file has been modified or moved since it was last seen.
+All three path-based tagging functions (`TagFiles`, `SetTagsForFiles`, and `UntagFiles`) intelligently handle cases where a file has been modified or moved since it was last seen. The `TagOperationResult` returned by these functions includes a list of `Notification` objects that provide details on these automatic actions.
 
-- If a file path points to content that has been **modified** (different size or modtime), the system automatically re-hashes the file, updates the database to point the path to the new content, and proceeds with the tagging operation on the new content. The old content's tags are left orphaned in the database.
-- If a file path is new, but its content hash matches an existing file that is now missing from its old path, the system treats this as a **move/rename**. It updates the path in the database and applies the operation.
+- If a file path points to content that has been **modified** (different size or modtime), the system automatically re-hashes the file, updates the database to point the path to the new content, and proceeds with the tagging operation on the new content. A `Notification` of kind `NotificationKindModified` is returned, which includes the tags of the old, now-orphaned content.
+- If a file path is new, but its content hash matches an existing file that is now missing from its old path, the system treats this as a **move/rename**. It updates the path in the database and applies the operation. A `Notification` of kind `NotificationKindMoveDetected` is returned, containing the old and new paths.
 
-In both cases, the operation succeeds on the current state of the file, ensuring data integrity and resilience to filesystem changes. Note that these automatic updates print notifications to standard output, which may not be desirable in all library contexts.
+This system ensures that operations always apply to the current state of a file, providing data integrity and resilience to filesystem changes. The library client can inspect the returned notifications to inform the user or perform follow-up actions.
 
 ### Tagging by Query
 
@@ -143,7 +143,7 @@ fmt.Printf("Archived %d items.\n", count)
 
 ### Retrieving Files and Tags
 
-- **`GetTagsForFile(filePath string) ([]string, error)`**: Retrieves all tags for a single file. Performs a safety check against the file's metadata to ensure it hasn't changed.
+- **`GetTagsForFile(filePath string) ([]string, types.FileStatus, error)`**: Retrieves all tags for a single file. It also returns a `FileStatus` to indicate the file's state (`StatusOK`, `StatusModified`, `StatusNotInDB`), allowing the caller to handle cases where the file has been modified since it was last recorded.
 
 - **`GetAllTags() ([]string, error)`**: Returns a sorted list of all unique tags in the database.
 
@@ -151,6 +151,10 @@ fmt.Printf("Archived %d items.\n", count)
 
 - **`ListFilesByQuery(expression string, verbose bool) ([]string, error)`**: The most powerful query method. Parses a complex query expression and returns a list of matching file paths.
     - **Expression Syntax**: `tag1`, `"tag1 tag2"` (AND), `"tag1 | tag2"` (OR), `tag1 -tag2` (NOT), `(tag1 | tag2) -tag3` (grouping), `ext:jpg`, `type:img`.
+
+- **`CountFilesByQuery(expression string, verbose bool) (int, error)`**: Efficiently counts files matching a query expression without fetching the full list. Uses pre-calculated statistics for simple single-tag queries.
+
+- **`ExistsFilesByQuery(expression string, verbose bool) (bool, error)`**: Performs a high-performance check to see if any files match a query expression, stopping at the first match. Ideal for conditional logic.
 
 - **`ListAllFiles() ([]string, error)`**: Lists all file paths known to the database.
 
@@ -174,6 +178,7 @@ for _, p := range paths {
 
 The library also provides methods to retrieve `types.FileInfo` structs, which include the path, size, and a cached, comma-separated string of tags. These are more efficient than getting paths and then getting tags for each file.
 
+- **`GetFileInfoForFile(filePath string) (types.FileInfo, types.FileStatus, error)`**: Retrieves detailed file info for a single file, including its path, size, and cached tags. Like `GetTagsForFile`, it also returns a `FileStatus` to indicate if the file has been modified.
 - **`GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error)`**
 - **`GetAllFilesInfo() ([]types.FileInfo, error)`**
 - **`GetFilesInfoByTag(tag string) ([]types.FileInfo, error)`**
@@ -214,6 +219,8 @@ For cases where you know a file has moved and want to update the database withou
 - **`EditPath(oldPath, newPath string) error`**: Manually updates a file's path in the database.
 
 - **`PruneLocations(paths []string) (int, error)`**: Removes a list of file paths from the database. Returns the number of records removed.
+
+- **`DeleteFilesByQuery(expression string) (int, error)`**: Removes file records from the database that match a given query expression. Returns the number of file location records removed.
 
 ### Manual Content Management
 
