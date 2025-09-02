@@ -119,6 +119,21 @@ func (s *Store) SetHashingStrategy(strategy types.HashingStrategy) error {
 	return err
 }
 
+// IsInitialized checks if the database schema appears to be initialized.
+func (s *Store) IsInitialized() (bool, error) {
+	var name string
+	// The schema_migrations table is the source of truth for whether migrations have run.
+	query := "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+	err := s.QueryRow(query).Scan(&name)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil // Table not found, so not initialized.
+		}
+		return false, err // A real database error occurred.
+	}
+	return true, nil
+}
+
 
 
 type Querier interface {
@@ -275,6 +290,13 @@ func (s *Store) ListAllFiles() ([]string, error) {
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+// CountAllFiles counts all location records in the database.
+func (s *Store) CountAllFiles() (int, error) {
+	var count int
+	err := s.QueryRow("SELECT COUNT(*) FROM locations").Scan(&count)
+	return count, err
 }
 
 // GetHashToTagsCacheMap retrieves a map of content hashes to their cached tag strings.
@@ -782,6 +804,32 @@ func (s *Store) getAllTagsWithCountsSlow(q Querier) ([]types.TagWithCount, error
 	return tags, nil
 }
 
+// GetCountForTag gets the pre-calculated usage count for a specific tag.
+func (s *Store) GetCountForTag(key, value string) (int, error) {
+	var count int
+	err := s.QueryRow("SELECT files_count FROM tags WHERE key = ? AND value = ?", key, value).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return count, err
+}
+
+// GetCountForKey gets the count of distinct files for all tags with a given key.
+func (s *Store) GetCountForKey(key string) (int, error) {
+	var count int
+	query := `
+		SELECT COUNT(DISTINCT ct.content_hash)
+		FROM content_tags ct
+		JOIN tags t ON ct.tag_id = t.id
+		WHERE t.key = ?
+	`
+	err := s.QueryRow(query, key).Scan(&count)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return count, err
+}
+
 // Batch Helpers
 
 const (
@@ -1261,6 +1309,16 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 		files = append(files, file)
 	}
 	return files, rows.Err()
+}
+
+// GetCountByContentQuery executes a complex query for content hashes and returns their count.
+func (s *Store) GetCountByContentQuery(query string, args []interface{}) (int, error) {
+	// The subquery returns a list of unique content hashes. We just need to count them.
+	finalQuery := fmt.Sprintf(`SELECT COUNT(*) FROM (%s)`, query)
+
+	var count int
+	err := s.QueryRow(finalQuery, args...).Scan(&count)
+	return count, err
 }
 
 // BatchClearTagsByContentQueryTx removes all tag associations for content matching a subquery.

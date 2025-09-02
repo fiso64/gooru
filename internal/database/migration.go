@@ -51,6 +51,9 @@ func RunMigrations(db *sql.DB, dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("could not create migrate instance: %w", err)
 	}
+	// Defer closing the source and database drivers.
+	// The returned errors can be ignored as the main migration error is more important.
+	defer m.Close()
 
 	// 3. Apply all available "up" migrations.
 	err = m.Up()

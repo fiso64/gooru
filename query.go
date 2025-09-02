@@ -55,9 +55,62 @@ func (c *Client) GetTagsForFile(filePath string) ([]string, types.FileStatus, er
 		return []string{}, types.StatusModified, nil
 	}
 
-	// File is in DB and matches.
+// File is in DB and matches.
 	tags, err := c.store.GetTagsForContent(dbInfo.Hash)
 	return tags, types.StatusOK, err
+}
+
+// CountFilesByQuery counts files matching a query expression.
+// It uses fast, pre-calculated counts for simple single-tag queries.
+func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error) {
+	trimmedExpr := strings.TrimSpace(expression)
+	if trimmedExpr == "" {
+		return c.store.CountAllFiles()
+	}
+
+	ast, err := query.Parse(trimmedExpr)
+	if err != nil {
+		return 0, fmt.Errorf("could not parse query: %w", err)
+	}
+
+	if err := query.ValidateAST(ast); err != nil {
+		return 0, fmt.Errorf("invalid tag in query: %w", err)
+	}
+
+	// Optimization for simple, single-tag queries
+	if len(ast.Or) == 1 && len(ast.Or[0].And) == 1 {
+		term := ast.Or[0].And[0]
+		if !term.Not && term.Factor.SubExpr == nil && term.Factor.Tag != nil {
+			tagStr := *term.Factor.Tag
+			parsedTag := query.ParseTag(tagStr)
+			// This optimization only applies to user tags, not virtual tags like ext:
+			if parsedTag.Key != "ext" && parsedTag.Key != "type" {
+				if parsedTag.Value == "" {
+					// Key-only query, e.g. `gooru count photo`
+					// This must count distinct files, not sum tag counts.
+					return c.store.GetCountForKey(parsedTag.Key)
+				}
+				// Key-value query, e.g. `gooru count "photo:album1"`
+				return c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
+			}
+		}
+	}
+
+	// Fallback to full query for complex expressions
+	sqlQuery, args := query.Build(ast)
+	if sqlQuery == "" {
+		return 0, nil
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
+		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
+		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
+		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
+		fmt.Fprintf(os.Stderr, "-------------\n")
+	}
+
+	return c.store.GetCountByContentQuery(sqlQuery, args)
 }
 
 // GetFileInfoForFile retrieves file info for a given file, with a safety check and status.

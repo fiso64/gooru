@@ -1,12 +1,10 @@
 package gooru
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"gooru.local/gooru/internal/database"
 	"gooru.local/gooru/internal/hashing"
@@ -23,27 +21,32 @@ var (
 func Init(dbPath string, strategy types.HashingStrategy, verbose bool) error {
 	// 1. Create the empty database file.
 	if err := database.CreateEmptyDB(dbPath); err != nil {
-		_ = os.Remove(dbPath)
 		return fmt.Errorf("failed to create database file: %w", err)
 	}
 
 	// 2. Open a connection to the new file.
 	store, err := database.NewStore(dbPath, verbose)
 	if err != nil {
-		_ = os.Remove(dbPath)
+		if removeErr := os.Remove(dbPath); removeErr != nil {
+			return fmt.Errorf("failed to open newly created database: %w (and failed to clean up: %v)", err, removeErr)
+		}
 		return fmt.Errorf("failed to open newly created database: %w", err)
 	}
 	defer store.Close()
 
 	// 3. Run all migrations to set up the schema from scratch.
 	if err := database.RunMigrations(store.DB, dbPath); err != nil {
-		_ = os.Remove(dbPath)
+		if removeErr := os.Remove(dbPath); removeErr != nil {
+			return fmt.Errorf("failed to initialize database schema: %w (and failed to clean up: %v)", err, removeErr)
+		}
 		return fmt.Errorf("failed to initialize database schema: %w", err)
 	}
 
 	// 4. Insert the instance-specific data (hashing strategy).
 	if err := store.SetHashingStrategy(strategy); err != nil {
-		_ = os.Remove(dbPath)
+		if removeErr := os.Remove(dbPath); removeErr != nil {
+			return fmt.Errorf("failed to save hashing strategy: %w (and failed to clean up: %v)", err, removeErr)
+		}
 		return fmt.Errorf("failed to save hashing strategy: %w", err)
 	}
 
@@ -80,15 +83,17 @@ func New(dbPath string, verbose bool) (*Client, error) {
 	strategy, err := store.GetHashingStrategy()
 	if err != nil {
 		// If we can't get the strategy, the DB is likely uninitialized or corrupt.
-		store.Close()
-		// A more robust check for an uninitialized DB.
-		// sql.ErrNoRows happens if the meta table exists but is empty.
-		// "no such table" happens if the schema was never created.
-		// Both indicate an uninitialized state.
-		if errors.Is(err, sql.ErrNoRows) || strings.Contains(err.Error(), "no such table") {
+
+		// Use the new, more robust check.
+		initialized, checkErr := store.IsInitialized()
+		if checkErr == nil && !initialized {
+			store.Close()
 			return nil, ErrDBUninitialized
 		}
-		return nil, fmt.Errorf("could not read hashing strategy: %w", err)
+
+		store.Close()
+		// If the DB is initialized but we still can't get the strategy, it's a corruption error.
+		return nil, fmt.Errorf("could not read hashing strategy from initialized database: %w", err)
 	}
 
 	hasher, err := hashing.NewHasher(strategy)
