@@ -65,16 +65,7 @@ func (c *Client) TagFilesByQuery(expression string, tags []string) (int, error) 
 	}
 	defer tx.Rollback()
 
-	// 1. Get a static list of hashes to operate on.
-	hashes, err := c.store.GetHashesByContentQueryTx(tx, sqlQuery, args)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get content hashes for tagging: %w", err)
-	}
-	if len(hashes) == 0 {
-		return 0, tx.Commit()
-	}
-
-	// 2. Get or create the necessary tags.
+	// 1. Get or create the necessary tags to get their IDs.
 	parsedTags := make([]types.ParsedTag, len(tags))
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
@@ -84,14 +75,14 @@ func (c *Client) TagFilesByQuery(expression string, tags []string) (int, error) 
 		return 0, fmt.Errorf("failed to get or create tags: %w", err)
 	}
 
-	// 3. Build pairs and associate them with the static hash list.
-	pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-	for _, hash := range hashes {
-		for _, tagStr := range tags {
-			pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
-		}
+	tagIDs := make([]int64, 0, len(tagIDMap))
+	for _, id := range tagIDMap {
+		tagIDs = append(tagIDs, id)
 	}
-	affected, err := c.store.BatchAssociateTags(tx, pairs)
+
+	// 2. Directly associate tags with the content matching the query.
+	// This is a pure-SQL operation that avoids loading all hashes into application memory.
+	affected, err := c.store.BatchAssociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs)
 	if err != nil {
 		return 0, err
 	}
@@ -125,26 +116,26 @@ func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error
 	}
 	defer tx.Rollback()
 
-	// 1. Get a static list of hashes to operate on.
-	hashes, err := c.store.GetHashesByContentQueryTx(tx, sqlQuery, args)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get content hashes for untagging: %w", err)
-	}
-	if len(hashes) == 0 {
-		return 0, tx.Commit()
-	}
-
 	if len(tags) == 0 {
-		// Clear all tags for the static list of hashes.
-		// The number of files affected is the most useful metric here.
-		if _, err := c.store.BatchClearTagsForContent(tx, hashes); err != nil {
+		// Clear all tags for content matching the query.
+		// We need to count the number of affected files *before* we delete the tags,
+		// as the deletion would cause the query to no longer find them.
+		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM (%s)`, sqlQuery)
+		var fileCount int
+		if err := tx.QueryRow(countQuery, args...).Scan(&fileCount); err != nil {
+			return 0, fmt.Errorf("failed to count files for tag clearing: %w", err)
+		}
+		if fileCount == 0 {
+			return 0, tx.Commit()
+		}
+
+		if _, err := c.store.BatchClearTagsByContentQueryTx(tx, sqlQuery, args); err != nil {
 			return 0, fmt.Errorf("failed to clear tags: %w", err)
 		}
-		return len(hashes), tx.Commit()
+		return fileCount, tx.Commit()
 	}
 
-	// Untag specific tags from the static list of hashes.
-	var affected int64
+	// Untag specific tags from content matching the query.
 	parsedTags := make([]types.ParsedTag, len(tags))
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
@@ -154,19 +145,16 @@ func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error
 	if err != nil {
 		return 0, fmt.Errorf("failed to look up tags: %w", err)
 	}
-
-	pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-	for _, hash := range hashes {
-		for _, tagStr := range tags {
-			if id, ok := tagIDMap[tagStr]; ok {
-				pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: id})
-			}
-		}
+	if len(tagIDMap) == 0 {
+		return 0, tx.Commit() // No matching tags found in the DB to remove.
 	}
 
-	if len(pairs) > 0 {
-		affected, err = c.store.BatchDisassociateTags(tx, pairs)
+	tagIDs := make([]int64, 0, len(tagIDMap))
+	for _, id := range tagIDMap {
+		tagIDs = append(tagIDs, id)
 	}
+
+	affected, err := c.store.BatchDisassociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs)
 	if err != nil {
 		return 0, err
 	}
@@ -194,19 +182,28 @@ func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, 
 	}
 	defer tx.Rollback()
 
-	// 1. Get the list of content hashes that match the query *before* any modifications.
-	// This is critical because clearing the tags would cause a subsequent query to find nothing.
-	hashes, err := c.store.GetHashesByContentQueryTx(tx, sqlQuery, args)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get content hashes for update: %w", err)
+	// To perform a "set" operation correctly, we must get a static list of the
+	// content that matches the query *before* any modifications are made.
+	// We use a temporary table that exists only for this transaction to hold this list.
+	// This avoids loading a potentially huge list of hashes into application memory.
+	tempTableQuery := fmt.Sprintf("CREATE TEMP TABLE hashes_to_update AS %s", sqlQuery)
+	if _, err := tx.Exec(tempTableQuery, args...); err != nil {
+		return 0, fmt.Errorf("failed to create temporary table for update: %w", err)
 	}
 
-	if len(hashes) == 0 {
-		return 0, tx.Commit()
+	// Get the count of affected files for the return value.
+	var affectedCount int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM hashes_to_update").Scan(&affectedCount); err != nil {
+		// The temp table will be dropped automatically on rollback.
+		return 0, fmt.Errorf("failed to count files for update: %w", err)
+	}
+
+	if affectedCount == 0 {
+		return 0, tx.Commit() // Commit will drop the (empty) temp table.
 	}
 
 	// 2. Clear existing tags for this static list of hashes.
-	if _, err := c.store.BatchClearTagsForContent(tx, hashes); err != nil {
+	if _, err := tx.Exec("DELETE FROM content_tags WHERE content_hash IN (SELECT hash FROM hashes_to_update)"); err != nil {
 		return 0, fmt.Errorf("failed to clear existing tags: %w", err)
 	}
 
@@ -221,18 +218,17 @@ func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, 
 			return 0, fmt.Errorf("failed to get or create new tags: %w", err)
 		}
 
-		pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-		for _, hash := range hashes {
-			for _, tagStr := range tags {
-				pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
-			}
+		tagIDs := make([]int64, 0, len(tagIDMap))
+		for _, id := range tagIDMap {
+			tagIDs = append(tagIDs, id)
 		}
-		if _, err := c.store.BatchAssociateTags(tx, pairs); err != nil {
+
+		if _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, "SELECT hash FROM hashes_to_update", nil, tagIDs); err != nil {
 			return 0, fmt.Errorf("failed to associate new tags: %w", err)
 		}
 	}
 
-	return len(hashes), tx.Commit()
+	return affectedCount, tx.Commit()
 }
 
 // RenameTag renames an existing tag to a new name across the entire database.
