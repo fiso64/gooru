@@ -3,8 +3,8 @@ module gooru.local/gooru
 go 1.24.2
 
 require (
-	github.com/alecthomas/participle/v2 v2.1.1
-	github.com/golang-migrate/migrate/v4 v4.17.1
+	github.com/alecthomas/participle/v2 v2.1.4
+	github.com/golang-migrate/migrate/v4 v4.19.0
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/spf13/cobra v1.9.1
 	github.com/winfsp/cgofuse v1.6.0
@@ -15,7 +15,7 @@ require (
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
+	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
-	go.uber.org/atomic v1.7.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
 )
