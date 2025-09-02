@@ -21,13 +21,32 @@ var (
 // Init creates and initializes a new Gooru database with a chosen hashing strategy.
 // It will overwrite an existing file, so the caller is responsible for any checks.
 func Init(dbPath string, strategy types.HashingStrategy, verbose bool) error {
-	// The `init` command is responsible for checking if a valid database already exists.
-	// This function proceeds with initialization, overwriting if necessary.
-	if err := database.InitStore(dbPath, strategy, verbose); err != nil {
-		// Clean up the partially created db file on failure
+	// 1. Create the empty database file.
+	if err := database.CreateEmptyDB(dbPath); err != nil {
 		_ = os.Remove(dbPath)
-		return fmt.Errorf("failed to initialize database: %w", err)
+		return fmt.Errorf("failed to create database file: %w", err)
 	}
+
+	// 2. Open a connection to the new file.
+	store, err := database.NewStore(dbPath, verbose)
+	if err != nil {
+		_ = os.Remove(dbPath)
+		return fmt.Errorf("failed to open newly created database: %w", err)
+	}
+	defer store.Close()
+
+	// 3. Run all migrations to set up the schema from scratch.
+	if err := database.RunMigrations(store.DB, dbPath); err != nil {
+		_ = os.Remove(dbPath)
+		return fmt.Errorf("failed to initialize database schema: %w", err)
+	}
+
+	// 4. Insert the instance-specific data (hashing strategy).
+	if err := store.SetHashingStrategy(strategy); err != nil {
+		_ = os.Remove(dbPath)
+		return fmt.Errorf("failed to save hashing strategy: %w", err)
+	}
+
 	return nil
 }
 
@@ -39,6 +58,7 @@ type Client struct {
 
 // New creates a new Client and initializes the database connection.
 // It will return ErrDBUninitialized if the database has not been created with `gooru init`.
+// It also runs any pending database migrations automatically.
 // The caller is responsible for calling Close() on the returned client.
 func New(dbPath string, verbose bool) (*Client, error) {
 	store, err := database.NewStore(dbPath, verbose)
@@ -48,6 +68,13 @@ func New(dbPath string, verbose bool) (*Client, error) {
 			return nil, ErrDBUninitialized
 		}
 		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Run migrations before any other operation.
+	// This ensures the schema is always up-to-date.
+	if err := database.RunMigrations(store.DB, dbPath); err != nil {
+		store.Close()
+		return nil, fmt.Errorf("failed to apply database migrations: %w", err)
 	}
 
 	strategy, err := store.GetHashingStrategy()

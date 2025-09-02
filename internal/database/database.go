@@ -24,33 +24,15 @@ type Tx struct {
 	logger *log.Logger
 }
 
-// InitStore creates a new database file, initializes the schema, and stores the hashing strategy.
-func InitStore(dataSourceName string, strategy types.HashingStrategy, verbose bool) error {
+// CreateEmptyDB ensures a database file exists at the given path.
+// It creates an empty file but does not initialize any schema.
+func CreateEmptyDB(dataSourceName string) error {
+	// Opening and immediately closing is a standard way to create the file if it doesn't exist.
 	db, err := sql.Open("sqlite3", dataSourceName)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-
-	if err = db.Ping(); err != nil {
-		return err
-	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err = createTables(tx); err != nil {
-		return err
-	}
-
-	if _, err = tx.Exec("INSERT INTO meta (key, value) VALUES (?, ?)", "hashing_strategy", strategy); err != nil {
-		return fmt.Errorf("failed to save hashing strategy: %w", err)
-	}
-
-	return tx.Commit()
+	return db.Close()
 }
 
 // NewStore opens an existing database connection. It does not perform initialization.
@@ -130,128 +112,14 @@ func (s *Store) GetHashingStrategy() (types.HashingStrategy, error) {
 	return types.HashingStrategy(strategy), nil
 }
 
-// createTables creates the necessary tables and indexes for the application.
-func createTables(q Querier) error {
-	statements := []string{
-		`CREATE TABLE IF NOT EXISTS meta (
-			key TEXT PRIMARY KEY,
-			value TEXT NOT NULL
-		);`,
-		`CREATE TABLE IF NOT EXISTS contents (
-			hash TEXT PRIMARY KEY,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);`,
-		`CREATE TABLE IF NOT EXISTS locations (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			content_hash TEXT NOT NULL,
-			path TEXT NOT NULL UNIQUE,
-			size_bytes INTEGER NOT NULL,
-			mod_time INTEGER NOT NULL,
-			extension TEXT NOT NULL,
-			tags_cache TEXT NOT NULL DEFAULT '',
-			FOREIGN KEY (content_hash) REFERENCES contents(hash) ON DELETE CASCADE
-		);`,
-		`CREATE TABLE IF NOT EXISTS tags (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			key TEXT NOT NULL COLLATE NOCASE,
-			value TEXT NOT NULL COLLATE NOCASE,
-			UNIQUE(key, value)
-		);`,
-		`CREATE TABLE IF NOT EXISTS content_tags (
-			content_hash TEXT NOT NULL,
-			tag_id INTEGER NOT NULL,
-			PRIMARY KEY (content_hash, tag_id),
-			FOREIGN KEY (content_hash) REFERENCES contents(hash) ON DELETE CASCADE,
-			FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_locations_path ON locations(path);`,
-		`CREATE INDEX IF NOT EXISTS idx_locations_content_hash ON locations(content_hash);`,
-		`CREATE INDEX IF NOT EXISTS idx_content_tags_tag_id ON content_tags(tag_id);`,
-		`CREATE INDEX IF NOT EXISTS idx_locations_extension_lower ON locations(lower(extension));`,
-
-		/* TRIGGERS FOR MAINTAINING tags_cache */
-		`CREATE TRIGGER IF NOT EXISTS populate_tags_cache_on_location_insert
-		AFTER INSERT ON locations
-		BEGIN
-			UPDATE locations
-			SET tags_cache = (
-				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
-				FROM (
-					SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str
-					FROM tags t
-					JOIN content_tags ct ON t.id = ct.tag_id
-					WHERE ct.content_hash = NEW.content_hash
-					ORDER BY t.key, t.value
-				)
-			)
-			WHERE id = NEW.id;
-		END;`,
-
-		`CREATE TRIGGER IF NOT EXISTS update_tags_cache_on_insert
-		AFTER INSERT ON content_tags
-		BEGIN
-			UPDATE locations
-			SET tags_cache = (
-				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
-				FROM (
-					SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str
-					FROM tags t
-					JOIN content_tags ct ON t.id = ct.tag_id
-					WHERE ct.content_hash = NEW.content_hash
-					ORDER BY t.key, t.value
-				)
-			)
-			WHERE content_hash = NEW.content_hash;
-		END;`,
-
-		`CREATE TRIGGER IF NOT EXISTS update_tags_cache_on_delete
-		AFTER DELETE ON content_tags
-		BEGIN
-			UPDATE locations
-			SET tags_cache = (
-				SELECT IFNULL(GROUP_CONCAT(tag_str), '')
-				FROM (
-					SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str
-					FROM tags t
-					JOIN content_tags ct ON t.id = ct.tag_id
-					WHERE ct.content_hash = OLD.content_hash
-					ORDER BY t.key, t.value
-				)
-			)
-			WHERE content_hash = OLD.content_hash;
-		END;`,
-
-		/* TRIGGER FOR CLEANING UP ORPHANED TAGS */
-		`CREATE TRIGGER IF NOT EXISTS cleanup_orphan_tags_on_delete
-		AFTER DELETE ON content_tags
-		BEGIN
-			DELETE FROM tags
-			WHERE id = OLD.tag_id
-			AND NOT EXISTS (
-				SELECT 1 FROM content_tags WHERE tag_id = OLD.tag_id
-			);
-		END;`,
-
-		/* TRIGGER FOR CLEANING UP ORPHANED CONTENT */
-		`CREATE TRIGGER IF NOT EXISTS cleanup_orphan_content_on_delete
-		AFTER DELETE ON locations
-		BEGIN
-			DELETE FROM contents
-			WHERE hash = OLD.content_hash
-			AND NOT EXISTS (
-				SELECT 1 FROM locations WHERE content_hash = OLD.content_hash
-			);
-		END;`,
-	}
-
-	for _, stmt := range statements {
-		if _, err := q.Exec(stmt); err != nil {
-			return fmt.Errorf("failed to execute schema statement: %w", err)
-		}
-	}
-
-	return nil
+// SetHashingStrategy saves the chosen hashing strategy to the meta table.
+// This is typically only done once during database initialization.
+func (s *Store) SetHashingStrategy(strategy types.HashingStrategy) error {
+	_, err := s.Exec("INSERT INTO meta (key, value) VALUES (?, ?)", "hashing_strategy", strategy)
+	return err
 }
+
+
 
 type Querier interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
@@ -854,8 +722,37 @@ func (s *Store) GetAllTags() ([]string, error) {
 	return tags, nil
 }
 
-// GetAllTagsWithCounts retrieves all tags and their usage counts.
+// GetAllTagsWithCounts retrieves all tags and their pre-calculated usage counts.
 func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
+	query := `
+		SELECT
+			CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str,
+			files_count
+		FROM
+			tags
+		WHERE files_count > 0
+		ORDER BY
+			files_count DESC, tag_str ASC`
+	rows, err := s.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []types.TagWithCount
+	for rows.Next() {
+		var item types.TagWithCount
+		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
+			return nil, err
+		}
+		tags = append(tags, item)
+	}
+	return tags, nil
+}
+
+// getAllTagsWithCountsSlow is the original, unoptimized query. It is kept as a fallback
+// for edge cases where a database might not be fully migrated but is still being read.
+func (s *Store) getAllTagsWithCountsSlow(q Querier) ([]types.TagWithCount, error) {
 	query := `
 		SELECT
 			CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str,
@@ -868,7 +765,7 @@ func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 			t.id
 		ORDER BY
 			usage_count DESC, tag_str ASC`
-	rows, err := s.Query(query)
+	rows, err := q.Query(query)
 	if err != nil {
 		return nil, err
 	}
