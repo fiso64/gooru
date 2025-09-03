@@ -91,11 +91,11 @@ This means you can search for files using `ext:jpg`, but you cannot create a tag
 
 The library provides high-performance, transactional methods for tagging files.
 
-- **`TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error)`**: Adds one or more tags to multiple files. It's additive and won't remove existing tags. Returns a `TagOperationResult` containing the number of *new* tag associations created and a list of notifications about file moves or modifications.
+- **`TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error)`**: Adds one or more tags to multiple files. It's additive and won't remove existing tags. Returns a `TagOperationResult` containing the number of *new* tag associations created and a list of notifications about file moves or modifications.
 
-- **`SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error)`**: Sets the tags for multiple files, replacing all existing tags. If `tags` is empty, it removes all tags. Returns a `TagOperationResult` containing the total number of tag associations changed (removed + added) and a list of notifications.
+- **`SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error)`**: Sets the tags for multiple files, replacing all existing tags. If `tags` is empty, it removes all tags. Returns a `TagOperationResult` containing the total number of tag associations changed (removed + added) and a list of notifications.
 
-- **`UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error)`**: Removes specific tags from multiple files. If `tags` is empty, it removes all tags from the files. Returns a `TagOperationResult` containing the number of tag associations removed and a list of notifications.
+- **`UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error)`**: Removes specific tags from multiple files. If `tags` is empty, it removes all tags from the files. Returns a `TagOperationResult` containing the number of tag associations removed and a list of notifications.
 
 The `progressCb` is an optional callback that, if provided, is invoked for each file processed, reporting either success (`err == nil`) or failure.
 
@@ -104,22 +104,27 @@ The `progressCb` is an optional callback that, if provided, is invoked for each 
 files := []string{"/path/to/image.jpg", "/path/to/doc.pdf"}
 tags := []string{"project:alpha", "important"}
 
-err := client.TagFiles(files, tags, func(filePath string, err error) {
+// `useMetadataHeuristic` is false, ensuring content is always hashed for correctness.
+// Set to true for higher performance at the risk of missing some changes.
+result, err := client.TagFiles(files, tags, func(filePath string, err error) {
     if err != nil {
         fmt.Printf("Failed to tag %s: %v\n", filePath, err)
     }
-})
+}, false)
 // handle potential database error
 ```
 
 **File Modification and Move Handling**
 
-All three path-based tagging functions (`TagFiles`, `SetTagsForFiles`, and `UntagFiles`) intelligently handle cases where a file has been modified or moved since it was last seen. The `TagOperationResult` returned by these functions includes a list of `Notification` objects that provide details on these automatic actions.
+All path-based tagging functions (`TagFiles`, `SetTagsForFiles`, `UntagFiles`, `RehashFiles`, etc.) provide a `useMetadataHeuristic` boolean parameter to control how file changes are detected. This establishes a policy of **correctness by default, performance by choice.**
 
-- If a file path points to content that has been **modified** (different size or modtime), the system automatically re-hashes the file, updates the database to point the path to the new content, and proceeds with the tagging operation on the new content. A `Notification` of kind `NotificationKindModified` is returned, which includes the tags of the old, now-orphaned content.
-- If a file path is new, but its content hash matches an existing file that is now missing from its old path, the system treats this as a **move/rename**. It updates the path in the database and applies the operation. A `Notification` of kind `NotificationKindMoveDetected` is returned, containing the old and new paths.
+*   **Default Behavior (`useMetadataHeuristic = false`):** To guarantee correctness, the system **always performs a content hash** on the file to get its definitive, current identity. If this hash differs from the one stored in the database for that path, the file is treated as modified. The system updates the database to point the path to the new content and proceeds with the operation. A `Notification` of kind `NotificationKindModified` is returned, which includes the tags of the old, now-orphaned content.
 
-This system ensures that operations always apply to the current state of a file, providing data integrity and resilience to filesystem changes. The library client can inspect the returned notifications to inform the user or perform follow-up actions.
+*   **Performance Opt-In (`useMetadataHeuristic = true`):** For higher performance on large batches of files, the system can use a faster heuristic. It first checks if the file's `size + modification time` match the database record. Only if the metadata differs does it perform a full content hash. This is much faster but carries a small risk of missing content changes where the file's metadata did not update.
+
+If a file path is new, but its content hash matches an existing file that is now missing from its old path, the system treats this as a **move/rename**. It updates the path in the database and applies the operation. A `Notification` of kind `NotificationKindMoveDetected` is returned, containing the old and new paths.
+
+This system ensures that operations can be tuned for either guaranteed correctness or maximum performance, providing data integrity and resilience to filesystem changes.
 
 ### Tagging by Query
 
@@ -143,7 +148,7 @@ fmt.Printf("Archived %d items.\n", count)
 
 ### Retrieving Files and Tags
 
-- **`GetTagsForFile(filePath string) ([]string, types.FileStatus, error)`**: Retrieves all tags for a single file. It also returns a `FileStatus` to indicate the file's state (`StatusOK`, `StatusModified`, `StatusNotInDB`), allowing the caller to handle cases where the file has been modified since it was last recorded.
+- **`GetTagsForFile(filePath string, useMetadataHeuristic bool) ([]string, types.FileStatus, error)`**: Retrieves all tags for a single file. It also returns a `FileStatus` to indicate the file's state (`StatusOK`, `StatusModified`, `StatusNotInDB`). The `useMetadataHeuristic` parameter controls whether change detection is done via fast metadata checks or a guaranteed content hash (see "File Modification and Move Handling" above).
 
 - **`GetAllTags() ([]string, error)`**: Returns a sorted list of all unique tags in the database.
 
@@ -178,7 +183,7 @@ for _, p := range paths {
 
 The library also provides methods to retrieve `types.FileInfo` structs, which include the path, hash, size, modification time, and a slice of tag strings. These are more efficient than getting paths and then getting tags for each file.
 
-- **`GetFileInfoForFile(filePath string) (types.FileInfo, types.FileStatus, error)`**: Retrieves detailed file info for a single file, including all its metadata and tags. Like `GetTagsForFile`, it also returns a `FileStatus` to indicate if the file has been modified.
+- **`GetFileInfoForFile(filePath string, useMetadataHeuristic bool) (types.FileInfo, types.FileStatus, error)`**: Retrieves detailed file info for a single file, including all its metadata and tags. Like `GetTagsForFile`, it also returns a `FileStatus` to indicate if the file has been modified. The `useMetadataHeuristic` parameter controls the change detection method.
 - **`GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error)`**
 - **`GetAllFilesInfo() ([]types.FileInfo, error)`**
 - **`GetFilesInfoByTag(tag string) ([]types.FileInfo, error)`**
@@ -189,7 +194,7 @@ The library also provides methods to retrieve `types.FileInfo` structs, which in
 
 Gooru is resilient to file moves and renames. The `relink` operation scans the filesystem to find these changes.
 
-- **`NeedsRelink(dirs []string) (bool, error)`**: Performs a fast metadata check to see if a full scan is necessary. Returns `true` if any file in the database is missing from disk or has been modified.
+- **`NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)`**: Performs a check to see if a full relink scan is necessary. By default (`alwaysVerifyHash = false`), it uses a fast metadata check. If `alwaysVerifyHash` is true, it performs a slower but 100% accurate content hash check on all files.
 
 - **`Relink(dirs []string) (types.RelinkResult, error)`**: Performs a "dry run" scan of the specified directories. It returns a `RelinkResult` struct detailing proposed changes:
     - `ProposedMoves`: Files that have been moved or renamed.
@@ -201,7 +206,9 @@ Gooru is resilient to file moves and renames. The `relink` operation scans the f
 **Example Workflow:**
 ```go
 dirs := []string{"/home/user/documents"}
-needsScan, err := client.NeedsRelink(dirs)
+// Use the default, fast metadata check for the pre-scan.
+// Set the second argument to `true` for a slower but 100% accurate pre-scan.
+needsScan, err := client.NeedsRelink(dirs, false)
 if err == nil && needsScan {
     proposedChanges, err := client.Relink(dirs)
     if err == nil {
@@ -224,7 +231,7 @@ For cases where you know a file has moved and want to update the database withou
 
 ### Manual Content Management
 
-- **`RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error))`**: Explicitly updates the content record for files that have been modified on disk. For each file, it calculates the new content hash and transactionally transfers all existing tags from the old content record to the new one, preserving the file's tagged identity. This is the primary library function for managing the lifecycle of a file that is expected to change over time. The `progressCb` is invoked for each file, reporting its final status (e.g., `StatusRehashed`, `StatusSkippedUnchanged`).
+- **`RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error), useMetadataHeuristic bool)`**: Explicitly updates the content record for files that have been modified on disk. For each file, it calculates the new content hash and transactionally transfers all existing tags from the old content record to the new one, preserving the file's tagged identity. This is the primary library function for managing the lifecycle of a file that is expected to change over time. The `progressCb` is invoked for each file, reporting its final status (e.g., `StatusRehashed`, `StatusSkippedUnchanged`). The `useMetadataHeuristic` parameter controls whether the initial check for changes is done via fast metadata or a guaranteed content hash.
 
 ### Tag Management
 
