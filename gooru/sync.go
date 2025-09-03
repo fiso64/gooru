@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gooru.local/internal/scanning"
 	"gooru.local/types"
@@ -183,10 +184,14 @@ dbPathLoop:
 	// 3c. Any unhandled dbLocations are genuine deletions.
 	for path, dbInfo := range dbLocations {
 		if !handledDbPaths[path] {
+			var tags []string
+			if dbInfo.TagsCache != "" {
+				tags = strings.Split(dbInfo.TagsCache, " ")
+			}
 			result.ProposedDeletes = append(result.ProposedDeletes, types.FileInfo{
 				Path: path,
 				Size: dbInfo.Size,
-				Tags: dbInfo.TagsCache,
+				Tags: tags,
 			})
 		}
 	}

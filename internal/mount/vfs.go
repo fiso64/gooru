@@ -204,8 +204,7 @@ func (vfs *GooruVFS) computeDirEntries(path string) (dirs map[string]struct{}, f
 	uniqueTags := make(map[string]struct{})
 
 	for _, file := range fileInfos {
-		tags := strings.Split(file.Tags, ",")
-		for _, tag := range tags {
+		for _, tag := range file.Tags {
 			if tag != "" {
 				uniqueTags[tag] = struct{}{}
 			}

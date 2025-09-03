@@ -176,9 +176,9 @@ for _, p := range paths {
 
 ### Retrieving Detailed File Information
 
-The library also provides methods to retrieve `types.FileInfo` structs, which include the path, size, and a cached, comma-separated string of tags. These are more efficient than getting paths and then getting tags for each file.
+The library also provides methods to retrieve `types.FileInfo` structs, which include the path, hash, size, modification time, and a slice of tag strings. These are more efficient than getting paths and then getting tags for each file.
 
-- **`GetFileInfoForFile(filePath string) (types.FileInfo, types.FileStatus, error)`**: Retrieves detailed file info for a single file, including its path, size, and cached tags. Like `GetTagsForFile`, it also returns a `FileStatus` to indicate if the file has been modified.
+- **`GetFileInfoForFile(filePath string) (types.FileInfo, types.FileStatus, error)`**: Retrieves detailed file info for a single file, including all its metadata and tags. Like `GetTagsForFile`, it also returns a `FileStatus` to indicate if the file has been modified.
 - **`GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error)`**
 - **`GetAllFilesInfo() ([]types.FileInfo, error)`**
 - **`GetFilesInfoByTag(tag string) ([]types.FileInfo, error)`**

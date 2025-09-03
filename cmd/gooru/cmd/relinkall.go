@@ -79,7 +79,11 @@ and ask for a single confirmation before applying them.`,
 			// Convert LocationInfo to FileInfo for display
 			addInfos := make([]types.FileInfo, len(result.ProposedAdds))
 			for i, add := range result.ProposedAdds {
-				addInfos[i] = types.FileInfo{Path: add.Path, Size: add.Size, Tags: add.TagsCache}
+				var tags []string
+				if add.TagsCache != "" {
+					tags = strings.Split(add.TagsCache, " ")
+				}
+				addInfos[i] = types.FileInfo{Path: add.Path, Size: add.Size, Tags: tags}
 			}
 			display.PrintTable(addInfos)
 		}

@@ -40,7 +40,7 @@ func PrintTable(files []types.FileInfo, headers ...string) {
 			case "SIZE":
 				row = append(row, HumanReadableSize(file.Size))
 			case "TAGS":
-				row = append(row, strings.ReplaceAll(file.Tags, ",", ", "))
+				row = append(row, strings.Join(file.Tags, ", "))
 			}
 		}
 		fmt.Fprintln(w, strings.Join(row, "\t"))

@@ -249,11 +249,18 @@ func (c *Client) GetFileInfoForFile(filePath string, useMetadataHeuristic bool) 
 		return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusModified, nil
 	}
 
+	var tags []string
+	if dbInfo.TagsCache != "" {
+		tags = strings.Split(dbInfo.TagsCache, " ")
+	}
+
 	// Matched, return full info.
 	return types.FileInfo{
-		Path: filePath, // use original path for display
-		Size: dbInfo.Size,
-		Tags: dbInfo.TagsCache,
+		Path:    filePath, // use original path for display
+		Hash:    dbInfo.Hash,
+		Size:    dbInfo.Size,
+		ModTime: dbInfo.ModTime,
+		Tags:    tags,
 	}, types.StatusOK, nil
 }
 

@@ -104,8 +104,8 @@ type FileInfo struct {
 	Path    string
 	Hash    string
 	Size    int64
-	ModTime int64  // Unix time
-	Tags    string // Comma-separated string of tags
+	ModTime int64 // Unix time
+	Tags    []string
 }
 
 // TagWithCount holds a tag and its usage count.

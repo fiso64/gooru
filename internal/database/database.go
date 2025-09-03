@@ -13,6 +13,14 @@ import (
 	"gooru.local/types"
 )
 
+// splitTags is a helper to safely split the space-delimited tags_cache string.
+func splitTags(cache string) []string {
+	if cache == "" {
+		return nil
+	}
+	return strings.Split(cache, " ")
+}
+
 type Store struct {
 	DB     *sql.DB
 	logger *log.Logger
@@ -651,9 +659,11 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &file.Tags); err != nil {
+		var tagsCache string
+		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
 			return nil, err
 		}
+		file.Tags = splitTags(tagsCache)
 		files = append(files, file)
 	}
 	return files, nil
@@ -678,9 +688,11 @@ func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &file.Tags); err != nil {
+		var tagsCache string
+		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
 			return nil, err
 		}
+		file.Tags = splitTags(tagsCache)
 		files = append(files, file)
 	}
 	return files, nil
@@ -724,9 +736,11 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag) ([]types.FileInfo,
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &file.Tags); err != nil {
+		var tagsCache string
+		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
 			return nil, err
 		}
+		file.Tags = splitTags(tagsCache)
 		files = append(files, file)
 	}
 	return files, nil
@@ -1300,9 +1314,11 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &file.Tags); err != nil {
+		var tagsCache string
+		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
 			return nil, err
 		}
+		file.Tags = splitTags(tagsCache)
 		files = append(files, file)
 	}
 	return files, rows.Err()
@@ -1573,7 +1589,7 @@ func (s *Store) RenameTag(oldTag, newTag types.ParsedTag) error {
 	rebuildCacheQuery := `
         UPDATE locations
         SET tags_cache = (
-            SELECT IFNULL(GROUP_CONCAT(tag_str), '')
+            SELECT IFNULL(GROUP_CONCAT(tag_str, ' '), '')
             FROM (
                      SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str
                      FROM tags t

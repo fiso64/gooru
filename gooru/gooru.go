@@ -11,7 +11,7 @@ import (
 	"gooru.local/internal/hashing"
 )
 
-const libraryDBVersion = 1 // Represents the database version this library code is compatible with.
+const libraryDBVersion = 2 // Represents the database version this library code is compatible with.
 
 var (
 	// ErrDBUninitialized is returned when the database has not been set up.
@@ -90,7 +90,10 @@ func New(dbPath string, verbose bool) (*Client, error) {
 		store.Close()
 		return nil, fmt.Errorf("could not read database version: %w", err)
 	}
-	if dbVersion != libraryDBVersion {
+	// The library is compatible with its own version and one version prior for smoother upgrades.
+	// We allow `libraryDBVersion - 1` to support a state where the user has updated the binary
+	// but has not yet run a command that would trigger the automatic migration.
+	if dbVersion > libraryDBVersion || dbVersion < libraryDBVersion-1 {
 		store.Close()
 		return nil, fmt.Errorf("%w (db version: %d, library expects: %d)", ErrDBVersionMismatch, dbVersion, libraryDBVersion)
 	}
