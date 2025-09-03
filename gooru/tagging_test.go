@@ -12,27 +12,6 @@ import (
 	"gooru.local/types"
 )
 
-// setupTestDB is a test helper that creates a temporary, initialized database for a test.
-// It returns the path to the database file.
-// The testing framework's `t.TempDir()` ensures the parent directory is cleaned up automatically.
-func setupTestDB(t *testing.T) string {
-	t.Helper()
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "test.db")
-	err := gooru.Init(dbPath, types.StrategyPartial, false)
-	require.NoError(t, err, "Failed to initialize test database")
-	return dbPath
-}
-
-// createTestFile is a helper to create a file with specific content in a directory.
-func createTestFile(t *testing.T, dir, filename, content string) string {
-	t.Helper()
-	filePath := filepath.Join(dir, filename)
-	err := os.WriteFile(filePath, []byte(content), 0644)
-	require.NoError(t, err, "Failed to create test file")
-	return filePath
-}
-
 func TestClient_TagFiles(t *testing.T) {
 	t.Parallel()
 
@@ -254,45 +233,6 @@ func TestClient_TagFiles(t *testing.T) {
 		assert.ElementsMatch(t, []string{"tag1"}, tags)
 	})
 
-	t.Run("rehash correctly identifies metadata-only change", func(t *testing.T) {
-		t.Parallel()
-		dbPath := setupTestDB(t)
-		client, err := gooru.New(dbPath, false)
-		require.NoError(t, err)
-		t.Cleanup(func() { client.Close() })
-
-		// Arrange: Add a file and then change only its metadata
-		tempDir := t.TempDir()
-		file1 := createTestFile(t, tempDir, "file1.txt", "content")
-		_, err = client.TagFiles([]string{file1}, []string{"tag1"}, nil, false)
-		require.NoError(t, err)
-		info, err := os.Stat(file1)
-		require.NoError(t, err)
-		newModTime := info.ModTime().AddDate(0, -1, 0)
-		err = os.Chtimes(file1, newModTime, newModTime)
-		require.NoError(t, err)
-
-		// Act: Call rehash and capture the status from its callback
-		var status types.RehashStatus
-		var mu sync.Mutex
-		progressCb := func(path string, s types.RehashStatus, err error) {
-			require.NoError(t, err)
-			if path == file1 {
-				mu.Lock()
-				status = s
-				mu.Unlock()
-			}
-		}
-		client.RehashFiles([]string{file1}, progressCb, false)
-
-		// Assert: The status must be StatusMetadataUpdated, proving the core logic
-		// correctly re-hashed the file, found the hash was the same, and identified
-		// the situation as a metadata-only update.
-		mu.Lock()
-		defer mu.Unlock()
-		assert.Equal(t, types.StatusMetadataUpdated, status)
-	})
-
 	t.Run("tagging with heuristic handles metadata-only change correctly", func(t *testing.T) {
 		t.Parallel()
 		dbPath := setupTestDB(t)
@@ -350,5 +290,303 @@ func TestClient_TagFiles(t *testing.T) {
 		// The file should now have both tags.
 		tags, _, _ := client.GetTagsForFile(file1, false)
 		assert.ElementsMatch(t, []string{"initial_tag", "new_tag"}, tags)
+	})
+}
+
+func TestClient_SetTagsForFiles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("replace all existing tags with a new set", func(t *testing.T) {
+		t.Parallel()
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+
+		// Arrange
+		tempDir := t.TempDir()
+		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+		_, err = client.TagFiles([]string{file1}, []string{"old:tag", "another"}, nil, false)
+		require.NoError(t, err)
+
+		// Act
+		result, err := client.SetTagsForFiles([]string{file1}, []string{"new:tag", "final"}, nil, false)
+		require.NoError(t, err)
+
+		// Assert
+		// AffectedCount for set is (cleared + added) = 2 + 2 = 4
+		assert.Equal(t, 4, result.AffectedCount)
+		tags, _, _ := client.GetTagsForFile(file1, false)
+		assert.ElementsMatch(t, []string{"new:tag", "final"}, tags)
+	})
+
+	t.Run("setting empty tags removes all tags", func(t *testing.T) {
+		t.Parallel()
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+
+		// Arrange
+		tempDir := t.TempDir()
+		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2"}, nil, false)
+		require.NoError(t, err)
+
+		// Act
+		result, err := client.SetTagsForFiles([]string{file1}, []string{}, nil, false)
+		require.NoError(t, err)
+
+		// Assert
+		// AffectedCount for set is (cleared + added) = 2 + 0 = 2
+		assert.Equal(t, 2, result.AffectedCount)
+		tags, _, _ := client.GetTagsForFile(file1, false)
+		assert.Empty(t, tags)
+	})
+}
+
+func TestClient_UntagFiles(t *testing.T) {
+	t.Parallel()
+
+	t.Run("remove specific tags from a file", func(t *testing.T) {
+		t.Parallel()
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+
+		// Arrange
+		tempDir := t.TempDir()
+		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2", "tag3"}, nil, false)
+		require.NoError(t, err)
+
+		// Act
+		result, err := client.UntagFiles([]string{file1}, []string{"tag1", "tag3"}, nil, false)
+		require.NoError(t, err)
+
+		// Assert
+		assert.Equal(t, 2, result.AffectedCount)
+		tags, _, _ := client.GetTagsForFile(file1, false)
+		assert.ElementsMatch(t, []string{"tag2"}, tags)
+	})
+
+	t.Run("removing a non-existent tag is a no-op", func(t *testing.T) {
+		t.Parallel()
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+
+		// Arrange
+		tempDir := t.TempDir()
+		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+		_, err = client.TagFiles([]string{file1}, []string{"tag1"}, nil, false)
+		require.NoError(t, err)
+
+		// Act
+		result, err := client.UntagFiles([]string{file1}, []string{"non-existent"}, nil, false)
+		require.NoError(t, err)
+
+		// Assert
+		assert.Equal(t, 0, result.AffectedCount)
+		tags, _, _ := client.GetTagsForFile(file1, false)
+		assert.ElementsMatch(t, []string{"tag1"}, tags)
+	})
+
+	t.Run("untag with empty tags list removes all tags", func(t *testing.T) {
+		t.Parallel()
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+
+		// Arrange
+		tempDir := t.TempDir()
+		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2"}, nil, false)
+		require.NoError(t, err)
+
+		// Act: This is a special case that maps to SetTags with empty tags
+		result, err := client.UntagFiles([]string{file1}, []string{}, nil, false)
+		require.NoError(t, err)
+
+		// Assert
+		// The underlying SetTags returns (cleared + added) = 2 + 0 = 2
+		assert.Equal(t, 2, result.AffectedCount)
+		tags, _, _ := client.GetTagsForFile(file1, false)
+		assert.Empty(t, tags)
+	})
+}
+
+func TestClient_TagFilesByQuery(t *testing.T) {
+	t.Parallel()
+	dbPath := setupTestDB(t)
+	client, err := gooru.New(dbPath, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+
+	// Arrange
+	tempDir := t.TempDir()
+	f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+	f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+	f3 := createTestFile(t, tempDir, "f3.txt", "c3")
+	_, err = client.TagFiles([]string{f1}, []string{"project:a", "review"}, nil, false)
+	require.NoError(t, err)
+	_, err = client.TagFiles([]string{f2}, []string{"project:b", "review"}, nil, false)
+	require.NoError(t, err)
+	_, err = client.TagFiles([]string{f3}, []string{"project:a", "final"}, nil, false)
+	require.NoError(t, err)
+
+	// Act: Tag all files with `review` tag with a new `archived` tag.
+	affected, err := client.TagFilesByQuery("review", []string{"archived"})
+	require.NoError(t, err)
+
+	// Assert: f1 and f2 should be affected.
+	assert.Equal(t, 2, affected)
+	tags1, _, _ := client.GetTagsForFile(f1, false)
+	assert.Contains(t, tags1, "archived")
+	tags2, _, _ := client.GetTagsForFile(f2, false)
+	assert.Contains(t, tags2, "archived")
+	tags3, _, _ := client.GetTagsForFile(f3, false)
+	assert.NotContains(t, tags3, "archived")
+}
+
+func TestClient_SetTagsForFilesByQuery(t *testing.T) {
+	t.Parallel()
+	dbPath := setupTestDB(t)
+	client, err := gooru.New(dbPath, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+
+	// Arrange
+	tempDir := t.TempDir()
+	f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+	f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+	f3 := createTestFile(t, tempDir, "f3.txt", "c3")
+	_, err = client.TagFiles([]string{f1}, []string{"project:a", "review"}, nil, false)
+	require.NoError(t, err)
+	_, err = client.TagFiles([]string{f2}, []string{"project:b", "review"}, nil, false)
+	require.NoError(t, err)
+	_, err = client.TagFiles([]string{f3}, []string{"project:a", "final"}, nil, false)
+	require.NoError(t, err)
+
+	// Act: Replace tags for all files with `project:a` with a single `migrated` tag.
+	affected, err := client.SetTagsForFilesByQuery("project:a", []string{"migrated"})
+	require.NoError(t, err)
+
+	// Assert: f1 and f3 should be affected.
+	assert.Equal(t, 2, affected)
+	tags1, _, _ := client.GetTagsForFile(f1, false)
+	assert.Equal(t, []string{"migrated"}, tags1)
+	tags3, _, _ := client.GetTagsForFile(f3, false)
+	assert.Equal(t, []string{"migrated"}, tags3)
+	// f2 should be unchanged
+	tags2, _, _ := client.GetTagsForFile(f2, false)
+	assert.Contains(t, tags2, "review")
+}
+
+func TestClient_UntagFilesByQuery(t *testing.T) {
+	t.Parallel()
+	dbPath := setupTestDB(t)
+	client, err := gooru.New(dbPath, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+
+	// Arrange
+	tempDir := t.TempDir()
+	f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+	f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+	f3 := createTestFile(t, tempDir, "f3.txt", "c3")
+	_, err = client.TagFiles([]string{f1}, []string{"project:a", "review"}, nil, false)
+	require.NoError(t, err)
+	_, err = client.TagFiles([]string{f2}, []string{"project:b", "review"}, nil, false)
+	require.NoError(t, err)
+	_, err = client.TagFiles([]string{f3}, []string{"project:a", "final"}, nil, false)
+	require.NoError(t, err)
+
+	// Act: Remove the `review` tag from all files.
+	affected, err := client.UntagFilesByQuery("review", []string{"review"})
+	require.NoError(t, err)
+
+	// Assert: f1 and f2 had the tag in the initial state. This test is now independent.
+	assert.Equal(t, 2, affected)
+	tags1, _, _ := client.GetTagsForFile(f1, false)
+	assert.NotContains(t, tags1, "review")
+	tags2, _, _ := client.GetTagsForFile(f2, false)
+	assert.NotContains(t, tags2, "review")
+	// f3 should be unchanged
+	tags3, _, _ := client.GetTagsForFile(f3, false)
+	assert.Contains(t, tags3, "final")
+}
+
+func TestClient_RenameTag(t *testing.T) {
+	t.Parallel()
+
+	t.Run("successfully renames a tag and updates cache", func(t *testing.T) {
+		t.Parallel()
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+
+		// Arrange
+		tempDir := t.TempDir()
+		f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+		f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+		_, err = client.TagFiles([]string{f1, f2}, []string{"project:alpha", "version:1"}, nil, false)
+		require.NoError(t, err)
+
+		// Act
+		err = client.RenameTag("project:alpha", "project:beta")
+		require.NoError(t, err)
+
+		// Assert
+		tags1, _, _ := client.GetTagsForFile(f1, false)
+		assert.ElementsMatch(t, []string{"project:beta", "version:1"}, tags1)
+
+		tags2, _, _ := client.GetTagsForFile(f2, false)
+		assert.ElementsMatch(t, []string{"project:beta", "version:1"}, tags2)
+
+		// Assert cache is updated
+		info1, _, _ := client.GetFileInfoForFile(f1, false)
+		assert.Contains(t, info1.Tags, "project:beta")
+		assert.NotContains(t, info1.Tags, "project:alpha")
+	})
+
+	t.Run("fail to rename to an existing tag", func(t *testing.T) {
+		t.Parallel()
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+
+		// Arrange
+		tempDir := t.TempDir()
+		f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+		_, err = client.TagFiles([]string{f1}, []string{"old_tag", "existing_tag"}, nil, false)
+		require.NoError(t, err)
+
+		// Act
+		err = client.RenameTag("old_tag", "existing_tag")
+
+		// Assert
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "already exists")
+	})
+
+	t.Run("fail to rename a non-existent tag", func(t *testing.T) {
+		t.Parallel()
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+
+		// Act
+		err = client.RenameTag("non-existent", "new_name")
+
+		// Assert
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
 	})
 }
