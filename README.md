@@ -7,7 +7,7 @@ This project is currently under development.
 ## TODO
 
 - Priority #1: Extensive tests to ensure correctness of all operations.
-- Test database performance on a large and a huge db.
+- Test database performance on a large and a huge db. (potential optimization: FTS)
 
 ### 1. Saved Query Aliases
 

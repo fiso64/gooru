@@ -165,7 +165,7 @@ fmt.Printf("Archived %d items.\n", count)
 
 - **`ListFilesByTag(tag string) ([]string, error)`**: Lists files matching a single tag.
 
-- **`ListFilesByTagsAnd(tags []string) ([]string, error)`**: Lists files matching all of the given tags.
+- **`ListFilesByTagsAnd(tags []string, notTags []string) ([]string, error)`**: Lists files matching all of the given `tags` while also not having any of the `notTags`.
 
 **Example:**
 ```go
@@ -187,7 +187,7 @@ The library also provides methods to retrieve `types.FileInfo` structs, which in
 - **`GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error)`**
 - **`GetAllFilesInfo() ([]types.FileInfo, error)`**
 - **`GetFilesInfoByTag(tag string) ([]types.FileInfo, error)`**
-- **`GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error)`**
+- **`GetFilesInfoByTagsAnd(tags []string, notTags []string) ([]types.FileInfo, error)`**: Retrieves detailed info for files matching all of the given `tags` while also not having any of the `notTags`.
 
 
 ### Filesystem Synchronization

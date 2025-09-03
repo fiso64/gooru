@@ -600,36 +600,63 @@ func (s *Store) UpdatePath(absOldPath string, newInfo types.LocationInfo, displa
 	return tx.Commit()
 }
 
-// ListFilesByTagsAnd retrieves all file paths for a given set of tags (AND query).
-func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag) ([]string, error) {
+// ListFilesByTagsAnd retrieves all file paths for files matching all `tags` but none of the `notTags`.
+func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag, notTags []types.ParsedTag) ([]string, error) {
 	if len(tags) == 0 {
 		return []string{}, nil
 	}
 
-	var whereClauses []string
+	var queryBuilder strings.Builder
 	var args []interface{}
+
+	// 1. Build Positive Hashes CTE
+	var positiveWhereClauses []string
 	for _, tag := range tags {
-		whereClauses = append(whereClauses, "(t.key = ? AND t.value = ?)")
+		positiveWhereClauses = append(positiveWhereClauses, "(t.key = ? AND t.value = ?)")
 		args = append(args, tag.Key, tag.Value)
 	}
-	whereCondition := strings.Join(whereClauses, " OR ")
-
-	query := `
-		SELECT l.path
-		FROM locations l
-		WHERE l.content_hash IN (
+	positiveWhereCondition := strings.Join(positiveWhereClauses, " OR ")
+	queryBuilder.WriteString(fmt.Sprintf(`
+		WITH positive_hashes AS (
 			SELECT ct.content_hash
 			FROM content_tags ct
 			JOIN tags t ON ct.tag_id = t.id
-			WHERE ` + whereCondition + `
+			WHERE %s
 			GROUP BY ct.content_hash
 			HAVING COUNT(t.id) = ?
-		)
-		ORDER BY l.path
-	`
+		)`, positiveWhereCondition))
 	args = append(args, len(tags))
 
-	rows, err := s.Query(query, args...)
+	// 2. Build Negative Hashes CTE if needed
+	if len(notTags) > 0 {
+		var negativeWhereClauses []string
+		for _, tag := range notTags {
+			negativeWhereClauses = append(negativeWhereClauses, "(t.key = ? AND t.value = ?)")
+			args = append(args, tag.Key, tag.Value)
+		}
+		negativeWhereCondition := strings.Join(negativeWhereClauses, " OR ")
+		queryBuilder.WriteString(fmt.Sprintf(`,
+		negative_hashes AS (
+			SELECT DISTINCT ct.content_hash
+			FROM content_tags ct
+			JOIN tags t ON ct.tag_id = t.id
+			WHERE %s
+		)`, negativeWhereCondition))
+	}
+
+	// 3. Build Final Select
+	queryBuilder.WriteString(`
+		SELECT l.path
+		FROM locations l
+		JOIN positive_hashes ph ON l.content_hash = ph.content_hash`)
+	if len(notTags) > 0 {
+		queryBuilder.WriteString(`
+		LEFT JOIN negative_hashes nh ON l.content_hash = nh.content_hash
+		WHERE nh.content_hash IS NULL`)
+	}
+	queryBuilder.WriteString(` ORDER BY l.path`)
+
+	rows, err := s.Query(queryBuilder.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -698,36 +725,63 @@ func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	return files, nil
 }
 
-// GetFilesInfoByTagsAnd retrieves info for all files for a given set of tags (AND query) using the cache.
-func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag) ([]types.FileInfo, error) {
+// GetFilesInfoByTagsAnd retrieves info for all files matching all `tags` but none of the `notTags`.
+func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.ParsedTag) ([]types.FileInfo, error) {
 	if len(tags) == 0 {
 		return []types.FileInfo{}, nil
 	}
 
-	var whereClauses []string
+	var queryBuilder strings.Builder
 	var args []interface{}
+
+	// 1. Build Positive Hashes CTE
+	var positiveWhereClauses []string
 	for _, tag := range tags {
-		whereClauses = append(whereClauses, "(t.key = ? AND t.value = ?)")
+		positiveWhereClauses = append(positiveWhereClauses, "(t.key = ? AND t.value = ?)")
 		args = append(args, tag.Key, tag.Value)
 	}
-	whereCondition := strings.Join(whereClauses, " OR ")
-
-	query := `
-		SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
-		FROM locations l
-		WHERE l.content_hash IN (
+	positiveWhereCondition := strings.Join(positiveWhereClauses, " OR ")
+	queryBuilder.WriteString(fmt.Sprintf(`
+		WITH positive_hashes AS (
 			SELECT ct.content_hash
 			FROM content_tags ct
 			JOIN tags t ON ct.tag_id = t.id
-			WHERE ` + whereCondition + `
+			WHERE %s
 			GROUP BY ct.content_hash
 			HAVING COUNT(t.id) = ?
-		)
-		ORDER BY l.path
-	`
+		)`, positiveWhereCondition))
 	args = append(args, len(tags))
 
-	rows, err := s.Query(query, args...)
+	// 2. Build Negative Hashes CTE if needed
+	if len(notTags) > 0 {
+		var negativeWhereClauses []string
+		for _, tag := range notTags {
+			negativeWhereClauses = append(negativeWhereClauses, "(t.key = ? AND t.value = ?)")
+			args = append(args, tag.Key, tag.Value)
+		}
+		negativeWhereCondition := strings.Join(negativeWhereClauses, " OR ")
+		queryBuilder.WriteString(fmt.Sprintf(`,
+		negative_hashes AS (
+			SELECT DISTINCT ct.content_hash
+			FROM content_tags ct
+			JOIN tags t ON ct.tag_id = t.id
+			WHERE %s
+		)`, negativeWhereCondition))
+	}
+
+	// 3. Build Final Select
+	queryBuilder.WriteString(`
+		SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		FROM locations l
+		JOIN positive_hashes ph ON l.content_hash = ph.content_hash`)
+	if len(notTags) > 0 {
+		queryBuilder.WriteString(`
+		LEFT JOIN negative_hashes nh ON l.content_hash = nh.content_hash
+		WHERE nh.content_hash IS NULL`)
+	}
+	queryBuilder.WriteString(` ORDER BY l.path`)
+
+	rows, err := s.Query(queryBuilder.String(), args...)
 	if err != nil {
 		return nil, err
 	}

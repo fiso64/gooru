@@ -278,16 +278,26 @@ func (c *Client) ListFilesByTag(tag string) ([]string, error) {
 	return c.store.ListFilesByTag(parsedTag.Key, parsedTag.Value)
 }
 
-// ListFilesByTagsAnd lists all files associated with a given set of tags (AND query).
-func (c *Client) ListFilesByTagsAnd(tags []string) ([]string, error) {
+// ListFilesByTagsAnd lists all files associated with a given set of tags (AND query),
+// while excluding any files that have any of the specified notTags.
+func (c *Client) ListFilesByTagsAnd(tags []string, notTags []string) ([]string, error) {
 	if err := query.ValidateTags(tags); err != nil {
+		return nil, err
+	}
+	// Note: We use ValidateTags here, which disallows query-specific characters like '*'.
+	// This is correct as this helper method is for simple, direct tag matching.
+	if err := query.ValidateTags(notTags); err != nil {
 		return nil, err
 	}
 	parsedTags := make([]types.ParsedTag, len(tags))
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
 	}
-	return c.store.ListFilesByTagsAnd(parsedTags)
+	parsedNotTags := make([]types.ParsedTag, len(notTags))
+	for i, t := range notTags {
+		parsedNotTags[i] = query.ParseTag(t)
+	}
+	return c.store.ListFilesByTagsAnd(parsedTags, parsedNotTags)
 }
 
 // ListFilesByQuery parses and executes a complex query expression.
@@ -325,16 +335,24 @@ func (c *Client) GetFilesInfoByTag(tag string) ([]types.FileInfo, error) {
 	return c.store.GetFilesInfoByTag(parsedTag.Key, parsedTag.Value)
 }
 
-// GetFilesInfoByTagsAnd gets detailed info for all files associated with a given set of tags (AND query).
-func (c *Client) GetFilesInfoByTagsAnd(tags []string) ([]types.FileInfo, error) {
+// GetFilesInfoByTagsAnd gets detailed info for all files associated with a given set of tags (AND query),
+// while excluding any files that have any of the specified notTags.
+func (c *Client) GetFilesInfoByTagsAnd(tags []string, notTags []string) ([]types.FileInfo, error) {
 	if err := query.ValidateTags(tags); err != nil {
+		return nil, err
+	}
+	if err := query.ValidateTags(notTags); err != nil {
 		return nil, err
 	}
 	parsedTags := make([]types.ParsedTag, len(tags))
 	for i, t := range tags {
 		parsedTags[i] = query.ParseTag(t)
 	}
-	return c.store.GetFilesInfoByTagsAnd(parsedTags)
+	parsedNotTags := make([]types.ParsedTag, len(notTags))
+	for i, t := range notTags {
+		parsedNotTags[i] = query.ParseTag(t)
+	}
+	return c.store.GetFilesInfoByTagsAnd(parsedTags, parsedNotTags)
 }
 
 // GetFilesInfoByQuery parses and executes a complex query expression, returning full file info.
