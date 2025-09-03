@@ -26,7 +26,7 @@ The original design prioritized raw performance, using a fast but unreliable met
 
 The initial design accepted the theoretical imperfections of the `size + mod_time` heuristic as a pragmatic trade-off for performance. It was believed to be "good enough" for typical interactive command-line use.
 
-However, testing revealed that this assumption was dangerously incorrect. The heuristic proved to be dangerously unpredictable in practice, even on modern filesystems like NTFS with high-resolution timestamps. The failing test case (`tagging_a_modified_file_updates_record_and_orphans_old_tags`) demonstrated that it was trivial to create a scenario where a file's content changed but its metadata did not update in a way the heuristic could detect, especially when file modifications were performed programmatically or in rapid succession.
+However, testing revealed that this assumption was dangerously incorrect. The heuristic proved to be unpredictable in practice, even on modern filesystems like NTFS with high-resolution timestamps. The failing test case (`tagging_a_modified_file_updates_record_and_orphans_old_tags`) demonstrated that it was trivial to create a scenario where a file's content changed but its metadata did not update in a way the heuristic could detect, especially when file modifications were performed programmatically or in rapid succession.
 
 *   **The Problem:** The heuristic's unreliability exposed two critical failure modes:
     1.  **Write Corruption:** A `tag` operation could silently apply tags to the wrong version of a file's content.
