@@ -15,6 +15,7 @@ import (
 
 var (
 	multiFileGetTags bool
+	gettagsUseMetadata bool
 )
 
 // gettagsCmd represents the gettags command
@@ -60,7 +61,7 @@ the output is a table of paths and their associated tags.`,
 		if multiFileGetTags || len(files) > 1 {
 			fileInfos := make([]types.FileInfo, 0, len(files))
 			for _, filePath := range files {
-				info, status, err := svc.GetFileInfoForFile(filePath)
+				info, status, err := svc.GetFileInfoForFile(filePath, gettagsUseMetadata)
 				if err != nil {
 					// Don't pollute table output with errors, send to stderr
 					fmt.Fprintf(cmd.ErrOrStderr(), "error processing '%s': %v\n", filePath, err)
@@ -75,7 +76,7 @@ the output is a table of paths and their associated tags.`,
 		} else {
 			// Single-file output with helpful messages.
 			filePath := files[0]
-			tags, status, err := svc.GetTagsForFile(filePath)
+			tags, status, err := svc.GetTagsForFile(filePath, gettagsUseMetadata)
 			if err != nil {
 				if os.IsNotExist(err) {
 					fmt.Printf("File not found: %s\n", filePath)
@@ -107,4 +108,5 @@ the output is a table of paths and their associated tags.`,
 func init() {
 	rootCmd.AddCommand(gettagsCmd)
 	gettagsCmd.Flags().BoolVarP(&multiFileGetTags, "multi", "m", false, "Process multiple file arguments and force table output")
+	gettagsCmd.Flags().BoolVar(&gettagsUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
 }

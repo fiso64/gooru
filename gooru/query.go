@@ -41,7 +41,7 @@ func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 }
 
 // GetTagsForFile retrieves all tags for a given file, with a safety check and status.
-func (c *Client) GetTagsForFile(filePath string) ([]string, types.FileStatus, error) {
+func (c *Client) GetTagsForFile(filePath string, useMetadataHeuristic bool) ([]string, types.FileStatus, error) {
 	absPath, err := resolvePath(filePath)
 	if err != nil {
 		return nil, 0, err
@@ -63,11 +63,26 @@ func (c *Client) GetTagsForFile(filePath string) ([]string, types.FileStatus, er
 	}
 
 	// File is in DB, now check for modification.
-	if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+	isModified := false
+	if useMetadataHeuristic {
+		if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+			isModified = true
+		}
+	} else {
+		currentHash, err := c.hasher.HashFile(absPath)
+		if err != nil {
+			return nil, 0, fmt.Errorf("could not hash file for verification: %w", err)
+		}
+		if currentHash != dbInfo.Hash {
+			isModified = true
+		}
+	}
+
+	if isModified {
 		return []string{}, types.StatusModified, nil
 	}
 
-// File is in DB and matches.
+	// File is in DB and matches.
 	tags, err := c.store.GetTagsForContent(dbInfo.Hash)
 	return tags, types.StatusOK, err
 }
@@ -193,7 +208,7 @@ func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, erro
 }
 
 // GetFileInfoForFile retrieves file info for a given file, with a safety check and status.
-func (c *Client) GetFileInfoForFile(filePath string) (types.FileInfo, types.FileStatus, error) {
+func (c *Client) GetFileInfoForFile(filePath string, useMetadataHeuristic bool) (types.FileInfo, types.FileStatus, error) {
 	absPath, err := resolvePath(filePath)
 	if err != nil {
 		return types.FileInfo{Path: filePath}, 0, err
@@ -215,7 +230,22 @@ func (c *Client) GetFileInfoForFile(filePath string) (types.FileInfo, types.File
 	}
 
 	// File is in DB, now check for modification.
-	if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+	isModified := false
+	if useMetadataHeuristic {
+		if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+			isModified = true
+		}
+	} else {
+		currentHash, err := c.hasher.HashFile(absPath)
+		if err != nil {
+			return types.FileInfo{Path: filePath}, 0, fmt.Errorf("could not hash file for verification: %w", err)
+		}
+		if currentHash != dbInfo.Hash {
+			isModified = true
+		}
+	}
+
+	if isModified {
 		return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusModified, nil
 	}
 

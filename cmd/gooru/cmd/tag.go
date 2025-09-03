@@ -16,6 +16,7 @@ import (
 var (
 	multiInputTag     bool
 	tagExpressionMode bool
+	tagUseMetadata    bool
 )
 
 // tagCmd represents the tag command
@@ -113,7 +114,7 @@ Expression mode (tag files matching a query):
 				}
 			}
 
-			result, err := svc.TagFiles(files, tags, progressCb)
+			result, err := svc.TagFiles(files, tags, progressCb, tagUseMetadata)
 			if err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
@@ -153,4 +154,5 @@ func init() {
 	rootCmd.AddCommand(tagCmd)
 	tagCmd.Flags().BoolVarP(&multiInputTag, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
 	tagCmd.Flags().BoolVarP(&tagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
+	tagCmd.Flags().BoolVar(&tagUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
 }

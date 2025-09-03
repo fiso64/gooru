@@ -51,8 +51,13 @@ The `relinkall` command is designed for synchronizing large directories where ma
     1.  **Pre-computation:** Fetch all known file sizes from the DB into a `sizeToHashes` map. This is a critical optimization.
     2.  **Filesystem Walk:** Concurrently walk the target directories.
     3.  **Filtering:** For each file found on disk, check its size. If the size does not exist as a key in the `sizeToHashes` map, the file cannot possibly be a known piece of content. Skip it immediately without reading its content.
-    4.  **Targeted Hashing:** Only if a file's size matches a known size, compute its hash using the fast partial hashing method (as performance is paramount for this discovery operation).
+    4.  **Targeted Hashing:** Only if a file's size matches a known size, compute its hash.
     5.  **Reconciliation:** Compare the set of known locations from the DB with the set of locations found on the filesystem to generate the lists of moves, adds (duplicates), and deletes.
+
+*   **High-Integrity Pre-Scan:**
+    *   A new `--always-verify-hash` flag is available.
+    *   When present, the initial fast metadata check is enhanced. For every file known to the database that exists on disk, it will perform a content hash to verify its identity, rather than trusting the file's size and modification time.
+    *   This is slower but guarantees the detection of content changes that did not alter file metadata, ensuring a 100% accurate pre-scan.
 
 *   **Internal Logic (Applying Changes):**
     1.  **Moves:** Perform `UPDATE locations SET path = ? WHERE path = ?`.

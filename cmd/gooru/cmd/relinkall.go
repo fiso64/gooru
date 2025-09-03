@@ -15,8 +15,9 @@ import (
 )
 
 var (
-	relinkYes bool
-	relinkNo  bool
+	relinkYes          bool
+	relinkNo           bool
+	relinkVerifyHashes bool
 )
 
 // relinkallCmd represents the relinkall command
@@ -39,7 +40,7 @@ and ask for a single confirmation before applying them.`,
 			fmt.Fprintf(cmd.OutOrStderr(), "---------------\n")
 		}
 		fmt.Println("Checking for changed or moved files...")
-		needsScan, err := svc.NeedsRelink(args)
+		needsScan, err := svc.NeedsRelink(args, relinkVerifyHashes)
 		if err != nil {
 			return fmt.Errorf("error during pre-check: %w", err)
 		}
@@ -168,5 +169,6 @@ func init() {
 	rootCmd.AddCommand(relinkallCmd)
 	relinkallCmd.Flags().BoolVarP(&relinkYes, "yes", "y", false, "Automatically confirm deletion of unlinked file entries.")
 	relinkallCmd.Flags().BoolVarP(&relinkNo, "no", "n", false, "Automatically deny deletion of unlinked file entries.")
+	relinkallCmd.Flags().BoolVar(&relinkVerifyHashes, "always-verify-hash", false, "Force content hashing for all files during pre-scan for 100% accuracy (slower)")
 	relinkallCmd.MarkFlagsMutuallyExclusive("yes", "no")
 }

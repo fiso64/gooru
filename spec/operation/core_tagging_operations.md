@@ -41,18 +41,20 @@ The three commands share common logic for parsing arguments (files vs. expressio
 
 ### 4.2. Behavior on File Modification (Path Mode Only)
 
-This is a critical rule defining how the system handles a file path that points to content different from what the database has on record for that path. The behavior is now consistent across all tagging commands (`tag`, `settags`, `untag`).
+This is a critical rule defining how the system handles a file path that points to content different from what the database has on record for that path. The behavior is consistent across all tagging commands (`tag`, `add`, `settags`, `untag`).
 
-If a file on disk has a different size or modification time than its database record, the system will **always** perform the following pre-flight steps before executing the requested command:
+*   **Default Behavior ("Always Hash"):** To guarantee correctness, the system will **always** perform a content hash on a file provided by its path to get its definitive, current content hash (`H_CURRENT`). It compares this to the hash stored in the database for that path (`H_DB`).
+    *   If the hashes differ (`H_CURRENT != H_DB`), the file has been modified.
+    *   The system updates the `locations` table to associate the file path with the new hash (`H_CURRENT`).
+    *   The user is notified that the file's record has been updated, and a warning is shown if the old content (`H_DB`) had tags that are now orphaned.
+    *   The requested tagging operation then proceeds on the new content hash (`H_CURRENT`).
 
-1.  **Re-hash:** The file is re-hashed to get its new content hash (`H_B`).
-2.  **Update Location:** The `locations` table is updated to associate the file path with this new hash, size, and modification time. This action orphans the old content hash (`H_A`) which is no longer associated with this path. The orphaned hash and its associated tags remain in the database.
-3.  **Notify User:** A message is printed to standard output informing the user that the file was updated. For example: `Updated database for modified file: 'path/to/file.txt'`.
-4.  **Warn on Orphaned Tags:** After the update, the system checks if the orphaned hash (`H_A`) had any tags.
-    *   If it did, an additional, prominent **WARNING** is printed. For example: `WARNING: 'path/to/file.txt' was modified. The old version's tags [tag1, tag2] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.`
-5.  **Proceed:** After these steps are complete for the modified file, the original command (`tag`, `settags`, or `untag`) proceeds as requested, operating on the **new** content hash (`H_B`).
+*   **Performance Opt-In (`--use-metadata`):**
+    *   All affected commands will gain a `--use-metadata` flag.
+    *   When this flag is present, the system reverts to the faster, heuristic-based logic: it first checks if the file's `size + modification time` match the database record.
+    *   Only if the metadata differs will it perform the "Always Hash" logic described above. This is faster for batch operations on unchanged files but carries a risk of missing content changes where the metadata did not update.
 
-This policy ensures that user actions always apply to the current state of the file on disk while preventing silent data loss by explicitly informing the user about orphaned tags.
+This "correctness by default, performance by choice" policy ensures that user actions are safe and predictable, while providing an explicit path for performance tuning.
 
 ### 4.3. Command-Specific Behavior
 

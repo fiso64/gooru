@@ -16,6 +16,7 @@ import (
 var (
 	multiInputUntag     bool
 	untagExpressionMode bool
+	untagUseMetadata    bool
 )
 
 // untagCmd represents the untag command
@@ -121,7 +122,7 @@ Expression mode (untag files matching a query):
 				}
 			}
 
-			result, err := svc.UntagFiles(files, tags, progressCb)
+			result, err := svc.UntagFiles(files, tags, progressCb, untagUseMetadata)
 			if err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
@@ -166,4 +167,5 @@ func init() {
 	rootCmd.AddCommand(untagCmd)
 	untagCmd.Flags().BoolVarP(&multiInputUntag, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
 	untagCmd.Flags().BoolVarP(&untagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
+	untagCmd.Flags().BoolVar(&untagUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
 }

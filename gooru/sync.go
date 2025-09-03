@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"gooru.local/types"
 	"gooru.local/internal/scanning"
+	"gooru.local/types"
 )
 
 // DeleteFilesByQuery removes file records from the database that match a query expression.
@@ -68,8 +68,10 @@ func (c *Client) EditPath(oldPath, newPath string) error {
 	return c.store.UpdatePath(absOldPath, newInfo, oldPath, newPath)
 }
 
-// NeedsRelink performs a fast check using filesystem metadata to see if a relink is necessary.
-func (c *Client) NeedsRelink(dirs []string) (bool, error) {
+// NeedsRelink performs a check to see if a relink is necessary.
+// By default, it uses a fast metadata check. If alwaysVerifyHash is true,
+// it performs a slower but 100% accurate content hash check.
+func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error) {
 	absDirs, err := toAbsolutePaths(dirs)
 	if err != nil {
 		return false, err
@@ -79,7 +81,7 @@ func (c *Client) NeedsRelink(dirs []string) (bool, error) {
 		return false, err
 	}
 
-	for path, info := range dbLocations {
+	for path, dbInfo := range dbLocations {
 		fsInfo, err := os.Stat(path)
 		if os.IsNotExist(err) {
 			return true, nil // File in DB is missing from disk.
@@ -88,8 +90,18 @@ func (c *Client) NeedsRelink(dirs []string) (bool, error) {
 			return true, nil // Can't stat the file, something is wrong.
 		}
 
-		if fsInfo.Size() != info.Size || fsInfo.ModTime().Unix() != info.ModTime {
-			return true, nil // Metadata mismatch, file has likely changed.
+		if alwaysVerifyHash {
+			currentHash, err := c.hasher.HashFile(path)
+			if err != nil {
+				return true, nil // Can't hash the file, treat as changed.
+			}
+			if currentHash != dbInfo.Hash {
+				return true, nil // Content hash mismatch.
+			}
+		} else {
+			if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+				return true, nil // Metadata mismatch.
+			}
 		}
 	}
 
@@ -244,7 +256,7 @@ func (c *Client) PruneLocations(paths []string) (int, error) {
 }
 
 // RehashFiles updates the content record for files that have been modified on disk, preserving their tags.
-func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error)) {
+func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error), useMetadataHeuristic bool) {
 	for _, originalPath := range filePaths {
 		absPath, err := resolvePath(originalPath)
 		if err != nil {
@@ -268,30 +280,37 @@ func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, st
 			continue
 		}
 
-		if fsInfo.Size() == dbInfo.Size && fsInfo.ModTime().Unix() == dbInfo.ModTime {
+		// Path 1: Fast exit using heuristic if requested and metadata matches.
+		if useMetadataHeuristic && (fsInfo.Size() == dbInfo.Size && fsInfo.ModTime().Unix() == dbInfo.ModTime) {
 			progressCb(originalPath, types.StatusSkippedUnchanged, nil)
 			continue
 		}
 
-		// File has been modified, proceed with rehash.
+		// Path 2: Heuristic was false OR failed. We must verify by hashing.
 		newHash, err := c.hasher.HashFile(absPath)
 		if err != nil {
 			progressCb(originalPath, 0, fmt.Errorf("hashing failed: %w", err))
 			continue
 		}
 
-		// Edge case: metadata changed, but content is identical. Just update metadata.
+		// Case A: Content is identical.
 		if newHash == dbInfo.Hash {
-			err := c.store.UpdateLocationMetadata(absPath, fsInfo.Size(), fsInfo.ModTime().Unix())
-			if err != nil {
-				progressCb(originalPath, 0, fmt.Errorf("metadata update failed: %w", err))
+			// Check if only metadata changed.
+			if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
+				err := c.store.UpdateLocationMetadata(absPath, fsInfo.Size(), fsInfo.ModTime().Unix())
+				if err != nil {
+					progressCb(originalPath, 0, fmt.Errorf("metadata update failed: %w", err))
+				} else {
+					progressCb(originalPath, types.StatusMetadataUpdated, nil)
+				}
 			} else {
-				progressCb(originalPath, types.StatusMetadataUpdated, nil)
+				// Hashes and metadata match, truly unchanged.
+				progressCb(originalPath, types.StatusSkippedUnchanged, nil)
 			}
 			continue
 		}
 
-		// Full rehash: content has changed, transfer tags.
+		// Case B: Content has definitively changed. Proceed with full rehash.
 		newLocInfo := types.LocationInfo{
 			Path:      absPath,
 			Hash:      newHash,

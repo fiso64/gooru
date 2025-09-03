@@ -32,24 +32,17 @@ Read-only commands are separated into two categories: path-based and expression-
 
 ### 4.1. Path-Based Retrieval (`gettags`)
 
-The `gettags` command is unique because it takes a direct file path as input, creating an expectation of filesystem awareness. Its behavior is defined by these cases:
+The `gettags` command takes a direct file path, creating an expectation of filesystem awareness. Its behavior is defined by the new "correctness by default" policy.
 
-*   **Case 1: Path is in DB and file is unchanged.**
-    *   **Mechanism:** A simple `SELECT` from the database based on the path.
-    *   **Result:** The tags are returned instantly. This is the happy path.
+*   **Default Behavior ("Always Hash"):**
+    *   **Mechanism:** The command will hash the content of the file at the given path and compare it to the hash stored in the database for that path.
+    *   **Result (Hashes Match):** The tags are returned.
+    *   **Result (Hashes Differ):** The file has been modified. The command returns no tags and prints a warning that the file has changed.
+    *   **Result (Path Not in DB):** The command returns no tags and provides a helpful message guiding the user to use `gooru add`.
 
-*   **Case 2: Path is in DB, but file has been modified.**
-    *   **Mechanism:** The command performs a metadata check (`os.Stat`). If size/modtime do not match the database record, it withholds the stale tag information.
-    *   **Result:** No tags are returned. A helpful message is printed to stderr.
-    *   **Example Output:** `Warning: 'path/to/file.txt' has been modified. Tags for the previous version are not shown. Please re-tag the file to update it.`
-
-*   **Case 3: Path is NOT in DB.**
-    *   **Mechanism:** The database lookup fails. The command then performs a check to see if the file exists on the filesystem.
-    *   **Result (if file exists on disk):** No tags are returned. A helpful message is printed to the user.
-    *   **Example Output:** `No tags found for 'path/to/file.txt'. To track this file (especially if it was moved or renamed), use: 'gooru add "path/to/file.txt"'`
-    *   **Result (if file does not exist on disk):** A standard "No matching files found" or similar message is shown.
-
-This design preserves the performance of `gettags` while actively guiding the user toward the correct synchronization workflow when discrepancies are found.
+*   **Performance Opt-In (`--use-metadata`):**
+    *   The `gettags` command has a `--use-metadata` flag.
+    *   When present, it reverts to the faster, heuristic-based logic of checking `size + modification time` instead of hashing the file to determine if it has been modified.
 
 ### 4.2. Expression-Based Retrieval (`list`, `table`, `listtags`)
 

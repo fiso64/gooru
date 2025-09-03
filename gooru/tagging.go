@@ -21,25 +21,25 @@ const (
 
 // TagFiles adds tags to multiple files using a high-performance batching strategy.
 // Returns the number of new tag associations created and a list of notifications.
-func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error) {
 	if err := query.ValidateTags(tags); err != nil {
 		return types.TagOperationResult{}, err
 	}
-	return c.performTagOperation(filePaths, tags, progressCb, opTag)
+	return c.performTagOperation(filePaths, tags, progressCb, opTag, useMetadataHeuristic)
 }
 
 // UntagFiles removes tags from files. If no tags are provided, all tags are removed.
 // Returns the number of tag associations removed and a list of notifications.
-func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error) {
 	if err := query.ValidateTags(tags); err != nil {
 		return types.TagOperationResult{}, err
 	}
 	if len(tags) == 0 {
 		// Clearing all tags is equivalent to `settags` with no tags.
 		// For settags, we'll return the number of tags cleared.
-		return c.performTagOperation(filePaths, []string{}, progressCb, opSetTags)
+		return c.performTagOperation(filePaths, []string{}, progressCb, opSetTags, useMetadataHeuristic)
 	}
-	return c.performTagOperation(filePaths, tags, progressCb, opUntag)
+	return c.performTagOperation(filePaths, tags, progressCb, opUntag, useMetadataHeuristic)
 }
 
 // TagFilesByQuery adds tags to all files matching a query expression.
@@ -255,11 +255,11 @@ func (c *Client) RenameTag(oldName, newName string) error {
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
 // Returns the total number of changes (associations removed + associations added) and a list of notifications.
-func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error) {
 	if err := query.ValidateTags(tags); err != nil {
 		return types.TagOperationResult{}, err
 	}
-	return c.performTagOperation(filePaths, tags, progressCb, opSetTags)
+	return c.performTagOperation(filePaths, tags, progressCb, opSetTags, useMetadataHeuristic)
 }
 
 // fileData is an internal struct for tracking file state during a tagging operation.
@@ -279,7 +279,7 @@ type fileStateAnalysis struct {
 }
 
 // analyzeFileStates performs all filesystem and hashing operations to prepare for a tagging transaction.
-func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath string, err error)) (*fileStateAnalysis, error) {
+func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (*fileStateAnalysis, error) {
 	analysis := &fileStateAnalysis{
 		locationsToUpsert: make(map[string]types.LocationInfo),
 		potentialMoves:    make(map[string]string),
@@ -312,14 +312,18 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 	for _, absPath := range absPaths {
 		info, err := os.Stat(absPath)
 		if err != nil {
+			// Report error for non-existent files here, so it's only reported once.
 			if progressCb != nil {
 				progressCb(originalPathMap[absPath], err)
 			}
 			continue
 		}
-		dbInfo, existsInDb := dbLocations[absPath]
-		if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
-			continue // Unchanged, no hash needed.
+		// If using the heuristic, only hash if metadata differs. Otherwise, hash everything.
+		if useMetadataHeuristic {
+			dbInfo, existsInDb := dbLocations[absPath]
+			if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
+				continue // Unchanged, no hash needed.
+			}
 		}
 		filesToHash = append(filesToHash, absPath)
 	}
@@ -333,6 +337,7 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 		info, err := os.Stat(absPath)
 		if err != nil {
 			if !processedPaths[originalPath] {
+				// Errors for non-existent files are already handled above. This catches other Stat errors.
 				if progressCb != nil {
 					progressCb(originalPath, err)
 				}
@@ -343,19 +348,14 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 
 		var hash string
 		dbInfo, existsInDb := dbLocations[absPath]
-		wasHashed := false
 		isModification := false
 
-		if existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {
-			hash = dbInfo.Hash
-		} else {
-			result, ok := hashResults[absPath]
-			if !ok || result.Err != nil {
+		// Determine the definitive hash for the current file content.
+		result, wasHashed := hashResults[absPath]
+		if wasHashed {
+			if result.Err != nil {
 				if !processedPaths[originalPath] {
-					errMsg := "file processing failed"
-					if result.Err != nil {
-						errMsg = fmt.Sprintf("hashing failed: %v", result.Err)
-					}
+					errMsg := fmt.Sprintf("hashing failed: %v", result.Err)
 					if progressCb != nil {
 						progressCb(originalPath, fmt.Errorf("%s", errMsg))
 					}
@@ -364,10 +364,18 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 				continue
 			}
 			hash = result.Hash
-			wasHashed = true
-			if existsInDb {
-				isModification = true
+		} else {
+			// This path was not in filesToHash, meaning it's unchanged according to the heuristic.
+			// We can trust the DB hash.
+			if !existsInDb {
+				// Should be logically impossible to get here, but handle defensively.
+				continue
 			}
+			hash = dbInfo.Hash
+		}
+
+		if existsInDb && hash != dbInfo.Hash {
+			isModification = true
 		}
 
 		if wasHashed {
@@ -541,11 +549,11 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 }
 
 // performTagOperation is the refactored, high-level coordinator for all path-based tagging.
-func (c *Client) performTagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), kind opKind) (types.TagOperationResult, error) {
+func (c *Client) performTagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), kind opKind, useMetadataHeuristic bool) (types.TagOperationResult, error) {
 	result := types.TagOperationResult{}
 
 	// Phase 1 & 2: Analyze file states (FS interactions and hashing).
-	analysis, err := c.analyzeFileStates(filePaths, progressCb)
+	analysis, err := c.analyzeFileStates(filePaths, progressCb, useMetadataHeuristic)
 	if err != nil {
 		return result, err
 	}

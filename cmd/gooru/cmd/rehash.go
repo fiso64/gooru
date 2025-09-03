@@ -11,7 +11,9 @@ import (
 	"gooru.local/types"
 )
 
-var ()
+var (
+	rehashUseMetadata bool
+)
 
 // rehashCmd represents the rehash command
 var rehashCmd = &cobra.Command{
@@ -64,7 +66,7 @@ will not add new, untracked files.`,
 			}
 		}
 
-		svc.RehashFiles(files, progressCb)
+		svc.RehashFiles(files, progressCb, rehashUseMetadata)
 
 		if rehashedCount > 0 || updatedCount > 0 {
 			fmt.Printf("Rehash complete. %d file(s) rehashed, %d metadata record(s) updated.\n", rehashedCount, updatedCount)
@@ -82,4 +84,5 @@ will not add new, untracked files.`,
 
 func init() {
 	rootCmd.AddCommand(rehashCmd)
+	rehashCmd.Flags().BoolVar(&rehashUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
 }

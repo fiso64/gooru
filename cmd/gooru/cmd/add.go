@@ -12,7 +12,9 @@ import (
 	"gooru.local/types"
 )
 
-var ()
+var (
+	addUseMetadata bool
+)
 
 // addCmd represents the add command
 var addCmd = &cobra.Command{
@@ -69,7 +71,7 @@ will automatically add and track any new files it's given.`,
 		}
 
 		// `add` is just `tag` with no tags.
-		result, err := svc.TagFiles(files, []string{}, progressCb)
+		result, err := svc.TagFiles(files, []string{}, progressCb, addUseMetadata)
 		if err != nil {
 			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
 		}
@@ -101,4 +103,5 @@ will automatically add and track any new files it's given.`,
 
 func init() {
 	rootCmd.AddCommand(addCmd)
+	addCmd.Flags().BoolVar(&addUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
 }
