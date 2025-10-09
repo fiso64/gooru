@@ -7,7 +7,7 @@
 
 ## 1. Abstract
 
-This spec defines user-initiated processes for synchronizing the Gooru database with the filesystem. It covers the `relinkall` command, which performs bulk updates for entire directories, and the `editpath` command, which provides a surgical way to update the location of a single known file. These commands ensure that tags remain associated with their content even after files are moved, renamed, or deleted.
+This spec defines user-initiated processes for synchronizing the Gooru database with the filesystem. It covers the `relinkall` command, which performs bulk updates for entire directories, and the `editpath` command, which provides a surgical way to update the location of a single known file. These commands ensure that tags remain associated with their content even after files are moved, renamed, or deleted. It intelligently discovers files that have been moved *into* a scanned directory from any other known location.
 
 ## 2. Problem Statement / Motivation
 
@@ -22,7 +22,8 @@ Because Gooru does not actively monitor the filesystem, the database can become 
 
 *   Provide a command (`relinkall`) for broad, directory-level synchronization.
 *   Provide a command (`editpath`) for surgical, single-file path updates.
-*   Correctly identify content that has been moved or renamed.
+*   Correctly identify content that has been moved or renamed within the scanned directories.
+*   Correctly identify content moved *into* a scanned directory from an external known location.
 *   Identify new file paths that are duplicates of existing content.
 *   Identify and propose the removal of database records for files deleted from disk.
 *   Ensure the `relinkall` process is safe by proposing changes in a "dry run" and requiring user confirmation.
@@ -47,12 +48,22 @@ The `relinkall` command is designed for synchronizing large directories where ma
         *   **[DELETED FROM DISK]:** Paths in the database that no longer exist on the filesystem. This is how obsolete records are pruned.
     *   It prompts the user for confirmation `[Y/n]` before applying any changes. Flags `-y`/`--yes` and `-n`/`--no` can be used for scripting.
 
-*   **Internal Logic (The Scan):**
-    1.  **Pre-computation:** Fetch all known file sizes from the DB into a `sizeToHashes` map. This is a critical optimization.
-    2.  **Filesystem Walk:** Concurrently walk the target directories.
-    3.  **Filtering:** For each file found on disk, check its size. If the size does not exist as a key in the `sizeToHashes` map, the file cannot possibly be a known piece of content. Skip it immediately without reading its content.
-    4.  **Targeted Hashing:** Only if a file's size matches a known size, compute its hash.
-    5.  **Reconciliation:** Compare the set of known locations from the DB with the set of locations found on the filesystem to generate the lists of moves, adds (duplicates), and deletes.
+*   **Internal Logic (The Scan):** The scan uses a hybrid approach to correctly identify deletions, moves within the scanned scope, and moves into the scanned scope.
+    1.  **Data Gathering:**
+        *   Get the set of all locations the database expects to find within the scanned directories (`dbLocationsInScope`).
+        *   Get a map of all file sizes to content hashes from the entire database (`sizeToHashes`). This is a critical optimization.
+        *   Concurrently walk the target directories on the filesystem, hashing any file whose size exists in the `sizeToHashes` map. This produces the set of all known content currently on disk in the target directories (`fsLocations`).
+    2.  **Reconciliation (Phase 1 - Deletions and Local Moves):**
+        *   The system compares `dbLocationsInScope` with `fsLocations`.
+        *   Any path in `dbLocationsInScope` that is not in `fsLocations` is a candidate for either a deletion or a move.
+        *   If its content hash is found elsewhere in `fsLocations`, it's a move *within* the scanned directories.
+        *   If its content hash is not found anywhere in `fsLocations`, it's proposed as a **deletion**.
+    3.  **Reconciliation (Phase 2 - Moves-In and Duplicates):**
+        *   The system now considers any files in `fsLocations` that were not already handled in Phase 1. These are files whose paths are new to the scanned directories.
+        *   For each such file, it queries the entire database for its content hash.
+        *   If the hash is associated with an old path *outside* the scanned directories, the system performs a check (`os.Stat`) on that old path.
+        *   If the old path no longer exists on disk, the file is identified as a **move** into the scanned directory.
+        *   If the old path *still* exists, the new file is identified as a **new duplicate location**.
 
 *   **High-Integrity Pre-Scan:**
     *   A new `--always-verify-hash` flag is available.

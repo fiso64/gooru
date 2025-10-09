@@ -3,6 +3,7 @@ package gooru
 import (
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,18 +78,62 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 	if err != nil {
 		return false, err
 	}
+
+	// Get DB state for the given directories.
 	dbLocations, err := c.store.GetLocationsForDirs(absDirs)
 	if err != nil {
 		return false, err
 	}
 
-	for path, dbInfo := range dbLocations {
-		fsInfo, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			return true, nil // File in DB is missing from disk.
+	// IMPORTANT: Get the size-to-hash map to filter the FS walk, exactly like the full Relink scan does.
+	// This ensures both functions see the same set of "relevant" files on disk.
+	sizeToHashes, err := c.store.GetSizeToHashesMap()
+	if err != nil {
+		return false, fmt.Errorf("could not build size-to-hash map for pre-check: %w", err)
+	}
+
+	// Get FS state for "relevant" files in the given directories.
+	fsPaths := make(map[string]struct{})
+	for _, dir := range absDirs {
+		walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // Skip unreadable files/dirs
+			}
+			if !d.IsDir() {
+				info, err := d.Info()
+				if err != nil {
+					return nil // Skip files we can't stat
+				}
+				// The core filtering logic that must match Relink's scanner.
+				if _, ok := sizeToHashes[info.Size()]; ok {
+					fsPaths[path] = struct{}{}
+				}
+			}
+			return nil
+		})
+		if walkErr != nil {
+			return false, fmt.Errorf("failed to walk directory %s: %w", dir, walkErr)
 		}
+	}
+
+	// Now that both fsPaths and dbLocations are looking at the same conceptual set of files,
+	// the comparison logic will be correct.
+
+	// 1. Fast check: If the number of files differs, a scan is definitely needed.
+	if len(dbLocations) != len(fsPaths) {
+		return true, nil
+	}
+
+	// 2. Slower check: Compare metadata for each file the DB expects to be there.
+	for path, dbInfo := range dbLocations {
+		// If a path from the DB is not in our filtered FS map, something is wrong (e.g., deleted).
+		if _, ok := fsPaths[path]; !ok {
+			return true, nil
+		}
+
+		fsInfo, err := os.Stat(path)
 		if err != nil {
-			return true, nil // Can't stat the file, something is wrong.
+			return true, nil // File vanished between walk and stat, or permissions changed.
 		}
 
 		if alwaysVerifyHash {
@@ -117,82 +162,106 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 		return result, err
 	}
 
-	// 1. Get initial state from the database.
-	dbLocations, err := c.store.GetLocationsForDirs(absDirs)
+	// --- Phase 1: Gather State ---
+	dbLocationsInScope, err := c.store.GetLocationsForDirs(absDirs)
 	if err != nil {
-		return result, fmt.Errorf("could not get db locations: %w", err)
+		return result, fmt.Errorf("could not get in-scope db locations: %w", err)
 	}
 	sizeToHashes, err := c.store.GetSizeToHashesMap()
 	if err != nil {
 		return result, fmt.Errorf("could not build size-to-hash map: %w", err)
 	}
-
-	// 2. Perform the intelligent, targeted filesystem scan.
 	fsLocations, filesScanned := scanning.DirsConcurrently(absDirs, sizeToHashes, c.hasher)
 	result.Stats.FilesScanned = filesScanned
 
-	// 3. Reconcile states.
-	handledDbPaths := make(map[string]bool)
-	fsHashToPaths := make(map[string][]string)
-	for path, info := range fsLocations {
-		fsHashToPaths[info.Hash] = append(fsHashToPaths[info.Hash], path)
+	fsHashesOnDisk := make(map[string]types.LocationInfo)
+	for _, info := range fsLocations {
+		if _, ok := fsHashesOnDisk[info.Hash]; !ok {
+			fsHashesOnDisk[info.Hash] = info
+		}
 	}
 
-	// 3a. Find moves and unchanged files.
-dbPathLoop:
-	for dbPath, dbInfo := range dbLocations {
-		// Check for unchanged files first
-		fsInfo, existsOnFs := fsLocations[dbPath]
-		if existsOnFs && fsInfo.Hash == dbInfo.Hash {
-			handledDbPaths[dbPath] = true
-			delete(fsLocations, dbPath) // This fs location is accounted for
-			continue
-		}
+	// --- Phase 2: Find Deletions and Moves-Within-Scope ---
+	handledFsPaths := make(map[string]bool)
 
-		// Check if content has moved
-		if newPaths, contentExistsOnFs := fsHashToPaths[dbInfo.Hash]; contentExistsOnFs {
-			for i, newPath := range newPaths {
-				if _, isHandled := fsLocations[newPath]; !isHandled {
-					continue // This path was an unchanged file or already used for a move.
+	for dbPath, dbInfo := range dbLocationsInScope {
+		fsInfo, pathExistsOnFs := fsLocations[dbPath]
+
+		if pathExistsOnFs {
+			if fsInfo.Hash == dbInfo.Hash {
+				// Case 1: Unchanged file.
+				handledFsPaths[dbPath] = true
+			} else {
+				// Case 2: Modified file. Treat as a deletion of the old record.
+				// The new file at this path will be handled in Phase 3.
+				var tags []string
+				if dbInfo.TagsCache != "" {
+					tags = strings.Split(dbInfo.TagsCache, " ")
 				}
-
-				// Get the full info for the new location from the scan results.
-				newLocationInfo, locationFound := fsLocations[newPath]
-				if !locationFound {
-					// This should be logically impossible due to the preceding checks,
-					// but handle defensively.
-					continue
-				}
-
+				result.ProposedDeletes = append(result.ProposedDeletes, types.FileInfo{
+					Path: dbPath, Size: dbInfo.Size, Tags: tags,
+				})
+			}
+		} else {
+			// Case 3: Path from DB is missing. Could be move-within-scope or deletion.
+			if newLocation, contentFoundOnFs := fsHashesOnDisk[dbInfo.Hash]; contentFoundOnFs {
 				result.ProposedMoves = append(result.ProposedMoves, types.MoveInfo{
 					OldPath:     dbPath,
-					NewLocation: newLocationInfo,
+					NewLocation: newLocation,
 				})
-				handledDbPaths[dbPath] = true
-				delete(fsLocations, newPath)       // This fs location is accounted for
-				fsHashToPaths[dbInfo.Hash][i] = "" // Mark this path as used
-				continue dbPathLoop                // Move to the next db path
+				handledFsPaths[newLocation.Path] = true
+				delete(fsHashesOnDisk, dbInfo.Hash) // Prevent re-use for another move
+			} else {
+				// Content not found anywhere in scanned dirs. Propose deletion.
+				var tags []string
+				if dbInfo.TagsCache != "" {
+					tags = strings.Split(dbInfo.TagsCache, " ")
+				}
+				result.ProposedDeletes = append(result.ProposedDeletes, types.FileInfo{
+					Path: dbPath, Size: dbInfo.Size, Tags: tags,
+				})
 			}
 		}
 	}
 
-	// 3b. Any remaining fsLocations are new locations for existing content (duplicates).
-	for _, fsInfo := range fsLocations {
-		result.ProposedAdds = append(result.ProposedAdds, fsInfo)
+	// --- Phase 3: Find Moves-In and New Duplicates ---
+	unhandledHashes := make([]string, 0)
+	unhandledFsLocations := make(map[string]types.LocationInfo)
+	for fsPath, fsInfo := range fsLocations {
+		if !handledFsPaths[fsPath] {
+			unhandledHashes = append(unhandledHashes, fsInfo.Hash)
+			unhandledFsLocations[fsInfo.Hash] = fsInfo
+		}
 	}
 
-	// 3c. Any unhandled dbLocations are genuine deletions.
-	for path, dbInfo := range dbLocations {
-		if !handledDbPaths[path] {
-			var tags []string
-			if dbInfo.TagsCache != "" {
-				tags = strings.Split(dbInfo.TagsCache, " ")
+	if len(unhandledHashes) > 0 {
+		allOldPaths, err := c.store.BatchGetPathsForHashes(c.store, unhandledHashes)
+		if err != nil {
+			return result, fmt.Errorf("could not look up old paths for found content: %w", err)
+		}
+
+		for hash, fsInfo := range unhandledFsLocations {
+			oldPaths, contentWasKnown := allOldPaths[hash]
+			isMove := false
+			if contentWasKnown {
+				for _, oldPath := range oldPaths {
+					if _, ok := fsLocations[oldPath]; ok {
+						continue // Don't check against a path that's also in the current scan scope.
+					}
+					// Check if the old location is now empty. This is the key check for a move.
+					if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+						result.ProposedMoves = append(result.ProposedMoves, types.MoveInfo{
+							OldPath:     oldPath,
+							NewLocation: fsInfo,
+						})
+						isMove = true
+						break // Found one missing old path, that's enough to classify it as a move.
+					}
+				}
 			}
-			result.ProposedDeletes = append(result.ProposedDeletes, types.FileInfo{
-				Path: path,
-				Size: dbInfo.Size,
-				Tags: tags,
-			})
+			if !isMove {
+				result.ProposedAdds = append(result.ProposedAdds, fsInfo)
+			}
 		}
 	}
 
