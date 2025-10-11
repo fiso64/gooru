@@ -824,17 +824,42 @@ func (s *Store) GetAllTags() ([]string, error) {
 	return tags, nil
 }
 
-// GetAllTagsWithCounts retrieves all tags and their pre-calculated usage counts.
+// GetAllTagsWithCounts retrieves all tags and their usage counts, sorted by count descending.
+// For simple tags (e.g., 'photo'), it returns the aggregate count for the key (including 'photo:album1', etc.).
+// For key-value tags, it returns the count for that specific tag.
 func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 	query := `
+		WITH key_counts AS (
+			SELECT
+				t.key,
+				COUNT(DISTINCT ct.content_hash) as total_files
+			FROM
+				tags t
+			JOIN
+				content_tags ct ON t.id = ct.tag_id
+			GROUP BY
+				t.key
+		)
 		SELECT
-			CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str,
-			files_count
-		FROM
-			tags
-		WHERE files_count > 0
+			tag_str,
+			final_count
+		FROM (
+			SELECT
+				CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str,
+				CASE
+					WHEN t.value != '' THEN t.files_count
+					ELSE kc.total_files
+				END AS final_count
+			FROM
+				tags t
+			LEFT JOIN
+				key_counts kc ON t.key = kc.key
+		)
+		WHERE
+			COALESCE(final_count, 0) > 0
 		ORDER BY
-			files_count DESC, tag_str ASC`
+			final_count DESC, tag_str ASC
+	`
 	rows, err := s.Query(query)
 	if err != nil {
 		return nil, err
