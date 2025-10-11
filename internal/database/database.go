@@ -801,8 +801,13 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 }
 
 // GetAllTags retrieves all unique tags from the database.
+// This includes synthesized simple tags for keys that only have key-value pairs.
 func (s *Store) GetAllTags() ([]string, error) {
-	query := `SELECT key, value FROM tags ORDER BY key, value`
+	query := `
+		SELECT key, value FROM tags
+		UNION
+		SELECT DISTINCT key, '' AS value FROM tags
+		ORDER BY key, value`
 	rows, err := s.Query(query)
 	if err != nil {
 		return nil, err
@@ -825,8 +830,8 @@ func (s *Store) GetAllTags() ([]string, error) {
 }
 
 // GetAllTagsWithCounts retrieves all tags and their usage counts, sorted by count descending.
-// For simple tags (e.g., 'photo'), it returns the aggregate count for the key (including 'photo:album1', etc.).
-// For key-value tags, it returns the count for that specific tag.
+// It always includes a row for each unique tag key (e.g. 'photo') with its aggregate count,
+// as well as rows for specific key-value tags (e.g. 'photo:album1').
 func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 	query := `
 		WITH key_counts AS (
@@ -840,25 +845,12 @@ func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 			GROUP BY
 				t.key
 		)
-		SELECT
-			tag_str,
-			final_count
-		FROM (
-			SELECT
-				CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str,
-				CASE
-					WHEN t.value != '' THEN t.files_count
-					ELSE kc.total_files
-				END AS final_count
-			FROM
-				tags t
-			LEFT JOIN
-				key_counts kc ON t.key = kc.key
-		)
-		WHERE
-			COALESCE(final_count, 0) > 0
-		ORDER BY
-			final_count DESC, tag_str ASC
+		SELECT key as tag_str, total_files as final_count FROM key_counts
+		UNION ALL
+		SELECT key || ':' || value as tag_str, files_count as final_count
+		FROM tags
+		WHERE value != '' AND files_count > 0
+		ORDER BY final_count DESC, tag_str ASC
 	`
 	rows, err := s.Query(query)
 	if err != nil {
