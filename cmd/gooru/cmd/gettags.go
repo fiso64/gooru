@@ -67,8 +67,11 @@ the output is a table of paths and their associated tags.`,
 					fmt.Fprintf(cmd.ErrOrStderr(), "error processing '%s': %v\n", filePath, err)
 					continue
 				}
-				if status == types.StatusModified {
+				switch status {
+				case types.StatusModified:
 					display.Warnf("'%s' has been modified. Tags for the previous version are not shown in the table.", filePath)
+				case types.StatusUntrackedContent:
+					display.Warnf("'%s' is an untracked location for known content. Its tags are shown.", filePath)
 				}
 				fileInfos = append(fileInfos, info)
 			}
@@ -85,20 +88,27 @@ the output is a table of paths and their associated tags.`,
 				return fmt.Errorf("error getting tags for '%s': %w", filePath, err)
 			}
 
-			if len(tags) == 0 {
-				switch status {
-				case types.StatusModified:
-					display.Warnf("'%s' has been modified. Tags for the previous version are not shown. Please re-tag the file to update it.", filePath)
-				case types.StatusNotInDB:
-					fmt.Printf("No tags found for '%s'. To track this file (especially if it was moved or renamed), use: 'gooru add \"%s\"'\n", filePath, filePath)
-				case types.StatusOK:
-					fmt.Printf("No tags found for '%s'.\n", filePath)
+			// Print tags first, if any were found.
+			if len(tags) > 0 {
+				for _, tag := range tags {
+					fmt.Println(tag)
 				}
-				return nil
 			}
 
-			for _, tag := range tags {
-				fmt.Println(tag)
+			// Then, print a helpful status message.
+			switch status {
+			case types.StatusModified:
+				display.Warnf("'%s' has been modified. Tags for the previous version are not shown. Please re-tag or rehash the file to update it.", filePath)
+			case types.StatusUntrackedContent:
+				display.Warnf("'%s' is an untracked location for known content. To track this path, run: 'gooru add \"%s\"'", filePath, filePath)
+			case types.StatusNotInDB:
+				if len(tags) == 0 { // This should always be true for NotInDB now, but check for safety.
+					fmt.Printf("No tags found for '%s'. To track this file, use: 'gooru add \"%s\"'\n", filePath, filePath)
+				}
+			case types.StatusOK:
+				if len(tags) == 0 {
+					fmt.Printf("No tags found for '%s'.\n", filePath)
+				}
 			}
 		}
 		return nil

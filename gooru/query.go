@@ -54,37 +54,50 @@ func (c *Client) GetTagsForFile(filePath string, useMetadataHeuristic bool) ([]s
 	}
 
 	dbInfo, err := c.store.GetLocationByPath(absPath)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// File exists on disk but not in DB.
-			return []string{}, types.StatusNotInDB, nil
-		}
+	if err != nil && err != sql.ErrNoRows {
 		return nil, 0, fmt.Errorf("database lookup failed: %w", err)
 	}
+	pathInDb := err != sql.ErrNoRows
 
-	// File is in DB, now check for modification.
-	isModified := false
+	// --- Heuristic Path (Path-Centric) ---
 	if useMetadataHeuristic {
+		if !pathInDb {
+			return []string{}, types.StatusNotInDB, nil
+		}
 		if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-			isModified = true
+			return []string{}, types.StatusModified, nil
 		}
-	} else {
-		currentHash, err := c.hasher.HashFile(absPath)
-		if err != nil {
-			return nil, 0, fmt.Errorf("could not hash file for verification: %w", err)
-		}
-		if currentHash != dbInfo.Hash {
-			isModified = true
-		}
+		tags, err := c.store.GetTagsForContent(dbInfo.Hash)
+		return tags, types.StatusOK, err
 	}
 
-	if isModified {
+	// --- Default Path (Content-Centric) ---
+	currentHash, err := c.hasher.HashFile(absPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("could not hash file for verification: %w", err)
+	}
+
+	if pathInDb {
+		if currentHash == dbInfo.Hash {
+			tags, err := c.store.GetTagsForContent(dbInfo.Hash)
+			return tags, types.StatusOK, err
+		}
+		// Path is known, but content has changed.
 		return []string{}, types.StatusModified, nil
 	}
 
-	// File is in DB and matches.
-	tags, err := c.store.GetTagsForContent(dbInfo.Hash)
-	return tags, types.StatusOK, err
+	// Path is not in DB. Check if the content is known.
+	tags, err := c.store.GetTagsForContent(currentHash)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to check for existing content: %w", err)
+	}
+
+	if len(tags) > 0 {
+		return tags, types.StatusUntrackedContent, nil
+	}
+
+	// Path and content are both unknown.
+	return []string{}, types.StatusNotInDB, nil
 }
 
 // CountFilesByQuery counts files matching a query expression.
@@ -221,47 +234,64 @@ func (c *Client) GetFileInfoForFile(filePath string, useMetadataHeuristic bool) 
 	}
 
 	dbInfo, err := c.store.GetLocationByPath(absPath)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// File exists on disk but not in DB.
-			return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusNotInDB, nil
-		}
+	if err != nil && err != sql.ErrNoRows {
 		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("database lookup failed: %w", err)
 	}
+	pathInDb := err != sql.ErrNoRows
 
-	// File is in DB, now check for modification.
-	isModified := false
+	// --- Heuristic Path (Path-Centric) ---
 	if useMetadataHeuristic {
+		if !pathInDb {
+			return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusNotInDB, nil
+		}
 		if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-			isModified = true
+			return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusModified, nil
 		}
-	} else {
-		currentHash, err := c.hasher.HashFile(absPath)
+		tags, err := c.store.GetTagsForContent(dbInfo.Hash)
 		if err != nil {
-			return types.FileInfo{Path: filePath}, 0, fmt.Errorf("could not hash file for verification: %w", err)
+			return types.FileInfo{Path: filePath}, 0, err
 		}
-		if currentHash != dbInfo.Hash {
-			isModified = true
-		}
+		return types.FileInfo{Path: filePath, Hash: dbInfo.Hash, Size: dbInfo.Size, ModTime: dbInfo.ModTime, Tags: tags}, types.StatusOK, nil
 	}
 
-	if isModified {
+	// --- Default Path (Content-Centric) ---
+	currentHash, err := c.hasher.HashFile(absPath)
+	if err != nil {
+		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("could not hash file for verification: %w", err)
+	}
+
+	if pathInDb {
+		if currentHash == dbInfo.Hash {
+			tags, err := c.store.GetTagsForContent(dbInfo.Hash)
+			if err != nil {
+				return types.FileInfo{Path: filePath}, 0, err
+			}
+			return types.FileInfo{Path: filePath, Hash: dbInfo.Hash, Size: dbInfo.Size, ModTime: dbInfo.ModTime, Tags: tags}, types.StatusOK, nil
+		}
+		// Path is known, but content has changed.
 		return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusModified, nil
 	}
 
-	var tags []string
-	if dbInfo.TagsCache != "" {
-		tags = strings.Split(dbInfo.TagsCache, " ")
+	// Path is not in DB. Check if the content is known.
+	tags, err := c.store.GetTagsForContent(currentHash)
+	if err != nil {
+		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("failed to check for existing content: %w", err)
 	}
 
-	// Matched, return full info.
-	return types.FileInfo{
-		Path:    filePath, // use original path for display
-		Hash:    dbInfo.Hash,
-		Size:    dbInfo.Size,
-		ModTime: dbInfo.ModTime,
+	fileInfo := types.FileInfo{
+		Path:    filePath,
+		Hash:    currentHash,
+		Size:    fsInfo.Size(),
+		ModTime: fsInfo.ModTime().Unix(),
 		Tags:    tags,
-	}, types.StatusOK, nil
+	}
+
+	if len(tags) > 0 {
+		return fileInfo, types.StatusUntrackedContent, nil
+	}
+
+	// Path and content are both unknown.
+	return fileInfo, types.StatusNotInDB, nil
 }
 
 // ListAllFiles lists all files known to the system.

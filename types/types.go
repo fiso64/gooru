@@ -20,6 +20,8 @@ const (
 	StatusModified
 	// StatusNotInDB means the file path is not in the database, though the file may exist on disk.
 	StatusNotInDB
+	// StatusUntrackedContent means the path is not in the DB, but the content is known.
+	StatusUntrackedContent
 )
 
 // RehashStatus indicates the result of a rehash operation for a single file.
