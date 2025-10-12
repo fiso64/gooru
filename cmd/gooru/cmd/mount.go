@@ -211,16 +211,31 @@ func resolveMountpoint(path string) (string, error) {
 	info, err := os.Stat(mountpoint)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if err := os.MkdirAll(mountpoint, 0755); err != nil {
-				return "", fmt.Errorf("failed to create mount point directory '%s': %w", mountpoint, err)
+			// On Windows, for a directory path, WinFsp-FUSE must create the mount point.
+			// Pre-creating it as a normal directory causes a "mount point in use" error.
+			// On other platforms, the directory must exist before mounting.
+			if runtime.GOOS != "windows" {
+				if err := os.MkdirAll(mountpoint, 0755); err != nil {
+					return "", fmt.Errorf("failed to create mount point directory '%s': %w", mountpoint, err)
+				}
 			}
+			// On Windows, if it doesn't exist, we do nothing and let FUSE handle it.
 		} else {
+			// Other error, e.g. permission denied.
 			return "", fmt.Errorf("failed to access mount point '%s': %w", mountpoint, err)
 		}
 	} else {
+		// Path exists.
 		if !info.IsDir() {
 			return "", fmt.Errorf("mount point '%s' is not a directory", mountpoint)
 		}
+
+		// On Windows, mounting to an existing directory is problematic. It's safer to require a non-existent path.
+		if runtime.GOOS == "windows" {
+			return "", fmt.Errorf("mount point '%s' already exists; on Windows, please specify a path that does not exist", mountpoint)
+		}
+
+		// On other platforms, we require the directory to be empty.
 		dir, err := os.Open(mountpoint)
 		if err != nil {
 			return "", fmt.Errorf("failed to open mount point directory for checking: %w", err)
