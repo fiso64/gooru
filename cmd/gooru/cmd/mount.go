@@ -22,8 +22,9 @@ import (
 	"gooru.local/cmd/gooru/config"
 	"gooru.local/cmd/gooru/display"
 	"gooru.local/gooru"
-	"gooru.local/types"
+	"gooru.local/internal/ipc"
 	"gooru.local/internal/mount"
+	"gooru.local/types"
 )
 
 var (
@@ -65,6 +66,12 @@ This feature requires a FUSE implementation to be installed on your system:
 		}
 		mountpoint = absMountpoint
 
+		// NEW: Before proceeding, health-check for any existing mount at this path.
+		// This will also clean up stale runtime files if a previous mount was killed.
+		if existingMount, err := ipc.FindMountByPath(mountpoint); err == nil {
+			return fmt.Errorf("mount point '%s' is already active (PID: %d)", mountpoint, existingMount.PID)
+		}
+
 		// 2. Setup IPC and runtime registration
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
@@ -88,10 +95,7 @@ This feature requires a FUSE implementation to be installed on your system:
 			ID:         mountID,
 		}
 
-		// Check for existing mount
-		if _, err := os.Stat(runtimeFile); err == nil {
-			return fmt.Errorf("mount point '%s' appears to be active already", mountpoint)
-		}
+
 
 		if err := writeRuntimeFile(runtimeFile, mountInfo); err != nil {
 			return fmt.Errorf("could not write runtime file: %w", err)
