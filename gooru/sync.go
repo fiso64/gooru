@@ -6,8 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"gooru.local/internal/relink"
 	"gooru.local/internal/scanning"
 	"gooru.local/types"
 )
@@ -162,7 +162,6 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 		return result, err
 	}
 
-	// --- Phase 1: Gather State ---
 	dbLocationsInScope, err := c.store.GetLocationsForDirs(absDirs)
 	if err != nil {
 		return result, fmt.Errorf("could not get in-scope db locations: %w", err)
@@ -172,100 +171,48 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 		return result, fmt.Errorf("could not build size-to-hash map: %w", err)
 	}
 	fsLocations, filesScanned := scanning.DirsConcurrently(absDirs, sizeToHashes, c.hasher)
-	result.Stats.FilesScanned = filesScanned
 
-	fsHashesOnDisk := make(map[string]types.LocationInfo)
-	for _, info := range fsLocations {
-		if _, ok := fsHashesOnDisk[info.Hash]; !ok {
-			fsHashesOnDisk[info.Hash] = info
-		}
+	fsHashes := uniqueHashes(fsLocations)
+	knownPathsByHash, err := c.store.BatchGetPathsForHashes(c.store, fsHashes)
+	if err != nil {
+		return result, fmt.Errorf("could not look up old paths for found content: %w", err)
 	}
 
-	// --- Phase 2: Find Deletions and Moves-Within-Scope ---
-	handledFsPaths := make(map[string]bool)
+	missingKnownPath := missingPaths(knownPathsByHash)
+	return relink.Plan(relink.PlanInput{
+		DBLocations:      dbLocationsInScope,
+		FSLocations:      fsLocations,
+		KnownPathsByHash: knownPathsByHash,
+		MissingKnownPath: missingKnownPath,
+		FilesScanned:     filesScanned,
+	}), nil
+}
 
-	for dbPath, dbInfo := range dbLocationsInScope {
-		fsInfo, pathExistsOnFs := fsLocations[dbPath]
+func uniqueHashes(locations map[string]types.LocationInfo) []string {
+	seen := make(map[string]struct{})
+	hashes := make([]string, 0, len(locations))
+	for _, loc := range locations {
+		if _, ok := seen[loc.Hash]; ok {
+			continue
+		}
+		seen[loc.Hash] = struct{}{}
+		hashes = append(hashes, loc.Hash)
+	}
+	return hashes
+}
 
-		if pathExistsOnFs {
-			if fsInfo.Hash == dbInfo.Hash {
-				// Case 1: Unchanged file.
-				handledFsPaths[dbPath] = true
-			} else {
-				// Case 2: Modified file. Treat as a deletion of the old record.
-				// The new file at this path will be handled in Phase 3.
-				var tags []string
-				if dbInfo.TagsCache != "" {
-					tags = strings.Split(dbInfo.TagsCache, " ")
-				}
-				result.ProposedDeletes = append(result.ProposedDeletes, types.FileInfo{
-					Path: dbPath, Size: dbInfo.Size, Tags: tags,
-				})
+func missingPaths(pathsByHash map[string][]string) map[string]bool {
+	missing := make(map[string]bool)
+	for _, paths := range pathsByHash {
+		for _, path := range paths {
+			if _, checked := missing[path]; checked {
+				continue
 			}
-		} else {
-			// Case 3: Path from DB is missing. Could be move-within-scope or deletion.
-			if newLocation, contentFoundOnFs := fsHashesOnDisk[dbInfo.Hash]; contentFoundOnFs {
-				result.ProposedMoves = append(result.ProposedMoves, types.MoveInfo{
-					OldPath:     dbPath,
-					NewLocation: newLocation,
-				})
-				handledFsPaths[newLocation.Path] = true
-				delete(fsHashesOnDisk, dbInfo.Hash) // Prevent re-use for another move
-			} else {
-				// Content not found anywhere in scanned dirs. Propose deletion.
-				var tags []string
-				if dbInfo.TagsCache != "" {
-					tags = strings.Split(dbInfo.TagsCache, " ")
-				}
-				result.ProposedDeletes = append(result.ProposedDeletes, types.FileInfo{
-					Path: dbPath, Size: dbInfo.Size, Tags: tags,
-				})
-			}
+			_, err := os.Stat(path)
+			missing[path] = os.IsNotExist(err)
 		}
 	}
-
-	// --- Phase 3: Find Moves-In and New Duplicates ---
-	unhandledHashes := make([]string, 0)
-	unhandledFsLocations := make(map[string]types.LocationInfo)
-	for fsPath, fsInfo := range fsLocations {
-		if !handledFsPaths[fsPath] {
-			unhandledHashes = append(unhandledHashes, fsInfo.Hash)
-			unhandledFsLocations[fsInfo.Hash] = fsInfo
-		}
-	}
-
-	if len(unhandledHashes) > 0 {
-		allOldPaths, err := c.store.BatchGetPathsForHashes(c.store, unhandledHashes)
-		if err != nil {
-			return result, fmt.Errorf("could not look up old paths for found content: %w", err)
-		}
-
-		for hash, fsInfo := range unhandledFsLocations {
-			oldPaths, contentWasKnown := allOldPaths[hash]
-			isMove := false
-			if contentWasKnown {
-				for _, oldPath := range oldPaths {
-					if _, ok := fsLocations[oldPath]; ok {
-						continue // Don't check against a path that's also in the current scan scope.
-					}
-					// Check if the old location is now empty. This is the key check for a move.
-					if _, err := os.Stat(oldPath); os.IsNotExist(err) {
-						result.ProposedMoves = append(result.ProposedMoves, types.MoveInfo{
-							OldPath:     oldPath,
-							NewLocation: fsInfo,
-						})
-						isMove = true
-						break // Found one missing old path, that's enough to classify it as a move.
-					}
-				}
-			}
-			if !isMove {
-				result.ProposedAdds = append(result.ProposedAdds, fsInfo)
-			}
-		}
-	}
-
-	return result, nil
+	return missing
 }
 
 // ApplyRelinkChanges executes the changes proposed by a Relink dry run.
@@ -281,16 +228,21 @@ func (c *Client) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSta
 	}
 	defer tx.Rollback()
 
-	// 1. Apply moves
+	deletePaths := relinkDeletePaths(changes.ProposedDeletes)
+	preDeletePaths := relinkTargetDeletePaths(changes, deletePaths)
+	removed, err := c.removeRelinkPathsTx(tx, preDeletePaths)
+	if err != nil {
+		return stats, err
+	}
+	stats.LocationsRemoved += removed
+
 	for _, move := range changes.ProposedMoves {
 		if err := c.store.UpdateMovedLocation(tx, move.OldPath, move.NewLocation); err != nil {
 			return stats, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", move.OldPath, move.NewLocation.Path, err)
 		}
 	}
-	// A move counts as an update. We'll add it to LocationsAdded for a combined stat.
 	stats.LocationsAdded += len(changes.ProposedMoves)
 
-	// 2. Apply additions
 	if len(changes.ProposedAdds) > 0 {
 		toAdd := make(map[string]types.LocationInfo)
 		for _, add := range changes.ProposedAdds {
@@ -304,24 +256,81 @@ func (c *Client) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSta
 		stats.LocationsAdded += addedCount
 	}
 
-	// 3. Apply deletions
-	if len(changes.ProposedDeletes) > 0 {
-		pathsToDelete := make([]string, len(changes.ProposedDeletes))
-		for i, del := range changes.ProposedDeletes {
-			pathsToDelete[i] = del.Path
-		}
-		removedCount, err := c.store.RemoveLocationsByPathTx(tx, pathsToDelete)
-		if err != nil {
-			return stats, fmt.Errorf("failed to apply deletions: %w", err)
-		}
-		stats.LocationsRemoved = removedCount
+	remainingDeletePaths := subtractPaths(deletePaths, preDeletePaths)
+	removed, err = c.removeRelinkPathsTx(tx, remainingDeletePaths)
+	if err != nil {
+		return stats, err
 	}
+	stats.LocationsRemoved += removed
 
 	if err := tx.Commit(); err != nil {
 		return stats, err
 	}
 
 	return stats, nil
+}
+
+func (c *Client) removeRelinkPathsTx(tx interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+}, paths []string) (int, error) {
+	removedCount, err := c.store.RemoveLocationsByPathTx(tx, paths)
+	if err != nil {
+		return 0, fmt.Errorf("failed to apply deletions: %w", err)
+	}
+	return removedCount, nil
+}
+
+func relinkDeletePaths(deletes []types.FileInfo) []string {
+	paths := make([]string, 0, len(deletes))
+	seen := make(map[string]bool)
+	for _, del := range deletes {
+		if seen[del.Path] {
+			continue
+		}
+		seen[del.Path] = true
+		paths = append(paths, del.Path)
+	}
+	return paths
+}
+
+func relinkTargetDeletePaths(changes types.RelinkResult, deletePaths []string) []string {
+	deleteSet := make(map[string]bool, len(deletePaths))
+	for _, path := range deletePaths {
+		deleteSet[path] = true
+	}
+
+	targets := make(map[string]bool)
+	for _, move := range changes.ProposedMoves {
+		targets[move.NewLocation.Path] = true
+	}
+	for _, add := range changes.ProposedAdds {
+		targets[add.Path] = true
+	}
+
+	paths := make([]string, 0)
+	for _, path := range deletePaths {
+		if deleteSet[path] && targets[path] {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+func subtractPaths(paths, remove []string) []string {
+	removeSet := make(map[string]bool, len(remove))
+	for _, path := range remove {
+		removeSet[path] = true
+	}
+
+	remaining := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if !removeSet[path] {
+			remaining = append(remaining, path)
+		}
+	}
+	return remaining
 }
 
 // PruneLocations removes a list of file paths from the database.
