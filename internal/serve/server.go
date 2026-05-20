@@ -9,14 +9,20 @@ import (
 )
 
 type Server struct {
-	cfg  Config
-	jobs *JobManager
+	cfg     Config
+	jobs    *JobManager
+	library Library
 }
 
 func NewServer(cfg Config) *Server {
+	return NewServerWithLibrary(cfg, nil)
+}
+
+func NewServerWithLibrary(cfg Config, library Library) *Server {
 	return &Server{
-		cfg:  cfg,
-		jobs: NewJobManager(64, cfg.Jobs.CompletedTTL),
+		cfg:     cfg,
+		jobs:    NewJobManager(64, cfg.Jobs.CompletedTTL),
+		library: library,
 	}
 }
 
@@ -33,6 +39,9 @@ func (s *Server) HTTPServer() *http.Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", methodHandler(http.MethodGet, s.handleHealth))
+	mux.Handle("/api/v1/files/", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleFile)))
+	mux.Handle("/api/v1/files", authMiddleware(s.cfg.Auth.Token, methodHandler(http.MethodGet, s.handleListFiles)))
+	mux.Handle("/api/v1/tags", authMiddleware(s.cfg.Auth.Token, methodHandler(http.MethodGet, s.handleListTags)))
 	mux.Handle("/api/v1/jobs/", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleJob)))
 	mux.HandleFunc("/", s.handleNotFound)
 

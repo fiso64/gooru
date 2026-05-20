@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"gooru.local/cmd/gooru/config"
+	"gooru.local/gooru"
 	"gooru.local/internal/serve"
 )
 
@@ -48,8 +49,16 @@ var serveCmd = &cobra.Command{
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		client, err := gooru.New(cfg.Database.Path, verbose)
+		if err != nil {
+			if err == gooru.ErrDBUninitialized {
+				return fmt.Errorf("database not initialized. Please run 'gooru init' first")
+			}
+			return fmt.Errorf("failed to initialize gooru client: %w", err)
+		}
+		defer client.Close()
 		fmt.Fprintf(cmd.ErrOrStderr(), "serving gooru on http://%s\n", cfg.Server.Listen)
-		return serve.NewServer(cfg).ListenAndServe(ctx)
+		return serve.NewServerWithLibrary(cfg, serve.NewGooruLibrary(client, verbose)).ListenAndServe(ctx)
 	},
 }
 
