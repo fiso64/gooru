@@ -1,7 +1,8 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
-  import { FileImage, KeyRound, RefreshCw, Search } from '@lucide/svelte';
+  import { KeyRound, RefreshCw, Search } from '@lucide/svelte';
   import { writable } from 'svelte/store';
+  import AuthenticatedThumbnail from '$lib/components/AuthenticatedThumbnail.svelte';
   import { ApiClient, ApiError } from '$lib/api/client';
   import { authToken } from '$lib/stores/auth';
   import type { FileItem } from '$lib/api/types';
@@ -19,7 +20,6 @@
   let extraFiles = $state<FileItem[]>([]);
   let nextPageToken = $state('');
   let loadingMore = $state(false);
-  let thumbnailErrors = $state<Record<string, boolean>>({});
 
   $effect(() => {
     tokenDraft = $authToken;
@@ -29,7 +29,6 @@
     if (filesQuery.data) {
       extraFiles = [];
       nextPageToken = filesQuery.data.next_page_token ?? '';
-      thumbnailErrors = {};
     }
   });
 
@@ -83,10 +82,6 @@
 
   function visibleFiles() {
     return [...(filesQuery.data?.files ?? []), ...extraFiles];
-  }
-
-  function thumbnailURL(file: FileItem) {
-    return `${file.media_urls.thumbnail}?size=256`;
   }
 </script>
 
@@ -195,21 +190,7 @@
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
             {#each visibleFiles() as file (file.id)}
               <article class="group overflow-hidden rounded-md border border-white/10 bg-white/[0.04] transition hover:border-emerald-300/50 hover:bg-white/[0.07]">
-                <div class="relative flex aspect-square items-center justify-center bg-black/30 text-zinc-500">
-                  {#if file.media_kind === 'image' && !thumbnailErrors[file.id]}
-                    <img
-                      class="h-full w-full object-cover"
-                      src={thumbnailURL(file)}
-                      alt=""
-                      loading="lazy"
-                      onerror={() => {
-                        thumbnailErrors = { ...thumbnailErrors, [file.id]: true };
-                      }}
-                    />
-                  {:else}
-                    <FileImage size={34} />
-                  {/if}
-                </div>
+                <AuthenticatedThumbnail {file} token={$authToken} size={256} />
                 <div class="space-y-2 p-3">
                   <h2 class="truncate text-sm font-semibold text-zinc-100" title={file.name}>{file.name}</h2>
                   <div class="flex items-center justify-between gap-2 text-xs text-zinc-400">
