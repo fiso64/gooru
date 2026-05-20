@@ -16,9 +16,21 @@
   }));
 
   let tokenDraft = $state('');
+  let extraFiles = $state<FileItem[]>([]);
+  let nextPageToken = $state('');
+  let loadingMore = $state(false);
+  let thumbnailErrors = $state<Record<string, boolean>>({});
 
   $effect(() => {
     tokenDraft = $authToken;
+  });
+
+  $effect(() => {
+    if (filesQuery.data) {
+      extraFiles = [];
+      nextPageToken = filesQuery.data.next_page_token ?? '';
+      thumbnailErrors = {};
+    }
   });
 
   function saveToken() {
@@ -27,6 +39,22 @@
 
   function submitSearch() {
     submittedSearch.set($searchDraft.trim());
+  }
+
+  async function loadMore() {
+    if (!$authToken || !nextPageToken || loadingMore) return;
+    loadingMore = true;
+    try {
+      const page = await new ApiClient($authToken).listFiles({
+        query: $submittedSearch,
+        limit: pageLimit,
+        pageToken: nextPageToken
+      });
+      extraFiles = [...extraFiles, ...page.files];
+      nextPageToken = page.next_page_token ?? '';
+    } finally {
+      loadingMore = false;
+    }
   }
 
   function formatBytes(size: number) {
@@ -51,6 +79,14 @@
       .sort((a, b) => b[1] - a[1])
       .map(([kind, count]) => `${kind} ${count}`)
       .join(' / ');
+  }
+
+  function visibleFiles() {
+    return [...(filesQuery.data?.files ?? []), ...extraFiles];
+  }
+
+  function thumbnailURL(file: FileItem) {
+    return `${file.media_urls.thumbnail}?size=256`;
   }
 </script>
 
@@ -121,10 +157,10 @@
             <div class="text-xs uppercase text-zinc-500">Status</div>
             <div class="mt-2 text-zinc-200">{$authToken ? 'Token saved' : 'Token required'}</div>
           </div>
-          {#if filesQuery.data?.files?.length}
+          {#if visibleFiles().length}
             <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
               <div class="text-xs uppercase text-zinc-500">Kinds</div>
-              <div class="mt-2 text-zinc-200">{selectedKind(filesQuery.data.files)}</div>
+              <div class="mt-2 text-zinc-200">{selectedKind(visibleFiles())}</div>
             </div>
           {/if}
         </div>
@@ -145,22 +181,34 @@
           <div class="rounded-md border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">
             {errorMessage(filesQuery.error)}
           </div>
-        {:else if !filesQuery.data?.files.length}
+        {:else if !visibleFiles().length}
           <div class="flex min-h-[22rem] items-center justify-center rounded-md border border-dashed border-white/15 bg-white/[0.03] p-8 text-center text-zinc-300">
             <p class="max-w-md text-sm leading-6">No files matched this query.</p>
           </div>
         {:else}
           <div class="mb-3 flex items-center justify-between gap-3 text-sm text-zinc-400">
-            <span>{filesQuery.data.files.length} files loaded</span>
-            {#if filesQuery.data.next_page_token}
+            <span>{visibleFiles().length} files loaded</span>
+            {#if nextPageToken}
               <span>More results available</span>
             {/if}
           </div>
           <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
-            {#each filesQuery.data.files as file (file.id)}
+            {#each visibleFiles() as file (file.id)}
               <article class="group overflow-hidden rounded-md border border-white/10 bg-white/[0.04] transition hover:border-emerald-300/50 hover:bg-white/[0.07]">
-                <div class="flex aspect-square items-center justify-center bg-black/30 text-zinc-500">
-                  <FileImage size={34} />
+                <div class="relative flex aspect-square items-center justify-center bg-black/30 text-zinc-500">
+                  {#if file.media_kind === 'image' && !thumbnailErrors[file.id]}
+                    <img
+                      class="h-full w-full object-cover"
+                      src={thumbnailURL(file)}
+                      alt=""
+                      loading="lazy"
+                      onerror={() => {
+                        thumbnailErrors = { ...thumbnailErrors, [file.id]: true };
+                      }}
+                    />
+                  {:else}
+                    <FileImage size={34} />
+                  {/if}
                 </div>
                 <div class="space-y-2 p-3">
                   <h2 class="truncate text-sm font-semibold text-zinc-100" title={file.name}>{file.name}</h2>
@@ -177,6 +225,18 @@
               </article>
             {/each}
           </div>
+          {#if nextPageToken}
+            <div class="mt-4 flex justify-center">
+              <button
+                class="rounded-md border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                disabled={loadingMore}
+                onclick={loadMore}
+              >
+                {loadingMore ? 'Loading' : 'Load more'}
+              </button>
+            </div>
+          {/if}
         {/if}
       </section>
     </section>
