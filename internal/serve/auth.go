@@ -11,13 +11,13 @@ func authMiddleware(token string, next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		const prefix = "Bearer "
 		header := r.Header.Get("Authorization")
-		if !strings.HasPrefix(header, prefix) {
+		scheme, credentials, ok := strings.Cut(header, " ")
+		if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(credentials) == "" {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token", nil)
 			return
 		}
-		got := strings.TrimSpace(strings.TrimPrefix(header, prefix))
+		got := strings.TrimSpace(credentials)
 		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "invalid bearer token", nil)
 			return

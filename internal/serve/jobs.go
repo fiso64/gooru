@@ -38,23 +38,29 @@ type Job struct {
 type JobFunc func(context.Context) (interface{}, error)
 
 type JobManager struct {
-	mu    sync.RWMutex
-	jobs  map[string]*Job
-	queue chan queuedJob
+	mu           sync.RWMutex
+	jobs         map[string]*Job
+	queue        chan queuedJob
+	completedTTL time.Duration
 }
 
 type queuedJob struct {
 	job *Job
+	ctx context.Context
 	run JobFunc
 }
 
-func NewJobManager(buffer int) *JobManager {
+func NewJobManager(buffer int, completedTTL time.Duration) *JobManager {
 	if buffer <= 0 {
 		buffer = 64
 	}
+	if completedTTL <= 0 {
+		completedTTL = time.Hour
+	}
 	m := &JobManager{
-		jobs:  make(map[string]*Job),
-		queue: make(chan queuedJob, buffer),
+		jobs:         make(map[string]*Job),
+		queue:        make(chan queuedJob, buffer),
+		completedTTL: completedTTL,
 	}
 	go m.worker()
 	return m
@@ -81,9 +87,12 @@ func (m *JobManager) Submit(ctx context.Context, typ string, async bool, run Job
 	m.mu.Unlock()
 
 	select {
-	case m.queue <- queuedJob{job: job, run: runWithRequestCancel(ctx, jobCtx, cancel, run)}:
+	case m.queue <- queuedJob{job: job, ctx: jobCtx, run: run}:
 	case <-ctx.Done():
 		cancel()
+		m.mu.Lock()
+		delete(m.jobs, job.ID)
+		m.mu.Unlock()
 		return nil, ctx.Err()
 	}
 
@@ -155,7 +164,7 @@ func (m *JobManager) run(item queuedJob) {
 	item.job.StartedAt = &started
 	m.mu.Unlock()
 
-	result, err := item.run(context.Background())
+	result, err := item.run(item.ctx)
 
 	finished := time.Now().UTC()
 	m.mu.Lock()
@@ -175,20 +184,23 @@ func (m *JobManager) run(item queuedJob) {
 	}
 	item.job.FinishedAt = &finished
 	close(item.job.done)
+	go m.expireCompleted(item.job.ID, finished, m.completedTTL)
 }
 
-func runWithRequestCancel(reqCtx context.Context, jobCtx context.Context, cancel context.CancelFunc, run JobFunc) JobFunc {
-	return func(context.Context) (interface{}, error) {
-		done := make(chan struct{})
-		go func() {
-			select {
-			case <-reqCtx.Done():
-				cancel()
-			case <-done:
-			}
-		}()
-		defer close(done)
-		return run(jobCtx)
+func (m *JobManager) expireCompleted(id string, finishedAt time.Time, ttl time.Duration) {
+	timer := time.NewTimer(ttl)
+	defer timer.Stop()
+	<-timer.C
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	job, ok := m.jobs[id]
+	if !ok || job.FinishedAt == nil || !job.FinishedAt.Equal(finishedAt) {
+		return
+	}
+	switch job.Status {
+	case JobCompleted, JobFailed, JobCanceled:
+		delete(m.jobs, id)
 	}
 }
 

@@ -43,8 +43,30 @@ func TestJobRoutesRequireBearerToken(t *testing.T) {
 	}
 }
 
+func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Token = "secret"
+	server := NewServer(cfg)
+	job, err := server.jobs.Submit(context.Background(), "test", true, func(ctx context.Context) (interface{}, error) {
+		return "ok", nil
+	})
+	if err != nil {
+		t.Fatalf("submit job: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/"+job.ID, nil)
+	req.Header.Set("Authorization", "bearer secret")
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestJobsRunSerially(t *testing.T) {
-	mgr := NewJobManager(2)
+	mgr := NewJobManager(2, time.Hour)
 	order := make(chan string, 2)
 	block := make(chan struct{})
 	first, err := mgr.Submit(context.Background(), "first", true, func(ctx context.Context) (interface{}, error) {
@@ -76,6 +98,77 @@ func TestJobsRunSerially(t *testing.T) {
 	}
 	waitForStatus(t, mgr, first.ID, JobCompleted)
 	waitForStatus(t, mgr, second.ID, JobCompleted)
+}
+
+func TestAsyncJobSurvivesSubmittingContextCancellation(t *testing.T) {
+	mgr := NewJobManager(2, time.Hour)
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	release := make(chan struct{})
+
+	job, err := mgr.Submit(reqCtx, "async", true, func(ctx context.Context) (interface{}, error) {
+		close(started)
+		<-release
+		return "ok", nil
+	})
+	if err != nil {
+		t.Fatalf("submit async job: %v", err)
+	}
+	<-started
+	cancelReq()
+	close(release)
+
+	waitForStatus(t, mgr, job.ID, JobCompleted)
+}
+
+func TestSyncJobCancelsWithSubmittingContext(t *testing.T) {
+	mgr := NewJobManager(2, time.Hour)
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := mgr.Submit(reqCtx, "sync", false, func(ctx context.Context) (interface{}, error) {
+			close(started)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		})
+		done <- err
+	}()
+
+	<-started
+	cancelReq()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected sync submit to return cancellation error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sync cancellation")
+	}
+}
+
+func TestCompletedJobsExpireAfterTTL(t *testing.T) {
+	mgr := NewJobManager(2, 20*time.Millisecond)
+	job, err := mgr.Submit(context.Background(), "short", true, func(ctx context.Context) (interface{}, error) {
+		return "ok", nil
+	})
+	if err != nil {
+		t.Fatalf("submit async job: %v", err)
+	}
+	waitForStatus(t, mgr, job.ID, JobCompleted)
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for completed job to expire")
+		default:
+			if _, ok := mgr.Get(job.ID); !ok {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }
 
 func TestPaginationTokensRoundTrip(t *testing.T) {

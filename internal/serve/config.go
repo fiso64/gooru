@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -122,7 +123,9 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 		if err != nil {
 			return Config{}, fmt.Errorf("read config %q: %w", path, err)
 		}
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
+		decoder := yaml.NewDecoder(bytes.NewReader(data))
+		decoder.KnownFields(true)
+		if err := decoder.Decode(&cfg); err != nil {
 			return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 		}
 	}

@@ -16,7 +16,7 @@ type Server struct {
 func NewServer(cfg Config) *Server {
 	return &Server{
 		cfg:  cfg,
-		jobs: NewJobManager(64),
+		jobs: NewJobManager(64, cfg.Jobs.CompletedTTL),
 	}
 }
 

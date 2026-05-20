@@ -95,6 +95,27 @@ func TestDefaultYAMLParses(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, `
+server:
+  listen: "127.0.0.1:5678"
+  typo_cors_origin: ["https://example.test"]
+database:
+  path: "/tmp/gooru.db"
+media:
+  thumbnail_sizes: [256]
+  thumbnail_format: "jpeg"
+  preview_size: 1280
+jobs:
+  completed_ttl: "1h"
+`)
+	_, err := LoadConfig(path, "", Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "field typo_cors_origin not found") {
+		t.Fatalf("expected unknown field error, got %v", err)
+	}
+}
+
 func writeConfig(t *testing.T, path string, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(strings.TrimSpace(body)+"\n"), 0600); err != nil {
