@@ -3,10 +3,13 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	core "gooru.local/gooru"
@@ -36,6 +39,33 @@ func TestBrowseRoutesRequireBearerToken(t *testing.T) {
 	NewServerWithLibrary(cfg, emptyLibrary{}).Handler().ServeHTTP(rec, req)
 
 	assertAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
+}
+
+func TestBrowseInvalidQueryReturnsBadRequest(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Token = "secret"
+	rec := httptest.NewRecorder()
+	req := authedRequest(http.MethodGet, "/api/v1/files?query=(")
+	library := errorLibrary{listFilesErr: fmt.Errorf("%w: could not parse query", core.ErrInvalidQuery)}
+
+	NewServerWithLibrary(cfg, library).Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_query")
+}
+
+func TestBrowseServiceErrorReturnsInternalError(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Token = "secret"
+	rec := httptest.NewRecorder()
+	req := authedRequest(http.MethodGet, "/api/v1/files")
+	library := errorLibrary{listFilesErr: errors.New("database exploded")}
+
+	NewServerWithLibrary(cfg, library).Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusInternalServerError, "internal_error")
+	if strings.Contains(rec.Body.String(), "database exploded") {
+		t.Fatalf("internal error leaked service details: %s", rec.Body.String())
+	}
 }
 
 func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
@@ -198,5 +228,21 @@ func (emptyLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) 
 }
 
 func (emptyLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+	return nil, nil
+}
+
+type errorLibrary struct {
+	listFilesErr error
+}
+
+func (l errorLibrary) ListFiles(_ context.Context, _ string) ([]types.FileInfo, error) {
+	return nil, l.listFilesErr
+}
+
+func (errorLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) {
+	return types.FileInfo{}, ErrNotFound
+}
+
+func (errorLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
 	return nil, nil
 }

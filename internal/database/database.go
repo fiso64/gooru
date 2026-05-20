@@ -693,7 +693,7 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 		file.Tags = splitTags(tagsCache)
 		files = append(files, file)
 	}
-	return files, nil
+	return files, rows.Err()
 }
 
 // GetFileInfoByLocationID retrieves detailed info for one tracked file location.

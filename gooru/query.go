@@ -2,6 +2,7 @@ package gooru
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +11,10 @@ import (
 	"gooru.local/types"
 )
 
+// ErrInvalidQuery marks query parse and validation errors that callers can
+// safely present as client input failures.
+var ErrInvalidQuery = errors.New("invalid query")
+
 // buildQuery is a helper to parse an expression, gather tag statistics, and build an optimized SQL subquery.
 func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 	if strings.TrimSpace(expression) == "" {
@@ -17,11 +22,11 @@ func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 	}
 	ast, err := query.Parse(expression)
 	if err != nil {
-		return "", nil, fmt.Errorf("could not parse query: %w", err)
+		return "", nil, fmt.Errorf("%w: could not parse query: %v", ErrInvalidQuery, err)
 	}
 
 	if err := query.ValidateAST(ast); err != nil {
-		return "", nil, fmt.Errorf("invalid tag in query: %w", err)
+		return "", nil, fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
 	}
 
 	// NEW: Intelligently build query using tag counts for optimization.

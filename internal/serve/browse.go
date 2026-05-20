@@ -127,7 +127,11 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	files, err := s.library.ListFiles(r.Context(), r.URL.Query().Get("query"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
+		if errors.Is(err, core.ErrInvalidQuery) {
+			writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list files", nil)
 		return
 	}
 
