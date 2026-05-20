@@ -79,6 +79,129 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /files/{id}/thumbnail:
+    get:
+      summary: Get a cacheable thumbnail for a tracked file.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Requested thumbnail size. Must be one of the configured thumbnail_sizes values.
+      responses:
+        "200":
+          description: Thumbnail image derivative.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Gooru-Cache:
+              schema:
+                type: string
+                enum: [hit, miss]
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+  /files/{id}/preview:
+    get:
+      summary: Get a cacheable preview derivative for a tracked file.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Preview image derivative.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Gooru-Cache:
+              schema:
+                type: string
+                enum: [hit, miss]
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+  /files/{id}/content:
+    get:
+      summary: Stream original content for a tracked file.
+      description: Supports HTTP range requests for browser audio and video seeking.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+          example: bytes=0-1048575
+      responses:
+        "200":
+          description: Full original file content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Partial original file content.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /tags:
     get:
       summary: List known tags.
@@ -163,6 +286,12 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     NotFound:
       description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    UnsupportedMedia:
+      description: The requested media derivative cannot be generated for this file.
       content:
         application/json:
           schema:

@@ -12,6 +12,7 @@ type Server struct {
 	cfg     Config
 	jobs    *JobManager
 	library Library
+	media   *MediaService
 }
 
 func NewServer(cfg Config) *Server {
@@ -23,6 +24,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		cfg:     cfg,
 		jobs:    NewJobManager(64, cfg.Jobs.CompletedTTL),
 		library: library,
+		media:   NewMediaService(cfg),
 	}
 }
 

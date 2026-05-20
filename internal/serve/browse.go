@@ -161,8 +161,9 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file library is not configured", nil)
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/api/v1/files/")
-	if id == "" || strings.Contains(id, "/") {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/files/")
+	parts := strings.Split(rest, "/")
+	if len(parts) == 0 || parts[0] == "" || len(parts) > 2 {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
 	}
@@ -171,7 +172,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	locationID, err := DecodeFileID(id)
+	locationID, err := DecodeFileID(parts[0])
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
@@ -183,6 +184,19 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load file", nil)
+		return
+	}
+	if len(parts) == 2 {
+		switch parts[1] {
+		case "content":
+			s.media.ServeContent(w, r, file)
+		case "thumbnail":
+			s.media.ServeDerivative(w, r, file, "thumbnail")
+		case "preview":
+			s.media.ServeDerivative(w, r, file, "preview")
+		default:
+			writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, s.fileDTO(file))
