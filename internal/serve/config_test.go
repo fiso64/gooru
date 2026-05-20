@@ -18,6 +18,9 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Uploads.Enabled {
 		t.Fatal("uploads should default disabled until a directory is configured")
 	}
+	if cfg.Server.ExposePaths {
+		t.Fatal("server.expose_paths should default false")
+	}
 	if cfg.Jobs.CompletedTTL == 0 {
 		t.Fatal("completed TTL was not parsed")
 	}

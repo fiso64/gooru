@@ -30,6 +30,7 @@ type ServerConfig struct {
 	Listen              string        `yaml:"listen"`
 	PublicURL           string        `yaml:"public_url"`
 	CORSOrigins         []string      `yaml:"cors_origins"`
+	ExposePaths         bool          `yaml:"expose_paths"`
 	MaxRequestBodyBytes int64         `yaml:"max_request_body_bytes"`
 	ReadTimeout         time.Duration `yaml:"-"`
 	WriteTimeout        time.Duration `yaml:"-"`
