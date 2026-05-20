@@ -1,3 +1,5 @@
+//go:build fuse
+
 package mount
 
 import (
@@ -29,15 +31,15 @@ type GooruVFS struct {
 	baseQuery      string
 	isLive         bool
 	isHierarchical bool
-	initialFiles   []types.FileInfo          // Used for root dir cache in hierarchical, and full cache in flat
-	stateMu        sync.RWMutex              // Protects all query/file state
+	initialFiles   []types.FileInfo // Used for root dir cache in hierarchical, and full cache in flat
+	stateMu        sync.RWMutex     // Protects all query/file state
 
 	// Flat Mode State
 	flatVirtualFiles map[string]types.FileInfo
 
 	// Hierarchical Mode State & Performance Cache
-	dirCache  map[string]dirContents // A short-lived cache to optimize Getattr/Open calls that follow a Readdir.
-	cacheMu   sync.Mutex             // Protects dirCache
+	dirCache map[string]dirContents // A short-lived cache to optimize Getattr/Open calls that follow a Readdir.
+	cacheMu  sync.Mutex             // Protects dirCache
 
 	fileMode       uint32
 	dirMode        uint32

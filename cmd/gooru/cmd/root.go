@@ -22,7 +22,7 @@ var (
 		Long:  `Gooru is a CLI tool for tagging local files. It uses content hashing to track files, so tags are stable across renames and moves.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// The 'init' command is special: it creates the DB and must run before a client can be initialized.
-			if cmd.Name() == "init" {
+			if cmd.Name() == "init" || cmd.Name() == "serve" {
 				return nil
 			}
 
