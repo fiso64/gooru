@@ -43,6 +43,29 @@ func TestJobRoutesRequireBearerToken(t *testing.T) {
 	}
 }
 
+func TestAPIMethodErrorsUseJSONEnvelope(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/health", nil)
+
+	NewServer(cfg).Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusMethodNotAllowed, "method_not_allowed")
+	if got := rec.Header().Get("Allow"); got != http.MethodGet {
+		t.Fatalf("expected Allow GET, got %q", got)
+	}
+}
+
+func TestAPIPathErrorsUseJSONEnvelope(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/missing", nil)
+
+	NewServer(cfg).Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusNotFound, "not_found")
+}
+
 func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Auth.Token = "secret"
@@ -148,6 +171,89 @@ func TestSyncJobCancelsWithSubmittingContext(t *testing.T) {
 	}
 }
 
+func TestCancelPendingJobSkipsRun(t *testing.T) {
+	mgr := NewJobManager(2, time.Hour)
+	block := make(chan struct{})
+	firstStarted := make(chan struct{})
+	ranCanceled := make(chan struct{}, 1)
+
+	first, err := mgr.Submit(context.Background(), "first", true, func(ctx context.Context) (interface{}, error) {
+		close(firstStarted)
+		<-block
+		return "first-result", nil
+	})
+	if err != nil {
+		t.Fatalf("submit first: %v", err)
+	}
+	<-firstStarted
+
+	second, err := mgr.Submit(context.Background(), "second", true, func(ctx context.Context) (interface{}, error) {
+		ranCanceled <- struct{}{}
+		return "second-result", nil
+	})
+	if err != nil {
+		t.Fatalf("submit second: %v", err)
+	}
+	if _, ok := mgr.Cancel(second.ID); !ok {
+		t.Fatal("expected pending job to be cancelable")
+	}
+
+	close(block)
+	waitForStatus(t, mgr, first.ID, JobCompleted)
+	waitForStatus(t, mgr, second.ID, JobCanceled)
+	select {
+	case <-ranCanceled:
+		t.Fatal("canceled pending job ran")
+	default:
+	}
+}
+
+func TestSyncPendingJobCanceledByRequestContextSkipsRun(t *testing.T) {
+	mgr := NewJobManager(2, time.Hour)
+	block := make(chan struct{})
+	firstStarted := make(chan struct{})
+	ranCanceled := make(chan struct{}, 1)
+
+	first, err := mgr.Submit(context.Background(), "first", true, func(ctx context.Context) (interface{}, error) {
+		close(firstStarted)
+		<-block
+		return "first-result", nil
+	})
+	if err != nil {
+		t.Fatalf("submit first: %v", err)
+	}
+	<-firstStarted
+
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := mgr.Submit(reqCtx, "second", false, func(ctx context.Context) (interface{}, error) {
+			ranCanceled <- struct{}{}
+			return "second-result", nil
+		})
+		done <- err
+	}()
+	second := waitForJobType(t, mgr, "second")
+	cancelReq()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected sync submit cancellation error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sync submit to return")
+	}
+
+	close(block)
+	waitForStatus(t, mgr, first.ID, JobCompleted)
+	waitForStatus(t, mgr, second.ID, JobCanceled)
+	select {
+	case <-ranCanceled:
+		t.Fatal("request-canceled pending sync job ran")
+	default:
+	}
+}
+
 func TestCompletedJobsExpireAfterTTL(t *testing.T) {
 	mgr := NewJobManager(2, 20*time.Millisecond)
 	job, err := mgr.Submit(context.Background(), "short", true, func(ctx context.Context) (interface{}, error) {
@@ -208,5 +314,44 @@ func waitForStatus(t *testing.T, mgr *JobManager, id string, status JobStatus) {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
+	}
+}
+
+func waitForJobType(t *testing.T, mgr *JobManager, typ string) *Job {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for job type %s", typ)
+		default:
+			mgr.mu.RLock()
+			for _, job := range mgr.jobs {
+				if job.Type == typ {
+					cp := cloneJob(job)
+					mgr.mu.RUnlock()
+					return cp
+				}
+			}
+			mgr.mu.RUnlock()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
+	t.Helper()
+	if rec.Code != status {
+		t.Fatalf("expected status %d, got %d: %s", status, rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("expected JSON content type, got %q", got)
+	}
+	var body ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid error JSON: %v", err)
+	}
+	if body.Error.Code != code {
+		t.Fatalf("expected error code %q, got %q", code, body.Error.Code)
 	}
 }

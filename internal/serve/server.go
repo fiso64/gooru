@@ -32,9 +32,8 @@ func (s *Server) HTTPServer() *http.Server {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
-	mux.Handle("GET /api/v1/jobs/{id}", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleGetJob)))
-	mux.Handle("DELETE /api/v1/jobs/{id}", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleCancelJob)))
+	mux.HandleFunc("/api/v1/health", methodHandler(http.MethodGet, s.handleHealth))
+	mux.Handle("/api/v1/jobs/", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleJob)))
 	mux.HandleFunc("/", s.handleNotFound)
 
 	var h http.Handler = mux
@@ -75,8 +74,24 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/jobs/")
+	if id == "" || strings.Contains(id, "/") {
+		writeError(w, http.StatusNotFound, "not_found", "job not found", nil)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetJob(w, r, id)
+	case http.MethodDelete:
+		s.handleCancelJob(w, r, id)
+	default:
+		w.Header().Set("Allow", "GET, DELETE")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+	}
+}
+
+func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request, id string) {
 	job, ok := s.jobs.Get(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "not_found", "job not found", nil)
@@ -85,8 +100,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, job)
 }
 
-func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request, id string) {
 	job, ok := s.jobs.Cancel(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "not_found", "job not found", nil)
@@ -112,4 +126,15 @@ func PreferAsync(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+func methodHandler(method string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != method {
+			w.Header().Set("Allow", method)
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+			return
+		}
+		next(w, r)
+	}
 }

@@ -54,6 +54,87 @@ logging:
 	}
 }
 
+func TestLoadConfigAuthTokenOverrideHasFinalPrecedence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, `
+server:
+  listen: "0.0.0.0:5678"
+database:
+  path: "/tmp/gooru.db"
+auth:
+  token_env: "GOORU_MISSING_TOKEN"
+media:
+  thumbnail_sizes: [256]
+  thumbnail_format: "jpeg"
+  preview_size: 1280
+jobs:
+  completed_ttl: "30m"
+`)
+	cfg, err := LoadConfig(path, "", Overrides{AuthToken: " cli-token "})
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.Auth.Token != "cli-token" {
+		t.Fatalf("token override was not trimmed/applied last: %q", cfg.Auth.Token)
+	}
+	if cfg.Auth.TokenEnv != "" {
+		t.Fatalf("token_env should be cleared by explicit override, got %q", cfg.Auth.TokenEnv)
+	}
+}
+
+func TestLoadConfigRejectsConflictingTokenSources(t *testing.T) {
+	t.Setenv("GOORU_TEST_TOKEN", "env-token")
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, `
+server:
+  listen: "127.0.0.1:5678"
+database:
+  path: "/tmp/gooru.db"
+auth:
+  token: "direct-token"
+  token_env: "GOORU_TEST_TOKEN"
+media:
+  thumbnail_sizes: [256]
+  thumbnail_format: "jpeg"
+  preview_size: 1280
+jobs:
+  completed_ttl: "30m"
+`)
+	_, err := LoadConfig(path, "", Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "configure only one auth token source") {
+		t.Fatalf("expected token source conflict error, got %v", err)
+	}
+}
+
+func TestLoadConfigRejectsBlankDirectToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, `
+server:
+  listen: "127.0.0.1:5678"
+database:
+  path: "/tmp/gooru.db"
+auth:
+  token: "   "
+media:
+  thumbnail_sizes: [256]
+  thumbnail_format: "jpeg"
+  preview_size: 1280
+jobs:
+  completed_ttl: "30m"
+`)
+	_, err := LoadConfig(path, "", Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "auth.token must not be blank") {
+		t.Fatalf("expected blank token error, got %v", err)
+	}
+}
+
+func TestLoadConfigRejectsBlankTokenOverride(t *testing.T) {
+	_, err := LoadConfig("", filepath.Join(t.TempDir(), "gooru.db"), Overrides{AuthToken: "  "})
+	if err == nil || !strings.Contains(err.Error(), "auth token override must not be blank") {
+		t.Fatalf("expected blank override error, got %v", err)
+	}
+}
+
 func TestLoadConfigRejectsNonLoopbackWithoutAuth(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "serve.yaml")
 	writeConfig(t, path, `

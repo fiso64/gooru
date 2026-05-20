@@ -111,7 +111,7 @@ func (m *JobManager) Submit(ctx context.Context, typ string, async bool, run Job
 		}
 		return snapshot, nil
 	case <-ctx.Done():
-		cancel()
+		m.cancelJob(job)
 		return nil, ctx.Err()
 	}
 }
@@ -141,8 +141,38 @@ func (m *JobManager) Cancel(id string) (*Job, bool) {
 	if !ok {
 		return nil, false
 	}
-	job.cancel()
+	m.cancelJob(job)
 	return m.clone(job.ID), true
+}
+
+func (m *JobManager) cancelJob(job *Job) {
+	if job == nil {
+		return
+	}
+
+	finished := time.Now().UTC()
+	var cancel context.CancelFunc
+	var expire bool
+	m.mu.Lock()
+	switch job.Status {
+	case JobPending:
+		job.Status = JobCanceled
+		job.Error = "job canceled"
+		job.FinishedAt = &finished
+		close(job.done)
+		cancel = job.cancel
+		expire = true
+	case JobRunning:
+		cancel = job.cancel
+	}
+	m.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if expire {
+		go m.expireCompleted(job.ID, finished, m.completedTTL)
+	}
 }
 
 func (m *JobManager) clone(id string) *Job {
@@ -160,6 +190,10 @@ func (m *JobManager) worker() {
 func (m *JobManager) run(item queuedJob) {
 	started := time.Now().UTC()
 	m.mu.Lock()
+	if item.job.Status == JobCanceled {
+		m.mu.Unlock()
+		return
+	}
 	item.job.Status = JobRunning
 	item.job.StartedAt = &started
 	m.mu.Unlock()

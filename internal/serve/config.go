@@ -136,15 +136,22 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 	if overrides.PublicURL != "" {
 		cfg.Server.PublicURL = overrides.PublicURL
 	}
-	if overrides.AuthToken != "" {
-		cfg.Auth.Token = overrides.AuthToken
-	}
 	if overrides.DatabasePath != "" {
 		cfg.Database.Path = overrides.DatabasePath
 	}
 
-	if err := cfg.ResolveSecrets(); err != nil {
-		return Config{}, err
+	if overrides.AuthToken != "" {
+		token, err := normalizeToken("auth token override", overrides.AuthToken)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.Auth.Token = token
+		cfg.Auth.TokenEnv = ""
+		cfg.Auth.TokenFile = ""
+	} else {
+		if err := cfg.ResolveSecrets(); err != nil {
+			return Config{}, err
+		}
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -153,6 +160,24 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 }
 
 func (cfg *Config) ResolveSecrets() error {
+	sources := 0
+	if cfg.Auth.Token != "" {
+		token, err := normalizeToken("auth.token", cfg.Auth.Token)
+		if err != nil {
+			return err
+		}
+		cfg.Auth.Token = token
+		sources++
+	}
+	if cfg.Auth.TokenEnv != "" {
+		sources++
+	}
+	if cfg.Auth.TokenFile != "" {
+		sources++
+	}
+	if sources > 1 {
+		return errors.New("configure only one auth token source: auth.token, auth.token_env, or auth.token_file")
+	}
 	if cfg.Auth.TokenEnv != "" {
 		value, ok := os.LookupEnv(cfg.Auth.TokenEnv)
 		if !ok || strings.TrimSpace(value) == "" {
@@ -172,6 +197,14 @@ func (cfg *Config) ResolveSecrets() error {
 		cfg.Auth.Token = token
 	}
 	return nil
+}
+
+func normalizeToken(name string, value string) (string, error) {
+	token := strings.TrimSpace(value)
+	if token == "" {
+		return "", fmt.Errorf("%s must not be blank", name)
+	}
+	return token, nil
 }
 
 func (cfg *Config) Validate() error {
