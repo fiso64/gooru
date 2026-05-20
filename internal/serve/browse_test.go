@@ -100,6 +100,28 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	}
 }
 
+func TestBrowseFilesCanExposePathsWhenConfigured(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+	server.cfg.Server.ExposePaths = true
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/files?query=kind:image&limit=1"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var page FileListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(page.Files) != 1 {
+		t.Fatalf("expected one file, got %d", len(page.Files))
+	}
+	if page.Files[0].Path == "" {
+		t.Fatal("expected path when server.expose_paths is true")
+	}
+}
+
 func TestListTagsWithCounts(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)
 	defer cleanup()
