@@ -31,6 +31,7 @@ type ServerConfig struct {
 	PublicURL           string        `yaml:"public_url"`
 	CORSOrigins         []string      `yaml:"cors_origins"`
 	ExposePaths         bool          `yaml:"expose_paths"`
+	FrontendDir         string        `yaml:"frontend_dir"`
 	MaxRequestBodyBytes int64         `yaml:"max_request_body_bytes"`
 	ReadTimeout         time.Duration `yaml:"-"`
 	WriteTimeout        time.Duration `yaml:"-"`
@@ -91,6 +92,7 @@ func DefaultConfig(dbPath string) Config {
 	return Config{
 		Server: ServerConfig{
 			Listen:              DefaultListenAddress,
+			FrontendDir:         "frontend/build",
 			MaxRequestBodyBytes: 32 << 20,
 			ReadTimeout:         15 * time.Second,
 			WriteTimeout:        30 * time.Second,

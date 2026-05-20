@@ -21,6 +21,9 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Server.ExposePaths {
 		t.Fatal("server.expose_paths should default false")
 	}
+	if cfg.Server.FrontendDir == "" {
+		t.Fatal("server.frontend_dir should point at the static frontend build by default")
+	}
 	if cfg.Jobs.CompletedTTL == 0 {
 		t.Fatal("completed TTL was not parsed")
 	}

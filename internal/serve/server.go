@@ -43,7 +43,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/files", authMiddleware(s.cfg.Auth.Token, methodHandler(http.MethodGet, s.handleListFiles)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg.Auth.Token, methodHandler(http.MethodGet, s.handleListTags)))
 	mux.Handle("/api/v1/jobs/", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleJob)))
-	mux.HandleFunc("/", s.handleNotFound)
+	mux.HandleFunc("/", s.handleFrontend)
 
 	var h http.Handler = mux
 	h = requestSizeMiddleware(s.cfg.Server.MaxRequestBodyBytes, h)
