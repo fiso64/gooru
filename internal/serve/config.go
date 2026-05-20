@@ -239,8 +239,8 @@ func (cfg *Config) Validate() error {
 	if cfg.Media.PreviewSize <= 0 {
 		errs = append(errs, errors.New("media.preview_size must be greater than zero"))
 	}
-	if cfg.Media.ThumbnailFormat != "jpeg" && cfg.Media.ThumbnailFormat != "png" && cfg.Media.ThumbnailFormat != "webp" {
-		errs = append(errs, errors.New("media.thumbnail_format must be one of: jpeg, png, webp"))
+	if cfg.Media.ThumbnailFormat != "jpeg" && cfg.Media.ThumbnailFormat != "png" {
+		errs = append(errs, errors.New("media.thumbnail_format must be one of: jpeg, png"))
 	}
 	if cfg.Jobs.CompletedTTLRaw == "" {
 		cfg.Jobs.CompletedTTLRaw = "1h"

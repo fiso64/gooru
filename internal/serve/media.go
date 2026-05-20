@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "image/gif"
@@ -58,6 +59,8 @@ func (GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format 
 type MediaService struct {
 	cfg         Config
 	thumbnailer Thumbnailer
+	cacheMu     sync.Mutex
+	cacheLocks  map[string]*sync.Mutex
 }
 
 func NewMediaService(cfg Config) *MediaService {
@@ -99,6 +102,13 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 		m.serveCachedDerivative(w, r, cachePath, format)
 		return
 	}
+	unlock := m.lockCachePath(cachePath)
+	defer unlock()
+	if _, err := os.Stat(cachePath); err == nil {
+		w.Header().Set("X-Gooru-Cache", "hit")
+		m.serveCachedDerivative(w, r, cachePath, format)
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0700); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare media cache", nil)
 		return
@@ -127,6 +137,22 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	}
 	w.Header().Set("X-Gooru-Cache", "miss")
 	m.serveCachedDerivative(w, r, cachePath, format)
+}
+
+func (m *MediaService) lockCachePath(path string) func() {
+	m.cacheMu.Lock()
+	if m.cacheLocks == nil {
+		m.cacheLocks = make(map[string]*sync.Mutex)
+	}
+	lock := m.cacheLocks[path]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		m.cacheLocks[path] = lock
+	}
+	m.cacheMu.Unlock()
+
+	lock.Lock()
+	return lock.Unlock
 }
 
 func (m *MediaService) derivativeSize(r *http.Request, kind string) (int, error) {

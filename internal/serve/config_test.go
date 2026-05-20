@@ -170,6 +170,15 @@ func TestLoadConfigRejectsEnabledUploadsWithoutDirectory(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsUnsupportedThumbnailFormat(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Media.ThumbnailFormat = "webp"
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "media.thumbnail_format must be one of: jpeg, png") {
+		t.Fatalf("expected thumbnail format validation error, got %v", err)
+	}
+}
+
 func TestDefaultYAMLParses(t *testing.T) {
 	data, err := DefaultYAML(filepath.Join(t.TempDir(), "gooru.db"))
 	if err != nil {

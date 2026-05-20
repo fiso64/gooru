@@ -6,11 +6,15 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"gooru.local/types"
 )
@@ -71,6 +75,49 @@ func TestThumbnailRouteGeneratesAndCaches(t *testing.T) {
 	}
 }
 
+func TestThumbnailRouteSerializesConcurrentCacheMisses(t *testing.T) {
+	imagePath := writePNGImage(t)
+	server := newMediaTestServer(t, types.FileInfo{ID: 8, Path: imagePath, Hash: "hash-concurrent", Size: 100})
+	thumbnailer := &blockingThumbnailer{
+		delegate: GoImageThumbnailer{},
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+	server.media.thumbnailer = thumbnailer
+
+	var wg sync.WaitGroup
+	codes := make(chan int, 2)
+	request := func() {
+		defer wg.Done()
+		rec := httptest.NewRecorder()
+		req := authedRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(8)+"/thumbnail?size=16")
+		server.Handler().ServeHTTP(rec, req)
+		codes <- rec.Code
+	}
+
+	wg.Add(1)
+	go request()
+	select {
+	case <-thumbnailer.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first thumbnail request did not start generation")
+	}
+	wg.Add(1)
+	go request()
+	close(thumbnailer.release)
+	wg.Wait()
+	close(codes)
+
+	for code := range codes {
+		if code != http.StatusOK {
+			t.Fatalf("expected concurrent thumbnail request to succeed, got %d", code)
+		}
+	}
+	if got := thumbnailer.calls.Load(); got != 1 {
+		t.Fatalf("expected one thumbnail generation, got %d", got)
+	}
+}
+
 func newMediaTestServer(t *testing.T, file types.FileInfo) *Server {
 	t.Helper()
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
@@ -127,4 +174,25 @@ func (l mediaLibrary) GetFile(_ context.Context, id int64) (types.FileInfo, erro
 
 func (mediaLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
 	return nil, nil
+}
+
+type blockingThumbnailer struct {
+	delegate Thumbnailer
+	started  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+	calls    atomic.Int32
+}
+
+func (t *blockingThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
+	t.calls.Add(1)
+	t.once.Do(func() {
+		close(t.started)
+		<-t.release
+	})
+	return t.delegate.Thumbnail(src, dst, size, format)
+}
+
+func (t *blockingThumbnailer) BackendVersion() string {
+	return "blocking-" + t.delegate.BackendVersion()
 }
