@@ -22,6 +22,84 @@ paths:
                   status:
                     type: string
                     enum: [ok]
+  /files:
+    get:
+      summary: List tracked files for browser grids.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: page_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Page of tracked files.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /files/{id}:
+    get:
+      summary: Get one tracked file by opaque file ID.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tracked file details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/File"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /tags:
+    get:
+      summary: List known tags.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: counts
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Tags, optionally with counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /jobs/{id}:
     get:
       summary: Get an asynchronous job.
@@ -77,6 +155,12 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     NotFound:
       description: Resource not found.
       content:
@@ -124,3 +208,79 @@ components:
         result: {}
         error:
           type: string
+    FileListResponse:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/File"
+        next_page_token:
+          type: string
+    File:
+      type: object
+      required:
+        - id
+        - content_id
+        - name
+        - size
+        - modified_time
+        - media_type
+        - media_kind
+        - tags
+        - media_urls
+      properties:
+        id:
+          type: string
+          description: Opaque stable file-location identifier.
+        content_id:
+          type: string
+          description: Content hash for the tracked file.
+        name:
+          type: string
+        path:
+          type: string
+        size:
+          type: integer
+          format: int64
+        modified_time:
+          type: string
+          format: date-time
+        media_type:
+          type: string
+        media_kind:
+          type: string
+          enum: [image, video, audio, other]
+        tags:
+          type: array
+          items:
+            type: string
+        media_urls:
+          $ref: "#/components/schemas/MediaURLs"
+    MediaURLs:
+      type: object
+      required: [thumbnail, preview, content]
+      properties:
+        thumbnail:
+          type: string
+        preview:
+          type: string
+        content:
+          type: string
+    TagListResponse:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+    Tag:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
