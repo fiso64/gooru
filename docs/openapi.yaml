@@ -202,6 +202,120 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /files/tags:
+    post:
+      summary: Add tags to selected files.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PreferAsync"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagMutationRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/TagMutation"
+        "202":
+          $ref: "#/components/responses/AsyncJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Replace tags on selected files.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PreferAsync"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagMutationRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/TagMutation"
+        "202":
+          $ref: "#/components/responses/AsyncJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Remove tags from selected files.
+      description: If tags is empty, all tags are removed from the selected files.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PreferAsync"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagMutationRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/TagMutation"
+        "202":
+          $ref: "#/components/responses/AsyncJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /uploads:
+    post:
+      summary: Upload files into a configured upload directory and import them.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PreferAsync"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                directory:
+                  type: string
+                  description: Configured upload directory name. Defaults to the first configured directory.
+                tags:
+                  type: string
+                  description: Space- or comma-separated initial tags.
+      responses:
+        "200":
+          description: Synchronous upload/import result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadImportResponse"
+        "202":
+          $ref: "#/components/responses/AsyncJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
   /tags:
     get:
       summary: List known tags.
@@ -267,6 +381,15 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 components:
+  parameters:
+    PreferAsync:
+      name: Prefer
+      in: header
+      required: false
+      schema:
+        type: string
+        enum: [respond-async]
+      description: Set to respond-async to enqueue the mutation and poll the returned job.
   securitySchemes:
     bearerAuth:
       type: http
@@ -284,12 +407,36 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Request is not allowed by server configuration.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PayloadTooLarge:
+      description: Request body or uploaded file is too large.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     NotFound:
       description: Resource not found.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
+    TagMutation:
+      description: Aggregate tag mutation result.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TagMutationResponse"
+    AsyncJob:
+      description: Mutation was queued as an asynchronous job.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Job"
     UnsupportedMedia:
       description: The requested media derivative cannot be generated for this file.
       content:
@@ -310,6 +457,100 @@ components:
             message:
               type: string
             details: {}
+    TagMutationRequest:
+      type: object
+      required: [tags]
+      properties:
+        file_ids:
+          type: array
+          items:
+            type: string
+          description: Opaque file IDs. Exactly one of file_ids or query must be provided.
+        query:
+          type: string
+          description: Query selector. Exactly one of file_ids or query must be provided.
+        tags:
+          type: array
+          items:
+            type: string
+        verbose:
+          type: boolean
+          default: false
+    TagMutationResponse:
+      type: object
+      required: [operation, selector, affected_count]
+      properties:
+        operation:
+          type: string
+          enum: [add, set, remove]
+        selector:
+          type: object
+          properties:
+            file_ids:
+              type: array
+              items:
+                type: string
+            query:
+              type: string
+        matched_files:
+          type: integer
+        affected_count:
+          type: integer
+        notifications:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                enum: [move_detected, modified, unknown]
+              original_path:
+                type: string
+              old_path:
+                type: string
+              new_path:
+                type: string
+              orphaned_tags:
+                type: array
+                items:
+                  type: string
+    UploadImportResponse:
+      type: object
+      required: [files, affected_count]
+      properties:
+        files:
+          type: array
+          items:
+            type: object
+            required: [name, size]
+            properties:
+              name:
+                type: string
+              size:
+                type: integer
+                format: int64
+        affected_count:
+          type: integer
+        notifications:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                enum: [move_detected, modified, unknown]
+              original_path:
+                type: string
+              old_path:
+                type: string
+              new_path:
+                type: string
+              orphaned_tags:
+                type: array
+                items:
+                  type: string
     Job:
       type: object
       required: [id, type, status, submitted_at]

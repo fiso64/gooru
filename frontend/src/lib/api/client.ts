@@ -1,4 +1,4 @@
-import type { ApiErrorResponse, FileListResponse } from './types';
+import type { ApiErrorResponse, FileListResponse, Job, TagMutationOperation, TagMutationRequest, TagMutationResponse, UploadImportResponse } from './types';
 
 export class ApiError extends Error {
   code: string;
@@ -35,12 +35,43 @@ export class ApiClient {
     return this.request<FileListResponse>(url.pathname + url.search);
   }
 
-  private async request<T>(path: string): Promise<T> {
+  async mutateTags(operation: TagMutationOperation, body: TagMutationRequest): Promise<TagMutationResponse> {
+    const method = operation === 'add' ? 'POST' : operation === 'set' ? 'PUT' : 'DELETE';
+    return this.request<TagMutationResponse>(`${this.baseURL}/files/tags`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+
+  async uploadFiles(files: File[], tags: string[] = [], preferAsync = true): Promise<Job | UploadImportResponse> {
+    const form = new FormData();
+    for (const file of files) form.append('files', file, file.name);
+    if (tags.length) form.append('tags', tags.join(' '));
+    return this.request<Job | UploadImportResponse>(`${this.baseURL}/uploads`, {
+      method: 'POST',
+      headers: preferAsync ? { Prefer: 'respond-async' } : undefined,
+      body: form
+    });
+  }
+
+  async getJob(id: string): Promise<Job> {
+    return this.request<Job>(`${this.baseURL}/jobs/${id}`);
+  }
+
+  async cancelJob(id: string): Promise<Job> {
+    return this.request<Job>(`${this.baseURL}/jobs/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const headers = new Headers(init.headers);
+    headers.set('Accept', 'application/json');
+    headers.set('Authorization', `Bearer ${this.token}`);
     const response = await fetch(path, {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${this.token}`
-      }
+      ...init,
+      headers
     });
     if (!response.ok) {
       let payload: ApiErrorResponse | undefined;

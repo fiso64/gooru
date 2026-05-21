@@ -22,6 +22,39 @@ export interface FileListResponse {
   next_page_token?: string;
 }
 
+export type TagMutationOperation = 'add' | 'set' | 'remove';
+
+export interface TagMutationRequest {
+  file_ids?: string[];
+  query?: string;
+  tags: string[];
+  verbose?: boolean;
+}
+
+export interface TagMutationResponse {
+  operation: TagMutationOperation;
+  selector: {
+    file_ids?: string[];
+    query?: string;
+  };
+  matched_files?: number;
+  affected_count: number;
+}
+
+export interface Job {
+  id: string;
+  type: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+  progress?: number;
+  result?: unknown;
+  error?: string;
+}
+
+export interface UploadImportResponse {
+  files: Array<{ name: string; size: number }>;
+  affected_count: number;
+}
+
 export interface ApiErrorResponse {
   error: {
     code: string;

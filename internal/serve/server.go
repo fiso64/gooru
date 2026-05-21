@@ -41,6 +41,8 @@ func (s *Server) HTTPServer() *http.Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", methodHandler(http.MethodGet, s.handleHealth))
+	mux.Handle("/api/v1/uploads", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleUpload)))
+	mux.Handle("/api/v1/files/tags", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleMutateTags)))
 	mux.Handle("/api/v1/files/", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleFile)))
 	mux.Handle("/api/v1/files", authMiddleware(s.cfg.Auth.Token, methodHandler(http.MethodGet, s.handleListFiles)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg.Auth.Token, methodHandler(http.MethodGet, s.handleListTags)))

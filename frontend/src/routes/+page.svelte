@@ -1,11 +1,11 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
-  import { KeyRound, RefreshCw, Search } from '@lucide/svelte';
+  import { Check, KeyRound, Minus, Plus, RefreshCw, Search, Upload } from '@lucide/svelte';
   import { writable } from 'svelte/store';
   import AuthenticatedThumbnail from '$lib/components/AuthenticatedThumbnail.svelte';
   import { ApiClient, ApiError } from '$lib/api/client';
   import { authToken } from '$lib/stores/auth';
-  import type { FileItem } from '$lib/api/types';
+  import type { FileItem, Job } from '$lib/api/types';
 
   const searchDraft = writable('');
   const submittedSearch = writable('');
@@ -20,6 +20,23 @@
   let extraFiles = $state<FileItem[]>([]);
   let nextPageToken = $state('');
   let loadingMore = $state(false);
+  let tagDrafts = $state<Record<string, string>>({});
+  let tagBusy = $state<Record<string, boolean>>({});
+  let tagErrors = $state<Record<string, string>>({});
+  let uploadFiles = $state<File[]>([]);
+  let uploadTags = $state('');
+  let uploadBusy = $state(false);
+  let cancelBusy = $state(false);
+  let uploadStatus = $state('');
+  let activeUploadJobID = $state('');
+  let handledUploadJobID = $state('');
+
+  const uploadJobQuery = createQuery(() => ({
+    queryKey: ['job', activeUploadJobID],
+    enabled: Boolean($authToken && activeUploadJobID),
+    queryFn: () => new ApiClient($authToken).getJob(activeUploadJobID),
+    refetchInterval: 700
+  }));
 
   $effect(() => {
     tokenDraft = $authToken;
@@ -29,6 +46,30 @@
     if (filesQuery.data) {
       extraFiles = [];
       nextPageToken = filesQuery.data.next_page_token ?? '';
+    }
+  });
+
+  $effect(() => {
+    const job = uploadJobQuery.data;
+    if (!job || job.id === handledUploadJobID) return;
+    uploadStatus = jobStatusText(job);
+    if (isTerminalJob(job)) {
+      handledUploadJobID = job.id;
+      activeUploadJobID = '';
+      if (job.status === 'completed') {
+        const result = job.result as { files?: unknown[] } | undefined;
+        uploadStatus = `Imported ${result?.files?.length ?? 0} file(s)`;
+        uploadFiles = [];
+        uploadTags = '';
+        void filesQuery.refetch();
+      }
+    }
+  });
+
+  $effect(() => {
+    if (uploadJobQuery.isError && activeUploadJobID) {
+      uploadStatus = errorMessage(uploadJobQuery.error);
+      activeUploadJobID = '';
     }
   });
 
@@ -82,6 +123,93 @@
 
   function visibleFiles() {
     return [...(filesQuery.data?.files ?? []), ...extraFiles];
+  }
+
+  function parseTags(value: string) {
+    return value
+      .split(/[\s,]+/)
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+
+  function isTerminalJob(job: Job) {
+    return job.status === 'completed' || job.status === 'failed' || job.status === 'canceled';
+  }
+
+  function jobStatusText(job: Job) {
+    if (job.status === 'pending') return 'Queued';
+    if (job.status === 'running') return 'Importing';
+    if (job.status === 'completed') return 'Completed';
+    if (job.status === 'canceled') return 'Canceled';
+    return job.error ?? 'Upload failed';
+  }
+
+  function updateTagDraft(fileID: string, value: string) {
+    tagDrafts = { ...tagDrafts, [fileID]: value };
+  }
+
+  async function mutateFileTags(file: FileItem, operation: 'add' | 'set' | 'remove') {
+    const tags = parseTags(tagDrafts[file.id] ?? '');
+    if (!tags.length) return;
+    tagBusy = { ...tagBusy, [file.id]: true };
+    tagErrors = { ...tagErrors, [file.id]: '' };
+    try {
+      await new ApiClient($authToken).mutateTags(operation, { file_ids: [file.id], tags });
+      tagDrafts = { ...tagDrafts, [file.id]: '' };
+      await filesQuery.refetch();
+    } catch (error) {
+      tagErrors = { ...tagErrors, [file.id]: errorMessage(error) };
+    } finally {
+      tagBusy = { ...tagBusy, [file.id]: false };
+    }
+  }
+
+  function selectUploads(files: FileList | null) {
+    uploadFiles = files ? Array.from(files) : [];
+    uploadStatus = '';
+  }
+
+  async function submitUpload() {
+    if (!uploadFiles.length || uploadBusy || activeUploadJobID || !$authToken) return;
+    uploadBusy = true;
+    uploadStatus = 'Uploading';
+    try {
+      const client = new ApiClient($authToken);
+      const response = await client.uploadFiles(uploadFiles, parseTags(uploadTags), true);
+      if ('id' in response) {
+        handledUploadJobID = '';
+        activeUploadJobID = response.id;
+        uploadStatus = 'Queued';
+      } else {
+        uploadStatus = `Imported ${response.files.length} file(s)`;
+        uploadFiles = [];
+        uploadTags = '';
+        await filesQuery.refetch();
+      }
+    } catch (error) {
+      uploadStatus = errorMessage(error);
+    } finally {
+      uploadBusy = false;
+    }
+  }
+
+  async function cancelUploadJob() {
+    if (!activeUploadJobID || cancelBusy || !$authToken) return;
+    cancelBusy = true;
+    try {
+      const job = await new ApiClient($authToken).cancelJob(activeUploadJobID);
+      uploadStatus = jobStatusText(job);
+      if (isTerminalJob(job)) {
+        handledUploadJobID = job.id;
+        activeUploadJobID = '';
+      } else {
+        await uploadJobQuery.refetch();
+      }
+    } catch (error) {
+      uploadStatus = errorMessage(error);
+    } finally {
+      cancelBusy = false;
+    }
   }
 </script>
 
@@ -158,6 +286,49 @@
               <div class="mt-2 text-zinc-200">{selectedKind(visibleFiles())}</div>
             </div>
           {/if}
+          <form class="rounded-md border border-white/10 bg-white/[0.03] p-3" onsubmit={(event) => { event.preventDefault(); submitUpload(); }}>
+            <div class="mb-2 flex items-center gap-2 text-xs uppercase text-zinc-500">
+              <Upload size={14} />
+              <span>Upload</span>
+            </div>
+            <input
+              class="block w-full text-xs text-zinc-300 file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-zinc-100"
+              type="file"
+              multiple
+              onchange={(event) => selectUploads(event.currentTarget.files)}
+            />
+            <input
+              class="mt-2 w-full rounded border border-white/10 bg-black/20 px-2 py-1.5 text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
+              bind:value={uploadTags}
+              placeholder="initial tags"
+            />
+            <button
+              class="mt-2 w-full rounded-md border border-emerald-400/30 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+              type="submit"
+              disabled={!uploadFiles.length || uploadBusy || Boolean(activeUploadJobID)}
+            >
+              {uploadBusy ? uploadStatus : activeUploadJobID ? 'Import running' : `Import ${uploadFiles.length || ''}`.trim()}
+            </button>
+            {#if activeUploadJobID}
+              <div class="mt-2 rounded border border-emerald-400/20 bg-emerald-500/10 p-2 text-xs text-emerald-50" role="status">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="min-w-0 truncate">{uploadStatus || 'Queued'}</span>
+                  <button
+                    class="rounded border border-white/10 px-2 py-1 text-[11px] text-zinc-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    type="button"
+                    disabled={cancelBusy}
+                    onclick={cancelUploadJob}
+                  >
+                    {cancelBusy ? 'Canceling' : 'Cancel'}
+                  </button>
+                </div>
+                <div class="mt-1 truncate text-[11px] text-emerald-100/70">{activeUploadJobID}</div>
+              </div>
+            {/if}
+            {#if uploadStatus && !uploadBusy && !activeUploadJobID}
+              <p class="mt-2 text-xs text-zinc-300">{uploadStatus}</p>
+            {/if}
+          </form>
         </div>
       </aside>
 
@@ -201,6 +372,51 @@
                     {#each file.tags.slice(0, 3) as tag}
                       <span class="max-w-full truncate rounded border border-white/10 bg-black/20 px-1.5 py-0.5 text-[11px] text-zinc-300">{tag}</span>
                     {/each}
+                  </div>
+                  <div class="border-t border-white/10 pt-2">
+                    <label class="sr-only" for={`tags-${file.id}`}>Tags for {file.name}</label>
+                    <input
+                      id={`tags-${file.id}`}
+                      class="w-full rounded border border-white/10 bg-black/20 px-2 py-1.5 text-xs text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-emerald-300/60"
+                      value={tagDrafts[file.id] ?? ''}
+                      placeholder="tag:value"
+                      oninput={(event) => updateTagDraft(file.id, event.currentTarget.value)}
+                    />
+                    <div class="mt-2 grid grid-cols-3 gap-1">
+                      <button
+                        class="flex h-8 items-center justify-center rounded border border-white/10 bg-white/10 text-zinc-100 transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        type="button"
+                        title="Add tags"
+                        aria-label={`Add tags to ${file.name}`}
+                        disabled={!parseTags(tagDrafts[file.id] ?? '').length || tagBusy[file.id]}
+                        onclick={() => mutateFileTags(file, 'add')}
+                      >
+                        <Plus size={15} />
+                      </button>
+                      <button
+                        class="flex h-8 items-center justify-center rounded border border-white/10 bg-white/10 text-zinc-100 transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        type="button"
+                        title="Set tags"
+                        aria-label={`Set tags on ${file.name}`}
+                        disabled={!parseTags(tagDrafts[file.id] ?? '').length || tagBusy[file.id]}
+                        onclick={() => mutateFileTags(file, 'set')}
+                      >
+                        <Check size={15} />
+                      </button>
+                      <button
+                        class="flex h-8 items-center justify-center rounded border border-white/10 bg-white/10 text-zinc-100 transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        type="button"
+                        title="Remove tags"
+                        aria-label={`Remove tags from ${file.name}`}
+                        disabled={!parseTags(tagDrafts[file.id] ?? '').length || tagBusy[file.id]}
+                        onclick={() => mutateFileTags(file, 'remove')}
+                      >
+                        <Minus size={15} />
+                      </button>
+                    </div>
+                    {#if tagErrors[file.id]}
+                      <p class="mt-2 text-xs text-red-200">{tagErrors[file.id]}</p>
+                    {/if}
                   </div>
                 </div>
               </article>
