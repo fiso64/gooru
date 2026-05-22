@@ -20,3 +20,6 @@ npm run build
 ```
 
 The static output is written to `frontend/build`. `gooru serve` serves that directory by default through `server.frontend_dir`.
+
+See [../docs/SERVE.md](../docs/SERVE.md) for the full runtime configuration and
+deployment notes.

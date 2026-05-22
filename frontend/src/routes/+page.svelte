@@ -1,25 +1,34 @@
 <script lang="ts">
-  import { createQuery } from '@tanstack/svelte-query';
-  import { Check, KeyRound, Minus, Plus, RefreshCw, Search, Upload } from '@lucide/svelte';
+  import { createInfiniteQuery, createQuery } from '@tanstack/svelte-query';
+  import { Check, ExternalLink, KeyRound, Minus, Plus, RefreshCw, Search, Upload, X } from '@lucide/svelte';
+  import { onMount } from 'svelte';
   import { writable } from 'svelte/store';
   import AuthenticatedThumbnail from '$lib/components/AuthenticatedThumbnail.svelte';
   import { ApiClient, ApiError } from '$lib/api/client';
   import { authToken } from '$lib/stores/auth';
-  import type { FileItem, Job } from '$lib/api/types';
+  import type { FileItem, FileListResponse, Job } from '$lib/api/types';
 
   const searchDraft = writable('');
   const submittedSearch = writable('');
   const pageLimit = 36;
-  const filesQuery = createQuery(() => ({
+  const filesQuery = createInfiniteQuery<FileListResponse, Error, { pages: FileListResponse[]; pageParams: string[] }, [string, string], string>(() => ({
     queryKey: ['files', $submittedSearch],
     enabled: Boolean($authToken),
-    queryFn: () => new ApiClient($authToken).listFiles({ query: $submittedSearch, limit: pageLimit })
+    initialPageParam: '',
+    queryFn: ({ pageParam }) =>
+      new ApiClient($authToken).listFiles({
+        query: $submittedSearch,
+        limit: pageLimit,
+        pageToken: pageParam || undefined
+      }),
+    getNextPageParam: (lastPage) => lastPage.next_page_token || undefined
   }));
 
   let tokenDraft = $state('');
-  let extraFiles = $state<FileItem[]>([]);
-  let nextPageToken = $state('');
-  let loadingMore = $state(false);
+  let loadMoreSentinel = $state<HTMLDivElement | undefined>();
+  let viewportHeight = $state(900);
+  let viewportWidth = $state(1200);
+  let scrollY = $state(0);
   let tagDrafts = $state<Record<string, string>>({});
   let tagBusy = $state<Record<string, boolean>>({});
   let tagErrors = $state<Record<string, string>>({});
@@ -30,6 +39,10 @@
   let uploadStatus = $state('');
   let activeUploadJobID = $state('');
   let handledUploadJobID = $state('');
+  let activeFile = $state<FileItem | null>(null);
+  let previewURL = $state('');
+  let previewLoading = $state(false);
+  let previewError = $state('');
 
   const uploadJobQuery = createQuery(() => ({
     queryKey: ['job', activeUploadJobID],
@@ -42,11 +55,34 @@
     tokenDraft = $authToken;
   });
 
+  onMount(() => {
+    const updateViewport = () => {
+      viewportHeight = window.innerHeight;
+      viewportWidth = window.innerWidth;
+      scrollY = window.scrollY;
+    };
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    window.addEventListener('scroll', updateViewport, { passive: true });
+    return () => {
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('scroll', updateViewport);
+    };
+  });
+
   $effect(() => {
-    if (filesQuery.data) {
-      extraFiles = [];
-      nextPageToken = filesQuery.data.next_page_token ?? '';
-    }
+    const node = loadMoreSentinel;
+    if (!node || !$authToken) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting) && filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) {
+          void filesQuery.fetchNextPage();
+        }
+      },
+      { rootMargin: '900px 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
   });
 
   $effect(() => {
@@ -73,28 +109,53 @@
     }
   });
 
+  $effect(() => {
+    const file = activeFile;
+    const token = $authToken;
+    previewURL = '';
+    previewError = '';
+    if (!file || !token) {
+      previewLoading = false;
+      return;
+    }
+
+    let objectURL = '';
+    let canceled = false;
+    const controller = new AbortController();
+    previewLoading = true;
+    fetch(file.media_urls.preview, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`preview request failed: ${response.status}`);
+        return response.blob();
+      })
+      .then((blob) => {
+        if (canceled) return;
+        objectURL = URL.createObjectURL(blob);
+        previewURL = objectURL;
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) previewError = errorMessage(error);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) previewLoading = false;
+      });
+
+    return () => {
+      canceled = true;
+      controller.abort();
+      if (objectURL) URL.revokeObjectURL(objectURL);
+    };
+  });
+
   function saveToken() {
     authToken.set(tokenDraft.trim());
   }
 
   function submitSearch() {
     submittedSearch.set($searchDraft.trim());
-  }
-
-  async function loadMore() {
-    if (!$authToken || !nextPageToken || loadingMore) return;
-    loadingMore = true;
-    try {
-      const page = await new ApiClient($authToken).listFiles({
-        query: $submittedSearch,
-        limit: pageLimit,
-        pageToken: nextPageToken
-      });
-      extraFiles = [...extraFiles, ...page.files];
-      nextPageToken = page.next_page_token ?? '';
-    } finally {
-      loadingMore = false;
-    }
   }
 
   function formatBytes(size: number) {
@@ -122,7 +183,32 @@
   }
 
   function visibleFiles() {
-    return [...(filesQuery.data?.files ?? []), ...extraFiles];
+    return filesQuery.data?.pages.flatMap((page) => page.files) ?? [];
+  }
+
+  function gridColumns() {
+    if (viewportWidth >= 1536) return 8;
+    if (viewportWidth >= 1280) return 6;
+    if (viewportWidth >= 1024) return 4;
+    if (viewportWidth >= 640) return 3;
+    return 2;
+  }
+
+  function virtualGrid(files: FileItem[]) {
+    const columns = gridColumns();
+    const rowHeight = viewportWidth >= 1024 ? 432 : viewportWidth >= 640 ? 392 : 352;
+    const overscanRows = 4;
+    const totalRows = Math.ceil(files.length / columns);
+    const startRow = Math.max(0, Math.floor((scrollY - 260) / rowHeight) - overscanRows);
+    const visibleRows = Math.ceil(viewportHeight / rowHeight) + overscanRows * 2;
+    const endRow = Math.min(totalRows, startRow + visibleRows);
+    const startIndex = startRow * columns;
+    const endIndex = Math.min(files.length, endRow * columns);
+    return {
+      files: files.slice(startIndex, endIndex),
+      totalHeight: totalRows * rowHeight,
+      offsetTop: startRow * rowHeight
+    };
   }
 
   function parseTags(value: string) {
@@ -142,6 +228,18 @@
     if (job.status === 'completed') return 'Completed';
     if (job.status === 'canceled') return 'Canceled';
     return job.error ?? 'Upload failed';
+  }
+
+  function openPreview(file: FileItem) {
+    activeFile = file;
+  }
+
+  function closePreview() {
+    activeFile = null;
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && activeFile) closePreview();
   }
 
   function updateTagDraft(fileID: string, value: string) {
@@ -212,6 +310,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <svelte:head>
   <title>Gooru Library</title>
@@ -352,17 +452,31 @@
             <p class="max-w-md text-sm leading-6">No files matched this query.</p>
           </div>
         {:else}
+          {@const files = visibleFiles()}
+          {@const virtual = virtualGrid(files)}
           <div class="mb-3 flex items-center justify-between gap-3 text-sm text-zinc-400">
-            <span>{visibleFiles().length} files loaded</span>
-            {#if nextPageToken}
-              <span>More results available</span>
+            <span>{files.length} files loaded</span>
+            {#if filesQuery.hasNextPage}
+              <span>{filesQuery.isFetchingNextPage ? 'Loading more' : 'Scroll for more results'}</span>
             {/if}
           </div>
-          <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
-            {#each visibleFiles() as file (file.id)}
-              <article class="group overflow-hidden rounded-md border border-white/10 bg-white/[0.04] transition hover:border-emerald-300/50 hover:bg-white/[0.07]">
-                <AuthenticatedThumbnail {file} token={$authToken} size={256} />
-                <div class="space-y-2 p-3">
+          <div class="relative" style={`height: ${virtual.totalHeight}px;`}>
+            <div
+              class="absolute inset-x-0 top-0 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8"
+              data-testid="virtual-media-grid"
+              style={`transform: translateY(${virtual.offsetTop}px);`}
+            >
+	            {#each virtual.files as file (file.id)}
+	              <article class="group flex min-h-[21.5rem] flex-col overflow-hidden rounded-md border border-white/10 bg-white/[0.04] transition hover:border-emerald-300/50 hover:bg-white/[0.07] sm:min-h-[24rem] lg:min-h-[26rem]">
+	                <button
+	                  class="block w-full text-left"
+	                  type="button"
+	                  aria-label={`Preview ${file.name}`}
+	                  onclick={() => openPreview(file)}
+	                >
+	                  <AuthenticatedThumbnail {file} token={$authToken} size={256} />
+	                </button>
+	                <div class="space-y-2 p-3">
                   <h2 class="truncate text-sm font-semibold text-zinc-100" title={file.name}>{file.name}</h2>
                   <div class="flex items-center justify-between gap-2 text-xs text-zinc-400">
                     <span>{file.media_kind}</span>
@@ -421,21 +535,91 @@
                 </div>
               </article>
             {/each}
+            </div>
           </div>
-          {#if nextPageToken}
-            <div class="mt-4 flex justify-center">
-              <button
-                class="rounded-md border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-60"
-                type="button"
-                disabled={loadingMore}
-                onclick={loadMore}
-              >
-                {loadingMore ? 'Loading' : 'Load more'}
-              </button>
+          {#if filesQuery.hasNextPage || filesQuery.isFetchingNextPage}
+            <div bind:this={loadMoreSentinel} class="mt-4 flex min-h-12 items-center justify-center text-sm text-zinc-400" data-testid="infinite-scroll-sentinel">
+              {filesQuery.isFetchingNextPage ? 'Loading more results' : 'More results available'}
             </div>
           {/if}
         {/if}
-      </section>
-    </section>
-  </div>
-</main>
+	      </section>
+	    </section>
+	  </div>
+    {#if activeFile}
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm sm:p-6" role="presentation">
+        <button class="absolute inset-0 cursor-default" type="button" aria-label="Close preview" onclick={closePreview}></button>
+        <div
+	        class="relative z-10 flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-md border border-white/10 bg-zinc-950 shadow-2xl shadow-black/60"
+	        role="dialog"
+	        aria-modal="true"
+	        aria-labelledby="preview-title"
+	      >
+	        <header class="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+	          <div class="min-w-0">
+	            <h2 id="preview-title" class="truncate text-base font-semibold text-white">{activeFile.name}</h2>
+	            <p class="mt-1 truncate text-xs text-zinc-400">{activeFile.media_kind} / {formatBytes(activeFile.size)}</p>
+	          </div>
+	          <div class="flex shrink-0 items-center gap-2">
+            <a
+              class="inline-flex h-9 w-9 items-center justify-center rounded border border-white/10 text-zinc-200 transition hover:bg-white/10"
+              href={activeFile.media_urls.content}
+              target="_blank"
+              rel="noreferrer"
+              title="Open original"
+              aria-label={`Open original ${activeFile.name}`}
+            >
+              <ExternalLink size={16} />
+            </a>
+	            <button
+	              class="inline-flex h-9 w-9 items-center justify-center rounded border border-white/10 text-zinc-200 transition hover:bg-white/10"
+	              type="button"
+	              title="Close preview"
+	              aria-label="Close preview"
+	              onclick={closePreview}
+	            >
+	              <X size={17} />
+	            </button>
+	          </div>
+	        </header>
+	        <div class="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_18rem]">
+	          <div class="flex min-h-[18rem] items-center justify-center bg-black p-3 sm:p-5">
+	            {#if previewLoading}
+	              <div class="h-16 w-16 rounded-md border border-white/10 bg-white/[0.06]"></div>
+	            {:else if previewError}
+	              <div class="max-w-md rounded border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">{previewError}</div>
+            {:else if previewURL}
+              <img class="max-h-[72vh] max-w-full object-contain" src={previewURL} alt={activeFile.name} />
+            {/if}
+	          </div>
+	          <aside class="overflow-y-auto border-t border-white/10 p-4 lg:border-l lg:border-t-0">
+	            <div class="space-y-4 text-sm">
+	              <div>
+	                <div class="text-xs uppercase text-zinc-500">Content id</div>
+	                <div class="mt-1 break-all font-mono text-xs text-zinc-300">{activeFile.content_id}</div>
+	              </div>
+	              <div class="grid grid-cols-2 gap-3">
+	                <div>
+	                  <div class="text-xs uppercase text-zinc-500">Type</div>
+	                  <div class="mt-1 text-zinc-200">{activeFile.media_type}</div>
+	                </div>
+	                <div>
+	                  <div class="text-xs uppercase text-zinc-500">Modified</div>
+	                  <div class="mt-1 text-zinc-200">{new Date(activeFile.modified_time).toLocaleDateString()}</div>
+	                </div>
+	              </div>
+	              <div>
+	                <div class="text-xs uppercase text-zinc-500">Tags</div>
+	                <div class="mt-2 flex flex-wrap gap-1">
+	                  {#each activeFile.tags as tag}
+	                    <span class="rounded border border-white/10 bg-white/[0.05] px-1.5 py-0.5 text-xs text-zinc-300">{tag}</span>
+	                  {/each}
+	                </div>
+	              </div>
+	            </div>
+	          </aside>
+	        </div>
+	      </div>
+	    </div>
+	  {/if}
+	</main>

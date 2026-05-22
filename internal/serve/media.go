@@ -64,7 +64,7 @@ type MediaService struct {
 }
 
 func NewMediaService(cfg Config) *MediaService {
-	return &MediaService{cfg: cfg, thumbnailer: GoImageThumbnailer{}}
+	return &MediaService{cfg: cfg, thumbnailer: NewMediaThumbnailer(cfg)}
 }
 
 func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
@@ -123,6 +123,11 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	closeErr := out.Close()
 	if genErr != nil || closeErr != nil {
 		_ = os.Remove(tmp)
+		var unsupported *UnsupportedMediaError
+		if errors.As(genErr, &unsupported) {
+			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", unsupported.Details())
+			return
+		}
 		if errors.Is(genErr, ErrUnsupportedMedia) {
 			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", nil)
 			return
