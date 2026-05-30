@@ -122,6 +122,23 @@ func TestUploadAsyncReturnsJob(t *testing.T) {
 	}
 }
 
+func TestUploadCleansStagedFilesWhenSubmissionContextIsCanceled(t *testing.T) {
+	dir := t.TempDir()
+	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
+	req := uploadRequest(t, map[string]string{"a.txt": "hello"}, nil)
+	ctx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusRequestTimeout, "request_canceled")
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("canceled submission should clean staged files, entries=%v err=%v", entries, err)
+	}
+}
+
 func TestCanceledQueuedUploadCleansStagedFiles(t *testing.T) {
 	dir := t.TempDir()
 	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})

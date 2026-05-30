@@ -115,6 +115,9 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 		m.mu.Lock()
 		delete(m.jobs, job.ID)
 		m.mu.Unlock()
+		if cleanup != nil {
+			cleanup()
+		}
 		return nil, ctx.Err()
 	default:
 		cancel()
