@@ -4,9 +4,9 @@ import type { FileListResponse } from '$lib/api/types';
 
 export const pageLimit = 36;
 
-export function createFilesQuery(getToken: () => string, getSearch: () => string) {
-  return createInfiniteQuery<FileListResponse, Error, { pages: FileListResponse[]; pageParams: string[] }, [string, string], string>(() => ({
-    queryKey: ['files', getSearch()],
+export function createFilesQuery(getToken: () => string, getSearch: () => string, getAuthScope: () => number) {
+  return createInfiniteQuery<FileListResponse, Error, { pages: FileListResponse[]; pageParams: string[] }, [string, number, string], string>(() => ({
+    queryKey: ['files', getAuthScope(), getSearch()],
     enabled: Boolean(getToken()),
     initialPageParam: '',
     queryFn: ({ pageParam }) =>

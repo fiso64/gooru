@@ -18,11 +18,12 @@
 
     let disposed = false;
     let lease: MediaLease | undefined;
+    const controller = new AbortController();
     loading = true;
 
     // TODO: replace authenticated blob URLs with direct <img src> media URLs once cookie-session auth lands.
     authenticatedMediaCache
-      .load(`${file.media_urls.thumbnail}?size=${size}`, token)
+      .load(`${file.media_urls.thumbnail}?size=${size}`, token, controller.signal)
       .then((loaded) => {
         if (disposed) {
           loaded.release();
@@ -42,6 +43,7 @@
 
     return () => {
       disposed = true;
+      controller.abort();
       lease?.release();
     };
   });

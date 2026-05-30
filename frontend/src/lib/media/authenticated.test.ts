@@ -42,4 +42,26 @@ describe('AuthenticatedMediaCache', () => {
     expect(lease.url).toBe('blob:thumbnail');
     lease.release();
   });
+
+  it('revokes a late object URL when a request is aborted before blob decoding finishes', async () => {
+    let resolveBlob: (blob: Blob) => void = () => {};
+    const blob = new Promise<Blob>((resolve) => {
+      resolveBlob = resolve;
+    });
+    const fetcher = vi.fn(async () => ({ ok: true, blob: () => blob }) as Response) as unknown as typeof fetch;
+    const objectURLs = {
+      createObjectURL: vi.fn(() => 'blob:late-thumbnail'),
+      revokeObjectURL: vi.fn()
+    };
+    const cache = new AuthenticatedMediaCache(fetcher, objectURLs);
+    const controller = new AbortController();
+
+    const loading = cache.load('/thumbnail', 'token', controller.signal);
+    controller.abort();
+    resolveBlob(new Blob(['image']));
+
+    await expect(loading).rejects.toMatchObject({ name: 'AbortError' });
+    expect(objectURLs.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(objectURLs.revokeObjectURL).toHaveBeenCalledWith('blob:late-thumbnail');
+  });
 });

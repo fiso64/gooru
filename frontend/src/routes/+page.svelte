@@ -16,9 +16,10 @@
 
   const searchDraft = writable('');
   const submittedSearch = writable('');
-  const filesQuery = createFilesQuery(() => $authToken, () => $submittedSearch);
 
   let tokenDraft = $state('');
+  let observedToken = $state($authToken);
+  let authScope = $state(0);
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let viewportHeight = $state(900);
   let viewportWidth = $state(1200);
@@ -38,10 +39,16 @@
   let previewLoading = $state(false);
   let previewError = $state('');
 
-  const uploadJobQuery = createJobQuery(() => $authToken, () => activeUploadJobID);
+  const filesQuery = createFilesQuery(() => $authToken, () => $submittedSearch, () => authScope);
+  const uploadJobQuery = createJobQuery(() => $authToken, () => activeUploadJobID, () => authScope);
 
   $effect(() => {
-    tokenDraft = $authToken;
+    const token = $authToken;
+    tokenDraft = token;
+    if (token === observedToken) return;
+    observedToken = token;
+    authScope += 1;
+    resetAuthScopedState();
   });
 
   onMount(() => {
@@ -141,6 +148,20 @@
 
   function saveToken() {
     authToken.set(tokenDraft.trim());
+  }
+
+  function resetAuthScopedState() {
+    tagDrafts = {};
+    tagBusy = {};
+    tagErrors = {};
+    uploadFiles = [];
+    uploadTags = '';
+    uploadBusy = false;
+    cancelBusy = false;
+    uploadStatus = '';
+    activeUploadJobID = '';
+    handledUploadJobID = '';
+    activeFile = null;
   }
 
   function submitSearch() {

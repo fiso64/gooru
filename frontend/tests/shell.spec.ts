@@ -101,6 +101,58 @@ test('renders authenticated thumbnail results', async ({ page }) => {
   });
 });
 
+test('switching saved tokens resets auth-scoped file results', async ({ page }) => {
+  const requests: Array<{ authorization: string; query: string | null }> = [];
+  await page.route('**/api/v1/files?**', async (route) => {
+    const authorization = route.request().headers().authorization ?? '';
+    const tokenName = authorization === 'Bearer beta' ? 'beta' : 'alpha';
+    requests.push({
+      authorization,
+      query: new URL(route.request().url()).searchParams.get('q')
+    });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        files: [
+          {
+            id: `${tokenName}-file`,
+            content_id: `${tokenName}-hash`,
+            name: `${tokenName}.jpg`,
+            size: 2048,
+            modified_time: '2026-05-20T00:00:00Z',
+            media_type: 'image/jpeg',
+            media_kind: 'image',
+            tags: [tokenName],
+            media_urls: {
+              thumbnail: `/api/v1/files/${tokenName}-file/thumbnail`,
+              preview: `/api/v1/files/${tokenName}-file/preview`,
+              content: `/api/v1/files/${tokenName}-file/content`
+            }
+          }
+        ]
+      })
+    });
+  });
+  await page.route('**/api/v1/files/*/thumbnail?**', async (route) => {
+    await route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#34d399"/></svg>'
+    });
+  });
+
+  await page.goto('/');
+  await page.getByPlaceholder('Paste server token').fill('alpha');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('heading', { name: 'alpha.jpg' })).toBeVisible();
+
+  await page.getByPlaceholder('Paste server token').fill('beta');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('heading', { name: 'beta.jpg' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'alpha.jpg' })).toBeHidden();
+  expect(requests).toContainEqual({ authorization: 'Bearer alpha', query: null });
+  expect(requests).toContainEqual({ authorization: 'Bearer beta', query: null });
+});
+
 test('video preview uses bounded preview route without fetching original content', async ({ page }) => {
   const thumbnailRequests: string[] = [];
   const previewRequests: string[] = [];
