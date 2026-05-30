@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { FileImage } from '@lucide/svelte';
+  import { File, FileImage, FileVideo } from '@lucide/svelte';
+  import { authenticatedMediaCache, type MediaLease } from '$lib/media/authenticated';
   import type { FileItem } from '$lib/api/types';
 
   let { file, token, size = 256 } = $props<{ file: FileItem; token: string; size?: number }>();
@@ -13,23 +14,23 @@
     failed = false;
     loading = false;
 
-    if (file.media_kind !== 'image' || !token) return;
+    if (!['image', 'video'].includes(file.media_kind) || !token) return;
 
-    const controller = new AbortController();
     let disposed = false;
-    let currentURL = '';
+    let lease: MediaLease | undefined;
+    const controller = new AbortController();
     loading = true;
 
-    fetch(`${file.media_urls.thumbnail}?size=${size}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`thumbnail request failed: ${response.status}`);
-        const blob = await response.blob();
-        if (disposed) return;
-        currentURL = URL.createObjectURL(blob);
-        objectURL = currentURL;
+    // TODO: replace authenticated blob URLs with direct <img src> media URLs once cookie-session auth lands.
+    authenticatedMediaCache
+      .load(`${file.media_urls.thumbnail}?size=${size}`, token, controller.signal)
+      .then((loaded) => {
+        if (disposed) {
+          loaded.release();
+          return;
+        }
+        lease = loaded;
+        objectURL = loaded.url;
       })
       .catch((error) => {
         if (!disposed && error instanceof Error && error.name !== 'AbortError') {
@@ -43,16 +44,20 @@
     return () => {
       disposed = true;
       controller.abort();
-      if (currentURL) URL.revokeObjectURL(currentURL);
+      lease?.release();
     };
   });
 </script>
 
-<div class="relative flex aspect-square items-center justify-center bg-black/30 text-zinc-500">
+<div class="relative flex aspect-square items-center justify-center bg-zinc-950 text-zinc-500">
   {#if objectURL && !failed}
     <img class="h-full w-full object-cover" src={objectURL} alt="" />
-  {:else}
+  {:else if file.media_kind === 'video'}
+    <FileVideo size={34} />
+  {:else if file.media_kind === 'image'}
     <FileImage size={34} />
+  {:else}
+    <File size={34} />
   {/if}
   {#if loading}
     <div class="absolute inset-x-0 bottom-0 h-1 overflow-hidden bg-white/10">
