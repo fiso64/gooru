@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -194,6 +195,42 @@ func TestPaginateInMemoryBounds(t *testing.T) {
 	}
 }
 
+func TestParsePageRejectsInvalidTokensAndLimits(t *testing.T) {
+	cases := []struct {
+		name     string
+		limit    string
+		token    string
+		wantErr  string
+		wantPage Page
+	}{
+		{name: "bad limit", limit: "nope", wantErr: "limit must be a positive integer"},
+		{name: "zero limit", limit: "0", wantErr: "limit must be a positive integer"},
+		{name: "negative limit", limit: "-1", wantErr: "limit must be a positive integer"},
+		{name: "bad token encoding", token: "%%%not-base64", wantErr: "page_token is invalid"},
+		{name: "bad token prefix", token: mustPageToken("page:5"), wantErr: "page_token is invalid"},
+		{name: "negative offset", token: mustPageToken("offset:-1"), wantErr: "page_token is invalid"},
+		{name: "non-integer offset", token: mustPageToken("offset:abc"), wantErr: "page_token is invalid"},
+		{name: "max limit clamps", limit: "9999", wantPage: Page{Limit: MaxPageLimit, Offset: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			page, err := ParsePage(tc.limit, tc.token)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected error containing %q, got page=%+v err=%v", tc.wantErr, page, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParsePage failed: %v", err)
+			}
+			if page != tc.wantPage {
+				t.Fatalf("expected page %+v, got %+v", tc.wantPage, page)
+			}
+		})
+	}
+}
+
 func TestListTagsWithCounts(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)
 	defer cleanup()
@@ -251,6 +288,10 @@ func writeTestFile(t *testing.T, dir string, name string, body string) string {
 		t.Fatalf("write test file: %v", err)
 	}
 	return path
+}
+
+func mustPageToken(value string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
 }
 
 func authedRequest(method string, target string) *http.Request {

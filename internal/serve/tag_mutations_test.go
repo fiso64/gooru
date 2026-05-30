@@ -74,6 +74,19 @@ func TestTagMutationAsyncReturnsJob(t *testing.T) {
 	}
 }
 
+func TestTagMutationQueueFullReturnsStableJSONError(t *testing.T) {
+	server := newTagMutationTestServer(t, &recordingMutationLibrary{file: types.FileInfo{ID: 7, Path: "/tmp/a.jpg"}})
+	release := saturateJobQueue(t, server)
+	defer release()
+	req := authedJSONRequest(http.MethodPost, "/api/v1/files/tags", `{"file_ids":["`+EncodeFileID(7)+`"],"tags":["reviewed"]}`)
+	req.Header.Set("Prefer", "respond-async")
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "job_queue_full")
+}
+
 func TestTagMutationIntegrationUpdatesFileTags(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)
 	defer cleanup()

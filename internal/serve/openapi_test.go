@@ -2,8 +2,9 @@ package serve
 
 import (
 	"os"
-	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
@@ -11,17 +12,92 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read OpenAPI spec: %v", err)
 	}
-	spec := string(data)
-	for _, field := range []string{
-		"MediaMetadata:",
-		"image_width:",
-		"video_duration:",
-		"submitted_at:",
-		"finished_at:",
-		"ServiceUnavailable:",
-	} {
-		if !strings.Contains(spec, field) {
-			t.Fatalf("OpenAPI spec is missing %s", field)
+	var spec map[string]interface{}
+	if err := yaml.Unmarshal(data, &spec); err != nil {
+		t.Fatalf("OpenAPI spec must be valid YAML: %v", err)
+	}
+
+	fileSchema := schema(t, spec, "File")
+	required := stringSlice(t, fileSchema["required"])
+	for _, field := range []string{"id", "content_id", "media_kind", "metadata", "media_urls"} {
+		if !containsString(required, field) {
+			t.Fatalf("File schema required fields missing %q in %+v", field, required)
 		}
 	}
+	fileProps := stringMap(t, fileSchema["properties"])
+	assertRef(t, stringMap(t, fileProps["metadata"]), "#/components/schemas/MediaMetadata")
+	assertRef(t, stringMap(t, fileProps["media_urls"]), "#/components/schemas/MediaURLs")
+
+	metadataProps := stringMap(t, schema(t, spec, "MediaMetadata")["properties"])
+	for _, field := range []string{"image_width", "image_height", "video_width", "video_height", "video_duration", "audio_duration"} {
+		if _, ok := metadataProps[field]; !ok {
+			t.Fatalf("MediaMetadata schema missing %q", field)
+		}
+	}
+
+	jobSchema := schema(t, spec, "Job")
+	jobRequired := stringSlice(t, jobSchema["required"])
+	if !containsString(jobRequired, "submitted_at") {
+		t.Fatalf("Job schema must require submitted_at, got %+v", jobRequired)
+	}
+	jobProps := stringMap(t, jobSchema["properties"])
+	for _, field := range []string{"started_at", "finished_at", "result", "error"} {
+		if _, ok := jobProps[field]; !ok {
+			t.Fatalf("Job schema missing %q", field)
+		}
+	}
+
+	assertResponseRef(t, spec, "/files/tags", "post", "503", "#/components/responses/ServiceUnavailable")
+	assertResponseRef(t, spec, "/files/tags", "put", "503", "#/components/responses/ServiceUnavailable")
+	assertResponseRef(t, spec, "/files/tags", "delete", "503", "#/components/responses/ServiceUnavailable")
+	assertResponseRef(t, spec, "/uploads", "post", "503", "#/components/responses/ServiceUnavailable")
+}
+
+func schema(t *testing.T, spec map[string]interface{}, name string) map[string]interface{} {
+	t.Helper()
+	components := stringMap(t, spec["components"])
+	schemas := stringMap(t, components["schemas"])
+	return stringMap(t, schemas[name])
+}
+
+func assertResponseRef(t *testing.T, spec map[string]interface{}, path string, method string, status string, want string) {
+	t.Helper()
+	paths := stringMap(t, spec["paths"])
+	pathItem := stringMap(t, paths[path])
+	operation := stringMap(t, pathItem[method])
+	responses := stringMap(t, operation["responses"])
+	assertRef(t, stringMap(t, responses[status]), want)
+}
+
+func assertRef(t *testing.T, node map[string]interface{}, want string) {
+	t.Helper()
+	if got, _ := node["$ref"].(string); got != want {
+		t.Fatalf("expected ref %q, got %q in %+v", want, got, node)
+	}
+}
+
+func stringMap(t *testing.T, value interface{}) map[string]interface{} {
+	t.Helper()
+	out, ok := value.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T: %#v", value, value)
+	}
+	return out
+}
+
+func stringSlice(t *testing.T, value interface{}) []string {
+	t.Helper()
+	raw, ok := value.([]interface{})
+	if !ok {
+		t.Fatalf("expected list, got %T: %#v", value, value)
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		text, ok := item.(string)
+		if !ok {
+			t.Fatalf("expected string list item, got %T: %#v", item, item)
+		}
+		out = append(out, text)
+	}
+	return out
 }

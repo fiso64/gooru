@@ -122,6 +122,23 @@ func TestUploadAsyncReturnsJob(t *testing.T) {
 	}
 }
 
+func TestUploadQueueFullReturnsStableJSONError(t *testing.T) {
+	dir := t.TempDir()
+	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
+	release := saturateJobQueue(t, server)
+	defer release()
+	req := uploadRequest(t, map[string]string{"a.txt": "hello"}, nil)
+	req.Header.Set("Prefer", "respond-async")
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "job_queue_full")
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("queue-full upload should clean staged files, entries=%v err=%v", entries, err)
+	}
+}
+
 func TestUploadCleansStagedFilesWhenSubmissionContextIsCanceled(t *testing.T) {
 	dir := t.TempDir()
 	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})

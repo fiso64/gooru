@@ -423,6 +423,30 @@ func waitForJobType(t *testing.T, mgr *JobManager, typ string) *Job {
 	}
 }
 
+func saturateJobQueue(t *testing.T, server *Server) func() {
+	t.Helper()
+	server.jobs = NewJobManagerWithLimits(1, 1, 0, time.Hour)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	if _, err := server.jobs.Submit(context.Background(), "running", true, func(ctx context.Context) (interface{}, error) {
+		close(started)
+		<-release
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("submit running blocker: %v", err)
+	}
+	<-started
+	if _, err := server.jobs.Submit(context.Background(), "queued", true, func(ctx context.Context) (interface{}, error) {
+		return nil, nil
+	}); err != nil {
+		close(release)
+		t.Fatalf("submit queued blocker: %v", err)
+	}
+	return func() {
+		close(release)
+	}
+}
+
 func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
 	t.Helper()
 	if rec.Code != status {
