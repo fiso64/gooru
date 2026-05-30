@@ -102,6 +102,7 @@ test('renders authenticated thumbnail results', async ({ page }) => {
 });
 
 test('video preview uses bounded preview route without fetching original content', async ({ page }) => {
+  const thumbnailRequests: string[] = [];
   const previewRequests: string[] = [];
   const contentRequests: Array<{ authorization: string; cookie: string }> = [];
   await page.route('**/api/v1/files?**', async (route) => {
@@ -129,6 +130,7 @@ test('video preview uses bounded preview route without fetching original content
     });
   });
   await page.route('**/api/v1/files/*/thumbnail?**', async (route) => {
+    thumbnailRequests.push(route.request().headers().authorization ?? '');
     await route.fulfill({
       contentType: 'image/svg+xml',
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#34d399"/></svg>'
@@ -152,6 +154,7 @@ test('video preview uses bounded preview route without fetching original content
   await page.goto('/');
   await page.getByPlaceholder('Paste server token').fill('secret');
   await page.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(() => thumbnailRequests).toContain('Bearer secret');
   await page.getByRole('button', { name: 'Preview sample-video.mp4' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'sample-video.mp4' });
