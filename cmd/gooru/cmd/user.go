@@ -3,17 +3,19 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"gooru.local/cmd/gooru/config"
-	"gooru.local/gooru"
 	"gooru.local/internal/database"
 	"gooru.local/internal/serve"
+	"gooru.local/types"
 )
 
 var userCreateAdminFlags struct {
@@ -41,17 +43,9 @@ var userCreateAdminCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		client, err := gooru.New(cfg.Database.Path, verbose)
+		store, err := prepareAdminDatabase(cfg.Database.Path, verbose)
 		if err != nil {
-			if errors.Is(err, gooru.ErrDBUninitialized) {
-				return fmt.Errorf("database not initialized. Please run 'gooru init' first")
-			}
-			return fmt.Errorf("failed to migrate database: %w", err)
-		}
-		_ = client.Close()
-		store, err := database.NewStore(cfg.Database.Path, verbose)
-		if err != nil {
-			return fmt.Errorf("failed to open database: %w", err)
+			return err
 		}
 		defer store.Close()
 		password := strings.TrimSpace(os.Getenv("GOORU_ADMIN_PASSWORD"))
@@ -72,6 +66,36 @@ var userCreateAdminCmd = &cobra.Command{
 		fmt.Fprintf(cmd.OutOrStdout(), "created admin user %s\n", user.Username)
 		return nil
 	},
+}
+
+func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) {
+	if strings.TrimSpace(dbPath) == "" {
+		return nil, errors.New("database.path is required")
+	}
+	if dir := filepath.Dir(dbPath); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, fmt.Errorf("failed to create database directory: %w", err)
+		}
+	}
+	store, err := database.NewStore(dbPath, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	if err := database.RunMigrations(store.DB, dbPath); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("failed to migrate database: %w", err)
+	}
+	if _, err := store.GetHashingStrategy(); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			_ = store.Close()
+			return nil, fmt.Errorf("failed to read hashing strategy: %w", err)
+		}
+		if err := store.SetHashingStrategy(types.StrategyPartial); err != nil {
+			_ = store.Close()
+			return nil, fmt.Errorf("failed to save default hashing strategy: %w", err)
+		}
+	}
+	return store, nil
 }
 
 func promptPassword(cmd *cobra.Command) (string, error) {
