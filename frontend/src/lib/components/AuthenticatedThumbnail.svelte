@@ -3,7 +3,7 @@
   import { authenticatedMediaCache, type MediaLease } from '$lib/media/authenticated';
   import type { FileItem } from '$lib/api/types';
 
-  let { file, token, size = 256 } = $props<{ file: FileItem; token: string; size?: number }>();
+  let { file, size = 256 } = $props<{ file: FileItem; size?: number }>();
 
   let objectURL = $state('');
   let failed = $state(false);
@@ -14,16 +14,15 @@
     failed = false;
     loading = false;
 
-    if (!['image', 'video'].includes(file.media_kind) || !token) return;
+    if (!['image', 'video'].includes(file.media_kind)) return;
 
     let disposed = false;
     let lease: MediaLease | undefined;
     const controller = new AbortController();
     loading = true;
 
-    // TODO: replace authenticated blob URLs with direct <img src> media URLs once cookie-session auth lands.
     authenticatedMediaCache
-      .load(`${file.media_urls.thumbnail}?size=${size}`, token, controller.signal)
+      .load(`${file.media_urls.thumbnail}?size=${size}`, controller.signal)
       .then((loaded) => {
         if (disposed) {
           loaded.release();

@@ -70,8 +70,6 @@ server:
   listen: "0.0.0.0:5678"
 database:
   path: "/tmp/gooru.db"
-auth:
-  token_env: "GOORU_MISSING_TOKEN"
 media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"

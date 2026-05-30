@@ -27,7 +27,6 @@ func TestUploadRejectsDisabledUploads(t *testing.T) {
 func TestUploadRejectsDisabledUploadsBeforeParsingBody(t *testing.T) {
 	server := newUploadTestServer(t, t.TempDir(), false, &recordingUploadLibrary{})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", bytes.NewBufferString("not multipart"))
-	req.Header.Set("Authorization", "Bearer secret")
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, req)
@@ -198,7 +197,7 @@ func TestCanceledQueuedUploadCleansStagedFiles(t *testing.T) {
 func newUploadTestServer(t *testing.T, dir string, enabled bool, library Library) *Server {
 	t.Helper()
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	cfg.Auth.Enabled = false
 	cfg.Uploads.Enabled = enabled
 	cfg.Uploads.Directories = []UploadDirectory{{Name: "default", Path: dir}}
 	return NewServerWithLibrary(cfg, library)
@@ -226,7 +225,6 @@ func uploadRequest(t *testing.T, files map[string]string, tags []string) *http.R
 		t.Fatalf("close multipart writer: %v", err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", &body)
-	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	return req
 }

@@ -24,3 +24,4 @@ CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX idx_sessions_expires_revoked ON sessions(expires_at, revoked_at);
+CREATE INDEX idx_sessions_revoked_at ON sessions(revoked_at) WHERE revoked_at IS NOT NULL;

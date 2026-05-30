@@ -5,7 +5,7 @@
   import type { FileItem } from '$lib/api/types';
 
   let {
-    authToken,
+    sessionActive,
     isLoading,
     isError,
     error,
@@ -21,7 +21,7 @@
     onTagInput,
     onMutateTags
   } = $props<{
-    authToken: string;
+    sessionActive: boolean;
     isLoading: boolean;
     isError: boolean;
     error: unknown;
@@ -39,9 +39,9 @@
   }>();
 </script>
 
-{#if !authToken}
+{#if !sessionActive}
   <div class="flex min-h-[22rem] items-center justify-center rounded-md border border-dashed border-white/15 bg-white/[0.03] p-8 text-center text-zinc-300">
-    <p class="max-w-md text-sm leading-6">Enter the token configured for `gooru serve` to browse this library.</p>
+    <p class="max-w-md text-sm leading-6">Sign in to browse this library.</p>
   </div>
 {:else if isLoading}
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
@@ -73,7 +73,6 @@
       {#each virtual.files as file (file.id)}
         <MediaCard
           {file}
-          token={authToken}
           tagDraft={tagDrafts[file.id] ?? ''}
           tagBusy={Boolean(tagBusy[file.id])}
           tagError={tagErrors[file.id] ?? ''}

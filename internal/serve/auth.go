@@ -2,7 +2,6 @@ package serve
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"net/http"
 	"net/url"
@@ -12,12 +11,7 @@ import (
 
 type authContextKey struct{}
 
-const authCookieName = "gooru_auth"
-
 func authMiddleware(cfg Config, store *AuthStore, next http.Handler) http.Handler {
-	if cfg.Auth.Token != "" {
-		return legacyTokenAuthMiddleware(cfg.Auth.Token, next)
-	}
 	if !cfg.Auth.Enabled {
 		return next
 	}
@@ -41,7 +35,7 @@ func authMiddleware(cfg Config, store *AuthStore, next http.Handler) http.Handle
 }
 
 func csrfMiddleware(cfg Config, store *AuthStore, next http.Handler) http.Handler {
-	if !cfg.Auth.Enabled || cfg.Auth.Token != "" {
+	if !cfg.Auth.Enabled {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,39 +50,6 @@ func csrfMiddleware(cfg Config, store *AuthStore, next http.Handler) http.Handle
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func legacyTokenAuthMiddleware(token string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got, ok := legacyRequestAuthToken(r)
-		if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "login required", nil)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func legacyRequestAuthToken(r *http.Request) (string, bool) {
-	header := r.Header.Get("Authorization")
-	if header != "" {
-		scheme, credentials, ok := strings.Cut(header, " ")
-		if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(credentials) == "" {
-			return "", false
-		}
-		return strings.TrimSpace(credentials), true
-	}
-	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/files/") {
-		cookie, err := r.Cookie(authCookieName)
-		if err == nil && strings.TrimSpace(cookie.Value) != "" {
-			value, decodeErr := url.QueryUnescape(cookie.Value)
-			if decodeErr != nil {
-				value = cookie.Value
-			}
-			return strings.TrimSpace(value), true
-		}
-	}
-	return "", false
 }
 
 func currentAuth(ctx context.Context) (AuthSession, bool) {
@@ -150,7 +111,7 @@ func (s *Server) cookieSecure(r *http.Request) bool {
 	case "false":
 		return false
 	default:
-		return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") || strings.HasPrefix(s.cfg.Server.PublicURL, "https://")
+		return r.TLS != nil || strings.HasPrefix(s.cfg.Server.PublicURL, "https://")
 	}
 }
 
@@ -194,8 +155,9 @@ func corsMiddleware(origins []string, next http.Handler) http.Handler {
 		if _, ok := allowed[origin]; ok {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Prefer")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Prefer, X-Gooru-CSRF")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

@@ -111,6 +111,7 @@ func TestAuthStoreCleansExpiredAndRevokedSessions(t *testing.T) {
 	if _, err := store.db.Exec(`UPDATE sessions SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Hour).UTC(), expired.Session.ID); err != nil {
 		t.Fatalf("expire session: %v", err)
 	}
+	store.nextCleanupAt = time.Time{}
 	if _, err := store.Login(ctx, "mac", "correct horse"); err != nil {
 		t.Fatalf("login should clean expired sessions: %v", err)
 	}
@@ -124,6 +125,9 @@ func TestAuthStoreCleansExpiredAndRevokedSessions(t *testing.T) {
 	}
 	if err := store.RevokeSession(ctx, revoked.Session.ID); err != nil {
 		t.Fatalf("revoke session: %v", err)
+	}
+	if err := store.CleanupExpiredSessions(ctx); err != nil {
+		t.Fatalf("cleanup revoked sessions: %v", err)
 	}
 	if sessionExists(t, store, revoked.Session.ID) {
 		t.Fatal("expected revoke cleanup to remove revoked session")
@@ -213,6 +217,28 @@ func newAuthTestStore(t *testing.T) *AuthStore {
 		t.Fatalf("run migrations: %v", err)
 	}
 	return NewAuthStore(db, time.Hour)
+}
+
+func attachTestAuth(t *testing.T, server *Server) AuthSession {
+	t.Helper()
+	store := newAuthTestStore(t)
+	if _, err := store.CreateAdmin(context.Background(), "testadmin", "correct horse"); err != nil {
+		t.Fatalf("create test admin: %v", err)
+	}
+	auth, err := store.Login(context.Background(), "testadmin", "correct horse")
+	if err != nil {
+		t.Fatalf("login test admin: %v", err)
+	}
+	server.SetAuthStore(store)
+	return auth
+}
+
+func addAuthCookie(req *http.Request, cfg Config, auth AuthSession) {
+	req.AddCookie(&http.Cookie{Name: cfg.Auth.CookieName, Value: auth.Token})
+}
+
+func addCSRF(req *http.Request, auth AuthSession) {
+	req.Header.Set("X-Gooru-CSRF", auth.CSRFToken)
 }
 
 func sessionExists(t *testing.T, store *AuthStore, id string) bool {

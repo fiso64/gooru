@@ -127,13 +127,12 @@ func TestTagMutationIntegrationUpdatesFileTags(t *testing.T) {
 func newTagMutationTestServer(t *testing.T, library Library) *Server {
 	t.Helper()
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	cfg.Auth.Enabled = false
 	return NewServerWithLibrary(cfg, library)
 }
 
 func authedJSONRequest(method string, target string, body string) *http.Request {
 	req := httptest.NewRequest(method, target, bytes.NewBufferString(body))
-	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Content-Type", "application/json")
 	return req
 }

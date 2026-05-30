@@ -19,7 +19,6 @@ import (
 var userCreateAdminFlags struct {
 	configPath string
 	username   string
-	password   string
 }
 
 var userCmd = &cobra.Command{
@@ -55,7 +54,7 @@ var userCreateAdminCmd = &cobra.Command{
 			return fmt.Errorf("failed to open database: %w", err)
 		}
 		defer store.Close()
-		password := userCreateAdminFlags.password
+		password := strings.TrimSpace(os.Getenv("GOORU_ADMIN_PASSWORD"))
 		if password == "" {
 			password, err = promptPassword(cmd)
 			if err != nil {
@@ -134,5 +133,4 @@ func init() {
 	userCmd.AddCommand(userCreateAdminCmd)
 	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.configPath, "config", "", "Path to YAML server config")
 	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.username, "username", "", "Admin username")
-	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.password, "password", "", "Admin password for automation; prefer interactive entry")
 }

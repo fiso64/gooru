@@ -75,7 +75,10 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	auth, _ := currentAuth(r.Context())
 	if s.auth != nil {
-		_ = s.auth.RevokeSession(r.Context(), auth.Session.ID)
+		if err := s.auth.RevokeSession(r.Context(), auth.Session.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to revoke session", nil)
+			return
+		}
 	}
 	s.clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

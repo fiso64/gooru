@@ -80,6 +80,10 @@ go run ./cmd/gooru user create-admin --username alice --config serve.yaml
 go run ./cmd/gooru serve --config serve.yaml
 ```
 
+For automation, provide the password through the clearly named
+`GOORU_ADMIN_PASSWORD` environment variable. Avoid passing passwords as command
+arguments.
+
 Login uses `POST /api/v1/auth/login`. The server sets an HttpOnly
 `gooru_session` cookie and returns a CSRF token. Mutating cookie-authenticated
 requests must send that token in `X-Gooru-CSRF`; `GET /api/v1/auth/me` returns a

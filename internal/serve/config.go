@@ -50,9 +50,6 @@ type AuthConfig struct {
 	CookieSecure                 string        `yaml:"cookie_secure"`
 	CookieSameSite               string        `yaml:"cookie_same_site"`
 	AllowUnsafeNoAuthNonLoopback bool          `yaml:"allow_unsafe_no_auth_non_loopback"`
-	Token                        string        `yaml:"token"`
-	TokenEnv                     string        `yaml:"token_env"`
-	TokenFile                    string        `yaml:"token_file"`
 }
 
 type UploadsConfig struct {
@@ -146,6 +143,9 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 		if err != nil {
 			return Config{}, fmt.Errorf("read config %q: %w", path, err)
 		}
+		if err := rejectDeprecatedAuthTokenConfig(data); err != nil {
+			return Config{}, fmt.Errorf("parse config %q: %w", path, err)
+		}
 		decoder := yaml.NewDecoder(bytes.NewReader(data))
 		decoder.KnownFields(true)
 		if err := decoder.Decode(&cfg); err != nil {
@@ -176,8 +176,29 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 }
 
 func (cfg *Config) ResolveSecrets() error {
-	if cfg.Auth.Token != "" || cfg.Auth.TokenEnv != "" || cfg.Auth.TokenFile != "" {
-		return errors.New("auth.token, auth.token_env, and auth.token_file are no longer supported; create DB-backed users with 'gooru user create-admin'")
+	return nil
+}
+
+func rejectDeprecatedAuthTokenConfig(data []byte) error {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return err
+	}
+	if len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	top := root.Content[0]
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		if top.Content[i].Value != "auth" || top.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		auth := top.Content[i+1]
+		for j := 0; j+1 < len(auth.Content); j += 2 {
+			switch auth.Content[j].Value {
+			case "token", "token_env", "token_file":
+				return errors.New("auth.token, auth.token_env, and auth.token_file are no longer supported; create DB-backed users with 'gooru user create-admin'")
+			}
+		}
 	}
 	return nil
 }

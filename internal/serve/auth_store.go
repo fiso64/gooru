@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,6 +28,9 @@ type AuthStore struct {
 	db              *sql.DB
 	sessionTTL      time.Duration
 	lastSeenTimeout time.Duration
+	cleanupInterval time.Duration
+	cleanupMu       sync.Mutex
+	nextCleanupAt   time.Time
 	now             func() time.Time
 }
 
@@ -62,6 +66,7 @@ func NewAuthStore(db *sql.DB, sessionTTL time.Duration) *AuthStore {
 		db:              db,
 		sessionTTL:      sessionTTL,
 		lastSeenTimeout: 5 * time.Minute,
+		cleanupInterval: time.Hour,
 		now:             func() time.Time { return time.Now().UTC() },
 	}
 }
@@ -107,7 +112,7 @@ VALUES (?, ?, ?, ?, ?, ?)`, user.ID, user.Username, hash, user.Role, user.Create
 }
 
 func (s *AuthStore) Login(ctx context.Context, username, password string) (AuthSession, error) {
-	if err := s.CleanupExpiredSessions(ctx); err != nil {
+	if err := s.MaybeCleanupExpiredSessions(ctx); err != nil {
 		return AuthSession{}, err
 	}
 	username, err := normalizeUsername(username)
@@ -174,10 +179,7 @@ WHERE s.token_hash = ?`, tokenHash).Scan(
 
 func (s *AuthStore) RevokeSession(ctx context.Context, sessionID string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, s.now(), sessionID)
-	if err != nil {
-		return err
-	}
-	return s.CleanupExpiredSessions(ctx)
+	return err
 }
 
 func (s *AuthStore) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
@@ -218,8 +220,23 @@ func (s *AuthStore) RotateCSRF(ctx context.Context, sessionID string) (string, e
 }
 
 func (s *AuthStore) CleanupExpiredSessions(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ? OR revoked_at IS NOT NULL`, s.now())
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, s.now()); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE revoked_at IS NOT NULL`)
 	return err
+}
+
+func (s *AuthStore) MaybeCleanupExpiredSessions(ctx context.Context) error {
+	now := s.now()
+	s.cleanupMu.Lock()
+	if !s.nextCleanupAt.IsZero() && now.Before(s.nextCleanupAt) {
+		s.cleanupMu.Unlock()
+		return nil
+	}
+	s.nextCleanupAt = now.Add(s.cleanupInterval)
+	s.cleanupMu.Unlock()
+	return s.CleanupExpiredSessions(ctx)
 }
 
 func (s *AuthStore) VerifyCSRF(auth AuthSession, token string) bool {

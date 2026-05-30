@@ -68,6 +68,23 @@ export interface UploadImportResponse {
   affected_count: number;
 }
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: 'admin';
+}
+
+export interface AuthMeResponse {
+  user: AuthUser;
+  capabilities: {
+    upload: boolean;
+    tag: boolean;
+    delete: boolean;
+    admin: boolean;
+  };
+  csrf_token?: string;
+}
+
 export interface ApiErrorResponse {
   error: {
     code: string;

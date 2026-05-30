@@ -11,8 +11,8 @@ describe('AuthenticatedMediaCache', () => {
     const cache = new AuthenticatedMediaCache(fetcher, objectURLs);
 
     const [first, second] = await Promise.all([
-      cache.load('/api/v1/files/id/thumbnail?size=256', 'token'),
-      cache.load('/api/v1/files/id/thumbnail?size=256', 'token')
+      cache.load('/api/v1/files/id/thumbnail?size=256'),
+      cache.load('/api/v1/files/id/thumbnail?size=256')
     ]);
 
     expect(fetcher).toHaveBeenCalledTimes(1);
@@ -35,8 +35,8 @@ describe('AuthenticatedMediaCache', () => {
     };
     const cache = new AuthenticatedMediaCache(fetcher, objectURLs);
 
-    await expect(cache.load('/thumbnail', 'token')).rejects.toThrow('media request failed: 415');
-    const lease = await cache.load('/thumbnail', 'token');
+    await expect(cache.load('/thumbnail')).rejects.toThrow('media request failed: 415');
+    const lease = await cache.load('/thumbnail');
 
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(lease.url).toBe('blob:thumbnail');
@@ -56,7 +56,7 @@ describe('AuthenticatedMediaCache', () => {
     const cache = new AuthenticatedMediaCache(fetcher, objectURLs);
     const controller = new AbortController();
 
-    const loading = cache.load('/thumbnail', 'token', controller.signal);
+    const loading = cache.load('/thumbnail', controller.signal);
     controller.abort();
     resolveBlob(new Blob(['image']));
 
@@ -73,7 +73,7 @@ describe('AuthenticatedMediaCache', () => {
     };
     const cache = new AuthenticatedMediaCache(fetcher, objectURLs);
 
-    const [first, second] = await Promise.all([cache.load('/thumbnail', 'token'), cache.load('/thumbnail', 'token')]);
+    const [first, second] = await Promise.all([cache.load('/thumbnail'), cache.load('/thumbnail')]);
     first.release();
     first.release();
 
