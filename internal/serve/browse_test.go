@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -152,6 +153,84 @@ func TestBrowseFilesCanExposePathsWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestFileDTOMetadataFallsBackWithoutBreakingRoute(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	server := NewServerWithLibrary(cfg, emptyLibrary{})
+	imagePath := writePNGImage(t)
+
+	dto := server.fileDTO(context.Background(), types.FileInfo{ID: 99, Path: imagePath, Hash: "hash", Size: 10})
+	if dto.Metadata.ImageWidth == nil || *dto.Metadata.ImageWidth != 32 {
+		t.Fatalf("expected image width metadata, got %+v", dto.Metadata)
+	}
+	if dto.Metadata.ImageHeight == nil || *dto.Metadata.ImageHeight != 24 {
+		t.Fatalf("expected image height metadata, got %+v", dto.Metadata)
+	}
+
+	dto = server.fileDTO(context.Background(), types.FileInfo{ID: 100, Path: filepath.Join(t.TempDir(), "missing.jpg"), Hash: "hash", Size: 10})
+	if dto.ID == "" || dto.Metadata.ImageWidth != nil || dto.Metadata.ImageHeight != nil {
+		t.Fatalf("metadata failure should not block DTO fallback, got %+v", dto)
+	}
+}
+
+func TestPaginateInMemoryBounds(t *testing.T) {
+	page, err := ParsePage("2", "")
+	if err != nil {
+		t.Fatalf("ParsePage: %v", err)
+	}
+	first := PaginateInMemory([]int{1, 2, 3}, page)
+	if fmt.Sprint(first.Items) != "[1 2]" || first.NextPageToken == "" {
+		t.Fatalf("unexpected first page: %+v", first)
+	}
+	next, err := ParsePage("2", first.NextPageToken)
+	if err != nil {
+		t.Fatalf("ParsePage next: %v", err)
+	}
+	last := PaginateInMemory([]int{1, 2, 3}, next)
+	if fmt.Sprint(last.Items) != "[3]" || last.NextPageToken != "" {
+		t.Fatalf("unexpected last page: %+v", last)
+	}
+	empty := PaginateInMemory([]int{1}, Page{Limit: 2, Offset: 99})
+	if len(empty.Items) != 0 || empty.NextPageToken != "" {
+		t.Fatalf("unexpected empty page: %+v", empty)
+	}
+}
+
+func TestParsePageRejectsInvalidTokensAndLimits(t *testing.T) {
+	cases := []struct {
+		name     string
+		limit    string
+		token    string
+		wantErr  string
+		wantPage Page
+	}{
+		{name: "bad limit", limit: "nope", wantErr: "limit must be a positive integer"},
+		{name: "zero limit", limit: "0", wantErr: "limit must be a positive integer"},
+		{name: "negative limit", limit: "-1", wantErr: "limit must be a positive integer"},
+		{name: "bad token encoding", token: "%%%not-base64", wantErr: "page_token is invalid"},
+		{name: "bad token prefix", token: mustPageToken("page:5"), wantErr: "page_token is invalid"},
+		{name: "negative offset", token: mustPageToken("offset:-1"), wantErr: "page_token is invalid"},
+		{name: "non-integer offset", token: mustPageToken("offset:abc"), wantErr: "page_token is invalid"},
+		{name: "max limit clamps", limit: "9999", wantPage: Page{Limit: MaxPageLimit, Offset: 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			page, err := ParsePage(tc.limit, tc.token)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("expected error containing %q, got page=%+v err=%v", tc.wantErr, page, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParsePage failed: %v", err)
+			}
+			if page != tc.wantPage {
+				t.Fatalf("expected page %+v, got %+v", tc.wantPage, page)
+			}
+		})
+	}
+}
+
 func TestListTagsWithCounts(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)
 	defer cleanup()
@@ -209,6 +288,10 @@ func writeTestFile(t *testing.T, dir string, name string, body string) string {
 		t.Fatalf("write test file: %v", err)
 	}
 	return path
+}
+
+func mustPageToken(value string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
 }
 
 func authedRequest(method string, target string) *http.Request {

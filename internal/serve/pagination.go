@@ -17,6 +17,11 @@ type Page struct {
 	Offset int
 }
 
+type PageResult[T any] struct {
+	Items         []T
+	NextPageToken string
+}
+
 func ParsePage(limitRaw string, token string) (Page, error) {
 	limit := DefaultPageLimit
 	if limitRaw != "" {
@@ -54,4 +59,23 @@ func NextPageToken(offset int, limit int, returned int) string {
 	}
 	next := offset + returned
 	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("offset:%d", next)))
+}
+
+// PaginateInMemory preserves the current offset-token API while isolating the
+// compatibility shortcut from handlers. Replace this with store-backed cursor
+// pagination when the library layer can provide stable database cursors.
+func PaginateInMemory[T any](items []T, page Page) PageResult[T] {
+	start := page.Offset
+	if start > len(items) {
+		start = len(items)
+	}
+	end := start + page.Limit
+	if end > len(items) {
+		end = len(items)
+	}
+	result := PageResult[T]{Items: items[start:end]}
+	if end < len(items) {
+		result.NextPageToken = NextPageToken(page.Offset, page.Limit, len(result.Items))
+	}
+	return result
 }

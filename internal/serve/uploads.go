@@ -71,10 +71,10 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	saved, err := s.saveUploadedFiles(dir, files)
 	if err != nil {
 		if errors.Is(err, errUploadTooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", err.Error(), nil)
+			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", err.Error(), uploadErrorDetails(err))
 			return
 		}
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), uploadErrorDetails(err))
 		return
 	}
 	paths := make([]string, 0, len(saved))
@@ -82,20 +82,24 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, file.path)
 	}
 
-	job, err := s.jobs.Submit(r.Context(), "upload_import", PreferAsync(r), func(ctx context.Context) (interface{}, error) {
+	cleanup := func() {
+		removeSavedUploads(saved)
+	}
+	job, err := s.jobs.SubmitWithCleanup(r.Context(), "upload_import", PreferAsync(r), func(ctx context.Context) (interface{}, error) {
 		response, err := importer.ImportUploadedFiles(ctx, paths, tags)
 		if err != nil {
+			cleanup()
 			return nil, err
 		}
 		response.Files = uploadedFileDTOs(saved)
 		return response, nil
-	})
+	}, cleanup)
 	if PreferAsync(r) && err == nil {
 		writeJSON(w, http.StatusAccepted, job)
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to import uploaded files", nil)
+		writeJobSubmitError(w, err, "failed to import uploaded files")
 		return
 	}
 	response, ok := job.Result.(UploadImportResponse)
@@ -137,6 +141,30 @@ type savedUpload struct {
 
 var errUploadTooLarge = errors.New("uploaded file exceeds max_file_size_bytes")
 
+type uploadFileError struct {
+	name string
+	err  error
+}
+
+func (e uploadFileError) Error() string {
+	if e.name == "" {
+		return e.err.Error()
+	}
+	return fmt.Sprintf("%s: %v", e.name, e.err)
+}
+
+func (e uploadFileError) Unwrap() error {
+	return e.err
+}
+
+func uploadErrorDetails(err error) map[string]string {
+	var fileErr uploadFileError
+	if errors.As(err, &fileErr) && fileErr.name != "" {
+		return map[string]string{"file": fileErr.name}
+	}
+	return nil
+}
+
 func (s *Server) saveUploadedFiles(dir string, files []*multipart.FileHeader) ([]savedUpload, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to prepare upload directory")
@@ -145,29 +173,34 @@ func (s *Server) saveUploadedFiles(dir string, files []*multipart.FileHeader) ([
 	for _, header := range files {
 		name, err := safeUploadName(header.Filename)
 		if err != nil {
-			return nil, err
+			return nil, uploadFileError{name: header.Filename, err: err}
 		}
 		src, err := header.Open()
 		if err != nil {
 			removeSavedUploads(saved)
-			return nil, fmt.Errorf("failed to read uploaded file")
+			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to read uploaded file")}
 		}
-		dst, path, err := createUploadDestination(dir, name)
+		dst, path, tmpPath, err := createUploadDestination(dir, name)
 		if err != nil {
 			_ = src.Close()
 			removeSavedUploads(saved)
-			return nil, err
+			return nil, uploadFileError{name: name, err: err}
 		}
 		size, copyErr := copyUpload(dst, src, s.cfg.Uploads.MaxFileSizeBytes)
 		closeErr := dst.Close()
 		_ = src.Close()
 		if copyErr != nil || closeErr != nil {
-			_ = os.Remove(path)
+			_ = os.Remove(tmpPath)
 			removeSavedUploads(saved)
 			if copyErr != nil {
-				return nil, copyErr
+				return nil, uploadFileError{name: name, err: copyErr}
 			}
-			return nil, fmt.Errorf("failed to write uploaded file")
+			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to write uploaded file")}
+		}
+		if err := commitUploadDestination(tmpPath, path); err != nil {
+			_ = os.Remove(tmpPath)
+			removeSavedUploads(saved)
+			return nil, uploadFileError{name: name, err: err}
 		}
 		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, size: size})
 	}
@@ -192,7 +225,7 @@ func safeUploadName(name string) (string, error) {
 	return name, nil
 }
 
-func createUploadDestination(dir string, name string) (*os.File, string, error) {
+func createUploadDestination(dir string, name string) (*os.File, string, string, error) {
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
 	if base == "" {
@@ -204,15 +237,32 @@ func createUploadDestination(dir string, name string) (*os.File, string, error) 
 			candidate = fmt.Sprintf("%s-%d%s", base, i, ext)
 		}
 		path := filepath.Join(dir, candidate)
-		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-		if err == nil {
-			return file, path, nil
+		if _, err := os.Stat(path); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, "", "", fmt.Errorf("failed to create uploaded file")
 		}
-		if !errors.Is(err, os.ErrExist) {
-			return nil, "", fmt.Errorf("failed to create uploaded file")
+		file, err := os.CreateTemp(dir, "."+candidate+".tmp-*")
+		if err != nil {
+			return nil, "", "", fmt.Errorf("failed to create uploaded file")
 		}
+		return file, path, file.Name(), nil
 	}
-	return nil, "", errors.New("could not choose a non-conflicting upload filename")
+	return nil, "", "", errors.New("could not choose a non-conflicting upload filename")
+}
+
+func commitUploadDestination(tmpPath string, finalPath string) error {
+	if err := os.Link(tmpPath, finalPath); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return errors.New("uploaded filename conflicts with an existing file")
+		}
+		return fmt.Errorf("failed to store uploaded file")
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		_ = os.Remove(finalPath)
+		return fmt.Errorf("failed to store uploaded file")
+	}
+	return nil
 }
 
 func copyUpload(dst io.Writer, src io.Reader, maxSize int64) (int64, error) {

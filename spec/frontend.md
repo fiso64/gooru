@@ -53,7 +53,7 @@ SvelteKit
 TypeScript
 Vite
 TanStack Svelte Query
-OpenAPI-generated API client
+OpenAPI-described API contract with generated-client migration path
 Vitest
 Playwright
 virtualized media grid
@@ -61,7 +61,7 @@ virtualized media grid
 
 SvelteKit should be used as the application framework, but the production build should be static. The frontend should be built with SvelteKit's static adapter or an equivalent static-output configuration, then served by `gooru serve`.
 
-TypeScript is required for frontend code. API request/response types should come from the server contract, preferably through OpenAPI generation rather than hand-maintained duplicate types.
+TypeScript is required for frontend code. The current Issue #1 implementation has a small hand-maintained API client and type file; any DTO or endpoint change must update `docs/openapi.yaml` and `frontend/src/lib/api/types.ts` together. A generated client remains the preferred direction once the contract stabilizes.
 
 Tailwind CSS should be the default styling utility layer. It should be used for layout, spacing, responsive behavior, dark mode, and shared design tokens. Svelte scoped styles should still be used where Tailwind becomes awkward or where a component needs bespoke media-grid, preview, or interaction polish.
 
@@ -96,6 +96,11 @@ Representative route ownership:
 The Go server should serve hashed static assets with long-lived cache headers. The frontend entrypoint, such as `index.html`, should use no-cache or short-cache headers so deployments can update cleanly.
 
 A Node server should not be required in production for v1. Node tooling is only required at build/dev time.
+
+The current auth flow is transitional bearer-token auth inherited from the first
+vertical slice. The browser stores the configured token locally and sends it to
+the API; original-media navigation uses a same-origin media cookie. This should
+not be treated as the final web-app account/session model.
 
 ## 5.1. Styling Direction
 
@@ -158,6 +163,10 @@ Original video/audio/image content must support range requests and useful cache 
 
 Thumbnail and preview URLs should be cacheable. The frontend should be able to request bounded thumbnail sizes from a fixed allowlist rather than arbitrary dimensions.
 
+File DTOs include a metadata object with optional fields for image dimensions,
+video dimensions/duration, and audio duration. Current extraction is best-effort;
+the frontend must handle missing metadata without visual regressions.
+
 ## 8. Thumbnailing and Preview Generation
 
 Fast thumbnails are important enough to shape the backend dependency choices.
@@ -210,7 +219,7 @@ Frontend performance depends on the backend and API contract as much as the UI f
 
 Important requirements:
 
-*   Cursor pagination for large result sets.
+*   Cursor pagination for large result sets. The current API keeps the public cursor/page-token shape but performs compatibility pagination in memory until the library layer exposes store-backed cursors.
 *   Virtualized grid rendering.
 *   Small metadata responses by default.
 *   Aggregate batch mutation responses by default, verbose details only when requested.

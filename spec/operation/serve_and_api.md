@@ -8,13 +8,14 @@
 
 ## 1. Abstract
 
-This document specifies the `gooru serve` command, which runs a persistent daemon process providing a comprehensive, local RESTful API for all Gooru functionality. This server is the primary mechanism for third-party applications (GUIs, scripts, other tools) to programmatically interact with a Gooru database. It is designed to be stable, responsive, and safe by managing concurrent requests, and handling long-running operations according to client preference.
+This document specifies the `gooru serve` command, which runs a persistent HTTP process providing the first-party browser app, REST API, authenticated media routes, upload/import, thumbnails/previews, and in-memory jobs for a Gooru database. It is designed to be stable, responsive, and safe by managing concurrent requests and handling long-running operations according to client preference.
 
 ## 2. Problem Statement / Motivation
 
 While the Gooru CLI is powerful for direct user interaction, it is not suitable for programmatic control by other applications. A third-party GUI or a Python script cannot easily or reliably parse CLI output to get structured data.
 
-*   **User Story (GUI Developer):** As a GUI developer, I need a stable, documented, and machine-readable API so I can build a graphical interface on top of Gooru without shelling out to the CLI.
+*   **User Story (Browser User):** As a user, I want `gooru serve` to open a usable media browser backed by the same API used by tools and scripts.
+*   **User Story (GUI Developer):** As a GUI developer, I need a stable, documented, and machine-readable API so I can build graphical interfaces on top of Gooru without shelling out to the CLI.
 *   **User Story (Scripter):** As a data scientist, I want to tag thousands of files from a Python script based on their contents, so I need an efficient way to send batch commands to Gooru and handle the results without blocking my script unnecessarily.
 
 ## 3. Goals and Non-Goals
@@ -22,31 +23,35 @@ While the Gooru CLI is powerful for direct user interaction, it is not suitable 
 ### Goals
 
 *   Provide a `gooru serve` command to launch a stable, long-running HTTP server.
-*   Expose all core Gooru library functionality via a RESTful JSON API.
+*   Serve the static SvelteKit frontend and expose current core Gooru library functionality via a RESTful JSON API.
+*   Serve authenticated media content, thumbnails, and previews from stable opaque file IDs.
 *   Handle concurrent API requests safely, ensuring database integrity.
 *   Provide a clear, client-driven mechanism for performing and monitoring long-running operations asynchronously to prevent client-side timeouts.
-*   The API must be the single point of contact for third-party applications.
+*   Keep the API as the single point of contact for the browser app and third-party applications.
 
 ### Non-Goals
 
-*   This server will not provide any HTML user interface. It is a headless API server only.
-*   The server will not implement complex authentication or authorization. It is intended to be bound to `localhost` and is secured by filesystem permissions on the database and runtime directory.
+*   This issue does not define the future DB-backed account/session model.
+*   This issue does not add broad rate limiting, role/permission modeling, native TLS flags, or CSRF support.
 
 ## 4. Proposed Solution & Technical Design
 
 ### 4.1. Command and Core Architecture
 
-*   **Command:** `gooru serve [--host <ip>] [--port <port>]`
-    *   `--host`: Defaults to `127.0.0.1` (localhost) for security.
-    *   `--port`: Defaults to a sensible, often-unused port like `5678`.
-    *   The command will run in the foreground, logging to standard output, until terminated by `Ctrl+C`.
+*   **Command:** `gooru serve --config serve.yaml`
+    *   `server.listen` defaults to `127.0.0.1:5678`.
+    *   `server.frontend_dir` points at the built static frontend.
+    *   The command runs in the foreground until interrupted.
 
-*   **Concurrency Model: Serial Write Queue**
-    *   To prevent database locking issues between concurrent write requests, the server will implement a **serial write queue**.
-    *   All incoming API requests that require writing to the database (`tag`, `settags`, `untag`, `relinkall`, `rehash`, `delete`, etc.) will be placed into a single, in-memory queue.
-    *   A dedicated worker goroutine will process this queue one job at a time, in FIFO order.
-    *   Read requests (`list`, `gettags`, `table`, etc.) do not enter this queue and can be executed concurrently, as SQLite's WAL mode allows for concurrent readers.
-    *   This architecture guarantees that no two write operations ever conflict, eliminating "database is locked" errors and ensuring strict serializability.
+*   **Current Auth Model**
+    *   The current implementation uses a configured bearer token for API/media routes and a narrowly scoped media cookie for browser navigation to original media.
+    *   This is a transitional Issue #1 model. The long-term web-app auth model will be DB-backed sessions in a later issue.
+    *   Non-loopback unauthenticated binds are rejected unless explicitly allowed by `auth.allow_unsafe_no_auth_non_loopback`.
+
+*   **Concurrency Model: Bounded In-Memory Jobs**
+    *   Mutations can run synchronously or asynchronously through an in-memory job manager.
+    *   `jobs.max_queued` bounds pending work, `jobs.max_running` bounds concurrently running async jobs, `jobs.completed_ttl` expires terminal jobs, and `jobs.max_result_bytes` prevents large results from being retained.
+    *   Read requests do not enter the job queue.
 
 ### 4.2. Synchronous vs. Asynchronous API Behavior
 
@@ -71,7 +76,7 @@ The API will support a hybrid model to provide both speed for fast operations an
     {
       "id": "uuid-string-123",
       "type": "relink", // The type of job that was started
-      "status": "pending" | "running" | "completed" | "failed",
+      "status": "pending" | "running" | "completed" | "failed" | "canceled",
       "progress": 0.75, // Optional, float between 0.0 and 1.0
       "submitted_at": "iso8601-timestamp",
       "result": { ... }, // Present on 'completed' status
@@ -88,29 +93,31 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 
 #### Files & Tags
 
-*   `GET /api/v1/files?query=<expr>`: Lists files matching an expression. (`list`, `table`)
+*   `GET /api/v1/files?query=<expr>&limit=<n>&page_token=<token>`: Lists files matching an expression with the current opaque offset-token pagination compatibility layer.
+*   `GET /api/v1/files/{id}`: Returns a file DTO with media URLs and optional metadata.
+*   `GET /api/v1/files/{id}/thumbnail?size=256`: Returns a cacheable thumbnail.
+*   `GET /api/v1/files/{id}/preview`: Returns a larger preview derivative.
+*   `GET /api/v1/files/{id}/content`: Returns original media content with range support.
 *   `POST /api/v1/files/tags`: Adds tags to files. (`tag`)
     *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `PUT /api/v1/files/tags`: Sets/replaces tags for files. (`settags`)
     *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `DELETE /api/v1/files/tags`: Removes tags from files. (`untag`)
     *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
-*   `DELETE /api/v1/files`: Deletes file records from the database. (`delete`)
-    *   Body: `{"paths": ["..."]}` or `{"query": "..."}`
+*   `POST /api/v1/uploads`: Uploads files into a configured upload directory and imports them.
 
 #### Jobs (Long-Running Operations)
 
-*   `POST /api/v1/jobs/relink`: Initiates a `relinkall` operation.
-    *   Body: `{"directories": ["/path/one", "/path/two"]}`
-*   `POST /api/v1/jobs/rehash`: Initiates a `rehash` operation.
-    *   Body: `{"paths": ["/path/one", "/path/two"]}`
 *   `GET /api/v1/jobs/{job_id}`: Gets the status of any async job.
+*   `DELETE /api/v1/jobs/{job_id}`: Cancels a pending/running job where possible.
 
 ## 5. Edge Cases & Unresolved Questions
 
 *   **Server Crash:** If the `gooru serve` process crashes, all in-memory state (including the job queue) is lost. Running jobs (goroutines) are terminated.
-*   **Database Locking:** The serial write queue architecture is the explicit solution to prevent the server from deadlocking itself or failing due to "database is locked" errors.
+*   **Database Locking:** The in-memory job manager bounds mutation concurrency but is not a durable queue. Later database/session work may replace parts of this model.
 *   **Invalid API Input:** Endpoints will return `400 Bad Request` with a clear JSON error message detailing the validation failure.
+*   **Pagination:** The public page-token shape is intentionally stable, but the current implementation slices in memory after fetching matches. The offset-token logic is isolated so a store-backed cursor can replace it later.
+*   **Media Metadata:** DTOs include a metadata object with optional image/video/audio fields. Current extraction is best-effort and must not block routes when metadata cannot be read.
 
 ## 6. Alternatives Considered
 

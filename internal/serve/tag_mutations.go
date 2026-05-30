@@ -96,11 +96,7 @@ func (s *Server) handleMutateTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to mutate tags", nil)
+		writeJobSubmitError(w, err, "failed to mutate tags")
 		return
 	}
 	response, ok := job.Result.(TagMutationResponse)

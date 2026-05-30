@@ -202,6 +202,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /files/tags:
     post:
       summary: Add tags to selected files.
@@ -226,6 +228,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
     put:
       summary: Replace tags on selected files.
       security:
@@ -249,6 +253,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
     delete:
       summary: Remove tags from selected files.
       description: If tags is empty, all tags are removed from the selected files.
@@ -273,6 +279,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /uploads:
     post:
       summary: Upload files into a configured upload directory and import them.
@@ -316,6 +324,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /tags:
     get:
       summary: List known tags.
@@ -415,6 +425,12 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     PayloadTooLarge:
       description: Request body or uploaded file is too large.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: Service is temporarily unavailable, including a full job queue.
       content:
         application/json:
           schema:
@@ -598,6 +614,7 @@ components:
         - modified_time
         - media_type
         - media_kind
+        - metadata
         - tags
         - media_urls
       properties:
@@ -622,12 +639,32 @@ components:
         media_kind:
           type: string
           enum: [image, video, audio, other]
+        metadata:
+          $ref: "#/components/schemas/MediaMetadata"
         tags:
           type: array
           items:
             type: string
         media_urls:
           $ref: "#/components/schemas/MediaURLs"
+    MediaMetadata:
+      type: object
+      description: Optional media metadata. Fields are omitted when unavailable or extraction fails.
+      properties:
+        image_width:
+          type: integer
+        image_height:
+          type: integer
+        video_width:
+          type: integer
+        video_height:
+          type: integer
+        video_duration:
+          type: number
+          format: double
+        audio_duration:
+          type: number
+          format: double
     MediaURLs:
       type: object
       required: [thumbnail, preview, content]

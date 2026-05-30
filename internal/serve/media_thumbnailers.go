@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -157,23 +158,16 @@ func (t commandThumbnailer) Thumbnail(src string, dst io.Writer, size int, forma
 }
 
 func NewFFmpegVideoThumbnailer(ffmpegPath string, ffprobePath string) Thumbnailer {
+	ffprobePath = resolveCommandPath(ffprobePath)
 	ffmpeg := newCommandThumbnailer("ffmpeg", ffmpegPath, []string{"-version"}, func(ctx context.Context, exe string, src string, dst string, size int, format string) error {
-		vcodec := "mjpeg"
-		if format == "png" {
-			vcodec = "png"
+		offset, ok := videoThumbnailOffset(ctx, ffprobePath, src)
+		if ok {
+			if err := runFFmpegThumbnail(ctx, exe, ffmpegThumbnailArgs(src, dst, size, format, &offset), dst); err == nil {
+				return nil
+			}
 		}
-		scale := fmt.Sprintf("scale=if(gte(iw\\,ih)\\,min(%d\\,iw)\\,-2):if(gte(ih\\,iw)\\,min(%d\\,ih)\\,-2)", size, size)
-		args := []string{
-			"-v", "error",
-			"-y",
-			"-i", src,
-			"-frames:v", "1",
-			"-vf", scale,
-			"-f", "image2",
-			"-vcodec", vcodec,
-			dst,
-		}
-		return commandError(exec.CommandContext(ctx, exe, args...).Run())
+		fallback := time.Duration(0)
+		return runFFmpegThumbnail(ctx, exe, ffmpegThumbnailArgs(src, dst, size, format, &fallback), dst)
 	})
 	ffprobeVersion := commandThumbnailer{backend: "ffprobe", path: strings.TrimSpace(ffprobePath), version: "ffprobe:missing"}
 	if ffprobeVersion.path != "" {
@@ -184,6 +178,87 @@ func NewFFmpegVideoThumbnailer(ffmpegPath string, ffprobePath string) Thumbnaile
 	}
 	ffmpeg.version = ffmpeg.version + "|" + ffprobeVersion.version
 	return ffmpeg
+}
+
+func runFFmpegThumbnail(ctx context.Context, exe string, args []string, dst string) error {
+	if err := commandError(exec.CommandContext(ctx, exe, args...).Run()); err != nil {
+		return err
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		return err
+	}
+	if info.Size() == 0 {
+		return errors.New("ffmpeg produced an empty thumbnail")
+	}
+	return nil
+}
+
+func resolveCommandPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	resolved, err := exec.LookPath(path)
+	if err != nil {
+		return path
+	}
+	return resolved
+}
+
+func videoThumbnailOffset(ctx context.Context, ffprobePath string, src string) (time.Duration, bool) {
+	if strings.TrimSpace(ffprobePath) == "" {
+		return 3 * time.Second, true
+	}
+	out, err := exec.CommandContext(ctx, ffprobePath,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		src,
+	).Output()
+	if err != nil {
+		return 3 * time.Second, true
+	}
+	seconds, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil || seconds <= 0 {
+		return 3 * time.Second, true
+	}
+	offset := time.Duration(seconds * 0.10 * float64(time.Second))
+	if offset < 500*time.Millisecond {
+		offset = 500 * time.Millisecond
+	}
+	if offset > 3*time.Second {
+		offset = 3 * time.Second
+	}
+	if max := time.Duration(seconds*float64(time.Second)) - 250*time.Millisecond; max > 0 && offset > max {
+		offset = max
+	}
+	return offset, true
+}
+
+func ffmpegThumbnailArgs(src string, dst string, size int, format string, offset *time.Duration) []string {
+	vcodec := "mjpeg"
+	if format == "png" {
+		vcodec = "png"
+	}
+	scale := fmt.Sprintf("scale=if(gte(iw\\,ih)\\,min(%d\\,iw)\\,-2):if(gte(ih\\,iw)\\,min(%d\\,ih)\\,-2)", size, size)
+	args := []string{"-v", "error", "-y"}
+	if offset != nil && *offset > 0 {
+		args = append(args, "-ss", formatSeconds(*offset))
+	}
+	args = append(args,
+		"-i", src,
+		"-frames:v", "1",
+		"-vf", scale,
+		"-f", "image2",
+		"-vcodec", vcodec,
+		dst,
+	)
+	return args
+}
+
+func formatSeconds(d time.Duration) string {
+	return strconv.FormatFloat(d.Seconds(), 'f', 3, 64)
 }
 
 func commandError(err error) error {

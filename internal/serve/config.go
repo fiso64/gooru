@@ -70,6 +70,9 @@ type MediaConfig struct {
 type JobsConfig struct {
 	CompletedTTLRaw string        `yaml:"completed_ttl"`
 	CompletedTTL    time.Duration `yaml:"-"`
+	MaxQueued       int           `yaml:"max_queued"`
+	MaxRunning      int           `yaml:"max_running"`
+	MaxResultBytes  int64         `yaml:"max_result_bytes"`
 }
 
 type ToolsConfig struct {
@@ -108,6 +111,9 @@ func DefaultConfig(dbPath string) Config {
 		Jobs: JobsConfig{
 			CompletedTTLRaw: "1h",
 			CompletedTTL:    time.Hour,
+			MaxQueued:       100,
+			MaxRunning:      2,
+			MaxResultBytes:  10 << 20,
 		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
@@ -252,6 +258,15 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("jobs.completed_ttl must be greater than zero"))
 	} else {
 		cfg.Jobs.CompletedTTL = ttl
+	}
+	if cfg.Jobs.MaxQueued <= 0 {
+		errs = append(errs, errors.New("jobs.max_queued must be greater than zero"))
+	}
+	if cfg.Jobs.MaxRunning <= 0 {
+		errs = append(errs, errors.New("jobs.max_running must be greater than zero"))
+	}
+	if cfg.Jobs.MaxResultBytes <= 0 {
+		errs = append(errs, errors.New("jobs.max_result_bytes must be greater than zero"))
 	}
 	if cfg.Uploads.Enabled && !hasUploadDirectory(cfg.Uploads.Directories) {
 		errs = append(errs, errors.New("uploads.enabled requires at least one uploads.directories entry with a non-empty path"))

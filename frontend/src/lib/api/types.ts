@@ -4,6 +4,15 @@ export interface MediaUrls {
   content: string;
 }
 
+export interface MediaMetadata {
+  image_width?: number;
+  image_height?: number;
+  video_width?: number;
+  video_height?: number;
+  video_duration?: number;
+  audio_duration?: number;
+}
+
 export interface FileItem {
   id: string;
   content_id: string;
@@ -13,6 +22,7 @@ export interface FileItem {
   modified_time: string;
   media_type: string;
   media_kind: 'image' | 'video' | 'audio' | 'other';
+  metadata: MediaMetadata;
   tags: string[];
   media_urls: MediaUrls;
 }
@@ -46,6 +56,9 @@ export interface Job {
   type: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
   progress?: number;
+  submitted_at: string;
+  started_at?: string;
+  finished_at?: string;
   result?: unknown;
   error?: string;
 }

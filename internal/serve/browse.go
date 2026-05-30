@@ -92,16 +92,17 @@ type TagListResponse struct {
 }
 
 type FileDTO struct {
-	ID           string    `json:"id"`
-	ContentID    string    `json:"content_id"`
-	Name         string    `json:"name"`
-	Path         string    `json:"path,omitempty"`
-	Size         int64     `json:"size"`
-	ModifiedTime time.Time `json:"modified_time"`
-	MediaType    string    `json:"media_type"`
-	MediaKind    string    `json:"media_kind"`
-	Tags         []string  `json:"tags"`
-	MediaURLs    MediaURLs `json:"media_urls"`
+	ID           string        `json:"id"`
+	ContentID    string        `json:"content_id"`
+	Name         string        `json:"name"`
+	Path         string        `json:"path,omitempty"`
+	Size         int64         `json:"size"`
+	ModifiedTime time.Time     `json:"modified_time"`
+	MediaType    string        `json:"media_type"`
+	MediaKind    string        `json:"media_kind"`
+	Metadata     MediaMetadata `json:"metadata,omitempty"`
+	Tags         []string      `json:"tags"`
+	MediaURLs    MediaURLs     `json:"media_urls"`
 }
 
 type MediaURLs struct {
@@ -135,23 +136,13 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	start := page.Offset
-	if start > len(files) {
-		start = len(files)
-	}
-	end := start + page.Limit
-	if end > len(files) {
-		end = len(files)
-	}
-	pageFiles := files[start:end]
+	pageResult := PaginateInMemory(files, page)
 	response := FileListResponse{
-		Files: make([]FileDTO, 0, len(pageFiles)),
+		Files:         make([]FileDTO, 0, len(pageResult.Items)),
+		NextPageToken: pageResult.NextPageToken,
 	}
-	if end < len(files) {
-		response.NextPageToken = NextPageToken(page.Offset, page.Limit, len(pageFiles))
-	}
-	for _, file := range pageFiles {
-		response.Files = append(response.Files, s.fileDTO(file))
+	for _, file := range pageResult.Items {
+		response.Files = append(response.Files, s.fileDTO(r.Context(), file))
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -199,7 +190,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, s.fileDTO(file))
+	writeJSON(w, http.StatusOK, s.fileDTO(r.Context(), file))
 }
 
 func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
@@ -235,9 +226,10 @@ func DecodeFileID(encoded string) (int64, error) {
 	return id, nil
 }
 
-func (s *Server) fileDTO(file types.FileInfo) FileDTO {
+func (s *Server) fileDTO(ctx context.Context, file types.FileInfo) FileDTO {
 	id := EncodeFileID(file.ID)
 	mediaType := mediaTypeForPath(file.Path)
+	mediaKind := mediaKindForType(mediaType)
 	dto := FileDTO{
 		ID:           id,
 		ContentID:    file.Hash,
@@ -245,7 +237,7 @@ func (s *Server) fileDTO(file types.FileInfo) FileDTO {
 		Size:         file.Size,
 		ModifiedTime: time.Unix(file.ModTime, 0).UTC(),
 		MediaType:    mediaType,
-		MediaKind:    mediaKindForType(mediaType),
+		MediaKind:    mediaKind,
 		Tags:         nonNilStrings(file.Tags),
 		MediaURLs: MediaURLs{
 			Thumbnail: "/api/v1/files/" + id + "/thumbnail",
@@ -255,6 +247,11 @@ func (s *Server) fileDTO(file types.FileInfo) FileDTO {
 	}
 	if s.cfg.Server.ExposePaths {
 		dto.Path = file.Path
+	}
+	if s.meta != nil {
+		if metadata, err := s.meta.Metadata(ctx, file, mediaType, mediaKind); err == nil {
+			dto.Metadata = metadata
+		}
 	}
 	return dto
 }

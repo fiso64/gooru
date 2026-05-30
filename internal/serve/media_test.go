@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -138,6 +139,12 @@ func TestThumbnailRouteSerializesConcurrentCacheMisses(t *testing.T) {
 	if got := thumbnailer.calls.Load(); got != 1 {
 		t.Fatalf("expected one thumbnail generation, got %d", got)
 	}
+	server.media.cacheMu.Lock()
+	locks := len(server.media.cacheLocks)
+	server.media.cacheMu.Unlock()
+	if locks != 0 {
+		t.Fatalf("expected cache lock cleanup, got %d locks", locks)
+	}
 }
 
 func TestImageThumbnailerFallsBackWhenVipsMissing(t *testing.T) {
@@ -154,6 +161,80 @@ func TestImageThumbnailerFallsBackWhenVipsMissing(t *testing.T) {
 	}
 	if out.Len() == 0 {
 		t.Fatal("empty fallback thumbnail")
+	}
+}
+
+func TestFFmpegThumbnailArgsSeekBeforeInput(t *testing.T) {
+	offset := 1500 * time.Millisecond
+	args := ffmpegThumbnailArgs("in.mp4", "out.jpg", 128, "jpeg", &offset)
+	got := strings.Join(args, " ")
+	if !strings.Contains(got, "-ss 1.500 -i in.mp4") {
+		t.Fatalf("expected seek before input, got %v", args)
+	}
+}
+
+func TestVideoThumbnailOffsetStrategy(t *testing.T) {
+	cases := []struct {
+		name     string
+		duration string
+		want     time.Duration
+	}{
+		{name: "ten percent", duration: "20", want: 2 * time.Second},
+		{name: "floor", duration: "1", want: 500 * time.Millisecond},
+		{name: "cap", duration: "120", want: 3 * time.Second},
+		{name: "short duration max", duration: "0.6", want: 350 * time.Millisecond},
+		{name: "bad duration", duration: "not-a-number", want: 3 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ffprobe := writeFakeFFprobe(t, tc.duration, 0)
+			got, ok := videoThumbnailOffset(context.Background(), ffprobe, "video.mp4")
+			if !ok {
+				t.Fatal("expected offset strategy")
+			}
+			if got != tc.want {
+				t.Fatalf("expected offset %s, got %s", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestVideoThumbnailOffsetFallsBackWhenProbeFails(t *testing.T) {
+	ffprobe := writeFakeFFprobe(t, "", 2)
+	got, ok := videoThumbnailOffset(context.Background(), ffprobe, "video.mp4")
+	if !ok {
+		t.Fatal("expected fallback offset strategy")
+	}
+	if got != 3*time.Second {
+		t.Fatalf("expected 3s fallback offset, got %s", got)
+	}
+}
+
+func TestFFmpegThumbnailFallsBackToFirstFrameWhenOffsetFails(t *testing.T) {
+	ffmpeg, logPath := writeFallbackFFmpeg(t)
+	ffprobe := writeFakeFFprobe(t, "20", 0)
+	thumbnailer := NewFFmpegVideoThumbnailer(ffmpeg, ffprobe)
+	var out bytes.Buffer
+
+	if err := thumbnailer.Thumbnail("video.mp4", &out, 16, "jpeg"); err != nil {
+		t.Fatalf("generate thumbnail: %v", err)
+	}
+	if got := out.String(); got != "fallback derivative\n" {
+		t.Fatalf("unexpected derivative output %q", got)
+	}
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read ffmpeg log: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(logData)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected offset and fallback ffmpeg attempts, got %d: %q", len(lines), logData)
+	}
+	if !strings.Contains(lines[0], "-ss 2.000 -i video.mp4") {
+		t.Fatalf("expected first attempt to use probed offset before input, got %q", lines[0])
+	}
+	if strings.Contains(lines[1], "-ss") {
+		t.Fatalf("expected fallback attempt to omit seek offset, got %q", lines[1])
 	}
 }
 
@@ -301,6 +382,54 @@ printf "fake derivative\n" > "$last"
 `
 	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
 		t.Fatalf("write fake ffmpeg: %v", err)
+	}
+	return path
+}
+
+func writeFallbackFFmpeg(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ffmpeg")
+	logPath := filepath.Join(dir, "ffmpeg.log")
+	script := `#!/bin/sh
+if [ "$1" = "-version" ]; then
+  echo "fake ffmpeg 1.0"
+  exit 0
+fi
+last=""
+args=""
+for arg in "$@"; do
+  last="$arg"
+  args="$args $arg"
+done
+printf "%s\n" "$args" >> "` + logPath + `"
+if echo " $args " | grep -q " -ss "; then
+  : > "$last"
+  exit 0
+fi
+printf "fallback derivative\n" > "$last"
+`
+	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+		t.Fatalf("write fallback ffmpeg: %v", err)
+	}
+	return path, logPath
+}
+
+func writeFakeFFprobe(t *testing.T, output string, exitCode int) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ffprobe")
+	script := `#!/bin/sh
+if [ "$1" = "-version" ]; then
+  echo "fake ffprobe 1.0"
+  exit 0
+fi
+if [ "` + strconv.Itoa(exitCode) + `" != "0" ]; then
+  exit ` + strconv.Itoa(exitCode) + `
+fi
+printf "%s\n" "` + output + `"
+`
+	if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+		t.Fatalf("write fake ffprobe: %v", err)
 	}
 	return path
 }

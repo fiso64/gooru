@@ -19,6 +19,7 @@ import (
 
 	_ "image/gif"
 
+	"golang.org/x/image/draw"
 	"gooru.local/types"
 )
 
@@ -32,7 +33,7 @@ type Thumbnailer interface {
 type GoImageThumbnailer struct{}
 
 func (GoImageThumbnailer) BackendVersion() string {
-	return "go-image-v1"
+	return "go-image-v2"
 }
 
 func (GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
@@ -45,7 +46,7 @@ func (GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format 
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnsupportedMedia, err)
 	}
-	resized := scaleNearest(img, size)
+	resized := scaleImage(img, size)
 	switch format {
 	case "jpeg":
 		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: 84})
@@ -60,7 +61,12 @@ type MediaService struct {
 	cfg         Config
 	thumbnailer Thumbnailer
 	cacheMu     sync.Mutex
-	cacheLocks  map[string]*sync.Mutex
+	cacheLocks  map[string]*cacheLock
+}
+
+type cacheLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 func NewMediaService(cfg Config) *MediaService {
@@ -147,17 +153,26 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 func (m *MediaService) lockCachePath(path string) func() {
 	m.cacheMu.Lock()
 	if m.cacheLocks == nil {
-		m.cacheLocks = make(map[string]*sync.Mutex)
+		m.cacheLocks = make(map[string]*cacheLock)
 	}
 	lock := m.cacheLocks[path]
 	if lock == nil {
-		lock = &sync.Mutex{}
+		lock = &cacheLock{}
 		m.cacheLocks[path] = lock
 	}
+	lock.refs++
 	m.cacheMu.Unlock()
 
-	lock.Lock()
-	return lock.Unlock
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		m.cacheMu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(m.cacheLocks, path)
+		}
+		m.cacheMu.Unlock()
+	}
 }
 
 func (m *MediaService) derivativeSize(r *http.Request, kind string) (int, error) {
@@ -229,7 +244,7 @@ func (m *MediaService) serveCachedDerivative(w http.ResponseWriter, r *http.Requ
 	http.ServeContent(w, r, info.Name(), info.ModTime().Truncate(time.Second), f)
 }
 
-func scaleNearest(src image.Image, maxSize int) image.Image {
+func scaleImage(src image.Image, maxSize int) image.Image {
 	bounds := src.Bounds()
 	width := bounds.Dx()
 	height := bounds.Dy()
@@ -251,13 +266,7 @@ func scaleNearest(src image.Image, maxSize int) image.Image {
 		targetH = 1
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
-	for y := 0; y < targetH; y++ {
-		for x := 0; x < targetW; x++ {
-			srcX := bounds.Min.X + x*width/targetW
-			srcY := bounds.Min.Y + y*height/targetH
-			dst.Set(x, y, src.At(srcX, srcY))
-		}
-	}
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
 	return dst
 }
 

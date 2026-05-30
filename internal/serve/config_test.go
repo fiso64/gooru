@@ -27,6 +27,9 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Jobs.CompletedTTL == 0 {
 		t.Fatal("completed TTL was not parsed")
 	}
+	if cfg.Jobs.MaxQueued != 100 || cfg.Jobs.MaxRunning != 2 || cfg.Jobs.MaxResultBytes != 10<<20 {
+		t.Fatalf("unexpected job defaults: %+v", cfg.Jobs)
+	}
 }
 
 func TestLoadConfigResolvesTokenFromEnvironment(t *testing.T) {
@@ -45,6 +48,9 @@ media:
   preview_size: 1280
 jobs:
   completed_ttl: "30m"
+  max_queued: 5
+  max_running: 3
+  max_result_bytes: 1024
 tools:
   ffmpeg_path: "ffmpeg"
   ffprobe_path: "ffprobe"
@@ -57,6 +63,9 @@ logging:
 	}
 	if cfg.Auth.Token != "secret-token" {
 		t.Fatalf("token was not trimmed/resolved: %q", cfg.Auth.Token)
+	}
+	if cfg.Jobs.MaxQueued != 5 || cfg.Jobs.MaxRunning != 3 || cfg.Jobs.MaxResultBytes != 1024 {
+		t.Fatalf("job limits were not parsed: %+v", cfg.Jobs)
 	}
 }
 
@@ -176,6 +185,21 @@ func TestLoadConfigRejectsUnsupportedThumbnailFormat(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "media.thumbnail_format must be one of: jpeg, png") {
 		t.Fatalf("expected thumbnail format validation error, got %v", err)
+	}
+}
+
+func TestLoadConfigRejectsInvalidJobLimits(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Jobs.MaxQueued = 0
+	cfg.Jobs.MaxRunning = 0
+	cfg.Jobs.MaxResultBytes = 0
+
+	err := cfg.Validate()
+	if err == nil ||
+		!strings.Contains(err.Error(), "jobs.max_queued") ||
+		!strings.Contains(err.Error(), "jobs.max_running") ||
+		!strings.Contains(err.Error(), "jobs.max_result_bytes") {
+		t.Fatalf("expected job limit validation errors, got %v", err)
 	}
 }
 
