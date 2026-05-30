@@ -159,7 +159,7 @@ func TestFileDTOMetadataFallsBackWithoutBreakingRoute(t *testing.T) {
 	server := NewServerWithLibrary(cfg, emptyLibrary{})
 	imagePath := writePNGImage(t)
 
-	dto := server.fileDTO(context.Background(), types.FileInfo{ID: 99, Path: imagePath, Hash: "hash", Size: 10})
+	dto := server.fileDTO(context.Background(), types.FileInfo{ID: 99, Path: imagePath, Hash: "hash", Size: 10}, true)
 	if dto.Metadata.ImageWidth == nil || *dto.Metadata.ImageWidth != 32 {
 		t.Fatalf("expected image width metadata, got %+v", dto.Metadata)
 	}
@@ -167,7 +167,7 @@ func TestFileDTOMetadataFallsBackWithoutBreakingRoute(t *testing.T) {
 		t.Fatalf("expected image height metadata, got %+v", dto.Metadata)
 	}
 
-	dto = server.fileDTO(context.Background(), types.FileInfo{ID: 100, Path: filepath.Join(t.TempDir(), "missing.jpg"), Hash: "hash", Size: 10})
+	dto = server.fileDTO(context.Background(), types.FileInfo{ID: 100, Path: filepath.Join(t.TempDir(), "missing.jpg"), Hash: "hash", Size: 10}, true)
 	if dto.ID == "" || dto.Metadata.ImageWidth != nil || dto.Metadata.ImageHeight != nil {
 		t.Fatalf("metadata failure should not block DTO fallback, got %+v", dto)
 	}

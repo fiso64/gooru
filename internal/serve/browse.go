@@ -25,6 +25,10 @@ type Library interface {
 	ListTags(ctx context.Context, counts bool) ([]TagDTO, error)
 }
 
+type PagedLibrary interface {
+	ListFilesPage(ctx context.Context, query string, page Page) (PageResult[types.FileInfo], error)
+}
+
 type GooruLibrary struct {
 	client  *core.Client
 	verbose bool
@@ -42,6 +46,29 @@ func (l *GooruLibrary) ListFiles(ctx context.Context, query string) ([]types.Fil
 		return l.client.GetAllFilesInfo()
 	}
 	return l.client.GetFilesInfoByQuery(query, l.verbose)
+}
+
+func (l *GooruLibrary) ListFilesPage(ctx context.Context, query string, page Page) (PageResult[types.FileInfo], error) {
+	if err := ctx.Err(); err != nil {
+		return PageResult[types.FileInfo]{}, err
+	}
+	limit := page.Limit + 1
+	var files []types.FileInfo
+	var err error
+	if strings.TrimSpace(query) == "" {
+		files, err = l.client.GetAllFilesInfoPage(limit, page.Offset)
+	} else {
+		files, err = l.client.GetFilesInfoByQueryPage(query, limit, page.Offset, l.verbose)
+	}
+	if err != nil {
+		return PageResult[types.FileInfo]{}, err
+	}
+	result := PageResult[types.FileInfo]{Items: files}
+	if len(result.Items) > page.Limit {
+		result.Items = result.Items[:page.Limit]
+		result.NextPageToken = NextPageToken(page.Offset, page.Limit, page.Limit)
+	}
+	return result, nil
 }
 
 func (l *GooruLibrary) GetFile(ctx context.Context, locationID int64) (types.FileInfo, error) {
@@ -126,7 +153,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
-	files, err := s.library.ListFiles(r.Context(), r.URL.Query().Get("query"))
+	pageResult, err := s.listFilesPage(r.Context(), r.URL.Query().Get("query"), page)
 	if err != nil {
 		if errors.Is(err, core.ErrInvalidQuery) {
 			writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
@@ -135,16 +162,25 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list files", nil)
 		return
 	}
-
-	pageResult := PaginateInMemory(files, page)
 	response := FileListResponse{
 		Files:         make([]FileDTO, 0, len(pageResult.Items)),
 		NextPageToken: pageResult.NextPageToken,
 	}
 	for _, file := range pageResult.Items {
-		response.Files = append(response.Files, s.fileDTO(r.Context(), file))
+		response.Files = append(response.Files, s.fileDTO(r.Context(), file, false))
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) listFilesPage(ctx context.Context, query string, page Page) (PageResult[types.FileInfo], error) {
+	if paged, ok := s.library.(PagedLibrary); ok {
+		return paged.ListFilesPage(ctx, query, page)
+	}
+	files, err := s.library.ListFiles(ctx, query)
+	if err != nil {
+		return PageResult[types.FileInfo]{}, err
+	}
+	return PaginateInMemory(files, page), nil
 }
 
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +226,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, s.fileDTO(r.Context(), file))
+	writeJSON(w, http.StatusOK, s.fileDTO(r.Context(), file, true))
 }
 
 func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
@@ -226,7 +262,7 @@ func DecodeFileID(encoded string) (int64, error) {
 	return id, nil
 }
 
-func (s *Server) fileDTO(ctx context.Context, file types.FileInfo) FileDTO {
+func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetadata bool) FileDTO {
 	id := EncodeFileID(file.ID)
 	mediaType := mediaTypeForPath(file.Path)
 	mediaKind := mediaKindForType(mediaType)
@@ -248,7 +284,7 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo) FileDTO {
 	if s.cfg.Server.ExposePaths {
 		dto.Path = file.Path
 	}
-	if s.meta != nil {
+	if includeMetadata && s.meta != nil {
 		if metadata, err := s.meta.Metadata(ctx, file, mediaType, mediaKind); err == nil {
 			dto.Metadata = metadata
 		}

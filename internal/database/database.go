@@ -696,6 +696,29 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 	return files, rows.Err()
 }
 
+// GetAllFilesInfoPage retrieves one bounded page of file info from the database.
+func (s *Store) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, error) {
+	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations ORDER BY path LIMIT ? OFFSET ?`
+
+	rows, err := s.Query(query, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		var tagsCache string
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+			return nil, err
+		}
+		file.Tags = splitTags(tagsCache)
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
 // GetFileInfoByLocationID retrieves detailed info for one tracked file location.
 func (s *Store) GetFileInfoByLocationID(id int64) (types.FileInfo, error) {
 	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations WHERE id = ?`
@@ -1389,6 +1412,36 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 	`, query)
 
 	rows, err := s.Query(finalQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		var tagsCache string
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+			return nil, err
+		}
+		file.Tags = splitTags(tagsCache)
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
+// GetFilesInfoByContentQueryPage executes a complex query and returns one bounded page.
+func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{}, limit int, offset int) ([]types.FileInfo, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_hashes(hash) AS (%s)
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
+		ORDER BY l.path
+		LIMIT ? OFFSET ?
+	`, query)
+	pagedArgs := append(append([]interface{}{}, args...), limit, offset)
+
+	rows, err := s.Query(finalQuery, pagedArgs...)
 	if err != nil {
 		return nil, err
 	}
