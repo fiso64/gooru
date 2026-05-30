@@ -675,7 +675,7 @@ func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag, notTags []types.Parse
 
 // GetAllFilesInfo retrieves detailed info for all files from the database using the cache.
 func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
-	query := `SELECT path, content_hash, size_bytes, mod_time, tags_cache FROM locations ORDER BY path`
+	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations ORDER BY path`
 
 	rows, err := s.Query(query)
 	if err != nil {
@@ -687,19 +687,31 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
 		files = append(files, file)
 	}
-	return files, nil
+	return files, rows.Err()
+}
+
+// GetFileInfoByLocationID retrieves detailed info for one tracked file location.
+func (s *Store) GetFileInfoByLocationID(id int64) (types.FileInfo, error) {
+	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations WHERE id = ?`
+	var file types.FileInfo
+	var tagsCache string
+	if err := s.QueryRow(query, id).Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		return types.FileInfo{}, err
+	}
+	file.Tags = splitTags(tagsCache)
+	return file, nil
 }
 
 // GetFilesInfoByTag retrieves info for all files for a given tag using the cache.
 func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	query := `
-		SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
 		FROM locations l
 		JOIN content_tags ct ON l.content_hash = ct.content_hash
 		JOIN tags t ON ct.tag_id = t.id
@@ -716,7 +728,7 @@ func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -771,7 +783,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 
 	// 3. Build Final Select
 	queryBuilder.WriteString(`
-		SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
 		FROM locations l
 		JOIN positive_hashes ph ON l.content_hash = ph.content_hash`)
 	if len(notTags) > 0 {
@@ -791,7 +803,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -1371,7 +1383,7 @@ func (s *Store) GetPathsByContentQuery(query string, args []interface{}) ([]stri
 func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]types.FileInfo, error) {
 	finalQuery := fmt.Sprintf(`
 		WITH result_hashes(hash) AS (%s)
-		SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
 		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
 		ORDER BY l.path
 	`, query)
@@ -1386,7 +1398,7 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)

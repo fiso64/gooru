@@ -1,3 +1,5 @@
+//go:build fuse
+
 package cmd
 
 import (
@@ -94,8 +96,6 @@ This feature requires a FUSE implementation to be installed on your system:
 			Port:       port,
 			ID:         mountID,
 		}
-
-
 
 		if err := writeRuntimeFile(runtimeFile, mountInfo); err != nil {
 			return fmt.Errorf("could not write runtime file: %w", err)

@@ -1,0 +1,656 @@
+openapi: 3.1.0
+info:
+  title: Gooru Serve API
+  version: 0.1.0
+  description: Initial API contract for the gooru serve web application stack.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: Server is reachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+  /files:
+    get:
+      summary: List tracked files for browser grids.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: query
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: page_token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Page of tracked files.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /files/{id}:
+    get:
+      summary: Get one tracked file by opaque file ID.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Tracked file details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/File"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /files/{id}/thumbnail:
+    get:
+      summary: Get a cacheable thumbnail for a tracked file.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Requested thumbnail size. Must be one of the configured thumbnail_sizes values.
+      responses:
+        "200":
+          description: Thumbnail image derivative.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Gooru-Cache:
+              schema:
+                type: string
+                enum: [hit, miss]
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+  /files/{id}/preview:
+    get:
+      summary: Get a cacheable preview derivative for a tracked file.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Preview image derivative.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Gooru-Cache:
+              schema:
+                type: string
+                enum: [hit, miss]
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+  /files/{id}/content:
+    get:
+      summary: Stream original content for a tracked file.
+      description: Supports HTTP range requests for browser audio and video seeking.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+          example: bytes=0-1048575
+      responses:
+        "200":
+          description: Full original file content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Partial original file content.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /files/tags:
+    post:
+      summary: Add tags to selected files.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PreferAsync"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagMutationRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/TagMutation"
+        "202":
+          $ref: "#/components/responses/AsyncJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Replace tags on selected files.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PreferAsync"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagMutationRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/TagMutation"
+        "202":
+          $ref: "#/components/responses/AsyncJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Remove tags from selected files.
+      description: If tags is empty, all tags are removed from the selected files.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PreferAsync"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagMutationRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/TagMutation"
+        "202":
+          $ref: "#/components/responses/AsyncJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /uploads:
+    post:
+      summary: Upload files into a configured upload directory and import them.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PreferAsync"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                directory:
+                  type: string
+                  description: Configured upload directory name. Defaults to the first configured directory.
+                tags:
+                  type: string
+                  description: Space- or comma-separated initial tags.
+      responses:
+        "200":
+          description: Synchronous upload/import result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadImportResponse"
+        "202":
+          $ref: "#/components/responses/AsyncJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+  /tags:
+    get:
+      summary: List known tags.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: counts
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Tags, optionally with counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /jobs/{id}:
+    get:
+      summary: Get an asynchronous job.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Cancel an asynchronous job.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Cancellation requested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  parameters:
+    PreferAsync:
+      name: Prefer
+      in: header
+      required: false
+      schema:
+        type: string
+        enum: [respond-async]
+      description: Set to respond-async to enqueue the mutation and poll the returned job.
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Request is not allowed by server configuration.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PayloadTooLarge:
+      description: Request body or uploaded file is too large.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TagMutation:
+      description: Aggregate tag mutation result.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/TagMutationResponse"
+    AsyncJob:
+      description: Mutation was queued as an asynchronous job.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Job"
+    UnsupportedMedia:
+      description: The requested media derivative cannot be generated for this file.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details: {}
+    TagMutationRequest:
+      type: object
+      required: [tags]
+      properties:
+        file_ids:
+          type: array
+          items:
+            type: string
+          description: Opaque file IDs. Exactly one of file_ids or query must be provided.
+        query:
+          type: string
+          description: Query selector. Exactly one of file_ids or query must be provided.
+        tags:
+          type: array
+          items:
+            type: string
+        verbose:
+          type: boolean
+          default: false
+    TagMutationResponse:
+      type: object
+      required: [operation, selector, affected_count]
+      properties:
+        operation:
+          type: string
+          enum: [add, set, remove]
+        selector:
+          type: object
+          properties:
+            file_ids:
+              type: array
+              items:
+                type: string
+            query:
+              type: string
+        matched_files:
+          type: integer
+        affected_count:
+          type: integer
+        notifications:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                enum: [move_detected, modified, unknown]
+              original_path:
+                type: string
+              old_path:
+                type: string
+              new_path:
+                type: string
+              orphaned_tags:
+                type: array
+                items:
+                  type: string
+    UploadImportResponse:
+      type: object
+      required: [files, affected_count]
+      properties:
+        files:
+          type: array
+          items:
+            type: object
+            required: [name, size]
+            properties:
+              name:
+                type: string
+              size:
+                type: integer
+                format: int64
+        affected_count:
+          type: integer
+        notifications:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                enum: [move_detected, modified, unknown]
+              original_path:
+                type: string
+              old_path:
+                type: string
+              new_path:
+                type: string
+              orphaned_tags:
+                type: array
+                items:
+                  type: string
+    Job:
+      type: object
+      required: [id, type, status, submitted_at]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, canceled]
+        progress:
+          type: number
+          minimum: 0
+          maximum: 1
+        submitted_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        result: {}
+        error:
+          type: string
+    FileListResponse:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/File"
+        next_page_token:
+          type: string
+    File:
+      type: object
+      required:
+        - id
+        - content_id
+        - name
+        - size
+        - modified_time
+        - media_type
+        - media_kind
+        - tags
+        - media_urls
+      properties:
+        id:
+          type: string
+          description: Opaque stable file-location identifier.
+        content_id:
+          type: string
+          description: Content hash for the tracked file.
+        name:
+          type: string
+        path:
+          type: string
+        size:
+          type: integer
+          format: int64
+        modified_time:
+          type: string
+          format: date-time
+        media_type:
+          type: string
+        media_kind:
+          type: string
+          enum: [image, video, audio, other]
+        tags:
+          type: array
+          items:
+            type: string
+        media_urls:
+          $ref: "#/components/schemas/MediaURLs"
+    MediaURLs:
+      type: object
+      required: [thumbnail, preview, content]
+      properties:
+        thumbnail:
+          type: string
+        preview:
+          type: string
+        content:
+          type: string
+    TagListResponse:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+    Tag:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        count:
+          type: integer

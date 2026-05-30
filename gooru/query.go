@@ -2,42 +2,47 @@ package gooru
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
-	"gooru.local/types"
 	"gooru.local/internal/query"
+	"gooru.local/types"
 )
+
+// ErrInvalidQuery marks query parse and validation errors that callers can
+// safely present as client input failures.
+var ErrInvalidQuery = errors.New("invalid query")
 
 // buildQuery is a helper to parse an expression, gather tag statistics, and build an optimized SQL subquery.
 func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
-    if strings.TrimSpace(expression) == "" {
-        return "", nil, nil
-    }
-    ast, err := query.Parse(expression)
-    if err != nil {
-        return "", nil, fmt.Errorf("could not parse query: %w", err)
-    }
+	if strings.TrimSpace(expression) == "" {
+		return "", nil, nil
+	}
+	ast, err := query.Parse(expression)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: could not parse query: %v", ErrInvalidQuery, err)
+	}
 
-    if err := query.ValidateAST(ast); err != nil {
-        return "", nil, fmt.Errorf("invalid tag in query: %w", err)
-    }
+	if err := query.ValidateAST(ast); err != nil {
+		return "", nil, fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
+	}
 
-    // NEW: Intelligently build query using tag counts for optimization.
-    // 1. Extract all user-defined tags from the query AST.
-    userTags := query.ExtractTags(ast)
+	// NEW: Intelligently build query using tag counts for optimization.
+	// 1. Extract all user-defined tags from the query AST.
+	userTags := query.ExtractTags(ast)
 
-    // 2. Batch-fetch the usage counts for these tags from the database.
-    parsedTags := query.ToParsedTags(userTags)
-    tagCounts, err := c.store.BatchGetTagCounts(parsedTags)
-    if err != nil {
-        return "", nil, fmt.Errorf("could not fetch tag statistics for query optimization: %w", err)
-    }
+	// 2. Batch-fetch the usage counts for these tags from the database.
+	parsedTags := query.ToParsedTags(userTags)
+	tagCounts, err := c.store.BatchGetTagCounts(parsedTags)
+	if err != nil {
+		return "", nil, fmt.Errorf("could not fetch tag statistics for query optimization: %w", err)
+	}
 
-    // 3. Build the SQL with the counts to inform the builder's strategy.
-    sqlQuery, args := query.Build(ast, tagCounts)
-    return sqlQuery, args, nil
+	// 3. Build the SQL with the counts to inform the builder's strategy.
+	sqlQuery, args := query.Build(ast, tagCounts)
+	return sqlQuery, args, nil
 }
 
 // GetTagsForFile retrieves all tags for a given file, with a safety check and status.
@@ -139,14 +144,14 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 		}
 	}
 
-    // Fallback to full query for complex expressions
-    sqlQuery, args, err := c.buildQuery(trimmedExpr)
-    if err != nil {
-        return 0, err
-    }
-    if sqlQuery == "" {
-        return 0, nil
-    }
+	// Fallback to full query for complex expressions
+	sqlQuery, args, err := c.buildQuery(trimmedExpr)
+	if err != nil {
+		return 0, err
+	}
+	if sqlQuery == "" {
+		return 0, nil
+	}
 
 	if verbose {
 		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
@@ -200,14 +205,14 @@ func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, erro
 		}
 	}
 
-    // Fallback to full query for complex expressions
-    sqlQuery, args, err := c.buildQuery(trimmedExpr)
-    if err != nil {
-        return false, err
-    }
-    if sqlQuery == "" {
-        return false, nil
-    }
+	// Fallback to full query for complex expressions
+	sqlQuery, args, err := c.buildQuery(trimmedExpr)
+	if err != nil {
+		return false, err
+	}
+	if sqlQuery == "" {
+		return false, nil
+	}
 
 	if verbose {
 		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
@@ -332,28 +337,33 @@ func (c *Client) ListFilesByTagsAnd(tags []string, notTags []string) ([]string, 
 
 // ListFilesByQuery parses and executes a complex query expression.
 func (c *Client) ListFilesByQuery(expression string, verbose bool) ([]string, error) {
-    sqlQuery, args, err := c.buildQuery(expression)
-    if err != nil {
-        return nil, err
-    }
-    if sqlQuery == "" {
-        return []string{}, nil
-    }
+	sqlQuery, args, err := c.buildQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return []string{}, nil
+	}
 
-    if verbose {
-        fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
-        fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
-        fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
-        fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
-        fmt.Fprintf(os.Stderr, "-------------\n")
-    }
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
+		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
+		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
+		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
+		fmt.Fprintf(os.Stderr, "-------------\n")
+	}
 
-    return c.store.GetPathsByContentQuery(sqlQuery, args)
+	return c.store.GetPathsByContentQuery(sqlQuery, args)
 }
 
 // GetAllFilesInfo gets detailed info for all files known to the system.
 func (c *Client) GetAllFilesInfo() ([]types.FileInfo, error) {
 	return c.store.GetAllFilesInfo()
+}
+
+// GetFileInfoByLocationID gets detailed info for a tracked file by its stable location ID.
+func (c *Client) GetFileInfoByLocationID(id int64) (types.FileInfo, error) {
+	return c.store.GetFileInfoByLocationID(id)
 }
 
 // GetFilesInfoByTag gets detailed info for all files associated with a given tag.
@@ -387,23 +397,23 @@ func (c *Client) GetFilesInfoByTagsAnd(tags []string, notTags []string) ([]types
 
 // GetFilesInfoByQuery parses and executes a complex query expression, returning full file info.
 func (c *Client) GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error) {
-    sqlQuery, args, err := c.buildQuery(expression)
-    if err != nil {
-        return nil, err
-    }
-    if sqlQuery == "" {
-        return []types.FileInfo{}, nil
-    }
+	sqlQuery, args, err := c.buildQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return []types.FileInfo{}, nil
+	}
 
-    if verbose {
-        fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
-        fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
-        fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
-        fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
-        fmt.Fprintf(os.Stderr, "-------------\n")
-    }
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
+		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
+		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
+		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
+		fmt.Fprintf(os.Stderr, "-------------\n")
+	}
 
-    return c.store.GetFilesInfoByContentQuery(sqlQuery, args)
+	return c.store.GetFilesInfoByContentQuery(sqlQuery, args)
 }
 
 // GetAllTags retrieves all tags from the database.

@@ -4,6 +4,14 @@ Gooru is a high-performance, content-centric command-line tool for tagging and o
 
 This project is currently under development.
 
+## Web Application
+
+The `gooru serve` command runs the REST API, authenticated media backend, upload
+import endpoint, job polling routes, and static SvelteKit frontend. See
+[docs/SERVE.md](docs/SERVE.md) for local setup, production static-asset
+deployment, secure network access, upload configuration, and optional media tool
+dependencies.
+
 ## TODO
 
 - Priority #1: Extensive tests to ensure correctness of all operations.
