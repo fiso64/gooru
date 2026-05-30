@@ -107,6 +107,9 @@ VALUES (?, ?, ?, ?, ?, ?)`, user.ID, user.Username, hash, user.Role, user.Create
 }
 
 func (s *AuthStore) Login(ctx context.Context, username, password string) (AuthSession, error) {
+	if err := s.CleanupExpiredSessions(ctx); err != nil {
+		return AuthSession{}, err
+	}
 	username, err := normalizeUsername(username)
 	if err != nil {
 		return AuthSession{}, ErrInvalidCredentials
@@ -171,7 +174,10 @@ WHERE s.token_hash = ?`, tokenHash).Scan(
 
 func (s *AuthStore) RevokeSession(ctx context.Context, sessionID string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, s.now(), sessionID)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.CleanupExpiredSessions(ctx)
 }
 
 func (s *AuthStore) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {

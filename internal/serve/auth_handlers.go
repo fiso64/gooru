@@ -64,6 +64,10 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.Auth.Enabled {
+		writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
@@ -78,12 +82,20 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.Auth.Enabled {
+		writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
+		return
+	}
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
 	auth, _ := currentAuth(r.Context())
+	if s.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "authentication store is not configured", nil)
+		return
+	}
 	csrfToken, err := s.auth.RotateCSRF(r.Context(), auth.Session.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to issue CSRF token", nil)
@@ -93,12 +105,20 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.Auth.Enabled {
+		writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
 	auth, _ := currentAuth(r.Context())
+	if s.auth == nil {
+		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "authentication store is not configured", nil)
+		return
+	}
 	var req changePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON request body", nil)

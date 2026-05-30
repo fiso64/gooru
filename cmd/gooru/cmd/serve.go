@@ -65,7 +65,11 @@ var serveCmd = &cobra.Command{
 				return fmt.Errorf("failed to initialize auth store: %w", err)
 			}
 			defer authStore.Close()
-			server.SetAuthStore(serve.NewAuthStore(authStore.DB, cfg.Auth.SessionTTL))
+			sessionStore := serve.NewAuthStore(authStore.DB, cfg.Auth.SessionTTL)
+			if err := sessionStore.CleanupExpiredSessions(ctx); err != nil {
+				return fmt.Errorf("failed to clean up expired sessions: %w", err)
+			}
+			server.SetAuthStore(sessionStore)
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(), "serving gooru on http://%s\n", cfg.Server.Listen)
 		return server.ListenAndServe(ctx)

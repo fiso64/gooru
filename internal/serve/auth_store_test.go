@@ -98,6 +98,38 @@ func TestAuthStoreRejectsDisabledAndExpiredSessions(t *testing.T) {
 	}
 }
 
+func TestAuthStoreCleansExpiredAndRevokedSessions(t *testing.T) {
+	store := newAuthTestStore(t)
+	ctx := context.Background()
+	if _, err := store.CreateAdmin(ctx, "mac", "correct horse"); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	expired, err := store.Login(ctx, "mac", "correct horse")
+	if err != nil {
+		t.Fatalf("login expired candidate: %v", err)
+	}
+	if _, err := store.db.Exec(`UPDATE sessions SET expires_at = ? WHERE id = ?`, time.Now().Add(-time.Hour).UTC(), expired.Session.ID); err != nil {
+		t.Fatalf("expire session: %v", err)
+	}
+	if _, err := store.Login(ctx, "mac", "correct horse"); err != nil {
+		t.Fatalf("login should clean expired sessions: %v", err)
+	}
+	if sessionExists(t, store, expired.Session.ID) {
+		t.Fatal("expected login cleanup to remove expired session")
+	}
+
+	revoked, err := store.Login(ctx, "mac", "correct horse")
+	if err != nil {
+		t.Fatalf("login revoked candidate: %v", err)
+	}
+	if err := store.RevokeSession(ctx, revoked.Session.ID); err != nil {
+		t.Fatalf("revoke session: %v", err)
+	}
+	if sessionExists(t, store, revoked.Session.ID) {
+		t.Fatal("expected revoke cleanup to remove revoked session")
+	}
+}
+
 func TestAuthEndpointsRequireSessionAndCSRF(t *testing.T) {
 	store := newAuthTestStore(t)
 	if _, err := store.CreateAdmin(context.Background(), "mac", "correct horse"); err != nil {
@@ -148,6 +180,27 @@ func TestAuthEndpointsRequireSessionAndCSRF(t *testing.T) {
 	assertAPIError(t, meRec, http.StatusUnauthorized, "unauthorized")
 }
 
+func TestAuthEndpointsAreStableWhenAuthDisabled(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Enabled = false
+	server := NewServer(cfg)
+
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/v1/auth/login"},
+		{http.MethodPost, "/api/v1/auth/logout"},
+		{http.MethodGet, "/api/v1/auth/me"},
+		{http.MethodPost, "/api/v1/auth/change-password"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, nil)
+		rec := httptest.NewRecorder()
+		server.Handler().ServeHTTP(rec, req)
+		assertAPIError(t, rec, http.StatusNotFound, "not_found")
+	}
+}
+
 func newAuthTestStore(t *testing.T) *AuthStore {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "auth.db")
@@ -160,4 +213,13 @@ func newAuthTestStore(t *testing.T) *AuthStore {
 		t.Fatalf("run migrations: %v", err)
 	}
 	return NewAuthStore(db, time.Hour)
+}
+
+func sessionExists(t *testing.T, store *AuthStore, id string) bool {
+	t.Helper()
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = ?`, id).Scan(&count); err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	return count > 0
 }
