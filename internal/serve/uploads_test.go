@@ -72,6 +72,14 @@ func TestUploadRejectsOversizedFile(t *testing.T) {
 	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"a.txt": "hello"}, nil))
 
 	assertAPIError(t, rec, http.StatusRequestEntityTooLarge, "payload_too_large")
+	var payload ErrorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	details, ok := payload.Error.Details.(map[string]interface{})
+	if !ok || details["file"] != "a.txt" {
+		t.Fatalf("expected per-file upload error details, got %#v", payload.Error.Details)
+	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
 		t.Fatalf("oversized upload should be removed, entries=%v err=%v", entries, err)
 	}
