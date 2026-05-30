@@ -64,4 +64,22 @@ describe('AuthenticatedMediaCache', () => {
     expect(objectURLs.createObjectURL).toHaveBeenCalledTimes(1);
     expect(objectURLs.revokeObjectURL).toHaveBeenCalledWith('blob:late-thumbnail');
   });
+
+  it('ignores duplicate release calls while another lease still holds the object URL', async () => {
+    const fetcher = vi.fn(async () => new Response(new Blob(['image']), { status: 200 })) as unknown as typeof fetch;
+    const objectURLs = {
+      createObjectURL: vi.fn(() => 'blob:shared-thumbnail'),
+      revokeObjectURL: vi.fn()
+    };
+    const cache = new AuthenticatedMediaCache(fetcher, objectURLs);
+
+    const [first, second] = await Promise.all([cache.load('/thumbnail', 'token'), cache.load('/thumbnail', 'token')]);
+    first.release();
+    first.release();
+
+    expect(objectURLs.revokeObjectURL).not.toHaveBeenCalled();
+    second.release();
+    expect(objectURLs.revokeObjectURL).toHaveBeenCalledOnce();
+    expect(objectURLs.revokeObjectURL).toHaveBeenCalledWith('blob:shared-thumbnail');
+  });
 });

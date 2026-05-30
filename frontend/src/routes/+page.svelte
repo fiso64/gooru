@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { writable } from 'svelte/store';
+  import { useQueryClient } from '@tanstack/svelte-query';
   import AppShell from '$lib/components/AppShell.svelte';
   import AuthPanel from '$lib/components/AuthPanel.svelte';
   import MediaGrid from '$lib/components/MediaGrid.svelte';
@@ -16,6 +17,7 @@
 
   const searchDraft = writable('');
   const submittedSearch = writable('');
+  const queryClient = useQueryClient();
 
   let tokenDraft = $state('');
   let observedToken = $state($authToken);
@@ -48,6 +50,8 @@
     if (token === observedToken) return;
     observedToken = token;
     authScope += 1;
+    queryClient.removeQueries({ queryKey: ['files'] });
+    queryClient.removeQueries({ queryKey: ['job'] });
     resetAuthScopedState();
   });
 

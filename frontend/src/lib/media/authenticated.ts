@@ -68,9 +68,14 @@ export class AuthenticatedMediaCache {
     try {
       const objectURL = entry.objectURL || (await entry.promise);
       if (signal?.aborted) throw abortError();
+      let released = false;
       return {
         url: objectURL,
-        release: () => this.release(key)
+        release: () => {
+          if (released) return;
+          released = true;
+          this.release(key);
+        }
       };
     } catch (error) {
       if (!releasedBySignal) this.release(key);
@@ -83,6 +88,7 @@ export class AuthenticatedMediaCache {
   private release(key: string) {
     const entry = this.entries.get(key);
     if (!entry) return;
+    if (entry.refs <= 0) return;
     entry.refs -= 1;
     if (entry.refs > 0) return;
     entry.controller.abort();
