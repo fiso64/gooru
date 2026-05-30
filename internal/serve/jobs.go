@@ -108,9 +108,7 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
 
-	select {
-	case m.queue <- queuedJob{job: job, ctx: jobCtx, run: run, cleanup: cleanup}:
-	case <-ctx.Done():
+	if err := ctx.Err(); err != nil {
 		cancel()
 		m.mu.Lock()
 		delete(m.jobs, job.ID)
@@ -118,7 +116,11 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 		if cleanup != nil {
 			cleanup()
 		}
-		return nil, ctx.Err()
+		return nil, err
+	}
+
+	select {
+	case m.queue <- queuedJob{job: job, ctx: jobCtx, run: run, cleanup: cleanup}:
 	default:
 		cancel()
 		m.mu.Lock()
@@ -126,6 +128,9 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 		m.mu.Unlock()
 		if cleanup != nil {
 			cleanup()
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		return nil, ErrJobQueueFull
 	}
