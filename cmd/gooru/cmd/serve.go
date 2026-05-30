@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"gooru.local/cmd/gooru/config"
 	"gooru.local/gooru"
+	"gooru.local/internal/database"
 	"gooru.local/internal/serve"
 )
 
@@ -57,8 +58,17 @@ var serveCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize gooru client: %w", err)
 		}
 		defer client.Close()
+		server := serve.NewServerWithLibrary(cfg, serve.NewGooruLibrary(client, verbose))
+		if cfg.Auth.Enabled {
+			authStore, err := database.NewStore(cfg.Database.Path, verbose)
+			if err != nil {
+				return fmt.Errorf("failed to initialize auth store: %w", err)
+			}
+			defer authStore.Close()
+			server.SetAuthStore(serve.NewAuthStore(authStore.DB, cfg.Auth.SessionTTL))
+		}
 		fmt.Fprintf(cmd.ErrOrStderr(), "serving gooru on http://%s\n", cfg.Server.Listen)
-		return serve.NewServerWithLibrary(cfg, serve.NewGooruLibrary(client, verbose)).ListenAndServe(ctx)
+		return server.ListenAndServe(ctx)
 	},
 }
 
@@ -67,7 +77,7 @@ func init() {
 	serveCmd.Flags().StringVar(&serveFlags.configPath, "config", "", "Path to YAML server config")
 	serveCmd.Flags().StringVar(&serveFlags.listen, "listen", "", "Override server.listen, for example 127.0.0.1:5678")
 	serveCmd.Flags().StringVar(&serveFlags.publicURL, "public-url", "", "Override server.public_url")
-	serveCmd.Flags().StringVar(&serveFlags.authToken, "auth-token", "", "Override auth.token")
+	serveCmd.Flags().StringVar(&serveFlags.authToken, "auth-token", "", "Deprecated; DB-backed users replace token auth")
 	serveCmd.Flags().StringVar(&serveFlags.databasePath, "database", "", "Override database.path")
 	serveCmd.Flags().BoolVar(&serveFlags.printDefault, "print-default-config", false, "Print the default YAML server config and exit")
 }

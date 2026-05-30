@@ -22,11 +22,84 @@ paths:
                   status:
                     type: string
                     enum: [ok]
+  /auth/login:
+    post:
+      summary: Create a DB-backed browser session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated user, capabilities, CSRF token, and HttpOnly session cookie.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /auth/logout:
+    post:
+      summary: Revoke the current session and clear its cookie.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      responses:
+        "200":
+          description: Session revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /auth/me:
+    get:
+      summary: Return the current user, capabilities, and a fresh CSRF token.
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Current session details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /auth/change-password:
+    post:
+      summary: Change the current user's password.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /files:
     get:
       summary: List tracked files for browser grids.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - name: query
           in: query
@@ -61,7 +134,7 @@ paths:
     get:
       summary: Get one tracked file by opaque file ID.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - name: id
           in: path
@@ -83,7 +156,7 @@ paths:
     get:
       summary: Get a cacheable thumbnail for a tracked file.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - name: id
           in: path
@@ -128,7 +201,7 @@ paths:
     get:
       summary: Get a cacheable preview derivative for a tracked file.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - name: id
           in: path
@@ -166,7 +239,7 @@ paths:
       summary: Stream original content for a tracked file.
       description: Supports HTTP range requests for browser audio and video seeking.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - name: id
           in: path
@@ -208,7 +281,7 @@ paths:
     post:
       summary: Add tags to selected files.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
       requestBody:
@@ -233,7 +306,7 @@ paths:
     put:
       summary: Replace tags on selected files.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
       requestBody:
@@ -259,7 +332,7 @@ paths:
       summary: Remove tags from selected files.
       description: If tags is empty, all tags are removed from the selected files.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
       requestBody:
@@ -285,7 +358,7 @@ paths:
     post:
       summary: Upload files into a configured upload directory and import them.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
       requestBody:
@@ -330,7 +403,7 @@ paths:
     get:
       summary: List known tags.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - name: counts
           in: query
@@ -351,7 +424,7 @@ paths:
     get:
       summary: Get an asynchronous job.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - name: id
           in: path
@@ -372,7 +445,7 @@ paths:
     delete:
       summary: Cancel an asynchronous job.
       security:
-        - bearerAuth: []
+        - sessionAuth: []
       parameters:
         - name: id
           in: path
@@ -392,6 +465,13 @@ paths:
           $ref: "#/components/responses/NotFound"
 components:
   parameters:
+    CSRF:
+      name: X-Gooru-CSRF
+      in: header
+      required: true
+      schema:
+        type: string
+      description: CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests.
     PreferAsync:
       name: Prefer
       in: header
@@ -401,12 +481,13 @@ components:
         enum: [respond-async]
       description: Set to respond-async to enqueue the mutation and poll the returned job.
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: gooru_session
   responses:
     Unauthorized:
-      description: Missing or invalid bearer token.
+      description: Missing or invalid session cookie.
       content:
         application/json:
           schema:
@@ -460,6 +541,56 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
   schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          format: password
+        new_password:
+          type: string
+          format: password
+    AuthMeResponse:
+      type: object
+      required: [user, capabilities]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        capabilities:
+          type: object
+          required: [upload, tag, delete, admin]
+          properties:
+            upload:
+              type: boolean
+            tag:
+              type: boolean
+            delete:
+              type: boolean
+            admin:
+              type: boolean
+        csrf_token:
+          type: string
+    User:
+      type: object
+      required: [id, username, role]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+          enum: [admin]
     ErrorResponse:
       type: object
       required: [error]

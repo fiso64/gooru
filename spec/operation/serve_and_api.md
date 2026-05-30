@@ -1,7 +1,7 @@
 
 # Spec: The `gooru serve` Command and REST API
 
-**Version:** 1.1
+**Version:** 1.2
 **Status:** Proposed
 
 ---
@@ -31,8 +31,7 @@ While the Gooru CLI is powerful for direct user interaction, it is not suitable 
 
 ### Non-Goals
 
-*   This issue does not define the future DB-backed account/session model.
-*   This issue does not add broad rate limiting, role/permission modeling, native TLS flags, or CSRF support.
+*   This issue does not add broad rate limiting, multi-role permission modeling, native TLS flags, or OAuth/OIDC/LDAP support.
 
 ## 4. Proposed Solution & Technical Design
 
@@ -44,9 +43,10 @@ While the Gooru CLI is powerful for direct user interaction, it is not suitable 
     *   The command runs in the foreground until interrupted.
 
 *   **Current Auth Model**
-    *   The current implementation uses a configured bearer token for API/media routes and a narrowly scoped media cookie for browser navigation to original media.
-    *   This is a transitional Issue #1 model. The long-term web-app auth model will be DB-backed sessions in a later issue.
-    *   Non-loopback unauthenticated binds are rejected unless explicitly allowed by `auth.allow_unsafe_no_auth_non_loopback`.
+    *   The server uses DB-backed users and server-side sessions. Browser clients receive an opaque `HttpOnly` cookie such as `gooru_session`; only a SHA-256 hash of that token is stored in SQLite.
+    *   Passwords are stored as self-describing Argon2id hashes. The first admin is created with `gooru user create-admin --username <name> --config serve.yaml`.
+    *   Mutating cookie-authenticated requests must send `X-Gooru-CSRF` with a token returned from `POST /api/v1/auth/login` or `GET /api/v1/auth/me`. Safe `GET` media routes do not require CSRF.
+    *   `auth.token`, `auth.token_env`, `auth.token_file`, and `--auth-token` are rejected with a migration message. `auth.enabled: false` is reserved for explicit trusted local development and is rejected on non-loopback binds unless the unsafe override is set.
 
 *   **Concurrency Model: Bounded In-Memory Jobs**
     *   Mutations can run synchronously or asynchronously through an in-memory job manager.
@@ -93,6 +93,10 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 
 #### Files & Tags
 
+*   `POST /api/v1/auth/login`: Creates a server-side session and returns the current user, capabilities, and a CSRF token.
+*   `POST /api/v1/auth/logout`: Revokes the current session and clears the session cookie.
+*   `GET /api/v1/auth/me`: Returns the current user, capabilities, and a fresh CSRF token.
+*   `POST /api/v1/auth/change-password`: Verifies the current password and stores a replacement Argon2id hash.
 *   `GET /api/v1/files?query=<expr>&limit=<n>&page_token=<token>`: Lists files matching an expression with the current opaque offset-token pagination compatibility layer.
 *   `GET /api/v1/files/{id}`: Returns a file DTO with media URLs and optional metadata.
 *   `GET /api/v1/files/{id}/thumbnail?size=256`: Returns a cacheable thumbnail.
