@@ -13,6 +13,7 @@ type Server struct {
 	jobs    *JobManager
 	library Library
 	media   *MediaService
+	meta    MediaMetadataProvider
 }
 
 func NewServer(cfg Config) *Server {
@@ -22,9 +23,10 @@ func NewServer(cfg Config) *Server {
 func NewServerWithLibrary(cfg Config, library Library) *Server {
 	return &Server{
 		cfg:     cfg,
-		jobs:    NewJobManager(64, cfg.Jobs.CompletedTTL),
+		jobs:    NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
 		library: library,
 		media:   NewMediaService(cfg),
+		meta:    BasicMediaMetadataProvider{},
 	}
 }
 
@@ -50,6 +52,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", s.handleFrontend)
 
 	var h http.Handler = mux
+	h = securityHeadersMiddleware(h)
 	h = requestSizeMiddleware(s.cfg.Server.MaxRequestBodyBytes, h)
 	h = corsMiddleware(s.cfg.Server.CORSOrigins, h)
 	return h
@@ -149,5 +152,30 @@ func methodHandler(method string, next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		next(w, r)
+	}
+}
+
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := w.Header()
+		header.Set("X-Content-Type-Options", "nosniff")
+		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		header.Set("X-Frame-Options", "DENY")
+		header.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeJobSubmitError(w http.ResponseWriter, err error, fallback string) bool {
+	switch {
+	case errors.Is(err, ErrJobQueueFull):
+		writeError(w, http.StatusServiceUnavailable, "job_queue_full", "job queue is full", nil)
+		return true
+	case errors.Is(err, context.Canceled):
+		writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
+		return true
+	default:
+		writeError(w, http.StatusInternalServerError, "internal_error", fallback, nil)
+		return true
 	}
 }

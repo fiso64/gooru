@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gooru.local/types"
 )
@@ -110,6 +111,45 @@ func TestUploadAsyncReturnsJob(t *testing.T) {
 	}
 	if job.ID == "" || job.Type != "upload_import" {
 		t.Fatalf("unexpected upload job: %+v", job)
+	}
+}
+
+func TestCanceledQueuedUploadCleansStagedFiles(t *testing.T) {
+	dir := t.TempDir()
+	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
+	server.jobs = NewJobManagerWithLimits(2, 1, 0, time.Hour)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	blocker, err := server.jobs.Submit(context.Background(), "blocker", true, func(ctx context.Context) (interface{}, error) {
+		close(started)
+		<-release
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatalf("submit blocker: %v", err)
+	}
+	<-started
+
+	req := uploadRequest(t, map[string]string{"a.txt": "hello"}, nil)
+	req.Header.Set("Prefer", "respond-async")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var uploadJob Job
+	if err := json.Unmarshal(rec.Body.Bytes(), &uploadJob); err != nil {
+		t.Fatalf("decode upload job: %v", err)
+	}
+	if _, ok := server.jobs.Cancel(uploadJob.ID); !ok {
+		t.Fatal("cancel upload job")
+	}
+	close(release)
+	waitForStatus(t, server.jobs, blocker.ID, JobCompleted)
+	waitForStatus(t, server.jobs, uploadJob.ID, JobCanceled)
+
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("canceled queued upload should clean staged files, entries=%v err=%v", entries, err)
 	}
 }
 

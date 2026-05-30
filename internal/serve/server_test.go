@@ -3,9 +3,11 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,6 +42,27 @@ func TestJobRoutesRequireBearerToken(t *testing.T) {
 	}
 	if body.Error.Code != "unauthorized" {
 		t.Fatalf("unexpected error code %q", body.Error.Code)
+	}
+}
+
+func TestSecurityHeadersAreApplied(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
+
+	NewServer(cfg).Handler().ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("expected nosniff header, got %q", got)
+	}
+	if got := rec.Header().Get("Referrer-Policy"); got == "" {
+		t.Fatal("expected Referrer-Policy header")
+	}
+	if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("expected X-Frame-Options DENY, got %q", got)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
+		t.Fatalf("expected conservative CSP, got %q", got)
 	}
 }
 
@@ -121,6 +144,67 @@ func TestJobsRunSerially(t *testing.T) {
 	}
 	waitForStatus(t, mgr, first.ID, JobCompleted)
 	waitForStatus(t, mgr, second.ID, JobCompleted)
+}
+
+func TestJobsRespectMaxRunning(t *testing.T) {
+	mgr := NewJobManagerWithLimits(4, 2, 0, time.Hour)
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	for _, typ := range []string{"first", "second"} {
+		typ := typ
+		if _, err := mgr.Submit(context.Background(), typ, true, func(ctx context.Context) (interface{}, error) {
+			started <- typ
+			<-release
+			return typ, nil
+		}); err != nil {
+			t.Fatalf("submit %s: %v", typ, err)
+		}
+	}
+
+	seen := map[string]bool{<-started: true, <-started: true}
+	close(release)
+	if !seen["first"] || !seen["second"] {
+		t.Fatalf("expected both jobs to run concurrently, saw %+v", seen)
+	}
+}
+
+func TestJobQueueFullReturnsStableError(t *testing.T) {
+	mgr := NewJobManagerWithLimits(1, 1, 0, time.Hour)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	if _, err := mgr.Submit(context.Background(), "running", true, func(ctx context.Context) (interface{}, error) {
+		close(started)
+		<-release
+		return nil, nil
+	}); err != nil {
+		t.Fatalf("submit running: %v", err)
+	}
+	<-started
+	if _, err := mgr.Submit(context.Background(), "queued", true, func(ctx context.Context) (interface{}, error) { return nil, nil }); err != nil {
+		t.Fatalf("submit queued: %v", err)
+	}
+	if _, err := mgr.Submit(context.Background(), "full", true, func(ctx context.Context) (interface{}, error) { return nil, nil }); !errors.Is(err, ErrJobQueueFull) {
+		t.Fatalf("expected ErrJobQueueFull, got %v", err)
+	}
+	close(release)
+}
+
+func TestOversizedJobResultsAreNotRetained(t *testing.T) {
+	mgr := NewJobManagerWithLimits(2, 1, 8, time.Hour)
+	job, err := mgr.Submit(context.Background(), "large", true, func(ctx context.Context) (interface{}, error) {
+		return strings.Repeat("x", 64), nil
+	})
+	if err != nil {
+		t.Fatalf("submit job: %v", err)
+	}
+	waitForStatus(t, mgr, job.ID, JobFailed)
+	got, ok := mgr.Get(job.ID)
+	if !ok {
+		t.Fatal("job disappeared")
+	}
+	if got.Result != nil || !strings.Contains(got.Error, ErrJobResultTooLarge.Error()) {
+		t.Fatalf("expected oversized result failure without retained result, got %+v", got)
+	}
 }
 
 func TestAsyncJobSurvivesSubmittingContextCancellation(t *testing.T) {

@@ -152,6 +152,48 @@ func TestBrowseFilesCanExposePathsWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestFileDTOMetadataFallsBackWithoutBreakingRoute(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	server := NewServerWithLibrary(cfg, emptyLibrary{})
+	imagePath := writePNGImage(t)
+
+	dto := server.fileDTO(context.Background(), types.FileInfo{ID: 99, Path: imagePath, Hash: "hash", Size: 10})
+	if dto.Metadata.ImageWidth == nil || *dto.Metadata.ImageWidth != 32 {
+		t.Fatalf("expected image width metadata, got %+v", dto.Metadata)
+	}
+	if dto.Metadata.ImageHeight == nil || *dto.Metadata.ImageHeight != 24 {
+		t.Fatalf("expected image height metadata, got %+v", dto.Metadata)
+	}
+
+	dto = server.fileDTO(context.Background(), types.FileInfo{ID: 100, Path: filepath.Join(t.TempDir(), "missing.jpg"), Hash: "hash", Size: 10})
+	if dto.ID == "" || dto.Metadata.ImageWidth != nil || dto.Metadata.ImageHeight != nil {
+		t.Fatalf("metadata failure should not block DTO fallback, got %+v", dto)
+	}
+}
+
+func TestPaginateInMemoryBounds(t *testing.T) {
+	page, err := ParsePage("2", "")
+	if err != nil {
+		t.Fatalf("ParsePage: %v", err)
+	}
+	first := PaginateInMemory([]int{1, 2, 3}, page)
+	if fmt.Sprint(first.Items) != "[1 2]" || first.NextPageToken == "" {
+		t.Fatalf("unexpected first page: %+v", first)
+	}
+	next, err := ParsePage("2", first.NextPageToken)
+	if err != nil {
+		t.Fatalf("ParsePage next: %v", err)
+	}
+	last := PaginateInMemory([]int{1, 2, 3}, next)
+	if fmt.Sprint(last.Items) != "[3]" || last.NextPageToken != "" {
+		t.Fatalf("unexpected last page: %+v", last)
+	}
+	empty := PaginateInMemory([]int{1}, Page{Limit: 2, Offset: 99})
+	if len(empty.Items) != 0 || empty.NextPageToken != "" {
+		t.Fatalf("unexpected empty page: %+v", empty)
+	}
+}
+
 func TestListTagsWithCounts(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)
 	defer cleanup()

@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -138,6 +139,12 @@ func TestThumbnailRouteSerializesConcurrentCacheMisses(t *testing.T) {
 	if got := thumbnailer.calls.Load(); got != 1 {
 		t.Fatalf("expected one thumbnail generation, got %d", got)
 	}
+	server.media.cacheMu.Lock()
+	locks := len(server.media.cacheLocks)
+	server.media.cacheMu.Unlock()
+	if locks != 0 {
+		t.Fatalf("expected cache lock cleanup, got %d locks", locks)
+	}
 }
 
 func TestImageThumbnailerFallsBackWhenVipsMissing(t *testing.T) {
@@ -154,6 +161,15 @@ func TestImageThumbnailerFallsBackWhenVipsMissing(t *testing.T) {
 	}
 	if out.Len() == 0 {
 		t.Fatal("empty fallback thumbnail")
+	}
+}
+
+func TestFFmpegThumbnailArgsSeekBeforeInput(t *testing.T) {
+	offset := 1500 * time.Millisecond
+	args := ffmpegThumbnailArgs("in.mp4", "out.jpg", 128, "jpeg", &offset)
+	got := strings.Join(args, " ")
+	if !strings.Contains(got, "-ss 1.500 -i in.mp4") {
+		t.Fatalf("expected seek before input, got %v", args)
 	}
 }
 

@@ -4,10 +4,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
+)
+
+var (
+	ErrJobQueueFull      = errors.New("job queue is full")
+	ErrJobResultTooLarge = errors.New("job result is too large to retain")
 )
 
 type JobStatus string
@@ -42,31 +48,47 @@ type JobManager struct {
 	jobs         map[string]*Job
 	queue        chan queuedJob
 	completedTTL time.Duration
+	maxResult    int64
 }
 
 type queuedJob struct {
-	job *Job
-	ctx context.Context
-	run JobFunc
+	job     *Job
+	ctx     context.Context
+	run     JobFunc
+	cleanup func()
 }
 
 func NewJobManager(buffer int, completedTTL time.Duration) *JobManager {
-	if buffer <= 0 {
-		buffer = 64
+	return NewJobManagerWithLimits(buffer, 1, 0, completedTTL)
+}
+
+func NewJobManagerWithLimits(maxQueued int, maxRunning int, maxResultBytes int64, completedTTL time.Duration) *JobManager {
+	if maxQueued <= 0 {
+		maxQueued = 64
+	}
+	if maxRunning <= 0 {
+		maxRunning = 1
 	}
 	if completedTTL <= 0 {
 		completedTTL = time.Hour
 	}
 	m := &JobManager{
 		jobs:         make(map[string]*Job),
-		queue:        make(chan queuedJob, buffer),
+		queue:        make(chan queuedJob, maxQueued),
 		completedTTL: completedTTL,
+		maxResult:    maxResultBytes,
 	}
-	go m.worker()
+	for i := 0; i < maxRunning; i++ {
+		go m.worker()
+	}
 	return m
 }
 
 func (m *JobManager) Submit(ctx context.Context, typ string, async bool, run JobFunc) (*Job, error) {
+	return m.SubmitWithCleanup(ctx, typ, async, run, nil)
+}
+
+func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bool, run JobFunc, cleanup func()) (*Job, error) {
 	if typ == "" {
 		return nil, errors.New("job type is required")
 	}
@@ -87,13 +109,22 @@ func (m *JobManager) Submit(ctx context.Context, typ string, async bool, run Job
 	m.mu.Unlock()
 
 	select {
-	case m.queue <- queuedJob{job: job, ctx: jobCtx, run: run}:
+	case m.queue <- queuedJob{job: job, ctx: jobCtx, run: run, cleanup: cleanup}:
 	case <-ctx.Done():
 		cancel()
 		m.mu.Lock()
 		delete(m.jobs, job.ID)
 		m.mu.Unlock()
 		return nil, ctx.Err()
+	default:
+		cancel()
+		m.mu.Lock()
+		delete(m.jobs, job.ID)
+		m.mu.Unlock()
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, ErrJobQueueFull
 	}
 
 	if async {
@@ -192,6 +223,9 @@ func (m *JobManager) run(item queuedJob) {
 	m.mu.Lock()
 	if item.job.Status == JobCanceled {
 		m.mu.Unlock()
+		if item.cleanup != nil {
+			item.cleanup()
+		}
 		return
 	}
 	item.job.Status = JobRunning
@@ -213,12 +247,34 @@ func (m *JobManager) run(item queuedJob) {
 		}
 	} else {
 		item.job.Status = JobCompleted
-		item.job.Result = result
-		item.job.Progress = 1
+		if m.maxResult > 0 && approximateResultBytes(result) > m.maxResult {
+			item.job.Status = JobFailed
+			item.job.Error = ErrJobResultTooLarge.Error()
+		} else {
+			item.job.Result = result
+			item.job.Progress = 1
+		}
 	}
 	item.job.FinishedAt = &finished
 	close(item.job.done)
 	go m.expireCompleted(item.job.ID, finished, m.completedTTL)
+}
+
+func approximateResultBytes(value interface{}) int64 {
+	if value == nil {
+		return 0
+	}
+	switch v := value.(type) {
+	case string:
+		return int64(len(v))
+	case []byte:
+		return int64(len(v))
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return 0
+	}
+	return int64(len(data))
 }
 
 func (m *JobManager) expireCompleted(id string, finishedAt time.Time, ttl time.Duration) {
