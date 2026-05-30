@@ -76,13 +76,30 @@ var userCreateAdminCmd = &cobra.Command{
 }
 
 func promptPassword(cmd *cobra.Command) (string, error) {
-	password, err := readSecret(cmd, "Password: ")
-	if err != nil {
-		return "", err
-	}
-	confirm, err := readSecret(cmd, "Confirm password: ")
-	if err != nil {
-		return "", err
+	fd := int(os.Stdin.Fd())
+	var password string
+	var confirm string
+	if term.IsTerminal(fd) {
+		var err error
+		password, err = readTerminalSecret(cmd, fd, "Password: ")
+		if err != nil {
+			return "", err
+		}
+		confirm, err = readTerminalSecret(cmd, fd, "Confirm password: ")
+		if err != nil {
+			return "", err
+		}
+	} else {
+		reader := bufio.NewReader(os.Stdin)
+		var err error
+		password, err = readLineSecret(cmd, reader, "Password: ")
+		if err != nil {
+			return "", err
+		}
+		confirm, err = readLineSecret(cmd, reader, "Confirm password: ")
+		if err != nil {
+			return "", err
+		}
 	}
 	if password != confirm {
 		return "", errors.New("passwords do not match")
@@ -93,18 +110,18 @@ func promptPassword(cmd *cobra.Command) (string, error) {
 	return password, nil
 }
 
-func readSecret(cmd *cobra.Command, prompt string) (string, error) {
+func readTerminalSecret(cmd *cobra.Command, fd int, prompt string) (string, error) {
 	fmt.Fprint(cmd.ErrOrStderr(), prompt)
-	fd := int(os.Stdin.Fd())
-	if term.IsTerminal(fd) {
-		data, err := term.ReadPassword(fd)
-		fmt.Fprintln(cmd.ErrOrStderr())
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+	data, err := term.ReadPassword(fd)
+	fmt.Fprintln(cmd.ErrOrStderr())
+	if err != nil {
+		return "", err
 	}
-	reader := bufio.NewReader(os.Stdin)
+	return string(data), nil
+}
+
+func readLineSecret(cmd *cobra.Command, reader *bufio.Reader, prompt string) (string, error) {
+	fmt.Fprint(cmd.ErrOrStderr(), prompt)
 	value, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
