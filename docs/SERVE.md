@@ -57,6 +57,12 @@ media:
   thumbnail_format: "jpeg"
   preview_size: 1280
 
+jobs:
+  completed_ttl: "1h"
+  max_queued: 100
+  max_running: 2
+  max_result_bytes: 10485760
+
 tools:
   ffmpeg_path: "ffmpeg"
   ffprobe_path: "ffprobe"
@@ -73,6 +79,11 @@ Open `http://127.0.0.1:5678/`, paste the token into the auth field, and save it.
 The browser stores the token locally and sends it as bearer auth for API calls.
 Original media opens use a same-origin cookie scoped to `/api/v1/files/` so
 browser navigation can keep range requests for audio/video seeking.
+
+This bearer-token flow is the current Issue #1 auth model. It is intentionally
+transitional: the planned account/session work will replace it with DB-backed
+browser sessions. Until then, treat the token like a password and prefer
+loopback, a trusted private network, VPN, SSH tunnel, or reverse proxy.
 
 ## Local Development
 
@@ -142,6 +153,27 @@ formats supported by the pure-Go fallback. Video thumbnails use `ffmpeg`;
 Missing optional tools do not prevent browse, tagging, upload, or original media
 routes from working. Affected derivative requests return a machine-readable
 `unsupported_media` error until the relevant tool is installed or configured.
+The built-in pure-Go image fallback uses a quality-preserving scaler for minimal
+builds and tests. Video thumbnails prefer a frame shortly after the beginning of
+the video, using `ffprobe` duration when available, then fall back to the first
+decodable frame.
+
+## Jobs
+
+Long-running mutations use the in-memory job manager. Current limits are:
+
+```yaml
+jobs:
+  completed_ttl: "1h"
+  max_queued: 100
+  max_running: 2
+  max_result_bytes: 10485760
+```
+
+`max_queued` caps pending jobs, `max_running` caps concurrent async job
+execution, and `max_result_bytes` prevents large completed results from being
+kept in memory. A full queue returns the normal JSON error envelope with
+`job_queue_full`.
 
 ## Upload Safety
 
@@ -149,3 +181,16 @@ Uploads are disabled unless `uploads.enabled` is true and at least one upload
 directory has an absolute path. Uploaded filenames are reduced to safe basenames,
 path traversal is rejected by construction, and conflicts are resolved with
 numbered suffixes.
+
+Uploads are staged into temporary files in the target directory before they are
+atomically linked into their final names. Failed batches remove staged files. If
+an async upload/import job is canceled before it starts running, the staged files
+are cleaned up when the queued job is drained.
+
+## API Contract Drift
+
+`docs/openapi.yaml` is the source for the public HTTP contract. When server DTOs
+or endpoint behavior changes, update the OpenAPI file and the frontend types in
+`frontend/src/lib/api/types.ts` in the same change. The frontend slice will add
+stronger generated-client or schema validation coverage; until then, Go tests
+cover server DTO behavior and frontend checks cover the hand-maintained types.
