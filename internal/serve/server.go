@@ -57,7 +57,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/files/tags", s.protected(http.HandlerFunc(s.handleMutateTags)))
 	mux.Handle("/api/v1/files/", s.protected(http.HandlerFunc(s.handleFile)))
 	mux.Handle("/api/v1/files", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListFiles)))
+	mux.Handle("/api/v1/search/suggestions", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleSearchSuggestions)))
+	mux.Handle("/api/v1/saved-searches/", s.protected(http.HandlerFunc(s.handleSavedSearch)))
+	mux.Handle("/api/v1/saved-searches", s.protected(http.HandlerFunc(s.handleSavedSearches)))
+	mux.Handle("/api/v1/tags/namespaces", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleTagNamespaces)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
+	mux.Handle("/api/v1/jobs", s.protected(http.HandlerFunc(s.handleJobs)))
 	mux.Handle("/api/v1/jobs/", s.protected(http.HandlerFunc(s.handleJob)))
 	mux.HandleFunc("/", s.handleFrontend)
 
@@ -102,6 +107,34 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
 	})
+}
+
+type JobListResponse struct {
+	Items []*Job `json:"items"`
+}
+
+func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if status != "" && !JobStatus(status).Valid() {
+		writeError(w, http.StatusBadRequest, "invalid_request", "status is invalid", nil)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.List(status)})
+	case http.MethodDelete:
+		if status == "" {
+			status = string(JobCompleted)
+		}
+		if status == string(JobPending) || status == string(JobRunning) {
+			writeError(w, http.StatusBadRequest, "invalid_request", "only finished jobs can be cleared", nil)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int{"removed": s.jobs.Clear(status)})
+	default:
+		w.Header().Set("Allow", "GET, DELETE")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+	}
 }
 
 func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {

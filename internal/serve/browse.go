@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"mime"
@@ -27,6 +28,16 @@ type Library interface {
 
 type PagedLibrary interface {
 	ListFilesPage(ctx context.Context, query string, page Page) (PageResult[types.FileInfo], error)
+}
+
+type SearchLibrary interface {
+	ListFilesSearch(ctx context.Context, query string, page Page, sort string, order string) (PageResult[types.FileInfo], error)
+	LibraryCount(ctx context.Context) (int, error)
+	KindFacets(ctx context.Context) ([]FacetValueDTO, error)
+	TagSuggestions(ctx context.Context, prefix string, limit int) ([]TagDTO, error)
+	TagNamespaces(ctx context.Context) ([]string, error)
+	DeleteFile(ctx context.Context, locationID int64) (bool, error)
+	FileMetadata(ctx context.Context, locationID int64) (MediaMetadata, error)
 }
 
 type GooruLibrary struct {
@@ -71,6 +82,23 @@ func (l *GooruLibrary) ListFilesPage(ctx context.Context, query string, page Pag
 	return result, nil
 }
 
+func (l *GooruLibrary) ListFilesSearch(ctx context.Context, query string, page Page, sort string, order string) (PageResult[types.FileInfo], error) {
+	if err := ctx.Err(); err != nil {
+		return PageResult[types.FileInfo]{}, err
+	}
+	limit := page.Limit + 1
+	files, err := l.client.GetFilesInfoByQueryPageSorted(query, limit, page.Offset, sort, order, l.verbose)
+	if err != nil {
+		return PageResult[types.FileInfo]{}, err
+	}
+	result := PageResult[types.FileInfo]{Items: files}
+	if len(result.Items) > page.Limit {
+		result.Items = result.Items[:page.Limit]
+		result.NextPageToken = NextPageToken(page.Offset, page.Limit, page.Limit)
+	}
+	return result, nil
+}
+
 func (l *GooruLibrary) GetFile(ctx context.Context, locationID int64) (types.FileInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return types.FileInfo{}, err
@@ -94,7 +122,7 @@ func (l *GooruLibrary) ListTags(ctx context.Context, counts bool) ([]TagDTO, err
 		out := make([]TagDTO, 0, len(tags))
 		for _, tag := range tags {
 			count := tag.Count
-			out = append(out, TagDTO{Name: tag.Tag, Count: &count})
+			out = append(out, tagDTO(tag.Tag, &count))
 		}
 		return out, nil
 	}
@@ -104,18 +132,96 @@ func (l *GooruLibrary) ListTags(ctx context.Context, counts bool) ([]TagDTO, err
 	}
 	out := make([]TagDTO, 0, len(tags))
 	for _, tag := range tags {
-		out = append(out, TagDTO{Name: tag})
+		out = append(out, tagDTO(tag, nil))
 	}
 	return out, nil
+}
+
+func (l *GooruLibrary) LibraryCount(ctx context.Context) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return l.client.CountFilesByQuery("", l.verbose)
+}
+
+func (l *GooruLibrary) KindFacets(ctx context.Context) ([]FacetValueDTO, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	facets, err := l.client.KindFacets()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]FacetValueDTO, 0, len(facets))
+	for _, item := range facets {
+		out = append(out, FacetValueDTO{Value: item.Tag, Count: item.Count})
+	}
+	return out, nil
+}
+
+func (l *GooruLibrary) TagSuggestions(ctx context.Context, prefix string, limit int) ([]TagDTO, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	tags, err := l.client.TagSuggestions(prefix, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TagDTO, 0, len(tags))
+	for _, item := range tags {
+		count := item.Count
+		out = append(out, tagDTO(item.Tag, &count))
+	}
+	return out, nil
+}
+
+func (l *GooruLibrary) TagNamespaces(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return l.client.TagNamespaces()
+}
+
+func (l *GooruLibrary) DeleteFile(ctx context.Context, locationID int64) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return l.client.DeleteLocationByID(locationID)
+}
+
+func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (MediaMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return MediaMetadata{}, err
+	}
+	meta, err := l.client.GetMediaMetadata(locationID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MediaMetadata{}, nil
+	}
+	if err != nil {
+		return MediaMetadata{}, err
+	}
+	return mediaMetadataDTO(meta), nil
 }
 
 type FileListResponse struct {
 	Files         []FileDTO `json:"files"`
 	NextPageToken string    `json:"next_page_token,omitempty"`
+	TotalCount    int       `json:"total_count"`
+	LibraryCount  int       `json:"library_count"`
+	Facets        FacetsDTO `json:"facets,omitempty"`
 }
 
 type TagListResponse struct {
 	Tags []TagDTO `json:"tags"`
+}
+
+type FacetsDTO struct {
+	Kind []FacetValueDTO `json:"kind,omitempty"`
+}
+
+type FacetValueDTO struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
 }
 
 type FileDTO struct {
@@ -136,11 +242,14 @@ type MediaURLs struct {
 	Thumbnail string `json:"thumbnail"`
 	Preview   string `json:"preview"`
 	Content   string `json:"content"`
+	Download  string `json:"download"`
 }
 
 type TagDTO struct {
-	Name  string `json:"name"`
-	Count *int   `json:"count,omitempty"`
+	Name      string `json:"name"`
+	Namespace string `json:"namespace,omitempty"`
+	Value     string `json:"value,omitempty"`
+	Count     *int   `json:"count,omitempty"`
 }
 
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +262,10 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
-	pageResult, err := s.listFilesPage(r.Context(), r.URL.Query().Get("query"), page)
+	queryText := r.URL.Query().Get("query")
+	sort := normalizeFileSort(r.URL.Query().Get("sort"))
+	order := normalizeSortOrder(r.URL.Query().Get("order"))
+	pageResult, err := s.listFilesPage(r.Context(), queryText, page, sort, order)
 	if err != nil {
 		if errors.Is(err, core.ErrInvalidQuery) {
 			writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
@@ -166,13 +278,33 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		Files:         make([]FileDTO, 0, len(pageResult.Items)),
 		NextPageToken: pageResult.NextPageToken,
 	}
+	response.TotalCount = page.Offset + len(pageResult.Items)
+	if pageResult.NextPageToken != "" {
+		response.TotalCount++
+	}
+	if search, ok := s.library.(SearchLibrary); ok {
+		if total, err := s.countFiles(r.Context(), queryText); err == nil {
+			response.TotalCount = total
+		}
+		if total, err := search.LibraryCount(r.Context()); err == nil {
+			response.LibraryCount = total
+		}
+		if r.URL.Query().Get("include_facets") == "true" {
+			if kind, err := search.KindFacets(r.Context()); err == nil {
+				response.Facets.Kind = kind
+			}
+		}
+	}
 	for _, file := range pageResult.Items {
 		response.Files = append(response.Files, s.fileDTO(r.Context(), file, false))
 	}
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Server) listFilesPage(ctx context.Context, query string, page Page) (PageResult[types.FileInfo], error) {
+func (s *Server) listFilesPage(ctx context.Context, query string, page Page, sort string, order string) (PageResult[types.FileInfo], error) {
+	if search, ok := s.library.(SearchLibrary); ok {
+		return search.ListFilesSearch(ctx, query, page, sort, order)
+	}
 	if paged, ok := s.library.(PagedLibrary); ok {
 		return paged.ListFilesPage(ctx, query, page)
 	}
@@ -181,6 +313,21 @@ func (s *Server) listFilesPage(ctx context.Context, query string, page Page) (Pa
 		return PageResult[types.FileInfo]{}, err
 	}
 	return PaginateInMemory(files, page), nil
+}
+
+func (s *Server) countFiles(ctx context.Context, queryText string) (int, error) {
+	if library, ok := s.library.(*GooruLibrary); ok {
+		return library.client.CountFileLocationsByQuery(queryText, library.verbose)
+	}
+	page := Page{Limit: 1, Offset: 0}
+	result, err := s.listFilesPage(ctx, queryText, page, "name", "asc")
+	if err != nil {
+		return 0, err
+	}
+	if result.NextPageToken != "" {
+		return len(result.Items) + 1, nil
+	}
+	return len(result.Items), nil
 }
 
 func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
@@ -194,14 +341,18 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
 	}
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
-		return
-	}
 	locationID, err := DecodeFileID(parts[0])
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
+		return
+	}
+	if r.Method == http.MethodDelete && len(parts) == 1 {
+		s.handleDeleteFile(w, r, locationID)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET, DELETE")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
 	file, err := s.library.GetFile(r.Context(), locationID)
@@ -217,6 +368,8 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		switch parts[1] {
 		case "content":
 			s.media.ServeContent(w, r, file)
+		case "download":
+			s.media.ServeDownload(w, r, file)
 		case "thumbnail":
 			s.media.ServeDerivative(w, r, file, "thumbnail")
 		case "preview":
@@ -240,6 +393,37 @@ func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, TagListResponse{Tags: tags})
+}
+
+func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request, locationID int64) {
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.Mode == "" {
+		req.Mode = "untrack"
+	}
+	if req.Mode != "untrack" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "mode must be untrack", nil)
+		return
+	}
+	search, ok := s.library.(SearchLibrary)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file mutation service is not configured", nil)
+		return
+	}
+	deleted, err := search.DeleteFile(r.Context(), locationID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to untrack file", nil)
+		return
+	}
+	if !deleted {
+		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"mode": "untrack", "removed_locations": 1})
 }
 
 func EncodeFileID(id int64) string {
@@ -279,17 +463,61 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 			Thumbnail: "/api/v1/files/" + id + "/thumbnail",
 			Preview:   "/api/v1/files/" + id + "/preview",
 			Content:   "/api/v1/files/" + id + "/content",
+			Download:  "/api/v1/files/" + id + "/download",
 		},
 	}
 	if s.cfg.Server.ExposePaths {
 		dto.Path = file.Path
 	}
-	if includeMetadata && s.meta != nil {
+	if search, ok := s.library.(SearchLibrary); ok {
+		if metadata, err := search.FileMetadata(ctx, file.ID); err == nil {
+			dto.Metadata = metadata
+		}
+	} else if includeMetadata && s.meta != nil {
 		if metadata, err := s.meta.Metadata(ctx, file, mediaType, mediaKind); err == nil {
 			dto.Metadata = metadata
 		}
 	}
 	return dto
+}
+
+func mediaMetadataDTO(meta types.MediaMetadata) MediaMetadata {
+	return MediaMetadata{
+		ImageWidth:    meta.ImageWidth,
+		ImageHeight:   meta.ImageHeight,
+		VideoWidth:    meta.VideoWidth,
+		VideoHeight:   meta.VideoHeight,
+		VideoDuration: meta.DurationSeconds,
+		AudioDuration: nil,
+		FrameCount:    meta.FrameCount,
+	}
+}
+
+func tagDTO(name string, count *int) TagDTO {
+	dto := TagDTO{Name: name, Count: count}
+	if parts := strings.SplitN(name, ":", 2); len(parts) == 2 {
+		dto.Namespace = parts[0]
+		dto.Value = parts[1]
+	} else {
+		dto.Value = name
+	}
+	return dto
+}
+
+func normalizeFileSort(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "modified", "name", "size", "kind":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "name"
+	}
+}
+
+func normalizeSortOrder(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), "desc") {
+		return "desc"
+	}
+	return "asc"
 }
 
 func mediaTypeForPath(path string) string {
@@ -301,12 +529,12 @@ func mediaTypeForPath(path string) string {
 
 func mediaKindForType(mediaType string) string {
 	switch {
+	case mediaType == "image/gif":
+		return "gif"
 	case strings.HasPrefix(mediaType, "image/"):
-		return "image"
+		return "photo"
 	case strings.HasPrefix(mediaType, "video/"):
 		return "video"
-	case strings.HasPrefix(mediaType, "audio/"):
-		return "audio"
 	default:
 		return "other"
 	}

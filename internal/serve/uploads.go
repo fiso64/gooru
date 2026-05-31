@@ -426,5 +426,39 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	}
 	response.AffectedCount = result.AffectedCount
 	response.Notifications = notificationDTOs(result.Notifications)
+	l.cacheImportedMediaMetadata(ctx, importLocations)
 	return response, nil
+}
+
+func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []types.LocationInfo) {
+	provider := BasicMediaMetadataProvider{}
+	for _, location := range files {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		file, err := l.client.GetFileInfoByPath(location.Path)
+		if err != nil {
+			continue
+		}
+		mediaType := mediaTypeForPath(file.Path)
+		mediaKind := mediaKindForType(mediaType)
+		metadata, err := provider.Metadata(ctx, file, mediaType, mediaKind)
+		if err != nil {
+			continue
+		}
+		if metadata.ImageWidth == nil && metadata.ImageHeight == nil && metadata.VideoWidth == nil && metadata.VideoHeight == nil && metadata.VideoDuration == nil && metadata.FrameCount == nil {
+			continue
+		}
+		_ = l.client.UpsertMediaMetadata(types.MediaMetadata{
+			LocationID:      file.ID,
+			MediaKind:       mediaKind,
+			MimeType:        mediaType,
+			ImageWidth:      metadata.ImageWidth,
+			ImageHeight:     metadata.ImageHeight,
+			VideoWidth:      metadata.VideoWidth,
+			VideoHeight:     metadata.VideoHeight,
+			DurationSeconds: metadata.VideoDuration,
+			FrameCount:      metadata.FrameCount,
+		})
+	}
 }

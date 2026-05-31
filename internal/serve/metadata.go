@@ -19,6 +19,7 @@ type MediaMetadata struct {
 	VideoHeight   *int     `json:"video_height,omitempty"`
 	VideoDuration *float64 `json:"video_duration,omitempty"`
 	AudioDuration *float64 `json:"audio_duration,omitempty"`
+	FrameCount    *int     `json:"frame_count,omitempty"`
 }
 
 type MediaMetadataProvider interface {
@@ -31,7 +32,7 @@ func (BasicMediaMetadataProvider) Metadata(ctx context.Context, file types.FileI
 	if err := ctx.Err(); err != nil {
 		return MediaMetadata{}, err
 	}
-	if mediaKind != "image" {
+	if mediaKind != "photo" && mediaKind != "gif" {
 		return MediaMetadata{}, nil
 	}
 	f, err := os.Open(file.Path)

@@ -88,6 +88,11 @@ func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file
 	http.ServeContent(w, r, filepath.Base(file.Path), info.ModTime(), f)
 }
 
+func (m *MediaService) ServeDownload(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(file.Path)))
+	m.ServeContent(w, r, file)
+}
+
 func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, file types.FileInfo, kind string) {
 	size, err := m.derivativeSize(r, kind)
 	if err != nil {
