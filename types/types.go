@@ -111,6 +111,31 @@ type FileInfo struct {
 	Tags    []string
 }
 
+// MediaMetadata holds cached media properties for a tracked file.
+type MediaMetadata struct {
+	LocationID      int64
+	MediaKind       string
+	MimeType        string
+	ImageWidth      *int
+	ImageHeight     *int
+	VideoWidth      *int
+	VideoHeight     *int
+	DurationSeconds *float64
+	FrameCount      *int
+}
+
+// SavedSearch is a per-user persisted browse query.
+type SavedSearch struct {
+	ID        string
+	UserID    string
+	Name      string
+	Query     string
+	Sort      string
+	Order     string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 // TagWithCount holds a tag and its usage count.
 type TagWithCount struct {
 	Tag   string

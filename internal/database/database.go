@@ -212,6 +212,36 @@ func (s *Store) ContentExists(hash string) (bool, error) {
 	return true, nil
 }
 
+func (s *Store) UpsertMediaMetadata(meta types.MediaMetadata) error {
+	_, err := s.Exec(`
+		INSERT INTO media_metadata (
+			location_id, media_kind, mime_type, image_width, image_height,
+			video_width, video_height, duration_seconds, frame_count, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(location_id) DO UPDATE SET
+			media_kind=excluded.media_kind,
+			mime_type=excluded.mime_type,
+			image_width=excluded.image_width,
+			image_height=excluded.image_height,
+			video_width=excluded.video_width,
+			video_height=excluded.video_height,
+			duration_seconds=excluded.duration_seconds,
+			frame_count=excluded.frame_count,
+			updated_at=CURRENT_TIMESTAMP
+	`, meta.LocationID, meta.MediaKind, meta.MimeType, meta.ImageWidth, meta.ImageHeight, meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds, meta.FrameCount)
+	return err
+}
+
+func (s *Store) GetMediaMetadata(locationID int64) (types.MediaMetadata, error) {
+	var meta types.MediaMetadata
+	meta.LocationID = locationID
+	err := s.QueryRow(`
+		SELECT media_kind, mime_type, image_width, image_height, video_width, video_height, duration_seconds, frame_count
+		FROM media_metadata WHERE location_id = ?
+	`, locationID).Scan(&meta.MediaKind, &meta.MimeType, &meta.ImageWidth, &meta.ImageHeight, &meta.VideoWidth, &meta.VideoHeight, &meta.DurationSeconds, &meta.FrameCount)
+	return meta, err
+}
+
 // GetOrCreateLocation ensures a file path for a given content hash exists.
 // The tags_cache will be populated by a database trigger.
 func (s *Store) GetOrCreateLocation(q Querier, hash, path string, size int64, modTime int64, extension string) error {
@@ -766,6 +796,18 @@ func (s *Store) GetFileInfoByLocationID(id int64) (types.FileInfo, error) {
 	return file, nil
 }
 
+// GetFileInfoByPath retrieves detailed info for one tracked file path without hashing the file.
+func (s *Store) GetFileInfoByPath(path string) (types.FileInfo, error) {
+	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations WHERE path = ?`
+	var file types.FileInfo
+	var tagsCache string
+	if err := s.QueryRow(query, path).Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		return types.FileInfo{}, err
+	}
+	file.Tags = splitTags(tagsCache)
+	return file, nil
+}
+
 // GetFilesInfoByTag retrieves info for all files for a given tag using the cache.
 func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	query := `
@@ -937,6 +979,88 @@ func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 		tags = append(tags, item)
 	}
 	return tags, nil
+}
+
+func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	like := strings.ToLower(strings.TrimSpace(prefix)) + "%"
+	rows, err := s.Query(`
+		SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
+		FROM tags
+		WHERE lower(key) LIKE ? OR lower(key || ':' || value) LIKE ?
+		ORDER BY files_count DESC, tag_str ASC
+		LIMIT ?
+	`, like, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []types.TagWithCount
+	for rows.Next() {
+		var item types.TagWithCount
+		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListTagNamespaces() ([]string, error) {
+	rows, err := s.Query(`SELECT DISTINCT key FROM tags WHERE value != '' ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		out = append(out, value)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) KindFacets() ([]types.TagWithCount, error) {
+	rows, err := s.Query(`
+		SELECT
+			CASE
+				WHEN lower(extension) = '.gif' THEN 'gif'
+				WHEN lower(extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+				WHEN lower(extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+				ELSE 'other'
+			END AS kind,
+			COUNT(*)
+		FROM locations
+		GROUP BY kind
+		ORDER BY COUNT(*) DESC, kind ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []types.TagWithCount
+	for rows.Next() {
+		var item types.TagWithCount
+		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) DeleteLocationByID(id int64) (bool, error) {
+	res, err := s.Exec("DELETE FROM locations WHERE id = ?", id)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected > 0, err
 }
 
 // GetCountForTag gets the pre-calculated usage count for a specific tag.
@@ -1315,6 +1439,69 @@ func (s *Store) BatchGetLocationsByPaths(paths []string) (map[string]types.Locat
 	return locationMap, nil
 }
 
+func (s *Store) ListSavedSearches(userID string) ([]types.SavedSearch, error) {
+	rows, err := s.Query(`SELECT id, user_id, name, query, sort, "order", strftime('%s', created_at), strftime('%s', updated_at) FROM saved_searches WHERE user_id = ? ORDER BY updated_at DESC, name ASC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSavedSearches(rows)
+}
+
+func (s *Store) GetSavedSearch(userID string, id string) (types.SavedSearch, error) {
+	rows, err := s.Query(`SELECT id, user_id, name, query, sort, "order", strftime('%s', created_at), strftime('%s', updated_at) FROM saved_searches WHERE user_id = ? AND id = ?`, userID, id)
+	if err != nil {
+		return types.SavedSearch{}, err
+	}
+	defer rows.Close()
+	items, err := scanSavedSearches(rows)
+	if err != nil {
+		return types.SavedSearch{}, err
+	}
+	if len(items) == 0 {
+		return types.SavedSearch{}, sql.ErrNoRows
+	}
+	return items[0], nil
+}
+
+func (s *Store) UpsertSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
+	_, err := s.Exec(`
+		INSERT INTO saved_searches (id, user_id, name, query, sort, "order")
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name=excluded.name,
+			query=excluded.query,
+			sort=excluded.sort,
+			"order"=excluded."order",
+			updated_at=CURRENT_TIMESTAMP
+	`, item.ID, item.UserID, item.Name, item.Query, item.Sort, item.Order)
+	if err != nil {
+		return types.SavedSearch{}, err
+	}
+	return s.GetSavedSearch(item.UserID, item.ID)
+}
+
+func (s *Store) DeleteSavedSearch(userID string, id string) (bool, error) {
+	res, err := s.Exec("DELETE FROM saved_searches WHERE user_id = ? AND id = ?", userID, id)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected > 0, err
+}
+
+func scanSavedSearches(rows *sql.Rows) ([]types.SavedSearch, error) {
+	var out []types.SavedSearch
+	for rows.Next() {
+		var item types.SavedSearch
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Name, &item.Query, &item.Sort, &item.Order, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) (int64, error) {
 	if len(pairs) == 0 {
 		return 0, nil
@@ -1495,11 +1682,84 @@ func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{},
 	return files, rows.Err()
 }
 
+// GetFilesInfoByContentQueryPageSorted executes a complex query and returns one bounded page with a validated sort.
+func (s *Store) GetFilesInfoByContentQueryPageSorted(query string, args []interface{}, limit int, offset int, sort string, order string) ([]types.FileInfo, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_hashes(hash) AS (%s)
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
+		ORDER BY %s %s, l.id ASC
+		LIMIT ? OFFSET ?
+	`, query, fileSortExpression(sort), sortOrder(order))
+	pagedArgs := append(append([]interface{}{}, args...), limit, offset)
+	return s.scanFileInfos(finalQuery, pagedArgs...)
+}
+
+// GetAllFilesInfoPageSorted retrieves one bounded page with a validated sort.
+func (s *Store) GetAllFilesInfoPageSorted(limit int, offset int, sort string, order string) ([]types.FileInfo, error) {
+	query := fmt.Sprintf(`SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache FROM locations l ORDER BY %s %s, l.id ASC LIMIT ? OFFSET ?`, fileSortExpression(sort), sortOrder(order))
+	return s.scanFileInfos(query, limit, offset)
+}
+
+func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileInfo, error) {
+	rows, err := s.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		var tagsCache string
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+			return nil, err
+		}
+		file.Tags = splitTags(tagsCache)
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
+func fileSortExpression(sort string) string {
+	switch sort {
+	case "modified":
+		return "l.mod_time"
+	case "name":
+		return "lower(l.path)"
+	case "size":
+		return "l.size_bytes"
+	case "kind":
+		return "lower(l.extension)"
+	default:
+		return "lower(l.path)"
+	}
+}
+
+func sortOrder(order string) string {
+	if strings.EqualFold(order, "desc") {
+		return "DESC"
+	}
+	return "ASC"
+}
+
 // GetCountByContentQuery executes a complex query for content hashes and returns their count.
 func (s *Store) GetCountByContentQuery(query string, args []interface{}) (int, error) {
 	// The subquery returns a list of unique content hashes. We just need to count them.
 	finalQuery := fmt.Sprintf(`SELECT COUNT(*) FROM (%s)`, query)
 
+	var count int
+	err := s.QueryRow(finalQuery, args...).Scan(&count)
+	return count, err
+}
+
+// GetLocationCountByContentQuery counts tracked file locations matching a content-hash query.
+func (s *Store) GetLocationCountByContentQuery(query string, args []interface{}) (int, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_hashes(hash) AS (%s)
+		SELECT COUNT(*)
+		FROM locations l
+		JOIN result_hashes rh ON l.content_hash = rh.hash
+	`, query)
 	var count int
 	err := s.QueryRow(finalQuery, args...).Scan(&count)
 	return count, err
