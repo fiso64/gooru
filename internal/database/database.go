@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -786,26 +787,28 @@ func (s *Store) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, er
 
 // GetFileInfoByLocationID retrieves detailed info for one tracked file location.
 func (s *Store) GetFileInfoByLocationID(id int64) (types.FileInfo, error) {
-	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations WHERE id = ?`
-	var file types.FileInfo
-	var tagsCache string
-	if err := s.QueryRow(query, id).Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+	query := `SELECT ` + fileInfoColumns() + ` FROM locations l LEFT JOIN media_metadata mm ON mm.location_id = l.id WHERE l.id = ?`
+	files, err := s.scanFileInfos(query, id)
+	if err != nil {
 		return types.FileInfo{}, err
 	}
-	file.Tags = splitTags(tagsCache)
-	return file, nil
+	if len(files) == 0 {
+		return types.FileInfo{}, sql.ErrNoRows
+	}
+	return files[0], nil
 }
 
 // GetFileInfoByPath retrieves detailed info for one tracked file path without hashing the file.
 func (s *Store) GetFileInfoByPath(path string) (types.FileInfo, error) {
-	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations WHERE path = ?`
-	var file types.FileInfo
-	var tagsCache string
-	if err := s.QueryRow(query, path).Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+	query := `SELECT ` + fileInfoColumns() + ` FROM locations l LEFT JOIN media_metadata mm ON mm.location_id = l.id WHERE l.path = ?`
+	files, err := s.scanFileInfos(query, path)
+	if err != nil {
 		return types.FileInfo{}, err
 	}
-	file.Tags = splitTags(tagsCache)
-	return file, nil
+	if len(files) == 0 {
+		return types.FileInfo{}, sql.ErrNoRows
+	}
+	return files[0], nil
 }
 
 // GetFilesInfoByTag retrieves info for all files for a given tag using the cache.
@@ -1081,19 +1084,13 @@ func (s *Store) ListTagNamespaces() ([]string, error) {
 }
 
 func (s *Store) KindFacets() ([]types.TagWithCount, error) {
-	rows, err := s.Query(`
-		SELECT
-			CASE
-				WHEN lower(extension) = '.gif' THEN 'gif'
-				WHEN lower(extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
-				WHEN lower(extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
-				ELSE 'other'
-			END AS kind,
-			COUNT(*)
-		FROM locations
+	rows, err := s.Query(fmt.Sprintf(`
+		SELECT %s AS kind, COUNT(*)
+		FROM locations l
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
 		GROUP BY kind
 		ORDER BY COUNT(*) DESC, kind ASC
-	`)
+	`, fileKindExpression()))
 	if err != nil {
 		return nil, err
 	}
@@ -1109,22 +1106,16 @@ func (s *Store) KindFacets() ([]types.TagWithCount, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) KindFacetsByContentQuery(query string, args []interface{}) ([]types.TagWithCount, error) {
+func (s *Store) KindFacetsByLocationQuery(query string, args []interface{}) ([]types.TagWithCount, error) {
 	finalQuery := fmt.Sprintf(`
-		WITH result_hashes(hash) AS (%s)
-		SELECT
-			CASE
-				WHEN lower(l.extension) = '.gif' THEN 'gif'
-				WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
-				WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
-				ELSE 'other'
-			END AS kind,
-			COUNT(*)
+		WITH result_locations(id) AS (%s)
+		SELECT %s AS kind, COUNT(*)
 		FROM locations l
-		JOIN result_hashes rh ON l.content_hash = rh.hash
+		JOIN result_locations rl ON l.id = rl.id
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
 		GROUP BY kind
 		ORDER BY COUNT(*) DESC, kind ASC
-	`, query)
+	`, query, fileKindExpression())
 	rows, err := s.Query(finalQuery, args...)
 	if err != nil {
 		return nil, err
@@ -1782,23 +1773,43 @@ func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{},
 	return files, rows.Err()
 }
 
-// GetFilesInfoByContentQueryPageSorted executes a complex query and returns one bounded page with a validated sort.
-func (s *Store) GetFilesInfoByContentQueryPageSorted(query string, args []interface{}, limit int, offset int, sort string, order string) ([]types.FileInfo, error) {
+// GetFilesInfoByLocationQueryPageSorted executes a location-ID query and returns one bounded keyset page.
+func (s *Store) GetFilesInfoByLocationQueryPageSorted(query string, args []interface{}, limit int, cursor *types.PageCursor, sort string, order string) ([]types.FileInfo, error) {
+	cursorClause, cursorArgs, err := fileCursorClause(cursor, sort, order)
+	if err != nil {
+		return nil, err
+	}
 	finalQuery := fmt.Sprintf(`
-		WITH result_hashes(hash) AS (%s)
-		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
-		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
+		WITH result_locations(id) AS (%s)
+		SELECT %s
+		FROM locations l
+		JOIN result_locations rl ON l.id = rl.id
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		WHERE 1=1 %s
 		ORDER BY %s %s, l.id ASC
-		LIMIT ? OFFSET ?
-	`, query, fileSortExpression(sort), sortOrder(order))
-	pagedArgs := append(append([]interface{}{}, args...), limit, offset)
+		LIMIT ?
+	`, query, fileInfoColumns(), cursorClause, fileSortExpression(sort), sortOrder(order))
+	pagedArgs := append(append([]interface{}{}, args...), cursorArgs...)
+	pagedArgs = append(pagedArgs, limit)
 	return s.scanFileInfos(finalQuery, pagedArgs...)
 }
 
-// GetAllFilesInfoPageSorted retrieves one bounded page with a validated sort.
-func (s *Store) GetAllFilesInfoPageSorted(limit int, offset int, sort string, order string) ([]types.FileInfo, error) {
-	query := fmt.Sprintf(`SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache FROM locations l ORDER BY %s %s, l.id ASC LIMIT ? OFFSET ?`, fileSortExpression(sort), sortOrder(order))
-	return s.scanFileInfos(query, limit, offset)
+// GetAllFilesInfoPageSorted retrieves one bounded keyset page with a validated sort.
+func (s *Store) GetAllFilesInfoPageSorted(limit int, cursor *types.PageCursor, sort string, order string) ([]types.FileInfo, error) {
+	cursorClause, cursorArgs, err := fileCursorClause(cursor, sort, order)
+	if err != nil {
+		return nil, err
+	}
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM locations l
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		WHERE 1=1 %s
+		ORDER BY %s %s, l.id ASC
+		LIMIT ?
+	`, fileInfoColumns(), cursorClause, fileSortExpression(sort), sortOrder(order))
+	args := append(cursorArgs, limit)
+	return s.scanFileInfos(query, args...)
 }
 
 func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileInfo, error) {
@@ -1811,13 +1822,35 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		var mediaKind, mimeType sql.NullString
+		var imageWidth, imageHeight, videoWidth, videoHeight, frameCount sql.NullInt64
+		var duration sql.NullFloat64
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache, &mediaKind, &mimeType, &imageWidth, &imageHeight, &videoWidth, &videoHeight, &duration, &frameCount); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
+		if mediaKind.Valid || mimeType.Valid {
+			file.Metadata = &types.MediaMetadata{
+				LocationID:      file.ID,
+				MediaKind:       mediaKind.String,
+				MimeType:        mimeType.String,
+				ImageWidth:      nullIntPtr(imageWidth),
+				ImageHeight:     nullIntPtr(imageHeight),
+				VideoWidth:      nullIntPtr(videoWidth),
+				VideoHeight:     nullIntPtr(videoHeight),
+				DurationSeconds: nullFloatPtr(duration),
+				FrameCount:      nullIntPtr(frameCount),
+			}
+		}
 		files = append(files, file)
 	}
 	return files, rows.Err()
+}
+
+func fileInfoColumns() string {
+	return `l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache,
+		mm.media_kind, mm.mime_type, mm.image_width, mm.image_height,
+		mm.video_width, mm.video_height, mm.duration_seconds, mm.frame_count`
 }
 
 func fileSortExpression(sort string) string {
@@ -1829,10 +1862,60 @@ func fileSortExpression(sort string) string {
 	case "size":
 		return "l.size_bytes"
 	case "kind":
-		return "lower(l.extension)"
+		return "lower(" + fileKindExpression() + ")"
 	default:
 		return "lower(l.path)"
 	}
+}
+
+func fileKindExpression() string {
+	return `coalesce(mm.media_kind, CASE
+		WHEN lower(l.extension) = '.gif' THEN 'gif'
+		WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+		WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+		ELSE 'other'
+	END)`
+}
+
+func fileCursorClause(cursor *types.PageCursor, sort string, order string) (string, []interface{}, error) {
+	if cursor == nil {
+		return "", nil, nil
+	}
+	expr := fileSortExpression(sort)
+	key, err := cursorKeyValue(cursor.Key, sort)
+	if err != nil {
+		return "", nil, err
+	}
+	comparison := ">"
+	if strings.EqualFold(order, "desc") {
+		comparison = "<"
+	}
+	return fmt.Sprintf("AND (%s %s ? OR (%s = ? AND l.id > ?))", expr, comparison, expr), []interface{}{key, key, cursor.ID}, nil
+}
+
+func cursorKeyValue(value string, sort string) (interface{}, error) {
+	switch sort {
+	case "modified", "size":
+		return strconv.ParseInt(value, 10, 64)
+	default:
+		return strings.ToLower(value), nil
+	}
+}
+
+func nullIntPtr(value sql.NullInt64) *int {
+	if !value.Valid {
+		return nil
+	}
+	out := int(value.Int64)
+	return &out
+}
+
+func nullFloatPtr(value sql.NullFloat64) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	out := value.Float64
+	return &out
 }
 
 func sortOrder(order string) string {
@@ -1860,6 +1943,14 @@ func (s *Store) GetLocationCountByContentQuery(query string, args []interface{})
 		FROM locations l
 		JOIN result_hashes rh ON l.content_hash = rh.hash
 	`, query)
+	var count int
+	err := s.QueryRow(finalQuery, args...).Scan(&count)
+	return count, err
+}
+
+// GetCountByLocationQuery counts rows produced by a location-ID query.
+func (s *Store) GetCountByLocationQuery(query string, args []interface{}) (int, error) {
+	finalQuery := fmt.Sprintf(`SELECT COUNT(*) FROM (%s)`, query)
 	var count int
 	err := s.QueryRow(finalQuery, args...).Scan(&count)
 	return count, err

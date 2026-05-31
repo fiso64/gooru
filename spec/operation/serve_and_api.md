@@ -97,7 +97,7 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 *   `POST /api/v1/auth/logout`: Revokes the current session and clears the session cookie.
 *   `GET /api/v1/auth/me`: Returns the current user, capabilities, and a fresh CSRF token.
 *   `POST /api/v1/auth/change-password`: Verifies the current password and stores a replacement Argon2id hash.
-*   `GET /api/v1/files?query=<expr>&limit=<n>&page_token=<token>&sort=<name|modified|size|kind>&order=<asc|desc>`: Lists files matching an expression with bounded database pagination and optional query-scoped facets.
+*   `GET /api/v1/files?query=<expr>&limit=<n>&page_token=<token>&sort=<name|modified|size|kind>&order=<asc|desc>`: Lists files matching an expression with bounded cursor pagination and optional query-scoped facets. Filename free-text matching currently uses SQLite `LIKE` over stored paths; this is a documented large-library limitation until a full-text index is added.
 *   `GET /api/v1/files/{id}`: Returns a file DTO with media URLs and cached optional metadata.
 *   `DELETE /api/v1/files/{id}`: Untracks one file location with `{"mode":"untrack"}`.
 *   `GET /api/v1/files/{id}/thumbnail?size=256`: Returns a cacheable thumbnail.

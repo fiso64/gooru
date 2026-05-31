@@ -103,12 +103,21 @@ type LocationInfo struct {
 
 // FileInfo holds all displayable information about a file.
 type FileInfo struct {
-	ID      int64
-	Path    string
-	Hash    string
-	Size    int64
-	ModTime int64 // Unix time
-	Tags    []string
+	ID       int64
+	Path     string
+	Hash     string
+	Size     int64
+	ModTime  int64 // Unix time
+	Tags     []string
+	Metadata *MediaMetadata
+}
+
+// PageCursor identifies the last row from a keyset-paginated file page.
+type PageCursor struct {
+	Sort  string `json:"sort"`
+	Order string `json:"order"`
+	Key   string `json:"key"`
+	ID    int64  `json:"id"`
 }
 
 // MediaMetadata holds cached media properties for a tracked file.

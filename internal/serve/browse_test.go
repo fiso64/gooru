@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,6 +100,13 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if page.NextPageToken == "" {
 		t.Fatal("expected next page token")
 	}
+	decodedToken, err := base64.RawURLEncoding.DecodeString(page.NextPageToken)
+	if err != nil {
+		t.Fatalf("decode next page token: %v", err)
+	}
+	if strings.HasPrefix(string(decodedToken), "offset:") {
+		t.Fatalf("file search should use cursor token, got %q", string(decodedToken))
+	}
 	if page.Files[0].MediaKind != "photo" {
 		t.Fatalf("expected photo media kind, got %q", page.Files[0].MediaKind)
 	}
@@ -178,8 +186,8 @@ func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {
 	width, height := 640, 480
 	if err := server.library.(*GooruLibrary).client.UpsertMediaMetadata(types.MediaMetadata{
 		LocationID:  locationID,
-		MediaKind:   "photo",
-		MimeType:    "image/jpeg",
+		MediaKind:   "video",
+		MimeType:    "video/mp4",
 		ImageWidth:  &width,
 		ImageHeight: &height,
 	}); err != nil {
@@ -198,8 +206,55 @@ func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {
 	if detail.Metadata.ImageWidth == nil || *detail.Metadata.ImageWidth != width {
 		t.Fatalf("expected cached metadata, got %+v", detail.Metadata)
 	}
+	if detail.MediaKind != "video" || detail.MediaType != "video/mp4" {
+		t.Fatalf("expected cached media type/kind, got %+v", detail)
+	}
 	if detail.MediaURLs.Download == "" {
 		t.Fatalf("expected download URL, got %+v", detail.MediaURLs)
+	}
+
+	listRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listRec, authedRequest(http.MethodGet, "/api/v1/files?include_facets=true&limit=3"))
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", listRec.Code, listRec.Body.String())
+	}
+	var listPage FileListResponse
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listPage); err != nil {
+		t.Fatalf("decode metadata list: %v", err)
+	}
+	var foundCached bool
+	for _, file := range listPage.Files {
+		if file.ID == page.Files[0].ID {
+			foundCached = file.Metadata.ImageWidth != nil && file.MediaKind == "video" && file.MediaType == "video/mp4"
+		}
+	}
+	if !foundCached {
+		t.Fatalf("expected list response to use cached metadata, got %+v", listPage.Files)
+	}
+	if facetCounts(listPage.Facets.Kind)["video"] == 0 {
+		t.Fatalf("expected metadata-backed video facet, got %+v", listPage.Facets.Kind)
+	}
+}
+
+func TestBrowseFilenameSearchStaysLocationScopedForDuplicateContent(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	dir := t.TempDir()
+	match := writeTestFile(t, dir, "needle-file.jpg", "same duplicate bytes")
+	other := writeTestFile(t, dir, "other-file.jpg", "same duplicate bytes")
+	if _, err := server.library.(*GooruLibrary).client.TagFiles([]string{match, other}, []string{"album:dupes"}, nil, false); err != nil {
+		t.Fatalf("tag duplicate files: %v", err)
+	}
+
+	page := listTestFiles(t, server, "needle-file", 10)
+	for _, file := range page.Files {
+		if file.Name == "other-file.jpg" {
+			t.Fatalf("filename query expanded through shared content hash: %+v", page.Files)
+		}
+	}
+	if len(page.Files) != 1 || page.Files[0].Name != "needle-file.jpg" {
+		t.Fatalf("expected only location filename match, got %+v", page.Files)
 	}
 }
 
@@ -296,6 +351,18 @@ func TestSearchSuggestionsNamespacesDeleteAndDownload(t *testing.T) {
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("expected deleted file 404, got %d: %s", missing.Code, missing.Body.String())
 	}
+}
+
+func TestDeleteFileRejectsMalformedJSON(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	page := listTestFiles(t, server, "kind:image", 1)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/files/"+page.Files[0].ID, bytes.NewBufferString(`{`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_request")
 }
 
 func TestSavedSearchCRUDRequiresAuthenticatedUser(t *testing.T) {
@@ -557,7 +624,7 @@ func newTestBrowseServerAt(t *testing.T, dir string, dbPath string) (*Server, *c
 func listTestFiles(t *testing.T, server *Server, query string, limit int) FileListResponse {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	target := fmt.Sprintf("/api/v1/files?query=%s&limit=%d", query, limit)
+	target := fmt.Sprintf("/api/v1/files?query=%s&limit=%d", url.QueryEscape(query), limit)
 	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, target))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected list 200, got %d: %s", rec.Code, rec.Body.String())

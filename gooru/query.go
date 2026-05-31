@@ -45,6 +45,28 @@ func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 	return sqlQuery, args, nil
 }
 
+// buildLocationQuery parses an expression into a SQL subquery that returns
+// matching location IDs for browse/search endpoints.
+func (c *Client) buildLocationQuery(expression string) (string, []interface{}, error) {
+	if strings.TrimSpace(expression) == "" {
+		return "", nil, nil
+	}
+	ast, err := query.Parse(expression)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: could not parse query: %v", ErrInvalidQuery, err)
+	}
+	if err := query.ValidateAST(ast); err != nil {
+		return "", nil, fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
+	}
+	parsedTags := query.ToParsedTags(query.ExtractTags(ast))
+	tagCounts, err := c.store.BatchGetTagCounts(parsedTags)
+	if err != nil {
+		return "", nil, fmt.Errorf("could not fetch tag statistics for query optimization: %w", err)
+	}
+	sqlQuery, args := query.BuildLocations(ast, tagCounts)
+	return sqlQuery, args, nil
+}
+
 // GetTagsForFile retrieves all tags for a given file, with a safety check and status.
 func (c *Client) GetTagsForFile(filePath string, useMetadataHeuristic bool) ([]string, types.FileStatus, error) {
 	absPath, err := resolvePath(filePath)
@@ -164,7 +186,7 @@ func (c *Client) CountFileLocationsByQuery(expression string, verbose bool) (int
 	if trimmedExpr == "" {
 		return c.store.CountAllFiles()
 	}
-	sqlQuery, args, err := c.buildQuery(trimmedExpr)
+	sqlQuery, args, err := c.buildLocationQuery(trimmedExpr)
 	if err != nil {
 		return 0, err
 	}
@@ -174,7 +196,7 @@ func (c *Client) CountFileLocationsByQuery(expression string, verbose bool) (int
 	if verbose {
 		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
 	}
-	return c.store.GetLocationCountByContentQuery(sqlQuery, args)
+	return c.store.GetCountByLocationQuery(sqlQuery, args)
 }
 
 // ExistsFilesByQuery checks if any files match a query expression.
@@ -455,18 +477,18 @@ func (c *Client) GetFilesInfoByQueryPage(expression string, limit int, offset in
 	return c.store.GetFilesInfoByContentQueryPage(sqlQuery, args, limit, offset)
 }
 
-func (c *Client) GetFilesInfoByQueryPageSorted(expression string, limit int, offset int, sort string, order string, verbose bool) ([]types.FileInfo, error) {
-	sqlQuery, args, err := c.buildQuery(expression)
+func (c *Client) GetFilesInfoByQueryPageSorted(expression string, limit int, cursor *types.PageCursor, sort string, order string, verbose bool) ([]types.FileInfo, error) {
+	sqlQuery, args, err := c.buildLocationQuery(expression)
 	if err != nil {
 		return nil, err
 	}
 	if sqlQuery == "" {
-		return c.store.GetAllFilesInfoPageSorted(limit, offset, sort, order)
+		return c.store.GetAllFilesInfoPageSorted(limit, cursor, sort, order)
 	}
 	if verbose {
 		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
 	}
-	return c.store.GetFilesInfoByContentQueryPageSorted(sqlQuery, args, limit, offset, sort, order)
+	return c.store.GetFilesInfoByLocationQueryPageSorted(sqlQuery, args, limit, cursor, sort, order)
 }
 
 func (c *Client) KindFacets() ([]types.TagWithCount, error) {
@@ -474,7 +496,7 @@ func (c *Client) KindFacets() ([]types.TagWithCount, error) {
 }
 
 func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
-	sqlQuery, args, err := c.buildQuery(expression)
+	sqlQuery, args, err := c.buildLocationQuery(expression)
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +506,7 @@ func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.Tag
 	if verbose {
 		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
 	}
-	return c.store.KindFacetsByContentQuery(sqlQuery, args)
+	return c.store.KindFacetsByLocationQuery(sqlQuery, args)
 }
 
 func (c *Client) TagSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {

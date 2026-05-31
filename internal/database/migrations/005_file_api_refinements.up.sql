@@ -15,6 +15,7 @@ CREATE TABLE media_metadata (
 CREATE INDEX idx_locations_mod_time ON locations(mod_time);
 CREATE INDEX idx_locations_size_bytes ON locations(size_bytes);
 CREATE INDEX idx_locations_extension ON locations(extension);
+CREATE INDEX idx_locations_lower_path ON locations(lower(path));
 CREATE INDEX idx_media_metadata_kind ON media_metadata(media_kind);
 
 CREATE TABLE saved_searches (

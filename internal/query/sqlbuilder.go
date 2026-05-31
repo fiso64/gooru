@@ -13,6 +13,7 @@ type SQLBuilder struct {
 	args         []interface{}
 	aliasCounter int
 	tagCounts    map[string]int
+	target       string
 }
 
 // newAlias creates a unique alias for a derived table (e.g., t0, t1, ...).
@@ -30,9 +31,46 @@ func Build(expr *Expression, tagCounts map[string]int) (string, []interface{}) {
 	}
 	b := &SQLBuilder{
 		tagCounts: tagCounts,
+		target:    "hash",
 	}
 	b.buildExpression(expr)
 	return b.query.String(), b.args
+}
+
+// BuildLocations generates a query that returns matching location IDs. Unlike
+// Build, filename/path predicates remain location-scoped instead of expanding
+// through shared content hashes.
+func BuildLocations(expr *Expression, tagCounts map[string]int) (string, []interface{}) {
+	if expr == nil || len(expr.Or) == 0 {
+		return "", nil
+	}
+	b := &SQLBuilder{
+		tagCounts: tagCounts,
+		target:    "id",
+	}
+	b.buildExpression(expr)
+	return b.query.String(), b.args
+}
+
+func (b *SQLBuilder) column() string {
+	if b.target == "id" {
+		return "id"
+	}
+	return "hash"
+}
+
+func (b *SQLBuilder) locationColumn() string {
+	if b.target == "id" {
+		return "id"
+	}
+	return "content_hash"
+}
+
+func (b *SQLBuilder) allLocationsQuery() string {
+	if b.target == "id" {
+		return "SELECT id FROM locations"
+	}
+	return "SELECT DISTINCT content_hash as hash FROM locations"
 }
 
 // buildExpression handles OR nodes. If there are multiple OR operands, the entire
@@ -40,7 +78,7 @@ func Build(expr *Expression, tagCounts map[string]int) (string, []interface{}) {
 func (b *SQLBuilder) buildExpression(expr *Expression) {
 	isCompound := len(expr.Or) > 1
 	if isCompound {
-		b.query.WriteString("SELECT hash FROM (")
+		b.query.WriteString("SELECT " + b.column() + " FROM (")
 	}
 
 	for i, andTerm := range expr.Or {
@@ -100,9 +138,9 @@ func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
 	if len(positiveTerms) == 0 {
 		// Case: The query is composed entirely of negative terms (e.g., "-a -b").
 		// We start with the set of all content that has a location and filter it down.
-		b.query.WriteString("SELECT DISTINCT content_hash as hash FROM locations WHERE 1=1")
+		b.query.WriteString(b.allLocationsQuery() + " WHERE 1=1")
 		for _, term := range negativeTerms {
-			b.query.WriteString(" AND hash NOT IN (")
+			b.query.WriteString(" AND " + b.locationColumn() + " NOT IN (")
 			b.buildFactor(term.Factor)
 			b.query.WriteString(")")
 		}
@@ -111,20 +149,20 @@ func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
 
 	// Case: The query has at least one positive term (e.g., "a & b & -c").
 	// We use the first positive term (which is now the most selective) as the base set.
-	b.query.WriteString("SELECT hash FROM (")
+	b.query.WriteString("SELECT " + b.column() + " FROM (")
 	b.buildFactor(positiveTerms[0].Factor)
 	b.query.WriteString(fmt.Sprintf(") AS %s WHERE 1=1", b.newAlias()))
 
 	// Filter this base set by requiring matches in all other positive terms.
 	for i := 1; i < len(positiveTerms); i++ {
-		b.query.WriteString(" AND hash IN (")
+		b.query.WriteString(" AND " + b.column() + " IN (")
 		b.buildFactor(positiveTerms[i].Factor)
 		b.query.WriteString(")")
 	}
 
 	// Further filter the set by excluding matches from all negative terms.
 	for _, term := range negativeTerms {
-		b.query.WriteString(" AND hash NOT IN (")
+		b.query.WriteString(" AND " + b.column() + " NOT IN (")
 		b.buildFactor(term.Factor)
 		b.query.WriteString(")")
 	}
@@ -135,7 +173,7 @@ func (b *SQLBuilder) buildAndTerm(andTerm *AndTerm) {
 func (b *SQLBuilder) buildTerm(term *Term) {
 	if term.Not {
 		// The base set for a negation must be files that actually exist (have a location).
-		b.query.WriteString("SELECT DISTINCT content_hash as hash FROM locations WHERE content_hash NOT IN (")
+		b.query.WriteString(b.allLocationsQuery() + " WHERE " + b.locationColumn() + " NOT IN (")
 		b.buildFactor(term.Factor)
 		b.query.WriteString(")")
 	} else {
@@ -162,11 +200,15 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 		switch tagStr {
 		case "@tagged":
 			// Query for all content that is both tagged AND has a location.
-			b.query.WriteString(`SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash`)
+			if b.target == "id" {
+				b.query.WriteString(`SELECT DISTINCT l.id as id FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash`)
+			} else {
+				b.query.WriteString(`SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash`)
+			}
 		// In the future, other meta-tags like @orphaned could be added here.
 		default:
 			// For now, treat unknown meta-tags as "no results".
-			b.query.WriteString(`SELECT NULL as hash WHERE 0`)
+			b.query.WriteString(`SELECT NULL as ` + b.column() + ` WHERE 0`)
 		}
 		return
 	}
@@ -176,7 +218,11 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 	switch parsed.Key {
 	case "ext":
 		// Query against the indexed, lowercase extension in the locations table.
-		b.query.WriteString(`SELECT DISTINCT content_hash as hash FROM locations WHERE lower(extension) = lower(?)`)
+		if b.target == "id" {
+			b.query.WriteString(`SELECT id FROM locations WHERE lower(extension) = lower(?)`)
+		} else {
+			b.query.WriteString(`SELECT DISTINCT content_hash as hash FROM locations WHERE lower(extension) = lower(?)`)
+		}
 		value := parsed.Value
 		// Add leading dot to extension if missing, for user convenience.
 		if value != "" && !strings.HasPrefix(value, ".") {
@@ -189,13 +235,20 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 			// A bare term acts as both a key-only tag search and filename/path
 			// free-text search for browser search boxes. Use LEFT JOIN so
 			// filename matches include untagged tracked files.
-			b.query.WriteString(`SELECT DISTINCT l.content_hash as hash FROM locations l LEFT JOIN content_tags ct ON l.content_hash = ct.content_hash LEFT JOIN tags t ON ct.tag_id = t.id WHERE (t.key = ? OR lower(l.path) LIKE lower(?))`)
+			if b.target == "id" {
+				b.query.WriteString(`SELECT DISTINCT l.id as id FROM locations l LEFT JOIN content_tags ct ON l.content_hash = ct.content_hash LEFT JOIN tags t ON ct.tag_id = t.id WHERE (t.key = ? OR lower(l.path) LIKE lower(?))`)
+			} else {
+				b.query.WriteString(`SELECT DISTINCT l.content_hash as hash FROM locations l LEFT JOIN content_tags ct ON l.content_hash = ct.content_hash LEFT JOIN tags t ON ct.tag_id = t.id WHERE (t.key = ? OR lower(l.path) LIKE lower(?))`)
+			}
 			b.args = append(b.args, parsed.Key, "%"+parsed.Key+"%")
 			return
 		}
 		// Default behavior for user-defined tags.
 		// The common prefix ensures we only consider content that has a location.
 		queryPrefix := `SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
+		if b.target == "id" {
+			queryPrefix = `SELECT DISTINCT l.id as id FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
+		}
 		b.query.WriteString(queryPrefix)
 
 		if parsed.Value == "*" {

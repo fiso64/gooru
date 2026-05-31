@@ -88,15 +88,20 @@ func (l *GooruLibrary) ListFilesSearch(ctx context.Context, query string, page P
 	if err := ctx.Err(); err != nil {
 		return PageResult[types.FileInfo]{}, err
 	}
+	cursor, err := ValidateCursorForSort(page.Cursor, sort, order)
+	if err != nil {
+		return PageResult[types.FileInfo]{}, err
+	}
 	limit := page.Limit + 1
-	files, err := l.client.GetFilesInfoByQueryPageSorted(query, limit, page.Offset, sort, order, l.verbose)
+	files, err := l.client.GetFilesInfoByQueryPageSorted(query, limit, cursor, sort, order, l.verbose)
 	if err != nil {
 		return PageResult[types.FileInfo]{}, err
 	}
 	result := PageResult[types.FileInfo]{Items: files}
 	if len(result.Items) > page.Limit {
 		result.Items = result.Items[:page.Limit]
-		result.NextPageToken = NextPageToken(page.Offset, page.Limit, page.Limit)
+		last := result.Items[len(result.Items)-1]
+		result.NextPageToken = CursorPageToken(sort, order, cursorKeyForFile(last, sort), last.ID)
 	}
 	return result, nil
 }
@@ -291,6 +296,10 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
 			return
 		}
+		if strings.Contains(err.Error(), "page_token") {
+			writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list files", nil)
 		return
 	}
@@ -420,7 +429,10 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request, locati
 		Mode string `json:"mode"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", "request body must be valid JSON", nil)
+			return
+		}
 	}
 	if req.Mode == "" {
 		req.Mode = "untrack"
@@ -489,16 +501,42 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 	if s.cfg.Server.ExposePaths {
 		dto.Path = file.Path
 	}
-	if search, ok := s.library.(SearchLibrary); ok {
-		if metadata, err := search.FileMetadata(ctx, file.ID); err == nil {
-			dto.Metadata = metadata
+	if file.Metadata != nil {
+		if file.Metadata.MimeType != "" {
+			dto.MediaType = file.Metadata.MimeType
 		}
-	} else if includeMetadata && s.meta != nil {
-		if metadata, err := s.meta.Metadata(ctx, file, mediaType, mediaKind); err == nil {
-			dto.Metadata = metadata
+		if file.Metadata.MediaKind != "" {
+			dto.MediaKind = file.Metadata.MediaKind
+		}
+		dto.Metadata = mediaMetadataDTO(*file.Metadata)
+	} else if includeMetadata {
+		if search, ok := s.library.(SearchLibrary); ok {
+			if metadata, err := search.FileMetadata(ctx, file.ID); err == nil {
+				dto.Metadata = metadata
+			}
+		} else if s.meta != nil {
+			if metadata, err := s.meta.Metadata(ctx, file, mediaType, mediaKind); err == nil {
+				dto.Metadata = metadata
+			}
 		}
 	}
 	return dto
+}
+
+func cursorKeyForFile(file types.FileInfo, sort string) string {
+	switch sort {
+	case "modified":
+		return strconv.FormatInt(file.ModTime, 10)
+	case "size":
+		return strconv.FormatInt(file.Size, 10)
+	case "kind":
+		if file.Metadata != nil && file.Metadata.MediaKind != "" {
+			return strings.ToLower(file.Metadata.MediaKind)
+		}
+		return mediaKindForType(mediaTypeForPath(file.Path))
+	default:
+		return strings.ToLower(file.Path)
+	}
 }
 
 func mediaMetadataDTO(meta types.MediaMetadata) MediaMetadata {
