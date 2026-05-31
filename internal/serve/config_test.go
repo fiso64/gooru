@@ -187,6 +187,19 @@ func TestLoadConfigRejectsInvalidUploadTargets(t *testing.T) {
 	}
 }
 
+func TestLoadConfigNormalizesUploadTargets(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Uploads.Enabled = true
+	cfg.Uploads.Targets = []UploadTarget{{ID: " default ", Name: " Default ", Path: " " + filepath.Join(t.TempDir(), "uploads") + " "}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate config: %v", err)
+	}
+	target := cfg.Uploads.Targets[0]
+	if target.ID != "default" || target.Name != "Default" || target.Path != strings.TrimSpace(target.Path) {
+		t.Fatalf("upload target was not normalized: %+v", target)
+	}
+}
+
 func TestLoadConfigRejectsInvalidUploadConflictPolicy(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Uploads.ConflictPolicy = "overwrite"

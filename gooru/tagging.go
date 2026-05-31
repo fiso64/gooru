@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"gooru.local/types"
 	"gooru.local/internal/database"
 	"gooru.local/internal/query"
+	"gooru.local/types"
 )
 
 type opKind int
@@ -26,6 +26,46 @@ func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(fil
 		return types.TagOperationResult{}, err
 	}
 	return c.performTagOperation(filePaths, tags, progressCb, opTag, useMetadataHeuristic)
+}
+
+// TagKnownFiles imports files whose content hash and filesystem metadata have
+// already been computed by the caller, avoiding a second hashing pass.
+func (c *Client) TagKnownFiles(files []types.LocationInfo, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+	result := types.TagOperationResult{}
+	if err := query.ValidateTags(tags); err != nil {
+		return result, err
+	}
+	analysis := &fileStateAnalysis{
+		allFileData:       make([]fileData, 0, len(files)),
+		allHashes:         make([]string, 0, len(files)),
+		locationsToUpsert: make(map[string]types.LocationInfo, len(files)),
+		potentialMoves:    make(map[string]string),
+	}
+	for _, file := range files {
+		if file.Path == "" || file.Hash == "" {
+			if progressCb != nil {
+				progressCb(file.Path, fmt.Errorf("file path and hash are required"))
+			}
+			continue
+		}
+		analysis.allFileData = append(analysis.allFileData, fileData{path: file.Path, info: file})
+		analysis.allHashes = append(analysis.allHashes, file.Hash)
+		analysis.locationsToUpsert[file.Path] = file
+	}
+	if len(analysis.allFileData) == 0 {
+		return result, nil
+	}
+	affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag)
+	if err != nil {
+		return result, err
+	}
+	result.AffectedCount = int(affectedCount)
+	if progressCb != nil {
+		for _, data := range analysis.allFileData {
+			progressCb(data.path, nil)
+		}
+	}
+	return result, nil
 }
 
 // UntagFiles removes tags from files. If no tags are provided, all tags are removed.
@@ -234,23 +274,23 @@ func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, 
 // RenameTag renames an existing tag to a new name across the entire database.
 // The new name must not already exist.
 func (c *Client) RenameTag(oldName, newName string) error {
-    // The new tag name must be valid for creation.
-    if err := query.ValidateTag(newName); err != nil {
-        return fmt.Errorf("invalid new tag name: %w", err)
-    }
-    // The old tag name must have valid syntax. Building a minimal AST and validating
-    // it is the public way to check syntax without checking for reserved keywords.
-    if err := query.ValidateAST(&query.Expression{Or: []*query.AndTerm{{And: []*query.Term{{Factor: &query.Factor{Tag: &oldName}}}}}}); err != nil {
-        return fmt.Errorf("invalid old tag name: %w", err)
-    }
-    if oldName == newName {
-        return fmt.Errorf("old and new tag names are identical")
-    }
+	// The new tag name must be valid for creation.
+	if err := query.ValidateTag(newName); err != nil {
+		return fmt.Errorf("invalid new tag name: %w", err)
+	}
+	// The old tag name must have valid syntax. Building a minimal AST and validating
+	// it is the public way to check syntax without checking for reserved keywords.
+	if err := query.ValidateAST(&query.Expression{Or: []*query.AndTerm{{And: []*query.Term{{Factor: &query.Factor{Tag: &oldName}}}}}}); err != nil {
+		return fmt.Errorf("invalid old tag name: %w", err)
+	}
+	if oldName == newName {
+		return fmt.Errorf("old and new tag names are identical")
+	}
 
-    oldParsedTag := query.ParseTag(oldName)
-    newParsedTag := query.ParseTag(newName)
+	oldParsedTag := query.ParseTag(oldName)
+	newParsedTag := query.ParseTag(newName)
 
-    return c.store.RenameTag(oldParsedTag, newParsedTag)
+	return c.store.RenameTag(oldParsedTag, newParsedTag)
 }
 
 // SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.

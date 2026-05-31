@@ -83,6 +83,12 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "uploads_disabled", "upload target is not configured", nil)
 		return
 	}
+	releaseAdmission, err := s.acquireUploadAdmission(r.Context())
+	if err != nil {
+		writeJobSubmitError(w, err, "failed to accept upload")
+		return
+	}
+	defer releaseAdmission()
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "multipart upload body is required", nil)
 		return
@@ -137,6 +143,20 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) acquireUploadAdmission(ctx context.Context) (func(), error) {
+	if s.uploads == nil {
+		return func() {}, nil
+	}
+	select {
+	case s.uploads <- struct{}{}:
+		return func() { <-s.uploads }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return nil, ErrJobQueueFull
+	}
 }
 
 func (s *Server) uploadTarget(id string) (UploadTarget, error) {
@@ -352,7 +372,7 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	}
 	response := UploadImportResponse{Files: make([]UploadedFileDTO, 0, len(files))}
 	hashes := make(map[string]string, len(files))
-	importPaths := make([]string, 0, len(files))
+	importLocations := make([]types.LocationInfo, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	for _, file := range files {
 		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
@@ -383,17 +403,23 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		dto.Status = "imported"
 		response.Files = append(response.Files, dto)
 		responseIndexByPath[file.Path] = len(response.Files) - 1
-		importPaths = append(importPaths, file.Path)
+		importLocations = append(importLocations, types.LocationInfo{
+			Path:      file.Path,
+			Hash:      info.Hash,
+			Size:      info.Size,
+			ModTime:   info.ModTime,
+			Extension: filepath.Ext(file.Path),
+		})
 	}
-	if len(importPaths) == 0 {
+	if len(importLocations) == 0 {
 		return response, nil
 	}
 	failures := make(map[string]string)
-	result, err := l.client.TagFiles(importPaths, tags, func(filePath string, err error) {
+	result, err := l.client.TagKnownFiles(importLocations, tags, func(filePath string, err error) {
 		if err != nil {
 			failures[filePath] = err.Error()
 		}
-	}, false)
+	})
 	if err != nil {
 		return UploadImportResponse{}, err
 	}

@@ -270,8 +270,14 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("uploads.conflict_policy must be one of: rename, error"))
 	}
 	seenTargets := make(map[string]struct{}, len(cfg.Uploads.Targets))
-	for i, target := range cfg.Uploads.Targets {
+	for i := range cfg.Uploads.Targets {
+		target := cfg.Uploads.Targets[i]
 		id := strings.TrimSpace(target.ID)
+		name := strings.TrimSpace(target.Name)
+		path := strings.TrimSpace(target.Path)
+		cfg.Uploads.Targets[i].ID = id
+		cfg.Uploads.Targets[i].Name = name
+		cfg.Uploads.Targets[i].Path = path
 		if id == "" {
 			errs = append(errs, fmt.Errorf("uploads.targets[%d].id is required", i))
 		} else if !validUploadTargetID(id) {
@@ -281,12 +287,12 @@ func (cfg *Config) Validate() error {
 		} else {
 			seenTargets[id] = struct{}{}
 		}
-		if strings.TrimSpace(target.Name) == "" {
+		if name == "" {
 			errs = append(errs, fmt.Errorf("uploads target %q name is required", id))
 		}
-		if strings.TrimSpace(target.Path) == "" {
+		if path == "" {
 			errs = append(errs, fmt.Errorf("uploads target %q path is required", id))
-		} else if !filepath.IsAbs(target.Path) {
+		} else if !filepath.IsAbs(path) {
 			errs = append(errs, fmt.Errorf("uploads target %q path must be absolute", id))
 		}
 	}

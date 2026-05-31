@@ -15,6 +15,7 @@ type Server struct {
 	media   *MediaService
 	meta    MediaMetadataProvider
 	auth    *AuthStore
+	uploads chan struct{}
 }
 
 func NewServer(cfg Config) *Server {
@@ -28,6 +29,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		library: library,
 		media:   NewMediaService(cfg),
 		meta:    BasicMediaMetadataProvider{},
+		uploads: make(chan struct{}, cfg.Jobs.MaxQueued+cfg.Jobs.MaxRunning),
 	}
 }
 

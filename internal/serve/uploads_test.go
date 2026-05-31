@@ -36,6 +36,19 @@ func TestUploadRejectsDisabledUploadsBeforeParsingBody(t *testing.T) {
 	assertAPIError(t, rec, http.StatusForbidden, "uploads_disabled")
 }
 
+func TestUploadAdmissionRejectsBeforeParsingBody(t *testing.T) {
+	server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})
+	for i := 0; i < cap(server.uploads); i++ {
+		server.uploads <- struct{}{}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", bytes.NewBufferString("not multipart"))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusServiceUnavailable, "job_queue_full")
+}
+
 func TestUploadPreventsTraversalAndHandlesConflicts(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "evil.txt"), []byte("existing"), 0600); err != nil {
