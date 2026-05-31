@@ -19,12 +19,15 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 
 	fileSchema := schema(t, spec, "File")
 	required := stringSlice(t, fileSchema["required"])
-	for _, field := range []string{"id", "content_id", "media_kind", "metadata", "media_urls"} {
+	for _, field := range []string{"id", "content_id", "safe_display_path", "media_kind", "metadata", "media_urls"} {
 		if !containsString(required, field) {
 			t.Fatalf("File schema required fields missing %q in %+v", field, required)
 		}
 	}
 	fileProps := stringMap(t, fileSchema["properties"])
+	if _, ok := fileProps["safe_display_path"]; !ok {
+		t.Fatal("File schema missing safe_display_path")
+	}
 	assertRef(t, stringMap(t, fileProps["metadata"]), "#/components/schemas/MediaMetadata")
 	assertRef(t, stringMap(t, fileProps["media_urls"]), "#/components/schemas/MediaURLs")
 

@@ -1096,6 +1096,7 @@ components:
         - id
         - content_id
         - name
+        - safe_display_path
         - size
         - modified_time
         - media_type
@@ -1114,6 +1115,10 @@ components:
           type: string
         path:
           type: string
+          description: Absolute filesystem path. Omitted unless server path exposure is enabled.
+        safe_display_path:
+          type: string
+          description: Display-only non-absolute path hint, such as the last directory plus filename.
         size:
           type: integer
           format: int64

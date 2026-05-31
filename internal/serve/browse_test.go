@@ -97,6 +97,9 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if page.Files[0].Path != "" {
 		t.Fatalf("path should be hidden by default, got %q", page.Files[0].Path)
 	}
+	if page.Files[0].SafeDisplayPath == "" || filepath.IsAbs(page.Files[0].SafeDisplayPath) || !strings.Contains(page.Files[0].SafeDisplayPath, page.Files[0].Name) {
+		t.Fatalf("expected safe display path without absolute path leak, got %+v", page.Files[0])
+	}
 	if page.NextPageToken == "" {
 		t.Fatal("expected next page token")
 	}
@@ -288,6 +291,9 @@ func TestBrowseFilesCanExposePathsWhenConfigured(t *testing.T) {
 	}
 	if page.Files[0].Path == "" {
 		t.Fatal("expected path when server.expose_paths is true")
+	}
+	if page.Files[0].SafeDisplayPath == "" || page.Files[0].SafeDisplayPath == page.Files[0].Path {
+		t.Fatalf("expected separate safe display path, got %+v", page.Files[0])
 	}
 }
 

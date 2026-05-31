@@ -20,6 +20,7 @@ export interface FileItem {
   content_id: string;
   name: string;
   path?: string;
+  safe_display_path: string;
   size: number;
   modified_time: string;
   media_type: string;

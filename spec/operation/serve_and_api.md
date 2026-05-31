@@ -105,11 +105,11 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 *   `GET /api/v1/files/{id}/content`: Returns original media content with range support.
 *   `GET /api/v1/files/{id}/download`: Returns original media content as an attachment with range support.
 *   `POST /api/v1/files/tags`: Adds tags to files. (`tag`)
-    *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
+    *   Body: `{"file_ids": ["<opaque file id>"], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `PUT /api/v1/files/tags`: Sets/replaces tags for files. (`settags`)
-    *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
+    *   Body: `{"file_ids": ["<opaque file id>"], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `DELETE /api/v1/files/tags`: Removes tags from files. (`untag`)
-    *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
+    *   Body: `{"file_ids": ["<opaque file id>"], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `GET /api/v1/search/suggestions?q=<prefix>&existing=<expr>`: Returns deterministic namespace, tag, and namespace-value autocomplete suggestions, filtering already-present tags from `existing` when parseable.
 *   `GET /api/v1/tags/namespaces`: Returns known tag namespaces.
 *   `GET /api/v1/saved-searches`: Lists saved searches for the current user.

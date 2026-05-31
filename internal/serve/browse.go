@@ -250,17 +250,18 @@ type FacetValueDTO struct {
 }
 
 type FileDTO struct {
-	ID           string        `json:"id"`
-	ContentID    string        `json:"content_id"`
-	Name         string        `json:"name"`
-	Path         string        `json:"path,omitempty"`
-	Size         int64         `json:"size"`
-	ModifiedTime time.Time     `json:"modified_time"`
-	MediaType    string        `json:"media_type"`
-	MediaKind    string        `json:"media_kind"`
-	Metadata     MediaMetadata `json:"metadata,omitempty"`
-	Tags         []string      `json:"tags"`
-	MediaURLs    MediaURLs     `json:"media_urls"`
+	ID              string        `json:"id"`
+	ContentID       string        `json:"content_id"`
+	Name            string        `json:"name"`
+	Path            string        `json:"path,omitempty"`
+	SafeDisplayPath string        `json:"safe_display_path"`
+	Size            int64         `json:"size"`
+	ModifiedTime    time.Time     `json:"modified_time"`
+	MediaType       string        `json:"media_type"`
+	MediaKind       string        `json:"media_kind"`
+	Metadata        MediaMetadata `json:"metadata,omitempty"`
+	Tags            []string      `json:"tags"`
+	MediaURLs       MediaURLs     `json:"media_urls"`
 }
 
 type MediaURLs struct {
@@ -483,14 +484,15 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 	mediaType := mediaTypeForPath(file.Path)
 	mediaKind := mediaKindForType(mediaType)
 	dto := FileDTO{
-		ID:           id,
-		ContentID:    file.Hash,
-		Name:         filepath.Base(file.Path),
-		Size:         file.Size,
-		ModifiedTime: time.Unix(file.ModTime, 0).UTC(),
-		MediaType:    mediaType,
-		MediaKind:    mediaKind,
-		Tags:         nonNilStrings(file.Tags),
+		ID:              id,
+		ContentID:       file.Hash,
+		Name:            filepath.Base(file.Path),
+		SafeDisplayPath: safeDisplayPath(file.Path),
+		Size:            file.Size,
+		ModifiedTime:    time.Unix(file.ModTime, 0).UTC(),
+		MediaType:       mediaType,
+		MediaKind:       mediaKind,
+		Tags:            nonNilStrings(file.Tags),
 		MediaURLs: MediaURLs{
 			Thumbnail: "/api/v1/files/" + id + "/thumbnail",
 			Preview:   "/api/v1/files/" + id + "/preview",
@@ -521,6 +523,15 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 		}
 	}
 	return dto
+}
+
+func safeDisplayPath(path string) string {
+	name := filepath.Base(path)
+	parent := filepath.Base(filepath.Dir(path))
+	if parent == "." || parent == string(filepath.Separator) || parent == "" {
+		return name
+	}
+	return filepath.Join(parent, name)
 }
 
 func mediaMetadataDTO(meta types.MediaMetadata) MediaMetadata {

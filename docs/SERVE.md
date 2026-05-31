@@ -183,7 +183,9 @@ and `include_facets=true`. Responses include the current page, total matching
 count, total library count, and optional kind facets scoped to the active query.
 Browse pagination uses opaque cursor tokens. Free-text filename matching uses
 SQLite `LIKE` against stored paths; it is bounded by cursor paging but remains a
-known scan-heavy path until a future full-text index is added.
+known scan-heavy path until a future full-text index is added. File DTOs always
+include `safe_display_path` for UI labels; absolute `path` is omitted unless
+path exposure is explicitly enabled.
 `GET /api/v1/search/suggestions?q=...&existing=...` returns namespace, tag, and
 namespace-value autocomplete suggestions, while `GET /api/v1/tags/namespaces`
 returns known tag namespaces.
