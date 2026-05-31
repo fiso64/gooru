@@ -116,7 +116,6 @@ type FileInfo struct {
 type PageCursor struct {
 	Sort  string `json:"sort"`
 	Order string `json:"order"`
-	Key   string `json:"key"`
 	ID    int64  `json:"id"`
 }
 

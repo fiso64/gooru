@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -1775,7 +1774,7 @@ func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{},
 
 // GetFilesInfoByLocationQueryPageSorted executes a location-ID query and returns one bounded keyset page.
 func (s *Store) GetFilesInfoByLocationQueryPageSorted(query string, args []interface{}, limit int, cursor *types.PageCursor, sort string, order string) ([]types.FileInfo, error) {
-	cursorClause, cursorArgs, err := fileCursorClause(cursor, sort, order)
+	cursorClause, cursorArgs, err := s.fileCursorClause(cursor, sort, order)
 	if err != nil {
 		return nil, err
 	}
@@ -1796,7 +1795,7 @@ func (s *Store) GetFilesInfoByLocationQueryPageSorted(query string, args []inter
 
 // GetAllFilesInfoPageSorted retrieves one bounded keyset page with a validated sort.
 func (s *Store) GetAllFilesInfoPageSorted(limit int, cursor *types.PageCursor, sort string, order string) ([]types.FileInfo, error) {
-	cursorClause, cursorArgs, err := fileCursorClause(cursor, sort, order)
+	cursorClause, cursorArgs, err := s.fileCursorClause(cursor, sort, order)
 	if err != nil {
 		return nil, err
 	}
@@ -1877,12 +1876,12 @@ func fileKindExpression() string {
 	END)`
 }
 
-func fileCursorClause(cursor *types.PageCursor, sort string, order string) (string, []interface{}, error) {
+func (s *Store) fileCursorClause(cursor *types.PageCursor, sort string, order string) (string, []interface{}, error) {
 	if cursor == nil {
 		return "", nil, nil
 	}
 	expr := fileSortExpression(sort)
-	key, err := cursorKeyValue(cursor.Key, sort)
+	key, err := s.cursorKeyForLocation(cursor.ID, sort)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1893,11 +1892,25 @@ func fileCursorClause(cursor *types.PageCursor, sort string, order string) (stri
 	return fmt.Sprintf("AND (%s %s ? OR (%s = ? AND l.id > ?))", expr, comparison, expr), []interface{}{key, key, cursor.ID}, nil
 }
 
-func cursorKeyValue(value string, sort string) (interface{}, error) {
+func (s *Store) cursorKeyForLocation(locationID int64, sort string) (interface{}, error) {
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM locations l
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		WHERE l.id = ?
+	`, fileSortExpression(sort))
 	switch sort {
 	case "modified", "size":
-		return strconv.ParseInt(value, 10, 64)
+		var value int64
+		if err := s.QueryRow(query, locationID).Scan(&value); err != nil {
+			return nil, err
+		}
+		return value, nil
 	default:
+		var value string
+		if err := s.QueryRow(query, locationID).Scan(&value); err != nil {
+			return nil, err
+		}
 		return strings.ToLower(value), nil
 	}
 }

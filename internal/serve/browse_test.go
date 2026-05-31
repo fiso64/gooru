@@ -107,6 +107,17 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if strings.HasPrefix(string(decodedToken), "offset:") {
 		t.Fatalf("file search should use cursor token, got %q", string(decodedToken))
 	}
+	firstLocationID, err := DecodeFileID(page.Files[0].ID)
+	if err != nil {
+		t.Fatalf("decode first file id: %v", err)
+	}
+	storedFile, err := server.library.(*GooruLibrary).client.GetFileInfoByLocationID(firstLocationID)
+	if err != nil {
+		t.Fatalf("load stored file: %v", err)
+	}
+	if strings.Contains(string(decodedToken), storedFile.Path) || strings.Contains(string(decodedToken), page.Files[0].Name) {
+		t.Fatalf("cursor token leaked stored path data: %q", string(decodedToken))
+	}
 	if page.Files[0].MediaKind != "photo" {
 		t.Fatalf("expected photo media kind, got %q", page.Files[0].MediaKind)
 	}

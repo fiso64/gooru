@@ -101,7 +101,7 @@ func (l *GooruLibrary) ListFilesSearch(ctx context.Context, query string, page P
 	if len(result.Items) > page.Limit {
 		result.Items = result.Items[:page.Limit]
 		last := result.Items[len(result.Items)-1]
-		result.NextPageToken = CursorPageToken(sort, order, cursorKeyForFile(last, sort), last.ID)
+		result.NextPageToken = CursorPageToken(sort, order, last.ID)
 	}
 	return result, nil
 }
@@ -521,22 +521,6 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 		}
 	}
 	return dto
-}
-
-func cursorKeyForFile(file types.FileInfo, sort string) string {
-	switch sort {
-	case "modified":
-		return strconv.FormatInt(file.ModTime, 10)
-	case "size":
-		return strconv.FormatInt(file.Size, 10)
-	case "kind":
-		if file.Metadata != nil && file.Metadata.MediaKind != "" {
-			return strings.ToLower(file.Metadata.MediaKind)
-		}
-		return mediaKindForType(mediaTypeForPath(file.Path))
-	default:
-		return strings.ToLower(file.Path)
-	}
 }
 
 func mediaMetadataDTO(meta types.MediaMetadata) MediaMetadata {
