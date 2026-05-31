@@ -31,8 +31,8 @@ go run ./cmd/gooru serve --print-default-config > serve.yaml
 
 The default listen address is `127.0.0.1:5678`, which is suitable for local use.
 Authentication is enabled by default and uses DB-backed users plus opaque
-server-side sessions. If uploads are desired, configure at least one absolute
-upload directory:
+server-side sessions. If uploads are desired, configure at least one upload
+target with a stable ID and absolute directory path:
 
 ```yaml
 server:
@@ -51,8 +51,9 @@ auth:
 
 uploads:
   enabled: true
-  directories:
-    - name: "default"
+  targets:
+    - id: "default"
+      name: "Default"
       path: "/home/alice/Pictures/incoming"
   max_file_size_bytes: 104857600
 
@@ -187,15 +188,20 @@ kept in memory. A full queue returns the normal JSON error envelope with
 
 ## Upload Safety
 
-Uploads are disabled unless `uploads.enabled` is true and at least one upload
-directory has an absolute path. Uploaded filenames are reduced to safe basenames,
-path traversal is rejected by construction, and conflicts are resolved with
-numbered suffixes.
+Uploads are disabled unless `uploads.enabled` is true and at least one
+`uploads.targets` entry has a stable ID, display name, and absolute path.
+Clients can list configured targets through `GET /api/v1/upload-targets`; the
+response includes only target IDs and names, not filesystem paths. Upload
+requests may pass `target_id`, defaulting to the first configured target.
+Uploaded filenames are reduced to safe basenames, path traversal is rejected by
+construction, and conflicts are resolved with numbered suffixes.
 
 Uploads are staged into temporary files in the target directory before they are
-atomically linked into their final names. Failed batches remove staged files. If
-an async upload/import job is canceled before it starts running, the staged files
-are cleaned up when the queued job is drained.
+atomically linked into their final names. Failed batches remove staged files.
+Import responses include a per-file status such as `imported`,
+`duplicate_existing`, `duplicate_in_batch`, or `error`. If an async upload/import
+job is canceled before it starts running, the staged files are cleaned up when
+the queued job is drained.
 
 ## API Contract Drift
 

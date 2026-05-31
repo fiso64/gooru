@@ -51,6 +51,16 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 	assertResponseRef(t, spec, "/files/tags", "put", "503", "#/components/responses/ServiceUnavailable")
 	assertResponseRef(t, spec, "/files/tags", "delete", "503", "#/components/responses/ServiceUnavailable")
 	assertResponseRef(t, spec, "/uploads", "post", "503", "#/components/responses/ServiceUnavailable")
+	assertResponseSchemaRef(t, spec, "/upload-targets", "get", "200", "#/components/schemas/UploadTargetsResponse")
+
+	uploadFileProps := stringMap(t, stringMap(t, schema(t, spec, "UploadImportResponse")["properties"])["files"])
+	uploadFileItems := stringMap(t, uploadFileProps["items"])
+	uploadFileRequired := stringSlice(t, uploadFileItems["required"])
+	for _, field := range []string{"target_id", "status"} {
+		if !containsString(uploadFileRequired, field) {
+			t.Fatalf("UploadImportResponse file item required fields missing %q in %+v", field, uploadFileRequired)
+		}
+	}
 }
 
 func schema(t *testing.T, spec map[string]interface{}, name string) map[string]interface{} {
@@ -67,6 +77,18 @@ func assertResponseRef(t *testing.T, spec map[string]interface{}, path string, m
 	operation := stringMap(t, pathItem[method])
 	responses := stringMap(t, operation["responses"])
 	assertRef(t, stringMap(t, responses[status]), want)
+}
+
+func assertResponseSchemaRef(t *testing.T, spec map[string]interface{}, path string, method string, status string, want string) {
+	t.Helper()
+	paths := stringMap(t, spec["paths"])
+	pathItem := stringMap(t, paths[path])
+	operation := stringMap(t, pathItem[method])
+	responses := stringMap(t, operation["responses"])
+	response := stringMap(t, responses[status])
+	content := stringMap(t, response["content"])
+	jsonContent := stringMap(t, content["application/json"])
+	assertRef(t, stringMap(t, jsonContent["schema"]), want)
 }
 
 func assertRef(t *testing.T, node map[string]interface{}, want string) {

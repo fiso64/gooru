@@ -354,9 +354,23 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /upload-targets:
+    get:
+      summary: List configured upload targets.
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Configured upload targets without filesystem paths.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadTargetsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /uploads:
     post:
-      summary: Upload files into a configured upload directory and import them.
+      summary: Upload files into a configured upload target and import them.
       security:
         - sessionAuth: []
       parameters:
@@ -374,9 +388,9 @@ paths:
                   items:
                     type: string
                     format: binary
-                directory:
+                target_id:
                   type: string
-                  description: Configured upload directory name. Defaults to the first configured directory.
+                  description: Configured upload target ID. Defaults to the first configured target.
                 tags:
                   type: string
                   description: Space- or comma-separated initial tags.
@@ -670,13 +684,20 @@ components:
           type: array
           items:
             type: object
-            required: [name, size]
+            required: [name, size, target_id, status]
             properties:
               name:
                 type: string
               size:
                 type: integer
                 format: int64
+              target_id:
+                type: string
+              status:
+                type: string
+                enum: [uploaded, imported, duplicate_existing, duplicate_in_batch, skipped, error]
+              error:
+                type: string
         affected_count:
           type: integer
         notifications:
@@ -698,6 +719,20 @@ components:
                 type: array
                 items:
                   type: string
+    UploadTargetsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id:
+                type: string
+              name:
+                type: string
     Job:
       type: object
       required: [id, type, status, submitted_at]
