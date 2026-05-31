@@ -83,12 +83,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "uploads_disabled", "upload target is not configured", nil)
 		return
 	}
-	releaseAdmission, err := s.acquireUploadAdmission(r.Context())
+	reservation, err := s.jobs.Reserve(r.Context(), "upload_import")
 	if err != nil {
 		writeJobSubmitError(w, err, "failed to accept upload")
 		return
 	}
-	defer releaseAdmission()
+	submitted := false
+	defer func() {
+		if !submitted {
+			reservation.Release()
+		}
+	}()
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "multipart upload body is required", nil)
 		return
@@ -121,7 +126,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	cleanup := func() {
 		removeSavedUploads(saved)
 	}
-	job, err := s.jobs.SubmitWithCleanup(r.Context(), "upload_import", PreferAsync(r), func(ctx context.Context) (interface{}, error) {
+	job, err := reservation.Submit(r.Context(), PreferAsync(r), func(ctx context.Context) (interface{}, error) {
 		response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), tags)
 		if err != nil {
 			cleanup()
@@ -129,6 +134,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return response, nil
 	}, cleanup)
+	if err == nil {
+		submitted = true
+	}
 	if PreferAsync(r) && err == nil {
 		writeJSON(w, http.StatusAccepted, job)
 		return
@@ -143,20 +151,6 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
-}
-
-func (s *Server) acquireUploadAdmission(ctx context.Context) (func(), error) {
-	if s.uploads == nil {
-		return func() {}, nil
-	}
-	select {
-	case s.uploads <- struct{}{}:
-		return func() { <-s.uploads }, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-		return nil, ErrJobQueueFull
-	}
 }
 
 func (s *Server) uploadTarget(id string) (UploadTarget, error) {

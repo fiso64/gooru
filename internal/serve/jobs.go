@@ -47,6 +47,8 @@ type JobManager struct {
 	mu           sync.RWMutex
 	jobs         map[string]*Job
 	queue        chan queuedJob
+	maxQueued    int
+	queued       int
 	completedTTL time.Duration
 	maxResult    int64
 }
@@ -56,6 +58,14 @@ type queuedJob struct {
 	ctx     context.Context
 	run     JobFunc
 	cleanup func()
+}
+
+type JobReservation struct {
+	manager *JobManager
+	job     *Job
+	ctx     context.Context
+	cancel  context.CancelFunc
+	used    bool
 }
 
 func NewJobManager(buffer int, completedTTL time.Duration) *JobManager {
@@ -75,6 +85,7 @@ func NewJobManagerWithLimits(maxQueued int, maxRunning int, maxResultBytes int64
 	m := &JobManager{
 		jobs:         make(map[string]*Job),
 		queue:        make(chan queuedJob, maxQueued),
+		maxQueued:    maxQueued,
 		completedTTL: completedTTL,
 		maxResult:    maxResultBytes,
 	}
@@ -95,6 +106,23 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 	if run == nil {
 		return nil, errors.New("job function is required")
 	}
+	reservation, err := m.Reserve(ctx, typ)
+	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		return nil, err
+	}
+	return reservation.Submit(ctx, async, run, cleanup)
+}
+
+func (m *JobManager) Reserve(ctx context.Context, typ string) (*JobReservation, error) {
+	if typ == "" {
+		return nil, errors.New("job type is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	jobCtx, cancel := context.WithCancel(context.Background())
 	job := &Job{
 		ID:          newJobID(),
@@ -105,14 +133,30 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 		done:        make(chan struct{}),
 	}
 	m.mu.Lock()
+	if m.queued >= m.maxQueued {
+		m.mu.Unlock()
+		cancel()
+		return nil, ErrJobQueueFull
+	}
+	m.queued++
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
+	return &JobReservation{manager: m, job: job, ctx: jobCtx, cancel: cancel}, nil
+}
 
+func (r *JobReservation) Submit(ctx context.Context, async bool, run JobFunc, cleanup func()) (*Job, error) {
+	if r == nil || r.manager == nil || r.job == nil {
+		return nil, errors.New("job reservation is required")
+	}
+	if run == nil {
+		return nil, errors.New("job function is required")
+	}
+	if r.used {
+		return nil, errors.New("job reservation already used")
+	}
+	r.used = true
 	if err := ctx.Err(); err != nil {
-		cancel()
-		m.mu.Lock()
-		delete(m.jobs, job.ID)
-		m.mu.Unlock()
+		r.release()
 		if cleanup != nil {
 			cleanup()
 		}
@@ -120,12 +164,9 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 	}
 
 	select {
-	case m.queue <- queuedJob{job: job, ctx: jobCtx, run: run, cleanup: cleanup}:
+	case r.manager.queue <- queuedJob{job: r.job, ctx: r.ctx, run: run, cleanup: cleanup}:
 	default:
-		cancel()
-		m.mu.Lock()
-		delete(m.jobs, job.ID)
-		m.mu.Unlock()
+		r.release()
 		if cleanup != nil {
 			cleanup()
 		}
@@ -136,12 +177,12 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 	}
 
 	if async {
-		return m.clone(job.ID), nil
+		return r.manager.clone(r.job.ID), nil
 	}
 
 	select {
-	case <-job.done:
-		snapshot := m.clone(job.ID)
+	case <-r.job.done:
+		snapshot := r.manager.clone(r.job.ID)
 		if snapshot.Status == JobFailed {
 			return snapshot, errors.New(snapshot.Error)
 		}
@@ -150,9 +191,35 @@ func (m *JobManager) SubmitWithCleanup(ctx context.Context, typ string, async bo
 		}
 		return snapshot, nil
 	case <-ctx.Done():
-		m.cancelJob(job)
+		r.manager.cancelJob(r.job)
 		return nil, ctx.Err()
 	}
+}
+
+func (r *JobReservation) Release() {
+	if r == nil || r.used {
+		return
+	}
+	r.used = true
+	r.release()
+}
+
+func (r *JobReservation) release() {
+	r.cancel()
+	r.manager.mu.Lock()
+	delete(r.manager.jobs, r.job.ID)
+	if r.manager.queued > 0 {
+		r.manager.queued--
+	}
+	r.manager.mu.Unlock()
+}
+
+func (m *JobManager) releaseQueuedSlot() {
+	m.mu.Lock()
+	if m.queued > 0 {
+		m.queued--
+	}
+	m.mu.Unlock()
 }
 
 func newJobID() string {
@@ -222,6 +289,7 @@ func (m *JobManager) clone(id string) *Job {
 
 func (m *JobManager) worker() {
 	for item := range m.queue {
+		m.releaseQueuedSlot()
 		m.run(item)
 	}
 }

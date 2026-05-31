@@ -38,9 +38,8 @@ func TestUploadRejectsDisabledUploadsBeforeParsingBody(t *testing.T) {
 
 func TestUploadAdmissionRejectsBeforeParsingBody(t *testing.T) {
 	server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})
-	for i := 0; i < cap(server.uploads); i++ {
-		server.uploads <- struct{}{}
-	}
+	release := saturateJobQueue(t, server)
+	defer release()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", bytes.NewBufferString("not multipart"))
 	rec := httptest.NewRecorder()
 
