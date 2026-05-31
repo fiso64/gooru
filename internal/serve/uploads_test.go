@@ -367,6 +367,50 @@ func TestGooruUploadImportCachesImageMetadata(t *testing.T) {
 	}
 }
 
+func TestGooruUploadImportCachesVideoMetadata(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+	uploadDir := filepath.Join(dir, "uploads")
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "serve.db"))
+	cfg.Auth.Enabled = false
+	cfg.Uploads.Enabled = true
+	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
+	cfg.Tools.FFprobePath = writeJSONFFprobe(t, `{"streams":[{"width":1280,"height":720,"duration":"4.25","nb_frames":"100"}]}`)
+	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"clip.mp4": []byte("fake video")}, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	file, err := client.GetFileInfoByPath(filepath.Join(uploadDir, "clip.mp4"))
+	if err != nil {
+		t.Fatalf("get uploaded file: %v", err)
+	}
+	meta, err := client.GetMediaMetadata(file.ID)
+	if err != nil {
+		t.Fatalf("get cached metadata: %v", err)
+	}
+	if meta.VideoWidth == nil || *meta.VideoWidth != 1280 || meta.VideoHeight == nil || *meta.VideoHeight != 720 {
+		t.Fatalf("expected cached video dimensions, got %+v", meta)
+	}
+	if meta.DurationSeconds == nil || *meta.DurationSeconds != 4.25 {
+		t.Fatalf("expected cached video duration, got %+v", meta)
+	}
+	if meta.FrameCount == nil || *meta.FrameCount != 100 {
+		t.Fatalf("expected cached frame count, got %+v", meta)
+	}
+}
+
 func newUploadTestServer(t *testing.T, dir string, enabled bool, library Library) *Server {
 	t.Helper()
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))

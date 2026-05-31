@@ -41,12 +41,13 @@ type SearchLibrary interface {
 }
 
 type GooruLibrary struct {
-	client  *core.Client
-	verbose bool
+	client   *core.Client
+	verbose  bool
+	metadata MediaMetadataProvider
 }
 
 func NewGooruLibrary(client *core.Client, verbose bool) *GooruLibrary {
-	return &GooruLibrary{client: client, verbose: verbose}
+	return &GooruLibrary{client: client, verbose: verbose, metadata: BasicMediaMetadataProvider{}}
 }
 
 func (l *GooruLibrary) ListFiles(ctx context.Context, query string) ([]types.FileInfo, error) {

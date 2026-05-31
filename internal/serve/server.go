@@ -22,12 +22,16 @@ func NewServer(cfg Config) *Server {
 }
 
 func NewServerWithLibrary(cfg Config, library Library) *Server {
+	metadata := NewMediaMetadataProvider(cfg)
+	if gooruLibrary, ok := library.(*GooruLibrary); ok {
+		gooruLibrary.metadata = metadata
+	}
 	return &Server{
 		cfg:     cfg,
 		jobs:    NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
 		library: library,
 		media:   NewMediaService(cfg),
-		meta:    BasicMediaMetadataProvider{},
+		meta:    metadata,
 	}
 }
 

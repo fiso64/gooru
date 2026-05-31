@@ -431,7 +431,10 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 }
 
 func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []types.LocationInfo) {
-	provider := BasicMediaMetadataProvider{}
+	provider := l.metadata
+	if provider == nil {
+		provider = BasicMediaMetadataProvider{}
+	}
 	for _, location := range files {
 		if err := ctx.Err(); err != nil {
 			return
