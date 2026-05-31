@@ -180,9 +180,10 @@ to discover dimensions.
 
 `GET /api/v1/files` supports `query`, `limit`, `page_token`, `sort`, `order`,
 and `include_facets=true`. Responses include the current page, total matching
-count, total library count, and optional kind facets. `GET
-/api/v1/search/suggestions` returns tag autocomplete suggestions, while `GET
-/api/v1/tags/namespaces` returns known tag namespaces.
+count, total library count, and optional kind facets scoped to the active query.
+`GET /api/v1/search/suggestions?q=...&existing=...` returns namespace, tag, and
+namespace-value autocomplete suggestions, while `GET /api/v1/tags/namespaces`
+returns known tag namespaces.
 
 Authenticated users can persist browser queries through `GET`/`POST
 /api/v1/saved-searches` and `PUT`/`DELETE /api/v1/saved-searches/{id}`. Saved

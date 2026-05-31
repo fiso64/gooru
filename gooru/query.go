@@ -473,8 +473,30 @@ func (c *Client) KindFacets() ([]types.TagWithCount, error) {
 	return c.store.KindFacets()
 }
 
+func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
+	sqlQuery, args, err := c.buildQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return c.store.KindFacets()
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
+	}
+	return c.store.KindFacetsByContentQuery(sqlQuery, args)
+}
+
 func (c *Client) TagSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
 	return c.store.ListTagSuggestions(prefix, limit)
+}
+
+func (c *Client) NamespaceSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
+	return c.store.ListNamespaceSuggestions(prefix, limit)
+}
+
+func (c *Client) TagValueSuggestions(namespace string, valuePrefix string, limit int) ([]types.TagWithCount, error) {
+	return c.store.ListTagValueSuggestions(namespace, valuePrefix, limit)
 }
 
 func (c *Client) TagNamespaces() ([]string, error) {
@@ -501,8 +523,12 @@ func (c *Client) ListSavedSearches(userID string) ([]types.SavedSearch, error) {
 	return c.store.ListSavedSearches(userID)
 }
 
-func (c *Client) UpsertSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
-	return c.store.UpsertSavedSearch(item)
+func (c *Client) CreateSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
+	return c.store.CreateSavedSearch(item)
+}
+
+func (c *Client) UpdateSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
+	return c.store.UpdateSavedSearch(item)
 }
 
 func (c *Client) DeleteSavedSearch(userID string, id string) (bool, error) {

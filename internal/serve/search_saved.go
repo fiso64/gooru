@@ -2,6 +2,7 @@ package serve
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -51,7 +52,7 @@ func (s *Server) handleSearchSuggestions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	limit, _ := strconvAtoiDefault(r.URL.Query().Get("limit"), 20)
-	items, err := search.TagSuggestions(r.Context(), strings.TrimSpace(r.URL.Query().Get("q")), limit)
+	items, err := search.TagSuggestions(r.Context(), strings.TrimSpace(r.URL.Query().Get("q")), strings.TrimSpace(r.URL.Query().Get("existing")), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load suggestions", nil)
 		return
@@ -99,7 +100,7 @@ func (s *Server) handleSavedSearches(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 			return
 		}
-		item, err := library.client.UpsertSavedSearch(types.SavedSearch{ID: newSavedSearchID(), UserID: userID, Name: req.Name, Query: req.Query, Sort: req.Sort, Order: req.Order})
+		item, err := library.client.CreateSavedSearch(types.SavedSearch{ID: newSavedSearchID(), UserID: userID, Name: req.Name, Query: req.Query, Sort: req.Sort, Order: req.Order})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to save search", nil)
 			return
@@ -135,8 +136,12 @@ func (s *Server) handleSavedSearch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 			return
 		}
-		item, err := library.client.UpsertSavedSearch(types.SavedSearch{ID: id, UserID: userID, Name: req.Name, Query: req.Query, Sort: req.Sort, Order: req.Order})
+		item, err := library.client.UpdateSavedSearch(types.SavedSearch{ID: id, UserID: userID, Name: req.Name, Query: req.Query, Sort: req.Sort, Order: req.Order})
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "not_found", "saved search not found", nil)
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to save search", nil)
 			return
 		}

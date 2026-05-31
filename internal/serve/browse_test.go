@@ -158,6 +158,19 @@ func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {
 	if len(page.Facets.Kind) == 0 {
 		t.Fatalf("expected kind facets, got %+v", page.Facets)
 	}
+	textRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(textRec, authedRequest(http.MethodGet, "/api/v1/files?query=kind:text&include_facets=true"))
+	if textRec.Code != http.StatusOK {
+		t.Fatalf("expected text search 200, got %d: %s", textRec.Code, textRec.Body.String())
+	}
+	var textPage FileListResponse
+	if err := json.Unmarshal(textRec.Body.Bytes(), &textPage); err != nil {
+		t.Fatalf("decode text response: %v", err)
+	}
+	textFacets := facetCounts(textPage.Facets.Kind)
+	if textFacets["other"] != 1 || textFacets["photo"] != 0 {
+		t.Fatalf("expected query-scoped kind facets, got %+v", textFacets)
+	}
 	locationID, err := DecodeFileID(page.Files[0].ID)
 	if err != nil {
 		t.Fatalf("decode file id: %v", err)
@@ -227,6 +240,24 @@ func TestSearchSuggestionsNamespacesDeleteAndDownload(t *testing.T) {
 	}
 	if len(suggestionResponse.Items) == 0 || suggestionResponse.Items[0].Name == "" {
 		t.Fatalf("expected suggestions, got %+v", suggestionResponse)
+	}
+	suggestionNames := tagNames(suggestionResponse.Items)
+	if !containsString(suggestionNames, "kind:") {
+		t.Fatalf("expected namespace suggestion, got %+v", suggestionNames)
+	}
+
+	values := httptest.NewRecorder()
+	server.Handler().ServeHTTP(values, authedRequest(http.MethodGet, "/api/v1/search/suggestions?q=kind:&existing=kind:image&limit=5"))
+	if values.Code != http.StatusOK {
+		t.Fatalf("expected value suggestions 200, got %d: %s", values.Code, values.Body.String())
+	}
+	var valueResponse SuggestionsResponse
+	if err := json.Unmarshal(values.Body.Bytes(), &valueResponse); err != nil {
+		t.Fatalf("decode value suggestions: %v", err)
+	}
+	valueNames := tagNames(valueResponse.Items)
+	if containsString(valueNames, "kind:image") || !containsString(valueNames, "kind:text") {
+		t.Fatalf("expected existing filter and namespace values, got %+v", valueNames)
 	}
 
 	namespaces := httptest.NewRecorder()
@@ -315,6 +346,37 @@ func TestSavedSearchCRUDRequiresAuthenticatedUser(t *testing.T) {
 	server.Handler().ServeHTTP(updateRec, updateReq)
 	if updateRec.Code != http.StatusOK {
 		t.Fatalf("expected update 200, got %d: %s", updateRec.Code, updateRec.Body.String())
+	}
+
+	otherUser, err := server.auth.CreateAdmin(context.Background(), "otheradmin", "correct horse")
+	if err != nil {
+		t.Fatalf("create other admin: %v", err)
+	}
+	otherAuth, err := server.auth.Login(context.Background(), otherUser.Username, "correct horse")
+	if err != nil {
+		t.Fatalf("login other admin: %v", err)
+	}
+	otherUpdateReq := httptest.NewRequest(http.MethodPut, "/api/v1/saved-searches/"+created.ID, bytes.NewBufferString(`{"name":"Other","query":"kind:image","sort":"name","order":"asc"}`))
+	otherUpdateReq.Header.Set("Content-Type", "application/json")
+	addAuthCookie(otherUpdateReq, server.cfg, otherAuth)
+	addCSRF(otherUpdateReq, otherAuth)
+	otherUpdateRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(otherUpdateRec, otherUpdateReq)
+	assertAPIError(t, otherUpdateRec, http.StatusNotFound, "not_found")
+
+	listAfterReq := httptest.NewRequest(http.MethodGet, "/api/v1/saved-searches", nil)
+	addAuthCookie(listAfterReq, server.cfg, auth)
+	listAfterRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listAfterRec, listAfterReq)
+	if listAfterRec.Code != http.StatusOK {
+		t.Fatalf("expected owner list 200, got %d: %s", listAfterRec.Code, listAfterRec.Body.String())
+	}
+	var listedAfter SavedSearchesResponse
+	if err := json.Unmarshal(listAfterRec.Body.Bytes(), &listedAfter); err != nil {
+		t.Fatalf("decode owner saved searches: %v", err)
+	}
+	if len(listedAfter.Items) != 1 || listedAfter.Items[0].Name != "Text" {
+		t.Fatalf("cross-user update changed owner saved search: %+v", listedAfter)
 	}
 
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/saved-searches/"+created.ID, nil)
@@ -508,6 +570,22 @@ func listTestFiles(t *testing.T, server *Server, query string, limit int) FileLi
 		t.Fatalf("expected files in %+v", page)
 	}
 	return page
+}
+
+func tagNames(tags []TagDTO) []string {
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		out = append(out, tag.Name)
+	}
+	return out
+}
+
+func facetCounts(facets []FacetValueDTO) map[string]int {
+	out := make(map[string]int, len(facets))
+	for _, facet := range facets {
+		out[facet.Value] = facet.Count
+	}
+	return out
 }
 
 func writeTestFile(t *testing.T, dir string, name string, body string) string {

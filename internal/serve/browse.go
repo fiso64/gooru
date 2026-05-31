@@ -15,6 +15,7 @@ import (
 	"time"
 
 	core "gooru.local/gooru"
+	"gooru.local/internal/query"
 	"gooru.local/types"
 )
 
@@ -33,8 +34,8 @@ type PagedLibrary interface {
 type SearchLibrary interface {
 	ListFilesSearch(ctx context.Context, query string, page Page, sort string, order string) (PageResult[types.FileInfo], error)
 	LibraryCount(ctx context.Context) (int, error)
-	KindFacets(ctx context.Context) ([]FacetValueDTO, error)
-	TagSuggestions(ctx context.Context, prefix string, limit int) ([]TagDTO, error)
+	KindFacets(ctx context.Context, query string) ([]FacetValueDTO, error)
+	TagSuggestions(ctx context.Context, prefix string, existing string, limit int) ([]TagDTO, error)
 	TagNamespaces(ctx context.Context) ([]string, error)
 	DeleteFile(ctx context.Context, locationID int64) (bool, error)
 	FileMetadata(ctx context.Context, locationID int64) (MediaMetadata, error)
@@ -145,11 +146,11 @@ func (l *GooruLibrary) LibraryCount(ctx context.Context) (int, error) {
 	return l.client.CountFilesByQuery("", l.verbose)
 }
 
-func (l *GooruLibrary) KindFacets(ctx context.Context) ([]FacetValueDTO, error) {
+func (l *GooruLibrary) KindFacets(ctx context.Context, query string) ([]FacetValueDTO, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	facets, err := l.client.KindFacets()
+	facets, err := l.client.KindFacetsByQuery(query, l.verbose)
 	if err != nil {
 		return nil, err
 	}
@@ -160,16 +161,34 @@ func (l *GooruLibrary) KindFacets(ctx context.Context) ([]FacetValueDTO, error) 
 	return out, nil
 }
 
-func (l *GooruLibrary) TagSuggestions(ctx context.Context, prefix string, limit int) ([]TagDTO, error) {
+func (l *GooruLibrary) TagSuggestions(ctx context.Context, prefix string, existing string, limit int) ([]TagDTO, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	tags, err := l.client.TagSuggestions(prefix, limit)
+	excluded := excludedSuggestionTags(existing)
+	var tags []types.TagWithCount
+	var err error
+	if namespace, valuePrefix, ok := strings.Cut(strings.TrimSpace(prefix), ":"); ok && namespace != "" && !strings.ContainsAny(namespace, " \t\r\n") {
+		tags, err = l.client.TagValueSuggestions(namespace, valuePrefix, limit)
+	} else {
+		namespaceTags, err := l.client.NamespaceSuggestions(prefix, limit)
+		if err != nil {
+			return nil, err
+		}
+		tagTags, err := l.client.TagSuggestions(prefix, limit)
+		if err != nil {
+			return nil, err
+		}
+		tags = mergeSuggestions(limit, namespaceTags, tagTags)
+	}
 	if err != nil {
 		return nil, err
 	}
 	out := make([]TagDTO, 0, len(tags))
 	for _, item := range tags {
+		if _, skip := excluded[item.Tag]; skip {
+			continue
+		}
 		count := item.Count
 		out = append(out, tagDTO(item.Tag, &count))
 	}
@@ -291,7 +310,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 			response.LibraryCount = total
 		}
 		if r.URL.Query().Get("include_facets") == "true" {
-			if kind, err := search.KindFacets(r.Context()); err == nil {
+			if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
 				response.Facets.Kind = kind
 			}
 		}
@@ -503,6 +522,42 @@ func tagDTO(name string, count *int) TagDTO {
 		dto.Value = name
 	}
 	return dto
+}
+
+func mergeSuggestions(limit int, groups ...[]types.TagWithCount) []types.TagWithCount {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	seen := map[string]struct{}{}
+	out := make([]types.TagWithCount, 0, limit)
+	for _, group := range groups {
+		for _, item := range group {
+			if _, ok := seen[item.Tag]; ok {
+				continue
+			}
+			seen[item.Tag] = struct{}{}
+			out = append(out, item)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func excludedSuggestionTags(existing string) map[string]struct{} {
+	out := map[string]struct{}{}
+	if strings.TrimSpace(existing) == "" {
+		return out
+	}
+	ast, err := query.Parse(existing)
+	if err != nil {
+		return out
+	}
+	for _, tag := range query.ExtractTags(ast) {
+		out[tag] = struct{}{}
+	}
+	return out
 }
 
 func normalizeFileSort(value string) string {

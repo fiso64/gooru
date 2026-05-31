@@ -554,6 +554,13 @@ paths:
           required: false
           schema:
             type: string
+          description: Current token prefix. Use namespace:value prefixes such as `kind:` for value suggestions.
+        - name: existing
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Existing query expression; already-present tags are filtered from suggestions when parseable.
         - name: limit
           in: query
           required: false

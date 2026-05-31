@@ -59,9 +59,10 @@ export class ApiClient {
     return this.request<FileListResponse>(url.pathname + url.search);
   }
 
-  async searchSuggestions(q = '', limit?: number): Promise<SuggestionsResponse> {
+  async searchSuggestions(q = '', limit?: number, existing = ''): Promise<SuggestionsResponse> {
     const url = new URL(`${this.baseURL}/search/suggestions`, globalThis.location?.origin ?? 'http://localhost');
     if (q) url.searchParams.set('q', q);
+    if (existing) url.searchParams.set('existing', existing);
     if (limit) url.searchParams.set('limit', String(limit));
     return this.request<SuggestionsResponse>(url.pathname + url.search);
   }

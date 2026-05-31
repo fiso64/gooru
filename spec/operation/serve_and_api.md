@@ -97,7 +97,7 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 *   `POST /api/v1/auth/logout`: Revokes the current session and clears the session cookie.
 *   `GET /api/v1/auth/me`: Returns the current user, capabilities, and a fresh CSRF token.
 *   `POST /api/v1/auth/change-password`: Verifies the current password and stores a replacement Argon2id hash.
-*   `GET /api/v1/files?query=<expr>&limit=<n>&page_token=<token>&sort=<name|modified|size|kind>&order=<asc|desc>`: Lists files matching an expression with bounded database pagination and optional facets.
+*   `GET /api/v1/files?query=<expr>&limit=<n>&page_token=<token>&sort=<name|modified|size|kind>&order=<asc|desc>`: Lists files matching an expression with bounded database pagination and optional query-scoped facets.
 *   `GET /api/v1/files/{id}`: Returns a file DTO with media URLs and cached optional metadata.
 *   `DELETE /api/v1/files/{id}`: Untracks one file location with `{"mode":"untrack"}`.
 *   `GET /api/v1/files/{id}/thumbnail?size=256`: Returns a cacheable thumbnail.
@@ -110,7 +110,7 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
     *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `DELETE /api/v1/files/tags`: Removes tags from files. (`untag`)
     *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
-*   `GET /api/v1/search/suggestions?q=<prefix>`: Returns deterministic tag autocomplete suggestions.
+*   `GET /api/v1/search/suggestions?q=<prefix>&existing=<expr>`: Returns deterministic namespace, tag, and namespace-value autocomplete suggestions, filtering already-present tags from `existing` when parseable.
 *   `GET /api/v1/tags/namespaces`: Returns known tag namespaces.
 *   `GET /api/v1/saved-searches`: Lists saved searches for the current user.
 *   `POST /api/v1/saved-searches`: Creates a saved search for the current user.

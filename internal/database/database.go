@@ -1008,6 +1008,61 @@ func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCou
 	return out, rows.Err()
 }
 
+func (s *Store) ListNamespaceSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	like := strings.ToLower(strings.TrimSpace(prefix)) + "%"
+	rows, err := s.Query(`
+		SELECT key || ':' AS tag_str, SUM(files_count) AS total_files
+		FROM tags
+		WHERE value != '' AND lower(key) LIKE ?
+		GROUP BY key
+		ORDER BY total_files DESC, tag_str ASC
+		LIMIT ?
+	`, like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []types.TagWithCount
+	for rows.Next() {
+		var item types.TagWithCount
+		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ListTagValueSuggestions(namespace string, valuePrefix string, limit int) ([]types.TagWithCount, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	like := strings.ToLower(strings.TrimSpace(valuePrefix)) + "%"
+	rows, err := s.Query(`
+		SELECT key || ':' || value AS tag_str, files_count
+		FROM tags
+		WHERE value != '' AND lower(key) = lower(?) AND lower(value) LIKE ?
+		ORDER BY files_count DESC, tag_str ASC
+		LIMIT ?
+	`, strings.TrimSpace(namespace), like, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []types.TagWithCount
+	for rows.Next() {
+		var item types.TagWithCount
+		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListTagNamespaces() ([]string, error) {
 	rows, err := s.Query(`SELECT DISTINCT key FROM tags WHERE value != '' ORDER BY key`)
 	if err != nil {
@@ -1039,6 +1094,38 @@ func (s *Store) KindFacets() ([]types.TagWithCount, error) {
 		GROUP BY kind
 		ORDER BY COUNT(*) DESC, kind ASC
 	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []types.TagWithCount
+	for rows.Next() {
+		var item types.TagWithCount
+		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) KindFacetsByContentQuery(query string, args []interface{}) ([]types.TagWithCount, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_hashes(hash) AS (%s)
+		SELECT
+			CASE
+				WHEN lower(l.extension) = '.gif' THEN 'gif'
+				WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+				WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+				ELSE 'other'
+			END AS kind,
+			COUNT(*)
+		FROM locations l
+		JOIN result_hashes rh ON l.content_hash = rh.hash
+		GROUP BY kind
+		ORDER BY COUNT(*) DESC, kind ASC
+	`, query)
+	rows, err := s.Query(finalQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1464,19 +1551,32 @@ func (s *Store) GetSavedSearch(userID string, id string) (types.SavedSearch, err
 	return items[0], nil
 }
 
-func (s *Store) UpsertSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
+func (s *Store) CreateSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
 	_, err := s.Exec(`
 		INSERT INTO saved_searches (id, user_id, name, query, sort, "order")
 		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			name=excluded.name,
-			query=excluded.query,
-			sort=excluded.sort,
-			"order"=excluded."order",
-			updated_at=CURRENT_TIMESTAMP
 	`, item.ID, item.UserID, item.Name, item.Query, item.Sort, item.Order)
 	if err != nil {
 		return types.SavedSearch{}, err
+	}
+	return s.GetSavedSearch(item.UserID, item.ID)
+}
+
+func (s *Store) UpdateSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
+	res, err := s.Exec(`
+		UPDATE saved_searches
+		SET name = ?, query = ?, sort = ?, "order" = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND id = ?
+	`, item.Name, item.Query, item.Sort, item.Order, item.UserID, item.ID)
+	if err != nil {
+		return types.SavedSearch{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return types.SavedSearch{}, err
+	}
+	if affected == 0 {
+		return types.SavedSearch{}, sql.ErrNoRows
 	}
 	return s.GetSavedSearch(item.UserID, item.ID)
 }
