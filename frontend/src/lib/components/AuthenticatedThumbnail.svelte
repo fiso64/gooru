@@ -14,7 +14,7 @@
     failed = false;
     loading = false;
 
-    if (!['image', 'video'].includes(file.media_kind)) return;
+    if (!['photo', 'gif', 'video'].includes(file.media_kind)) return;
 
     let disposed = false;
     let lease: MediaLease | undefined;
@@ -53,7 +53,7 @@
     <img class="h-full w-full object-cover" src={objectURL} alt="" />
   {:else if file.media_kind === 'video'}
     <FileVideo size={34} />
-  {:else if file.media_kind === 'image'}
+  {:else if file.media_kind === 'photo' || file.media_kind === 'gif'}
     <FileImage size={34} />
   {:else}
     <File size={34} />

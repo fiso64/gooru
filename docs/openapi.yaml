@@ -119,6 +119,26 @@ paths:
           required: false
           schema:
             type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [name, modified, size, kind]
+            default: name
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+        - name: include_facets
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: Page of tracked files.
@@ -150,6 +170,44 @@ paths:
                 $ref: "#/components/schemas/File"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Untrack one file location.
+      description: Removes the selected location from the library database. Content and tags remain when other locations reference the same content.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  type: string
+                  enum: [untrack]
+                  default: untrack
+      responses:
+        "200":
+          description: File location was untracked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteFileResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
   /files/{id}/thumbnail:
@@ -271,6 +329,43 @@ paths:
               schema:
                 type: string
                 format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /files/{id}/download:
+    get:
+      summary: Download original content for a tracked file.
+      description: Streams original media with an attachment content disposition and range support.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full original file download.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Partial original file download.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -434,6 +529,193 @@ paths:
                 $ref: "#/components/schemas/TagListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /tags/namespaces:
+    get:
+      summary: List tag namespaces.
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Known tag namespaces.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NamespacesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /search/suggestions:
+    get:
+      summary: Return tag autocomplete suggestions.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Matching tag suggestions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestionsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /saved-searches:
+    get:
+      summary: List saved searches for the current user.
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Current user's saved searches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedSearchesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: Create a saved search for the current user.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavedSearchRequest"
+      responses:
+        "201":
+          description: Saved search created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedSearch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /saved-searches/{id}:
+    put:
+      summary: Replace one saved search.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavedSearchRequest"
+      responses:
+        "200":
+          description: Saved search updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedSearch"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      summary: Delete one saved search.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CSRF"
+      responses:
+        "200":
+          description: Saved search deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /jobs:
+    get:
+      summary: List asynchronous jobs.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, canceled]
+      responses:
+        "200":
+          description: Jobs matching the optional status filter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      summary: Clear finished jobs.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [completed, failed, canceled]
+            default: completed
+        - $ref: "#/components/parameters/CSRF"
+      responses:
+        "200":
+          description: Number of finished jobs removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [removed]
+                properties:
+                  removed:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /jobs/{id}:
     get:
       summary: Get an asynchronous job.
@@ -760,9 +1042,17 @@ components:
         result: {}
         error:
           type: string
+    JobListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Job"
     FileListResponse:
       type: object
-      required: [files]
+      required: [files, total_count, library_count]
       properties:
         files:
           type: array
@@ -770,6 +1060,29 @@ components:
             $ref: "#/components/schemas/File"
         next_page_token:
           type: string
+        total_count:
+          type: integer
+          description: Total number of files matching the current query.
+        library_count:
+          type: integer
+          description: Total tracked files in the library.
+        facets:
+          $ref: "#/components/schemas/Facets"
+    Facets:
+      type: object
+      properties:
+        kind:
+          type: array
+          items:
+            $ref: "#/components/schemas/FacetValue"
+    FacetValue:
+      type: object
+      required: [value, count]
+      properties:
+        value:
+          type: string
+        count:
+          type: integer
     File:
       type: object
       required:
@@ -804,7 +1117,7 @@ components:
           type: string
         media_kind:
           type: string
-          enum: [image, video, audio, other]
+          enum: [photo, video, gif, other]
         metadata:
           $ref: "#/components/schemas/MediaMetadata"
         tags:
@@ -831,15 +1144,19 @@ components:
         audio_duration:
           type: number
           format: double
+        frame_count:
+          type: integer
     MediaURLs:
       type: object
-      required: [thumbnail, preview, content]
+      required: [thumbnail, preview, content, download]
       properties:
         thumbnail:
           type: string
         preview:
           type: string
         content:
+          type: string
+        download:
           type: string
     TagListResponse:
       type: object
@@ -855,5 +1172,80 @@ components:
       properties:
         name:
           type: string
+        namespace:
+          type: string
+        value:
+          type: string
         count:
           type: integer
+    DeleteFileResponse:
+      type: object
+      required: [mode, removed_locations]
+      properties:
+        mode:
+          type: string
+          enum: [untrack]
+        removed_locations:
+          type: integer
+    SuggestionsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+    NamespacesResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: string
+    SavedSearchRequest:
+      type: object
+      required: [name, query]
+      properties:
+        name:
+          type: string
+        query:
+          type: string
+        sort:
+          type: string
+          enum: [name, modified, size, kind]
+          default: name
+        order:
+          type: string
+          enum: [asc, desc]
+          default: asc
+    SavedSearch:
+      type: object
+      required: [id, name, query, sort, order, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        query:
+          type: string
+        sort:
+          type: string
+          enum: [name, modified, size, kind]
+        order:
+          type: string
+          enum: [asc, desc]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SavedSearchesResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedSearch"

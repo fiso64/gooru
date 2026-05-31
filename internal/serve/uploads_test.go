@@ -333,6 +333,40 @@ func TestGooruUploadImportReportsDuplicateStatuses(t *testing.T) {
 	}
 }
 
+func TestGooruUploadImportCachesImageMetadata(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+	imageBytes := mustReadFile(t, writePNGImage(t))
+	uploadDir := filepath.Join(dir, "uploads")
+	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"image.png": imageBytes}, []string{"uploaded"}))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	file, err := client.GetFileInfoByPath(filepath.Join(uploadDir, "image.png"))
+	if err != nil {
+		t.Fatalf("get uploaded file: %v", err)
+	}
+	meta, err := client.GetMediaMetadata(file.ID)
+	if err != nil {
+		t.Fatalf("get cached metadata: %v", err)
+	}
+	if meta.ImageWidth == nil || *meta.ImageWidth != 32 || meta.ImageHeight == nil || *meta.ImageHeight != 24 {
+		t.Fatalf("expected cached image dimensions, got %+v", meta)
+	}
+}
+
 func newUploadTestServer(t *testing.T, dir string, enabled bool, library Library) *Server {
 	t.Helper()
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
@@ -348,6 +382,19 @@ func uploadRequest(t *testing.T, files map[string]string, tags []string) *http.R
 
 func uploadRequestWithTarget(t *testing.T, files map[string]string, tags []string, targetID string) *http.Request {
 	t.Helper()
+	binaryFiles := make(map[string][]byte, len(files))
+	for name, content := range files {
+		binaryFiles[name] = []byte(content)
+	}
+	return uploadBinaryRequestWithTarget(t, binaryFiles, tags, targetID)
+}
+
+func uploadBinaryRequest(t *testing.T, files map[string][]byte, tags []string) *http.Request {
+	return uploadBinaryRequestWithTarget(t, files, tags, "")
+}
+
+func uploadBinaryRequestWithTarget(t *testing.T, files map[string][]byte, tags []string, targetID string) *http.Request {
+	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	for name, content := range files {
@@ -355,7 +402,7 @@ func uploadRequestWithTarget(t *testing.T, files map[string]string, tags []strin
 		if err != nil {
 			t.Fatalf("create form file: %v", err)
 		}
-		if _, err := part.Write([]byte(content)); err != nil {
+		if _, err := part.Write(content); err != nil {
 			t.Fatalf("write form file: %v", err)
 		}
 	}

@@ -92,6 +92,8 @@ requests must send that token in `X-Gooru-CSRF`; `GET /api/v1/auth/me` returns a
 fresh token for browser reloads. Original media, thumbnails, and previews are
 loaded with same-origin session cookies, so normal `<img>`, `<video>`, and
 `<audio>` elements can use range requests without JavaScript blob fetching.
+File responses include stable media URLs for thumbnail, preview, inline content,
+and attachment download routes.
 
 The old `auth.token`, `auth.token_env`, `auth.token_file`, and `--auth-token`
 browser auth configuration is rejected with a migration message. Do not store
@@ -169,6 +171,25 @@ The built-in pure-Go image fallback uses a quality-preserving scaler for minimal
 builds and tests. Video thumbnails prefer a frame shortly after the beginning of
 the video, using `ffprobe` duration when available, then fall back to the first
 decodable frame.
+
+Media metadata used by file list and detail responses is read from the database
+cache when present. List/detail routes do not synchronously open media files just
+to discover dimensions.
+
+## Browse API
+
+`GET /api/v1/files` supports `query`, `limit`, `page_token`, `sort`, `order`,
+and `include_facets=true`. Responses include the current page, total matching
+count, total library count, and optional kind facets. `GET
+/api/v1/search/suggestions` returns tag autocomplete suggestions, while `GET
+/api/v1/tags/namespaces` returns known tag namespaces.
+
+Authenticated users can persist browser queries through `GET`/`POST
+/api/v1/saved-searches` and `PUT`/`DELETE /api/v1/saved-searches/{id}`. Saved
+searches are scoped to the current DB-backed user.
+
+`DELETE /api/v1/files/{id}` currently supports `{"mode":"untrack"}` to remove a
+tracked location without deleting the underlying file from disk.
 
 ## Jobs
 
