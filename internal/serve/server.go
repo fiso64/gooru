@@ -57,8 +57,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/auth/me", authMiddleware(s.cfg, s.auth, http.HandlerFunc(s.handleAuthMe)))
 	mux.Handle("/api/v1/auth/change-password", s.protected(http.HandlerFunc(s.handleChangePassword)))
 	mux.Handle("/api/v1/upload-targets", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleUploadTargets)))
-	mux.Handle("/api/v1/uploads", s.protected(http.HandlerFunc(s.handleUpload)))
-	mux.Handle("/api/v1/files/tags", s.protected(http.HandlerFunc(s.handleMutateTags)))
+	mux.Handle("/api/v1/uploads", s.adminProtected(http.HandlerFunc(s.handleUpload)))
+	mux.Handle("/api/v1/files/tags", s.adminProtected(http.HandlerFunc(s.handleMutateTags)))
 	mux.Handle("/api/v1/files/", s.protected(http.HandlerFunc(s.handleFile)))
 	mux.Handle("/api/v1/files", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListFiles)))
 	mux.Handle("/api/v1/search/suggestions", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleSearchSuggestions)))
@@ -79,6 +79,26 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) protected(next http.Handler) http.Handler {
 	return authMiddleware(s.cfg, s.auth, csrfMiddleware(s.cfg, s.auth, next))
+}
+
+func (s *Server) adminProtected(next http.Handler) http.Handler {
+	return authMiddleware(s.cfg, s.auth, csrfMiddleware(s.cfg, s.auth, adminMiddleware(s.cfg, next)))
+}
+
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if !s.cfg.Auth.Enabled {
+		return true
+	}
+	auth, ok := currentAuth(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "login required", nil)
+		return false
+	}
+	if auth.User.Role != adminRole {
+		writeError(w, http.StatusForbidden, "forbidden", "admin privileges required", nil)
+		return false
+	}
+	return true
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
@@ -127,6 +147,9 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.List(status)})
 	case http.MethodDelete:
+		if !s.requireAdmin(w, r) {
+			return
+		}
 		if status == "" {
 			status = string(JobCompleted)
 		}
@@ -151,6 +174,9 @@ func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.handleGetJob(w, r, id)
 	case http.MethodDelete:
+		if !s.requireAdmin(w, r) {
+			return
+		}
 		s.handleCancelJob(w, r, id)
 	default:
 		w.Header().Set("Allow", "GET, DELETE")

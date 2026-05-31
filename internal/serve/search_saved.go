@@ -1,9 +1,8 @@
 package serve
 
 import (
-	"crypto/rand"
+	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -45,6 +44,13 @@ type savedSearchRequest struct {
 	Order string `json:"order"`
 }
 
+type SavedSearchLibrary interface {
+	ListSavedSearches(ctx context.Context, userID string) ([]types.SavedSearch, error)
+	CreateSavedSearch(ctx context.Context, userID string, req savedSearchRequest) (types.SavedSearch, error)
+	UpdateSavedSearch(ctx context.Context, userID string, id string, req savedSearchRequest) (types.SavedSearch, error)
+	DeleteSavedSearch(ctx context.Context, userID string, id string) (bool, error)
+}
+
 func (s *Server) handleSearchSuggestions(w http.ResponseWriter, r *http.Request) {
 	search, ok := s.library.(SearchLibrary)
 	if !ok {
@@ -75,7 +81,7 @@ func (s *Server) handleTagNamespaces(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSavedSearches(w http.ResponseWriter, r *http.Request) {
-	library, ok := s.library.(*GooruLibrary)
+	library, ok := s.library.(SavedSearchLibrary)
 	if !ok {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "saved search service is not configured", nil)
 		return
@@ -88,7 +94,7 @@ func (s *Server) handleSavedSearches(w http.ResponseWriter, r *http.Request) {
 	userID := auth.User.ID
 	switch r.Method {
 	case http.MethodGet:
-		items, err := library.client.ListSavedSearches(userID)
+		items, err := library.ListSavedSearches(r.Context(), userID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load saved searches", nil)
 			return
@@ -100,7 +106,7 @@ func (s *Server) handleSavedSearches(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 			return
 		}
-		item, err := library.client.CreateSavedSearch(types.SavedSearch{ID: newSavedSearchID(), UserID: userID, Name: req.Name, Query: req.Query, Sort: req.Sort, Order: req.Order})
+		item, err := library.CreateSavedSearch(r.Context(), userID, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to save search", nil)
 			return
@@ -113,7 +119,7 @@ func (s *Server) handleSavedSearches(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSavedSearch(w http.ResponseWriter, r *http.Request) {
-	library, ok := s.library.(*GooruLibrary)
+	library, ok := s.library.(SavedSearchLibrary)
 	if !ok {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "saved search service is not configured", nil)
 		return
@@ -136,7 +142,7 @@ func (s *Server) handleSavedSearch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 			return
 		}
-		item, err := library.client.UpdateSavedSearch(types.SavedSearch{ID: id, UserID: userID, Name: req.Name, Query: req.Query, Sort: req.Sort, Order: req.Order})
+		item, err := library.UpdateSavedSearch(r.Context(), userID, id, req)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "not_found", "saved search not found", nil)
@@ -147,7 +153,7 @@ func (s *Server) handleSavedSearch(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, savedSearchDTO(item))
 	case http.MethodDelete:
-		ok, err := library.client.DeleteSavedSearch(userID, id)
+		ok, err := library.DeleteSavedSearch(r.Context(), userID, id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to delete saved search", nil)
 			return
@@ -205,14 +211,6 @@ func savedSearchDTO(item types.SavedSearch) SavedSearchDTO {
 		CreatedAt: time.Unix(item.CreatedAt, 0).UTC(),
 		UpdatedAt: time.Unix(item.UpdatedAt, 0).UTC(),
 	}
-}
-
-func newSavedSearchID() string {
-	var b [12]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "srch_" + hex.EncodeToString([]byte(time.Now().Format("20060102150405.000000000")))
-	}
-	return "srch_" + hex.EncodeToString(b[:])
 }
 
 func strconvAtoiDefault(raw string, fallback int) (int, error) {

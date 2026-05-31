@@ -172,6 +172,25 @@ func TestUploadRejectsOversizedFile(t *testing.T) {
 	}
 }
 
+func TestUploadRejectsOversizedMultipartBeforeStaging(t *testing.T) {
+	dir := t.TempDir()
+	library := &recordingUploadLibrary{}
+	server := newUploadTestServer(t, dir, true, library)
+	server.cfg.Server.MaxRequestBodyBytes = 10 << 20
+	server.cfg.Uploads.MaxFileSizeBytes = 3
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"a.txt": bytes.Repeat([]byte("x"), 2<<20)}, nil))
+
+	assertAPIError(t, rec, http.StatusRequestEntityTooLarge, "payload_too_large")
+	if len(library.files) != 0 {
+		t.Fatalf("oversized request should not reach importer, got %+v", library.files)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("oversized request should not stage files, entries=%v err=%v", entries, err)
+	}
+}
+
 func TestUploadCleansEarlierFilesWhenBatchFails(t *testing.T) {
 	dir := t.TempDir()
 	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})

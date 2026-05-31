@@ -27,7 +27,7 @@ import (
 func TestContentRouteSupportsRanges(t *testing.T) {
 	file := writeMediaFile(t, []byte("0123456789"))
 	server := newMediaTestServer(t, types.FileInfo{ID: 1, Path: file, Hash: "hash-content", Size: 10})
-	req := authedRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(1)+"/content")
+	req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(1)+"/content")
 	req.Header.Set("Range", "bytes=2-5")
 	rec := httptest.NewRecorder()
 
@@ -45,7 +45,7 @@ func TestMediaRoutesRequireSession(t *testing.T) {
 	file := writeMediaFile(t, []byte("0123456789"))
 	server := newMediaAuthTestServer(t, types.FileInfo{ID: 2, Path: file, Hash: "hash-content", Size: 10})
 	attachTestAuth(t, server)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(2)+"/content", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(2)+"/content", nil)
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, req)
@@ -62,7 +62,7 @@ func TestMediaContentAcceptsAuthCookieForBrowserOpen(t *testing.T) {
 	file := writeMediaFile(t, []byte("0123456789"))
 	server := newMediaAuthTestServer(t, types.FileInfo{ID: 3, Path: file, Hash: "hash-cookie", Size: 10})
 	auth := attachTestAuth(t, server)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(3)+"/content", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(3)+"/content", nil)
 	addAuthCookie(req, server.cfg, auth)
 	req.Header.Set("Range", "bytes=4-6")
 	rec := httptest.NewRecorder()
@@ -83,7 +83,7 @@ func TestThumbnailRouteGeneratesAndCaches(t *testing.T) {
 
 	for i, wantCache := range []string{"miss", "hit"} {
 		rec := httptest.NewRecorder()
-		req := authedRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(7)+"/thumbnail?size=16")
+		req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(7)+"/thumbnail?size=16")
 		server.Handler().ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("request %d expected 200, got %d: %s", i+1, rec.Code, rec.Body.String())
@@ -115,7 +115,7 @@ func TestThumbnailRouteSerializesConcurrentCacheMisses(t *testing.T) {
 	request := func() {
 		defer wg.Done()
 		rec := httptest.NewRecorder()
-		req := authedRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(8)+"/thumbnail?size=16")
+		req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(8)+"/thumbnail?size=16")
 		server.Handler().ServeHTTP(rec, req)
 		codes <- rec.Code
 	}
@@ -253,7 +253,7 @@ func TestVideoThumbnailRouteUsesFFmpegBackend(t *testing.T) {
 	cfg.Tools.FFprobePath = ffmpeg
 	server := NewServerWithLibrary(cfg, mediaLibrary{file: types.FileInfo{ID: 9, Path: videoPath, Hash: "hash-video", Size: 10}})
 	rec := httptest.NewRecorder()
-	req := authedRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(9)+"/thumbnail?size=16")
+	req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(9)+"/thumbnail?size=16")
 
 	server.Handler().ServeHTTP(rec, req)
 
@@ -323,7 +323,7 @@ func TestVideoThumbnailRouteReportsMissingFFmpeg(t *testing.T) {
 	cfg.Tools.FFprobePath = filepath.Join(t.TempDir(), "missing-ffprobe")
 	server := NewServerWithLibrary(cfg, mediaLibrary{file: types.FileInfo{ID: 10, Path: videoPath, Hash: "hash-video-missing", Size: 10}})
 	rec := httptest.NewRecorder()
-	req := authedRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(10)+"/thumbnail?size=16")
+	req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(10)+"/thumbnail?size=16")
 
 	server.Handler().ServeHTTP(rec, req)
 
@@ -513,6 +513,14 @@ func (l mediaLibrary) GetFile(_ context.Context, id int64) (types.FileInfo, erro
 
 func (mediaLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
 	return nil, nil
+}
+
+func (l mediaLibrary) PublicFileID(file types.FileInfo) string {
+	return fallbackPublicFileID(file.ID)
+}
+
+func (l mediaLibrary) ResolveFileID(_ context.Context, id string) (int64, error) {
+	return fallbackResolveFileID(id)
 }
 
 type blockingThumbnailer struct {

@@ -14,7 +14,7 @@ import (
 
 func TestTagMutationRejectsAmbiguousSelector(t *testing.T) {
 	server := newTagMutationTestServer(t, &recordingMutationLibrary{file: types.FileInfo{ID: 1, Path: "/tmp/a.jpg"}})
-	body := `{"file_ids":["` + EncodeFileID(1) + `"],"query":"kind:image","tags":["reviewed"]}`
+	body := `{"file_ids":["` + fallbackPublicFileID(1) + `"],"query":"kind:image","tags":["reviewed"]}`
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, authedJSONRequest(http.MethodPost, "/api/v1/files/tags", body))
@@ -32,7 +32,7 @@ func TestTagMutationRejectsInvalidQuery(t *testing.T) {
 }
 
 func TestTagMutationSyncByFileID(t *testing.T) {
-	fileID := EncodeFileID(5)
+	fileID := fallbackPublicFileID(5)
 	library := &recordingMutationLibrary{file: types.FileInfo{ID: 5, Path: "/tmp/a.jpg"}}
 	server := newTagMutationTestServer(t, library)
 	rec := httptest.NewRecorder()
@@ -56,7 +56,7 @@ func TestTagMutationSyncByFileID(t *testing.T) {
 
 func TestTagMutationAsyncReturnsJob(t *testing.T) {
 	server := newTagMutationTestServer(t, &recordingMutationLibrary{file: types.FileInfo{ID: 6, Path: "/tmp/a.jpg"}})
-	req := authedJSONRequest(http.MethodPut, "/api/v1/files/tags", `{"file_ids":["`+EncodeFileID(6)+`"],"tags":["ready"]}`)
+	req := authedJSONRequest(http.MethodPut, "/api/v1/files/tags", `{"file_ids":["`+fallbackPublicFileID(6)+`"],"tags":["ready"]}`)
 	req.Header.Set("Prefer", "respond-async")
 	rec := httptest.NewRecorder()
 
@@ -78,7 +78,7 @@ func TestTagMutationQueueFullReturnsStableJSONError(t *testing.T) {
 	server := newTagMutationTestServer(t, &recordingMutationLibrary{file: types.FileInfo{ID: 7, Path: "/tmp/a.jpg"}})
 	release := saturateJobQueue(t, server)
 	defer release()
-	req := authedJSONRequest(http.MethodPost, "/api/v1/files/tags", `{"file_ids":["`+EncodeFileID(7)+`"],"tags":["reviewed"]}`)
+	req := authedJSONRequest(http.MethodPost, "/api/v1/files/tags", `{"file_ids":["`+fallbackPublicFileID(7)+`"],"tags":["reviewed"]}`)
 	req.Header.Set("Prefer", "respond-async")
 	rec := httptest.NewRecorder()
 
@@ -156,6 +156,14 @@ func (l *recordingMutationLibrary) GetFile(_ context.Context, id int64) (types.F
 
 func (l *recordingMutationLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
 	return nil, nil
+}
+
+func (l *recordingMutationLibrary) PublicFileID(file types.FileInfo) string {
+	return fallbackPublicFileID(file.ID)
+}
+
+func (l *recordingMutationLibrary) ResolveFileID(_ context.Context, id string) (int64, error) {
+	return fallbackResolveFileID(id)
 }
 
 func (l *recordingMutationLibrary) MutateTags(_ context.Context, operation TagOperation, request TagMutationRequest) (TagMutationResponse, error) {

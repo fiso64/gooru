@@ -22,11 +22,11 @@ import (
 )
 
 func TestFileIDRoundTrip(t *testing.T) {
-	id := EncodeFileID(42)
+	id := fallbackPublicFileID(42)
 	if id == "42" || id == "loc:42" {
 		t.Fatalf("file id is not opaque: %q", id)
 	}
-	got, err := DecodeFileID(id)
+	got, err := fallbackResolveFileID(id)
 	if err != nil {
 		t.Fatalf("DecodeFileID: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if strings.HasPrefix(string(decodedToken), "offset:") {
 		t.Fatalf("file search should use cursor token, got %q", string(decodedToken))
 	}
-	firstLocationID, err := DecodeFileID(page.Files[0].ID)
+	firstLocationID, err := fallbackResolveFileID(page.Files[0].ID)
 	if err != nil {
 		t.Fatalf("decode first file id: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {
 	if textFacets["other"] != 1 || textFacets["photo"] != 0 {
 		t.Fatalf("expected query-scoped kind facets, got %+v", textFacets)
 	}
-	locationID, err := DecodeFileID(page.Files[0].ID)
+	locationID, err := fallbackResolveFileID(page.Files[0].ID)
 	if err != nil {
 		t.Fatalf("decode file id: %v", err)
 	}
@@ -701,6 +701,14 @@ func (emptyLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) 
 
 func (emptyLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
 	return nil, nil
+}
+
+func (emptyLibrary) PublicFileID(file types.FileInfo) string {
+	return fallbackPublicFileID(file.ID)
+}
+
+func (emptyLibrary) ResolveFileID(_ context.Context, id string) (int64, error) {
+	return fallbackResolveFileID(id)
 }
 
 type errorLibrary struct {

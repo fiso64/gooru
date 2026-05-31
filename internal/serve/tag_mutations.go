@@ -125,7 +125,7 @@ func (s *Server) validateTagMutationFiles(ctx context.Context, request TagMutati
 		return nil
 	}
 	for _, encoded := range request.FileIDs {
-		id, err := DecodeFileID(encoded)
+		id, err := s.resolveFileID(ctx, encoded)
 		if err != nil {
 			return ErrNotFound
 		}
@@ -173,9 +173,6 @@ func validateTagMutationRequest(operation TagOperation, request TagMutationReque
 	if hasIDs {
 		seen := map[string]struct{}{}
 		for _, id := range request.FileIDs {
-			if _, err := DecodeFileID(id); err != nil {
-				return fmt.Errorf("invalid file id")
-			}
 			if _, ok := seen[id]; ok {
 				return fmt.Errorf("duplicate file id %q", id)
 			}
@@ -205,7 +202,7 @@ func (l *GooruLibrary) MutateTags(ctx context.Context, operation TagOperation, r
 	if len(request.FileIDs) > 0 {
 		paths := make([]string, 0, len(request.FileIDs))
 		for _, encoded := range request.FileIDs {
-			id, err := DecodeFileID(encoded)
+			id, err := l.ResolveFileID(ctx, encoded)
 			if err != nil {
 				return TagMutationResponse{}, ErrNotFound
 			}

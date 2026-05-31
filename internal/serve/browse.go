@@ -3,14 +3,11 @@ package serve
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"mime"
 	"net/http"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +36,15 @@ type SearchLibrary interface {
 	TagNamespaces(ctx context.Context) ([]string, error)
 	DeleteFile(ctx context.Context, locationID int64) (bool, error)
 	FileMetadata(ctx context.Context, locationID int64) (MediaMetadata, error)
+}
+
+type FileIdentityResolver interface {
+	PublicFileID(file types.FileInfo) string
+	ResolveFileID(ctx context.Context, id string) (int64, error)
+}
+
+type FileCountLibrary interface {
+	CountFiles(ctx context.Context, query string) (int, error)
 }
 
 type GooruLibrary struct {
@@ -151,6 +157,13 @@ func (l *GooruLibrary) LibraryCount(ctx context.Context) (int, error) {
 	return l.client.CountFilesByQuery("", l.verbose)
 }
 
+func (l *GooruLibrary) CountFiles(ctx context.Context, query string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return l.client.CountFileLocationsByQuery(query, l.verbose)
+}
+
 func (l *GooruLibrary) KindFacets(ctx context.Context, query string) ([]FacetValueDTO, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -226,6 +239,17 @@ func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (Medi
 		return MediaMetadata{}, err
 	}
 	return mediaMetadataDTO(meta), nil
+}
+
+func (l *GooruLibrary) PublicFileID(file types.FileInfo) string {
+	return l.client.PublicFileID(file.ID)
+}
+
+func (l *GooruLibrary) ResolveFileID(ctx context.Context, id string) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return l.client.ResolvePublicFileID(id)
 }
 
 type FileListResponse struct {
@@ -346,8 +370,8 @@ func (s *Server) listFilesPage(ctx context.Context, query string, page Page, sor
 }
 
 func (s *Server) countFiles(ctx context.Context, queryText string) (int, error) {
-	if library, ok := s.library.(*GooruLibrary); ok {
-		return library.client.CountFileLocationsByQuery(queryText, library.verbose)
+	if counter, ok := s.library.(FileCountLibrary); ok {
+		return counter.CountFiles(ctx, queryText)
 	}
 	page := Page{Limit: 1, Offset: 0}
 	result, err := s.listFilesPage(ctx, queryText, page, "name", "asc")
@@ -371,12 +395,15 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
 	}
-	locationID, err := DecodeFileID(parts[0])
+	locationID, err := s.resolveFileID(r.Context(), parts[0])
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
 	}
 	if r.Method == http.MethodDelete && len(parts) == 1 {
+		if !s.requireAdmin(w, r) {
+			return
+		}
 		s.handleDeleteFile(w, r, locationID)
 		return
 	}
@@ -459,28 +486,8 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request, locati
 	writeJSON(w, http.StatusOK, map[string]interface{}{"mode": "untrack", "removed_locations": 1})
 }
 
-func EncodeFileID(id int64) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("loc:%d", id)))
-}
-
-func DecodeFileID(encoded string) (int64, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return 0, err
-	}
-	value := string(raw)
-	if !strings.HasPrefix(value, "loc:") {
-		return 0, fmt.Errorf("invalid file id")
-	}
-	id, err := strconv.ParseInt(strings.TrimPrefix(value, "loc:"), 10, 64)
-	if err != nil || id <= 0 {
-		return 0, fmt.Errorf("invalid file id")
-	}
-	return id, nil
-}
-
 func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetadata bool) FileDTO {
-	id := EncodeFileID(file.ID)
+	id := s.publicFileID(file)
 	mediaType := mediaTypeForPath(file.Path)
 	mediaKind := mediaKindForType(mediaType)
 	dto := FileDTO{
@@ -523,6 +530,20 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 		}
 	}
 	return dto
+}
+
+func (s *Server) publicFileID(file types.FileInfo) string {
+	if resolver, ok := s.library.(FileIdentityResolver); ok {
+		return resolver.PublicFileID(file)
+	}
+	return ""
+}
+
+func (s *Server) resolveFileID(ctx context.Context, id string) (int64, error) {
+	if resolver, ok := s.library.(FileIdentityResolver); ok {
+		return resolver.ResolveFileID(ctx, id)
+	}
+	return 0, ErrNotFound
 }
 
 func safeDisplayPath(path string) string {
