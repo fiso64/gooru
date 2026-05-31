@@ -23,12 +23,12 @@ import (
 
 func TestFileIDRoundTrip(t *testing.T) {
 	id := fallbackPublicFileID(42)
-	if id == "42" || id == "loc:42" {
+	if id == "42" || id == "loc:42" || strings.Contains(id, "loc:") {
 		t.Fatalf("file id is not opaque: %q", id)
 	}
 	got, err := fallbackResolveFileID(id)
 	if err != nil {
-		t.Fatalf("DecodeFileID: %v", err)
+		t.Fatalf("resolve fallback file id: %v", err)
 	}
 	if got != 42 {
 		t.Fatalf("expected 42, got %d", got)
@@ -110,13 +110,15 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if strings.HasPrefix(string(decodedToken), "offset:") {
 		t.Fatalf("file search should use cursor token, got %q", string(decodedToken))
 	}
-	firstLocationID, err := fallbackResolveFileID(page.Files[0].ID)
-	if err != nil {
-		t.Fatalf("decode first file id: %v", err)
+	if strings.HasPrefix(page.Files[0].ID, "loc:") {
+		t.Fatalf("file id exposed storage prefix: %q", page.Files[0].ID)
 	}
-	storedFile, err := server.library.(*GooruLibrary).client.GetFileInfoByLocationID(firstLocationID)
+	if decodedID, err := base64.RawURLEncoding.DecodeString(page.Files[0].ID); err == nil && strings.Contains(string(decodedID), "loc:") {
+		t.Fatalf("file id is reversible storage id: %q", string(decodedID))
+	}
+	storedFile, err := server.getFileByPublicID(context.Background(), page.Files[0].ID)
 	if err != nil {
-		t.Fatalf("load stored file: %v", err)
+		t.Fatalf("resolve first file id: %v", err)
 	}
 	if strings.Contains(string(decodedToken), storedFile.Path) || strings.Contains(string(decodedToken), page.Files[0].Name) {
 		t.Fatalf("cursor token leaked stored path data: %q", string(decodedToken))
@@ -193,13 +195,13 @@ func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {
 	if textFacets["other"] != 1 || textFacets["photo"] != 0 {
 		t.Fatalf("expected query-scoped kind facets, got %+v", textFacets)
 	}
-	locationID, err := fallbackResolveFileID(page.Files[0].ID)
+	file, err := server.getFileByPublicID(context.Background(), page.Files[0].ID)
 	if err != nil {
-		t.Fatalf("decode file id: %v", err)
+		t.Fatalf("resolve file id: %v", err)
 	}
 	width, height := 640, 480
 	if err := server.library.(*GooruLibrary).client.UpsertMediaMetadata(types.MediaMetadata{
-		LocationID:  locationID,
+		LocationID:  file.ID,
 		MediaKind:   "video",
 		MimeType:    "video/mp4",
 		ImageWidth:  &width,
@@ -707,8 +709,16 @@ func (emptyLibrary) PublicFileID(file types.FileInfo) string {
 	return fallbackPublicFileID(file.ID)
 }
 
-func (emptyLibrary) ResolveFileID(_ context.Context, id string) (int64, error) {
-	return fallbackResolveFileID(id)
+func (l emptyLibrary) GetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error) {
+	locationID, err := fallbackResolveFileID(id)
+	if err != nil {
+		return types.FileInfo{}, err
+	}
+	return l.GetFile(ctx, locationID)
+}
+
+func (emptyLibrary) DeleteFileByPublicID(_ context.Context, _ string) (bool, error) {
+	return false, ErrNotFound
 }
 
 type errorLibrary struct {

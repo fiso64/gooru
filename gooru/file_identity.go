@@ -1,38 +1,34 @@
 package gooru
 
 import (
-	"encoding/base64"
-	"fmt"
-	"strconv"
-	"strings"
+	"database/sql"
+	"errors"
+
+	"gooru.local/types"
 )
 
 // PublicFileID returns the public API identifier for a tracked file location.
 func (c *Client) PublicFileID(locationID int64) string {
-	return encodePublicFileID(locationID)
+	id, err := c.store.GetLocationPublicID(locationID)
+	if err != nil {
+		return ""
+	}
+	return id
 }
 
 // ResolvePublicFileID resolves a public API file identifier to an internal location ID.
 func (c *Client) ResolvePublicFileID(id string) (int64, error) {
-	return decodePublicFileID(id)
+	return c.store.GetLocationIDByPublicID(id)
 }
 
-func encodePublicFileID(id int64) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("loc:%d", id)))
-}
-
-func decodePublicFileID(encoded string) (int64, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+// GetFileInfoByPublicID retrieves file info using the public API identifier.
+func (c *Client) GetFileInfoByPublicID(id string) (types.FileInfo, error) {
+	locationID, err := c.ResolvePublicFileID(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.FileInfo{}, sql.ErrNoRows
+	}
 	if err != nil {
-		return 0, err
+		return types.FileInfo{}, err
 	}
-	value := string(raw)
-	if !strings.HasPrefix(value, "loc:") {
-		return 0, fmt.Errorf("invalid file id")
-	}
-	id, err := strconv.ParseInt(strings.TrimPrefix(value, "loc:"), 10, 64)
-	if err != nil || id <= 0 {
-		return 0, fmt.Errorf("invalid file id")
-	}
-	return id, nil
+	return c.GetFileInfoByLocationID(locationID)
 }

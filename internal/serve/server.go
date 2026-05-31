@@ -66,8 +66,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/saved-searches", s.protected(http.HandlerFunc(s.handleSavedSearches)))
 	mux.Handle("/api/v1/tags/namespaces", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleTagNamespaces)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
-	mux.Handle("/api/v1/jobs", s.protected(http.HandlerFunc(s.handleJobs)))
-	mux.Handle("/api/v1/jobs/", s.protected(http.HandlerFunc(s.handleJob)))
+	mux.Handle("/api/v1/jobs", s.adminProtected(http.HandlerFunc(s.handleJobs)))
+	mux.Handle("/api/v1/jobs/", s.adminProtected(http.HandlerFunc(s.handleJob)))
 	mux.HandleFunc("/", s.handleFrontend)
 
 	var h http.Handler = mux
@@ -147,9 +147,6 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.List(status)})
 	case http.MethodDelete:
-		if !s.requireAdmin(w, r) {
-			return
-		}
 		if status == "" {
 			status = string(JobCompleted)
 		}
@@ -174,9 +171,6 @@ func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.handleGetJob(w, r, id)
 	case http.MethodDelete:
-		if !s.requireAdmin(w, r) {
-			return
-		}
 		s.handleCancelJob(w, r, id)
 	default:
 		w.Header().Set("Allow", "GET, DELETE")

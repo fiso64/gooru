@@ -33,6 +33,8 @@ func TestNonAdminSessionCannotUsePrivilegedRoutes(t *testing.T) {
 		{name: "upload", method: http.MethodPost, target: "/api/v1/uploads", body: "not multipart"},
 		{name: "tag mutation", method: http.MethodPost, target: "/api/v1/files/tags", body: `{"query":"kind:image","tags":["reviewed"]}`},
 		{name: "delete file", method: http.MethodDelete, target: "/api/v1/files/" + fileID, body: `{"mode":"untrack"}`},
+		{name: "list jobs", method: http.MethodGet, target: "/api/v1/jobs"},
+		{name: "get job", method: http.MethodGet, target: "/api/v1/jobs/missing"},
 		{name: "clear jobs", method: http.MethodDelete, target: "/api/v1/jobs?status=completed"},
 		{name: "cancel job", method: http.MethodDelete, target: "/api/v1/jobs/missing"},
 	}

@@ -162,8 +162,20 @@ func (l *recordingMutationLibrary) PublicFileID(file types.FileInfo) string {
 	return fallbackPublicFileID(file.ID)
 }
 
-func (l *recordingMutationLibrary) ResolveFileID(_ context.Context, id string) (int64, error) {
-	return fallbackResolveFileID(id)
+func (l *recordingMutationLibrary) GetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error) {
+	locationID, err := fallbackResolveFileID(id)
+	if err != nil {
+		return types.FileInfo{}, err
+	}
+	return l.GetFile(ctx, locationID)
+}
+
+func (l *recordingMutationLibrary) DeleteFileByPublicID(ctx context.Context, id string) (bool, error) {
+	_, err := l.GetFileByPublicID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (l *recordingMutationLibrary) MutateTags(_ context.Context, operation TagOperation, request TagMutationRequest) (TagMutationResponse, error) {

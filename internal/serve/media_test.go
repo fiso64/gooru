@@ -519,8 +519,16 @@ func (l mediaLibrary) PublicFileID(file types.FileInfo) string {
 	return fallbackPublicFileID(file.ID)
 }
 
-func (l mediaLibrary) ResolveFileID(_ context.Context, id string) (int64, error) {
-	return fallbackResolveFileID(id)
+func (l mediaLibrary) GetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error) {
+	locationID, err := fallbackResolveFileID(id)
+	if err != nil {
+		return types.FileInfo{}, err
+	}
+	return l.GetFile(ctx, locationID)
+}
+
+func (mediaLibrary) DeleteFileByPublicID(_ context.Context, _ string) (bool, error) {
+	return false, ErrNotFound
 }
 
 type blockingThumbnailer struct {

@@ -125,11 +125,7 @@ func (s *Server) validateTagMutationFiles(ctx context.Context, request TagMutati
 		return nil
 	}
 	for _, encoded := range request.FileIDs {
-		id, err := s.resolveFileID(ctx, encoded)
-		if err != nil {
-			return ErrNotFound
-		}
-		if _, err := s.library.GetFile(ctx, id); err != nil {
+		if _, err := s.getFileByPublicID(ctx, encoded); err != nil {
 			return err
 		}
 	}
@@ -202,11 +198,7 @@ func (l *GooruLibrary) MutateTags(ctx context.Context, operation TagOperation, r
 	if len(request.FileIDs) > 0 {
 		paths := make([]string, 0, len(request.FileIDs))
 		for _, encoded := range request.FileIDs {
-			id, err := l.ResolveFileID(ctx, encoded)
-			if err != nil {
-				return TagMutationResponse{}, ErrNotFound
-			}
-			file, err := l.GetFile(ctx, id)
+			file, err := l.GetFileByPublicID(ctx, encoded)
 			if err != nil {
 				return TagMutationResponse{}, err
 			}

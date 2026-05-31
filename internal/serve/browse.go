@@ -34,13 +34,13 @@ type SearchLibrary interface {
 	KindFacets(ctx context.Context, query string) ([]FacetValueDTO, error)
 	TagSuggestions(ctx context.Context, prefix string, existing string, limit int) ([]TagDTO, error)
 	TagNamespaces(ctx context.Context) ([]string, error)
-	DeleteFile(ctx context.Context, locationID int64) (bool, error)
 	FileMetadata(ctx context.Context, locationID int64) (MediaMetadata, error)
 }
 
-type FileIdentityResolver interface {
+type PublicFileLibrary interface {
 	PublicFileID(file types.FileInfo) string
-	ResolveFileID(ctx context.Context, id string) (int64, error)
+	GetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error)
+	DeleteFileByPublicID(ctx context.Context, id string) (bool, error)
 }
 
 type FileCountLibrary interface {
@@ -220,9 +220,13 @@ func (l *GooruLibrary) TagNamespaces(ctx context.Context) ([]string, error) {
 	return l.client.TagNamespaces()
 }
 
-func (l *GooruLibrary) DeleteFile(ctx context.Context, locationID int64) (bool, error) {
+func (l *GooruLibrary) DeleteFileByPublicID(ctx context.Context, id string) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
+	}
+	locationID, err := l.client.ResolvePublicFileID(id)
+	if err != nil {
+		return false, ErrNotFound
 	}
 	return l.client.DeleteLocationByID(locationID)
 }
@@ -242,14 +246,21 @@ func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (Medi
 }
 
 func (l *GooruLibrary) PublicFileID(file types.FileInfo) string {
+	if file.PublicID != "" {
+		return file.PublicID
+	}
 	return l.client.PublicFileID(file.ID)
 }
 
-func (l *GooruLibrary) ResolveFileID(ctx context.Context, id string) (int64, error) {
+func (l *GooruLibrary) GetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error) {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return types.FileInfo{}, err
 	}
-	return l.client.ResolvePublicFileID(id)
+	file, err := l.client.GetFileInfoByPublicID(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.FileInfo{}, ErrNotFound
+	}
+	return file, err
 }
 
 type FileListResponse struct {
@@ -395,16 +406,11 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
 	}
-	locationID, err := s.resolveFileID(r.Context(), parts[0])
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
-		return
-	}
 	if r.Method == http.MethodDelete && len(parts) == 1 {
 		if !s.requireAdmin(w, r) {
 			return
 		}
-		s.handleDeleteFile(w, r, locationID)
+		s.handleDeleteFile(w, r, parts[0])
 		return
 	}
 	if r.Method != http.MethodGet {
@@ -412,7 +418,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	file, err := s.library.GetFile(r.Context(), locationID)
+	file, err := s.getFileByPublicID(r.Context(), parts[0])
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
@@ -452,7 +458,7 @@ func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, TagListResponse{Tags: tags})
 }
 
-func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request, locationID int64) {
+func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request, publicID string) {
 	var req struct {
 		Mode string `json:"mode"`
 	}
@@ -469,12 +475,15 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request, locati
 		writeError(w, http.StatusBadRequest, "invalid_request", "mode must be untrack", nil)
 		return
 	}
-	search, ok := s.library.(SearchLibrary)
-	if !ok {
+	if _, ok := s.library.(PublicFileLibrary); !ok {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file mutation service is not configured", nil)
 		return
 	}
-	deleted, err := search.DeleteFile(r.Context(), locationID)
+	deleted, err := s.deleteFileByPublicID(r.Context(), publicID)
+	if errors.Is(err, ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to untrack file", nil)
 		return
@@ -533,17 +542,24 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 }
 
 func (s *Server) publicFileID(file types.FileInfo) string {
-	if resolver, ok := s.library.(FileIdentityResolver); ok {
+	if resolver, ok := s.library.(PublicFileLibrary); ok {
 		return resolver.PublicFileID(file)
 	}
 	return ""
 }
 
-func (s *Server) resolveFileID(ctx context.Context, id string) (int64, error) {
-	if resolver, ok := s.library.(FileIdentityResolver); ok {
-		return resolver.ResolveFileID(ctx, id)
+func (s *Server) getFileByPublicID(ctx context.Context, id string) (types.FileInfo, error) {
+	if resolver, ok := s.library.(PublicFileLibrary); ok {
+		return resolver.GetFileByPublicID(ctx, id)
 	}
-	return 0, ErrNotFound
+	return types.FileInfo{}, ErrNotFound
+}
+
+func (s *Server) deleteFileByPublicID(ctx context.Context, id string) (bool, error) {
+	if resolver, ok := s.library.(PublicFileLibrary); ok {
+		return resolver.DeleteFileByPublicID(ctx, id)
+	}
+	return false, ErrNotFound
 }
 
 func safeDisplayPath(path string) string {

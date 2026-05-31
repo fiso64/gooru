@@ -245,7 +245,7 @@ func (s *Store) GetMediaMetadata(locationID int64) (types.MediaMetadata, error) 
 // GetOrCreateLocation ensures a file path for a given content hash exists.
 // The tags_cache will be populated by a database trigger.
 func (s *Store) GetOrCreateLocation(q Querier, hash, path string, size int64, modTime int64, extension string) error {
-	_, err := q.Exec("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES (?, ?, ?, ?, ?)", hash, path, size, modTime, extension)
+	_, err := q.Exec("INSERT OR IGNORE INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?)", hash, path, size, modTime, extension)
 	return err
 }
 
@@ -257,7 +257,7 @@ func (s *Store) UpdateContentLocation(q Querier, hash, path string, size int64, 
 		return err
 	}
 	// Insert the new, current location. The new trigger will populate the tags_cache automatically.
-	_, err := q.Exec("INSERT INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES (?, ?, ?, ?, ?)", hash, path, size, modTime, extension)
+	_, err := q.Exec("INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?)", hash, path, size, modTime, extension)
 	return err
 }
 
@@ -534,14 +534,14 @@ func (s *Store) ApplyRelinkAdditionsTx(q Querier, toAdd map[string]types.Locatio
 	var args []interface{}
 	var queryBuilder strings.Builder
 	// The tags_cache is now populated by triggers, so we don't insert it here.
-	queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
+	queryBuilder.WriteString("INSERT OR IGNORE INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ")
 
 	itemsInBatch := 0
 	for path, info := range toAdd {
 		if itemsInBatch > 0 {
 			queryBuilder.WriteString(", ")
 		}
-		queryBuilder.WriteString("(?, ?, ?, ?, ?)")
+		queryBuilder.WriteString("('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?)")
 		args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension)
 		itemsInBatch++
 
@@ -555,7 +555,7 @@ func (s *Store) ApplyRelinkAdditionsTx(q Querier, toAdd map[string]types.Locatio
 			itemsInBatch = 0
 			args = nil
 			queryBuilder.Reset()
-			queryBuilder.WriteString("INSERT OR IGNORE INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ")
+			queryBuilder.WriteString("INSERT OR IGNORE INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ")
 		}
 	}
 
@@ -795,6 +795,18 @@ func (s *Store) GetFileInfoByLocationID(id int64) (types.FileInfo, error) {
 		return types.FileInfo{}, sql.ErrNoRows
 	}
 	return files[0], nil
+}
+
+func (s *Store) GetLocationPublicID(id int64) (string, error) {
+	var publicID string
+	err := s.QueryRow(`SELECT public_id FROM locations WHERE id = ?`, id).Scan(&publicID)
+	return publicID, err
+}
+
+func (s *Store) GetLocationIDByPublicID(publicID string) (int64, error) {
+	var id int64
+	err := s.QueryRow(`SELECT id FROM locations WHERE public_id = ?`, publicID).Scan(&id)
+	return id, err
 }
 
 // GetFileInfoByPath retrieves detailed info for one tracked file path without hashing the file.
@@ -1347,10 +1359,10 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 		var placeholders []string
 		var args []interface{}
 		for _, loc := range batch {
-			placeholders = append(placeholders, "(?, ?, ?, ?, ?)")
+			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?)")
 			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.Extension)
 		}
-		query := `INSERT INTO locations (content_hash, path, size_bytes, mod_time, extension) VALUES ` +
+		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ` +
 			strings.Join(placeholders, ",") +
 			` ON CONFLICT(path) DO UPDATE SET
 				content_hash=excluded.content_hash,
@@ -1824,7 +1836,7 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 		var mediaKind, mimeType sql.NullString
 		var imageWidth, imageHeight, videoWidth, videoHeight, frameCount sql.NullInt64
 		var duration sql.NullFloat64
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache, &mediaKind, &mimeType, &imageWidth, &imageHeight, &videoWidth, &videoHeight, &duration, &frameCount); err != nil {
+		if err := rows.Scan(&file.ID, &file.PublicID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache, &mediaKind, &mimeType, &imageWidth, &imageHeight, &videoWidth, &videoHeight, &duration, &frameCount); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -1847,7 +1859,7 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 }
 
 func fileInfoColumns() string {
-	return `l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache,
+	return `l.id, l.public_id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache,
 		mm.media_kind, mm.mime_type, mm.image_width, mm.image_height,
 		mm.video_width, mm.video_height, mm.duration_seconds, mm.frame_count`
 }
