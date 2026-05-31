@@ -54,12 +54,13 @@ func TestPrepareAdminDatabaseSupportsFreshPath(t *testing.T) {
 	}
 }
 
-func TestPrepareAdminDatabaseRepairsParentPermissions(t *testing.T) {
+func TestPrepareAdminDatabasePreservesExistingParentPermissions(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "shared")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("mkdir db parent: %v", err)
 	}
-	store, err := prepareAdminDatabase(filepath.Join(dir, "gooru.db"), false)
+	dbPath := filepath.Join(dir, "gooru.db")
+	store, err := prepareAdminDatabase(dbPath, false)
 	if err != nil {
 		t.Fatalf("prepare admin database: %v", err)
 	}
@@ -70,7 +71,14 @@ func TestPrepareAdminDatabaseRepairsParentPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat db parent: %v", err)
 	}
-	if got := info.Mode().Perm(); got != 0700 {
-		t.Fatalf("db parent mode = %o, want 700", got)
+	if got := info.Mode().Perm(); got != 0755 {
+		t.Fatalf("db parent mode = %o, want 755", got)
+	}
+	dbInfo, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("stat db file: %v", err)
+	}
+	if got := dbInfo.Mode().Perm(); got != 0600 {
+		t.Fatalf("db file mode = %o, want 600", got)
 	}
 }

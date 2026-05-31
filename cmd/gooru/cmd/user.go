@@ -73,11 +73,16 @@ func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) 
 		return nil, errors.New("database.path is required")
 	}
 	if dir := filepath.Dir(dbPath); dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return nil, fmt.Errorf("failed to create database directory: %w", err)
-		}
-		if err := os.Chmod(dir, 0700); err != nil {
-			return nil, fmt.Errorf("failed to secure database directory: %w", err)
+		if _, err := os.Stat(dir); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("failed to inspect database directory: %w", err)
+			}
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				return nil, fmt.Errorf("failed to create database directory: %w", err)
+			}
+			if err := os.Chmod(dir, 0700); err != nil {
+				return nil, fmt.Errorf("failed to secure database directory: %w", err)
+			}
 		}
 	}
 	store, err := database.NewStore(dbPath, verbose)
