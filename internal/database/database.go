@@ -199,6 +199,19 @@ func (s *Store) GetOrCreateContent(q Querier, hash string) (bool, error) {
 	return rowsAffected > 0, nil
 }
 
+// ContentExists reports whether a content hash is already tracked.
+func (s *Store) ContentExists(hash string) (bool, error) {
+	var exists int
+	err := s.QueryRow("SELECT 1 FROM contents WHERE hash = ? LIMIT 1", hash).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // GetOrCreateLocation ensures a file path for a given content hash exists.
 // The tags_cache will be populated by a database trigger.
 func (s *Store) GetOrCreateLocation(q Querier, hash, path string, size int64, modTime int64, extension string) error {

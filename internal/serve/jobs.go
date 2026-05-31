@@ -243,6 +243,10 @@ func (m *JobManager) run(item queuedJob) {
 	result, err := item.run(item.ctx)
 
 	finished := time.Now().UTC()
+	resultTooLarge := false
+	if err == nil && m.maxResult > 0 {
+		resultTooLarge = approximateResultBytes(result) > m.maxResult
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err != nil {
@@ -255,7 +259,7 @@ func (m *JobManager) run(item queuedJob) {
 		}
 	} else {
 		item.job.Status = JobCompleted
-		if m.maxResult > 0 && approximateResultBytes(result) > m.maxResult {
+		if resultTooLarge {
 			item.job.Status = JobFailed
 			item.job.Error = ErrJobResultTooLarge.Error()
 		} else {

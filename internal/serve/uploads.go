@@ -12,10 +12,11 @@ import (
 	"strings"
 
 	"gooru.local/internal/query"
+	"gooru.local/types"
 )
 
 type UploadLibrary interface {
-	ImportUploadedFiles(ctx context.Context, paths []string, tags []string) (UploadImportResponse, error)
+	ImportUploadedFiles(ctx context.Context, files []StagedUpload, tags []string) (UploadImportResponse, error)
 }
 
 type UploadImportResponse struct {
@@ -25,8 +26,42 @@ type UploadImportResponse struct {
 }
 
 type UploadedFileDTO struct {
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	TargetID string `json:"target_id"`
+	Status   string `json:"status"`
+	Error    string `json:"error,omitempty"`
+}
+
+type StagedUpload struct {
+	Name     string
+	Path     string
+	Size     int64
+	TargetID string
+}
+
+type UploadTargetsResponse struct {
+	Items []UploadTargetDTO `json:"items"`
+}
+
+type UploadTargetDTO struct {
+	ID   string `json:"id"`
 	Name string `json:"name"`
-	Size int64  `json:"size"`
+}
+
+func (s *Server) handleUploadTargets(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.Uploads.Enabled {
+		writeJSON(w, http.StatusOK, UploadTargetsResponse{Items: []UploadTargetDTO{}})
+		return
+	}
+	items := make([]UploadTargetDTO, 0, len(s.cfg.Uploads.Targets))
+	for _, target := range s.cfg.Uploads.Targets {
+		if strings.TrimSpace(target.ID) == "" || strings.TrimSpace(target.Path) == "" {
+			continue
+		}
+		items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name})
+	}
+	writeJSON(w, http.StatusOK, UploadTargetsResponse{Items: items})
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
@@ -44,17 +79,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "uploads_disabled", "uploads are disabled", nil)
 		return
 	}
-	if !hasUploadDirectory(s.cfg.Uploads.Directories) {
-		writeError(w, http.StatusForbidden, "uploads_disabled", "upload directory is not configured", nil)
+	if !hasUploadTarget(s.cfg.Uploads.Targets) {
+		writeError(w, http.StatusForbidden, "uploads_disabled", "upload target is not configured", nil)
 		return
 	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "multipart upload body is required", nil)
 		return
 	}
-	dir, err := s.uploadDirectory(firstFormValue(r.MultipartForm.Value["directory"]))
+	target, err := s.uploadTarget(firstFormValue(r.MultipartForm.Value["target_id"]))
 	if err != nil {
-		writeError(w, http.StatusForbidden, "uploads_disabled", err.Error(), nil)
+		writeError(w, http.StatusBadRequest, "invalid_upload_target", err.Error(), nil)
 		return
 	}
 	tags := parseUploadTags(r.MultipartForm.Value["tags"])
@@ -68,7 +103,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saved, err := s.saveUploadedFiles(dir, files)
+	saved, err := s.saveUploadedFiles(target, files)
 	if err != nil {
 		if errors.Is(err, errUploadTooLarge) {
 			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", err.Error(), uploadErrorDetails(err))
@@ -77,21 +112,15 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), uploadErrorDetails(err))
 		return
 	}
-	paths := make([]string, 0, len(saved))
-	for _, file := range saved {
-		paths = append(paths, file.path)
-	}
-
 	cleanup := func() {
 		removeSavedUploads(saved)
 	}
 	job, err := s.jobs.SubmitWithCleanup(r.Context(), "upload_import", PreferAsync(r), func(ctx context.Context) (interface{}, error) {
-		response, err := importer.ImportUploadedFiles(ctx, paths, tags)
+		response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), tags)
 		if err != nil {
 			cleanup()
 			return nil, err
 		}
-		response.Files = uploadedFileDTOs(saved)
 		return response, nil
 	}, cleanup)
 	if PreferAsync(r) && err == nil {
@@ -110,33 +139,35 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Server) uploadDirectory(name string) (string, error) {
+func (s *Server) uploadTarget(id string) (UploadTarget, error) {
 	if !s.cfg.Uploads.Enabled {
-		return "", errors.New("uploads are disabled")
+		return UploadTarget{}, errors.New("uploads are disabled")
 	}
-	name = strings.TrimSpace(name)
-	var fallback string
-	for _, dir := range s.cfg.Uploads.Directories {
-		if strings.TrimSpace(dir.Path) == "" {
+	id = strings.TrimSpace(id)
+	var fallback *UploadTarget
+	for i := range s.cfg.Uploads.Targets {
+		target := s.cfg.Uploads.Targets[i]
+		if strings.TrimSpace(target.ID) == "" || strings.TrimSpace(target.Path) == "" {
 			continue
 		}
-		if fallback == "" {
-			fallback = dir.Path
+		if fallback == nil {
+			fallback = &target
 		}
-		if name != "" && dir.Name == name {
-			return dir.Path, nil
+		if id != "" && target.ID == id {
+			return target, nil
 		}
 	}
-	if name == "" && fallback != "" {
-		return fallback, nil
+	if id == "" && fallback != nil {
+		return *fallback, nil
 	}
-	return "", errors.New("upload directory is not configured")
+	return UploadTarget{}, errors.New("upload target is not configured")
 }
 
 type savedUpload struct {
-	name string
-	path string
-	size int64
+	name     string
+	path     string
+	size     int64
+	targetID string
 }
 
 var errUploadTooLarge = errors.New("uploaded file exceeds max_file_size_bytes")
@@ -165,8 +196,8 @@ func uploadErrorDetails(err error) map[string]string {
 	return nil
 }
 
-func (s *Server) saveUploadedFiles(dir string, files []*multipart.FileHeader) ([]savedUpload, error) {
-	if err := os.MkdirAll(dir, 0700); err != nil {
+func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileHeader) ([]savedUpload, error) {
+	if err := os.MkdirAll(target.Path, 0700); err != nil {
 		return nil, fmt.Errorf("failed to prepare upload directory")
 	}
 	saved := make([]savedUpload, 0, len(files))
@@ -180,7 +211,7 @@ func (s *Server) saveUploadedFiles(dir string, files []*multipart.FileHeader) ([
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to read uploaded file")}
 		}
-		dst, path, tmpPath, err := createUploadDestination(dir, name)
+		dst, path, tmpPath, err := createUploadDestination(target.Path, name)
 		if err != nil {
 			_ = src.Close()
 			removeSavedUploads(saved)
@@ -202,7 +233,7 @@ func (s *Server) saveUploadedFiles(dir string, files []*multipart.FileHeader) ([
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
 		}
-		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, size: size})
+		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, size: size, targetID: target.ID})
 	}
 	return saved, nil
 }
@@ -304,24 +335,73 @@ func firstFormValue(values []string) string {
 	return values[0]
 }
 
-func uploadedFileDTOs(files []savedUpload) []UploadedFileDTO {
-	out := make([]UploadedFileDTO, 0, len(files))
+func stagedUploads(files []savedUpload) []StagedUpload {
+	out := make([]StagedUpload, 0, len(files))
 	for _, file := range files {
-		out = append(out, UploadedFileDTO{Name: file.name, Size: file.size})
+		out = append(out, StagedUpload{Name: file.name, Path: file.path, Size: file.size, TargetID: file.targetID})
 	}
 	return out
 }
 
-func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, paths []string, tags []string) (UploadImportResponse, error) {
+func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUpload, tags []string) (UploadImportResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return UploadImportResponse{}, err
 	}
-	result, err := l.client.TagFiles(paths, tags, nil, false)
+	response := UploadImportResponse{Files: make([]UploadedFileDTO, 0, len(files))}
+	hashes := make(map[string]string, len(files))
+	importPaths := make([]string, 0, len(files))
+	responseIndexByPath := make(map[string]int, len(files))
+	for _, file := range files {
+		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
+		info, status, err := l.client.GetFileInfoForFile(file.Path, false)
+		if err != nil {
+			dto.Status = "error"
+			dto.Error = err.Error()
+			response.Files = append(response.Files, dto)
+			continue
+		}
+		if _, ok := hashes[info.Hash]; ok {
+			dto.Status = "duplicate_in_batch"
+			_ = os.Remove(file.Path)
+			response.Files = append(response.Files, dto)
+			continue
+		}
+		hashes[info.Hash] = file.Path
+		exists, err := l.client.ContentExists(info.Hash)
+		if err != nil {
+			return UploadImportResponse{}, err
+		}
+		if exists || status == types.StatusUntrackedContent || status == types.StatusOK {
+			dto.Status = "duplicate_existing"
+			_ = os.Remove(file.Path)
+			response.Files = append(response.Files, dto)
+			continue
+		}
+		dto.Status = "imported"
+		response.Files = append(response.Files, dto)
+		responseIndexByPath[file.Path] = len(response.Files) - 1
+		importPaths = append(importPaths, file.Path)
+	}
+	if len(importPaths) == 0 {
+		return response, nil
+	}
+	failures := make(map[string]string)
+	result, err := l.client.TagFiles(importPaths, tags, func(filePath string, err error) {
+		if err != nil {
+			failures[filePath] = err.Error()
+		}
+	}, false)
 	if err != nil {
 		return UploadImportResponse{}, err
 	}
-	return UploadImportResponse{
-		AffectedCount: result.AffectedCount,
-		Notifications: notificationDTOs(result.Notifications),
-	}, nil
+	for path, message := range failures {
+		if i, ok := responseIndexByPath[path]; ok {
+			response.Files[i].Status = "error"
+			response.Files[i].Error = message
+			_ = os.Remove(path)
+		}
+	}
+	response.AffectedCount = result.AffectedCount
+	response.Notifications = notificationDTOs(result.Notifications)
+	return response, nil
 }

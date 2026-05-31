@@ -16,7 +16,7 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 		t.Fatalf("unexpected listen address %q", cfg.Server.Listen)
 	}
 	if cfg.Uploads.Enabled {
-		t.Fatal("uploads should default disabled until a directory is configured")
+		t.Fatal("uploads should default disabled until a target is configured")
 	}
 	if cfg.Server.ExposePaths {
 		t.Fatal("server.expose_paths should default false")
@@ -163,7 +163,24 @@ func TestLoadConfigRejectsEnabledUploadsWithoutDirectory(t *testing.T) {
 	cfg.Uploads.Enabled = true
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "uploads.enabled requires") {
-		t.Fatalf("expected upload directory validation error, got %v", err)
+		t.Fatalf("expected upload target validation error, got %v", err)
+	}
+}
+
+func TestLoadConfigRejectsInvalidUploadTargets(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Uploads.Enabled = true
+	cfg.Uploads.Targets = []UploadTarget{
+		{ID: "default", Name: "Default", Path: filepath.Join(t.TempDir(), "uploads")},
+		{ID: "default", Name: "Duplicate", Path: filepath.Join(t.TempDir(), "other")},
+		{ID: "../bad", Name: "Bad", Path: "relative"},
+	}
+	err := cfg.Validate()
+	if err == nil ||
+		!strings.Contains(err.Error(), "duplicated") ||
+		!strings.Contains(err.Error(), "must contain only") ||
+		!strings.Contains(err.Error(), "path must be absolute") {
+		t.Fatalf("expected upload target validation errors, got %v", err)
 	}
 }
 
