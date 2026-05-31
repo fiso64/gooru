@@ -76,6 +76,9 @@ func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) 
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, fmt.Errorf("failed to create database directory: %w", err)
 		}
+		if err := os.Chmod(dir, 0700); err != nil {
+			return nil, fmt.Errorf("failed to secure database directory: %w", err)
+		}
 	}
 	store, err := database.NewStore(dbPath, verbose)
 	if err != nil {
@@ -85,6 +88,10 @@ func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) 
 		_ = store.Close()
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
+	if err := database.SecureDBFiles(dbPath); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 	if _, err := store.GetHashingStrategy(); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			_ = store.Close()
@@ -93,6 +100,10 @@ func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) 
 		if err := store.SetHashingStrategy(types.StrategyPartial); err != nil {
 			_ = store.Close()
 			return nil, fmt.Errorf("failed to save default hashing strategy: %w", err)
+		}
+		if err := database.SecureDBFiles(dbPath); err != nil {
+			_ = store.Close()
+			return nil, err
 		}
 	}
 	return store, nil

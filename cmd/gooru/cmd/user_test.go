@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -50,5 +51,26 @@ func TestPrepareAdminDatabaseSupportsFreshPath(t *testing.T) {
 	}
 	if _, err := authStore.CreateAdmin(context.Background(), "mac", "correct horse"); !errors.Is(err, serve.ErrDuplicateUsername) {
 		t.Fatalf("expected duplicate username rejection, got %v", err)
+	}
+}
+
+func TestPrepareAdminDatabaseRepairsParentPermissions(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("mkdir db parent: %v", err)
+	}
+	store, err := prepareAdminDatabase(filepath.Join(dir, "gooru.db"), false)
+	if err != nil {
+		t.Fatalf("prepare admin database: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat db parent: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0700 {
+		t.Fatalf("db parent mode = %o, want 700", got)
 	}
 }

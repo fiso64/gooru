@@ -22,8 +22,9 @@ func splitTags(cache string) []string {
 }
 
 type Store struct {
-	DB     *sql.DB
-	logger *log.Logger
+	DB             *sql.DB
+	dataSourceName string
+	logger         *log.Logger
 }
 
 // Tx is a transaction wrapper that logs queries.
@@ -40,7 +41,10 @@ func CreateEmptyDB(dataSourceName string) error {
 	if err != nil {
 		return err
 	}
-	return db.Close()
+	if err := db.Close(); err != nil {
+		return err
+	}
+	return SecureDBFiles(dataSourceName)
 }
 
 // NewStore opens an existing database connection. It does not perform initialization.
@@ -56,6 +60,10 @@ func NewStore(dataSourceName string, verbose bool) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := SecureDBFiles(dataSourceName); err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	var logOutput io.Writer
 	if verbose {
@@ -65,12 +73,26 @@ func NewStore(dataSourceName string, verbose bool) (*Store, error) {
 	}
 	logger := log.New(logOutput, "SQL: ", log.Ltime|log.Lmicroseconds)
 
-	return &Store{DB: db, logger: logger}, nil
+	return &Store{DB: db, dataSourceName: dataSourceName, logger: logger}, nil
+}
+
+// SecureDBFiles constrains the SQLite database and sidecar files to owner-only access.
+func SecureDBFiles(dataSourceName string) error {
+	for _, path := range []string{dataSourceName, dataSourceName + "-wal", dataSourceName + "-shm"} {
+		if err := os.Chmod(path, 0600); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("secure database file %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // Close closes the database connection.
 func (s *Store) Close() error {
-	return s.DB.Close()
+	err := s.DB.Close()
+	if secureErr := SecureDBFiles(s.dataSourceName); err == nil {
+		err = secureErr
+	}
+	return err
 }
 
 // Begin starts a new transaction.

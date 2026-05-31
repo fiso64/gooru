@@ -13,7 +13,10 @@ func GetDBPath() (string, error) {
 		return "", err
 	}
 	configDir := filepath.Join(home, ".config", "gooru")
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(configDir, 0700); err != nil {
 		return "", err
 	}
 	return filepath.Join(configDir, "gooru.db"), nil
@@ -27,7 +30,10 @@ func GetRunDirPath() (string, error) {
 		return "", err
 	}
 	runDir := filepath.Join(home, ".config", "gooru", "run")
-	if err := os.MkdirAll(runDir, 0755); err != nil {
+	if err := os.MkdirAll(runDir, 0700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(runDir, 0700); err != nil {
 		return "", err
 	}
 	return runDir, nil
