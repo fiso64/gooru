@@ -67,6 +67,23 @@ func TestUploadPreventsTraversalAndHandlesConflicts(t *testing.T) {
 	}
 }
 
+func TestUploadConflictPolicyErrorRejectsExistingName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("existing"), 0600); err != nil {
+		t.Fatalf("write existing file: %v", err)
+	}
+	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
+	server.cfg.Uploads.ConflictPolicy = "error"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"a.txt": "uploaded"}, nil))
+
+	assertAPIError(t, rec, http.StatusBadRequest, "invalid_request")
+	if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "existing" {
+		t.Fatalf("existing file was overwritten: %q", got)
+	}
+}
+
 func TestUploadUsesRequestedTargetID(t *testing.T) {
 	defaultDir := t.TempDir()
 	archiveDir := t.TempDir()

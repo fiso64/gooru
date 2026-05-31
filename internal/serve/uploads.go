@@ -211,7 +211,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to read uploaded file")}
 		}
-		dst, path, tmpPath, err := createUploadDestination(target.Path, name)
+		dst, path, tmpPath, err := createUploadDestination(target.Path, name, s.cfg.Uploads.ConflictPolicy)
 		if err != nil {
 			_ = src.Close()
 			removeSavedUploads(saved)
@@ -256,7 +256,7 @@ func safeUploadName(name string) (string, error) {
 	return name, nil
 }
 
-func createUploadDestination(dir string, name string) (*os.File, string, string, error) {
+func createUploadDestination(dir string, name string, conflictPolicy string) (*os.File, string, string, error) {
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
 	if base == "" {
@@ -269,6 +269,9 @@ func createUploadDestination(dir string, name string) (*os.File, string, string,
 		}
 		path := filepath.Join(dir, candidate)
 		if _, err := os.Stat(path); err == nil {
+			if conflictPolicy == "error" {
+				return nil, "", "", errors.New("uploaded filename conflicts with an existing file")
+			}
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, "", "", fmt.Errorf("failed to create uploaded file")

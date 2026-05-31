@@ -30,6 +30,9 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Jobs.MaxQueued != 100 || cfg.Jobs.MaxRunning != 2 || cfg.Jobs.MaxResultBytes != 10<<20 {
 		t.Fatalf("unexpected job defaults: %+v", cfg.Jobs)
 	}
+	if cfg.Uploads.ConflictPolicy != "rename" {
+		t.Fatalf("unexpected upload conflict policy default %q", cfg.Uploads.ConflictPolicy)
+	}
 }
 
 func TestLoadConfigRejectsTokenFromEnvironment(t *testing.T) {
@@ -181,6 +184,15 @@ func TestLoadConfigRejectsInvalidUploadTargets(t *testing.T) {
 		!strings.Contains(err.Error(), "must contain only") ||
 		!strings.Contains(err.Error(), "path must be absolute") {
 		t.Fatalf("expected upload target validation errors, got %v", err)
+	}
+}
+
+func TestLoadConfigRejectsInvalidUploadConflictPolicy(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Uploads.ConflictPolicy = "overwrite"
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "uploads.conflict_policy") {
+		t.Fatalf("expected upload conflict policy validation error, got %v", err)
 	}
 }
 

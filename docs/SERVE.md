@@ -56,6 +56,7 @@ uploads:
       name: "Default"
       path: "/home/alice/Pictures/incoming"
   max_file_size_bytes: 104857600
+  conflict_policy: "rename"
 
 media:
   cache_dir: "/home/alice/.cache/gooru/media"
@@ -194,7 +195,8 @@ Clients can list configured targets through `GET /api/v1/upload-targets`; the
 response includes only target IDs and names, not filesystem paths. Upload
 requests may pass `target_id`, defaulting to the first configured target.
 Uploaded filenames are reduced to safe basenames, path traversal is rejected by
-construction, and conflicts are resolved with numbered suffixes.
+construction, and `uploads.conflict_policy` controls same-name conflicts. Use
+`rename` to apply numbered suffixes or `error` to reject the upload.
 
 Uploads are staged into temporary files in the target directory before they are
 atomically linked into their final names. Failed batches remove staged files.

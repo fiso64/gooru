@@ -109,7 +109,7 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 *   `DELETE /api/v1/files/tags`: Removes tags from files. (`untag`)
     *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `GET /api/v1/upload-targets`: Lists configured upload target IDs and names without exposing filesystem paths.
-*   `POST /api/v1/uploads`: Uploads files into a configured upload target and imports them. Multipart requests use `target_id`, `files`, and optional initial `tags`.
+*   `POST /api/v1/uploads`: Uploads files into a configured upload target and imports them. Multipart requests use `target_id`, `files`, and optional initial `tags`; same-name conflicts follow the server-side `uploads.conflict_policy`.
 
 #### Jobs (Long-Running Operations)
 
