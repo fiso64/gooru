@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -53,14 +54,16 @@ type AuthConfig struct {
 }
 
 type UploadsConfig struct {
-	Enabled          bool              `yaml:"enabled"`
-	Directories      []UploadDirectory `yaml:"directories"`
-	MaxFileSizeBytes int64             `yaml:"max_file_size_bytes"`
+	Enabled          bool           `yaml:"enabled"`
+	Targets          []UploadTarget `yaml:"targets"`
+	MaxFileSizeBytes int64          `yaml:"max_file_size_bytes"`
+	ConflictPolicy   string         `yaml:"conflict_policy"`
 }
 
-type UploadDirectory struct {
-	Path string `yaml:"path"`
+type UploadTarget struct {
+	ID   string `yaml:"id"`
 	Name string `yaml:"name"`
+	Path string `yaml:"path"`
 }
 
 type MediaConfig struct {
@@ -113,7 +116,7 @@ func DefaultConfig(dbPath string) Config {
 			CookieSecure:   "auto",
 			CookieSameSite: "lax",
 		},
-		Uploads: UploadsConfig{Enabled: false},
+		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename"},
 		Media: MediaConfig{
 			ThumbnailSizes:  []int{256, 512},
 			ThumbnailFormat: "jpeg",
@@ -255,15 +258,42 @@ func (cfg *Config) Validate() error {
 	if cfg.Jobs.MaxResultBytes <= 0 {
 		errs = append(errs, errors.New("jobs.max_result_bytes must be greater than zero"))
 	}
-	if cfg.Uploads.Enabled && !hasUploadDirectory(cfg.Uploads.Directories) {
-		errs = append(errs, errors.New("uploads.enabled requires at least one uploads.directories entry with a non-empty path"))
+	if cfg.Uploads.Enabled && !hasUploadTarget(cfg.Uploads.Targets) {
+		errs = append(errs, errors.New("uploads.enabled requires at least one uploads.targets entry"))
 	}
-	for _, dir := range cfg.Uploads.Directories {
-		if strings.TrimSpace(dir.Path) == "" {
-			continue
+	if cfg.Uploads.ConflictPolicy == "" {
+		cfg.Uploads.ConflictPolicy = "rename"
+	}
+	switch cfg.Uploads.ConflictPolicy {
+	case "rename", "error":
+	default:
+		errs = append(errs, errors.New("uploads.conflict_policy must be one of: rename, error"))
+	}
+	seenTargets := make(map[string]struct{}, len(cfg.Uploads.Targets))
+	for i := range cfg.Uploads.Targets {
+		target := cfg.Uploads.Targets[i]
+		id := strings.TrimSpace(target.ID)
+		name := strings.TrimSpace(target.Name)
+		path := strings.TrimSpace(target.Path)
+		cfg.Uploads.Targets[i].ID = id
+		cfg.Uploads.Targets[i].Name = name
+		cfg.Uploads.Targets[i].Path = path
+		if id == "" {
+			errs = append(errs, fmt.Errorf("uploads.targets[%d].id is required", i))
+		} else if !validUploadTargetID(id) {
+			errs = append(errs, fmt.Errorf("uploads target id %q must contain only letters, numbers, underscores, or hyphens", id))
+		} else if _, exists := seenTargets[id]; exists {
+			errs = append(errs, fmt.Errorf("uploads target id %q is duplicated", id))
+		} else {
+			seenTargets[id] = struct{}{}
 		}
-		if !filepath.IsAbs(dir.Path) {
-			errs = append(errs, fmt.Errorf("uploads directory %q path must be absolute", dir.Name))
+		if name == "" {
+			errs = append(errs, fmt.Errorf("uploads target %q name is required", id))
+		}
+		if path == "" {
+			errs = append(errs, fmt.Errorf("uploads target %q path is required", id))
+		} else if !filepath.IsAbs(path) {
+			errs = append(errs, fmt.Errorf("uploads target %q path must be absolute", id))
 		}
 	}
 	if cfg.Auth.SessionTTLRaw == "" {
@@ -302,13 +332,19 @@ func (cfg *Config) Validate() error {
 	return errors.Join(errs...)
 }
 
-func hasUploadDirectory(dirs []UploadDirectory) bool {
-	for _, dir := range dirs {
-		if strings.TrimSpace(dir.Path) != "" {
+func hasUploadTarget(targets []UploadTarget) bool {
+	for _, target := range targets {
+		if strings.TrimSpace(target.ID) != "" && strings.TrimSpace(target.Path) != "" {
 			return true
 		}
 	}
 	return false
+}
+
+var uploadTargetIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+func validUploadTargetID(id string) bool {
+	return uploadTargetIDPattern.MatchString(id)
 }
 
 func isLoopbackListen(addr string) bool {

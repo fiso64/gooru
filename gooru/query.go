@@ -299,6 +299,11 @@ func (c *Client) GetFileInfoForFile(filePath string, useMetadataHeuristic bool) 
 	return fileInfo, types.StatusNotInDB, nil
 }
 
+// ContentExists reports whether a content hash is already tracked.
+func (c *Client) ContentExists(hash string) (bool, error) {
+	return c.store.ContentExists(hash)
+}
+
 // ListAllFiles lists all files known to the system.
 func (c *Client) ListAllFiles() ([]string, error) {
 	return c.store.ListAllFiles()

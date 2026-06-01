@@ -64,8 +64,18 @@ export interface Job {
 }
 
 export interface UploadImportResponse {
-  files: Array<{ name: string; size: number }>;
+  files: Array<{
+    name: string;
+    size: number;
+    target_id: string;
+    status: 'uploaded' | 'imported' | 'duplicate_existing' | 'duplicate_in_batch' | 'skipped' | 'error';
+    error?: string;
+  }>;
   affected_count: number;
+}
+
+export interface UploadTargetsResponse {
+  items: Array<{ id: string; name: string }>;
 }
 
 export interface AuthUser {

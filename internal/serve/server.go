@@ -52,6 +52,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/auth/logout", s.protected(http.HandlerFunc(s.handleAuthLogout)))
 	mux.Handle("/api/v1/auth/me", authMiddleware(s.cfg, s.auth, http.HandlerFunc(s.handleAuthMe)))
 	mux.Handle("/api/v1/auth/change-password", s.protected(http.HandlerFunc(s.handleChangePassword)))
+	mux.Handle("/api/v1/upload-targets", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleUploadTargets)))
 	mux.Handle("/api/v1/uploads", s.protected(http.HandlerFunc(s.handleUpload)))
 	mux.Handle("/api/v1/files/tags", s.protected(http.HandlerFunc(s.handleMutateTags)))
 	mux.Handle("/api/v1/files/", s.protected(http.HandlerFunc(s.handleFile)))
