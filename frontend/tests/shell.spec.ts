@@ -1,18 +1,52 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+const session = {
+  user: { id: 'usr_test', username: 'mac', role: 'admin' },
+  capabilities: { upload: true, tag: true, delete: true, admin: true },
+  csrf_token: 'csrf-one'
+};
+
+async function mockAuth(page: Page) {
+  let loggedIn = false;
+  await page.route('**/api/v1/auth/me', async (route) => {
+    await route.fulfill({
+      status: loggedIn ? 200 : 401,
+      contentType: 'application/json',
+      body: JSON.stringify(loggedIn ? session : { error: { code: 'unauthorized', message: 'login required' } })
+    });
+  });
+  await page.route('**/api/v1/auth/login', async (route) => {
+    loggedIn = true;
+    await route.fulfill({
+      contentType: 'application/json',
+      headers: { 'Set-Cookie': 'gooru_session=session-one; Path=/; HttpOnly; SameSite=Lax' },
+      body: JSON.stringify(session)
+    });
+  });
+}
+
+async function signIn(page: Page) {
+  await page.getByLabel('Username').fill('mac');
+  await page.getByLabel('Password').fill('correct horse');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+}
 
 test('renders the library shell', async ({ page }) => {
+  await mockAuth(page);
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
-  await expect(page.getByPlaceholder('Paste server token')).toBeVisible();
+  await expect(page.getByLabel('Username')).toBeVisible();
+  await expect(page.getByLabel('Password')).toBeVisible();
   await expect(page.getByPlaceholder('tag, key:value, @tagged')).toBeVisible();
 });
 
 test('renders authenticated thumbnail results', async ({ page }) => {
+  await mockAuth(page);
   const requests: string[] = [];
   const thumbnailRequests: string[] = [];
   const previewRequests: string[] = [];
   const contentRequests: string[] = [];
-  const mutations: Array<{ authorization: string; method: string; body: unknown }> = [];
+  const mutations: Array<{ authorization: string; csrf: string; method: string; body: unknown }> = [];
   await page.route('**/api/v1/files?**', async (route) => {
     requests.push(route.request().headers().authorization ?? '');
     await route.fulfill({
@@ -59,6 +93,7 @@ test('renders authenticated thumbnail results', async ({ page }) => {
   await page.route('**/api/v1/files/tags', async (route) => {
     mutations.push({
       authorization: route.request().headers().authorization ?? '',
+      csrf: route.request().headers()['x-gooru-csrf'] ?? '',
       method: route.request().method(),
       body: route.request().postDataJSON()
     });
@@ -74,17 +109,16 @@ test('renders authenticated thumbnail results', async ({ page }) => {
   });
 
   await page.goto('/');
-  await page.getByPlaceholder('Paste server token').fill('secret');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await signIn(page);
 
   await expect(page.getByRole('heading', { name: 'sample.jpg' })).toBeVisible();
   await expect(page.getByText('rating:safe')).toBeVisible();
-  expect(requests).toContain('Bearer secret');
-  await expect.poll(() => thumbnailRequests).toContain('Bearer secret');
+  expect(requests).toContain('');
+  await expect.poll(() => thumbnailRequests).toContain('');
   await page.getByRole('button', { name: 'Preview sample.jpg' }).click();
   const dialog = page.getByRole('dialog', { name: 'sample.jpg' });
   await expect(dialog).toBeVisible();
-  await expect.poll(() => previewRequests).toContain('Bearer secret');
+  await expect.poll(() => previewRequests).toContain('');
   expect(contentRequests).toEqual([]);
   await expect(dialog.getByRole('img', { name: 'sample.jpg' })).toBeVisible();
   await expect(dialog.getByRole('link', { name: 'Open original sample.jpg' })).toBeVisible();
@@ -95,38 +129,38 @@ test('renders authenticated thumbnail results', async ({ page }) => {
   await page.getByRole('button', { name: 'Add tags to sample.jpg' }).click();
   await expect.poll(() => mutations.length).toBe(1);
   expect(mutations[0]).toMatchObject({
-    authorization: 'Bearer secret',
+    authorization: '',
+    csrf: 'csrf-one',
     method: 'POST',
     body: { file_ids: ['bG9jOjE'], tags: ['reviewed'] }
   });
 });
 
-test('switching saved tokens resets auth-scoped file results', async ({ page }) => {
+test('signing in resets auth-scoped file results', async ({ page }) => {
+  await mockAuth(page);
   const requests: Array<{ authorization: string; query: string | null }> = [];
   await page.route('**/api/v1/files?**', async (route) => {
-    const authorization = route.request().headers().authorization ?? '';
-    const tokenName = authorization === 'Bearer beta' ? 'beta' : 'alpha';
     requests.push({
-      authorization,
-      query: new URL(route.request().url()).searchParams.get('q')
+      authorization: route.request().headers().authorization ?? '',
+      query: new URL(route.request().url()).searchParams.get('query')
     });
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         files: [
           {
-            id: `${tokenName}-file`,
-            content_id: `${tokenName}-hash`,
-            name: `${tokenName}.jpg`,
+            id: 'session-file',
+            content_id: 'session-hash',
+            name: 'session.jpg',
             size: 2048,
             modified_time: '2026-05-20T00:00:00Z',
             media_type: 'image/jpeg',
             media_kind: 'image',
-            tags: [tokenName],
+            tags: ['session'],
             media_urls: {
-              thumbnail: `/api/v1/files/${tokenName}-file/thumbnail`,
-              preview: `/api/v1/files/${tokenName}-file/preview`,
-              content: `/api/v1/files/${tokenName}-file/content`
+              thumbnail: '/api/v1/files/session-file/thumbnail',
+              preview: '/api/v1/files/session-file/preview',
+              content: '/api/v1/files/session-file/content'
             }
           }
         ]
@@ -141,19 +175,14 @@ test('switching saved tokens resets auth-scoped file results', async ({ page }) 
   });
 
   await page.goto('/');
-  await page.getByPlaceholder('Paste server token').fill('alpha');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('heading', { name: 'alpha.jpg' })).toBeVisible();
-
-  await page.getByPlaceholder('Paste server token').fill('beta');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('heading', { name: 'beta.jpg' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'alpha.jpg' })).toBeHidden();
-  expect(requests).toContainEqual({ authorization: 'Bearer alpha', query: null });
-  expect(requests).toContainEqual({ authorization: 'Bearer beta', query: null });
+  await expect(page.getByText('Sign in to browse this library.')).toBeVisible();
+  await signIn(page);
+  await expect(page.getByRole('heading', { name: 'session.jpg' })).toBeVisible();
+  expect(requests).toContainEqual({ authorization: '', query: null });
 });
 
 test('video preview uses bounded preview route without fetching original content', async ({ page }) => {
+  await mockAuth(page);
   const thumbnailRequests: string[] = [];
   const previewRequests: string[] = [];
   const contentRequests: Array<{ authorization: string; cookie: string }> = [];
@@ -204,14 +233,13 @@ test('video preview uses bounded preview route without fetching original content
   });
 
   await page.goto('/');
-  await page.getByPlaceholder('Paste server token').fill('secret');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect.poll(() => thumbnailRequests).toContain('Bearer secret');
+  await signIn(page);
+  await expect.poll(() => thumbnailRequests).toContain('');
   await page.getByRole('button', { name: 'Preview sample-video.mp4' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'sample-video.mp4' });
   await expect(dialog).toBeVisible();
-  await expect.poll(() => previewRequests).toContain('Bearer secret');
+  await expect.poll(() => previewRequests).toContain('');
   expect(contentRequests).toEqual([]);
   await expect(dialog.getByRole('img', { name: 'sample-video.mp4' })).toBeVisible();
   const openOriginal = dialog.getByRole('link', { name: 'Open original sample-video.mp4' });
@@ -223,12 +251,13 @@ test('video preview uses bounded preview route without fetching original content
   await expect.poll(() => contentRequests.length).toBe(1);
   expect(contentRequests[0]).toMatchObject({
     authorization: '',
-    cookie: expect.stringContaining('gooru_auth=secret')
+    cookie: expect.stringContaining('gooru_session=session-one')
   });
   await popup.close();
 });
 
 test('scrolls through paginated results with virtualized infinite grid', async ({ page }) => {
+  await mockAuth(page);
   const requests: Array<{ authorization: string; pageToken: string | null }> = [];
   const makeFile = (index: number) => ({
     id: `file-${index}`,
@@ -264,11 +293,10 @@ test('scrolls through paginated results with virtualized infinite grid', async (
   });
 
   await page.goto('/');
-  await page.getByPlaceholder('Paste server token').fill('secret');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await signIn(page);
 
   await expect(page.getByRole('heading', { name: 'file-001.jpg' })).toBeVisible();
-  expect(requests).toContainEqual({ authorization: 'Bearer secret', pageToken: null });
+  expect(requests).toContainEqual({ authorization: '', pageToken: null });
 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect.poll(() => requests.some((request) => request.pageToken === 'page-2')).toBe(true);
@@ -279,9 +307,10 @@ test('scrolls through paginated results with virtualized infinite grid', async (
 });
 
 test('uploads with job polling and cancellation', async ({ page }) => {
-  const uploads: Array<{ authorization: string; prefer: string }> = [];
+  await mockAuth(page);
+  const uploads: Array<{ authorization: string; csrf: string; prefer: string }> = [];
   const jobGets: string[] = [];
-  const jobDeletes: string[] = [];
+  const jobDeletes: Array<{ authorization: string; csrf: string }> = [];
   await page.route('**/api/v1/files?**', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
@@ -291,6 +320,7 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   await page.route('**/api/v1/uploads', async (route) => {
     uploads.push({
       authorization: route.request().headers().authorization ?? '',
+      csrf: route.request().headers()['x-gooru-csrf'] ?? '',
       prefer: route.request().headers().prefer ?? ''
     });
     await route.fulfill({
@@ -301,7 +331,10 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   });
   await page.route('**/api/v1/jobs/job-one', async (route) => {
     if (route.request().method() === 'DELETE') {
-      jobDeletes.push(route.request().headers().authorization ?? '');
+      jobDeletes.push({
+        authorization: route.request().headers().authorization ?? '',
+        csrf: route.request().headers()['x-gooru-csrf'] ?? ''
+      });
       await route.fulfill({
         status: 202,
         contentType: 'application/json',
@@ -317,8 +350,8 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   });
 
   await page.goto('/');
-  await page.getByPlaceholder('Paste server token').fill('secret');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await signIn(page);
+  await expect(page.getByText('Signed in')).toBeVisible();
   await page.locator('input[type="file"]').setInputFiles({
     name: 'upload.jpg',
     mimeType: 'image/jpeg',
@@ -326,9 +359,9 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   });
   await page.getByRole('button', { name: 'Import 1' }).click();
 
-  await expect.poll(() => uploads).toEqual([{ authorization: 'Bearer secret', prefer: 'respond-async' }]);
-  await expect.poll(() => jobGets).toContain('Bearer secret');
+  await expect.poll(() => uploads).toEqual([{ authorization: '', csrf: 'csrf-one', prefer: 'respond-async' }]);
+  await expect.poll(() => jobGets).toContain('');
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect.poll(() => jobDeletes).toContain('Bearer secret');
+  await expect.poll(() => jobDeletes).toContainEqual({ authorization: '', csrf: 'csrf-one' });
   await expect(page.getByText('Canceled')).toBeVisible();
 });

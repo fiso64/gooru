@@ -8,7 +8,7 @@
   import PreviewDialog from '$lib/components/PreviewDialog.svelte';
   import SearchSidebar from '$lib/components/SearchSidebar.svelte';
   import { ApiClient } from '$lib/api/client';
-  import { authToken } from '$lib/stores/auth';
+  import { authState } from '$lib/stores/auth';
   import { createFilesQuery } from '$lib/queries/files';
   import { createJobQuery } from '$lib/queries/jobs';
   import { virtualGrid } from '$lib/state/ui';
@@ -19,8 +19,11 @@
   const submittedSearch = writable('');
   const queryClient = useQueryClient();
 
-  let tokenDraft = $state('');
-  let observedToken = $state($authToken);
+  let loginUsername = $state('');
+  let loginPassword = $state('');
+  let loginBusy = $state(false);
+  let loginError = $state('');
+  let observedCSRF = $state('');
   let authScope = $state(0);
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let viewportHeight = $state(900);
@@ -41,14 +44,13 @@
   let previewLoading = $state(false);
   let previewError = $state('');
 
-  const filesQuery = createFilesQuery(() => $authToken, () => $submittedSearch, () => authScope);
-  const uploadJobQuery = createJobQuery(() => $authToken, () => activeUploadJobID, () => authScope);
+  const filesQuery = createFilesQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope);
+  const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => activeUploadJobID, () => authScope);
 
   $effect(() => {
-    const token = $authToken;
-    tokenDraft = token;
-    if (token === observedToken) return;
-    observedToken = token;
+    const csrf = $authState.csrfToken;
+    if (csrf === observedCSRF) return;
+    observedCSRF = csrf;
     authScope += 1;
     queryClient.removeQueries({ queryKey: ['files'] });
     queryClient.removeQueries({ queryKey: ['job'] });
@@ -70,9 +72,16 @@
     };
   });
 
+  onMount(() => {
+    new ApiClient()
+      .me()
+      .then((session) => authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true }))
+      .catch(() => authState.set({ user: null, csrfToken: '', checked: true }));
+  });
+
   $effect(() => {
     const node = loadMoreSentinel;
-    if (!node || !$authToken) return;
+    if (!node || !$authState.user) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting) && filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) {
@@ -111,10 +120,9 @@
 
   $effect(() => {
     const file = activeFile;
-    const token = $authToken;
     previewURL = '';
     previewError = '';
-    if (!file || !token) {
+    if (!file || !$authState.user) {
       previewLoading = false;
       return;
     }
@@ -123,10 +131,7 @@
     let canceled = false;
     const controller = new AbortController();
     previewLoading = true;
-    fetch(file.media_urls.preview, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal
-    })
+    fetch(file.media_urls.preview, { credentials: 'same-origin', signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`preview request failed: ${response.status}`);
         return response.blob();
@@ -150,8 +155,19 @@
     };
   });
 
-  function saveToken() {
-    authToken.set(tokenDraft.trim());
+  async function login() {
+    if (loginBusy) return;
+    loginBusy = true;
+    loginError = '';
+    try {
+      const session = await new ApiClient().login(loginUsername.trim(), loginPassword);
+      authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true });
+      loginPassword = '';
+    } catch (error) {
+      loginError = errorMessage(error);
+    } finally {
+      loginBusy = false;
+    }
   }
 
   function resetAuthScopedState() {
@@ -198,7 +214,7 @@
     tagBusy = { ...tagBusy, [file.id]: true };
     tagErrors = { ...tagErrors, [file.id]: '' };
     try {
-      await new ApiClient($authToken).mutateTags(operation, { file_ids: [file.id], tags });
+      await new ApiClient($authState.csrfToken).mutateTags(operation, { file_ids: [file.id], tags });
       tagDrafts = { ...tagDrafts, [file.id]: '' };
       await filesQuery.refetch();
     } catch (error) {
@@ -214,11 +230,11 @@
   }
 
   async function submitUpload() {
-    if (!uploadFiles.length || uploadBusy || activeUploadJobID || !$authToken) return;
+    if (!uploadFiles.length || uploadBusy || activeUploadJobID || !$authState.user) return;
     uploadBusy = true;
     uploadStatus = 'Uploading';
     try {
-      const client = new ApiClient($authToken);
+      const client = new ApiClient($authState.csrfToken);
       const response = await client.uploadFiles(uploadFiles, parseTags(uploadTags), true);
       if ('id' in response) {
         handledUploadJobID = '';
@@ -238,10 +254,10 @@
   }
 
   async function cancelUploadJob() {
-    if (!activeUploadJobID || cancelBusy || !$authToken) return;
+    if (!activeUploadJobID || cancelBusy || !$authState.user) return;
     cancelBusy = true;
     try {
-      const job = await new ApiClient($authToken).cancelJob(activeUploadJobID);
+      const job = await new ApiClient($authState.csrfToken).cancelJob(activeUploadJobID);
       uploadStatus = jobStatusText(job);
       if (isTerminalJob(job)) {
         handledUploadJobID = job.id;
@@ -265,13 +281,21 @@
 
 <AppShell>
   {#snippet auth()}
-    <AuthPanel tokenDraft={tokenDraft} onTokenInput={(value) => (tokenDraft = value)} onSave={saveToken} />
+    <AuthPanel
+      username={loginUsername}
+      password={loginPassword}
+      busy={loginBusy}
+      error={loginError}
+      onUsernameInput={(value) => (loginUsername = value)}
+      onPasswordInput={(value) => (loginPassword = value)}
+      onLogin={login}
+    />
   {/snippet}
 
   {#snippet sidebar()}
     {@const files = visibleFiles()}
     <SearchSidebar
-      authSaved={Boolean($authToken)}
+      authSaved={Boolean($authState.user)}
       searchDraft={$searchDraft}
       loadedKinds={files.length ? selectedKind(files) : ''}
       {uploadFiles}
@@ -292,7 +316,7 @@
 
   {@const files = visibleFiles()}
   <MediaGrid
-    authToken={$authToken}
+    sessionActive={Boolean($authState.user)}
     isLoading={filesQuery.isLoading}
     isError={filesQuery.isError}
     error={filesQuery.error}

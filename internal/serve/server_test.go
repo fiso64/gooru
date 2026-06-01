@@ -14,7 +14,6 @@ import (
 
 func TestHealthIsUnauthenticated(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 
@@ -25,13 +24,14 @@ func TestHealthIsUnauthenticated(t *testing.T) {
 	}
 }
 
-func TestJobRoutesRequireBearerToken(t *testing.T) {
+func TestJobRoutesRequireSession(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	server := NewServer(cfg)
+	attachTestAuth(t, server)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/missing", nil)
 
-	NewServer(cfg).Handler().ServeHTTP(rec, req)
+	server.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
@@ -89,10 +89,10 @@ func TestAPIPathErrorsUseJSONEnvelope(t *testing.T) {
 	assertAPIError(t, rec, http.StatusNotFound, "not_found")
 }
 
-func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
+func TestJobRoutesAcceptSessionCookie(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
 	server := NewServer(cfg)
+	auth := attachTestAuth(t, server)
 	job, err := server.jobs.Submit(context.Background(), "test", true, func(ctx context.Context) (interface{}, error) {
 		return "ok", nil
 	})
@@ -102,7 +102,7 @@ func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/"+job.ID, nil)
-	req.Header.Set("Authorization", "bearer secret")
+	addAuthCookie(req, cfg, auth)
 
 	server.Handler().ServeHTTP(rec, req)
 

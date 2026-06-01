@@ -361,6 +361,11 @@ func (c *Client) GetAllFilesInfo() ([]types.FileInfo, error) {
 	return c.store.GetAllFilesInfo()
 }
 
+// GetAllFilesInfoPage gets one bounded page of files known to the system.
+func (c *Client) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, error) {
+	return c.store.GetAllFilesInfoPage(limit, offset)
+}
+
 // GetFileInfoByLocationID gets detailed info for a tracked file by its stable location ID.
 func (c *Client) GetFileInfoByLocationID(id int64) (types.FileInfo, error) {
 	return c.store.GetFileInfoByLocationID(id)
@@ -414,6 +419,27 @@ func (c *Client) GetFilesInfoByQuery(expression string, verbose bool) ([]types.F
 	}
 
 	return c.store.GetFilesInfoByContentQuery(sqlQuery, args)
+}
+
+// GetFilesInfoByQueryPage parses and executes a query expression with bounded pagination.
+func (c *Client) GetFilesInfoByQueryPage(expression string, limit int, offset int, verbose bool) ([]types.FileInfo, error) {
+	sqlQuery, args, err := c.buildQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return []types.FileInfo{}, nil
+	}
+
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
+		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
+		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
+		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
+		fmt.Fprintf(os.Stderr, "-------------\n")
+	}
+
+	return c.store.GetFilesInfoByContentQueryPage(sqlQuery, args, limit, offset)
 }
 
 // GetAllTags retrieves all tags from the database.

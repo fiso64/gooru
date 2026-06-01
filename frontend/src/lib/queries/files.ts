@@ -4,13 +4,13 @@ import type { FileListResponse } from '$lib/api/types';
 
 export const pageLimit = 36;
 
-export function createFilesQuery(getToken: () => string, getSearch: () => string, getAuthScope: () => number) {
+export function createFilesQuery(getAuthenticated: () => boolean, getSearch: () => string, getAuthScope: () => number) {
   return createInfiniteQuery<FileListResponse, Error, { pages: FileListResponse[]; pageParams: string[] }, [string, number, string], string>(() => ({
     queryKey: ['files', getAuthScope(), getSearch()],
-    enabled: Boolean(getToken()),
+    enabled: getAuthenticated(),
     initialPageParam: '',
     queryFn: ({ pageParam }) =>
-      new ApiClient(getToken()).listFiles({
+      new ApiClient().listFiles({
         query: getSearch(),
         limit: pageLimit,
         pageToken: pageParam || undefined

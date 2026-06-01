@@ -41,9 +41,10 @@ func TestContentRouteSupportsRanges(t *testing.T) {
 	}
 }
 
-func TestMediaRoutesRequireBearerToken(t *testing.T) {
+func TestMediaRoutesRequireSession(t *testing.T) {
 	file := writeMediaFile(t, []byte("0123456789"))
-	server := newMediaTestServer(t, types.FileInfo{ID: 2, Path: file, Hash: "hash-content", Size: 10})
+	server := newMediaAuthTestServer(t, types.FileInfo{ID: 2, Path: file, Hash: "hash-content", Size: 10})
+	attachTestAuth(t, server)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(2)+"/content", nil)
 	rec := httptest.NewRecorder()
 
@@ -59,9 +60,10 @@ func TestMediaRoutesRequireBearerToken(t *testing.T) {
 
 func TestMediaContentAcceptsAuthCookieForBrowserOpen(t *testing.T) {
 	file := writeMediaFile(t, []byte("0123456789"))
-	server := newMediaTestServer(t, types.FileInfo{ID: 3, Path: file, Hash: "hash-cookie", Size: 10})
+	server := newMediaAuthTestServer(t, types.FileInfo{ID: 3, Path: file, Hash: "hash-cookie", Size: 10})
+	auth := attachTestAuth(t, server)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/"+EncodeFileID(3)+"/content", nil)
-	req.AddCookie(&http.Cookie{Name: authCookieName, Value: "secret"})
+	addAuthCookie(req, server.cfg, auth)
 	req.Header.Set("Range", "bytes=4-6")
 	rec := httptest.NewRecorder()
 
@@ -241,7 +243,7 @@ func TestFFmpegThumbnailFallsBackToFirstFrameWhenOffsetFails(t *testing.T) {
 func TestVideoThumbnailRouteUsesFFmpegBackend(t *testing.T) {
 	videoPath := writeNamedMediaFile(t, "video.mp4", []byte("fake video"))
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	cfg.Auth.Enabled = false
 	cfg.Media.CacheDir = filepath.Join(t.TempDir(), "media-cache")
 	cfg.Media.ThumbnailSizes = []int{16}
 	cfg.Media.ThumbnailFormat = "jpeg"
@@ -312,7 +314,7 @@ func TestFFmpegVideoThumbnailerConstrainsMaxDimension(t *testing.T) {
 func TestVideoThumbnailRouteReportsMissingFFmpeg(t *testing.T) {
 	videoPath := writeNamedMediaFile(t, "video.mp4", []byte("fake video"))
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	cfg.Auth.Enabled = false
 	cfg.Media.CacheDir = filepath.Join(t.TempDir(), "media-cache")
 	cfg.Media.ThumbnailSizes = []int{16}
 	cfg.Media.ThumbnailFormat = "jpeg"
@@ -344,7 +346,17 @@ func TestVideoThumbnailRouteReportsMissingFFmpeg(t *testing.T) {
 func newMediaTestServer(t *testing.T, file types.FileInfo) *Server {
 	t.Helper()
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	cfg.Auth.Enabled = false
+	cfg.Media.CacheDir = filepath.Join(t.TempDir(), "media-cache")
+	cfg.Media.ThumbnailSizes = []int{16}
+	cfg.Media.ThumbnailFormat = "jpeg"
+	cfg.Media.PreviewSize = 32
+	return NewServerWithLibrary(cfg, mediaLibrary{file: file})
+}
+
+func newMediaAuthTestServer(t *testing.T, file types.FileInfo) *Server {
+	t.Helper()
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Media.CacheDir = filepath.Join(t.TempDir(), "media-cache")
 	cfg.Media.ThumbnailSizes = []int{16}
 	cfg.Media.ThumbnailFormat = "jpeg"

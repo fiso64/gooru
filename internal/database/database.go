@@ -22,8 +22,9 @@ func splitTags(cache string) []string {
 }
 
 type Store struct {
-	DB     *sql.DB
-	logger *log.Logger
+	DB             *sql.DB
+	dataSourceName string
+	logger         *log.Logger
 }
 
 // Tx is a transaction wrapper that logs queries.
@@ -40,7 +41,10 @@ func CreateEmptyDB(dataSourceName string) error {
 	if err != nil {
 		return err
 	}
-	return db.Close()
+	if err := db.Close(); err != nil {
+		return err
+	}
+	return SecureDBFiles(dataSourceName)
 }
 
 // NewStore opens an existing database connection. It does not perform initialization.
@@ -56,6 +60,10 @@ func NewStore(dataSourceName string, verbose bool) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := SecureDBFiles(dataSourceName); err != nil {
+		db.Close()
+		return nil, err
+	}
 
 	var logOutput io.Writer
 	if verbose {
@@ -65,12 +73,26 @@ func NewStore(dataSourceName string, verbose bool) (*Store, error) {
 	}
 	logger := log.New(logOutput, "SQL: ", log.Ltime|log.Lmicroseconds)
 
-	return &Store{DB: db, logger: logger}, nil
+	return &Store{DB: db, dataSourceName: dataSourceName, logger: logger}, nil
+}
+
+// SecureDBFiles constrains the SQLite database and sidecar files to owner-only access.
+func SecureDBFiles(dataSourceName string) error {
+	for _, path := range []string{dataSourceName, dataSourceName + "-wal", dataSourceName + "-shm"} {
+		if err := os.Chmod(path, 0600); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("secure database file %s: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // Close closes the database connection.
 func (s *Store) Close() error {
-	return s.DB.Close()
+	err := s.DB.Close()
+	if secureErr := SecureDBFiles(s.dataSourceName); err == nil {
+		err = secureErr
+	}
+	return err
 }
 
 // Begin starts a new transaction.
@@ -678,6 +700,29 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations ORDER BY path`
 
 	rows, err := s.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		var tagsCache string
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+			return nil, err
+		}
+		file.Tags = splitTags(tagsCache)
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
+// GetAllFilesInfoPage retrieves one bounded page of file info from the database.
+func (s *Store) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, error) {
+	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations ORDER BY path LIMIT ? OFFSET ?`
+
+	rows, err := s.Query(query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1389,6 +1434,36 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 	`, query)
 
 	rows, err := s.Query(finalQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []types.FileInfo
+	for rows.Next() {
+		var file types.FileInfo
+		var tagsCache string
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+			return nil, err
+		}
+		file.Tags = splitTags(tagsCache)
+		files = append(files, file)
+	}
+	return files, rows.Err()
+}
+
+// GetFilesInfoByContentQueryPage executes a complex query and returns one bounded page.
+func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{}, limit int, offset int) ([]types.FileInfo, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_hashes(hash) AS (%s)
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
+		ORDER BY l.path
+		LIMIT ? OFFSET ?
+	`, query)
+	pagedArgs := append(append([]interface{}{}, args...), limit, offset)
+
+	rows, err := s.Query(finalQuery, pagedArgs...)
 	if err != nil {
 		return nil, err
 	}

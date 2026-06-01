@@ -32,7 +32,7 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	}
 }
 
-func TestLoadConfigResolvesTokenFromEnvironment(t *testing.T) {
+func TestLoadConfigRejectsTokenFromEnvironment(t *testing.T) {
 	t.Setenv("GOORU_TEST_TOKEN", " secret-token ")
 	path := filepath.Join(t.TempDir(), "serve.yaml")
 	writeConfig(t, path, `
@@ -57,27 +57,19 @@ tools:
 logging:
   level: "info"
 `)
-	cfg, err := LoadConfig(path, "", Overrides{})
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
-	}
-	if cfg.Auth.Token != "secret-token" {
-		t.Fatalf("token was not trimmed/resolved: %q", cfg.Auth.Token)
-	}
-	if cfg.Jobs.MaxQueued != 5 || cfg.Jobs.MaxRunning != 3 || cfg.Jobs.MaxResultBytes != 1024 {
-		t.Fatalf("job limits were not parsed: %+v", cfg.Jobs)
+	_, err := LoadConfig(path, "", Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("expected token deprecation error, got %v", err)
 	}
 }
 
-func TestLoadConfigAuthTokenOverrideHasFinalPrecedence(t *testing.T) {
+func TestLoadConfigRejectsAuthTokenOverride(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "serve.yaml")
 	writeConfig(t, path, `
 server:
   listen: "0.0.0.0:5678"
 database:
   path: "/tmp/gooru.db"
-auth:
-  token_env: "GOORU_MISSING_TOKEN"
 media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"
@@ -85,15 +77,9 @@ media:
 jobs:
   completed_ttl: "30m"
 `)
-	cfg, err := LoadConfig(path, "", Overrides{AuthToken: " cli-token "})
-	if err != nil {
-		t.Fatalf("LoadConfig failed: %v", err)
-	}
-	if cfg.Auth.Token != "cli-token" {
-		t.Fatalf("token override was not trimmed/applied last: %q", cfg.Auth.Token)
-	}
-	if cfg.Auth.TokenEnv != "" {
-		t.Fatalf("token_env should be cleared by explicit override, got %q", cfg.Auth.TokenEnv)
+	_, err := LoadConfig(path, "", Overrides{AuthToken: " cli-token "})
+	if err == nil || !strings.Contains(err.Error(), "--auth-token is no longer supported") {
+		t.Fatalf("expected token override deprecation error, got %v", err)
 	}
 }
 
@@ -116,8 +102,8 @@ jobs:
   completed_ttl: "30m"
 `)
 	_, err := LoadConfig(path, "", Overrides{})
-	if err == nil || !strings.Contains(err.Error(), "configure only one auth token source") {
-		t.Fatalf("expected token source conflict error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("expected token deprecation error, got %v", err)
 	}
 }
 
@@ -138,25 +124,27 @@ jobs:
   completed_ttl: "30m"
 `)
 	_, err := LoadConfig(path, "", Overrides{})
-	if err == nil || !strings.Contains(err.Error(), "auth.token must not be blank") {
-		t.Fatalf("expected blank token error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
+		t.Fatalf("expected token deprecation error, got %v", err)
 	}
 }
 
 func TestLoadConfigRejectsBlankTokenOverride(t *testing.T) {
 	_, err := LoadConfig("", filepath.Join(t.TempDir(), "gooru.db"), Overrides{AuthToken: "  "})
-	if err == nil || !strings.Contains(err.Error(), "auth token override must not be blank") {
-		t.Fatalf("expected blank override error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "--auth-token is no longer supported") {
+		t.Fatalf("expected token override deprecation error, got %v", err)
 	}
 }
 
-func TestLoadConfigRejectsNonLoopbackWithoutAuth(t *testing.T) {
+func TestLoadConfigRejectsNonLoopbackWithAuthDisabled(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "serve.yaml")
 	writeConfig(t, path, `
 server:
   listen: "0.0.0.0:5678"
 database:
   path: "/tmp/gooru.db"
+auth:
+  enabled: false
 media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"
@@ -165,7 +153,7 @@ jobs:
   completed_ttl: "1h"
 `)
 	_, err := LoadConfig(path, "", Overrides{})
-	if err == nil || !strings.Contains(err.Error(), "refusing unauthenticated non-loopback") {
+	if err == nil || !strings.Contains(err.Error(), "refusing auth.enabled=false") {
 		t.Fatalf("expected unsafe bind error, got %v", err)
 	}
 }

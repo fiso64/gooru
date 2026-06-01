@@ -71,7 +71,7 @@
 <div class="mt-6 space-y-3 text-sm text-zinc-400">
   <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">
     <div class="text-xs uppercase text-zinc-500">Status</div>
-    <div class="mt-2 text-zinc-200">{authSaved ? 'Token saved' : 'Token required'}</div>
+    <div class="mt-2 text-zinc-200">{authSaved ? 'Signed in' : 'Sign in required'}</div>
   </div>
   {#if loadedKinds}
     <div class="rounded-md border border-white/10 bg-white/[0.03] p-3">

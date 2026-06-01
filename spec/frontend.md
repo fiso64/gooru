@@ -97,10 +97,10 @@ The Go server should serve hashed static assets with long-lived cache headers. T
 
 A Node server should not be required in production for v1. Node tooling is only required at build/dev time.
 
-The current auth flow is transitional bearer-token auth inherited from the first
-vertical slice. The browser stores the configured token locally and sends it to
-the API; original-media navigation uses a same-origin media cookie. This should
-not be treated as the final web-app account/session model.
+The current auth flow uses DB-backed login and HttpOnly same-origin session
+cookies. The browser keeps only the CSRF token returned by `/api/v1/auth/login`
+or `/api/v1/auth/me` in memory and sends it in `X-Gooru-CSRF` for mutating
+requests. Media routes should load directly through same-origin cookies.
 
 ## 5.1. Styling Direction
 
@@ -138,7 +138,7 @@ Local UI state examples:
 *   Sidebar open/closed state.
 *   Drag selection state.
 *   Keyboard navigation state.
-*   Auth token storage.
+*   Session and CSRF state.
 
 The frontend should treat TanStack Query as the server-state cache, Svelte state/stores as local UI state, and HTTP caching as the media/static-asset cache.
 

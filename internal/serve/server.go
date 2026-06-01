@@ -14,6 +14,7 @@ type Server struct {
 	library Library
 	media   *MediaService
 	meta    MediaMetadataProvider
+	auth    *AuthStore
 }
 
 func NewServer(cfg Config) *Server {
@@ -30,6 +31,10 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	}
 }
 
+func (s *Server) SetAuthStore(store *AuthStore) {
+	s.auth = store
+}
+
 func (s *Server) HTTPServer() *http.Server {
 	return &http.Server{
 		Addr:         s.cfg.Server.Listen,
@@ -43,12 +48,16 @@ func (s *Server) HTTPServer() *http.Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", methodHandler(http.MethodGet, s.handleHealth))
-	mux.Handle("/api/v1/uploads", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleUpload)))
-	mux.Handle("/api/v1/files/tags", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleMutateTags)))
-	mux.Handle("/api/v1/files/", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleFile)))
-	mux.Handle("/api/v1/files", authMiddleware(s.cfg.Auth.Token, methodHandler(http.MethodGet, s.handleListFiles)))
-	mux.Handle("/api/v1/tags", authMiddleware(s.cfg.Auth.Token, methodHandler(http.MethodGet, s.handleListTags)))
-	mux.Handle("/api/v1/jobs/", authMiddleware(s.cfg.Auth.Token, http.HandlerFunc(s.handleJob)))
+	mux.HandleFunc("/api/v1/auth/login", s.handleAuthLogin)
+	mux.Handle("/api/v1/auth/logout", s.protected(http.HandlerFunc(s.handleAuthLogout)))
+	mux.Handle("/api/v1/auth/me", authMiddleware(s.cfg, s.auth, http.HandlerFunc(s.handleAuthMe)))
+	mux.Handle("/api/v1/auth/change-password", s.protected(http.HandlerFunc(s.handleChangePassword)))
+	mux.Handle("/api/v1/uploads", s.protected(http.HandlerFunc(s.handleUpload)))
+	mux.Handle("/api/v1/files/tags", s.protected(http.HandlerFunc(s.handleMutateTags)))
+	mux.Handle("/api/v1/files/", s.protected(http.HandlerFunc(s.handleFile)))
+	mux.Handle("/api/v1/files", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListFiles)))
+	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
+	mux.Handle("/api/v1/jobs/", s.protected(http.HandlerFunc(s.handleJob)))
 	mux.HandleFunc("/", s.handleFrontend)
 
 	var h http.Handler = mux
@@ -56,6 +65,10 @@ func (s *Server) Handler() http.Handler {
 	h = requestSizeMiddleware(s.cfg.Server.MaxRequestBodyBytes, h)
 	h = corsMiddleware(s.cfg.Server.CORSOrigins, h)
 	return h
+}
+
+func (s *Server) protected(next http.Handler) http.Handler {
+	return authMiddleware(s.cfg, s.auth, csrfMiddleware(s.cfg, s.auth, next))
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {

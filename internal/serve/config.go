@@ -43,10 +43,13 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	Token                        string `yaml:"token"`
-	TokenEnv                     string `yaml:"token_env"`
-	TokenFile                    string `yaml:"token_file"`
-	AllowUnsafeNoAuthNonLoopback bool   `yaml:"allow_unsafe_no_auth_non_loopback"`
+	Enabled                      bool          `yaml:"enabled"`
+	SessionTTLRaw                string        `yaml:"session_ttl"`
+	SessionTTL                   time.Duration `yaml:"-"`
+	CookieName                   string        `yaml:"cookie_name"`
+	CookieSecure                 string        `yaml:"cookie_secure"`
+	CookieSameSite               string        `yaml:"cookie_same_site"`
+	AllowUnsafeNoAuthNonLoopback bool          `yaml:"allow_unsafe_no_auth_non_loopback"`
 }
 
 type UploadsConfig struct {
@@ -102,7 +105,15 @@ func DefaultConfig(dbPath string) Config {
 			IdleTimeout:         2 * time.Minute,
 		},
 		Database: DatabaseConfig{Path: dbPath},
-		Uploads:  UploadsConfig{Enabled: false},
+		Auth: AuthConfig{
+			Enabled:        true,
+			SessionTTLRaw:  "720h",
+			SessionTTL:     720 * time.Hour,
+			CookieName:     "gooru_session",
+			CookieSecure:   "auto",
+			CookieSameSite: "lax",
+		},
+		Uploads: UploadsConfig{Enabled: false},
 		Media: MediaConfig{
 			ThumbnailSizes:  []int{256, 512},
 			ThumbnailFormat: "jpeg",
@@ -132,6 +143,9 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 		if err != nil {
 			return Config{}, fmt.Errorf("read config %q: %w", path, err)
 		}
+		if err := rejectDeprecatedAuthTokenConfig(data); err != nil {
+			return Config{}, fmt.Errorf("parse config %q: %w", path, err)
+		}
 		decoder := yaml.NewDecoder(bytes.NewReader(data))
 		decoder.KnownFields(true)
 		if err := decoder.Decode(&cfg); err != nil {
@@ -150,17 +164,10 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 	}
 
 	if overrides.AuthToken != "" {
-		token, err := normalizeToken("auth token override", overrides.AuthToken)
-		if err != nil {
-			return Config{}, err
-		}
-		cfg.Auth.Token = token
-		cfg.Auth.TokenEnv = ""
-		cfg.Auth.TokenFile = ""
-	} else {
-		if err := cfg.ResolveSecrets(); err != nil {
-			return Config{}, err
-		}
+		return Config{}, errors.New("--auth-token is no longer supported; create a DB-backed admin with 'gooru user create-admin'")
+	}
+	if err := cfg.ResolveSecrets(); err != nil {
+		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -169,51 +176,31 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 }
 
 func (cfg *Config) ResolveSecrets() error {
-	sources := 0
-	if cfg.Auth.Token != "" {
-		token, err := normalizeToken("auth.token", cfg.Auth.Token)
-		if err != nil {
-			return err
-		}
-		cfg.Auth.Token = token
-		sources++
-	}
-	if cfg.Auth.TokenEnv != "" {
-		sources++
-	}
-	if cfg.Auth.TokenFile != "" {
-		sources++
-	}
-	if sources > 1 {
-		return errors.New("configure only one auth token source: auth.token, auth.token_env, or auth.token_file")
-	}
-	if cfg.Auth.TokenEnv != "" {
-		value, ok := os.LookupEnv(cfg.Auth.TokenEnv)
-		if !ok || strings.TrimSpace(value) == "" {
-			return fmt.Errorf("auth.token_env %q is set but the environment variable is empty or unset", cfg.Auth.TokenEnv)
-		}
-		cfg.Auth.Token = strings.TrimSpace(value)
-	}
-	if cfg.Auth.TokenFile != "" {
-		data, err := os.ReadFile(cfg.Auth.TokenFile)
-		if err != nil {
-			return fmt.Errorf("read auth.token_file %q: %w", cfg.Auth.TokenFile, err)
-		}
-		token := strings.TrimSpace(string(data))
-		if token == "" {
-			return fmt.Errorf("auth.token_file %q is empty", cfg.Auth.TokenFile)
-		}
-		cfg.Auth.Token = token
-	}
 	return nil
 }
 
-func normalizeToken(name string, value string) (string, error) {
-	token := strings.TrimSpace(value)
-	if token == "" {
-		return "", fmt.Errorf("%s must not be blank", name)
+func rejectDeprecatedAuthTokenConfig(data []byte) error {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return err
 	}
-	return token, nil
+	if len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		return nil
+	}
+	top := root.Content[0]
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		if top.Content[i].Value != "auth" || top.Content[i+1].Kind != yaml.MappingNode {
+			continue
+		}
+		auth := top.Content[i+1]
+		for j := 0; j+1 < len(auth.Content); j += 2 {
+			switch auth.Content[j].Value {
+			case "token", "token_env", "token_file":
+				return errors.New("auth.token, auth.token_env, and auth.token_file are no longer supported; create DB-backed users with 'gooru user create-admin'")
+			}
+		}
+	}
+	return nil
 }
 
 func (cfg *Config) Validate() error {
@@ -279,8 +266,38 @@ func (cfg *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("uploads directory %q path must be absolute", dir.Name))
 		}
 	}
-	if cfg.Auth.Token == "" && !cfg.Auth.AllowUnsafeNoAuthNonLoopback && !isLoopbackListen(cfg.Server.Listen) {
-		errs = append(errs, errors.New("refusing unauthenticated non-loopback server.listen; set auth.token/token_env/token_file or auth.allow_unsafe_no_auth_non_loopback"))
+	if cfg.Auth.SessionTTLRaw == "" {
+		cfg.Auth.SessionTTLRaw = "720h"
+	}
+	sessionTTL, err := time.ParseDuration(cfg.Auth.SessionTTLRaw)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("auth.session_ttl must be a duration such as 720h: %w", err))
+	} else if sessionTTL <= 0 {
+		errs = append(errs, errors.New("auth.session_ttl must be greater than zero"))
+	} else {
+		cfg.Auth.SessionTTL = sessionTTL
+	}
+	if strings.TrimSpace(cfg.Auth.CookieName) == "" {
+		errs = append(errs, errors.New("auth.cookie_name is required"))
+	}
+	if cfg.Auth.CookieSecure == "" {
+		cfg.Auth.CookieSecure = "auto"
+	}
+	switch strings.ToLower(cfg.Auth.CookieSecure) {
+	case "auto", "true", "false":
+	default:
+		errs = append(errs, errors.New("auth.cookie_secure must be one of: auto, true, false"))
+	}
+	if cfg.Auth.CookieSameSite == "" {
+		cfg.Auth.CookieSameSite = "lax"
+	}
+	switch strings.ToLower(cfg.Auth.CookieSameSite) {
+	case "lax", "strict", "none":
+	default:
+		errs = append(errs, errors.New("auth.cookie_same_site must be one of: lax, strict, none"))
+	}
+	if !cfg.Auth.Enabled && !cfg.Auth.AllowUnsafeNoAuthNonLoopback && !isLoopbackListen(cfg.Server.Listen) {
+		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_non_loopback for trusted development"))
 	}
 	return errors.Join(errs...)
 }

@@ -6,7 +6,6 @@
 
   let {
     file,
-    token,
     tagDraft,
     tagBusy,
     tagError,
@@ -15,7 +14,6 @@
     onMutateTags
   } = $props<{
     file: FileItem;
-    token: string;
     tagDraft: string;
     tagBusy: boolean;
     tagError: string;
@@ -32,7 +30,7 @@
     aria-label={`Preview ${file.name}`}
     onclick={() => onOpen(file)}
   >
-    <AuthenticatedThumbnail {file} {token} size={256} />
+    <AuthenticatedThumbnail {file} size={256} />
   </button>
   <div class="space-y-2 p-3">
     <h2 class="truncate text-sm font-semibold text-zinc-100" title={file.name}>{file.name}</h2>

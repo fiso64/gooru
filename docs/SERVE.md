@@ -30,8 +30,9 @@ go run ./cmd/gooru serve --print-default-config > serve.yaml
 ```
 
 The default listen address is `127.0.0.1:5678`, which is suitable for local use.
-For a usable media browser, set an auth token and, if uploads are desired, at
-least one absolute upload directory:
+Authentication is enabled by default and uses DB-backed users plus opaque
+server-side sessions. If uploads are desired, configure at least one absolute
+upload directory:
 
 ```yaml
 server:
@@ -42,7 +43,11 @@ database:
   path: "/home/alice/.config/gooru/gooru.db"
 
 auth:
-  token_env: "GOORU_AUTH_TOKEN"
+  enabled: true
+  session_ttl: "720h"
+  cookie_name: "gooru_session"
+  cookie_secure: "auto"
+  cookie_same_site: "lax"
 
 uploads:
   enabled: true
@@ -68,22 +73,27 @@ tools:
   ffprobe_path: "ffprobe"
 ```
 
-Then run:
+Create the first admin user, then run the server:
 
 ```bash
-export GOORU_AUTH_TOKEN="$(openssl rand -base64 32)"
+go run ./cmd/gooru user create-admin --username alice --config serve.yaml
 go run ./cmd/gooru serve --config serve.yaml
 ```
 
-Open `http://127.0.0.1:5678/`, paste the token into the auth field, and save it.
-The browser stores the token locally and sends it as bearer auth for API calls.
-Original media opens use a same-origin cookie scoped to `/api/v1/files/` so
-browser navigation can keep range requests for audio/video seeking.
+For automation, provide the password through the clearly named
+`GOORU_ADMIN_PASSWORD` environment variable. Avoid passing passwords as command
+arguments.
 
-This bearer-token flow is the current Issue #1 auth model. It is intentionally
-transitional: the planned account/session work will replace it with DB-backed
-browser sessions. Until then, treat the token like a password and prefer
-loopback, a trusted private network, VPN, SSH tunnel, or reverse proxy.
+Login uses `POST /api/v1/auth/login`. The server sets an HttpOnly
+`gooru_session` cookie and returns a CSRF token. Mutating cookie-authenticated
+requests must send that token in `X-Gooru-CSRF`; `GET /api/v1/auth/me` returns a
+fresh token for browser reloads. Original media, thumbnails, and previews are
+loaded with same-origin session cookies, so normal `<img>`, `<video>`, and
+`<audio>` elements can use range requests without JavaScript blob fetching.
+
+The old `auth.token`, `auth.token_env`, `auth.token_file`, and `--auth-token`
+browser auth configuration is rejected with a migration message. Do not store
+normal usernames or passwords in YAML config.
 
 ## Local Development
 
@@ -117,20 +127,20 @@ freshly built binary avoids accidentally running an older `gooru` from `PATH`.
 ## Network Access
 
 For local-only use, keep `server.listen` on `127.0.0.1`. To access the app from
-another device, bind to a private interface or `0.0.0.0` and configure an auth
-token:
+another device, bind to a private interface or `0.0.0.0` and keep session auth
+enabled:
 
 ```yaml
 server:
   listen: "0.0.0.0:5678"
 
 auth:
-  token_env: "GOORU_AUTH_TOKEN"
+  enabled: true
 ```
 
-`gooru serve` refuses unauthenticated non-loopback binds. The intentionally
-named escape hatch `auth.allow_unsafe_no_auth_non_loopback: true` is only for
-trusted throwaway environments.
+`gooru serve` refuses `auth.enabled: false` on non-loopback binds unless the
+intentionally named escape hatch `auth.allow_unsafe_no_auth_non_loopback: true`
+is set for trusted throwaway environments.
 
 TLS is intentionally not managed by `gooru serve` in this stack. Use a reverse
 proxy, VPN, SSH tunnel, or private network tunnel when exposing the app beyond a

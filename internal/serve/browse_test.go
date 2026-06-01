@@ -31,20 +31,21 @@ func TestFileIDRoundTrip(t *testing.T) {
 	}
 }
 
-func TestBrowseRoutesRequireBearerToken(t *testing.T) {
+func TestBrowseRoutesRequireSession(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	server := NewServerWithLibrary(cfg, emptyLibrary{})
+	attachTestAuth(t, server)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/files", nil)
 
-	NewServerWithLibrary(cfg, emptyLibrary{}).Handler().ServeHTTP(rec, req)
+	server.Handler().ServeHTTP(rec, req)
 
 	assertAPIError(t, rec, http.StatusUnauthorized, "unauthorized")
 }
 
 func TestBrowseInvalidQueryReturnsBadRequest(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	cfg.Auth.Enabled = false
 	rec := httptest.NewRecorder()
 	req := authedRequest(http.MethodGet, "/api/v1/files?query=(")
 	library := errorLibrary{listFilesErr: fmt.Errorf("%w: could not parse query", core.ErrInvalidQuery)}
@@ -56,7 +57,7 @@ func TestBrowseInvalidQueryReturnsBadRequest(t *testing.T) {
 
 func TestBrowseServiceErrorReturnsInternalError(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Auth.Token = "secret"
+	cfg.Auth.Enabled = false
 	rec := httptest.NewRecorder()
 	req := authedRequest(http.MethodGet, "/api/v1/files")
 	library := errorLibrary{listFilesErr: errors.New("database exploded")}
@@ -158,7 +159,7 @@ func TestFileDTOMetadataFallsBackWithoutBreakingRoute(t *testing.T) {
 	server := NewServerWithLibrary(cfg, emptyLibrary{})
 	imagePath := writePNGImage(t)
 
-	dto := server.fileDTO(context.Background(), types.FileInfo{ID: 99, Path: imagePath, Hash: "hash", Size: 10})
+	dto := server.fileDTO(context.Background(), types.FileInfo{ID: 99, Path: imagePath, Hash: "hash", Size: 10}, true)
 	if dto.Metadata.ImageWidth == nil || *dto.Metadata.ImageWidth != 32 {
 		t.Fatalf("expected image width metadata, got %+v", dto.Metadata)
 	}
@@ -166,7 +167,7 @@ func TestFileDTOMetadataFallsBackWithoutBreakingRoute(t *testing.T) {
 		t.Fatalf("expected image height metadata, got %+v", dto.Metadata)
 	}
 
-	dto = server.fileDTO(context.Background(), types.FileInfo{ID: 100, Path: filepath.Join(t.TempDir(), "missing.jpg"), Hash: "hash", Size: 10})
+	dto = server.fileDTO(context.Background(), types.FileInfo{ID: 100, Path: filepath.Join(t.TempDir(), "missing.jpg"), Hash: "hash", Size: 10}, true)
 	if dto.ID == "" || dto.Metadata.ImageWidth != nil || dto.Metadata.ImageHeight != nil {
 		t.Fatalf("metadata failure should not block DTO fallback, got %+v", dto)
 	}
@@ -277,7 +278,7 @@ func newTestBrowseServer(t *testing.T) (*Server, func()) {
 	}
 
 	cfg := DefaultConfig(dbPath)
-	cfg.Auth.Token = "secret"
+	cfg.Auth.Enabled = false
 	return NewServerWithLibrary(cfg, NewGooruLibrary(client, false)), func() { _ = client.Close() }
 }
 
@@ -295,9 +296,7 @@ func mustPageToken(value string) string {
 }
 
 func authedRequest(method string, target string) *http.Request {
-	req := httptest.NewRequest(method, target, nil)
-	req.Header.Set("Authorization", "Bearer secret")
-	return req
+	return httptest.NewRequest(method, target, nil)
 }
 
 type emptyLibrary struct{}

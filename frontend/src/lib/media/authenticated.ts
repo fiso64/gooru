@@ -23,10 +23,10 @@ export class AuthenticatedMediaCache {
     private readonly objectURLs: ObjectURLStore = URL
   ) {}
 
-  async load(url: string, token: string, signal?: AbortSignal): Promise<MediaLease> {
+  async load(url: string, signal?: AbortSignal): Promise<MediaLease> {
     if (signal?.aborted) throw abortError();
 
-    const key = `${token}\n${url}`;
+    const key = url;
     let entry = this.entries.get(key);
     if (!entry) {
       const controller = new AbortController();
@@ -35,7 +35,7 @@ export class AuthenticatedMediaCache {
         objectURL: '',
         controller,
         promise: this.fetcher(url, {
-          headers: { Authorization: `Bearer ${token}` },
+          credentials: 'same-origin',
           signal: controller.signal
         })
           .then(async (response) => {

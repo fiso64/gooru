@@ -1,4 +1,4 @@
-import type { ApiErrorResponse, FileListResponse, Job, TagMutationOperation, TagMutationRequest, TagMutationResponse, UploadImportResponse } from './types';
+import type { ApiErrorResponse, AuthMeResponse, FileListResponse, Job, TagMutationOperation, TagMutationRequest, TagMutationResponse, UploadImportResponse } from './types';
 
 export class ApiError extends Error {
   code: string;
@@ -20,11 +20,29 @@ export interface ListFilesParams {
 
 export class ApiClient {
   readonly baseURL: string;
-  readonly token: string;
+  readonly csrfToken: string;
 
-  constructor(token: string, baseURL = '/api/v1') {
+  constructor(csrfToken = '', baseURL = '/api/v1') {
     this.baseURL = baseURL;
-    this.token = token;
+    this.csrfToken = csrfToken;
+  }
+
+  async login(username: string, password: string): Promise<AuthMeResponse> {
+    return this.request<AuthMeResponse>(`${this.baseURL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+  }
+
+  async me(): Promise<AuthMeResponse> {
+    return this.request<AuthMeResponse>(`${this.baseURL}/auth/me`);
+  }
+
+  async logout(): Promise<void> {
+    await this.request<{ ok: boolean }>(`${this.baseURL}/auth/logout`, {
+      method: 'POST'
+    });
   }
 
   async listFiles(params: ListFilesParams = {}): Promise<FileListResponse> {
@@ -68,10 +86,13 @@ export class ApiClient {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set('Accept', 'application/json');
-    headers.set('Authorization', `Bearer ${this.token}`);
+    if (this.csrfToken && isMutatingMethod(init.method ?? 'GET')) {
+      headers.set('X-Gooru-CSRF', this.csrfToken);
+    }
     const response = await fetch(path, {
       ...init,
-      headers
+      headers,
+      credentials: 'same-origin'
     });
     if (!response.ok) {
       let payload: ApiErrorResponse | undefined;
@@ -88,4 +109,8 @@ export class ApiClient {
     }
     return (await response.json()) as T;
   }
+}
+
+function isMutatingMethod(method: string): boolean {
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
 }
