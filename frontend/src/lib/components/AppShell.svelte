@@ -68,32 +68,34 @@
       <span class="topbar-brand-mark"><Logo size={17} /></span>
     </button>
     <form class="topbar-search" onsubmit={(event) => { event.preventDefault(); onSearchSubmit(); }}>
-      <div class="searchbar">
-        <span class="searchbar-icon"><Icon name="search" size={16} /></span>
-        <input
-          class="searchbar-input"
-          value={search}
-          oninput={(event) => onSearchInput(event.currentTarget.value)}
-          placeholder="tag, key:value, @tagged"
-          aria-label="Search library"
-        />
-        {#if search}
-          <button class="searchbar-clear" type="button" aria-label="Clear search" onclick={() => { onSearchInput(''); onSearchSubmit(); }}>
-            <Icon name="close" size={12} />
-          </button>
+      <div class="topbar-search-inner">
+        <div class="searchbar">
+          <span class="searchbar-icon"><Icon name="search" size={16} /></span>
+          <input
+            class="searchbar-input"
+            value={search}
+            oninput={(event) => onSearchInput(event.currentTarget.value)}
+            placeholder="tag, key:value, @tagged"
+            aria-label="Search library"
+          />
+          {#if search}
+            <button class="searchbar-clear" type="button" aria-label="Clear search" onclick={() => { onSearchInput(''); onSearchSubmit(); }}>
+              <Icon name="close" size={12} />
+            </button>
+          {/if}
+        </div>
+        {#if suggestions.length}
+          <div class="search-suggestions" role="listbox" aria-label="Search suggestions">
+            <div class="group-head">Suggestions</div>
+            {#each suggestions as suggestion}
+              <button type="button" role="option" aria-selected="false" onclick={() => onSuggestion(suggestion.name)}>
+                <span class="tok">{suggestion.name}</span>
+                {#if suggestion.count != null}<span class="count">{suggestion.count.toLocaleString()}</span>{/if}
+              </button>
+            {/each}
+          </div>
         {/if}
       </div>
-      {#if suggestions.length}
-        <div class="search-suggestions" role="listbox" aria-label="Search suggestions">
-          <div class="group-head">Suggestions</div>
-          {#each suggestions as suggestion}
-            <button type="button" role="option" aria-selected="false" onclick={() => onSuggestion(suggestion.name)}>
-              <span class="tok">{suggestion.name}</span>
-              {#if suggestion.count != null}<span class="count">{suggestion.count.toLocaleString()}</span>{/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
     </form>
     <div class="topbar-right">
       <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Jobs" aria-label="Jobs" onclick={onJobs}>
