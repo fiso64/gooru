@@ -2,10 +2,11 @@ import { ApiError } from '$lib/api/client';
 import type { FileItem, Job } from '$lib/api/types';
 
 export function formatBytes(size: number) {
-  return new Intl.NumberFormat(undefined, {
-    notation: size >= 1_000_000 ? 'compact' : 'standard',
-    maximumFractionDigits: 1
-  }).format(size);
+  if (!Number.isFinite(size) || size <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(size) / Math.log(1024)));
+  const value = size / 1024 ** index;
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
 export function errorMessage(error: unknown) {
@@ -30,6 +31,32 @@ export function selectedKind(files: FileItem[]) {
     .sort((a, b) => b[1] - a[1])
     .map(([kind, count]) => `${kind} ${count}`)
     .join(' / ');
+}
+
+export function mediaDimensions(file: FileItem) {
+  const width = file.metadata.image_width ?? file.metadata.video_width;
+  const height = file.metadata.image_height ?? file.metadata.video_height;
+  return width && height ? `${width}x${height}` : '';
+}
+
+export function mediaDuration(file: FileItem) {
+  const seconds = file.metadata.video_duration ?? file.metadata.audio_duration;
+  if (!seconds) return '';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60).toString().padStart(2, '0');
+  return `${mins}:${secs}`;
+}
+
+export function groupTags(tags: string[]) {
+  const groups = new Map<string, string[]>();
+  for (const tag of tags) {
+    const index = tag.indexOf(':');
+    const ns = index > 0 ? tag.slice(0, index) : '';
+    const list = groups.get(ns) ?? [];
+    list.push(tag);
+    groups.set(ns, list);
+  }
+  return Array.from(groups.entries()).map(([namespace, items]) => ({ namespace, tags: items }));
 }
 
 export function isTerminalJob(job: Job) {

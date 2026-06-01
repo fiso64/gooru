@@ -4,56 +4,72 @@
   import { useQueryClient } from '@tanstack/svelte-query';
   import AppShell from '$lib/components/AppShell.svelte';
   import AuthPanel from '$lib/components/AuthPanel.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import MediaGrid from '$lib/components/MediaGrid.svelte';
   import PreviewDialog from '$lib/components/PreviewDialog.svelte';
-  import SearchSidebar from '$lib/components/SearchSidebar.svelte';
+  import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { createFilesQuery } from '$lib/queries/files';
-  import { createJobQuery } from '$lib/queries/jobs';
+  import { createFilesQuery, type FileSort, type SortOrder } from '$lib/queries/files';
+  import { createJobQuery, createJobsQuery } from '$lib/queries/jobs';
+  import { createSavedSearchesQuery, createUploadTargetsQuery } from '$lib/queries/library';
   import { virtualGrid } from '$lib/state/ui';
-  import { errorMessage, isTerminalJob, jobStatusText, parseTags, selectedKind } from '$lib/utils/format';
-  import type { FileItem } from '$lib/api/types';
+  import { errorMessage, formatBytes, isTerminalJob, jobStatusText, parseTags } from '$lib/utils/format';
+  import type { FileItem, Job } from '$lib/api/types';
 
   const searchDraft = writable('');
   const submittedSearch = writable('');
   const queryClient = useQueryClient();
 
-  let loginUsername = $state('');
-  let loginPassword = $state('');
-  let loginBusy = $state(false);
-  let loginError = $state('');
-  let observedCSRF = $state('');
+  let route = $state('library');
+  let activeKind = $state('');
+  let activeSavedSearch = $state('');
+  let sort: FileSort = $state('modified');
+  let order: SortOrder = $state('desc');
   let authScope = $state(0);
+  let observedCSRF = $state('');
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let viewportHeight = $state(900);
   let viewportWidth = $state(1200);
   let scrollY = $state(0);
+  let loginUsername = $state('');
+  let loginPassword = $state('');
+  let loginBusy = $state(false);
+  let loginError = $state('');
   let tagDrafts = $state<Record<string, string>>({});
   let tagBusy = $state<Record<string, boolean>>({});
   let tagErrors = $state<Record<string, string>>({});
+  let selectedIDs = $state(new Set<string>());
   let uploadFiles = $state<File[]>([]);
   let uploadTags = $state('');
+  let uploadTargetID = $state('');
   let uploadBusy = $state(false);
   let cancelBusy = $state(false);
   let uploadStatus = $state('');
   let activeUploadJobID = $state('');
   let handledUploadJobID = $state('');
   let activeFile = $state<FileItem | null>(null);
-  let previewURL = $state('');
-  let previewLoading = $state(false);
-  let previewError = $state('');
+  let debounce: ReturnType<typeof setTimeout> | undefined;
 
-  const filesQuery = createFilesQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope);
+  const filesQuery = createFilesQuery(
+    () => Boolean($authState.user),
+    () => $submittedSearch,
+    () => activeKind,
+    () => sort,
+    () => order,
+    () => authScope
+  );
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => activeUploadJobID, () => authScope);
+  const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
+  const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
+  const uploadTargetsQuery = createUploadTargetsQuery(() => Boolean($authState.user), () => authScope);
 
   $effect(() => {
     const csrf = $authState.csrfToken;
     if (csrf === observedCSRF) return;
     observedCSRF = csrf;
     authScope += 1;
-    queryClient.removeQueries({ queryKey: ['files'] });
-    queryClient.removeQueries({ queryKey: ['job'] });
+    queryClient.clear();
     resetAuthScopedState();
   });
 
@@ -101,6 +117,7 @@
     if (isTerminalJob(job)) {
       handledUploadJobID = job.id;
       activeUploadJobID = '';
+      void jobsQuery.refetch();
       if (job.status === 'completed') {
         const result = job.result as { files?: unknown[] } | undefined;
         uploadStatus = `Imported ${result?.files?.length ?? 0} file(s)`;
@@ -118,62 +135,11 @@
     }
   });
 
-  $effect(() => {
-    const file = activeFile;
-    previewURL = '';
-    previewError = '';
-    if (!file || !$authState.user) {
-      previewLoading = false;
-      return;
-    }
-
-    let objectURL = '';
-    let canceled = false;
-    const controller = new AbortController();
-    previewLoading = true;
-    fetch(file.media_urls.preview, { credentials: 'same-origin', signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`preview request failed: ${response.status}`);
-        return response.blob();
-      })
-      .then((blob) => {
-        if (canceled) return;
-        objectURL = URL.createObjectURL(blob);
-        previewURL = objectURL;
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) previewError = errorMessage(error);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) previewLoading = false;
-      });
-
-    return () => {
-      canceled = true;
-      controller.abort();
-      if (objectURL) URL.revokeObjectURL(objectURL);
-    };
-  });
-
-  async function login() {
-    if (loginBusy) return;
-    loginBusy = true;
-    loginError = '';
-    try {
-      const session = await new ApiClient().login(loginUsername.trim(), loginPassword);
-      authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true });
-      loginPassword = '';
-    } catch (error) {
-      loginError = errorMessage(error);
-    } finally {
-      loginBusy = false;
-    }
-  }
-
   function resetAuthScopedState() {
     tagDrafts = {};
     tagBusy = {};
     tagErrors = {};
+    selectedIDs = new Set();
     uploadFiles = [];
     uploadTags = '';
     uploadBusy = false;
@@ -184,12 +150,40 @@
     activeFile = null;
   }
 
-  function submitSearch() {
-    submittedSearch.set($searchDraft.trim());
-  }
-
   function visibleFiles() {
     return filesQuery.data?.pages.flatMap((page) => page.files) ?? [];
+  }
+
+  function firstPage() {
+    return filesQuery.data?.pages[0];
+  }
+
+  function activeJobs() {
+    return (jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running');
+  }
+
+  function submitSearch() {
+    submittedSearch.set($searchDraft.trim());
+    selectedIDs = new Set();
+    route = 'library';
+  }
+
+  function setSearch(value: string) {
+    searchDraft.set(value);
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(submitSearch, 280);
+  }
+
+  function setKind(kind: string) {
+    activeKind = kind;
+    selectedIDs = new Set();
+  }
+
+  function runSavedSearch(query: string, name: string) {
+    activeSavedSearch = name;
+    searchDraft.set(query);
+    submittedSearch.set(query);
+    route = 'library';
   }
 
   function openPreview(file: FileItem) {
@@ -200,8 +194,28 @@
     activeFile = null;
   }
 
+  function movePreview(delta: number) {
+    const files = visibleFiles();
+    if (!activeFile || !files.length) return;
+    const index = files.findIndex((file) => file.id === activeFile?.id);
+    activeFile = files[(index + delta + files.length) % files.length] ?? activeFile;
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape' && activeFile) closePreview();
+    if (activeFile && event.key === 'ArrowLeft') movePreview(-1);
+    if (activeFile && event.key === 'ArrowRight') movePreview(1);
+  }
+
+  function toggleSelect(file: FileItem) {
+    const next = new Set(selectedIDs);
+    if (next.has(file.id)) next.delete(file.id);
+    else next.add(file.id);
+    selectedIDs = next;
+  }
+
+  function selectLoaded() {
+    selectedIDs = new Set(visibleFiles().map((file) => file.id));
   }
 
   function updateTagDraft(fileID: string, value: string) {
@@ -224,6 +238,41 @@
     }
   }
 
+  async function bulkTagSelected() {
+    const tags = parseTags(window.prompt('Tags to add to selected files') ?? '');
+    if (!tags.length || !selectedIDs.size) return;
+    try {
+      await new ApiClient($authState.csrfToken).mutateTags('add', { file_ids: Array.from(selectedIDs), tags });
+      selectedIDs = new Set();
+      await filesQuery.refetch();
+    } catch (error) {
+      window.alert(errorMessage(error));
+    }
+  }
+
+  async function login() {
+    if (loginBusy) return;
+    loginBusy = true;
+    loginError = '';
+    try {
+      const session = await new ApiClient().login(loginUsername.trim(), loginPassword);
+      authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true });
+      loginPassword = '';
+    } catch (error) {
+      loginError = errorMessage(error);
+    } finally {
+      loginBusy = false;
+    }
+  }
+
+  async function logout() {
+    try {
+      await new ApiClient($authState.csrfToken).logout();
+    } finally {
+      authState.set({ user: null, csrfToken: '', checked: true });
+    }
+  }
+
   function selectUploads(files: FileList | null) {
     uploadFiles = files ? Array.from(files) : [];
     uploadStatus = '';
@@ -235,11 +284,12 @@
     uploadStatus = 'Uploading';
     try {
       const client = new ApiClient($authState.csrfToken);
-      const response = await client.uploadFiles(uploadFiles, parseTags(uploadTags), true);
+      const response = await client.uploadFiles(uploadFiles, parseTags(uploadTags), true, uploadTargetID);
       if ('id' in response) {
         handledUploadJobID = '';
         activeUploadJobID = response.id;
         uploadStatus = 'Queued';
+        void jobsQuery.refetch();
       } else {
         uploadStatus = `Imported ${response.files.length} file(s)`;
         uploadFiles = [];
@@ -265,11 +315,22 @@
       } else {
         await uploadJobQuery.refetch();
       }
+      void jobsQuery.refetch();
     } catch (error) {
       uploadStatus = errorMessage(error);
     } finally {
       cancelBusy = false;
     }
+  }
+
+  async function cancelJob(job: Job) {
+    await new ApiClient($authState.csrfToken).cancelJob(job.id);
+    await jobsQuery.refetch();
+  }
+
+  async function clearCompletedJobs() {
+    await new ApiClient($authState.csrfToken).clearJobs('completed');
+    await jobsQuery.refetch();
   }
 </script>
 
@@ -279,61 +340,181 @@
   <title>Gooru Library</title>
 </svelte:head>
 
-<AppShell>
-  {#snippet auth()}
+<div class="gooru-root gooru-accent-sodium gooru-type-editorial">
+  {#if !$authState.user}
     <AuthPanel
-      username={loginUsername}
-      password={loginPassword}
-      busy={loginBusy}
-      error={loginError}
+      checked={$authState.checked}
+      username=""
+      {loginUsername}
+      {loginPassword}
+      {loginBusy}
+      {loginError}
       onUsernameInput={(value) => (loginUsername = value)}
       onPasswordInput={(value) => (loginPassword = value)}
       onLogin={login}
+      onLogout={logout}
     />
-  {/snippet}
-
-  {#snippet sidebar()}
+  {:else}
     {@const files = visibleFiles()}
-    <SearchSidebar
-      authSaved={Boolean($authState.user)}
-      searchDraft={$searchDraft}
-      loadedKinds={files.length ? selectedKind(files) : ''}
-      {uploadFiles}
-      {uploadTags}
-      {uploadBusy}
-      {cancelBusy}
-      {uploadStatus}
-      {activeUploadJobID}
-      onSearchInput={(value) => searchDraft.set(value)}
+    {@const page = firstPage()}
+    <AppShell
+      username={$authState.user.username}
+      {route}
+      {activeKind}
+      libraryCount={page?.library_count ?? files.length}
+      tagCount={page?.facets?.kind?.reduce((sum, item) => sum + item.count, 0) ?? 0}
+      jobsActiveCount={activeJobs().length}
+      kindCounts={page?.facets?.kind ?? []}
+      savedSearches={savedSearchesQuery.data?.items ?? []}
+      search={$searchDraft}
+      onRoute={(next) => (route = next)}
+      onKind={setKind}
+      onSavedSearch={runSavedSearch}
+      onSearchInput={setSearch}
       onSearchSubmit={submitSearch}
-      onRefresh={() => filesQuery.refetch()}
-      onUploadFiles={selectUploads}
-      onUploadTagsInput={(value) => (uploadTags = value)}
-      onUploadSubmit={submitUpload}
-      onUploadCancel={cancelUploadJob}
-    />
-  {/snippet}
+      onJobs={() => (route = route === 'jobs' ? 'library' : 'jobs')}
+      onLogout={logout}
+    >
+      {#if route === 'upload'}
+        <UploadPanel
+          {uploadFiles}
+          {uploadTags}
+          {uploadBusy}
+          {cancelBusy}
+          {uploadStatus}
+          {activeUploadJobID}
+          targets={uploadTargetsQuery.data?.items ?? []}
+          targetID={uploadTargetID}
+          onTargetInput={(value) => (uploadTargetID = value)}
+          onFiles={selectUploads}
+          onTagsInput={(value) => (uploadTags = value)}
+          onSubmit={submitUpload}
+          onCancel={cancelUploadJob}
+          onClear={() => (uploadFiles = [])}
+        />
+      {:else if route === 'jobs'}
+        <main class="main">
+          <div class="page">
+            <div class="page-header">
+              <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
+              <h1>Background work</h1>
+              <p>Imports and bulk tag changes report progress here. Pause and resume are hidden until supported.</p>
+            </div>
+            <div class="list-head">
+              <span class="g-eyebrow">{jobsQuery.data?.items.length ?? 0} jobs</span>
+              <button class="g-btn g-btn-sm" type="button" onclick={clearCompletedJobs}>Clear completed</button>
+            </div>
+            <div class="g-card jobs-list">
+              {#each jobsQuery.data?.items ?? [] as job}
+                <div class="job-row">
+                  <div class="job-row-head">
+                    <span class="name"><Icon name={job.type === 'upload_import' ? 'upload' : 'tag'} size={14} /><b>{job.type}</b></span>
+                    <span class={`status ${job.status}`}>{job.status}</span>
+                  </div>
+                  <div class={`job-progress ${job.status}`}><div style={`width: ${Math.round((job.progress ?? 0) * 100)}%`}></div></div>
+                  <div class="job-meta">
+                    <span>{job.id}</span>
+                    <span>{job.error ?? jobStatusText(job)}</span>
+                  </div>
+                  {#if job.status === 'pending' || job.status === 'running'}
+                    <button class="g-btn g-btn-sm" type="button" onclick={() => cancelJob(job)}>Cancel</button>
+                  {/if}
+                </div>
+              {:else}
+                <div class="empty-row">No jobs have been recorded.</div>
+              {/each}
+            </div>
+          </div>
+        </main>
+      {:else if route === 'tags'}
+        <main class="main">
+          <div class="page">
+            <div class="page-header">
+              <div class="g-eyebrow g-eyebrow-accent">Tags</div>
+              <h1>Tag index</h1>
+              <p>Use search for tag suggestions and counts. Full tag-index browsing will expand as the API exposes richer namespace data.</p>
+            </div>
+            <div class="tagscloud">
+              {#each page?.facets?.kind ?? [] as item}
+                <button class="tagscloud-item" type="button" onclick={() => setKind(item.value)}>
+                  <span>{item.value}</span>
+                  <span class="count">{item.count}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
+        </main>
+      {:else if route === 'account'}
+        <main class="main">
+          <div class="page">
+            <div class="page-header">
+              <div class="g-eyebrow g-eyebrow-accent">Account</div>
+              <h1>{$authState.user.username}</h1>
+              <p>Session authentication uses same-origin cookies and CSRF-protected mutations.</p>
+            </div>
+            <button class="g-btn" type="button" onclick={logout}><Icon name="logout" size={14} /> Sign out</button>
+          </div>
+        </main>
+      {:else if route === 'shortcuts'}
+        <main class="main">
+          <div class="page">
+            <div class="page-header">
+              <div class="g-eyebrow g-eyebrow-accent">Keyboard</div>
+              <h1>Shortcuts</h1>
+              <p>Escape closes preview. Arrow keys move through open preview items.</p>
+            </div>
+          </div>
+        </main>
+      {:else}
+        <MediaGrid
+          sessionActive={Boolean($authState.user)}
+          isLoading={filesQuery.isLoading}
+          isError={filesQuery.isError}
+          error={filesQuery.error}
+          {files}
+          virtual={virtualGrid(files, viewportWidth, viewportHeight, scrollY)}
+          totalCount={page?.total_count ?? files.length}
+          libraryCount={page?.library_count ?? files.length}
+          searchActive={Boolean($submittedSearch || activeKind)}
+          {selectedIDs}
+          hasNextPage={Boolean(filesQuery.hasNextPage)}
+          isFetchingNextPage={Boolean(filesQuery.isFetchingNextPage)}
+          bind:loadMoreSentinel
+          onOpen={openPreview}
+          onToggleSelect={toggleSelect}
+          onSelectAll={selectLoaded}
+          onClearSelection={() => (selectedIDs = new Set())}
+          onBulkTag={bulkTagSelected}
+        >
+          {#snippet actions()}
+            <div class="library-head-actions">
+              <select class="g-input compact" value={sort} onchange={(event) => (sort = event.currentTarget.value as FileSort)}>
+                <option value="modified">Modified</option>
+                <option value="name">Name</option>
+                <option value="size">Size</option>
+                <option value="kind">Kind</option>
+              </select>
+              <button class="g-btn g-btn-sm" type="button" title="Sort direction" onclick={() => (order = order === 'desc' ? 'asc' : 'desc')}>
+                <Icon name="sort" size={14} /> {order === 'desc' ? 'Newest' : 'Oldest'}
+              </button>
+            </div>
+          {/snippet}
+        </MediaGrid>
+      {/if}
+    </AppShell>
 
-  {@const files = visibleFiles()}
-  <MediaGrid
-    sessionActive={Boolean($authState.user)}
-    isLoading={filesQuery.isLoading}
-    isError={filesQuery.isError}
-    error={filesQuery.error}
-    {files}
-    virtual={virtualGrid(files, viewportWidth, viewportHeight, scrollY)}
-    hasNextPage={Boolean(filesQuery.hasNextPage)}
-    isFetchingNextPage={Boolean(filesQuery.isFetchingNextPage)}
-    bind:loadMoreSentinel
-    {tagDrafts}
-    {tagBusy}
-    {tagErrors}
-    onOpen={openPreview}
-    onTagInput={updateTagDraft}
-    onMutateTags={mutateFileTags}
-  />
-</AppShell>
-
-{#if activeFile}
-  <PreviewDialog file={activeFile} {previewURL} {previewLoading} {previewError} onClose={closePreview} />
-{/if}
+    {#if activeFile}
+      <PreviewDialog
+        file={activeFile}
+        tagDraft={tagDrafts[activeFile.id] ?? ''}
+        tagBusy={Boolean(tagBusy[activeFile.id])}
+        tagError={tagErrors[activeFile.id] ?? ''}
+        onClose={closePreview}
+        onPrev={() => movePreview(-1)}
+        onNext={() => movePreview(1)}
+        onTagInput={updateTagDraft}
+        onMutateTags={mutateFileTags}
+      />
+    {/if}
+  {/if}
+</div>

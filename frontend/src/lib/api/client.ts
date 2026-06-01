@@ -19,6 +19,7 @@ export interface ListFilesParams {
   sort?: 'name' | 'modified' | 'size' | 'kind';
   order?: 'asc' | 'desc';
   includeFacets?: boolean;
+  signal?: AbortSignal;
 }
 
 export class ApiClient {
@@ -56,15 +57,15 @@ export class ApiClient {
     if (params.sort) url.searchParams.set('sort', params.sort);
     if (params.order) url.searchParams.set('order', params.order);
     if (params.includeFacets) url.searchParams.set('include_facets', 'true');
-    return this.request<FileListResponse>(url.pathname + url.search);
+    return this.request<FileListResponse>(url.pathname + url.search, { signal: params.signal });
   }
 
-  async searchSuggestions(q = '', limit?: number, existing = ''): Promise<SuggestionsResponse> {
+  async searchSuggestions(q = '', limit?: number, existing = '', signal?: AbortSignal): Promise<SuggestionsResponse> {
     const url = new URL(`${this.baseURL}/search/suggestions`, globalThis.location?.origin ?? 'http://localhost');
     if (q) url.searchParams.set('q', q);
     if (existing) url.searchParams.set('existing', existing);
     if (limit) url.searchParams.set('limit', String(limit));
-    return this.request<SuggestionsResponse>(url.pathname + url.search);
+    return this.request<SuggestionsResponse>(url.pathname + url.search, { signal });
   }
 
   async tagNamespaces(): Promise<NamespacesResponse> {

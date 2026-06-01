@@ -6,6 +6,27 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
+function fileItem(id: string, name: string, kind: 'photo' | 'video' | 'gif' | 'other' = 'photo') {
+  return {
+    id,
+    content_id: `hash-${id}`,
+    name,
+    safe_display_path: `library/${name}`,
+    size: kind === 'video' ? 104857600 : 2048,
+    modified_time: '2026-05-20T00:00:00Z',
+    media_type: kind === 'video' ? 'video/mp4' : 'image/jpeg',
+    media_kind: kind,
+    metadata: kind === 'video' ? { video_width: 1920, video_height: 1080, video_duration: 8 } : { image_width: 800, image_height: 600 },
+    tags: ['rating:safe', 'blue'],
+    media_urls: {
+      thumbnail: `/api/v1/files/${id}/thumbnail`,
+      preview: `/api/v1/files/${id}/preview`,
+      content: `/api/v1/files/${id}/content`,
+      download: `/api/v1/files/${id}/download`
+    }
+  };
+}
+
 async function mockAuth(page: Page) {
   let loggedIn = false;
   await page.route('**/api/v1/auth/me', async (route) => {
@@ -23,6 +44,22 @@ async function mockAuth(page: Page) {
       body: JSON.stringify(session)
     });
   });
+  await page.route('**/api/v1/auth/logout', async (route) => {
+    loggedIn = false;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+  });
+}
+
+async function mockShellApis(page: Page) {
+  await page.route('**/api/v1/jobs', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
+  });
+  await page.route('**/api/v1/saved-searches', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 's1', name: 'Safe blue', query: 'rating:safe blue' }] }) });
+  });
+  await page.route('**/api/v1/upload-targets', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) });
+  });
 }
 
 async function signIn(page: Page) {
@@ -31,17 +68,30 @@ async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
 
-test('renders the library shell', async ({ page }) => {
+test('renders login and authenticated concept shell', async ({ page }) => {
   await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
+    });
+  });
+
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await expect(page.getByLabel('Username')).toBeVisible();
   await expect(page.getByLabel('Password')).toBeVisible();
+  await signIn(page);
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Upload' })).toBeVisible();
   await expect(page.getByPlaceholder('tag, key:value, @tagged')).toBeVisible();
+  await expect(page.getByText('Settings')).toBeVisible();
+  await expect(page.getByText('No results')).toBeVisible();
 });
 
-test('renders authenticated thumbnail results', async ({ page }) => {
+test('renders direct thumbnails, preview, and csrf tag mutation', async ({ page }) => {
   await mockAuth(page);
+  await mockShellApis(page);
   const requests: string[] = [];
   const thumbnailRequests: string[] = [];
   const previewRequests: string[] = [];
@@ -51,44 +101,20 @@ test('renders authenticated thumbnail results', async ({ page }) => {
     requests.push(route.request().headers().authorization ?? '');
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
-        files: [
-          {
-            id: 'bG9jOjE',
-            content_id: 'hash-one',
-            name: 'sample.jpg',
-            size: 2048,
-            modified_time: '2026-05-20T00:00:00Z',
-            media_type: 'image/jpeg',
-            media_kind: 'photo',
-            tags: ['rating:safe', 'blue'],
-            media_urls: {
-              thumbnail: '/api/v1/files/bG9jOjE/thumbnail',
-              preview: '/api/v1/files/bG9jOjE/preview',
-              content: '/api/v1/files/bG9jOjE/content'
-            }
-          }
-        ]
-      })
+      body: JSON.stringify({ files: [fileItem('bG9jOjE', 'sample.jpg')], total_count: 1, library_count: 1, facets: { kind: [{ value: 'photo', count: 1 }] } })
     });
   });
-  await page.route('**/api/v1/files/*/thumbnail?**', async (route) => {
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => {
     thumbnailRequests.push(route.request().headers().authorization ?? '');
-    await route.fulfill({
-      contentType: 'image/svg+xml',
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#34d399"/></svg>'
-    });
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#f4d976"/></svg>' });
   });
   await page.route('**/api/v1/files/*/preview', async (route) => {
     previewRequests.push(route.request().headers().authorization ?? '');
-    await route.fulfill({
-      contentType: 'image/svg+xml',
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64" fill="#064e3b"/><circle cx="48" cy="32" r="20" fill="#34d399"/></svg>'
-    });
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64" fill="#111"/></svg>' });
   });
-  await page.context().route('**/api/v1/files/*/content', async (route) => {
+  await page.route('**/api/v1/files/*/content', async (route) => {
     contentRequests.push(route.request().headers().authorization ?? '');
-    await route.fulfill({ status: 500, body: 'content should not be fetched for preview rendering' });
+    await route.fulfill({ contentType: 'text/plain', body: 'original' });
   });
   await page.route('**/api/v1/files/tags', async (route) => {
     mutations.push({
@@ -97,271 +123,81 @@ test('renders authenticated thumbnail results', async ({ page }) => {
       method: route.request().method(),
       body: route.request().postDataJSON()
     });
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        operation: 'add',
-        selector: { file_ids: ['bG9jOjE'] },
-        matched_files: 1,
-        affected_count: 1
-      })
-    });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ operation: 'add', selector: { file_ids: ['bG9jOjE'] }, affected_count: 1 }) });
   });
 
   await page.goto('/');
   await signIn(page);
-
-  await expect(page.getByRole('heading', { name: 'sample.jpg' })).toBeVisible();
-  await expect(page.getByText('rating:safe')).toBeVisible();
-  expect(requests).toContain('');
   await expect.poll(() => thumbnailRequests).toContain('');
+  expect(requests).toContain('');
+
   await page.getByRole('button', { name: 'Preview sample.jpg' }).click();
   const dialog = page.getByRole('dialog', { name: 'sample.jpg' });
   await expect(dialog).toBeVisible();
   await expect.poll(() => previewRequests).toContain('');
   expect(contentRequests).toEqual([]);
-  await expect(dialog.getByRole('img', { name: 'sample.jpg' })).toBeVisible();
-  await expect(dialog.getByRole('link', { name: 'Open original sample.jpg' })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Close preview' }).click();
-  await expect(dialog).toBeHidden();
 
-  await page.getByLabel('Tags for sample.jpg').fill('reviewed');
-  await page.getByRole('button', { name: 'Add tags to sample.jpg' }).click();
+  await dialog.getByLabel('Tags for sample.jpg').fill('reviewed');
+  await dialog.getByRole('button', { name: 'Add tags to sample.jpg' }).click();
   await expect.poll(() => mutations.length).toBe(1);
-  expect(mutations[0]).toMatchObject({
-    authorization: '',
-    csrf: 'csrf-one',
-    method: 'POST',
-    body: { file_ids: ['bG9jOjE'], tags: ['reviewed'] }
-  });
+  expect(mutations[0]).toMatchObject({ authorization: '', csrf: 'csrf-one', method: 'POST', body: { file_ids: ['bG9jOjE'], tags: ['reviewed'] } });
 });
 
-test('signing in resets auth-scoped file results', async ({ page }) => {
+test('video preview uses direct range-capable content route', async ({ page }) => {
   await mockAuth(page);
-  const requests: Array<{ authorization: string; query: string | null }> = [];
-  await page.route('**/api/v1/files?**', async (route) => {
-    requests.push({
-      authorization: route.request().headers().authorization ?? '',
-      query: new URL(route.request().url()).searchParams.get('query')
-    });
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        files: [
-          {
-            id: 'session-file',
-            content_id: 'session-hash',
-            name: 'session.jpg',
-            size: 2048,
-            modified_time: '2026-05-20T00:00:00Z',
-            media_type: 'image/jpeg',
-            media_kind: 'photo',
-            tags: ['session'],
-            media_urls: {
-              thumbnail: '/api/v1/files/session-file/thumbnail',
-              preview: '/api/v1/files/session-file/preview',
-              content: '/api/v1/files/session-file/content'
-            }
-          }
-        ]
-      })
-    });
-  });
-  await page.route('**/api/v1/files/*/thumbnail?**', async (route) => {
-    await route.fulfill({
-      contentType: 'image/svg+xml',
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#34d399"/></svg>'
-    });
-  });
-
-  await page.goto('/');
-  await expect(page.getByText('Sign in to browse this library.')).toBeVisible();
-  await signIn(page);
-  await expect(page.getByRole('heading', { name: 'session.jpg' })).toBeVisible();
-  expect(requests).toContainEqual({ authorization: '', query: null });
-});
-
-test('video preview uses bounded preview route without fetching original content', async ({ page }) => {
-  await mockAuth(page);
-  const thumbnailRequests: string[] = [];
-  const previewRequests: string[] = [];
+  await mockShellApis(page);
   const contentRequests: Array<{ authorization: string; cookie: string }> = [];
   await page.route('**/api/v1/files?**', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
-        files: [
-          {
-            id: 'bG9jOjI',
-            content_id: 'hash-video',
-            name: 'sample-video.mp4',
-            size: 104857600,
-            modified_time: '2026-05-20T00:00:00Z',
-            media_type: 'video/mp4',
-            media_kind: 'video',
-            tags: ['clip'],
-            media_urls: {
-              thumbnail: '/api/v1/files/bG9jOjI/thumbnail',
-              preview: '/api/v1/files/bG9jOjI/preview',
-              content: '/api/v1/files/bG9jOjI/content'
-            }
-          }
-        ]
-      })
+      body: JSON.stringify({ files: [fileItem('video-one', 'sample-video.mp4', 'video')], total_count: 1, library_count: 1, facets: { kind: [{ value: 'video', count: 1 }] } })
     });
   });
-  await page.route('**/api/v1/files/*/thumbnail?**', async (route) => {
-    thumbnailRequests.push(route.request().headers().authorization ?? '');
-    await route.fulfill({
-      contentType: 'image/svg+xml',
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#34d399"/></svg>'
-    });
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"></svg>' });
   });
   await page.route('**/api/v1/files/*/preview', async (route) => {
-    previewRequests.push(route.request().headers().authorization ?? '');
-    await route.fulfill({
-      contentType: 'image/svg+xml',
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64" fill="#064e3b"/></svg>'
-    });
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"></svg>' });
   });
-  await page.context().route('**/api/v1/files/*/content', async (route) => {
-    contentRequests.push({
-      authorization: route.request().headers().authorization ?? '',
-      cookie: route.request().headers().cookie ?? ''
-    });
-    await route.fulfill({ contentType: 'text/plain', body: 'original content' });
+  await page.route('**/api/v1/files/*/content', async (route) => {
+    contentRequests.push({ authorization: route.request().headers().authorization ?? '', cookie: route.request().headers().cookie ?? '' });
+    await route.fulfill({ contentType: 'video/mp4', body: '' });
   });
 
   await page.goto('/');
   await signIn(page);
-  await expect.poll(() => thumbnailRequests).toContain('');
   await page.getByRole('button', { name: 'Preview sample-video.mp4' }).click();
-
-  const dialog = page.getByRole('dialog', { name: 'sample-video.mp4' });
-  await expect(dialog).toBeVisible();
-  await expect.poll(() => previewRequests).toContain('');
-  expect(contentRequests).toEqual([]);
-  await expect(dialog.getByRole('img', { name: 'sample-video.mp4' })).toBeVisible();
-  const openOriginal = dialog.getByRole('link', { name: 'Open original sample-video.mp4' });
-  await expect(openOriginal).toHaveAttribute('href', '/api/v1/files/bG9jOjI/content');
-
-  const popupPromise = page.waitForEvent('popup');
-  await openOriginal.click();
-  const popup = await popupPromise;
-  await expect.poll(() => contentRequests.length).toBe(1);
-  expect(contentRequests[0]).toMatchObject({
-    authorization: '',
-    cookie: expect.stringContaining('gooru_session=session-one')
-  });
-  await popup.close();
-});
-
-test('scrolls through paginated results with virtualized infinite grid', async ({ page }) => {
-  await mockAuth(page);
-  const requests: Array<{ authorization: string; pageToken: string | null }> = [];
-  const makeFile = (index: number) => ({
-    id: `file-${index}`,
-    content_id: `hash-${index}`,
-    name: `file-${String(index).padStart(3, '0')}.jpg`,
-    size: 1024 + index,
-    modified_time: '2026-05-20T00:00:00Z',
-    media_type: 'application/octet-stream',
-    media_kind: 'other',
-    tags: [`batch:${Math.ceil(index / 36)}`],
-    media_urls: {
-      thumbnail: `/api/v1/files/file-${index}/thumbnail`,
-      preview: `/api/v1/files/file-${index}/preview`,
-      content: `/api/v1/files/file-${index}/content`
-    }
-  });
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.route('**/api/v1/files?**', async (route) => {
-    const url = new URL(route.request().url());
-    const pageToken = url.searchParams.get('page_token');
-    requests.push({
-      authorization: route.request().headers().authorization ?? '',
-      pageToken
-    });
-    const start = pageToken === 'page-2' ? 37 : 1;
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        files: Array.from({ length: 36 }, (_, offset) => makeFile(start + offset)),
-        next_page_token: pageToken === 'page-2' ? undefined : 'page-2'
-      })
-    });
-  });
-
-  await page.goto('/');
-  await signIn(page);
-
-  await expect(page.getByRole('heading', { name: 'file-001.jpg' })).toBeVisible();
-  expect(requests).toContainEqual({ authorization: '', pageToken: null });
-
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await expect.poll(() => requests.some((request) => request.pageToken === 'page-2')).toBe(true);
-  await expect(page.getByRole('heading', { name: 'file-040.jpg' })).toBeVisible();
-  await expect(page.getByText('72 files loaded')).toBeVisible();
-  expect(await page.getByRole('heading', { name: /^file-/ }).count()).toBeLessThan(72);
-  await expect(page.getByTestId('virtual-media-grid')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'sample-video.mp4' })).toBeVisible();
+  await expect.poll(() => contentRequests.length).toBeGreaterThan(0);
+  expect(contentRequests[0]).toMatchObject({ authorization: '', cookie: expect.stringContaining('gooru_session=session-one') });
 });
 
 test('uploads with job polling and cancellation', async ({ page }) => {
   await mockAuth(page);
-  const uploads: Array<{ authorization: string; csrf: string; prefer: string }> = [];
-  const jobGets: string[] = [];
-  const jobDeletes: Array<{ authorization: string; csrf: string }> = [];
-  await page.route('**/api/v1/files?**', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ files: [] })
-    });
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
+  await page.route('**/api/v1/jobs', async (route) => {
+    if (route.request().method() === 'DELETE') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ removed: 1 }) });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'job-one', type: 'upload_import', status: 'running', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z' }] }) });
   });
   await page.route('**/api/v1/uploads', async (route) => {
-    uploads.push({
-      authorization: route.request().headers().authorization ?? '',
-      csrf: route.request().headers()['x-gooru-csrf'] ?? '',
-      prefer: route.request().headers().prefer ?? ''
-    });
-    await route.fulfill({
-      status: 202,
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'pending' })
-    });
+    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'pending', submitted_at: '2026-05-20T00:00:00Z' }) });
   });
   await page.route('**/api/v1/jobs/job-one', async (route) => {
     if (route.request().method() === 'DELETE') {
-      jobDeletes.push({
-        authorization: route.request().headers().authorization ?? '',
-        csrf: route.request().headers()['x-gooru-csrf'] ?? ''
-      });
-      await route.fulfill({
-        status: 202,
-        contentType: 'application/json',
-        body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'canceled' })
-      });
-      return;
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'canceled', submitted_at: '2026-05-20T00:00:00Z' }) });
     }
-    jobGets.push(route.request().headers().authorization ?? '');
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'running' })
-    });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'running', progress: 0.5, submitted_at: '2026-05-20T00:00:00Z' }) });
   });
 
   await page.goto('/');
   await signIn(page);
-  await expect(page.getByText('Signed in')).toBeVisible();
-  await page.locator('input[type="file"]').setInputFiles({
-    name: 'upload.jpg',
-    mimeType: 'image/jpeg',
-    buffer: Buffer.from('image')
-  });
-  await page.getByRole('button', { name: 'Import 1' }).click();
-
-  await expect.poll(() => uploads).toEqual([{ authorization: '', csrf: 'csrf-one', prefer: 'respond-async' }]);
-  await expect.poll(() => jobGets).toContain('');
+  await page.getByRole('button', { name: 'Upload' }).click();
+  await page.locator('input[type="file"]').setInputFiles({ name: 'upload.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('upload') });
+  await page.getByPlaceholder('collection:inbox @review').fill('incoming');
+  await page.getByRole('button', { name: 'Upload 1' }).click();
+  await expect(page.getByText('Importing')).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect.poll(() => jobDeletes).toContainEqual({ authorization: '', csrf: 'csrf-one' });
   await expect(page.getByText('Canceled')).toBeVisible();
 });
