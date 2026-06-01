@@ -54,11 +54,11 @@ textarea {
   --surface-2: oklch(0.245 0.009 70);
   --surface-3: oklch(0.285 0.01 70);
   --border: oklch(0.31 0.011 75);
-  --border-strong: oklch(0.40 0.012 75);
-  --text: oklch(0.92 0.006 80);
-  --text-2: oklch(0.76 0.006 80);
-  --text-3: oklch(0.60 0.006 80);
-  --text-4: oklch(0.47 0.006 80);
+  --border-strong: oklch(0.40 0.013 75);
+  --text: oklch(0.96 0.006 85);
+  --text-2: oklch(0.78 0.008 85);
+  --text-3: oklch(0.58 0.01 80);
+  --text-4: oklch(0.42 0.012 80);
   --accent: oklch(0.88 0.14 85);
   --accent-ink: oklch(0.20 0.05 80);
   --accent-soft: oklch(0.88 0.14 85 / 0.12);
@@ -101,28 +101,41 @@ textarea {
   position: relative;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 228px 1fr;
-  grid-template-rows: 54px 1fr;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: auto 1fr;
   background: var(--bg);
 }
 
 .topbar {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 228px minmax(0, 1fr) auto;
+  grid-template-columns: 220px minmax(0, 1fr) 220px;
   align-items: center;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-2);
+  background: var(--bg);
+  position: relative;
+  z-index: 5;
+  min-height: 56px;
 }
 
 .topbar-brand {
   height: 100%;
   display: flex;
   align-items: center;
+  gap: 10px;
   padding: 0 18px;
   border: 0;
+  border-right: 1px solid var(--border);
   background: transparent;
   cursor: pointer;
+}
+
+.topbar-brand-mark {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
 }
 
 .topbar-search {
@@ -130,28 +143,41 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 16px;
+  padding: 8px 16px;
 }
 
 .searchbar {
   width: min(720px, 100%);
-  min-height: 34px;
+  min-height: 36px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px 4px 10px;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px 12px 5px 38px;
   border: 1px solid var(--border);
-  border-radius: var(--r-3);
+  border-radius: 20px;
   background: var(--surface);
   color: var(--text-3);
+  position: relative;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
 
 .searchbar:focus-within {
   border-color: var(--accent-line);
+  background: var(--bg-2);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.searchbar input {
+.searchbar-icon {
+  position: absolute;
+  left: 13px;
+  top: 9px;
+  color: var(--text-3);
+  pointer-events: none;
+  display: inline-flex;
+}
+
+.searchbar-input {
   min-width: 0;
   flex: 1;
   border: 0;
@@ -159,15 +185,34 @@ textarea {
   background: transparent;
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 2px 0;
+}
+
+.searchbar-input::placeholder {
+  color: var(--text-4);
+}
+
+.searchbar-input:focus-visible {
+  outline: none;
 }
 
 .searchbar-clear {
+  margin-left: auto;
+  flex: 0 0 auto;
   border: 0;
+  border-radius: 4px;
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
   display: inline-flex;
+  padding: 4px;
+}
+
+.searchbar-clear:hover {
+  background: var(--surface-3);
+  color: var(--text);
 }
 
 .search-suggestions {
@@ -226,7 +271,9 @@ textarea {
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  padding: 0 12px;
+  align-self: stretch;
+  padding: 0 14px;
+  border-left: 1px solid var(--border);
 }
 
 .topbar-right .g-btn-sm:not(.g-btn-icon) {
@@ -1224,34 +1271,119 @@ textarea {
 .login-v2-card {
   position: relative;
   z-index: 1;
-  width: min(420px, 100%);
+  width: 100%;
+  max-width: 520px;
   border: 1px solid var(--border);
   border-radius: var(--r-4);
   background: var(--bg-2);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-  padding: 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  padding: 22px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .login-v2-id {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 16px;
+  gap: 10px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
+}
+
+.login-v2-mark {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .login-v2-id-meta,
 .login-v2-foot {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-4);
+}
+
+.login-v2-id-meta {
+  display: flex;
+  gap: 8px;
+  letter-spacing: 0.04em;
+}
+
+.login-v2-id-meta .sep,
+.login-v2-foot .sep {
+  opacity: 0.5;
+}
+
+.login-v2-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+}
+
+.login-v2-status-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.login-v2-status-head b {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.login-v2-status-head .mono {
+  font-family: var(--font-mono);
+}
+
+.login-v2-status .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 0 3px oklch(0.78 0.14 150 / 0.12);
+}
+
+.login-v2-status .dot.warn {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.login-v2-status-grid {
+  display: grid;
+  grid-template-columns: 60px 1fr 60px 1fr;
+  column-gap: 14px;
+  row-gap: 5px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.login-v2-status-grid dt {
+  color: var(--text-4);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+
+.login-v2-status-grid dd {
+  margin: 0;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .login-v2-form {
   display: grid;
   gap: 12px;
-  padding: 18px 0;
 }
 
 .login-v2-field {
@@ -1269,6 +1401,7 @@ textarea {
 
 .auth-submit {
   width: 100%;
+  height: 36px;
 }
 
 .login-v2-error {
@@ -1281,6 +1414,25 @@ textarea {
 .login-v2-foot {
   border-top: 1px solid var(--border);
   padding-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.login-v2-foot > div {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.login-v2-foot a {
+  color: var(--text-3);
+  text-decoration: none;
+}
+
+.login-v2-foot-links {
+  display: flex;
+  gap: 8px;
 }
 
 .sr-only {

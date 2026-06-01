@@ -58,12 +58,13 @@
 <div class="app-shell">
   <header class="topbar">
     <button class="topbar-brand" type="button" onclick={() => onRoute('library')} aria-label="Gooru library">
-      <Logo size={64} />
+      <span class="topbar-brand-mark"><Logo size={17} /></span>
     </button>
     <form class="topbar-search" onsubmit={(event) => { event.preventDefault(); onSearchSubmit(); }}>
       <div class="searchbar">
-        <Icon name="search" size={16} />
+        <span class="searchbar-icon"><Icon name="search" size={16} /></span>
         <input
+          class="searchbar-input"
           value={search}
           oninput={(event) => onSearchInput(event.currentTarget.value)}
           placeholder="tag, key:value, @tagged"
