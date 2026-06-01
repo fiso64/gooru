@@ -511,7 +511,7 @@ func (l mediaLibrary) GetFile(_ context.Context, id int64) (types.FileInfo, erro
 	return l.file, nil
 }
 
-func (mediaLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+func (mediaLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }
 

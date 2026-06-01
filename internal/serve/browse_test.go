@@ -707,7 +707,7 @@ func (emptyLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) 
 	return types.FileInfo{}, ErrNotFound
 }
 
-func (emptyLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+func (emptyLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }
 
@@ -739,6 +739,6 @@ func (errorLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) 
 	return types.FileInfo{}, ErrNotFound
 }
 
-func (errorLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+func (errorLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }

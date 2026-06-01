@@ -72,9 +72,10 @@ export class ApiClient {
     return this.request<NamespacesResponse>(`${this.baseURL}/tags/namespaces`);
   }
 
-  async listTags(counts = true): Promise<TagListResponse> {
+  async listTags(counts = true, limit = 200): Promise<TagListResponse> {
     const url = new URL(`${this.baseURL}/tags`, globalThis.location?.origin ?? 'http://localhost');
     if (counts) url.searchParams.set('counts', 'true');
+    if (limit) url.searchParams.set('limit', String(limit));
     return this.request<TagListResponse>(url.pathname + url.search);
   }
 

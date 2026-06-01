@@ -520,6 +520,14 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: limit
+          in: query
+          required: false
+          description: Maximum tags to return. Defaults to 200 and is capped at 500.
+          schema:
+            type: integer
+            default: 200
+            maximum: 500
       responses:
         "200":
           description: Tags, optionally with counts.

@@ -38,7 +38,7 @@ export function createFilesQuery(
         pageToken: pageParam || undefined,
         sort: getSort(),
         order: getOrder(),
-        includeFacets: true,
+        includeFacets: !pageParam,
         signal
       }),
     getNextPageParam: (lastPage) => lastPage.next_page_token || undefined

@@ -959,6 +959,18 @@ func (s *Store) GetAllTags() ([]string, error) {
 // It always includes a row for each unique tag key (e.g. 'photo') with its aggregate count,
 // as well as rows for specific key-value tags (e.g. 'photo:album1').
 func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
+	return s.GetTagsWithCounts(0)
+}
+
+// GetTagsWithCounts retrieves tags and their usage counts, sorted by count descending.
+// A positive limit constrains the number of returned rows for bounded tag-index UIs.
+func (s *Store) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
+	limitSQL := ""
+	args := []any{}
+	if limit > 0 {
+		limitSQL = " LIMIT ?"
+		args = append(args, limit)
+	}
 	query := `
 		WITH key_counts AS (
 			SELECT
@@ -977,8 +989,8 @@ func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 		FROM tags
 		WHERE value != '' AND files_count > 0
 		ORDER BY final_count DESC, tag_str ASC
-	`
-	rows, err := s.Query(query)
+	` + limitSQL
+	rows, err := s.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

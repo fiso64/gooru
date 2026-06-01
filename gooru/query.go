@@ -564,5 +564,10 @@ func (c *Client) GetAllTags() ([]string, error) {
 
 // GetAllTagsWithCounts retrieves all tags and their usage counts, sorted by count descending.
 func (c *Client) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
-	return c.store.GetAllTagsWithCounts()
+	return c.GetTagsWithCounts(0)
+}
+
+// GetTagsWithCounts retrieves tags and counts, optionally bounded by limit.
+func (c *Client) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
+	return c.store.GetTagsWithCounts(limit)
 }

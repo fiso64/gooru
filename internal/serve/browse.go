@@ -21,7 +21,7 @@ var ErrNotFound = errors.New("not found")
 type Library interface {
 	ListFiles(ctx context.Context, query string) ([]types.FileInfo, error)
 	GetFile(ctx context.Context, locationID int64) (types.FileInfo, error)
-	ListTags(ctx context.Context, counts bool) ([]TagDTO, error)
+	ListTags(ctx context.Context, counts bool, limit int) ([]TagDTO, error)
 }
 
 type PagedLibrary interface {
@@ -123,12 +123,12 @@ func (l *GooruLibrary) GetFile(ctx context.Context, locationID int64) (types.Fil
 	return file, err
 }
 
-func (l *GooruLibrary) ListTags(ctx context.Context, counts bool) ([]TagDTO, error) {
+func (l *GooruLibrary) ListTags(ctx context.Context, counts bool, limit int) ([]TagDTO, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if counts {
-		tags, err := l.client.GetAllTagsWithCounts()
+		tags, err := l.client.GetTagsWithCounts(limit)
 		if err != nil {
 			return nil, err
 		}
@@ -142,6 +142,9 @@ func (l *GooruLibrary) ListTags(ctx context.Context, counts bool) ([]TagDTO, err
 	tags, err := l.client.GetAllTags()
 	if err != nil {
 		return nil, err
+	}
+	if limit > 0 && len(tags) > limit {
+		tags = tags[:limit]
 	}
 	out := make([]TagDTO, 0, len(tags))
 	for _, tag := range tags {
@@ -450,7 +453,11 @@ func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file library is not configured", nil)
 		return
 	}
-	tags, err := s.library.ListTags(r.Context(), r.URL.Query().Get("counts") == "true")
+	limit, _ := strconvAtoiDefault(r.URL.Query().Get("limit"), 200)
+	if limit > 500 {
+		limit = 500
+	}
+	tags, err := s.library.ListTags(r.Context(), r.URL.Query().Get("counts") == "true", limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load tags", nil)
 		return

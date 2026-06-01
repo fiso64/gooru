@@ -510,7 +510,7 @@ func (l *recordingUploadLibrary) GetFile(_ context.Context, _ int64) (types.File
 	return types.FileInfo{}, ErrNotFound
 }
 
-func (l *recordingUploadLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+func (l *recordingUploadLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }
 

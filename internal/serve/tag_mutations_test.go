@@ -154,7 +154,7 @@ func (l *recordingMutationLibrary) GetFile(_ context.Context, id int64) (types.F
 	return l.file, nil
 }
 
-func (l *recordingMutationLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+func (l *recordingMutationLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }
 
