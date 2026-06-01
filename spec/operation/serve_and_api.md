@@ -97,32 +97,42 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 *   `POST /api/v1/auth/logout`: Revokes the current session and clears the session cookie.
 *   `GET /api/v1/auth/me`: Returns the current user, capabilities, and a fresh CSRF token.
 *   `POST /api/v1/auth/change-password`: Verifies the current password and stores a replacement Argon2id hash.
-*   `GET /api/v1/files?query=<expr>&limit=<n>&page_token=<token>`: Lists files matching an expression with the current opaque offset-token pagination compatibility layer.
-*   `GET /api/v1/files/{id}`: Returns a file DTO with media URLs and optional metadata.
+*   `GET /api/v1/files?query=<expr>&limit=<n>&page_token=<token>&sort=<name|modified|size|kind>&order=<asc|desc>`: Lists files matching an expression with bounded cursor pagination and optional query-scoped facets. Filename free-text matching currently uses SQLite `LIKE` over stored paths; this is a documented large-library limitation until a full-text index is added.
+*   `GET /api/v1/files/{id}`: Returns a file DTO with media URLs and cached optional metadata.
+*   `DELETE /api/v1/files/{id}`: Untracks one file location with `{"mode":"untrack"}`.
 *   `GET /api/v1/files/{id}/thumbnail?size=256`: Returns a cacheable thumbnail.
 *   `GET /api/v1/files/{id}/preview`: Returns a larger preview derivative.
 *   `GET /api/v1/files/{id}/content`: Returns original media content with range support.
+*   `GET /api/v1/files/{id}/download`: Returns original media content as an attachment with range support.
 *   `POST /api/v1/files/tags`: Adds tags to files. (`tag`)
-    *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
+    *   Body: `{"file_ids": ["<opaque file id>"], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `PUT /api/v1/files/tags`: Sets/replaces tags for files. (`settags`)
-    *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
+    *   Body: `{"file_ids": ["<opaque file id>"], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
 *   `DELETE /api/v1/files/tags`: Removes tags from files. (`untag`)
-    *   Body: `{"paths": ["..."], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
+    *   Body: `{"file_ids": ["<opaque file id>"], "tags": ["..."]}` or `{"query": "...", "tags": ["..."]}`
+*   `GET /api/v1/search/suggestions?q=<prefix>&existing=<expr>`: Returns deterministic namespace, tag, and namespace-value autocomplete suggestions, filtering already-present tags from `existing` when parseable.
+*   `GET /api/v1/tags/namespaces`: Returns known tag namespaces.
+*   `GET /api/v1/saved-searches`: Lists saved searches for the current user.
+*   `POST /api/v1/saved-searches`: Creates a saved search for the current user.
+*   `PUT /api/v1/saved-searches/{id}`: Replaces a saved search owned by the current user.
+*   `DELETE /api/v1/saved-searches/{id}`: Deletes a saved search owned by the current user.
 *   `GET /api/v1/upload-targets`: Lists configured upload target IDs and names without exposing filesystem paths.
 *   `POST /api/v1/uploads`: Uploads files into a configured upload target and imports them. Multipart requests use `target_id`, `files`, and optional initial `tags`; same-name conflicts follow the server-side `uploads.conflict_policy`.
 
 #### Jobs (Long-Running Operations)
 
+*   `GET /api/v1/jobs`: Lists jobs, optionally filtered by status.
 *   `GET /api/v1/jobs/{job_id}`: Gets the status of any async job.
 *   `DELETE /api/v1/jobs/{job_id}`: Cancels a pending/running job where possible.
+*   `DELETE /api/v1/jobs?status=completed`: Clears finished jobs for the requested status.
 
 ## 5. Edge Cases & Unresolved Questions
 
 *   **Server Crash:** If the `gooru serve` process crashes, all in-memory state (including the job queue) is lost. Running jobs (goroutines) are terminated.
 *   **Database Locking:** The in-memory job manager bounds mutation concurrency but is not a durable queue. Later database/session work may replace parts of this model.
 *   **Invalid API Input:** Endpoints will return `400 Bad Request` with a clear JSON error message detailing the validation failure.
-*   **Pagination:** The public page-token shape is intentionally stable, but the current implementation slices in memory after fetching matches. The offset-token logic is isolated so a store-backed cursor can replace it later.
-*   **Media Metadata:** DTOs include a metadata object with optional image/video/audio fields. Current extraction is best-effort and must not block routes when metadata cannot be read.
+*   **Pagination:** The public page-token shape is intentionally stable and currently uses opaque offset tokens backed by bounded database queries.
+*   **Media Metadata:** DTOs include a metadata object with optional image/video/audio fields. Browse and detail responses read cached metadata and do not synchronously probe media files in result construction.
 
 ## 6. Alternatives Considered
 

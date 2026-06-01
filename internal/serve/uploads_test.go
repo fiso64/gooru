@@ -172,6 +172,25 @@ func TestUploadRejectsOversizedFile(t *testing.T) {
 	}
 }
 
+func TestUploadRejectsOversizedMultipartBeforeStaging(t *testing.T) {
+	dir := t.TempDir()
+	library := &recordingUploadLibrary{}
+	server := newUploadTestServer(t, dir, true, library)
+	server.cfg.Server.MaxRequestBodyBytes = 10 << 20
+	server.cfg.Uploads.MaxFileSizeBytes = 3
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"a.txt": bytes.Repeat([]byte("x"), 2<<20)}, nil))
+
+	assertAPIError(t, rec, http.StatusRequestEntityTooLarge, "payload_too_large")
+	if len(library.files) != 0 {
+		t.Fatalf("oversized request should not reach importer, got %+v", library.files)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
+		t.Fatalf("oversized request should not stage files, entries=%v err=%v", entries, err)
+	}
+}
+
 func TestUploadCleansEarlierFilesWhenBatchFails(t *testing.T) {
 	dir := t.TempDir()
 	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
@@ -333,6 +352,84 @@ func TestGooruUploadImportReportsDuplicateStatuses(t *testing.T) {
 	}
 }
 
+func TestGooruUploadImportCachesImageMetadata(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+	imageBytes := mustReadFile(t, writePNGImage(t))
+	uploadDir := filepath.Join(dir, "uploads")
+	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"image.png": imageBytes}, []string{"uploaded"}))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	file, err := client.GetFileInfoByPath(filepath.Join(uploadDir, "image.png"))
+	if err != nil {
+		t.Fatalf("get uploaded file: %v", err)
+	}
+	meta, err := client.GetMediaMetadata(file.ID)
+	if err != nil {
+		t.Fatalf("get cached metadata: %v", err)
+	}
+	if meta.ImageWidth == nil || *meta.ImageWidth != 32 || meta.ImageHeight == nil || *meta.ImageHeight != 24 {
+		t.Fatalf("expected cached image dimensions, got %+v", meta)
+	}
+}
+
+func TestGooruUploadImportCachesVideoMetadata(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+	uploadDir := filepath.Join(dir, "uploads")
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "serve.db"))
+	cfg.Auth.Enabled = false
+	cfg.Uploads.Enabled = true
+	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
+	cfg.Tools.FFprobePath = writeJSONFFprobe(t, `{"streams":[{"width":1280,"height":720,"duration":"4.25","nb_frames":"100"}]}`)
+	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"clip.mp4": []byte("fake video")}, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	file, err := client.GetFileInfoByPath(filepath.Join(uploadDir, "clip.mp4"))
+	if err != nil {
+		t.Fatalf("get uploaded file: %v", err)
+	}
+	meta, err := client.GetMediaMetadata(file.ID)
+	if err != nil {
+		t.Fatalf("get cached metadata: %v", err)
+	}
+	if meta.VideoWidth == nil || *meta.VideoWidth != 1280 || meta.VideoHeight == nil || *meta.VideoHeight != 720 {
+		t.Fatalf("expected cached video dimensions, got %+v", meta)
+	}
+	if meta.DurationSeconds == nil || *meta.DurationSeconds != 4.25 {
+		t.Fatalf("expected cached video duration, got %+v", meta)
+	}
+	if meta.FrameCount == nil || *meta.FrameCount != 100 {
+		t.Fatalf("expected cached frame count, got %+v", meta)
+	}
+}
+
 func newUploadTestServer(t *testing.T, dir string, enabled bool, library Library) *Server {
 	t.Helper()
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
@@ -348,6 +445,19 @@ func uploadRequest(t *testing.T, files map[string]string, tags []string) *http.R
 
 func uploadRequestWithTarget(t *testing.T, files map[string]string, tags []string, targetID string) *http.Request {
 	t.Helper()
+	binaryFiles := make(map[string][]byte, len(files))
+	for name, content := range files {
+		binaryFiles[name] = []byte(content)
+	}
+	return uploadBinaryRequestWithTarget(t, binaryFiles, tags, targetID)
+}
+
+func uploadBinaryRequest(t *testing.T, files map[string][]byte, tags []string) *http.Request {
+	return uploadBinaryRequestWithTarget(t, files, tags, "")
+}
+
+func uploadBinaryRequestWithTarget(t *testing.T, files map[string][]byte, tags []string, targetID string) *http.Request {
+	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	for name, content := range files {
@@ -355,7 +465,7 @@ func uploadRequestWithTarget(t *testing.T, files map[string]string, tags []strin
 		if err != nil {
 			t.Fatalf("create form file: %v", err)
 		}
-		if _, err := part.Write([]byte(content)); err != nil {
+		if _, err := part.Write(content); err != nil {
 			t.Fatalf("write form file: %v", err)
 		}
 	}

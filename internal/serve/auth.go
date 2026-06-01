@@ -52,6 +52,24 @@ func csrfMiddleware(cfg Config, store *AuthStore, next http.Handler) http.Handle
 	})
 }
 
+func adminMiddleware(cfg Config, next http.Handler) http.Handler {
+	if !cfg.Auth.Enabled {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth, ok := currentAuth(r.Context())
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized", "login required", nil)
+			return
+		}
+		if auth.User.Role != adminRole {
+			writeError(w, http.StatusForbidden, "forbidden", "admin privileges required", nil)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func currentAuth(ctx context.Context) (AuthSession, bool) {
 	auth, ok := ctx.Value(authContextKey{}).(AuthSession)
 	return auth, ok

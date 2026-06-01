@@ -40,6 +40,8 @@ type StagedUpload struct {
 	TargetID string
 }
 
+const maxUploadFiles = 100
+
 type UploadTargetsResponse struct {
 	Items []UploadTargetDTO `json:"items"`
 }
@@ -94,7 +96,15 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			reservation.Release()
 		}
 	}()
+	if limit := s.uploadRequestBodyLimit(); limit > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "upload request body is too large", nil)
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid_request", "multipart upload body is required", nil)
 		return
 	}
@@ -111,6 +121,10 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	files := uploadFileHeaders(r.MultipartForm.File)
 	if len(files) == 0 {
 		writeError(w, http.StatusBadRequest, "invalid_request", "at least one file is required", nil)
+		return
+	}
+	if len(files) > maxUploadFiles {
+		writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("at most %d files are allowed per upload", maxUploadFiles), nil)
 		return
 	}
 
@@ -151,6 +165,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) uploadRequestBodyLimit() int64 {
+	limit := s.cfg.Server.MaxRequestBodyBytes
+	if s.cfg.Uploads.MaxFileSizeBytes > 0 {
+		uploadLimit := s.cfg.Uploads.MaxFileSizeBytes*maxUploadFiles + (1 << 20)
+		if limit <= 0 || uploadLimit < limit {
+			limit = uploadLimit
+		}
+	}
+	return limit
 }
 
 func (s *Server) uploadTarget(id string) (UploadTarget, error) {
@@ -426,5 +451,42 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	}
 	response.AffectedCount = result.AffectedCount
 	response.Notifications = notificationDTOs(result.Notifications)
+	l.cacheImportedMediaMetadata(ctx, importLocations)
 	return response, nil
+}
+
+func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []types.LocationInfo) {
+	provider := l.metadata
+	if provider == nil {
+		provider = BasicMediaMetadataProvider{}
+	}
+	for _, location := range files {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		file, err := l.client.GetFileInfoByPath(location.Path)
+		if err != nil {
+			continue
+		}
+		mediaType := mediaTypeForPath(file.Path)
+		mediaKind := mediaKindForType(mediaType)
+		metadata, err := provider.Metadata(ctx, file, mediaType, mediaKind)
+		if err != nil {
+			continue
+		}
+		if metadata.ImageWidth == nil && metadata.ImageHeight == nil && metadata.VideoWidth == nil && metadata.VideoHeight == nil && metadata.VideoDuration == nil && metadata.FrameCount == nil {
+			continue
+		}
+		_ = l.client.UpsertMediaMetadata(types.MediaMetadata{
+			LocationID:      file.ID,
+			MediaKind:       mediaKind,
+			MimeType:        mediaType,
+			ImageWidth:      metadata.ImageWidth,
+			ImageHeight:     metadata.ImageHeight,
+			VideoWidth:      metadata.VideoWidth,
+			VideoHeight:     metadata.VideoHeight,
+			DurationSeconds: metadata.VideoDuration,
+			FrameCount:      metadata.FrameCount,
+		})
+	}
 }

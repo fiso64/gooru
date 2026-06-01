@@ -45,6 +45,28 @@ func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 	return sqlQuery, args, nil
 }
 
+// buildLocationQuery parses an expression into a SQL subquery that returns
+// matching location IDs for browse/search endpoints.
+func (c *Client) buildLocationQuery(expression string) (string, []interface{}, error) {
+	if strings.TrimSpace(expression) == "" {
+		return "", nil, nil
+	}
+	ast, err := query.Parse(expression)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: could not parse query: %v", ErrInvalidQuery, err)
+	}
+	if err := query.ValidateAST(ast); err != nil {
+		return "", nil, fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
+	}
+	parsedTags := query.ToParsedTags(query.ExtractTags(ast))
+	tagCounts, err := c.store.BatchGetTagCounts(parsedTags)
+	if err != nil {
+		return "", nil, fmt.Errorf("could not fetch tag statistics for query optimization: %w", err)
+	}
+	sqlQuery, args := query.BuildLocations(ast, tagCounts)
+	return sqlQuery, args, nil
+}
+
 // GetTagsForFile retrieves all tags for a given file, with a safety check and status.
 func (c *Client) GetTagsForFile(filePath string, useMetadataHeuristic bool) ([]string, types.FileStatus, error) {
 	absPath, err := resolvePath(filePath)
@@ -131,13 +153,7 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 			if !strings.HasPrefix(tagStr, "@") {
 				parsedTag := query.ParseTag(tagStr)
 				// This optimization only applies to user tags, not virtual tags like ext:
-				if parsedTag.Key != "ext" && parsedTag.Key != "type" {
-					if parsedTag.Value == "" {
-						// Key-only query, e.g. `gooru count photo`
-						// This must count distinct files, not sum tag counts.
-						return c.store.GetCountForKey(parsedTag.Key)
-					}
-					// Key-value query, e.g. `gooru count "photo:album1"`
+				if parsedTag.Key != "ext" && parsedTag.Key != "type" && (parsedTag.Value != "" || strings.HasSuffix(tagStr, ":")) {
 					return c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
 				}
 			}
@@ -162,6 +178,25 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 	}
 
 	return c.store.GetCountByContentQuery(sqlQuery, args)
+}
+
+// CountFileLocationsByQuery counts tracked file locations matching a query expression.
+func (c *Client) CountFileLocationsByQuery(expression string, verbose bool) (int, error) {
+	trimmedExpr := strings.TrimSpace(expression)
+	if trimmedExpr == "" {
+		return c.store.CountAllFiles()
+	}
+	sqlQuery, args, err := c.buildLocationQuery(trimmedExpr)
+	if err != nil {
+		return 0, err
+	}
+	if sqlQuery == "" {
+		return 0, nil
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
+	}
+	return c.store.GetCountByLocationQuery(sqlQuery, args)
 }
 
 // ExistsFilesByQuery checks if any files match a query expression.
@@ -191,12 +226,7 @@ func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, erro
 			if !strings.HasPrefix(tagStr, "@") {
 				parsedTag := query.ParseTag(tagStr)
 				// This optimization only applies to user tags, not virtual tags like ext:
-				if parsedTag.Key != "ext" && parsedTag.Key != "type" {
-					if parsedTag.Value == "" {
-						// Key-only query, e.g., `gooru exists photo`
-						return c.store.ExistsForKey(parsedTag.Key)
-					}
-					// Key-value query, e.g., `gooru exists "photo:album1"`
+				if parsedTag.Key != "ext" && parsedTag.Key != "type" && (parsedTag.Value != "" || strings.HasSuffix(tagStr, ":")) {
 					// Using the pre-calculated count is faster than a new query.
 					count, err := c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
 					return count > 0, err
@@ -445,6 +475,86 @@ func (c *Client) GetFilesInfoByQueryPage(expression string, limit int, offset in
 	}
 
 	return c.store.GetFilesInfoByContentQueryPage(sqlQuery, args, limit, offset)
+}
+
+func (c *Client) GetFilesInfoByQueryPageSorted(expression string, limit int, cursor *types.PageCursor, sort string, order string, verbose bool) ([]types.FileInfo, error) {
+	sqlQuery, args, err := c.buildLocationQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return c.store.GetAllFilesInfoPageSorted(limit, cursor, sort, order)
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
+	}
+	return c.store.GetFilesInfoByLocationQueryPageSorted(sqlQuery, args, limit, cursor, sort, order)
+}
+
+func (c *Client) KindFacets() ([]types.TagWithCount, error) {
+	return c.store.KindFacets()
+}
+
+func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
+	sqlQuery, args, err := c.buildLocationQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return c.store.KindFacets()
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
+	}
+	return c.store.KindFacetsByLocationQuery(sqlQuery, args)
+}
+
+func (c *Client) TagSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
+	return c.store.ListTagSuggestions(prefix, limit)
+}
+
+func (c *Client) NamespaceSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
+	return c.store.ListNamespaceSuggestions(prefix, limit)
+}
+
+func (c *Client) TagValueSuggestions(namespace string, valuePrefix string, limit int) ([]types.TagWithCount, error) {
+	return c.store.ListTagValueSuggestions(namespace, valuePrefix, limit)
+}
+
+func (c *Client) TagNamespaces() ([]string, error) {
+	return c.store.ListTagNamespaces()
+}
+
+func (c *Client) DeleteLocationByID(id int64) (bool, error) {
+	return c.store.DeleteLocationByID(id)
+}
+
+func (c *Client) GetFileInfoByPath(path string) (types.FileInfo, error) {
+	return c.store.GetFileInfoByPath(path)
+}
+
+func (c *Client) GetMediaMetadata(locationID int64) (types.MediaMetadata, error) {
+	return c.store.GetMediaMetadata(locationID)
+}
+
+func (c *Client) UpsertMediaMetadata(meta types.MediaMetadata) error {
+	return c.store.UpsertMediaMetadata(meta)
+}
+
+func (c *Client) ListSavedSearches(userID string) ([]types.SavedSearch, error) {
+	return c.store.ListSavedSearches(userID)
+}
+
+func (c *Client) CreateSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
+	return c.store.CreateSavedSearch(item)
+}
+
+func (c *Client) UpdateSavedSearch(item types.SavedSearch) (types.SavedSearch, error) {
+	return c.store.UpdateSavedSearch(item)
+}
+
+func (c *Client) DeleteSavedSearch(userID string, id string) (bool, error) {
+	return c.store.DeleteSavedSearch(userID, id)
 }
 
 // GetAllTags retrieves all tags from the database.

@@ -1,4 +1,4 @@
-import type { ApiErrorResponse, AuthMeResponse, FileListResponse, Job, TagMutationOperation, TagMutationRequest, TagMutationResponse, UploadImportResponse, UploadTargetsResponse } from './types';
+import type { ApiErrorResponse, AuthMeResponse, FileListResponse, Job, JobListResponse, NamespacesResponse, SavedSearch, SavedSearchRequest, SavedSearchesResponse, SuggestionsResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse, UploadImportResponse, UploadTargetsResponse } from './types';
 
 export class ApiError extends Error {
   code: string;
@@ -16,6 +16,9 @@ export interface ListFilesParams {
   query?: string;
   limit?: number;
   pageToken?: string;
+  sort?: 'name' | 'modified' | 'size' | 'kind';
+  order?: 'asc' | 'desc';
+  includeFacets?: boolean;
 }
 
 export class ApiClient {
@@ -50,7 +53,48 @@ export class ApiClient {
     if (params.query) url.searchParams.set('query', params.query);
     if (params.limit) url.searchParams.set('limit', String(params.limit));
     if (params.pageToken) url.searchParams.set('page_token', params.pageToken);
+    if (params.sort) url.searchParams.set('sort', params.sort);
+    if (params.order) url.searchParams.set('order', params.order);
+    if (params.includeFacets) url.searchParams.set('include_facets', 'true');
     return this.request<FileListResponse>(url.pathname + url.search);
+  }
+
+  async searchSuggestions(q = '', limit?: number, existing = ''): Promise<SuggestionsResponse> {
+    const url = new URL(`${this.baseURL}/search/suggestions`, globalThis.location?.origin ?? 'http://localhost');
+    if (q) url.searchParams.set('q', q);
+    if (existing) url.searchParams.set('existing', existing);
+    if (limit) url.searchParams.set('limit', String(limit));
+    return this.request<SuggestionsResponse>(url.pathname + url.search);
+  }
+
+  async tagNamespaces(): Promise<NamespacesResponse> {
+    return this.request<NamespacesResponse>(`${this.baseURL}/tags/namespaces`);
+  }
+
+  async listSavedSearches(): Promise<SavedSearchesResponse> {
+    return this.request<SavedSearchesResponse>(`${this.baseURL}/saved-searches`);
+  }
+
+  async createSavedSearch(body: SavedSearchRequest): Promise<SavedSearch> {
+    return this.request<SavedSearch>(`${this.baseURL}/saved-searches`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+
+  async updateSavedSearch(id: string, body: SavedSearchRequest): Promise<SavedSearch> {
+    return this.request<SavedSearch>(`${this.baseURL}/saved-searches/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+
+  async deleteSavedSearch(id: string): Promise<void> {
+    await this.request<{ ok: boolean }>(`${this.baseURL}/saved-searches/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
   }
 
   async mutateTags(operation: TagMutationOperation, body: TagMutationRequest): Promise<TagMutationResponse> {
@@ -82,8 +126,22 @@ export class ApiClient {
     return this.request<Job>(`${this.baseURL}/jobs/${id}`);
   }
 
+  async listJobs(status = ''): Promise<JobListResponse> {
+    const url = new URL(`${this.baseURL}/jobs`, globalThis.location?.origin ?? 'http://localhost');
+    if (status) url.searchParams.set('status', status);
+    return this.request<JobListResponse>(url.pathname + url.search);
+  }
+
   async cancelJob(id: string): Promise<Job> {
     return this.request<Job>(`${this.baseURL}/jobs/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  async clearJobs(status = 'completed'): Promise<{ removed: number }> {
+    const url = new URL(`${this.baseURL}/jobs`, globalThis.location?.origin ?? 'http://localhost');
+    if (status) url.searchParams.set('status', status);
+    return this.request<{ removed: number }>(url.pathname + url.search, {
       method: 'DELETE'
     });
   }

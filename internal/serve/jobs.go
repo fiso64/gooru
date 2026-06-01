@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -249,6 +250,42 @@ func (m *JobManager) Cancel(id string) (*Job, bool) {
 	}
 	m.cancelJob(job)
 	return m.clone(job.ID), true
+}
+
+func (m *JobManager) List(status string) []*Job {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*Job, 0, len(m.jobs))
+	for _, job := range m.jobs {
+		if status != "" && string(job.Status) != status {
+			continue
+		}
+		out = append(out, cloneJob(job))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SubmittedAt.Equal(out[j].SubmittedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].SubmittedAt.After(out[j].SubmittedAt)
+	})
+	return out
+}
+
+func (m *JobManager) Clear(status string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	removed := 0
+	for id, job := range m.jobs {
+		if job.Status == JobPending || job.Status == JobRunning {
+			continue
+		}
+		if status != "" && string(job.Status) != status {
+			continue
+		}
+		delete(m.jobs, id)
+		removed++
+	}
+	return removed
 }
 
 func (m *JobManager) cancelJob(job *Job) {

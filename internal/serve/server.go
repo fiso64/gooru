@@ -22,12 +22,16 @@ func NewServer(cfg Config) *Server {
 }
 
 func NewServerWithLibrary(cfg Config, library Library) *Server {
+	metadata := NewMediaMetadataProvider(cfg)
+	if gooruLibrary, ok := library.(*GooruLibrary); ok {
+		gooruLibrary.metadata = metadata
+	}
 	return &Server{
 		cfg:     cfg,
 		jobs:    NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
 		library: library,
 		media:   NewMediaService(cfg),
-		meta:    BasicMediaMetadataProvider{},
+		meta:    metadata,
 	}
 }
 
@@ -53,12 +57,17 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/auth/me", authMiddleware(s.cfg, s.auth, http.HandlerFunc(s.handleAuthMe)))
 	mux.Handle("/api/v1/auth/change-password", s.protected(http.HandlerFunc(s.handleChangePassword)))
 	mux.Handle("/api/v1/upload-targets", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleUploadTargets)))
-	mux.Handle("/api/v1/uploads", s.protected(http.HandlerFunc(s.handleUpload)))
-	mux.Handle("/api/v1/files/tags", s.protected(http.HandlerFunc(s.handleMutateTags)))
+	mux.Handle("/api/v1/uploads", s.adminProtected(http.HandlerFunc(s.handleUpload)))
+	mux.Handle("/api/v1/files/tags", s.adminProtected(http.HandlerFunc(s.handleMutateTags)))
 	mux.Handle("/api/v1/files/", s.protected(http.HandlerFunc(s.handleFile)))
 	mux.Handle("/api/v1/files", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListFiles)))
+	mux.Handle("/api/v1/search/suggestions", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleSearchSuggestions)))
+	mux.Handle("/api/v1/saved-searches/", s.protected(http.HandlerFunc(s.handleSavedSearch)))
+	mux.Handle("/api/v1/saved-searches", s.protected(http.HandlerFunc(s.handleSavedSearches)))
+	mux.Handle("/api/v1/tags/namespaces", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleTagNamespaces)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
-	mux.Handle("/api/v1/jobs/", s.protected(http.HandlerFunc(s.handleJob)))
+	mux.Handle("/api/v1/jobs", s.adminProtected(http.HandlerFunc(s.handleJobs)))
+	mux.Handle("/api/v1/jobs/", s.adminProtected(http.HandlerFunc(s.handleJob)))
 	mux.HandleFunc("/", s.handleFrontend)
 
 	var h http.Handler = mux
@@ -70,6 +79,26 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) protected(next http.Handler) http.Handler {
 	return authMiddleware(s.cfg, s.auth, csrfMiddleware(s.cfg, s.auth, next))
+}
+
+func (s *Server) adminProtected(next http.Handler) http.Handler {
+	return authMiddleware(s.cfg, s.auth, csrfMiddleware(s.cfg, s.auth, adminMiddleware(s.cfg, next)))
+}
+
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if !s.cfg.Auth.Enabled {
+		return true
+	}
+	auth, ok := currentAuth(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "login required", nil)
+		return false
+	}
+	if auth.User.Role != adminRole {
+		writeError(w, http.StatusForbidden, "forbidden", "admin privileges required", nil)
+		return false
+	}
+	return true
 }
 
 func (s *Server) ListenAndServe(ctx context.Context) error {
@@ -102,6 +131,34 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
 	})
+}
+
+type JobListResponse struct {
+	Items []*Job `json:"items"`
+}
+
+func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	if status != "" && !JobStatus(status).Valid() {
+		writeError(w, http.StatusBadRequest, "invalid_request", "status is invalid", nil)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.List(status)})
+	case http.MethodDelete:
+		if status == "" {
+			status = string(JobCompleted)
+		}
+		if status == string(JobPending) || status == string(JobRunning) {
+			writeError(w, http.StatusBadRequest, "invalid_request", "only finished jobs can be cleared", nil)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]int{"removed": s.jobs.Clear(status)})
+	default:
+		w.Header().Set("Allow", "GET, DELETE")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+	}
 }
 
 func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {

@@ -2,6 +2,7 @@ export interface MediaUrls {
   thumbnail: string;
   preview: string;
   content: string;
+  download: string;
 }
 
 export interface MediaMetadata {
@@ -11,6 +12,7 @@ export interface MediaMetadata {
   video_height?: number;
   video_duration?: number;
   audio_duration?: number;
+  frame_count?: number;
 }
 
 export interface FileItem {
@@ -18,10 +20,11 @@ export interface FileItem {
   content_id: string;
   name: string;
   path?: string;
+  safe_display_path: string;
   size: number;
   modified_time: string;
   media_type: string;
-  media_kind: 'image' | 'video' | 'audio' | 'other';
+  media_kind: 'photo' | 'video' | 'gif' | 'other';
   metadata: MediaMetadata;
   tags: string[];
   media_urls: MediaUrls;
@@ -30,6 +33,47 @@ export interface FileItem {
 export interface FileListResponse {
   files: FileItem[];
   next_page_token?: string;
+  total_count: number;
+  library_count: number;
+  facets?: {
+    kind?: Array<{ value: string; count: number }>;
+  };
+}
+
+export interface TagItem {
+  name: string;
+  namespace?: string;
+  value?: string;
+  count?: number;
+}
+
+export interface SuggestionsResponse {
+  items: TagItem[];
+}
+
+export interface NamespacesResponse {
+  items: string[];
+}
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  query: string;
+  sort: 'name' | 'modified' | 'size' | 'kind';
+  order: 'asc' | 'desc';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedSearchRequest {
+  name: string;
+  query: string;
+  sort?: 'name' | 'modified' | 'size' | 'kind';
+  order?: 'asc' | 'desc';
+}
+
+export interface SavedSearchesResponse {
+  items: SavedSearch[];
 }
 
 export type TagMutationOperation = 'add' | 'set' | 'remove';
@@ -61,6 +105,10 @@ export interface Job {
   finished_at?: string;
   result?: unknown;
   error?: string;
+}
+
+export interface JobListResponse {
+  items: Job[];
 }
 
 export interface UploadImportResponse {

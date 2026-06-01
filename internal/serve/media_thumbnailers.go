@@ -76,7 +76,7 @@ func (t *MediaThumbnailer) BackendVersion() string {
 func (t *MediaThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
 	kind := mediaKindForType(mediaTypeForPath(src))
 	switch kind {
-	case "image":
+	case "photo", "gif":
 		if t.imagePrimary != nil {
 			if err := t.imagePrimary.Thumbnail(src, dst, size, format); err == nil {
 				return nil

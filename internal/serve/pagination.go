@@ -2,9 +2,12 @@ package serve
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
+
+	"gooru.local/types"
 )
 
 const (
@@ -15,6 +18,7 @@ const (
 type Page struct {
 	Limit  int
 	Offset int
+	Cursor *types.PageCursor
 }
 
 type PageResult[T any] struct {
@@ -41,16 +45,45 @@ func ParsePage(limitRaw string, token string) (Page, error) {
 			return Page{}, fmt.Errorf("page_token is invalid")
 		}
 		parts := strings.SplitN(string(decoded), ":", 2)
-		if len(parts) != 2 || parts[0] != "offset" {
-			return Page{}, fmt.Errorf("page_token is invalid")
+		if len(parts) == 2 && parts[0] == "offset" {
+			parsed, err := strconv.Atoi(parts[1])
+			if err != nil || parsed < 0 {
+				return Page{}, fmt.Errorf("page_token is invalid")
+			}
+			offset = parsed
+		} else {
+			var cursor types.PageCursor
+			if err := json.Unmarshal(decoded, &cursor); err != nil || cursor.ID <= 0 {
+				return Page{}, fmt.Errorf("page_token is invalid")
+			}
+			return Page{Limit: limit, Cursor: &cursor}, nil
 		}
-		parsed, err := strconv.Atoi(parts[1])
-		if err != nil || parsed < 0 {
-			return Page{}, fmt.Errorf("page_token is invalid")
-		}
-		offset = parsed
 	}
 	return Page{Limit: limit, Offset: offset}, nil
+}
+
+func CursorPageToken(sort string, order string, id int64) string {
+	if id <= 0 {
+		return ""
+	}
+	payload, err := json.Marshal(types.PageCursor{Sort: sort, Order: order, ID: id})
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func ValidateCursorForSort(cursor *types.PageCursor, sort string, order string) (*types.PageCursor, error) {
+	if cursor == nil {
+		return nil, nil
+	}
+	if cursor.Sort != sort || cursor.Order != order {
+		return nil, fmt.Errorf("page_token sort does not match request")
+	}
+	if cursor.ID <= 0 {
+		return nil, fmt.Errorf("page_token is invalid")
+	}
+	return cursor, nil
 }
 
 func NextPageToken(offset int, limit int, returned int) string {

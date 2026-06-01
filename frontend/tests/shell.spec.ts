@@ -60,7 +60,7 @@ test('renders authenticated thumbnail results', async ({ page }) => {
             size: 2048,
             modified_time: '2026-05-20T00:00:00Z',
             media_type: 'image/jpeg',
-            media_kind: 'image',
+            media_kind: 'photo',
             tags: ['rating:safe', 'blue'],
             media_urls: {
               thumbnail: '/api/v1/files/bG9jOjE/thumbnail',
@@ -155,7 +155,7 @@ test('signing in resets auth-scoped file results', async ({ page }) => {
             size: 2048,
             modified_time: '2026-05-20T00:00:00Z',
             media_type: 'image/jpeg',
-            media_kind: 'image',
+            media_kind: 'photo',
             tags: ['session'],
             media_urls: {
               thumbnail: '/api/v1/files/session-file/thumbnail',

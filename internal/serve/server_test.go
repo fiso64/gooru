@@ -111,6 +111,46 @@ func TestJobRoutesAcceptSessionCookie(t *testing.T) {
 	}
 }
 
+func TestJobCollectionListsAndClearsFinishedJobs(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	server := NewServer(cfg)
+	auth := attachTestAuth(t, server)
+	job, err := server.jobs.Submit(context.Background(), "test", true, func(ctx context.Context) (interface{}, error) {
+		return "ok", nil
+	})
+	if err != nil {
+		t.Fatalf("submit job: %v", err)
+	}
+	waitForStatus(t, server.jobs, job.ID, JobCompleted)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/v1/jobs?status=completed", nil)
+	addAuthCookie(listReq, cfg, auth)
+	listRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", listRec.Code, listRec.Body.String())
+	}
+	var listed JobListResponse
+	if err := json.Unmarshal(listRec.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("decode job list: %v", err)
+	}
+	if len(listed.Items) != 1 || listed.Items[0].ID != job.ID {
+		t.Fatalf("unexpected job list: %+v", listed)
+	}
+
+	clearReq := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs?status=completed", nil)
+	addAuthCookie(clearReq, cfg, auth)
+	addCSRF(clearReq, auth)
+	clearRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(clearRec, clearReq)
+	if clearRec.Code != http.StatusOK {
+		t.Fatalf("expected clear 200, got %d: %s", clearRec.Code, clearRec.Body.String())
+	}
+	if _, ok := server.jobs.Get(job.ID); ok {
+		t.Fatal("expected completed job to be cleared")
+	}
+}
+
 func TestJobsRunSerially(t *testing.T) {
 	mgr := NewJobManager(2, time.Hour)
 	order := make(chan string, 2)
