@@ -213,6 +213,7 @@
     kindCounts={page?.facets?.kind ?? []}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
+    tags={tagsQuery.data?.tags ?? []}
     search={$searchDraft}
     onRoute={library.setRoute}
     onKind={library.setKind}
@@ -220,9 +221,8 @@
     onCreateSavedSearch={createSavedSearch}
     onUpdateSavedSearch={updateSavedSearch}
     onDeleteSavedSearch={deleteSavedSearch}
-    onSuggestion={library.applySuggestion}
-    onSearchInput={library.setSearch}
-    onSearchSubmit={library.submitSearch}
+    onSearchDraft={library.setSearchDraft}
+    onSearchCommit={library.commitSearch}
     onJobs={library.toggleJobsRoute}
   >
     {#if library.route === 'upload'}

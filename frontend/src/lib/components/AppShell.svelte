@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
   import Logo from './Logo.svelte';
+  import SearchBar from './SearchBar.svelte';
 
   let {
     username,
@@ -13,6 +14,7 @@
     kindCounts,
     savedSearches,
     suggestions,
+    tags,
     search,
     onRoute,
     onKind,
@@ -20,9 +22,8 @@
     onCreateSavedSearch,
     onUpdateSavedSearch,
     onDeleteSavedSearch,
-    onSuggestion,
-    onSearchInput,
-    onSearchSubmit,
+    onSearchDraft,
+    onSearchCommit,
     onJobs,
     children
   } = $props<{
@@ -35,6 +36,7 @@
     kindCounts: Array<{ value: string; count: number }>;
     savedSearches: Array<{ id: string; name: string; query: string }>;
     suggestions: Array<{ name: string; count?: number }>;
+    tags: Array<{ name?: string; tag?: string; namespace?: string; value?: string; count?: number }>;
     search: string;
     onRoute: (route: string) => void;
     onKind: (kind: string) => void;
@@ -42,9 +44,8 @@
     onCreateSavedSearch: () => void;
     onUpdateSavedSearch: (id: string, name: string, query: string) => void;
     onDeleteSavedSearch: (id: string, name: string) => void;
-    onSuggestion: (value: string) => void;
-    onSearchInput: (value: string) => void;
-    onSearchSubmit: () => void;
+    onSearchDraft: (value: string) => void;
+    onSearchCommit: (value: string) => void;
     onJobs: () => void;
     children: Snippet;
   }>();
@@ -67,34 +68,15 @@
     <button class="topbar-brand" type="button" onclick={() => onRoute('library')} aria-label="Gooru library">
       <span class="topbar-brand-mark"><Logo size={17} /></span>
     </button>
-    <form class="topbar-search" onsubmit={(event) => { event.preventDefault(); onSearchSubmit(); }}>
+    <form class="topbar-search" onsubmit={(event) => event.preventDefault()}>
       <div class="topbar-search-inner">
-        <div class="searchbar">
-          <span class="searchbar-icon"><Icon name="search" size={16} /></span>
-          <input
-            class="searchbar-input"
-            value={search}
-            oninput={(event) => onSearchInput(event.currentTarget.value)}
-            placeholder="tag, key:value, @tagged"
-            aria-label="Search library"
-          />
-          {#if search}
-            <button class="searchbar-clear" type="button" aria-label="Clear search" onclick={() => { onSearchInput(''); onSearchSubmit(); }}>
-              <Icon name="close" size={12} />
-            </button>
-          {/if}
-        </div>
-        {#if suggestions.length}
-          <div class="search-suggestions" role="listbox" aria-label="Search suggestions">
-            <div class="group-head">Suggestions</div>
-            {#each suggestions as suggestion}
-              <button type="button" role="option" aria-selected="false" onclick={() => onSuggestion(suggestion.name)}>
-                <span class="tok">{suggestion.name}</span>
-                {#if suggestion.count != null}<span class="count">{suggestion.count.toLocaleString()}</span>{/if}
-              </button>
-            {/each}
-          </div>
-        {/if}
+        <SearchBar
+          value={search}
+          {suggestions}
+          {tags}
+          onDraftInput={onSearchDraft}
+          onCommit={onSearchCommit}
+        />
       </div>
     </form>
     <div class="topbar-right">

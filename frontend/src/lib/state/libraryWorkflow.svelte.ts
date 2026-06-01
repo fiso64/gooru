@@ -35,6 +35,22 @@ export function createLibraryWorkflow() {
     suggestionDebounce = setTimeout(() => suggestionSearch.set(value.trim()), 160);
   }
 
+  function setSearchDraft(value: string) {
+    if (suggestionDebounce) clearTimeout(suggestionDebounce);
+    suggestionDebounce = setTimeout(() => suggestionSearch.set(value.trim()), 160);
+  }
+
+  function commitSearch(value: string) {
+    if (searchDebounce) clearTimeout(searchDebounce);
+    if (suggestionDebounce) clearTimeout(suggestionDebounce);
+    const query = value.trim();
+    searchDraft.set(query);
+    suggestionSearch.set(query);
+    submittedSearch.set(query);
+    selectedIDs = new Set();
+    route = 'library';
+  }
+
   function filterQuery() {
     const parts = [get(submittedSearch).trim()];
     if (activeKind) parts.push(`kind:${activeKind}`);
@@ -132,6 +148,8 @@ export function createLibraryWorkflow() {
     reset,
     submitSearch,
     setSearch,
+    setSearchDraft,
+    commitSearch,
     filterQuery,
     setKind,
     runTagSearch,

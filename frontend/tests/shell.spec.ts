@@ -93,7 +93,7 @@ test('renders login and authenticated concept shell', async ({ page }) => {
   await signIn(page);
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Upload' })).toBeVisible();
-  await expect(page.getByPlaceholder('tag, key:value, @tagged')).toBeVisible();
+  await expect(page.getByLabel('Search library')).toBeVisible();
   await expect(page.getByText('Settings')).toBeVisible();
   await expect(page.getByText('No results')).toBeVisible();
 });
@@ -234,10 +234,52 @@ test('debounces search suggestions while preserving typed draft', async ({ page 
 
   await page.goto('/');
   await signIn(page);
-  await page.getByPlaceholder('tag, key:value, @tagged').pressSequentially('safe', { delay: 10 });
-  await expect(page.getByPlaceholder('tag, key:value, @tagged')).toHaveValue('safe');
+  await page.getByLabel('Search library').pressSequentially('safe', { delay: 10 });
+  await expect(page.getByLabel('Search library')).toHaveValue('safe');
   await expect.poll(() => suggestionQueries).toEqual(['safe']);
   await expect(page.getByText('rating:safe')).toBeVisible();
+});
+
+test('search bar commits token pills and keyboard autocomplete', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const fileQueries: string[] = [];
+  await page.route('**/api/v1/files?**', async (route) => {
+    fileQueries.push(new URL(route.request().url()).searchParams.get('query') ?? '');
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  const search = page.getByLabel('Search library');
+
+  await search.pressSequentially('rat', { delay: 10 });
+  await expect(page.getByText('Namespaces')).toBeVisible();
+  await search.press('Enter');
+  await expect(search).toHaveValue('rating:');
+  await search.pressSequentially('safe', { delay: 10 });
+  await search.press('Enter');
+  await expect(page.locator('.searchbar-pill').filter({ hasText: 'rating:safe' })).toBeVisible();
+  await expect.poll(() => fileQueries).toContain('rating:safe');
+
+  await search.pressSequentially('e', { delay: 10 });
+  await search.press('ArrowDown');
+  await search.press('Enter');
+  await expect.poll(() => fileQueries).toContain('rating:safe blue');
+  await expect(page.getByLabel('Remove blue')).toBeVisible();
+
+  await page.getByLabel('Remove rating:safe').click();
+  await expect.poll(() => fileQueries).toContain('blue');
+  await search.press('Backspace');
+  await expect.poll(() => fileQueries).toContain('');
+
+  await search.pressSequentially('-rating:safe', { delay: 10 });
+  await search.press('Tab');
+  await expect(page.locator('.searchbar-pill.neg')).toContainText('rating:safe');
+  await expect.poll(() => fileQueries).toContain('-rating:safe');
+
+  await page.getByLabel('Clear search').click();
+  await expect.poll(() => fileQueries).toContain('');
 });
 
 test('video preview uses direct range-capable content route', async ({ page }) => {
