@@ -559,7 +559,12 @@ func (c *Client) DeleteSavedSearch(userID string, id string) (bool, error) {
 
 // GetAllTags retrieves all tags from the database.
 func (c *Client) GetAllTags() ([]string, error) {
-	return c.store.GetAllTags()
+	return c.GetTags(0)
+}
+
+// GetTags retrieves tags from the database, optionally bounded by limit.
+func (c *Client) GetTags(limit int) ([]string, error) {
+	return c.store.GetTags(limit)
 }
 
 // GetAllTagsWithCounts retrieves all tags and their usage counts, sorted by count descending.

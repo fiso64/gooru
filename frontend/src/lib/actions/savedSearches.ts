@@ -1,13 +1,14 @@
-import { ApiClient } from '$lib/api/client';
 import { errorMessage } from '$lib/utils/format';
 import type { FileSort, SortOrder } from '$lib/queries/files';
+import type { SavedSearch, SavedSearchRequest } from '$lib/api/types';
 
 interface SavedSearchContext {
-  csrfToken: string;
   query: string;
   sort: FileSort;
   order: SortOrder;
-  refetch: () => Promise<unknown>;
+  create: (body: SavedSearchRequest) => Promise<SavedSearch>;
+  update: (id: string, body: SavedSearchRequest) => Promise<SavedSearch>;
+  remove: (id: string) => Promise<void>;
 }
 
 export async function createSavedSearch(ctx: SavedSearchContext, fallbackName = '') {
@@ -18,8 +19,7 @@ export async function createSavedSearch(ctx: SavedSearchContext, fallbackName = 
   const name = window.prompt('Saved search name', fallbackName || ctx.query);
   if (!name?.trim()) return;
   try {
-    await new ApiClient(ctx.csrfToken).createSavedSearch({ name: name.trim(), query: ctx.query, sort: ctx.sort, order: ctx.order });
-    await ctx.refetch();
+    await ctx.create({ name: name.trim(), query: ctx.query, sort: ctx.sort, order: ctx.order });
   } catch (error) {
     window.alert(errorMessage(error));
   }
@@ -29,23 +29,21 @@ export async function updateSavedSearch(ctx: SavedSearchContext, id: string, nam
   const nextName = window.prompt('Saved search name', name);
   if (!nextName?.trim()) return;
   try {
-    await new ApiClient(ctx.csrfToken).updateSavedSearch(id, {
+    await ctx.update(id, {
       name: nextName.trim(),
       query: ctx.query || previousQuery,
       sort: ctx.sort,
       order: ctx.order
     });
-    await ctx.refetch();
   } catch (error) {
     window.alert(errorMessage(error));
   }
 }
 
-export async function deleteSavedSearch(csrfToken: string, id: string, name: string, refetch: () => Promise<unknown>) {
+export async function deleteSavedSearch(ctx: SavedSearchContext, id: string, name: string) {
   if (!window.confirm(`Delete saved search "${name}"?`)) return;
   try {
-    await new ApiClient(csrfToken).deleteSavedSearch(id);
-    await refetch();
+    await ctx.remove(id);
   } catch (error) {
     window.alert(errorMessage(error));
   }

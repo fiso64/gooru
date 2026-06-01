@@ -577,6 +577,27 @@ func TestListTagsWithCounts(t *testing.T) {
 	}
 }
 
+func TestListTagsWithoutCountsHonorsLimit(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/tags?limit=1"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response TagListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode tags response: %v", err)
+	}
+	if len(response.Tags) != 1 {
+		t.Fatalf("expected exactly one limited tag, got %+v", response.Tags)
+	}
+	if response.Tags[0].Count != nil {
+		t.Fatalf("expected counts=false response without counts, got %+v", response.Tags[0])
+	}
+}
+
 func TestMediaKindForAudioType(t *testing.T) {
 	if got := mediaKindForType("audio/mpeg"); got != "audio" {
 		t.Fatalf("expected audio media kind, got %q", got)

@@ -1,8 +1,11 @@
-import { createInfiniteQuery } from '@tanstack/svelte-query';
+import { createInfiniteQuery, createMutation } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
-import type { FileListResponse } from '$lib/api/types';
+import { libraryKeys } from './library';
+import type { FileListResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse } from '$lib/api/types';
+import type { QueryClient } from '@tanstack/query-core';
 
 export const pageLimit = 60;
+export const retainedFilePages = 8;
 export type FileSort = 'modified' | 'name' | 'size' | 'kind';
 export type SortOrder = 'asc' | 'desc';
 
@@ -41,6 +44,24 @@ export function createFilesQuery(
         includeFacets: !pageParam,
         signal
       }),
-    getNextPageParam: (lastPage) => lastPage.next_page_token || undefined
+    getNextPageParam: (lastPage) => lastPage.next_page_token || undefined,
+    maxPages: retainedFilePages
+  }));
+}
+
+export interface TagMutationVariables {
+  operation: TagMutationOperation;
+  body: TagMutationRequest;
+}
+
+export function createTagMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<TagMutationResponse, Error, TagMutationVariables>(() => ({
+    mutationFn: ({ operation, body }) => new ApiClient(getCSRFToken()).mutateTags(operation, body),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: fileKeys.all }),
+        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
+      ]);
+    }
   }));
 }

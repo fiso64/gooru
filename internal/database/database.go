@@ -929,12 +929,24 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 // GetAllTags retrieves all unique tags from the database.
 // This includes synthesized simple tags for keys that only have key-value pairs.
 func (s *Store) GetAllTags() ([]string, error) {
+	return s.GetTags(0)
+}
+
+// GetTags retrieves unique tags from the database, optionally bounded by limit.
+// This includes synthesized simple tags for keys that only have key-value pairs.
+func (s *Store) GetTags(limit int) ([]string, error) {
+	limitSQL := ""
+	args := []any{}
+	if limit > 0 {
+		limitSQL = " LIMIT ?"
+		args = append(args, limit)
+	}
 	query := `
 		SELECT key, value FROM tags
 		UNION
 		SELECT DISTINCT key, '' AS value FROM tags
-		ORDER BY key, value`
-	rows, err := s.Query(query)
+		ORDER BY key, value` + limitSQL
+	rows, err := s.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

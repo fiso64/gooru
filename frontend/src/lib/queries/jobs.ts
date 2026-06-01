@@ -1,5 +1,7 @@
-import { createQuery } from '@tanstack/svelte-query';
+import { createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
+import type { Job } from '$lib/api/types';
+import type { QueryClient } from '@tanstack/query-core';
 
 export const jobKeys = {
   all: ['jobs'] as const,
@@ -25,5 +27,27 @@ export function createJobsQuery(getAuthenticated: () => boolean, getAuthScope: (
     enabled: getAuthenticated(),
     queryFn: () => new ApiClient().listJobs(),
     refetchInterval: 2000
+  }));
+}
+
+export function createCancelJobMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<Job, Error, string>(() => ({
+    mutationFn: (id) => new ApiClient(getCSRFToken()).cancelJob(id),
+    onSuccess: async (job) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: jobKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ['job'] }),
+        queryClient.invalidateQueries({ queryKey: ['files'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', 'tags'] })
+      ]);
+      return job;
+    }
+  }));
+}
+
+export function createClearJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<{ removed: number }, Error, string>(() => ({
+    mutationFn: (status) => new ApiClient(getCSRFToken()).clearJobs(status),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: jobKeys.all })
   }));
 }

@@ -139,12 +139,9 @@ func (l *GooruLibrary) ListTags(ctx context.Context, counts bool, limit int) ([]
 		}
 		return out, nil
 	}
-	tags, err := l.client.GetAllTags()
+	tags, err := l.client.GetTags(limit)
 	if err != nil {
 		return nil, err
-	}
-	if limit > 0 && len(tags) > limit {
-		tags = tags[:limit]
 	}
 	out := make([]TagDTO, 0, len(tags))
 	for _, tag := range tags {
