@@ -1492,9 +1492,12 @@ textarea {
   }
 
   .sidebar-section-head,
-  .sidebar-note,
-  .sidebar-section.bottom {
+  .sidebar-note {
     display: none;
+  }
+
+  .sidebar-section.bottom {
+    margin-top: 0;
   }
 
   .sidebar-item {
