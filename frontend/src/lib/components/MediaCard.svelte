@@ -23,6 +23,8 @@
     <span class="thumb-badges">
       {#if file.media_kind === 'video'}
         <span class="thumb-badge"><Icon name="play" size={9} /> {mediaDuration(file) || 'video'}</span>
+      {:else if file.media_kind === 'audio' || file.media_type.startsWith('audio/')}
+        <span class="thumb-badge"><Icon name="audio" size={9} /> {mediaDuration(file) || 'audio'}</span>
       {:else if file.media_kind === 'gif'}
         <span class="thumb-badge thumb-badge-gif">GIF</span>
       {/if}

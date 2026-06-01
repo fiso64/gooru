@@ -16,6 +16,7 @@
     tags: '<path d="M3.6 11.6V4h7.6L20 13a1.5 1.5 0 0 1 0 2.1l-5.1 5.1a1.5 1.5 0 0 1-2.1 0L3.6 11.6Z"/><path d="m8 4 9 9a1.5 1.5 0 0 1 0 2.1l-1 1"/><circle cx="8" cy="8" r="1.2"/>',
     photo: '<rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="m3.5 17 5-5 4.5 4.5 3-3 4.5 4.5"/>',
     video: '<rect x="3" y="5" width="14" height="14" rx="2"/><path d="m21 7-4 3v4l4 3z"/>',
+    audio: '<path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/>',
     gif: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10v4M10 10v4M13 10h2.5M13 10v4M13 12h1.5M17.5 10h2"/>',
     upload: '<path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/>',
     jobs: '<path d="M12 3v2"/><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',

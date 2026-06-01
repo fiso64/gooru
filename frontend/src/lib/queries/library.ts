@@ -3,6 +3,7 @@ import { ApiClient } from '$lib/api/client';
 
 export const libraryKeys = {
   savedSearches: (scope: number) => ['library', 'saved-searches', scope] as const,
+  tags: (scope: number) => ['library', 'tags', scope] as const,
   uploadTargets: (scope: number) => ['library', 'upload-targets', scope] as const,
   suggestions: (scope: number, q: string, existing: string) => ['library', 'suggestions', scope, q, existing] as const
 };
@@ -20,6 +21,14 @@ export function createUploadTargetsQuery(getAuthenticated: () => boolean, getAut
     queryKey: libraryKeys.uploadTargets(getAuthScope()),
     enabled: getAuthenticated(),
     queryFn: () => new ApiClient().getUploadTargets()
+  }));
+}
+
+export function createTagsQuery(getAuthenticated: () => boolean, getAuthScope: () => number) {
+  return createQuery(() => ({
+    queryKey: libraryKeys.tags(getAuthScope()),
+    enabled: getAuthenticated(),
+    queryFn: () => new ApiClient().listTags(true)
   }));
 }
 

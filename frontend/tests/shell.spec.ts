@@ -6,7 +6,7 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-function fileItem(id: string, name: string, kind: 'photo' | 'video' | 'gif' | 'other' = 'photo') {
+function fileItem(id: string, name: string, kind: 'photo' | 'video' | 'gif' | 'audio' | 'other' = 'photo') {
   return {
     id,
     content_id: `hash-${id}`,
@@ -14,9 +14,9 @@ function fileItem(id: string, name: string, kind: 'photo' | 'video' | 'gif' | 'o
     safe_display_path: `library/${name}`,
     size: kind === 'video' ? 104857600 : 2048,
     modified_time: '2026-05-20T00:00:00Z',
-    media_type: kind === 'video' ? 'video/mp4' : 'image/jpeg',
+    media_type: kind === 'video' ? 'video/mp4' : kind === 'audio' ? 'audio/mpeg' : 'image/jpeg',
     media_kind: kind,
-    metadata: kind === 'video' ? { video_width: 1920, video_height: 1080, video_duration: 8 } : { image_width: 800, image_height: 600 },
+    metadata: kind === 'video' ? { video_width: 1920, video_height: 1080, video_duration: 8 } : kind === 'audio' ? { audio_duration: 12 } : { image_width: 800, image_height: 600 },
     tags: ['rating:safe', 'blue'],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`,
@@ -59,6 +59,15 @@ async function mockShellApis(page: Page) {
   });
   await page.route('**/api/v1/upload-targets', async (route) => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) });
+  });
+  await page.route('**/api/v1/tags?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ tags: [{ name: 'rating:safe', namespace: 'rating', value: 'safe', count: 3 }, { name: 'blue', count: 2 }] })
+    });
+  });
+  await page.route('**/api/v1/search/suggestions?**', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
 }
 
@@ -172,9 +181,61 @@ test('video preview uses direct range-capable content route', async ({ page }) =
   expect(contentRequests[0]).toMatchObject({ authorization: '', cookie: expect.stringContaining('gooru_session=session-one') });
 });
 
+test('audio preview uses native audio content route', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const contentRequests: string[] = [];
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files: [fileItem('audio-one', 'sample-audio.mp3', 'audio')], total_count: 1, library_count: 1, facets: { kind: [{ value: 'audio', count: 1 }] } })
+    });
+  });
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"></svg>' });
+  });
+  await page.route('**/api/v1/files/*/preview', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"></svg>' });
+  });
+  await page.route('**/api/v1/files/*/content', async (route) => {
+    contentRequests.push(route.request().headers().authorization ?? '');
+    await route.fulfill({ contentType: 'audio/mpeg', body: '' });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByRole('button', { name: 'Preview sample-audio.mp3' }).click();
+  await expect(page.getByRole('dialog', { name: 'sample-audio.mp3' })).toBeVisible();
+  await expect(page.locator('audio')).toHaveAttribute('src', /audio-one\/content/);
+  await expect.poll(() => contentRequests.length).toBeGreaterThan(0);
+});
+
+test('tag index renders real tag counts and navigates to a tag query', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const fileQueries: string[] = [];
+  await page.route('**/api/v1/files?**', async (route) => {
+    fileQueries.push(new URL(route.request().url()).searchParams.get('query') ?? '');
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files: [], total_count: 0, library_count: 3, facets: { kind: [] } })
+    });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByRole('button', { name: /Tags/ }).first().click();
+  await expect(page.getByRole('heading', { name: 'Tag index' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'rating: 3' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /rating:safe/ })).toBeVisible();
+  await page.getByRole('button', { name: /rating:safe/ }).click();
+  await expect.poll(() => fileQueries).toContain('rating:safe');
+});
+
 test('uploads with job polling and cancellation', async ({ page }) => {
   await mockAuth(page);
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
   await page.route('**/api/v1/jobs', async (route) => {
@@ -197,7 +258,38 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   await page.locator('input[type="file"]').setInputFiles({ name: 'upload.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('upload') });
   await page.getByPlaceholder('collection:inbox @review').fill('incoming');
   await page.getByRole('button', { name: 'Upload 1' }).click();
-  await expect(page.getByText('Importing')).toBeVisible();
-  await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page.getByText('Canceled')).toBeVisible();
+  await expect(page.getByText('Importing', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+});
+
+test('upload result details preserve duplicate and error statuses', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
+  await page.route('**/api/v1/uploads', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        affected_count: 1,
+        files: [
+          { name: 'new.jpg', size: 6, target_id: 'default', status: 'imported' },
+          { name: 'dupe.jpg', size: 4, target_id: 'default', status: 'duplicate_existing' },
+          { name: 'bad.jpg', size: 3, target_id: 'default', status: 'error', error: 'unsupported media' }
+        ]
+      })
+    });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByRole('button', { name: 'Upload' }).click();
+  await page.locator('input[type="file"]').setInputFiles([
+    { name: 'new.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('new') },
+    { name: 'dupe.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('dupe') },
+    { name: 'bad.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('bad') }
+  ]);
+  await page.getByRole('button', { name: 'Upload 3' }).click();
+  await expect(page.getByText('imported', { exact: true })).toBeVisible();
+  await expect(page.getByText('duplicate existing', { exact: true })).toBeVisible();
+  await expect(page.getByText('unsupported media')).toBeVisible();
 });

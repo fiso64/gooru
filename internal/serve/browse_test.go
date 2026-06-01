@@ -577,6 +577,12 @@ func TestListTagsWithCounts(t *testing.T) {
 	}
 }
 
+func TestMediaKindForAudioType(t *testing.T) {
+	if got := mediaKindForType("audio/mpeg"); got != "audio" {
+		t.Fatalf("expected audio media kind, got %q", got)
+	}
+}
+
 func newTestBrowseServer(t *testing.T) (*Server, func()) {
 	t.Helper()
 	dir := t.TempDir()

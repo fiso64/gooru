@@ -17,6 +17,9 @@
     onRoute,
     onKind,
     onSavedSearch,
+    onCreateSavedSearch,
+    onUpdateSavedSearch,
+    onDeleteSavedSearch,
     onSuggestion,
     onSearchInput,
     onSearchSubmit,
@@ -36,6 +39,9 @@
     onRoute: (route: string) => void;
     onKind: (kind: string) => void;
     onSavedSearch: (query: string, name: string) => void;
+    onCreateSavedSearch: () => void;
+    onUpdateSavedSearch: (id: string, name: string, query: string) => void;
+    onDeleteSavedSearch: (id: string, name: string) => void;
     onSuggestion: (value: string) => void;
     onSearchInput: (value: string) => void;
     onSearchSubmit: () => void;
@@ -47,6 +53,7 @@
     { key: 'photo', label: 'Photos', icon: 'photo' },
     { key: 'video', label: 'Videos', icon: 'video' },
     { key: 'gif', label: 'GIFs', icon: 'gif' },
+    { key: 'audio', label: 'Audio', icon: 'audio' },
     { key: 'other', label: 'Other', icon: 'folder' }
   ];
 
@@ -135,12 +142,25 @@
     </div>
 
     <div class="sidebar-section">
-      <div class="sidebar-section-head">Saved searches</div>
-      {#each savedSearches as saved}
-        <button class="sidebar-item" type="button" onclick={() => onSavedSearch(saved.query, saved.name)}>
-          <Icon name="bookmark" size={14} />
-          <span class="truncate">{saved.name}</span>
+      <div class="sidebar-section-head">
+        <span>Saved searches</span>
+        <button class="sidebar-head-action" type="button" title="Save current search" aria-label="Save current search" onclick={onCreateSavedSearch}>
+          <Icon name="plus" size={11} />
         </button>
+      </div>
+      {#each savedSearches as saved}
+        <div class="sidebar-saved-row">
+          <button class="sidebar-item" type="button" onclick={() => onSavedSearch(saved.query, saved.name)}>
+            <Icon name="bookmark" size={14} />
+            <span class="truncate">{saved.name}</span>
+          </button>
+          <button class="sidebar-mini" type="button" title={`Update ${saved.name}`} aria-label={`Update ${saved.name}`} onclick={() => onUpdateSavedSearch(saved.id, saved.name, saved.query)}>
+            <Icon name="check" size={11} />
+          </button>
+          <button class="sidebar-mini" type="button" title={`Delete ${saved.name}`} aria-label={`Delete ${saved.name}`} onclick={() => onDeleteSavedSearch(saved.id, saved.name)}>
+            <Icon name="trash" size={11} />
+          </button>
+        </div>
       {:else}
         <div class="sidebar-note">No saved searches yet</div>
       {/each}

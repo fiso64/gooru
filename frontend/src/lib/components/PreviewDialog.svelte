@@ -82,6 +82,11 @@
     {#if file.media_kind === 'video'}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video src={file.media_urls.content} poster={file.media_urls.preview} controls preload="metadata"></video>
+    {:else if file.media_kind === 'audio' || file.media_type.startsWith('audio/')}
+      <div class="audio-stage">
+        <div class="audio-art"><Icon name="audio" size={42} /></div>
+        <audio src={file.media_urls.content} controls preload="metadata"></audio>
+      </div>
     {:else}
       <img src={file.media_urls.preview} alt={file.name} />
     {/if}

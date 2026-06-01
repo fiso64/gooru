@@ -24,7 +24,7 @@ export interface FileItem {
   size: number;
   modified_time: string;
   media_type: string;
-  media_kind: 'photo' | 'video' | 'gif' | 'other';
+  media_kind: 'photo' | 'video' | 'gif' | 'audio' | 'other';
   metadata: MediaMetadata;
   tags: string[];
   media_urls: MediaUrls;
@@ -49,6 +49,10 @@ export interface TagItem {
 
 export interface SuggestionsResponse {
   items: TagItem[];
+}
+
+export interface TagListResponse {
+  tags: TagItem[];
 }
 
 export interface NamespacesResponse {

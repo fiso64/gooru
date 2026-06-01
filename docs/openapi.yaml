@@ -1129,7 +1129,7 @@ components:
           type: string
         media_kind:
           type: string
-          enum: [photo, video, gif, other]
+          enum: [photo, video, gif, audio, other]
         metadata:
           $ref: "#/components/schemas/MediaMetadata"
         tags:

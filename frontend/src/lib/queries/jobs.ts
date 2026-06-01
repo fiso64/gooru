@@ -8,12 +8,15 @@ export const jobKeys = {
 };
 
 export function createJobQuery(getCSRFToken: () => string, getJobID: () => string, getAuthScope: () => number) {
-  return createQuery(() => ({
-    queryKey: jobKeys.detail(getAuthScope(), getJobID()),
-    enabled: Boolean(getJobID()),
-    queryFn: () => new ApiClient(getCSRFToken()).getJob(getJobID()),
-    refetchInterval: 700
-  }));
+  return createQuery(() => {
+    const jobID = getJobID();
+    return {
+      queryKey: jobKeys.detail(getAuthScope(), jobID),
+      enabled: Boolean(jobID),
+      queryFn: () => new ApiClient(getCSRFToken()).getJob(jobID),
+      refetchInterval: 700
+    };
+  });
 }
 
 export function createJobsQuery(getAuthenticated: () => boolean, getAuthScope: () => number) {

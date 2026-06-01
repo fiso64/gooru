@@ -661,6 +661,8 @@ func mediaKindForType(mediaType string) string {
 		return "photo"
 	case strings.HasPrefix(mediaType, "video/"):
 		return "video"
+	case strings.HasPrefix(mediaType, "audio/"):
+		return "audio"
 	default:
 		return "other"
 	}

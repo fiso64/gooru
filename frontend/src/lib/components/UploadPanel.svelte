@@ -2,9 +2,11 @@
   import Icon from './Icon.svelte';
   import JobStatus from './JobStatus.svelte';
   import { formatBytes } from '$lib/utils/format';
+  import type { UploadItem } from '$lib/state/uploadItems';
 
   let {
     uploadFiles,
+    uploadItems,
     uploadTags,
     uploadBusy,
     cancelBusy,
@@ -20,6 +22,7 @@
     onClear
   } = $props<{
     uploadFiles: File[];
+    uploadItems: UploadItem[];
     uploadTags: string;
     uploadBusy: boolean;
     cancelBusy: boolean;
@@ -31,12 +34,27 @@
     onFiles: (files: FileList | null) => void;
     onTagsInput: (value: string) => void;
     onSubmit: () => void;
-    onCancel: () => void;
+    onCancel: (jobID: string) => void;
     onClear: () => void;
   }>();
 
   function stagedSize(files: File[]) {
     return files.reduce((sum: number, file: File) => sum + file.size, 0);
+  }
+
+  function uploadItemsSize(items: UploadItem[]) {
+    return items.reduce((sum: number, item: UploadItem) => sum + item.size, 0);
+  }
+
+  function itemIcon(item: UploadItem) {
+    if (item.type.startsWith('video/')) return 'video';
+    if (item.type.startsWith('audio/')) return 'audio';
+    if (item.type === 'image/gif') return 'gif';
+    return 'photo';
+  }
+
+  function statusLabel(status: string) {
+    return status.replace(/_/g, ' ');
   }
 </script>
 
@@ -73,20 +91,24 @@
         <span>or click to browse</span>
       </label>
 
-      {#if uploadFiles.length}
+      {#if uploadItems.length}
         <section class="g-card upload-list-wrap">
           <div class="list-head">
-            <span class="g-eyebrow">Staged · {uploadFiles.length} files · {formatBytes(stagedSize(uploadFiles))}</span>
+            <span class="g-eyebrow">
+              {uploadFiles.length ? 'Staged' : 'Results'} · {uploadItems.length} files · {formatBytes(stagedSize(uploadFiles) || uploadItemsSize(uploadItems))}
+            </span>
             <button class="g-btn g-btn-sm" type="button" onclick={onClear}><Icon name="close" size={12} /> Clear staged</button>
           </div>
           <div class="upload-list">
-            {#each uploadFiles as file}
+            {#each uploadItems as item}
               <div class="upload-row">
-                <div class="thumb-tile"><Icon name={file.type.startsWith('video/') ? 'video' : 'photo'} size={18} /></div>
-                <div class="name">{file.name}</div>
-                <div class="size">{formatBytes(file.size)}</div>
-                <div class="progress is-staged"></div>
-                <div class="status">staged</div>
+                <div class="thumb-tile"><Icon name={itemIcon(item)} size={18} /></div>
+                <div class="name">{item.name}{#if item.error}<span class="upload-error">{item.error}</span>{/if}</div>
+                <div class="size">{formatBytes(item.size)}</div>
+                <div class={`progress ${item.status === 'staged' ? 'is-staged' : item.status}`}>
+                  <div style={`width: ${item.progress}%`}></div>
+                </div>
+                <div class={`status ${item.status}`}>{statusLabel(item.status)}</div>
               </div>
             {/each}
           </div>

@@ -1,4 +1,4 @@
-import type { ApiErrorResponse, AuthMeResponse, FileListResponse, Job, JobListResponse, NamespacesResponse, SavedSearch, SavedSearchRequest, SavedSearchesResponse, SuggestionsResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse, UploadImportResponse, UploadTargetsResponse } from './types';
+import type { ApiErrorResponse, AuthMeResponse, FileListResponse, Job, JobListResponse, NamespacesResponse, SavedSearch, SavedSearchRequest, SavedSearchesResponse, SuggestionsResponse, TagListResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse, UploadImportResponse, UploadTargetsResponse } from './types';
 
 export class ApiError extends Error {
   code: string;
@@ -70,6 +70,12 @@ export class ApiClient {
 
   async tagNamespaces(): Promise<NamespacesResponse> {
     return this.request<NamespacesResponse>(`${this.baseURL}/tags/namespaces`);
+  }
+
+  async listTags(counts = true): Promise<TagListResponse> {
+    const url = new URL(`${this.baseURL}/tags`, globalThis.location?.origin ?? 'http://localhost');
+    if (counts) url.searchParams.set('counts', 'true');
+    return this.request<TagListResponse>(url.pathname + url.search);
   }
 
   async listSavedSearches(): Promise<SavedSearchesResponse> {
