@@ -43,6 +43,7 @@
   let authScope = $state(0);
   let observedCSRF = $state('');
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
+  let cancelRequestedJobID = $state('');
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -86,6 +87,7 @@
     tagWorkflow.reset();
     upload.reset();
     fileMetadata = null;
+    cancelRequestedJobID = '';
   });
 
   $effect(() => {
@@ -167,11 +169,13 @@
   }
 
   async function submitUpload() {
+    cancelRequestedJobID = '';
     const result = await upload.submit((variables) => uploadMutation.mutateAsync(variables));
     if (result.queued) void jobsQuery.refetch();
   }
 
   async function cancelUploadJob(jobID = upload.activeJobID) {
+    cancelRequestedJobID = jobID;
     const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);
     if (result.changed) void jobsQuery.refetch();
   }
@@ -227,6 +231,7 @@
         uploadTags={upload.tags}
         uploadBusy={upload.busy}
         cancelBusy={upload.cancelBusy}
+        cancelRequested={Boolean(cancelRequestedJobID)}
         uploadStatus={upload.status}
         activeUploadJobID={upload.activeJobID}
         targets={uploadTargetsQuery.data?.items ?? []}

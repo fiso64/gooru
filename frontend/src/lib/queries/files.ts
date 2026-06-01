@@ -3,6 +3,7 @@ import { ApiClient } from '$lib/api/client';
 import { libraryKeys } from './library';
 import type { FileListResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
+import type { InfiniteData, QueryFunctionContext } from '@tanstack/query-core';
 
 export const pageLimit = 60;
 export const retainedFilePages = 8;
@@ -30,11 +31,24 @@ export function createFilesQuery(
   getOrder: () => SortOrder,
   getAuthScope: () => number
 ) {
-  return createInfiniteQuery<FileListResponse, Error, { pages: FileListResponse[]; pageParams: string[] }, ReturnType<typeof fileKeys.pages>, string>(() => ({
+  return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() =>
+    filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope)
+  );
+}
+
+export function filesQueryOptions(
+  getAuthenticated: () => boolean,
+  getSearch: () => string,
+  getKind: () => string,
+  getSort: () => FileSort,
+  getOrder: () => SortOrder,
+  getAuthScope: () => number
+) {
+  return {
     queryKey: fileKeys.pages(getAuthScope(), getSearch(), getKind(), getSort(), getOrder()),
     enabled: getAuthenticated(),
     initialPageParam: '',
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: ({ pageParam, signal }: QueryFunctionContext<ReturnType<typeof fileKeys.pages>, string>) =>
       new ApiClient().listFiles({
         query: queryWithKind(getSearch(), getKind()),
         limit: pageLimit,
@@ -44,9 +58,9 @@ export function createFilesQuery(
         includeFacets: !pageParam,
         signal
       }),
-    getNextPageParam: (lastPage) => lastPage.next_page_token || undefined,
+    getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined,
     maxPages: retainedFilePages
-  }));
+  };
 }
 
 export interface TagMutationVariables {

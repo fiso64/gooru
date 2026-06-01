@@ -10,6 +10,7 @@
     uploadTags,
     uploadBusy,
     cancelBusy,
+    cancelRequested = false,
     uploadStatus,
     activeUploadJobID,
     targets,
@@ -26,6 +27,7 @@
     uploadTags: string;
     uploadBusy: boolean;
     cancelBusy: boolean;
+    cancelRequested?: boolean;
     uploadStatus: string;
     activeUploadJobID: string;
     targets: Array<{ id: string; name: string }>;
@@ -121,9 +123,11 @@
           {uploadBusy ? uploadStatus : activeUploadJobID ? 'Import running' : `Upload ${uploadFiles.length || ''}`.trim()}
         </button>
         {#if activeUploadJobID}
-          <JobStatus jobID={activeUploadJobID} status={uploadStatus} {cancelBusy} onCancel={onCancel} />
+          <JobStatus jobID={activeUploadJobID} status={uploadStatus} {cancelBusy} {cancelRequested} onCancel={onCancel} />
         {/if}
-        {#if uploadStatus && !uploadBusy && !activeUploadJobID}
+        {#if cancelRequested}
+          <p class="status-note">Canceled</p>
+        {:else if uploadStatus && !uploadBusy && !activeUploadJobID}
           <p class="status-note">{uploadStatus}</p>
         {/if}
       </div>

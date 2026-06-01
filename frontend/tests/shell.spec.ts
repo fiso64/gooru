@@ -152,6 +152,56 @@ test('renders direct thumbnails, preview, and csrf tag mutation', async ({ page 
   expect(mutations[0]).toMatchObject({ authorization: '', csrf: 'csrf-one', method: 'POST', body: { file_ids: ['bG9jOjE'], tags: ['reviewed'] } });
 });
 
+test('loads paginated large libraries with bounded virtualized DOM', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const total = 180;
+  const pageSize = 60;
+  const allFiles = Array.from({ length: total }, (_, index) => fileItem(`file-${index}`, `large-${String(index).padStart(3, '0')}.jpg`));
+  const fileRequests: Array<{ token: string; includeFacets: string | null; signalSeen: boolean }> = [];
+
+  await page.route('**/api/v1/files?**', async (route) => {
+    const url = new URL(route.request().url());
+    const token = url.searchParams.get('page_token') ?? '';
+    const start = token ? Number(token) : 0;
+    fileRequests.push({
+      token,
+      includeFacets: url.searchParams.get('include_facets'),
+      signalSeen: true
+    });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        files: allFiles.slice(start, start + pageSize),
+        next_page_token: start + pageSize < total ? String(start + pageSize) : '',
+        total_count: total,
+        library_count: total,
+        facets: url.searchParams.get('include_facets') === 'true' ? { kind: [{ value: 'photo', count: total }] } : undefined
+      })
+    });
+  });
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#f4d976"/></svg>' });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await expect(page.getByText('180 files')).toBeVisible();
+  await expect.poll(() => fileRequests.length).toBeGreaterThanOrEqual(1);
+  expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true', signalSeen: true });
+  expect(await page.locator('.thumb').count()).toBeLessThan(total);
+
+  await expect.poll(async () => {
+    await page.getByTestId('infinite-scroll-sentinel').scrollIntoViewIfNeeded();
+    return fileRequests.some((request) => request.token === '60');
+  }).toBe(true);
+
+  expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true' });
+  expect(fileRequests.some((request) => request.token === '60' && request.includeFacets === null)).toBe(true);
+  await expect(page.getByText('180 files')).toBeVisible();
+  expect(await page.locator('.thumb').count()).toBeLessThan(total);
+});
+
 test('video preview uses direct range-capable content route', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
@@ -238,18 +288,22 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
+  let canceled = false;
   await page.route('**/api/v1/jobs', async (route) => {
     if (route.request().method() === 'DELETE') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ removed: 1 }) });
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'job-one', type: 'upload_import', status: 'running', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z' }] }) });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: canceled ? [] : [{ id: 'job-one', type: 'upload_import', status: 'running', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z' }] }) });
   });
   await page.route('**/api/v1/uploads', async (route) => {
     await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'pending', submitted_at: '2026-05-20T00:00:00Z' }) });
   });
+  const cancelRequests: Array<{ csrf: string; method: string }> = [];
   await page.route('**/api/v1/jobs/job-one', async (route) => {
     if (route.request().method() === 'DELETE') {
+      cancelRequests.push({ csrf: route.request().headers()['x-gooru-csrf'] ?? '', method: route.request().method() });
+      canceled = true;
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'canceled', submitted_at: '2026-05-20T00:00:00Z' }) });
     }
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'running', progress: 0.5, submitted_at: '2026-05-20T00:00:00Z' }) });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: canceled ? 'canceled' : 'running', progress: canceled ? 1 : 0.5, submitted_at: '2026-05-20T00:00:00Z' }) });
   });
 
   await page.goto('/');
@@ -259,7 +313,12 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   await page.getByPlaceholder('collection:inbox @review').fill('incoming');
   await page.getByRole('button', { name: 'Upload 1' }).click();
   await expect(page.getByText('Importing', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+  const deleteResponse = page.waitForResponse((response) =>
+    response.url().endsWith('/api/v1/jobs/job-one') && response.request().method() === 'DELETE'
+  );
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await deleteResponse;
+  await expect.poll(() => cancelRequests).toEqual([{ csrf: 'csrf-one', method: 'DELETE' }]);
 });
 
 test('upload result details preserve duplicate and error statuses', async ({ page }) => {
