@@ -224,8 +224,13 @@ textarea {
 .topbar-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   padding: 0 12px;
+}
+
+.topbar-right .g-btn-sm:not(.g-btn-icon) {
+  font-size: 12px;
 }
 
 .topbar-badge {
@@ -375,6 +380,10 @@ textarea {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.library-head-actions > .g-btn {
+  min-width: 84px;
 }
 
 .grid {
@@ -642,11 +651,19 @@ textarea {
   color: var(--text-2);
   cursor: pointer;
   text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.04s;
 }
 
 .g-btn:hover:not(:disabled) {
   background: var(--surface-2);
+  border-color: var(--border-strong);
   color: var(--text);
+}
+
+.g-btn:active:not(:disabled) {
+  transform: translateY(0.5px);
 }
 
 .g-btn:disabled {
@@ -689,6 +706,38 @@ textarea {
 
 .g-input.compact {
   width: auto;
+}
+
+.seg {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface);
+}
+
+.seg button {
+  height: 22px;
+  min-width: 72px;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.seg button:hover {
+  color: var(--text);
+}
+
+.seg button.active,
+.seg button.is-active {
+  background: var(--surface-3);
+  color: var(--text);
 }
 
 .g-card {

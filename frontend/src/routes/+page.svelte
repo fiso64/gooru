@@ -402,7 +402,6 @@
       onSearchInput={setSearch}
       onSearchSubmit={submitSearch}
       onJobs={() => (route = route === 'jobs' ? 'library' : 'jobs')}
-      onLogout={logout}
     >
       {#if route === 'upload'}
         <UploadPanel
@@ -517,12 +516,17 @@
         >
           {#snippet actions()}
             <div class="library-head-actions">
-              <select class="g-input compact" value={sort} onchange={(event) => (sort = event.currentTarget.value as FileSort)}>
-                <option value="modified">Modified</option>
-                <option value="name">Name</option>
-                <option value="size">Size</option>
-                <option value="kind">Kind</option>
-              </select>
+              <div class="seg" aria-label="Sort field">
+                {#each [{ value: 'modified', label: 'Modified' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
+                  <button
+                    class:active={sort === option.value}
+                    type="button"
+                    onclick={() => (sort = option.value as FileSort)}
+                  >
+                    {option.label}
+                  </button>
+                {/each}
+              </div>
               <button class="g-btn g-btn-sm" type="button" title="Sort direction" onclick={() => (order = order === 'desc' ? 'asc' : 'desc')}>
                 <Icon name="sort" size={14} /> {order === 'desc' ? 'Newest' : 'Oldest'}
               </button>

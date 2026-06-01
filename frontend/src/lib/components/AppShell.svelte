@@ -21,7 +21,6 @@
     onSearchInput,
     onSearchSubmit,
     onJobs,
-    onLogout,
     children
   } = $props<{
     username: string;
@@ -41,7 +40,6 @@
     onSearchInput: (value: string) => void;
     onSearchSubmit: () => void;
     onJobs: () => void;
-    onLogout: () => void;
     children: Snippet;
   }>();
 
@@ -97,9 +95,6 @@
       <button class="g-btn g-btn-ghost g-btn-sm" type="button" title={username} onclick={() => onRoute('account')}>
         <Icon name="user" size={14} />
         <span>{username}</span>
-      </button>
-      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Logout" aria-label="Logout" onclick={onLogout}>
-        <Icon name="logout" size={14} />
       </button>
     </div>
   </header>
