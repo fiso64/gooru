@@ -12,10 +12,12 @@
     jobsActiveCount,
     kindCounts,
     savedSearches,
+    suggestions,
     search,
     onRoute,
     onKind,
     onSavedSearch,
+    onSuggestion,
     onSearchInput,
     onSearchSubmit,
     onJobs,
@@ -30,10 +32,12 @@
     jobsActiveCount: number;
     kindCounts: Array<{ value: string; count: number }>;
     savedSearches: Array<{ id: string; name: string; query: string }>;
+    suggestions: Array<{ name: string; count?: number }>;
     search: string;
     onRoute: (route: string) => void;
     onKind: (kind: string) => void;
     onSavedSearch: (query: string, name: string) => void;
+    onSuggestion: (value: string) => void;
     onSearchInput: (value: string) => void;
     onSearchSubmit: () => void;
     onJobs: () => void;
@@ -73,6 +77,17 @@
           </button>
         {/if}
       </div>
+      {#if suggestions.length}
+        <div class="search-suggestions" role="listbox" aria-label="Search suggestions">
+          <div class="group-head">Suggestions</div>
+          {#each suggestions as suggestion}
+            <button type="button" role="option" aria-selected="false" onclick={() => onSuggestion(suggestion.name)}>
+              <span class="tok">{suggestion.name}</span>
+              {#if suggestion.count != null}<span class="count">{suggestion.count.toLocaleString()}</span>{/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
     </form>
     <div class="topbar-right">
       <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Jobs" aria-label="Jobs" onclick={onJobs}>

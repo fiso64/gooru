@@ -23,3 +23,15 @@ The static output is written to `frontend/build`. `gooru serve` serves that dire
 
 See [../docs/SERVE.md](../docs/SERVE.md) for the full runtime configuration and
 deployment notes.
+
+## API client drift checks
+
+The frontend currently uses a small handwritten TypeScript client in
+`src/lib/api` instead of generated OpenAPI code. Until generation is added, API
+shape drift is checked by:
+
+- keeping DTO names and field names aligned with `../docs/openapi.yaml`;
+- running `npm run test:unit` for request construction and CSRF behavior;
+- running `npm run test:e2e` for authenticated library, media, tag, upload, and
+  job flows against mocked OpenAPI-shaped responses;
+- running the Go OpenAPI tests with `go test ./...`.

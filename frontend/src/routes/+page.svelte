@@ -12,7 +12,7 @@
   import { authState } from '$lib/stores/auth';
   import { createFilesQuery, type FileSort, type SortOrder } from '$lib/queries/files';
   import { createJobQuery, createJobsQuery } from '$lib/queries/jobs';
-  import { createSavedSearchesQuery, createUploadTargetsQuery } from '$lib/queries/library';
+  import { createSavedSearchesQuery, createSuggestionsQuery, createUploadTargetsQuery } from '$lib/queries/library';
   import { virtualGrid } from '$lib/state/ui';
   import { errorMessage, formatBytes, isTerminalJob, jobStatusText, parseTags } from '$lib/utils/format';
   import type { FileItem, Job } from '$lib/api/types';
@@ -63,6 +63,7 @@
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
   const uploadTargetsQuery = createUploadTargetsQuery(() => Boolean($authState.user), () => authScope);
+  const suggestionsQuery = createSuggestionsQuery(() => Boolean($authState.user), () => $searchDraft, () => $submittedSearch, () => authScope);
 
   $effect(() => {
     const csrf = $authState.csrfToken;
@@ -168,6 +169,12 @@
     route = 'library';
   }
 
+  function filterQuery() {
+    const parts = [$submittedSearch.trim()];
+    if (activeKind) parts.push(`kind:${activeKind}`);
+    return parts.filter(Boolean).join(' ');
+  }
+
   function setSearch(value: string) {
     searchDraft.set(value);
     if (debounce) clearTimeout(debounce);
@@ -183,6 +190,13 @@
     activeSavedSearch = name;
     searchDraft.set(query);
     submittedSearch.set(query);
+    route = 'library';
+  }
+
+  function applySuggestion(value: string) {
+    const next = [$searchDraft.trim(), value].filter(Boolean).join(' ');
+    searchDraft.set(next);
+    submittedSearch.set(next);
     route = 'library';
   }
 
@@ -244,6 +258,19 @@
     try {
       await new ApiClient($authState.csrfToken).mutateTags('add', { file_ids: Array.from(selectedIDs), tags });
       selectedIDs = new Set();
+      await filesQuery.refetch();
+    } catch (error) {
+      window.alert(errorMessage(error));
+    }
+  }
+
+  async function bulkTagFiltered() {
+    const query = filterQuery();
+    if (!query) return;
+    const tags = parseTags(window.prompt('Tags to add to every file matching the current filter') ?? '');
+    if (!tags.length) return;
+    try {
+      await new ApiClient($authState.csrfToken).mutateTags('add', { query, tags });
       await filesQuery.refetch();
     } catch (error) {
       window.alert(errorMessage(error));
@@ -366,10 +393,12 @@
       jobsActiveCount={activeJobs().length}
       kindCounts={page?.facets?.kind ?? []}
       savedSearches={savedSearchesQuery.data?.items ?? []}
+      suggestions={suggestionsQuery.data?.items ?? []}
       search={$searchDraft}
       onRoute={(next) => (route = next)}
       onKind={setKind}
       onSavedSearch={runSavedSearch}
+      onSuggestion={applySuggestion}
       onSearchInput={setSearch}
       onSearchSubmit={submitSearch}
       onJobs={() => (route = route === 'jobs' ? 'library' : 'jobs')}
@@ -497,6 +526,11 @@
               <button class="g-btn g-btn-sm" type="button" title="Sort direction" onclick={() => (order = order === 'desc' ? 'asc' : 'desc')}>
                 <Icon name="sort" size={14} /> {order === 'desc' ? 'Newest' : 'Oldest'}
               </button>
+              {#if filterQuery()}
+                <button class="g-btn g-btn-sm" type="button" title="Tag every matching file without materializing all results" onclick={bulkTagFiltered}>
+                  <Icon name="tag" size={14} /> Tag filtered
+                </button>
+              {/if}
             </div>
           {/snippet}
         </MediaGrid>

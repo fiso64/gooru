@@ -31,6 +31,13 @@
       <span class="thumb-meta-name">{file.name}</span>
       <span>{mediaDimensions(file)}</span>
     </span>
+    {#if file.tags.length}
+      <span class="thumb-tags">
+        {#each file.tags.slice(0, 3) as tag}
+          <span>{tag}</span>
+        {/each}
+      </span>
+    {/if}
   </button>
   <button
     class="thumb-checkbox"
