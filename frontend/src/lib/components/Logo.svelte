@@ -1,16 +1,31 @@
 <script lang="ts">
-  let { size = 68 } = $props<{ size?: number }>();
+  let { size = 86 } = $props<{ size?: number }>();
+
+  function spiral(cx: number, cy: number, dir = 1) {
+    const turns = 2.65;
+    const startR = 1.2;
+    const endR = 10.5;
+    const points = 120;
+    const angle = 320 * Math.PI / 180;
+    const phase = angle - dir * turns * 2 * Math.PI;
+    const out: string[] = [];
+    for (let i = 0; i <= points; i += 1) {
+      const t = i / points;
+      const theta = phase + dir * turns * 2 * Math.PI * t;
+      const r = startR + (endR - startR) * t;
+      const x = cx + r * Math.cos(theta);
+      const y = cy + r * Math.sin(theta);
+      out.push(`${i ? 'L' : 'M'} ${x.toFixed(2)} ${y.toFixed(2)}`);
+    }
+    return out.join(' ');
+  }
 </script>
 
-<svg class="gooru-logo" width={size} height={size / 3.2} viewBox="0 0 150 46" aria-label="gooru">
-  <text x="0" y="34" class="word">g</text>
-  <g transform="translate(39 23)">
-    <path d="M 1.20 0.00 L -2.83 -1.90 L 1.20 -4.97 L 5.02 1.68 L -3.86 6.19 L -7.08 -4.90 L 6.94 -8.66 L 9.15 7.96 L -9.94 10.00 L -11.15 -11.12 L 12.70 -11.14 L 12.88 14.95 L -15.87 11.77 L -12.93 -18.95 L 19.62 -11.86" />
-  </g>
-  <g transform="translate(71 23)">
-    <path d="M 1.20 0.00 L -2.83 -1.90 L 1.20 -4.97 L 5.02 1.68 L -3.86 6.19 L -7.08 -4.90 L 6.94 -8.66 L 9.15 7.96 L -9.94 10.00 L -11.15 -11.12 L 12.70 -11.14 L 12.88 14.95 L -15.87 11.77 L -12.93 -18.95 L 19.62 -11.86" />
-  </g>
-  <text x="91" y="34" class="word">ru</text>
+<svg class="gooru-logo" width={size} height={Math.round(size * 0.34)} viewBox="0 0 152 48" aria-label="gooru">
+  <text x="0" y="36" class="word">g</text>
+  <path class="spiral" d={spiral(42, 24, 1)} />
+  <path class="spiral" d={spiral(70, 24, 1)} />
+  <text x="88" y="36" class="word">ru</text>
 </svg>
 
 <style>
@@ -23,11 +38,11 @@
   .word {
     fill: currentColor;
     font-family: var(--font-display);
-    font-size: 38px;
+    font-size: 40px;
     font-style: italic;
   }
 
-  path {
+  .spiral {
     fill: none;
     stroke: currentColor;
     stroke-width: 1.7;
