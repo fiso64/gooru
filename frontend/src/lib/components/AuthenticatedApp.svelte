@@ -36,6 +36,7 @@
   const library = createLibraryWorkflow();
   const searchDraft = library.searchDraft;
   const submittedSearch = library.submittedSearch;
+  const suggestionSearch = library.suggestionSearch;
   const tagWorkflow = createTagWorkflow();
   const upload = createUploadWorkflow();
   const viewport = createViewportState();
@@ -63,7 +64,7 @@
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
   const tagsQuery = createTagsQuery(() => Boolean($authState.user), () => authScope);
   const uploadTargetsQuery = createUploadTargetsQuery(() => Boolean($authState.user), () => authScope);
-  const suggestionsQuery = createSuggestionsQuery(() => Boolean($authState.user), () => $searchDraft, () => $submittedSearch, () => authScope);
+  const suggestionsQuery = createSuggestionsQuery(() => Boolean($authState.user), () => $suggestionSearch, () => $submittedSearch, () => authScope);
 
   const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);
   const uploadMutation = createUploadMutation(() => $authState.csrfToken, queryClient);

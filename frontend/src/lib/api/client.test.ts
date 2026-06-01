@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { ApiClient, ApiError } from './client';
+import { describe, expect, it, vi } from 'vitest';
+import { ApiClient, ApiError, setUnauthorizedHandler } from './client';
 
 describe('ApiClient', () => {
   it('sends cookie-authenticated query parameters', async () => {
@@ -32,6 +32,17 @@ describe('ApiClient', () => {
       code: 'unauthorized',
       message: 'login required'
     });
+  });
+
+  it('notifies the central unauthorized handler on 401 responses', async () => {
+    const unauthorized = vi.fn();
+    setUnauthorizedHandler(unauthorized);
+    globalThis.fetch = (async () =>
+      Response.json({ error: { code: 'unauthorized', message: 'session expired' } }, { status: 401 })) as typeof fetch;
+
+    await expect(new ApiClient().listFiles()).rejects.toMatchObject({ status: 401 });
+    expect(unauthorized).toHaveBeenCalledOnce();
+    setUnauthorizedHandler(undefined);
   });
 
   it('sends tag mutation requests with CSRF', async () => {

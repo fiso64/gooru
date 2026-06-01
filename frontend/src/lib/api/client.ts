@@ -12,6 +12,12 @@ export class ApiError extends Error {
   }
 }
 
+let unauthorizedHandler: (() => void) | undefined;
+
+export function setUnauthorizedHandler(handler: (() => void) | undefined) {
+  unauthorizedHandler = handler;
+}
+
 export interface ListFilesParams {
   query?: string;
   limit?: number;
@@ -172,11 +178,13 @@ export class ApiClient {
       } catch {
         // Keep the fallback below.
       }
-      throw new ApiError(
+      const error = new ApiError(
         response.status,
         payload?.error.code ?? 'http_error',
         payload?.error.message ?? `Request failed with HTTP ${response.status}`
       );
+      if (response.status === 401) unauthorizedHandler?.();
+      throw error;
     }
     return (await response.json()) as T;
   }

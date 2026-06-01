@@ -6,7 +6,6 @@ import type { QueryClient } from '@tanstack/query-core';
 import type { InfiniteData, QueryFunctionContext } from '@tanstack/query-core';
 
 export const pageLimit = 60;
-export const retainedFilePages = 8;
 export type FileSort = 'modified' | 'name' | 'size' | 'kind';
 export type SortOrder = 'asc' | 'desc';
 
@@ -58,8 +57,7 @@ export function filesQueryOptions(
         includeFacets: !pageParam,
         signal
       }),
-    getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined,
-    maxPages: retainedFilePages
+    getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined
   };
 }
 

@@ -5,6 +5,7 @@ import type { FileSort, SortOrder } from '$lib/queries/files';
 export function createLibraryWorkflow() {
   const searchDraft = writable('');
   const submittedSearch = writable('');
+  const suggestionSearch = writable('');
   let route = $state('library');
   let activeKind = $state('');
   let activeSavedSearch = $state('');
@@ -12,7 +13,8 @@ export function createLibraryWorkflow() {
   let order: SortOrder = $state('desc');
   let selectedIDs = $state(new Set<string>());
   let activeFile = $state<FileItem | null>(null);
-  let debounce: ReturnType<typeof setTimeout> | undefined;
+  let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+  let suggestionDebounce: ReturnType<typeof setTimeout> | undefined;
 
   function reset() {
     selectedIDs = new Set();
@@ -27,8 +29,10 @@ export function createLibraryWorkflow() {
 
   function setSearch(value: string) {
     searchDraft.set(value);
-    if (debounce) clearTimeout(debounce);
-    debounce = setTimeout(submitSearch, 280);
+    if (searchDebounce) clearTimeout(searchDebounce);
+    if (suggestionDebounce) clearTimeout(suggestionDebounce);
+    searchDebounce = setTimeout(submitSearch, 280);
+    suggestionDebounce = setTimeout(() => suggestionSearch.set(value.trim()), 160);
   }
 
   function filterQuery() {
@@ -45,6 +49,7 @@ export function createLibraryWorkflow() {
   function runTagSearch(query: string) {
     activeKind = '';
     searchDraft.set(query);
+    suggestionSearch.set(query);
     submittedSearch.set(query);
     selectedIDs = new Set();
     route = 'library';
@@ -53,6 +58,7 @@ export function createLibraryWorkflow() {
   function runSavedSearch(query: string, name: string) {
     activeSavedSearch = name;
     searchDraft.set(query);
+    suggestionSearch.set(query);
     submittedSearch.set(query);
     route = 'library';
   }
@@ -60,6 +66,7 @@ export function createLibraryWorkflow() {
   function applySuggestion(value: string) {
     const next = [get(searchDraft).trim(), value].filter(Boolean).join(' ');
     searchDraft.set(next);
+    suggestionSearch.set(next);
     submittedSearch.set(next);
     route = 'library';
   }
@@ -110,6 +117,7 @@ export function createLibraryWorkflow() {
   return {
     searchDraft,
     submittedSearch,
+    suggestionSearch,
     get route() { return route; },
     set route(value: string) { route = value; },
     get activeKind() { return activeKind; },

@@ -10,7 +10,7 @@ export const libraryKeys = {
   savedSearches: (scope: number) => ['library', 'saved-searches', scope] as const,
   tags: (scope: number) => ['library', 'tags', scope] as const,
   uploadTargets: (scope: number) => ['library', 'upload-targets', scope] as const,
-  suggestions: (scope: number, q: string, existing: string) => ['library', 'suggestions', scope, q, existing] as const
+  suggestions: (scope: number, q: string) => ['library', 'suggestions', scope, q] as const
 };
 
 export function createSavedSearchesQuery(getAuthenticated: () => boolean, getAuthScope: () => number) {
@@ -44,7 +44,7 @@ export function createSuggestionsQuery(
   getAuthScope: () => number
 ) {
   return createQuery(() => ({
-    queryKey: libraryKeys.suggestions(getAuthScope(), getDraft(), getExisting()),
+    queryKey: libraryKeys.suggestions(getAuthScope(), getDraft()),
     enabled: getAuthenticated() && getDraft().trim().length > 0,
     queryFn: ({ signal }) => new ApiClient().searchSuggestions(getDraft().trim(), 10, getExisting(), signal),
     staleTime: 30_000

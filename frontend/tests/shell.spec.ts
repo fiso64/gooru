@@ -98,6 +98,23 @@ test('renders login and authenticated concept shell', async ({ page }) => {
   await expect(page.getByText('No results')).toBeVisible();
 });
 
+test('returns to login when an authenticated API request receives 401', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'unauthorized', message: 'session expired' } })
+    });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await expect(page.getByLabel('Username')).toBeVisible();
+  await expect(page.getByLabel('Password')).toBeVisible();
+});
+
 test('renders direct thumbnails, preview, and csrf tag mutation', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
@@ -155,7 +172,7 @@ test('renders direct thumbnails, preview, and csrf tag mutation', async ({ page 
 test('loads paginated large libraries with bounded virtualized DOM', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
-  const total = 180;
+  const total = 600;
   const pageSize = 60;
   const allFiles = Array.from({ length: total }, (_, index) => fileItem(`file-${index}`, `large-${String(index).padStart(3, '0')}.jpg`));
   const fileRequests: Array<{ token: string; includeFacets: string | null; signalSeen: boolean }> = [];
@@ -186,7 +203,7 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
 
   await page.goto('/');
   await signIn(page);
-  await expect(page.getByText('180 files')).toBeVisible();
+  await expect(page.getByText('600 files')).toBeVisible();
   await expect.poll(() => fileRequests.length).toBeGreaterThanOrEqual(1);
   expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true', signalSeen: true });
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
@@ -198,8 +215,29 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
 
   expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true' });
   expect(fileRequests.some((request) => request.token === '60' && request.includeFacets === null)).toBe(true);
-  await expect(page.getByText('180 files')).toBeVisible();
+  await expect(page.getByText('600 files')).toBeVisible();
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
+});
+
+test('debounces search suggestions while preserving typed draft', async ({ page }) => {
+  await mockAuth(page);
+  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
+  const suggestionQueries: string[] = [];
+  await page.route('**/api/v1/search/suggestions?**', async (route) => {
+    suggestionQueries.push(new URL(route.request().url()).searchParams.get('q') ?? '');
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ name: 'rating:safe', count: 1 }] }) });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByPlaceholder('tag, key:value, @tagged').pressSequentially('safe', { delay: 10 });
+  await expect(page.getByPlaceholder('tag, key:value, @tagged')).toHaveValue('safe');
+  await expect.poll(() => suggestionQueries).toEqual(['safe']);
+  await expect(page.getByText('rating:safe')).toBeVisible();
 });
 
 test('video preview uses direct range-capable content route', async ({ page }) => {
@@ -319,6 +357,26 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   await page.getByRole('button', { name: 'Cancel' }).click();
   await deleteResponse;
   await expect.poll(() => cancelRequests).toEqual([{ csrf: 'csrf-one', method: 'DELETE' }]);
+});
+
+test('stages uploads from drag and drop', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByRole('button', { name: 'Upload' }).click();
+  const dataTransfer = await page.evaluateHandle(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['drop'], 'dropped.jpg', { type: 'image/jpeg' }));
+    return transfer;
+  });
+  await page.locator('.upload-zone').dispatchEvent('dragover', { dataTransfer });
+  await expect(page.locator('.upload-zone')).toHaveClass(/drag-active/);
+  await page.locator('.upload-zone').dispatchEvent('drop', { dataTransfer });
+  await expect(page.getByText('dropped.jpg')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Upload 1' })).toBeVisible();
 });
 
 test('upload result details preserve duplicate and error statuses', async ({ page }) => {

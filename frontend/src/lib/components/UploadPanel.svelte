@@ -40,6 +40,30 @@
     onClear: () => void;
   }>();
 
+  let dragActive = $state(false);
+
+  function hasFiles(event: DragEvent) {
+    return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+  }
+
+  function handleDragOver(event: DragEvent) {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragActive = true;
+  }
+
+  function handleDragLeave(event: DragEvent) {
+    if (event.currentTarget !== event.target) return;
+    dragActive = false;
+  }
+
+  function handleDrop(event: DragEvent) {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragActive = false;
+    onFiles(event.dataTransfer?.files ?? null);
+  }
+
   function stagedSize(files: File[]) {
     return files.reduce((sum: number, file: File) => sum + file.size, 0);
   }
@@ -86,7 +110,13 @@
         </label>
       </section>
 
-      <label class="upload-zone">
+      <label
+        class:drag-active={dragActive}
+        class="upload-zone"
+        ondragover={handleDragOver}
+        ondragleave={handleDragLeave}
+        ondrop={handleDrop}
+      >
         <input type="file" multiple onchange={(event) => onFiles(event.currentTarget.files)} />
         <span class="icon-wrap"><Icon name="upload" size={26} /></span>
         <strong>Drop files here</strong>
