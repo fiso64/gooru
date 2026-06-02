@@ -27,6 +27,6 @@ This slice treats `temp/gooru-concept-ui/` as the visual source of truth and the
 19. Account view separate from Settings: A. The concept has account controls in Settings; the existing Account route can remain as a compact reachable utility view, but Settings is the primary concept location for sign out.
 20. Shortcuts view: A. The concept includes it as a static/help surface; keep visible with applicable shortcuts and mark unsupported commands as future where needed.
 21. Appearance controls in Settings: A. Accent/grid controls are concept features but are not persisted server settings in this issue.
-22. Delete/replace/destructive media controls not currently exposed in the concept screens: C unless already backed by accepted PR behavior. Do not invent destructive UI that is not in the concept or backend requirement.
+22. Delete/replace/destructive media controls not currently exposed in the concept screens: C unless already backed by current backend behavior. Do not invent destructive UI that is not in the concept or backend requirement.
 23. Concept mock media names, counts, paths, and seeded upload queue: C. Real app views must render actual API data or empty states; mock data can only appear in tests/screenshots.
-24. Original active-content file serving from `/content`: B. The accepted PR security fix stays; the exact visual port must not weaken media/content response policy.
+24. Original active-content file serving from `/content`: B. The current media/content response policy must stay safe-by-default; the exact visual port must not weaken it.
