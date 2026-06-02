@@ -209,6 +209,9 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
   expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true', signalSeen: true });
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
 
+  await page.evaluate(() => window.scrollTo(0, 10_000));
+  await expect.poll(() => fileRequests.some((request) => request.token === '60')).toBe(true);
+
   for (let i = 0; i < 12; i += 1) {
     await page.getByTestId('infinite-scroll-sentinel').scrollIntoViewIfNeeded();
     await page.waitForTimeout(75);

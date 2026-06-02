@@ -1075,6 +1075,8 @@ components:
             $ref: "#/components/schemas/File"
         next_page_token:
           type: string
+        previous_page_token:
+          type: string
         total_count:
           type: integer
           description: Total number of files matching the current query.

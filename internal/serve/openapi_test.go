@@ -47,6 +47,12 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 			t.Fatalf("FileListResponse schema missing required %q in %+v", field, listRequired)
 		}
 	}
+	listProps := stringMap(t, schema(t, spec, "FileListResponse")["properties"])
+	for _, field := range []string{"next_page_token", "previous_page_token"} {
+		if _, ok := listProps[field]; !ok {
+			t.Fatalf("FileListResponse schema missing pagination field %q", field)
+		}
+	}
 
 	jobSchema := schema(t, spec, "Job")
 	jobRequired := stringSlice(t, jobSchema["required"])

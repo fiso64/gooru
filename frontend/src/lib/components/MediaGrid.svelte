@@ -106,6 +106,10 @@
   $effect(() => {
     if (virtual.needsPrevious && hasPreviousPage && !isFetchingPreviousPage) onLoadPrevious();
   });
+
+  $effect(() => {
+    if (virtual.needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();
+  });
 </script>
 
 <main class="main">
