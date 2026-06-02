@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -85,12 +86,48 @@ func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file
 		writeError(w, http.StatusNotFound, "not_found", "file content not found", nil)
 		return
 	}
+	applyOriginalContentPolicy(w, file)
 	http.ServeContent(w, r, filepath.Base(file.Path), info.ModTime(), f)
 }
 
 func (m *MediaService) ServeDownload(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(file.Path)))
 	m.ServeContent(w, r, file)
+}
+
+func applyOriginalContentPolicy(w http.ResponseWriter, file types.FileInfo) {
+	contentType := originalContentType(file)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if isInlineOriginalMedia(contentType) {
+		w.Header().Set("Content-Type", contentType)
+		return
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(file.Path)))
+}
+
+func originalContentType(file types.FileInfo) string {
+	if file.Metadata != nil && strings.TrimSpace(file.Metadata.MimeType) != "" {
+		return strings.ToLower(strings.TrimSpace(file.Metadata.MimeType))
+	}
+	if byExt := mime.TypeByExtension(strings.ToLower(filepath.Ext(file.Path))); byExt != "" {
+		if semicolon := strings.IndexByte(byExt, ';'); semicolon >= 0 {
+			byExt = byExt[:semicolon]
+		}
+		return strings.ToLower(strings.TrimSpace(byExt))
+	}
+	return "application/octet-stream"
+}
+
+func isInlineOriginalMedia(contentType string) bool {
+	switch contentType {
+	case "image/jpeg", "image/png", "image/gif", "image/webp", "image/avif",
+		"video/mp4", "video/webm", "video/ogg",
+		"audio/mpeg", "audio/mp4", "audio/ogg", "audio/wav", "audio/webm", "audio/flac":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, file types.FileInfo, kind string) {

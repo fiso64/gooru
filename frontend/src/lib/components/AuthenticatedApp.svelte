@@ -1,6 +1,7 @@
 <script lang="ts">
   import AppShell from '$lib/components/AppShell.svelte';
   import AccountView from '$lib/components/AccountView.svelte';
+  import ActionDialog from '$lib/components/ActionDialog.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import JobsView from '$lib/components/JobsView.svelte';
   import MediaGrid from '$lib/components/MediaGrid.svelte';
@@ -8,10 +9,9 @@
   import ShortcutsView from '$lib/components/ShortcutsView.svelte';
   import TagsView from '$lib/components/TagsView.svelte';
   import UploadPanel from '$lib/components/UploadPanel.svelte';
-  import { createSavedSearch as createSavedSearchAction, deleteSavedSearch as deleteSavedSearchAction, updateSavedSearch as updateSavedSearchAction } from '$lib/actions/savedSearches';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { createFilesQuery, createTagMutation, type FileSort } from '$lib/queries/files';
+  import { createFilesQuery, createTagMutation, pageLimit, retainedFilePages, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
@@ -27,7 +27,6 @@
   import { createTagWorkflow } from '$lib/state/tagWorkflow.svelte';
   import { createUploadWorkflow } from '$lib/state/uploadWorkflow.svelte';
   import { createViewportState } from '$lib/state/viewport.svelte';
-  import { virtualGrid } from '$lib/state/ui';
   import { errorMessage } from '$lib/utils/format';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { Job, SavedSearchRequest } from '$lib/api/types';
@@ -45,11 +44,23 @@
   let observedCSRF = $state('');
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let cancelRequestedJobID = $state('');
+  let retainedStartIndex = $state(0);
+  let observedFirstPageParam = $state('');
+  let observedPageWindowKey = $state('');
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
     facets?: { kind?: Array<{ value: string; count: number }> };
   } | null>(null);
+  let actionDialog = $state<{
+    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-filtered';
+    value: string;
+    error: string;
+    busy: boolean;
+    id: string;
+    name: string;
+    previousQuery: string;
+  }>({ kind: 'none', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' });
 
   const filesQuery = createFilesQuery(
     () => Boolean($authState.user),
@@ -77,6 +88,7 @@
   const loadedFiles = $derived(filesQuery.data?.pages.flatMap((page) => page.files) ?? []);
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
   const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.activeKind}|${library.sort}|${library.order}`);
+  const pageParamsKey = $derived(filesQuery.data?.pageParams.map((param) => String(param ?? '')).join('|') ?? '');
 
   $effect(() => {
     const csrf = $authState.csrfToken;
@@ -89,11 +101,35 @@
     upload.reset();
     fileMetadata = null;
     cancelRequestedJobID = '';
+    retainedStartIndex = 0;
+    observedFirstPageParam = '';
+    observedPageWindowKey = '';
+    closeActionDialog();
   });
 
   $effect(() => {
     fileMetadataKey;
     fileMetadata = null;
+    retainedStartIndex = 0;
+    observedFirstPageParam = '';
+    observedPageWindowKey = fileMetadataKey;
+  });
+
+  $effect(() => {
+    fileMetadataKey;
+    pageParamsKey;
+    const params = filesQuery.data?.pageParams ?? [];
+    if (!params.length) return;
+    if (observedPageWindowKey !== fileMetadataKey) {
+      observedPageWindowKey = fileMetadataKey;
+      observedFirstPageParam = '';
+      retainedStartIndex = 0;
+    }
+    const first = String(params[0] ?? '');
+    if (observedFirstPageParam && first !== observedFirstPageParam && params.length >= retainedFilePages) {
+      retainedStartIndex += pageLimit;
+    }
+    observedFirstPageParam = first;
   });
 
   $effect(() => {
@@ -105,21 +141,6 @@
       library_count: metadataPage.library_count,
       facets: metadataPage.facets
     };
-  });
-
-  $effect(() => {
-    const node = loadMoreSentinel;
-    if (!node || !$authState.user) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting) && filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) {
-          void filesQuery.fetchNextPage();
-        }
-      },
-      { rootMargin: '900px 0px' }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
   });
 
   $effect(() => {
@@ -148,31 +169,75 @@
     library.handleKeydown(event, loadedFiles);
   }
 
-  async function createSavedSearch() {
-    await createSavedSearchAction(savedSearchContext(), library.activeSavedSearch);
+  function closeActionDialog() {
+    actionDialog = { kind: 'none', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
   }
 
-  async function updateSavedSearch(id: string, name: string, previousQuery: string) {
-    await updateSavedSearchAction(savedSearchContext(), id, name, previousQuery);
+  function createSavedSearch() {
+    actionDialog = {
+      kind: 'save-create',
+      value: library.activeSavedSearch || library.filterQuery(),
+      error: library.filterQuery() ? '' : 'Search or choose a kind before saving.',
+      busy: false,
+      id: '',
+      name: '',
+      previousQuery: ''
+    };
   }
 
-  async function deleteSavedSearch(id: string, name: string) {
-    await deleteSavedSearchAction(savedSearchContext(), id, name);
+  function updateSavedSearch(id: string, name: string, previousQuery: string) {
+    actionDialog = { kind: 'save-update', value: name, error: '', busy: false, id, name, previousQuery };
   }
 
-  async function bulkTagSelected() {
-    const changed = await tagWorkflow.bulkSelected(library.selectedIDs, (variables) => tagMutation.mutateAsync(variables));
-    if (changed) library.clearSelection();
+  function deleteSavedSearch(id: string, name: string) {
+    actionDialog = { kind: 'save-delete', value: '', error: '', busy: false, id, name, previousQuery: '' };
   }
 
-  async function bulkTagFiltered() {
-    await tagWorkflow.bulkFiltered(library.filterQuery(), (variables) => tagMutation.mutateAsync(variables));
+  function bulkTagSelected() {
+    actionDialog = { kind: 'bulk-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
+  }
+
+  function bulkTagFiltered() {
+    actionDialog = { kind: 'bulk-filtered', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
+  }
+
+  async function submitActionDialog() {
+    if (actionDialog.busy || actionDialog.kind === 'none') return;
+    const ctx = savedSearchContext();
+    const value = actionDialog.value.trim();
+    if ((actionDialog.kind === 'save-create' || actionDialog.kind === 'save-update' || actionDialog.kind.startsWith('bulk-')) && !value) {
+      actionDialog = { ...actionDialog, error: actionDialog.kind.startsWith('bulk-') ? 'Enter at least one tag.' : 'Enter a name.' };
+      return;
+    }
+    actionDialog = { ...actionDialog, busy: true, error: '' };
+    try {
+      if (actionDialog.kind === 'save-create') {
+        if (!ctx.query) throw new Error('Search or choose a kind before saving.');
+        await ctx.create({ name: value, query: ctx.query, sort: ctx.sort, order: ctx.order });
+      } else if (actionDialog.kind === 'save-update') {
+        await ctx.update(actionDialog.id, { name: value, query: ctx.query || actionDialog.previousQuery, sort: ctx.sort, order: ctx.order });
+      } else if (actionDialog.kind === 'save-delete') {
+        await ctx.remove(actionDialog.id);
+      } else if (actionDialog.kind === 'bulk-selected') {
+        const changed = await tagWorkflow.bulkSelected(library.selectedIDs, value, (variables) => tagMutation.mutateAsync(variables));
+        if (changed) library.clearSelection();
+      } else if (actionDialog.kind === 'bulk-filtered') {
+        await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));
+      }
+      closeActionDialog();
+    } catch (error) {
+      actionDialog = { ...actionDialog, busy: false, error: errorMessage(error) };
+    }
   }
 
   async function submitUpload() {
     cancelRequestedJobID = '';
-    const result = await upload.submit((variables) => uploadMutation.mutateAsync(variables));
-    if (result.queued) void jobsQuery.refetch();
+    try {
+      const result = await upload.submit((variables) => uploadMutation.mutateAsync(variables));
+      if (result.queued) void jobsQuery.refetch();
+    } finally {
+      uploadMutation.reset();
+    }
   }
 
   async function cancelUploadJob(jobID = upload.activeJobID) {
@@ -187,6 +252,41 @@
 
   async function clearCompletedJobs() {
     await clearJobsMutation.mutateAsync('completed');
+  }
+
+  function actionDialogTitle() {
+    switch (actionDialog.kind) {
+      case 'save-create': return 'Save search';
+      case 'save-update': return 'Update saved search';
+      case 'save-delete': return 'Delete saved search';
+      case 'bulk-selected': return 'Tag selected files';
+      case 'bulk-filtered': return 'Tag filtered results';
+      default: return '';
+    }
+  }
+
+  function actionDialogDescription() {
+    switch (actionDialog.kind) {
+      case 'save-create': return 'Name the current search so it stays available in the sidebar.';
+      case 'save-update': return `Update "${actionDialog.name}" with the current search and sort.`;
+      case 'save-delete': return `Delete "${actionDialog.name}" from saved searches.`;
+      case 'bulk-selected': return `Add tags to ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? '' : 's'}.`;
+      case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';
+      default: return '';
+    }
+  }
+
+  function actionDialogLabel() {
+    return actionDialog.kind.startsWith('bulk-') ? 'Tags' : 'Name';
+  }
+
+  function actionDialogConfirmText() {
+    switch (actionDialog.kind) {
+      case 'save-delete': return 'Delete';
+      case 'bulk-selected':
+      case 'bulk-filtered': return 'Add tags';
+      default: return 'Save';
+    }
   }
 
   async function logout() {
@@ -265,7 +365,9 @@
         isError={filesQuery.isError}
         error={filesQuery.error}
         {files}
-        virtual={virtualGrid(files, viewport.width, viewport.height, viewport.scrollY)}
+        retainedStartIndex={retainedStartIndex}
+        viewportHeight={viewport.height}
+        scrollY={viewport.scrollY}
         totalCount={page?.total_count ?? files.length}
         libraryCount={page?.library_count ?? files.length}
         searchActive={Boolean($submittedSearch || library.activeKind)}
@@ -278,6 +380,7 @@
         onSelectAll={() => library.selectFiles(files)}
         onClearSelection={library.clearSelection}
         onBulkTag={bulkTagSelected}
+        onLoadMore={() => { if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) void filesQuery.fetchNextPage(); }}
       >
         {#snippet actions()}
           <div class="library-head-actions">
@@ -317,6 +420,23 @@
       onNext={() => library.movePreview(1, files)}
       onTagInput={tagWorkflow.updateDraft}
       onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}
+    />
+  {/if}
+
+  {#if actionDialog.kind !== 'none'}
+    <ActionDialog
+      title={actionDialogTitle()}
+      description={actionDialogDescription()}
+      label={actionDialogLabel()}
+      value={actionDialog.value}
+      confirmText={actionDialogConfirmText()}
+      destructive={actionDialog.kind === 'save-delete'}
+      busy={actionDialog.busy}
+      error={actionDialog.error}
+      input={actionDialog.kind !== 'save-delete'}
+      onInput={(value) => (actionDialog = { ...actionDialog, value, error: '' })}
+      onCancel={closeActionDialog}
+      onConfirm={submitActionDialog}
     />
   {/if}
 {/if}

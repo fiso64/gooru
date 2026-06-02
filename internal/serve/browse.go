@@ -347,17 +347,16 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	if pageResult.NextPageToken != "" {
 		response.TotalCount++
 	}
-	if search, ok := s.library.(SearchLibrary); ok {
+	includeAggregates := r.URL.Query().Get("include_facets") == "true"
+	if search, ok := s.library.(SearchLibrary); ok && includeAggregates {
 		if total, err := s.countFiles(r.Context(), queryText); err == nil {
 			response.TotalCount = total
 		}
 		if total, err := search.LibraryCount(r.Context()); err == nil {
 			response.LibraryCount = total
 		}
-		if r.URL.Query().Get("include_facets") == "true" {
-			if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
-				response.Facets.Kind = kind
-			}
+		if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
+			response.Facets.Kind = kind
 		}
 	}
 	for _, file := range pageResult.Items {

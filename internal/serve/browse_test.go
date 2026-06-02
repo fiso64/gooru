@@ -147,6 +147,9 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if nextPage.NextPageToken != "" {
 		t.Fatalf("did not expect trailing next page token, got %q", nextPage.NextPageToken)
 	}
+	if nextPage.LibraryCount != 0 || len(nextPage.Facets.Kind) != 0 {
+		t.Fatalf("later pages should not include aggregate metadata without include_facets, got library=%d facets=%+v", nextPage.LibraryCount, nextPage.Facets)
+	}
 
 	detailReq := authedRequest(http.MethodGet, "/api/v1/files/"+page.Files[0].ID)
 	detailRec := httptest.NewRecorder()

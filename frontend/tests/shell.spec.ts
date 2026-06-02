@@ -210,11 +210,12 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
 
   await expect.poll(async () => {
     await page.getByTestId('infinite-scroll-sentinel').scrollIntoViewIfNeeded();
-    return fileRequests.some((request) => request.token === '60');
-  }).toBe(true);
+    return fileRequests.some((request) => request.token === '480');
+  }, { timeout: 10_000 }).toBe(true);
 
   expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true' });
   expect(fileRequests.some((request) => request.token === '60' && request.includeFacets === null)).toBe(true);
+  expect(fileRequests.some((request) => request.token === '480' && request.includeFacets === null)).toBe(true);
   await expect(page.getByText('600 files')).toBeVisible();
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
 });

@@ -34,27 +34,19 @@ export function createTagWorkflow() {
     }
   }
 
-  async function bulkSelected(ids: Set<string>, mutateTags: MutateTags) {
-    const tags = parseTags(window.prompt('Tags to add to selected files') ?? '');
+  async function bulkSelected(ids: Set<string>, tagInput: string, mutateTags: MutateTags) {
+    const tags = parseTags(tagInput);
     if (!tags.length || !ids.size) return false;
-    try {
-      await mutateTags({ operation: 'add', body: { file_ids: Array.from(ids), tags } });
-      return true;
-    } catch (error) {
-      window.alert(errorMessage(error));
-      return false;
-    }
+    await mutateTags({ operation: 'add', body: { file_ids: Array.from(ids), tags } });
+    return true;
   }
 
-  async function bulkFiltered(query: string, mutateTags: MutateTags) {
-    if (!query) return;
-    const tags = parseTags(window.prompt('Tags to add to every file matching the current filter') ?? '');
-    if (!tags.length) return;
-    try {
-      await mutateTags({ operation: 'add', body: { query, tags } });
-    } catch (error) {
-      window.alert(errorMessage(error));
-    }
+  async function bulkFiltered(query: string, tagInput: string, mutateTags: MutateTags) {
+    if (!query) return false;
+    const tags = parseTags(tagInput);
+    if (!tags.length) return false;
+    await mutateTags({ operation: 'add', body: { query, tags } });
+    return true;
   }
 
   return {

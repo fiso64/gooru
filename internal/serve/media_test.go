@@ -41,6 +41,51 @@ func TestContentRouteSupportsRanges(t *testing.T) {
 	}
 }
 
+func TestContentRouteForcesActiveOriginalsToAttachment(t *testing.T) {
+	for _, name := range []string{"active.html", "script.js", "vector.svg"} {
+		t.Run(name, func(t *testing.T) {
+			file := writeNamedMediaFile(t, name, []byte("<script>alert(1)</script>"))
+			server := newMediaTestServer(t, types.FileInfo{ID: 11, Path: file, Hash: "hash-active", Size: 25})
+			req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(11)+"/content")
+			rec := httptest.NewRecorder()
+
+			server.Handler().ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/octet-stream" {
+				t.Fatalf("expected octet-stream for %s, got %q", name, got)
+			}
+			if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") {
+				t.Fatalf("expected attachment disposition for %s, got %q", name, got)
+			}
+			if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+				t.Fatalf("expected nosniff, got %q", got)
+			}
+		})
+	}
+}
+
+func TestContentRouteAllowsTrustedInlineMediaTypes(t *testing.T) {
+	file := writeNamedMediaFile(t, "photo.png", []byte("png"))
+	server := newMediaTestServer(t, types.FileInfo{ID: 12, Path: file, Hash: "hash-png", Size: 3})
+	req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(12)+"/content")
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("expected image/png, got %q", got)
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != "" {
+		t.Fatalf("did not expect attachment disposition, got %q", got)
+	}
+}
+
 func TestMediaRoutesRequireSession(t *testing.T) {
 	file := writeMediaFile(t, []byte("0123456789"))
 	server := newMediaAuthTestServer(t, types.FileInfo{ID: 2, Path: file, Hash: "hash-content", Size: 10})

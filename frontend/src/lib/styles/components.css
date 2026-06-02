@@ -410,6 +410,79 @@
   font-size: 10px;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.56);
+}
+
+.action-dialog {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--bg-2);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.56);
+  padding: 18px;
+}
+
+.action-dialog h2 {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 18px;
+}
+
+.action-dialog p {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.action-dialog label {
+  display: grid;
+  gap: 7px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.action-dialog input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 10px;
+}
+
+.dialog-error {
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-actions .danger {
+  border-color: color-mix(in srgb, var(--danger) 42%, transparent);
+  color: var(--danger);
+}
+
 .upload-layout {
   display: grid;
   gap: 16px;

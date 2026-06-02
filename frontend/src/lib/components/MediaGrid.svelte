@@ -3,7 +3,7 @@
   import MediaCard from './MediaCard.svelte';
   import { errorMessage } from '$lib/utils/format';
   import type { Snippet } from 'svelte';
-  import type { VirtualGrid } from '$lib/state/ui';
+  import { virtualGrid } from '$lib/state/ui';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -12,7 +12,9 @@
     isError,
     error,
     files,
-    virtual,
+    retainedStartIndex,
+    viewportHeight,
+    scrollY,
     totalCount,
     libraryCount,
     searchActive,
@@ -25,6 +27,7 @@
     onSelectAll,
     onClearSelection,
     onBulkTag,
+    onLoadMore,
     actions
   } = $props<{
     sessionActive: boolean;
@@ -32,7 +35,9 @@
     isError: boolean;
     error: unknown;
     files: FileItem[];
-    virtual: VirtualGrid;
+    retainedStartIndex: number;
+    viewportHeight: number;
+    scrollY: number;
     totalCount: number;
     libraryCount: number;
     searchActive: boolean;
@@ -45,8 +50,52 @@
     onSelectAll: () => void;
     onClearSelection: () => void;
     onBulkTag: () => void;
+    onLoadMore: () => void;
     actions?: Snippet;
   }>();
+
+  let gridHost = $state<HTMLDivElement | undefined>();
+  let gridWidth = $state(960);
+  let gridTop = $state(0);
+  const virtual = $derived(virtualGrid(files, gridWidth, viewportHeight, scrollY, gridTop, totalCount || files.length, retainedStartIndex));
+
+  $effect(() => {
+    const node = gridHost;
+    if (!node) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const rect = node.getBoundingClientRect();
+      gridWidth = rect.width;
+      gridTop = rect.top + window.scrollY;
+    };
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(node);
+    measure();
+    window.addEventListener('resize', schedule);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', schedule);
+    };
+  });
+
+  $effect(() => {
+    const node = loadMoreSentinel;
+    if (!node || !hasNextPage || isFetchingNextPage) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
+      },
+      { rootMargin: '900px 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  });
 </script>
 
 <main class="main">
@@ -93,7 +142,7 @@
       <p>{searchActive ? 'Nothing matches the active filters.' : 'Your library is empty. Import files to start browsing.'}</p>
     </div>
   {:else}
-    <div class="virtual-grid" style={`height: ${virtual.totalHeight}px;`}>
+    <div bind:this={gridHost} class="virtual-grid" style={`height: ${virtual.totalHeight}px;`}>
       <div class="grid" data-testid="virtual-media-grid" style={`transform: translateY(${virtual.offsetTop}px);`}>
         {#each virtual.files as file (file.id)}
           <MediaCard
