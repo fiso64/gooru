@@ -6,6 +6,7 @@ import type { QueryClient } from '@tanstack/query-core';
 import type { InfiniteData, QueryFunctionContext } from '@tanstack/query-core';
 
 export const pageLimit = 60;
+export const retainedFilePages = 8;
 export type FileSort = 'modified' | 'name' | 'size' | 'kind';
 export type SortOrder = 'asc' | 'desc';
 
@@ -20,6 +21,18 @@ function queryWithKind(search: string, kind: string) {
   const parts = [search.trim()];
   if (kind) parts.push(`kind:${kind}`);
   return parts.filter(Boolean).join(' ');
+}
+
+export function pageTokenOffset(token: string | undefined) {
+  if (!token) return 0;
+  if (/^\d+$/.test(token)) return Number(token);
+  try {
+    const decoded = atob(token.replace(/-/g, '+').replace(/_/g, '/'));
+    const match = decoded.match(/^offset:(\d+)$/);
+    return match ? Number(match[1]) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export function createFilesQuery(
@@ -57,7 +70,9 @@ export function filesQueryOptions(
         includeFacets: !pageParam,
         signal
       }),
-    getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined
+    getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined,
+    getPreviousPageParam: (firstPage: FileListResponse) => firstPage.previous_page_token || undefined,
+    maxPages: retainedFilePages
   };
 }
 

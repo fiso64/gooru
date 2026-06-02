@@ -1829,6 +1829,21 @@ func (s *Store) GetFilesInfoByLocationQueryPageSorted(query string, args []inter
 	return s.scanFileInfos(finalQuery, pagedArgs...)
 }
 
+// GetFilesInfoByLocationQueryPageSortedOffset executes a location-ID query and returns one bounded offset page.
+func (s *Store) GetFilesInfoByLocationQueryPageSortedOffset(query string, args []interface{}, limit int, offset int, sort string, order string) ([]types.FileInfo, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_locations(id) AS (%s)
+		SELECT %s
+		FROM locations l
+		JOIN result_locations rl ON l.id = rl.id
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		ORDER BY %s %s, l.id ASC
+		LIMIT ? OFFSET ?
+	`, query, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))
+	pagedArgs := append(append([]interface{}{}, args...), limit, offset)
+	return s.scanFileInfos(finalQuery, pagedArgs...)
+}
+
 // GetAllFilesInfoPageSorted retrieves one bounded keyset page with a validated sort.
 func (s *Store) GetAllFilesInfoPageSorted(limit int, cursor *types.PageCursor, sort string, order string) ([]types.FileInfo, error) {
 	cursorClause, cursorArgs, err := s.fileCursorClause(cursor, sort, order)
@@ -1845,6 +1860,18 @@ func (s *Store) GetAllFilesInfoPageSorted(limit int, cursor *types.PageCursor, s
 	`, fileInfoColumns(), cursorClause, fileSortExpression(sort), sortOrder(order))
 	args := append(cursorArgs, limit)
 	return s.scanFileInfos(query, args...)
+}
+
+// GetAllFilesInfoPageSortedOffset retrieves one bounded offset page with a validated sort.
+func (s *Store) GetAllFilesInfoPageSortedOffset(limit int, offset int, sort string, order string) ([]types.FileInfo, error) {
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM locations l
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		ORDER BY %s %s, l.id ASC
+		LIMIT ? OFFSET ?
+	`, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))
+	return s.scanFileInfos(query, limit, offset)
 }
 
 func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileInfo, error) {

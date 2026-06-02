@@ -107,8 +107,8 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode next page token: %v", err)
 	}
-	if strings.HasPrefix(string(decodedToken), "offset:") {
-		t.Fatalf("file search should use cursor token, got %q", string(decodedToken))
+	if !strings.HasPrefix(string(decodedToken), "offset:") {
+		t.Fatalf("file search should use offset token for bidirectional UI paging, got %q", string(decodedToken))
 	}
 	if strings.HasPrefix(page.Files[0].ID, "loc:") {
 		t.Fatalf("file id exposed storage prefix: %q", page.Files[0].ID)
@@ -146,6 +146,9 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	}
 	if nextPage.NextPageToken != "" {
 		t.Fatalf("did not expect trailing next page token, got %q", nextPage.NextPageToken)
+	}
+	if nextPage.PreviousPageToken == "" {
+		t.Fatal("expected previous page token on later page")
 	}
 	if nextPage.LibraryCount != 0 || len(nextPage.Facets.Kind) != 0 {
 		t.Fatalf("later pages should not include aggregate metadata without include_facets, got library=%d facets=%+v", nextPage.LibraryCount, nextPage.Facets)

@@ -99,15 +99,24 @@ func (l *GooruLibrary) ListFilesSearch(ctx context.Context, query string, page P
 		return PageResult[types.FileInfo]{}, err
 	}
 	limit := page.Limit + 1
-	files, err := l.client.GetFilesInfoByQueryPageSorted(query, limit, cursor, sort, order, l.verbose)
+	var files []types.FileInfo
+	if cursor != nil {
+		files, err = l.client.GetFilesInfoByQueryPageSorted(query, limit, cursor, sort, order, l.verbose)
+	} else {
+		files, err = l.client.GetFilesInfoByQueryPageSortedOffset(query, limit, page.Offset, sort, order, l.verbose)
+	}
 	if err != nil {
 		return PageResult[types.FileInfo]{}, err
 	}
 	result := PageResult[types.FileInfo]{Items: files}
 	if len(result.Items) > page.Limit {
 		result.Items = result.Items[:page.Limit]
-		last := result.Items[len(result.Items)-1]
-		result.NextPageToken = CursorPageToken(sort, order, last.ID)
+		if cursor != nil {
+			last := result.Items[len(result.Items)-1]
+			result.NextPageToken = CursorPageToken(sort, order, last.ID)
+		} else {
+			result.NextPageToken = NextPageToken(page.Offset, page.Limit, page.Limit)
+		}
 	}
 	return result, nil
 }
@@ -264,11 +273,12 @@ func (l *GooruLibrary) GetFileByPublicID(ctx context.Context, id string) (types.
 }
 
 type FileListResponse struct {
-	Files         []FileDTO `json:"files"`
-	NextPageToken string    `json:"next_page_token,omitempty"`
-	TotalCount    int       `json:"total_count"`
-	LibraryCount  int       `json:"library_count"`
-	Facets        FacetsDTO `json:"facets,omitempty"`
+	Files             []FileDTO `json:"files"`
+	NextPageToken     string    `json:"next_page_token,omitempty"`
+	PreviousPageToken string    `json:"previous_page_token,omitempty"`
+	TotalCount        int       `json:"total_count"`
+	LibraryCount      int       `json:"library_count"`
+	Facets            FacetsDTO `json:"facets,omitempty"`
 }
 
 type TagListResponse struct {
@@ -340,8 +350,9 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := FileListResponse{
-		Files:         make([]FileDTO, 0, len(pageResult.Items)),
-		NextPageToken: pageResult.NextPageToken,
+		Files:             make([]FileDTO, 0, len(pageResult.Items)),
+		NextPageToken:     pageResult.NextPageToken,
+		PreviousPageToken: PageOffsetToken(page.Offset - page.Limit),
 	}
 	response.TotalCount = page.Offset + len(pageResult.Items)
 	if pageResult.NextPageToken != "" {

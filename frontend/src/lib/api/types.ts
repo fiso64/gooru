@@ -33,6 +33,7 @@ export interface FileItem {
 export interface FileListResponse {
   files: FileItem[];
   next_page_token?: string;
+  previous_page_token?: string;
   total_count: number;
   library_count: number;
   facets?: {

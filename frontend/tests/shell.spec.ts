@@ -191,6 +191,7 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
       body: JSON.stringify({
         files: allFiles.slice(start, start + pageSize),
         next_page_token: start + pageSize < total ? String(start + pageSize) : '',
+        previous_page_token: start > 0 ? String(Math.max(0, start - pageSize)) : '',
         total_count: total,
         library_count: total,
         facets: url.searchParams.get('include_facets') === 'true' ? { kind: [{ value: 'photo', count: total }] } : undefined
@@ -208,14 +209,15 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
   expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true', signalSeen: true });
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
 
-  await expect.poll(async () => {
+  for (let i = 0; i < 12; i += 1) {
     await page.getByTestId('infinite-scroll-sentinel').scrollIntoViewIfNeeded();
-    return fileRequests.some((request) => request.token === '480');
-  }, { timeout: 10_000 }).toBe(true);
+    await page.waitForTimeout(75);
+    if (await page.getByRole('button', { name: 'Preview large-560.jpg' }).count()) break;
+  }
+  await expect(page.getByRole('button', { name: 'Preview large-560.jpg' })).toHaveCount(1);
 
   expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true' });
   expect(fileRequests.some((request) => request.token === '60' && request.includeFacets === null)).toBe(true);
-  expect(fileRequests.some((request) => request.token === '480' && request.includeFacets === null)).toBe(true);
   await expect(page.getByText('600 files')).toBeVisible();
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
 

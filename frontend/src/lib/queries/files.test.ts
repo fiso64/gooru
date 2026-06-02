@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/query-core';
-import { filesQueryOptions, pageLimit } from './files';
+import { filesQueryOptions, pageLimit, pageTokenOffset, retainedFilePages } from './files';
 
 describe('files query options', () => {
   it('keeps loaded pages coherent and only requests facets for the first page', async () => {
@@ -21,7 +21,7 @@ describe('files query options', () => {
     const signal = new AbortController().signal;
     const client = new QueryClient();
 
-    expect('maxPages' in options).toBe(false);
+    expect(options.maxPages).toBe(retainedFilePages);
     await options.queryFn({ client, pageParam: '', signal, queryKey: options.queryKey, direction: 'forward', meta: undefined });
     await options.queryFn({ client, pageParam: 'next-page', signal, queryKey: options.queryKey, direction: 'forward', meta: undefined });
 
@@ -32,5 +32,11 @@ describe('files query options', () => {
     expect(requests[0].url).toContain('include_facets=true');
     expect(requests[1].url).toContain('page_token=next-page');
     expect(requests[1].url).not.toContain('include_facets=true');
+  });
+
+  it('decodes offset page tokens for retained window positioning', () => {
+    expect(pageTokenOffset('')).toBe(0);
+    expect(pageTokenOffset('180')).toBe(180);
+    expect(pageTokenOffset(btoa('offset:240').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''))).toBe(240);
   });
 });

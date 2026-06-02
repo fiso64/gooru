@@ -12,6 +12,7 @@
     isError,
     error,
     files,
+    retainedStartIndex,
     viewportHeight,
     scrollY,
     totalCount,
@@ -20,6 +21,8 @@
     selectedIDs,
     hasNextPage,
     isFetchingNextPage,
+    hasPreviousPage,
+    isFetchingPreviousPage,
     loadMoreSentinel = $bindable<HTMLDivElement | undefined>(),
     onOpen,
     onToggleSelect,
@@ -27,6 +30,7 @@
     onClearSelection,
     onBulkTag,
     onLoadMore,
+    onLoadPrevious,
     actions
   } = $props<{
     sessionActive: boolean;
@@ -34,6 +38,7 @@
     isError: boolean;
     error: unknown;
     files: FileItem[];
+    retainedStartIndex: number;
     viewportHeight: number;
     scrollY: number;
     totalCount: number;
@@ -42,6 +47,8 @@
     selectedIDs: Set<string>;
     hasNextPage: boolean;
     isFetchingNextPage: boolean;
+    hasPreviousPage: boolean;
+    isFetchingPreviousPage: boolean;
     loadMoreSentinel?: HTMLDivElement;
     onOpen: (file: FileItem) => void;
     onToggleSelect: (file: FileItem) => void;
@@ -49,13 +56,14 @@
     onClearSelection: () => void;
     onBulkTag: () => void;
     onLoadMore: () => void;
+    onLoadPrevious: () => void;
     actions?: Snippet;
   }>();
 
   let gridHost = $state<HTMLDivElement | undefined>();
   let gridWidth = $state(960);
   let gridTop = $state(0);
-  const virtual = $derived(virtualGrid(files, gridWidth, viewportHeight, scrollY, gridTop, totalCount || files.length));
+  const virtual = $derived(virtualGrid(files, gridWidth, viewportHeight, scrollY, gridTop, totalCount || files.length, retainedStartIndex));
 
   $effect(() => {
     const node = gridHost;
@@ -93,6 +101,10 @@
     );
     observer.observe(node);
     return () => observer.disconnect();
+  });
+
+  $effect(() => {
+    if (virtual.needsPrevious && hasPreviousPage && !isFetchingPreviousPage) onLoadPrevious();
   });
 </script>
 
@@ -142,6 +154,9 @@
   {:else}
     <div bind:this={gridHost} class="virtual-grid" style={`height: ${virtual.totalHeight}px;`}>
       <div class="grid" data-testid="virtual-media-grid" style={`transform: translateY(${virtual.offsetTop}px);`}>
+        {#if isFetchingPreviousPage}
+          <div class="thumb skeleton"></div>
+        {/if}
         {#each virtual.files as file (file.id)}
           <MediaCard
             {file}

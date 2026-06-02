@@ -491,6 +491,20 @@ func (c *Client) GetFilesInfoByQueryPageSorted(expression string, limit int, cur
 	return c.store.GetFilesInfoByLocationQueryPageSorted(sqlQuery, args, limit, cursor, sort, order)
 }
 
+func (c *Client) GetFilesInfoByQueryPageSortedOffset(expression string, limit int, offset int, sort string, order string, verbose bool) ([]types.FileInfo, error) {
+	sqlQuery, args, err := c.buildLocationQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return c.store.GetAllFilesInfoPageSortedOffset(limit, offset, sort, order)
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
+	}
+	return c.store.GetFilesInfoByLocationQueryPageSortedOffset(sqlQuery, args, limit, offset, sort, order)
+}
+
 func (c *Client) KindFacets() ([]types.TagWithCount, error) {
 	return c.store.KindFacets()
 }

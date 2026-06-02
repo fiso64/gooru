@@ -11,7 +11,7 @@
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { createFilesQuery, createTagMutation, type FileSort } from '$lib/queries/files';
+  import { createFilesQuery, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
@@ -83,6 +83,7 @@
   const deleteSavedSearchMutation = createSavedSearchDeleteMutation(() => $authState.csrfToken, queryClient);
 
   const loadedFiles = $derived(filesQuery.data?.pages.flatMap((page) => page.files) ?? []);
+  const retainedStartIndex = $derived(pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
   const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.activeKind}|${library.sort}|${library.order}`);
 
@@ -338,6 +339,7 @@
         isError={filesQuery.isError}
         error={filesQuery.error}
         {files}
+        retainedStartIndex={retainedStartIndex}
         viewportHeight={viewport.height}
         scrollY={viewport.scrollY}
         totalCount={page?.total_count ?? files.length}
@@ -346,6 +348,8 @@
         selectedIDs={library.selectedIDs}
         hasNextPage={Boolean(filesQuery.hasNextPage)}
         isFetchingNextPage={Boolean(filesQuery.isFetchingNextPage)}
+        hasPreviousPage={Boolean(filesQuery.hasPreviousPage)}
+        isFetchingPreviousPage={Boolean(filesQuery.isFetchingPreviousPage)}
         bind:loadMoreSentinel
         onOpen={library.openPreview}
         onToggleSelect={library.toggleSelect}
@@ -353,6 +357,7 @@
         onClearSelection={library.clearSelection}
         onBulkTag={bulkTagSelected}
         onLoadMore={() => { if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) void filesQuery.fetchNextPage(); }}
+        onLoadPrevious={() => { if (filesQuery.hasPreviousPage && !filesQuery.isFetchingPreviousPage) void filesQuery.fetchPreviousPage(); }}
       >
         {#snippet actions()}
           <div class="library-head-actions">

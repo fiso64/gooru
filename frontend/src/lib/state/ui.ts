@@ -6,6 +6,8 @@ export interface VirtualGrid {
   offsetTop: number;
   columns: number;
   rowHeight: number;
+  needsPrevious: boolean;
+  needsNext: boolean;
 }
 
 const gridPadding = 16 * 2;
@@ -41,13 +43,17 @@ export function virtualGrid(
   const visibleRows = Math.ceil(viewportHeight / rowHeight) + overscanRows * 2;
   const endRow = Math.min(totalRows, startRow + visibleRows);
   const retainedEndIndex = retainedStartIndex + files.length;
-  const startIndex = Math.max(retainedStartIndex, startRow * columns);
-  const endIndex = Math.min(retainedEndIndex, endRow * columns);
+  const globalStartIndex = startRow * columns;
+  const globalEndIndex = endRow * columns;
+  const startIndex = Math.max(retainedStartIndex, globalStartIndex);
+  const endIndex = Math.min(retainedEndIndex, globalEndIndex);
   return {
     files: startIndex < endIndex ? files.slice(startIndex - retainedStartIndex, endIndex - retainedStartIndex) : [],
     totalHeight: totalRows * rowHeight,
     offsetTop: Math.floor(startIndex / columns) * rowHeight,
     columns,
-    rowHeight
+    rowHeight,
+    needsPrevious: globalStartIndex < retainedStartIndex,
+    needsNext: globalEndIndex > retainedEndIndex
   };
 }
