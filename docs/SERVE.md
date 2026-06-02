@@ -235,7 +235,7 @@ the queued job is drained.
 ## API Contract Drift
 
 `docs/openapi.yaml` is the source for the public HTTP contract. When server DTOs
-or endpoint behavior changes, update the OpenAPI file and the frontend types in
-`frontend/src/lib/api/types.ts` in the same change. Go tests parse the OpenAPI
-document and assert the key path and schema shapes used by the server/frontend
-contract, while frontend checks cover the hand-maintained TypeScript types.
+or endpoint behavior changes, update the OpenAPI file and regenerate the
+frontend client types with `cd frontend && npm run generate:api`. Go tests parse
+the OpenAPI document, and the frontend `ApiClient` consumes the generated
+`openapi-fetch` contract.

@@ -212,8 +212,8 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
   await page.evaluate(() => window.scrollTo(0, 10_000));
   await expect.poll(() => fileRequests.some((request) => request.token === '60')).toBe(true);
 
-  for (let i = 0; i < 12; i += 1) {
-    await page.getByTestId('infinite-scroll-sentinel').scrollIntoViewIfNeeded();
+  for (let i = 0; i < 18; i += 1) {
+    await page.evaluate((step) => window.scrollTo(0, step * 2_500), i + 1);
     await page.waitForTimeout(75);
     if (await page.getByRole('button', { name: 'Preview large-560.jpg' }).count()) break;
   }

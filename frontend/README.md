@@ -24,14 +24,14 @@ The static output is written to `frontend/build`. `gooru serve` serves that dire
 See [../docs/SERVE.md](../docs/SERVE.md) for the full runtime configuration and
 deployment notes.
 
-## API client drift checks
+## API client
 
-The frontend currently uses a small handwritten TypeScript client in
-`src/lib/api` instead of generated OpenAPI code. Until generation is added, API
-shape drift is checked by:
+`../docs/openapi.yaml` is the API source of truth. Regenerate the frontend API
+types before changing endpoint shapes:
 
-- keeping DTO names and field names aligned with `../docs/openapi.yaml`;
-- running `npm run test:unit` for request construction and CSRF behavior;
-- running `npm run test:e2e` for authenticated library, media, tag, upload, and
-  job flows against mocked OpenAPI-shaped responses;
-- running the Go OpenAPI tests with `go test ./...`.
+```bash
+npm run generate:api
+```
+
+`src/lib/api/openapi.ts` is generated and `src/lib/api/client.ts` is a thin
+`openapi-fetch` facade used by the Svelte query modules.

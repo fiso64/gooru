@@ -5,10 +5,11 @@ describe('ApiClient', () => {
   it('sends cookie-authenticated query parameters', async () => {
     const requests: Array<{ url: string; headers: Headers; credentials?: RequestCredentials }> = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
       requests.push({
-        url: input.toString(),
-        headers: new Headers(init?.headers),
-        credentials: init?.credentials
+        url: relativeURL(request.url),
+        headers: request.headers,
+        credentials: request.credentials
       });
       return Response.json({ files: [] });
     }) as typeof fetch;
@@ -48,11 +49,12 @@ describe('ApiClient', () => {
   it('sends tag mutation requests with CSRF', async () => {
     const requests: Array<{ url: string; method?: string; headers: Headers; body?: BodyInit | null }> = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
       requests.push({
-        url: input.toString(),
-        method: init?.method,
-        headers: new Headers(init?.headers),
-        body: init?.body
+        url: relativeURL(request.url),
+        method: request.method === 'GET' ? undefined : request.method,
+        headers: request.headers,
+        body: request.body
       });
       return Response.json({ operation: 'add', selector: { file_ids: ['file-one'] }, affected_count: 1 });
     }) as typeof fetch;
@@ -66,17 +68,18 @@ describe('ApiClient', () => {
     expect(requests[0].headers.get('Authorization')).toBeNull();
     expect(requests[0].headers.get('X-Gooru-CSRF')).toBe('secret-token');
     expect(requests[0].headers.get('Content-Type')).toBe('application/json');
-    expect(requests[0].body).toBe(JSON.stringify({ file_ids: ['file-one'], tags: ['reviewed'] }));
+    expect(JSON.parse(await bodyText(requests[0].body))).toEqual({ file_ids: ['file-one'], tags: ['reviewed'], verbose: false });
   });
 
   it('uploads files with async preference', async () => {
     const requests: Array<{ url: string; method?: string; headers: Headers; body?: BodyInit | null }> = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
       requests.push({
-        url: input.toString(),
-        method: init?.method,
-        headers: new Headers(init?.headers),
-        body: init?.body
+        url: relativeURL(request.url),
+        method: request.method === 'GET' ? undefined : request.method,
+        headers: request.headers,
+        body: request.body
       });
       return Response.json({ id: 'job-one', type: 'upload_import', status: 'pending' }, { status: 202 });
     }) as typeof fetch;
@@ -91,18 +94,19 @@ describe('ApiClient', () => {
     expect(requests[0].headers.get('Authorization')).toBeNull();
     expect(requests[0].headers.get('X-Gooru-CSRF')).toBe('secret-token');
     expect(requests[0].headers.get('Prefer')).toBe('respond-async');
-    expect(requests[0].body).toBeInstanceOf(FormData);
-    const form = requests[0].body as FormData;
-    expect(form.get('conflict_policy')).toBe('rename');
+    const formText = await bodyText(requests[0].body);
+    expect(formText).toContain('name="conflict_policy"');
+    expect(formText).toContain('rename');
   });
 
   it('fetches jobs with cookies and cancels with CSRF', async () => {
     const requests: Array<{ url: string; method?: string; headers: Headers }> = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
       requests.push({
-        url: input.toString(),
-        method: init?.method,
-        headers: new Headers(init?.headers)
+        url: relativeURL(request.url),
+        method: request.method === 'GET' ? undefined : request.method,
+        headers: request.headers
       });
       return Response.json({ id: 'job-one', type: 'upload_import', status: 'canceled' });
     }) as typeof fetch;
@@ -122,3 +126,14 @@ describe('ApiClient', () => {
     expect(requests[1].headers.get('X-Gooru-CSRF')).toBe('secret-token');
   });
 });
+
+async function bodyText(body: BodyInit | null | undefined) {
+  if (!body) return '';
+  if (typeof body === 'string') return body;
+  return new Response(body).text();
+}
+
+function relativeURL(url: string) {
+  const parsed = new URL(url, 'http://localhost');
+  return `${parsed.pathname}${parsed.search}`;
+}

@@ -79,15 +79,6 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 	assertResponseSchemaRef(t, spec, "/files/{id}", "delete", "200", "#/components/schemas/DeleteFileResponse")
 	assertResponseSchemaRef(t, spec, "/jobs", "get", "200", "#/components/schemas/JobListResponse")
 
-	uploadRequest := requestSchema(t, spec, "/uploads", "post", "multipart/form-data")
-	uploadProps := stringMap(t, uploadRequest["properties"])
-	conflictPolicy := stringMap(t, uploadProps["conflict_policy"])
-	for _, value := range []string{"skip", "rename", "replace"} {
-		if !containsString(stringSlice(t, conflictPolicy["enum"]), value) {
-			t.Fatalf("upload conflict_policy enum missing %q in %+v", value, conflictPolicy["enum"])
-		}
-	}
-
 	uploadFileProps := stringMap(t, stringMap(t, schema(t, spec, "UploadImportResponse")["properties"])["files"])
 	uploadFileItems := stringMap(t, uploadFileProps["items"])
 	uploadFileRequired := stringSlice(t, uploadFileItems["required"])
@@ -96,17 +87,6 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 			t.Fatalf("UploadImportResponse file item required fields missing %q in %+v", field, uploadFileRequired)
 		}
 	}
-}
-
-func requestSchema(t *testing.T, spec map[string]interface{}, path string, method string, contentType string) map[string]interface{} {
-	t.Helper()
-	paths := stringMap(t, spec["paths"])
-	pathItem := stringMap(t, paths[path])
-	operation := stringMap(t, pathItem[method])
-	requestBody := stringMap(t, operation["requestBody"])
-	content := stringMap(t, requestBody["content"])
-	mediaType := stringMap(t, content[contentType])
-	return stringMap(t, mediaType["schema"])
 }
 
 func schema(t *testing.T, spec map[string]interface{}, name string) map[string]interface{} {

@@ -1,6 +1,6 @@
 # Issue 21 Concept Discrepancy Matrix
 
-This slice treats `temp/gooru-concept-ui/` as the visual source of truth and the accepted PR #30 frontend as the behavioral wiring reference. Each concept/backend mismatch is classified as:
+This slice treats `temp/gooru-concept-ui/` as the visual source of truth and the current stacked frontend/backend wiring as the functional reference. Each concept/backend mismatch is classified as:
 
 - A: keep visible but disabled, greyed out, or marked coming soon because it is a plausible future feature.
 - B: implement now because the current backend/app should support it for this issue.
