@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Gooru — reusable UI pieces
 
 const {useState, useEffect, useRef, useMemo, useCallback} = React;

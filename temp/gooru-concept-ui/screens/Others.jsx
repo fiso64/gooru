@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Upload, Jobs (page + drawer), Tags index, Shortcuts, Settings — grouped because each is small.
 
 const {useState: _useSP, useRef: _useRP, useMemo: _useMP, useEffect: _useEP} = React;

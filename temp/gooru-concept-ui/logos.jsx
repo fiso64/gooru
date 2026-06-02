@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Gooru logo proposals.
 //
 // Each variant is rendered from live params so they can be tweaked in real time

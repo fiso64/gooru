@@ -64,6 +64,9 @@ func TestSecurityHeadersAreApplied(t *testing.T) {
 	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
 		t.Fatalf("expected conservative CSP, got %q", got)
 	}
+	if got := rec.Header().Get("Content-Security-Policy"); strings.Contains(got, "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("default CSP should not allow inline scripts, got %q", got)
+	}
 }
 
 func TestAPIMethodErrorsUseJSONEnvelope(t *testing.T) {
