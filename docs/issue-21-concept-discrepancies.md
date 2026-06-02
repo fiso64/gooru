@@ -1,0 +1,32 @@
+# Issue 21 Concept Discrepancy Matrix
+
+This slice treats `temp/gooru-concept-ui/` as the visual source of truth and the accepted PR #30 frontend as the behavioral wiring reference. Each concept/backend mismatch is classified as:
+
+- A: keep visible but disabled, greyed out, or marked coming soon because it is a plausible future feature.
+- B: implement now because the current backend/app should support it for this issue.
+- C: remove or correct because it is not applicable or is inaccurate for Gooru.
+
+1. Settings route and sidebar entry: B for making the settings view reachable and keeping account sign out functional; A for unsupported settings controls inside the view. The issue owner explicitly asked for the settings view, not a disabled settings button.
+2. Settings password/config/library/appearance controls: A. They match plausible future server settings, but the backend does not expose mutable settings APIs in this issue. Controls stay greyed out with "coming soon" copy.
+3. Settings sign out: B. Session logout is already supported and should work from Settings.
+4. Login first-run command: C. The concept text `gooru auth init` is inaccurate for this repository; visible copy must use the verified command from the current CLI/docs.
+5. Login docs/source/changelog footer links: A. They remain visible as concept footer affordances but point at placeholder routes until docs pages exist.
+6. Upload target selector: B. Upload targets are already configured and exposed through `/api/v1/upload-targets`; the concept selector should be wired to real targets.
+7. Upload initial tags: B. The upload API already accepts initial tags, so the concept control should remain functional.
+8. Upload conflict mode `skip` / `rename` / `replace`: B. The concept presents this as required import behavior, so this slice wires a request-level conflict policy into the upload endpoint instead of leaving the control decorative.
+9. Upload duplicate detection text: B. The backend already hashes files and returns duplicate statuses; the copy can stay because the behavior is real and results are rendered per file.
+10. Upload max 5 GB copy: C. No hard 5 GB product limit is guaranteed. The concept line is replaced with neutral browse/drop copy.
+11. Upload Paste URL button: A. URL import is plausible but not currently backed by an endpoint; keep the concept button disabled/coming soon rather than hiding it.
+12. Upload drag/drop and staged state: B. Drag/drop, staging, clear staged, remove staged item, and upload staged files are required workflows.
+13. Upload queue result statuses/progress: B. Per-file staged/uploading/imported/duplicate/skipped/error/canceled rows are required and must stay aligned to the concept row grid.
+14. Saved search create/update/delete actions: B. Backend endpoints exist, so the app-owned dialogs remain functional.
+15. Search token pills/autocomplete: B. This is a central concept interaction and must be ported, not approximated with a plain input.
+16. Search suggestions from backend: B. The concept autocomplete should use debounced API suggestions and cancellation rather than static prototype data.
+17. Tag index/count surface: B. The backend exposes bounded tag counts, so Tags remains a real view.
+18. Jobs view and drawer/status button: B. The backend exposes jobs, cancel, and clear actions.
+19. Account view separate from Settings: A. The concept has account controls in Settings; the existing Account route can remain as a compact reachable utility view, but Settings is the primary concept location for sign out.
+20. Shortcuts view: A. The concept includes it as a static/help surface; keep visible with applicable shortcuts and mark unsupported commands as future where needed.
+21. Appearance controls in Settings: A. Accent/grid controls are concept features but are not persisted server settings in this issue.
+22. Delete/replace/destructive media controls not currently exposed in the concept screens: C unless already backed by accepted PR behavior. Do not invent destructive UI that is not in the concept or backend requirement.
+23. Concept mock media names, counts, paths, and seeded upload queue: C. Real app views must render actual API data or empty states; mock data can only appear in tests/screenshots.
+24. Original active-content file serving from `/content`: B. The accepted PR security fix stays; the exact visual port must not weaken media/content response policy.
