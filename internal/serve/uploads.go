@@ -38,6 +38,7 @@ type StagedUpload struct {
 	Path     string
 	Size     int64
 	TargetID string
+	Status   string
 }
 
 const maxUploadFiles = 100
@@ -128,7 +129,12 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	saved, err := s.saveUploadedFiles(target, files)
+	conflictPolicy, err := uploadConflictPolicy(firstFormValue(r.MultipartForm.Value["conflict_policy"]), s.cfg.Uploads.ConflictPolicy)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		return
+	}
+	saved, err := s.saveUploadedFiles(target, files, conflictPolicy)
 	if err != nil {
 		if errors.Is(err, errUploadTooLarge) {
 			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", err.Error(), uploadErrorDetails(err))
@@ -207,6 +213,7 @@ type savedUpload struct {
 	path     string
 	size     int64
 	targetID string
+	status   string
 }
 
 var errUploadTooLarge = errors.New("uploaded file exceeds max_file_size_bytes")
@@ -235,7 +242,21 @@ func uploadErrorDetails(err error) map[string]string {
 	return nil
 }
 
-func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileHeader) ([]savedUpload, error) {
+func uploadConflictPolicy(requested string, fallback string) (string, error) {
+	switch strings.TrimSpace(requested) {
+	case "":
+		if fallback == "" {
+			return "rename", nil
+		}
+		return fallback, nil
+	case "skip", "rename", "replace":
+		return strings.TrimSpace(requested), nil
+	default:
+		return "", errors.New("conflict_policy must be one of: skip, rename, replace")
+	}
+}
+
+func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileHeader, conflictPolicy string) ([]savedUpload, error) {
 	if err := os.MkdirAll(target.Path, 0700); err != nil {
 		return nil, fmt.Errorf("failed to prepare upload directory")
 	}
@@ -250,11 +271,16 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to read uploaded file")}
 		}
-		dst, path, tmpPath, err := createUploadDestination(target.Path, name, s.cfg.Uploads.ConflictPolicy)
+		dst, path, tmpPath, skipped, err := createUploadDestination(target.Path, name, conflictPolicy)
 		if err != nil {
 			_ = src.Close()
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
+		}
+		if skipped {
+			_ = src.Close()
+			saved = append(saved, savedUpload{name: name, path: path, size: header.Size, targetID: target.ID, status: "skipped"})
+			continue
 		}
 		size, copyErr := copyUpload(dst, src, s.cfg.Uploads.MaxFileSizeBytes)
 		closeErr := dst.Close()
@@ -267,7 +293,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			}
 			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to write uploaded file")}
 		}
-		if err := commitUploadDestination(tmpPath, path); err != nil {
+		if err := commitUploadDestination(tmpPath, path, conflictPolicy == "replace"); err != nil {
 			_ = os.Remove(tmpPath)
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
@@ -279,6 +305,9 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 
 func removeSavedUploads(files []savedUpload) {
 	for _, file := range files {
+		if file.status == "skipped" {
+			continue
+		}
 		_ = os.Remove(file.path)
 	}
 }
@@ -295,7 +324,7 @@ func safeUploadName(name string) (string, error) {
 	return name, nil
 }
 
-func createUploadDestination(dir string, name string, conflictPolicy string) (*os.File, string, string, error) {
+func createUploadDestination(dir string, name string, conflictPolicy string) (*os.File, string, string, bool, error) {
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
 	if base == "" {
@@ -308,23 +337,38 @@ func createUploadDestination(dir string, name string, conflictPolicy string) (*o
 		}
 		path := filepath.Join(dir, candidate)
 		if _, err := os.Stat(path); err == nil {
-			if conflictPolicy == "error" {
-				return nil, "", "", errors.New("uploaded filename conflicts with an existing file")
+			switch conflictPolicy {
+			case "skip":
+				return nil, path, "", true, nil
+			case "error":
+				return nil, "", "", false, errors.New("uploaded filename conflicts with an existing file")
+			case "replace":
+				file, err := os.CreateTemp(dir, "."+candidate+".tmp-*")
+				if err != nil {
+					return nil, "", "", false, fmt.Errorf("failed to create uploaded file")
+				}
+				return file, path, file.Name(), false, nil
 			}
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, "", "", fmt.Errorf("failed to create uploaded file")
+			return nil, "", "", false, fmt.Errorf("failed to create uploaded file")
 		}
 		file, err := os.CreateTemp(dir, "."+candidate+".tmp-*")
 		if err != nil {
-			return nil, "", "", fmt.Errorf("failed to create uploaded file")
+			return nil, "", "", false, fmt.Errorf("failed to create uploaded file")
 		}
-		return file, path, file.Name(), nil
+		return file, path, file.Name(), false, nil
 	}
-	return nil, "", "", errors.New("could not choose a non-conflicting upload filename")
+	return nil, "", "", false, errors.New("could not choose a non-conflicting upload filename")
 }
 
-func commitUploadDestination(tmpPath string, finalPath string) error {
+func commitUploadDestination(tmpPath string, finalPath string, replace bool) error {
+	if replace {
+		if err := os.Rename(tmpPath, finalPath); err != nil {
+			return fmt.Errorf("failed to store uploaded file")
+		}
+		return nil
+	}
 	if err := os.Link(tmpPath, finalPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return errors.New("uploaded filename conflicts with an existing file")
@@ -380,7 +424,7 @@ func firstFormValue(values []string) string {
 func stagedUploads(files []savedUpload) []StagedUpload {
 	out := make([]StagedUpload, 0, len(files))
 	for _, file := range files {
-		out = append(out, StagedUpload{Name: file.name, Path: file.path, Size: file.size, TargetID: file.targetID})
+		out = append(out, StagedUpload{Name: file.name, Path: file.path, Size: file.size, TargetID: file.targetID, Status: file.status})
 	}
 	return out
 }
@@ -395,6 +439,11 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	responseIndexByPath := make(map[string]int, len(files))
 	for _, file := range files {
 		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
+		if file.Status == "skipped" {
+			dto.Status = "skipped"
+			response.Files = append(response.Files, dto)
+			continue
+		}
 		info, status, err := l.client.GetFileInfoForFile(file.Path, false)
 		if err != nil {
 			dto.Status = "error"

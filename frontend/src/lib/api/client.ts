@@ -124,11 +124,12 @@ export class ApiClient {
     return this.request<UploadTargetsResponse>(`${this.baseURL}/upload-targets`);
   }
 
-  async uploadFiles(files: File[], tags: string[] = [], preferAsync = true, targetID = ''): Promise<Job | UploadImportResponse> {
+  async uploadFiles(files: File[], tags: string[] = [], preferAsync = true, targetID = '', conflictPolicy = 'rename'): Promise<Job | UploadImportResponse> {
     const form = new FormData();
     for (const file of files) form.append('files', file, file.name);
     if (tags.length) form.append('tags', tags.join(' '));
     if (targetID) form.append('target_id', targetID);
+    if (conflictPolicy) form.append('conflict_policy', conflictPolicy);
     return this.request<Job | UploadImportResponse>(`${this.baseURL}/uploads`, {
       method: 'POST',
       headers: preferAsync ? { Prefer: 'respond-async' } : undefined,

@@ -486,6 +486,10 @@ paths:
                 target_id:
                   type: string
                   description: Configured upload target ID. Defaults to the first configured target.
+                conflict_policy:
+                  type: string
+                  enum: [skip, rename, replace]
+                  description: How to handle uploaded filenames that already exist in the target.
                 tags:
                   type: string
                   description: Space- or comma-separated initial tags.

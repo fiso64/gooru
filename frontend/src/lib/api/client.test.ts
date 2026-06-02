@@ -92,6 +92,8 @@ describe('ApiClient', () => {
     expect(requests[0].headers.get('X-Gooru-CSRF')).toBe('secret-token');
     expect(requests[0].headers.get('Prefer')).toBe('respond-async');
     expect(requests[0].body).toBeInstanceOf(FormData);
+    const form = requests[0].body as FormData;
+    expect(form.get('conflict_policy')).toBe('rename');
   });
 
   it('fetches jobs with cookies and cancels with CSRF', async () => {
