@@ -218,6 +218,9 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
   expect(fileRequests.some((request) => request.token === '480' && request.includeFacets === null)).toBe(true);
   await expect(page.getByText('600 files')).toBeVisible();
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.getByRole('button', { name: 'Preview large-000.jpg' })).toBeVisible();
 });
 
 test('debounces search suggestions while preserving typed draft', async ({ page }) => {

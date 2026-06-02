@@ -12,7 +12,6 @@
     isError,
     error,
     files,
-    retainedStartIndex,
     viewportHeight,
     scrollY,
     totalCount,
@@ -35,7 +34,6 @@
     isError: boolean;
     error: unknown;
     files: FileItem[];
-    retainedStartIndex: number;
     viewportHeight: number;
     scrollY: number;
     totalCount: number;
@@ -57,7 +55,7 @@
   let gridHost = $state<HTMLDivElement | undefined>();
   let gridWidth = $state(960);
   let gridTop = $state(0);
-  const virtual = $derived(virtualGrid(files, gridWidth, viewportHeight, scrollY, gridTop, totalCount || files.length, retainedStartIndex));
+  const virtual = $derived(virtualGrid(files, gridWidth, viewportHeight, scrollY, gridTop, totalCount || files.length));
 
   $effect(() => {
     const node = gridHost;

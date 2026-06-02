@@ -11,7 +11,7 @@
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { createFilesQuery, createTagMutation, pageLimit, retainedFilePages, type FileSort } from '$lib/queries/files';
+  import { createFilesQuery, createTagMutation, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
@@ -44,9 +44,6 @@
   let observedCSRF = $state('');
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let cancelRequestedJobID = $state('');
-  let retainedStartIndex = $state(0);
-  let observedFirstPageParam = $state('');
-  let observedPageWindowKey = $state('');
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -88,7 +85,6 @@
   const loadedFiles = $derived(filesQuery.data?.pages.flatMap((page) => page.files) ?? []);
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
   const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.activeKind}|${library.sort}|${library.order}`);
-  const pageParamsKey = $derived(filesQuery.data?.pageParams.map((param) => String(param ?? '')).join('|') ?? '');
 
   $effect(() => {
     const csrf = $authState.csrfToken;
@@ -101,35 +97,12 @@
     upload.reset();
     fileMetadata = null;
     cancelRequestedJobID = '';
-    retainedStartIndex = 0;
-    observedFirstPageParam = '';
-    observedPageWindowKey = '';
     closeActionDialog();
   });
 
   $effect(() => {
     fileMetadataKey;
     fileMetadata = null;
-    retainedStartIndex = 0;
-    observedFirstPageParam = '';
-    observedPageWindowKey = fileMetadataKey;
-  });
-
-  $effect(() => {
-    fileMetadataKey;
-    pageParamsKey;
-    const params = filesQuery.data?.pageParams ?? [];
-    if (!params.length) return;
-    if (observedPageWindowKey !== fileMetadataKey) {
-      observedPageWindowKey = fileMetadataKey;
-      observedFirstPageParam = '';
-      retainedStartIndex = 0;
-    }
-    const first = String(params[0] ?? '');
-    if (observedFirstPageParam && first !== observedFirstPageParam && params.length >= retainedFilePages) {
-      retainedStartIndex += pageLimit;
-    }
-    observedFirstPageParam = first;
   });
 
   $effect(() => {
@@ -365,7 +338,6 @@
         isError={filesQuery.isError}
         error={filesQuery.error}
         {files}
-        retainedStartIndex={retainedStartIndex}
         viewportHeight={viewport.height}
         scrollY={viewport.scrollY}
         totalCount={page?.total_count ?? files.length}
