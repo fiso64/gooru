@@ -72,7 +72,7 @@
     </form>
 
     <div class="login-v2-foot">
-      <div><span class="mono">first run?</span><span> on the server: </span><code>gooru auth init</code></div>
+      <div><span class="mono">first run?</span><span> on the server: </span><code>gooru user create-admin</code></div>
       <div class="login-v2-foot-links">
         <a href="/docs" tabindex="-1">docs</a>
         <span class="sep">&middot;</span>

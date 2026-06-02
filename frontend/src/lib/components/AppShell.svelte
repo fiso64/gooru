@@ -151,9 +151,9 @@
     </div>
 
     <div class="sidebar-section bottom">
-      <button class="sidebar-item is-disabled" type="button" disabled>
+      <button class:active={route === 'settings'} class="sidebar-item" type="button" onclick={() => onRoute('settings')}>
         <Icon name="settings" size={16} />
-        <span>Settings API coming soon</span>
+        <span>Settings</span>
       </button>
       <button class:active={route === 'shortcuts'} class="sidebar-item" type="button" onclick={() => onRoute('shortcuts')}>
         <Icon name="keyboard" size={16} />

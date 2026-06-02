@@ -11,6 +11,8 @@ export function createUploadWorkflow() {
   let items = $state<UploadItem[]>([]);
   let tags = $state('');
   let targetID = $state('');
+  let conflictPolicy = $state('rename');
+  let autoUpload = $state(false);
   let busy = $state(false);
   let cancelBusy = $state(false);
   let status = $state('');
@@ -21,6 +23,8 @@ export function createUploadWorkflow() {
     files = [];
     items = [];
     tags = '';
+    conflictPolicy = 'rename';
+    autoUpload = false;
     busy = false;
     cancelBusy = false;
     status = '';
@@ -34,10 +38,21 @@ export function createUploadWorkflow() {
     status = '';
   }
 
-  function select(nextFiles: FileList | null) {
+  function removeAt(index: number) {
+    files = files.filter((_, fileIndex) => fileIndex !== index);
+    items = stagedUploadItems(files, targetID);
+    status = '';
+  }
+
+  function select(nextFiles: FileList | File[] | null) {
     files = nextFiles ? Array.from(nextFiles) : [];
     items = stagedUploadItems(files, targetID);
     status = '';
+    if (autoUpload && files.length) {
+      queueMicrotask(() => {
+        status = 'Ready to auto-upload';
+      });
+    }
   }
 
   function setTarget(value: string) {
@@ -70,7 +85,7 @@ export function createUploadWorkflow() {
     status = 'Uploading';
     items = uploadingItems(items.length ? items : stagedUploadItems(files, targetID));
     try {
-      const response = await mutate({ files, tags: parseTags(tags), preferAsync: true, targetID });
+      const response = await mutate({ files, tags: parseTags(tags), preferAsync: true, targetID, conflictPolicy });
       if ('id' in response) {
         handledJobID = '';
         activeJobID = response.id;
@@ -120,12 +135,17 @@ export function createUploadWorkflow() {
     get tags() { return tags; },
     set tags(value: string) { tags = value; },
     get targetID() { return targetID; },
+    get conflictPolicy() { return conflictPolicy; },
+    set conflictPolicy(value: string) { conflictPolicy = value; },
+    get autoUpload() { return autoUpload; },
+    set autoUpload(value: boolean) { autoUpload = value; },
     get busy() { return busy; },
     get cancelBusy() { return cancelBusy; },
     get status() { return status; },
     get activeJobID() { return activeJobID; },
     reset,
     clear,
+    removeAt,
     select,
     setTarget,
     applyJob,

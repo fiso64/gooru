@@ -6,6 +6,7 @@
   import JobsView from '$lib/components/JobsView.svelte';
   import MediaGrid from '$lib/components/MediaGrid.svelte';
   import PreviewDialog from '$lib/components/PreviewDialog.svelte';
+  import SettingsView from '$lib/components/SettingsView.svelte';
   import ShortcutsView from '$lib/components/ShortcutsView.svelte';
   import TagsView from '$lib/components/TagsView.svelte';
   import UploadPanel from '$lib/components/UploadPanel.svelte';
@@ -214,6 +215,13 @@
     }
   }
 
+  function selectUploadFiles(files: FileList | File[] | null) {
+    upload.select(files);
+    if (upload.autoUpload && files && Array.from(files).length) {
+      queueMicrotask(() => void submitUpload());
+    }
+  }
+
   async function cancelUploadJob(jobID = upload.activeJobID) {
     cancelRequestedJobID = jobID;
     const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);
@@ -311,15 +319,22 @@
         activeUploadJobID={upload.activeJobID}
         targets={uploadTargetsQuery.data?.items ?? []}
         targetID={upload.targetID}
+        conflictPolicy={upload.conflictPolicy}
+        autoUpload={upload.autoUpload}
         onTargetInput={upload.setTarget}
-        onFiles={upload.select}
+        onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
+        onConflictInput={(value) => (upload.conflictPolicy = value)}
+        onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}
         onCancel={cancelUploadJob}
         onClear={upload.clear}
+        onRemove={upload.removeAt}
       />
     {:else if library.route === 'jobs'}
       <JobsView jobs={jobsQuery.data?.items ?? []} onCancel={cancelJob} onClearCompleted={clearCompletedJobs} />
+    {:else if library.route === 'settings'}
+      <SettingsView username={$authState.user.username} onLogout={logout} />
     {:else if library.route === 'tags'}
       <TagsView
         tags={tagsQuery.data?.tags ?? []}
