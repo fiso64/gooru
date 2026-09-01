@@ -73,6 +73,9 @@ jobs:
 tools:
   ffmpeg_path: "ffmpeg"
   ffprobe_path: "ffprobe"
+
+logging:
+  level: "info"
 ```
 
 Create the first admin user, then run the server:
@@ -98,6 +101,19 @@ and attachment download routes.
 The old `auth.token`, `auth.token_env`, `auth.token_file`, and `--auth-token`
 browser auth configuration is rejected with a migration message. Do not store
 normal usernames or passwords in YAML config.
+
+## Logging
+
+`gooru serve` writes structured text logs to stderr. `logging.level` accepts
+`debug`, `info`, `warn`, or `error` and defaults to `info`. Setting it to `debug`
+adds server runtime details and HTTP request lifecycle entries, so a source run
+such as `go run ./cmd/gooru serve --config serve.yaml` produces debug output in
+the invoking terminal.
+
+Request debug logs intentionally record the matched route pattern rather than
+raw URL paths or query strings. Headers, request bodies, library file names, and
+filesystem paths are not logged by the request middleware. This keeps debug
+logging useful without turning it into an avoidable library-metadata leak.
 
 ## Local Development
 
@@ -190,8 +206,8 @@ path exposure is explicitly enabled.
 namespace-value autocomplete suggestions, while `GET /api/v1/tags/namespaces`
 returns known tag namespaces.
 
-Authenticated users can persist browser queries through `GET`/`POST
-/api/v1/saved-searches` and `PUT`/`DELETE /api/v1/saved-searches/{id}`. Saved
+Authenticated users can persist browser queries through `GET`/`POST`
+`/api/v1/saved-searches` and `PUT`/`DELETE /api/v1/saved-searches/{id}`. Saved
 searches are scoped to the current DB-backed user.
 
 `DELETE /api/v1/files/{id}` currently supports `{"mode":"untrack"}` to remove a
