@@ -85,9 +85,11 @@ export interface TagMutationVariables {
 export function createTagMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<TagMutationResponse, Error, TagMutationVariables>(() => ({
     mutationFn: ({ operation, body }) => new ApiClient(getCSRFToken()).mutateTags(operation, body),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: fileKeys.all });
-      void queryClient.invalidateQueries({ queryKey: libraryKeys.tags });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: fileKeys.all }),
+        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
+      ]);
     }
   }));
 }
@@ -95,9 +97,11 @@ export function createTagMutation(getCSRFToken: () => string, queryClient: Query
 export function createUntrackFileMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<void, Error, string>(() => ({
     mutationFn: (id) => new ApiClient(getCSRFToken()).untrackFile(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: fileKeys.all });
-      void queryClient.invalidateQueries({ queryKey: libraryKeys.tags });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: fileKeys.all }),
+        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
+      ]);
     }
   }));
 }
