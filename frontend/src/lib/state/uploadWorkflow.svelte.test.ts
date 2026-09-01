@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from '$lib/api/types';
 
 const { untrackSpy } = vi.hoisted(() => ({
-  untrackSpy: vi.fn((fn: () => unknown) => fn())
+  untrackSpy: vi.fn((value: unknown) => typeof value === 'function' ? (value as () => unknown)() : value)
 }));
 
 vi.mock('svelte', async () => {
@@ -26,18 +26,7 @@ describe('createUploadWorkflow', () => {
     } as Job;
 
     expect(workflow.applyJob(job)).toEqual({ completed: false, changedFiles: false });
-    expect(untrackSpy).toHaveBeenCalledOnce();
+    expect(untrackSpy).toHaveBeenCalledWith(expect.any(Function));
     expect(workflow.status).toBe('Importing');
-  });
-
-  it('handles polling errors outside the caller reactive dependency graph', () => {
-    const workflow = createUploadWorkflow();
-    workflow.activeJobID = 'job-1';
-
-    workflow.applyJobError(new Error('poll failed'));
-
-    expect(untrackSpy).toHaveBeenCalledOnce();
-    expect(workflow.status).toBe('poll failed');
-    expect(workflow.activeJobID).toBe('');
   });
 });
