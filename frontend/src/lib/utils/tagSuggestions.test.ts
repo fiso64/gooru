@@ -14,17 +14,29 @@ describe('plainTagSuggestions', () => {
     expect(plainTagSuggestions('artist:a', tags, ['artist:bob']).map((item) => item.name)).toEqual(['artist:alice']);
   });
 
+  it('offers namespace prefixes separately from concrete tags', () => {
+    const suggestions = plainTagSuggestions('art', tags);
+    expect(suggestions[0]).toEqual({ name: 'artist:', count: 8, kind: 'namespace' });
+    expect(suggestions.some((item) => item.name === 'artist:alice' && item.kind === 'tag')).toBe(true);
+  });
+
+  it('accepts namespace-only API candidates without treating them as tags', () => {
+    const suggestions = plainTagSuggestions('mov', [{ namespace: 'movie', count: 7 }]);
+    expect(suggestions).toEqual([{ name: 'movie:', count: 7, kind: 'namespace' }]);
+  });
+
   it('matches valueless and namespaced tag values without exposing metatags', () => {
-    expect(plainTagSuggestions('por', tags).map((item) => item.name)).toEqual(['subject:portrait']);
+    expect(plainTagSuggestions('por', tags).map((item) => item.name)).toContain('subject:portrait');
     expect(plainTagSuggestions('@rat', tags)).toEqual([]);
     expect(plainTagSuggestions('-artist', tags)).toEqual([]);
   });
 });
 
 describe('isPlainTag', () => {
-  it('accepts ordinary tags and rejects search-only syntax', () => {
+  it('accepts ordinary tags and rejects search-only or namespace-prefix syntax', () => {
     expect(isPlainTag('artist:alice')).toBe(true);
     expect(isPlainTag('landscape')).toBe(true);
+    expect(isPlainTag('artist:')).toBe(false);
     expect(isPlainTag('@rating:5')).toBe(false);
     expect(isPlainTag('-landscape')).toBe(false);
     expect(isPlainTag('two tags')).toBe(false);
@@ -32,7 +44,7 @@ describe('isPlainTag', () => {
 });
 
 describe('plainTagsFromInput', () => {
-  it('preserves multi-tag entry while excluding search-only syntax', () => {
-    expect(plainTagsFromInput('artist:alice landscape @rating:5 -exclude landscape')).toEqual(['artist:alice', 'landscape']);
+  it('preserves multi-tag entry while excluding search-only syntax and namespace prefixes', () => {
+    expect(plainTagsFromInput('artist:alice landscape artist: @rating:5 -exclude landscape')).toEqual(['artist:alice', 'landscape']);
   });
 });
