@@ -547,9 +547,11 @@ export interface paths {
         put: {
             parameters: {
                 query?: never;
-                header?: {
+                header: {
                     /** @description Set to respond-async to enqueue the mutation and poll the returned job. */
                     Prefer?: components["parameters"]["PreferAsync"];
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
                 };
                 path?: never;
                 cookie?: never;
@@ -564,6 +566,7 @@ export interface paths {
                 202: components["responses"]["AsyncJob"];
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 503: components["responses"]["ServiceUnavailable"];
             };
@@ -572,9 +575,11 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: {
+                header: {
                     /** @description Set to respond-async to enqueue the mutation and poll the returned job. */
                     Prefer?: components["parameters"]["PreferAsync"];
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
                 };
                 path?: never;
                 cookie?: never;
@@ -589,6 +594,7 @@ export interface paths {
                 202: components["responses"]["AsyncJob"];
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 503: components["responses"]["ServiceUnavailable"];
             };
@@ -600,9 +606,11 @@ export interface paths {
         delete: {
             parameters: {
                 query?: never;
-                header?: {
+                header: {
                     /** @description Set to respond-async to enqueue the mutation and poll the returned job. */
                     Prefer?: components["parameters"]["PreferAsync"];
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
                 };
                 path?: never;
                 cookie?: never;
@@ -617,6 +625,7 @@ export interface paths {
                 202: components["responses"]["AsyncJob"];
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 503: components["responses"]["ServiceUnavailable"];
             };
@@ -676,9 +685,11 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: {
+                header: {
                     /** @description Set to respond-async to enqueue the mutation and poll the returned job. */
                     Prefer?: components["parameters"]["PreferAsync"];
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
                 };
                 path?: never;
                 cookie?: never;
@@ -1016,6 +1027,7 @@ export interface paths {
                 };
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
             };
         };
         put?: never;
@@ -1085,6 +1097,7 @@ export interface paths {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
             };
         };
@@ -1094,7 +1107,10 @@ export interface paths {
         delete: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
                 path: {
                     id: string;
                 };
@@ -1112,6 +1128,7 @@ export interface paths {
                     };
                 };
                 401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
             };
         };
@@ -1355,7 +1372,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Request is not allowed by server configuration. */
+        /** @description Request is forbidden, including failed CSRF validation or insufficient privileges. */
         Forbidden: {
             headers: {
                 [name: string]: unknown;

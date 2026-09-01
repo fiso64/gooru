@@ -379,6 +379,7 @@ paths:
         - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
+        - $ref: "#/components/parameters/CSRF"
       requestBody:
         required: true
         content:
@@ -394,6 +395,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "503":
@@ -404,6 +407,7 @@ paths:
         - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
+        - $ref: "#/components/parameters/CSRF"
       requestBody:
         required: true
         content:
@@ -419,6 +423,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "503":
@@ -430,6 +436,7 @@ paths:
         - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
+        - $ref: "#/components/parameters/CSRF"
       requestBody:
         required: true
         content:
@@ -445,6 +452,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "503":
@@ -470,6 +479,7 @@ paths:
         - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
+        - $ref: "#/components/parameters/CSRF"
       requestBody:
         required: true
         content:
@@ -705,6 +715,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     delete:
       summary: Clear finished jobs.
       security:
@@ -755,6 +767,8 @@ paths:
                 $ref: "#/components/schemas/Job"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
@@ -767,6 +781,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/CSRF"
       responses:
         "202":
           description: Cancellation requested.
@@ -776,6 +791,8 @@ paths:
                 $ref: "#/components/schemas/Job"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 components:
@@ -814,7 +831,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     Forbidden:
-      description: Request is not allowed by server configuration.
+      description: Request is forbidden, including failed CSRF validation or insufficient privileges.
       content:
         application/json:
           schema:

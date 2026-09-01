@@ -140,12 +140,12 @@ export class ApiClient {
   async mutateTags(operation: TagMutationOperation, body: TagMutationRequest): Promise<TagMutationResponse> {
     const requestBody = tagMutationBody(body);
     if (operation === 'add') {
-      return this.unwrap<TagMutationResponse>(this.client.POST('/files/tags', { headers: this.csrfHeaders('POST'), body: requestBody }));
+      return this.unwrap<TagMutationResponse>(this.client.POST('/files/tags', { params: { header: this.csrfHeaderParam('POST') }, body: requestBody }));
     }
     if (operation === 'set') {
-      return this.unwrap<TagMutationResponse>(this.client.PUT('/files/tags', { headers: this.csrfHeaders('PUT'), body: requestBody }));
+      return this.unwrap<TagMutationResponse>(this.client.PUT('/files/tags', { params: { header: this.csrfHeaderParam('PUT') }, body: requestBody }));
     }
-    return this.unwrap<TagMutationResponse>(this.client.DELETE('/files/tags', { headers: this.csrfHeaders('DELETE'), body: requestBody }));
+    return this.unwrap<TagMutationResponse>(this.client.DELETE('/files/tags', { params: { header: this.csrfHeaderParam('DELETE') }, body: requestBody }));
   }
 
   async untrackFile(id: string): Promise<void> {
@@ -169,7 +169,7 @@ export class ApiClient {
     if (conflictPolicy) form.append('conflict_policy', conflictPolicy);
     return this.unwrap(
       this.client.POST('/uploads', {
-        headers: { ...this.csrfHeaders('POST'), ...(preferAsync ? { Prefer: 'respond-async' } : {}) },
+        params: { header: { ...this.csrfHeaderParam('POST'), ...(preferAsync ? { Prefer: 'respond-async' as const } : {}) } },
         // openapi-fetch supports FormData, but the generated schema models multipart
         // fields structurally. Keep the browser-native body so filenames and blobs
         // are preserved exactly.
@@ -187,7 +187,7 @@ export class ApiClient {
   }
 
   async cancelJob(id: string): Promise<Job> {
-    return this.unwrap(this.client.DELETE('/jobs/{id}', { headers: this.csrfHeaders('DELETE'), params: { path: { id } } }));
+    return this.unwrap(this.client.DELETE('/jobs/{id}', { params: { header: this.csrfHeaderParam('DELETE'), path: { id } } }));
   }
 
   async clearJobs(status = 'completed'): Promise<{ removed: number }> {
@@ -197,11 +197,6 @@ export class ApiClient {
 
   private csrfHeaderParam(method: string): { 'X-Gooru-CSRF': string } {
     return { 'X-Gooru-CSRF': isMutatingMethod(method) ? this.csrfToken : '' };
-  }
-
-  private csrfHeaders(method: string): Record<string, string> {
-    if (!this.csrfToken || !isMutatingMethod(method)) return {};
-    return { 'X-Gooru-CSRF': this.csrfToken };
   }
 
   private async unwrap<T>(request: Promise<{ data?: unknown; error?: unknown; response: Response }>): Promise<T> {
