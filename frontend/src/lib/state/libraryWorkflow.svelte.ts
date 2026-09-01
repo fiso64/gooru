@@ -53,7 +53,7 @@ export function createLibraryWorkflow() {
 
   function filterQuery() {
     const parts = [get(submittedSearch).trim()];
-    if (activeKind) parts.push(`kind:${activeKind}`);
+    if (activeKind) parts.push(`type:${activeKind}`);
     return parts.filter(Boolean).join(' ');
   }
 
