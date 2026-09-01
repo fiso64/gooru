@@ -16,7 +16,7 @@
 </script>
 
 <main class="main">
-  <div class="page">
+  <div class="page jobs-page">
     <div class="page-header jobs-page-header">
       <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
       <h1>Background work</h1>
@@ -37,8 +37,14 @@
 </main>
 
 <style>
+  .jobs-page {
+    max-width: none;
+    margin: 0;
+  }
+
   .jobs-page-header {
     position: relative;
+    max-width: 72ch;
   }
 
   .jobs-clear {
@@ -58,6 +64,7 @@
 
   .jobs-card {
     overflow: hidden;
+    width: 100%;
   }
 
   .jobs-empty {
