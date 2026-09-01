@@ -68,7 +68,7 @@
             <input class="g-input settings-color-value" value="#F4D976" readonly disabled aria-label="Accent color value" />
             <div class="settings-color-presets" aria-hidden="true">
               {#each ['sodium', 'phosphor', 'coral', 'cyan', 'mono'] as preset}
-                <button class={`settings-color-dot ${preset}`} type="button" disabled tabindex="-1"></button>
+                <button class={`settings-color-dot ${preset}`} type="button" disabled tabindex="-1" aria-label={`${preset} accent coming soon`}></button>
               {/each}
             </div>
           </div>
