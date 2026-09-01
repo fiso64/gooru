@@ -23,427 +23,46 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply exact lightbox patch
+      - name: Wire lightbox app, styles, and regression coverage
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import base64
 
-          icon = Path('frontend/src/lib/components/Icon.svelte')
-          text = icon.read_text()
-          needle = "    plus: '<path d=\"M12 5v14M5 12h14\"/>',\n"
-          insert = needle + "    chev_left: '<path d=\"m15 6-6 6 6 6\"/>',\n    chev_right: '<path d=\"m9 6 6 6-6 6\"/>',\n    sliders: '<path d=\"M4 8h11M19 8h1\"/><circle cx=\"17\" cy=\"8\" r=\"2\"/><path d=\"M4 16h3M11 16h9\"/><circle cx=\"9\" cy=\"16\" r=\"2\"/>',\n    pause: '<path d=\"M7 4v16M17 4v16\"/>',\n"
-          if needle not in text: raise SystemExit('icon insertion point not found')
-          icon.write_text(text.replace(needle, insert))
-
-          editor = Path('frontend/src/lib/components/TagEditor.svelte')
-          editor.write_text('''<script lang="ts">
-  import Icon from './Icon.svelte';
-
-  let {
-    fileID,
-    fileName,
-    draft,
-    busy,
-    error,
-    canSubmit,
-    onInput,
-    onMutate
-  } = $props<{
-    fileID: string;
-    fileName: string;
-    draft: string;
-    busy: boolean;
-    error: string;
-    canSubmit: boolean;
-    onInput: (value: string) => void;
-    onMutate: (operation: 'add' | 'set' | 'remove') => void;
-  }>();
-</script>
-
-<div class="tag-editor">
-  <label class="sr-only" for={`tags-${fileID}`}>Tags for {fileName}</label>
-  <div class="lightbox-tag-input">
-    <Icon name="plus" size={12} />
-    <input
-      id={`tags-${fileID}`}
-      value={draft}
-      placeholder="add tag — e.g. subject:portrait"
-      disabled={busy}
-      oninput={(event) => onInput(event.currentTarget.value)}
-      onkeydown={(event) => { if (event.key === 'Enter' && canSubmit && !busy) onMutate('add'); }}
-    />
-  </div>
-  {#if error}<p class="form-error">{error}</p>{/if}
-</div>
-''')
-
-          preview = Path('frontend/src/lib/components/PreviewDialog.svelte')
-          preview.write_text('''<script lang="ts">
-  import Icon from './Icon.svelte';
-  import TagEditor from './TagEditor.svelte';
-  import { formatBytes, groupTags, mediaDimensions, mediaDuration, parseTags } from '$lib/utils/format';
-  import type { FileItem } from '$lib/api/types';
-
-  let {
-    file,
-    tagDraft,
-    tagBusy,
-    tagError,
-    onClose,
-    onPrev,
-    onNext,
-    onTagInput,
-    onMutateTags,
-    onRemoveTag,
-    onUntrack
-  } = $props<{
-    file: FileItem;
-    tagDraft: string;
-    tagBusy: boolean;
-    tagError: string;
-    onClose: () => void;
-    onPrev: () => void;
-    onNext: () => void;
-    onTagInput: (fileID: string, value: string) => void;
-    onMutateTags: (file: FileItem, operation: 'add' | 'set' | 'remove') => void;
-    onRemoveTag: (file: FileItem, tag: string) => void;
-    onUntrack: (file: FileItem) => void;
-  }>();
-
-  let videoElement = $state<HTMLVideoElement | undefined>();
-  let videoPaused = $state(true);
-  let videoTime = $state(0);
-  let videoLength = $state(0);
-  const videoProgress = $derived(videoLength > 0 ? Math.min(100, Math.max(0, (videoTime / videoLength) * 100)) : 0);
-
-  $effect(() => {
-    file.id;
-    videoPaused = true;
-    videoTime = 0;
-    videoLength = 0;
-  });
-
-  function focusTagInput() {
-    document.getElementById(`tags-${file.id}`)?.focus();
-  }
-
-  async function toggleVideo() {
-    const video = videoElement;
-    if (!video) return;
-    if (video.paused) await video.play();
-    else video.pause();
-  }
-
-  function syncVideo() {
-    if (!videoElement) return;
-    videoPaused = videoElement.paused;
-    videoTime = videoElement.currentTime;
-    videoLength = Number.isFinite(videoElement.duration) ? videoElement.duration : 0;
-  }
-
-  function seekVideo(event: MouseEvent) {
-    const video = videoElement;
-    if (!video || !videoLength) return;
-    const rect = event.currentTarget instanceof HTMLElement ? event.currentTarget.getBoundingClientRect() : null;
-    if (!rect?.width) return;
-    video.currentTime = Math.max(0, Math.min(videoLength, ((event.clientX - rect.left) / rect.width) * videoLength));
-    syncVideo();
-  }
-
-  function clock(seconds: number) {
-    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
-    const whole = Math.floor(seconds);
-    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
-  }
-
-  function modifiedLabel(value: string) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleString('en-GB', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-  }
-</script>
-
-<div
-  class="lightbox"
-  role="dialog"
-  aria-modal="true"
-  aria-labelledby="preview-title"
-  onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}
->
-  <aside class="lightbox-aside">
-    <div class="panel-row">
-      <div class="g-eyebrow g-eyebrow-accent">{file.media_kind}</div>
-      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" aria-label="Close preview" onclick={onClose}>
-        <Icon name="close" size={14} />
-      </button>
-    </div>
-
-    <h2 id="preview-title" class="lightbox-name">{file.name}</h2>
-
-    <dl class="lightbox-meta">
-      <dt>Path</dt><dd class="path">{file.safe_display_path}</dd>
-      <dt>Size</dt><dd>{mediaDimensions(file) || file.media_type} · {formatBytes(file.size)}</dd>
-      {#if mediaDuration(file)}<dt>Length</dt><dd>{mediaDuration(file)}</dd>{/if}
-      <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>
-      <dt>Mime</dt><dd>{file.media_type}</dd>
-      <dt>Hash</dt><dd class="hash">{file.content_id}</dd>
-    </dl>
-
-    <hr class="g-divider" />
-
-    <div class="lightbox-tags">
-      <div class="lightbox-tag-group-head lightbox-tags-head">
-        <span>Tags · {file.tags.length}</span>
-        <span class="lightbox-tag-tools">
-          <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Tag history coming soon"><Icon name="info" size={13} /></button>
-          <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Tag suggestions coming soon"><Icon name="sliders" size={13} /></button>
-        </span>
-      </div>
-      {#each groupTags(file.tags) as group}
-        <div class="lightbox-tag-group">
-          {#if group.namespace}<div class="lightbox-tag-group-head"><span>{group.namespace}</span><span>{group.tags.length}</span></div>{/if}
-          <div class="lightbox-tag-list">
-            {#each group.tags as tag}
-              <span class="g-tag">
-                {#if tag.includes(':')}<span class="ns">{tag.split(':')[0]}:</span><span>{tag.slice(tag.indexOf(':') + 1)}</span>{:else}<span>{tag}</span>{/if}
-                <button class="g-tag-x" type="button" aria-label={`Remove ${tag}`} disabled={tagBusy} onclick={() => onRemoveTag(file, tag)}>
-                  <Icon name="close" size={11} />
-                </button>
-              </span>
-            {/each}
-          </div>
-        </div>
-      {/each}
-      <TagEditor
-        fileID={file.id}
-        fileName={file.name}
-        draft={tagDraft}
-        busy={tagBusy}
-        error={tagError}
-        canSubmit={Boolean(parseTags(tagDraft).length)}
-        onInput={(value) => onTagInput(file.id, value)}
-        onMutate={(operation) => onMutateTags(file, operation)}
-      />
-    </div>
-  </aside>
-
-  <div class="lightbox-stage">
-    {#if file.media_kind === 'video'}
-      <!-- svelte-ignore a11y_media_has_caption a11y_click_events_have_key_events -->
-      <video
-        bind:this={videoElement}
-        src={file.media_urls.content}
-        poster={file.media_urls.preview}
-        preload="metadata"
-        onclick={toggleVideo}
-        onloadedmetadata={syncVideo}
-        ontimeupdate={syncVideo}
-        onplay={syncVideo}
-        onpause={syncVideo}
-        onended={syncVideo}
-      ></video>
-      <div class="lightbox-video-controls">
-        <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={toggleVideo}>
-          <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
-        </button>
-        <span class="video-time">{clock(videoTime)}</span>
-        <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo}>
-          <span style={`width: ${videoProgress}%`}></span>
-        </button>
-        <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(file) || '0:00')}</span>
-      </div>
-    {:else if file.media_kind === 'audio' || file.media_type.startsWith('audio/')}
-      <div class="audio-stage">
-        <div class="audio-art"><Icon name="audio" size={42} /></div>
-        <audio src={file.media_urls.content} controls preload="metadata"></audio>
-      </div>
-    {:else}
-      <img src={file.media_urls.preview} alt={file.name} />
-    {/if}
-
-    <button class="lightbox-nav-arrow prev" type="button" title="Previous (←)" aria-label="Previous file" onclick={onPrev}><Icon name="chev_left" size={20} /></button>
-    <button class="lightbox-nav-arrow next" type="button" title="Next (→)" aria-label="Next file" onclick={onNext}><Icon name="chev_right" size={20} /></button>
-  </div>
-
-  <aside class="lightbox-rail">
-    <button class="g-btn g-btn-ghost" type="button" title="Add tag" aria-label="Add tag" onclick={focusTagInput}><Icon name="tag" size={16} /></button>
-    <a class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original" aria-label={`Download ${file.name}`}>
-      <Icon name="download" size={16} />
-    </a>
-    <a class="g-btn g-btn-ghost" href={file.media_urls.content} target="_blank" rel="noreferrer" title="Open original in new tab" aria-label={`Open original ${file.name}`}>
-      <Icon name="external" size={16} />
-    </a>
-    <div class="rail-spacer"></div>
-    <button class="g-btn g-btn-ghost" type="button" disabled title="Additional info coming soon" aria-label="Info"><Icon name="info" size={16} /></button>
-    <button class="g-btn g-btn-ghost" type="button" title="Remove from library" aria-label={`Remove ${file.name} from library`} onclick={() => onUntrack(file)}><Icon name="trash" size={16} /></button>
-  </aside>
-</div>
-''')
-
-          client = Path('frontend/src/lib/api/client.ts')
-          text = client.read_text()
-          needle = "  async getUploadTargets(): Promise<UploadTargetsResponse> {"
-          method = "  async untrackFile(id: string): Promise<void> {\n    await this.unwrap(\n      this.client.DELETE('/files/{id}', {\n        params: { header: this.csrfHeaderParam('DELETE'), path: { id } },\n        body: { mode: 'untrack' }\n      })\n    );\n  }\n\n"
-          if needle not in text: raise SystemExit('client insertion point not found')
-          client.write_text(text.replace(needle, method + needle))
-
-          queries = Path('frontend/src/lib/queries/files.ts')
-          text = queries.read_text()
-          marker = "export function createTagMutation(getCSRFToken: () => string, queryClient: QueryClient) {"
-          if marker not in text: raise SystemExit('tag mutation marker not found')
-          # Add untrack after createTagMutation block by inserting before its known final function close + EOF.
-          needle = "  }));\n}\n"
-          pos = text.rfind(needle)
-          if pos < 0: raise SystemExit('files.ts mutation end not found')
-          pos += len(needle)
-          untrack = "\nexport function createUntrackFileMutation(getCSRFToken: () => string, queryClient: QueryClient) {\n  return createMutation<void, Error, string>(() => ({\n    mutationFn: (id) => new ApiClient(getCSRFToken()).untrackFile(id),\n    onSuccess: async () => {\n      await Promise.all([\n        queryClient.invalidateQueries({ queryKey: fileKeys.all }),\n        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })\n      ]);\n    }\n  }));\n}\n"
-          queries.write_text(text[:pos] + untrack + text[pos:])
-
-          tags = Path('frontend/src/lib/state/tagWorkflow.svelte.ts')
-          text = tags.read_text()
-          needle = "  async function bulkSelected(ids: Set<string>, tagInput: string, operation: 'add' | 'remove', mutateTags: MutateTags) {"
-          method = "  async function removeTag(file: FileItem, tag: string, mutateTags: MutateTags) {\n    busy = { ...busy, [file.id]: true };\n    errors = { ...errors, [file.id]: '' };\n    try {\n      await mutateTags({ operation: 'remove', body: { file_ids: [file.id], tags: [tag] } });\n    } catch (error) {\n      errors = { ...errors, [file.id]: errorMessage(error) };\n    } finally {\n      busy = { ...busy, [file.id]: false };\n    }\n  }\n\n"
-          if needle not in text: raise SystemExit('tag workflow insertion point not found')
-          text = text.replace(needle, method + needle)
-          text = text.replace("    mutateFile,\n    bulkSelected,", "    mutateFile,\n    removeTag,\n    bulkSelected,")
-          tags.write_text(text)
-
-          library = Path('frontend/src/lib/state/libraryWorkflow.svelte.ts')
-          text = library.read_text()
-          text = text.replace("    if (activeFile && event.key === 'ArrowLeft') movePreview(-1, files);\n    if (activeFile && event.key === 'ArrowRight') movePreview(1, files);", "    if (activeFile && (event.key === 'ArrowLeft' || event.key === 'k')) movePreview(-1, files);\n    if (activeFile && (event.key === 'ArrowRight' || event.key === 'j')) movePreview(1, files);")
-          library.write_text(text)
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'{label} not found')
+              return text.replace(old, new, 1)
 
           app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
           text = app.read_text()
-          text = text.replace("import { createFilesQuery, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';", "import { createFilesQuery, createTagMutation, createUntrackFileMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';")
-          text = text.replace("kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered';", "kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered' | 'untrack-file';")
-          text = text.replace("  const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);", "  const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);\n  const untrackFileMutation = createUntrackFileMutation(() => $authState.csrfToken, queryClient);")
-          needle = "  function bulkTagSelected() {"
-          function_text = "  function untrackPreview(file: { id: string; name: string }) {\n    actionDialog = { kind: 'untrack-file', value: '', error: '', busy: false, id: file.id, name: file.name, previousQuery: '' };\n  }\n\n"
-          if needle not in text: raise SystemExit('untrack action insertion point not found')
-          text = text.replace(needle, function_text + needle)
-          old = "      } else if (actionDialog.kind === 'bulk-filtered') {\n        await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));\n      }\n      closeActionDialog();"
-          new = "      } else if (actionDialog.kind === 'bulk-filtered') {\n        await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));\n      } else if (actionDialog.kind === 'untrack-file') {\n        await untrackFileMutation.mutateAsync(actionDialog.id);\n        if (library.activeFile?.id === actionDialog.id) library.closePreview();\n      }\n      closeActionDialog();"
-          if old not in text: raise SystemExit('submit untrack insertion point not found')
-          text = text.replace(old, new)
-          text = text.replace("      case 'bulk-filtered': return 'Tag filtered results';", "      case 'bulk-filtered': return 'Tag filtered results';\n      case 'untrack-file': return 'Remove from library';")
-          text = text.replace("      case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';", "      case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';\n      case 'untrack-file': return `Untrack \"${actionDialog.name}\" from the library. The file remains on disk.`;")
-          text = text.replace("      case 'bulk-remove-selected': return 'Remove tags';", "      case 'bulk-remove-selected': return 'Remove tags';\n      case 'untrack-file': return 'Remove';")
-          text = text.replace("      onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}\n    />", "      onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}\n      onRemoveTag={(file, tag) => tagWorkflow.removeTag(file, tag, (variables) => tagMutation.mutateAsync(variables))}\n      onUntrack={untrackPreview}\n    />")
-          text = text.replace("      destructive={actionDialog.kind === 'save-delete'}", "      destructive={actionDialog.kind === 'save-delete' || actionDialog.kind === 'untrack-file'}")
-          text = text.replace("      input={actionDialog.kind !== 'save-delete'}", "      input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'untrack-file'}")
+          text = replace_once(text, "import { createFilesQuery, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';", "import { createFilesQuery, createTagMutation, createUntrackFileMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';", 'query import')
+          text = replace_once(text, "kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered';", "kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered' | 'untrack-file';", 'dialog kind')
+          text = replace_once(text, "  const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);", "  const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);\n  const untrackFileMutation = createUntrackFileMutation(() => $authState.csrfToken, queryClient);", 'mutation setup')
+          text = replace_once(text, "  function bulkTagSelected() {", "  function untrackPreview(file: { id: string; name: string }) {\n    actionDialog = { kind: 'untrack-file', value: '', error: '', busy: false, id: file.id, name: file.name, previousQuery: '' };\n  }\n\n  function bulkTagSelected() {", 'untrack action')
+          text = replace_once(text, "      } else if (actionDialog.kind === 'bulk-filtered') {\n        await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));\n      }\n      closeActionDialog();", "      } else if (actionDialog.kind === 'bulk-filtered') {\n        await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));\n      } else if (actionDialog.kind === 'untrack-file') {\n        await untrackFileMutation.mutateAsync(actionDialog.id);\n        if (library.activeFile?.id === actionDialog.id) library.closePreview();\n      }\n      closeActionDialog();", 'untrack submit')
+          text = replace_once(text, "      case 'bulk-filtered': return 'Tag filtered results';", "      case 'bulk-filtered': return 'Tag filtered results';\n      case 'untrack-file': return 'Remove from library';", 'dialog title')
+          text = replace_once(text, "      case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';", "      case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';\n      case 'untrack-file': return `Untrack \\\"${actionDialog.name}\\\" from the library. The file remains on disk.`;", 'dialog description')
+          text = replace_once(text, "      case 'bulk-remove-selected': return 'Remove tags';", "      case 'bulk-remove-selected': return 'Remove tags';\n      case 'untrack-file': return 'Remove';", 'dialog confirm')
+          text = replace_once(text, "      onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}\n    />", "      onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}\n      onRemoveTag={(file, tag) => tagWorkflow.removeTag(file, tag, (variables) => tagMutation.mutateAsync(variables))}\n      onUntrack={untrackPreview}\n    />", 'preview callbacks')
+          text = replace_once(text, "      destructive={actionDialog.kind === 'save-delete'}", "      destructive={actionDialog.kind === 'save-delete' || actionDialog.kind === 'untrack-file'}", 'destructive dialog')
+          text = replace_once(text, "      input={actionDialog.kind !== 'save-delete'}", "      input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'untrack-file'}", 'dialog input')
           app.write_text(text)
 
           css = Path('frontend/src/lib/styles/components.css')
           text = css.read_text()
-          additions = '''
-
-.g-tag-x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 2px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.g-tag-x:disabled {
-  opacity: 0.45;
-  cursor: wait;
-}
-
-.lightbox-meta dd.path {
-  word-break: break-all;
-}
-
-.lightbox-tags-head {
-  margin-bottom: 4px;
-}
-
-.lightbox-tag-tools {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.lightbox-video-controls {
-  position: absolute;
-  left: 50%;
-  bottom: 44px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 360px;
-  padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  backdrop-filter: blur(20px);
-}
-
-.video-play,
-.video-progress {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.video-play {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.video-time {
-  min-width: 36px;
-  opacity: 0.85;
-}
-
-.video-progress {
-  position: relative;
-  flex: 1;
-  height: 3px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.video-progress span {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: var(--accent);
-}
-'''
-          marker = '@media (max-width: 900px)'
-          if marker in text:
-            text = text.replace(marker, additions + '\n' + marker)
-          else:
-            text += additions
+          css_add = base64.b64decode('LmctdGFnLXggewogIGRpc3BsYXk6IGlubGluZS1mbGV4OwogIGFsaWduLWl0ZW1zOiBjZW50ZXI7CiAganVzdGlmeS1jb250ZW50OiBjZW50ZXI7CiAgbWFyZ2luLWxlZnQ6IDJweDsKICBib3JkZXI6IDA7CiAgcGFkZGluZzogMDsKICBiYWNrZ3JvdW5kOiB0cmFuc3BhcmVudDsKICBjb2xvcjogaW5oZXJpdDsKICBjdXJzb3I6IHBvaW50ZXI7Cn0KCi5nLXRhZy14OmRpc2FibGVkIHsKICBvcGFjaXR5OiAwLjQ1OwogIGN1cnNvcjogd2FpdDsKfQoKLmxpZ2h0Ym94LW1ldGEgZGQucGF0aCB7CiAgd29yZC1icmVhazogYnJlYWstYWxsOwp9CgoubGlnaHRib3gtdGFncy1oZWFkIHsKICBtYXJnaW4tYm90dG9tOiA0cHg7Cn0KCi5saWdodGJveC10YWctdG9vbHMgewogIGRpc3BsYXk6IGlubGluZS1mbGV4OwogIGdhcDogNHB4Owp9CgoubGlnaHRib3gtdmlkZW8tY29udHJvbHMgewogIHBvc2l0aW9uOiBhYnNvbHV0ZTsKICBsZWZ0OiA1MCU7CiAgYm90dG9tOiA0NHB4OwogIHRyYW5zZm9ybTogdHJhbnNsYXRlWCgtNTAlKTsKICBkaXNwbGF5OiBmbGV4OwogIGFsaWduLWl0ZW1zOiBjZW50ZXI7CiAgZ2FwOiAxMHB4OwogIG1pbi13aWR0aDogMzYwcHg7CiAgcGFkZGluZzogOHB4IDEycHg7CiAgYm9yZGVyOiAxcHggc29saWQgcmdiYSgyNTUsIDI1NSwgMjU1LCAwLjA4KTsKICBib3JkZXItcmFkaXVzOiA5OTlweDsKICBiYWNrZ3JvdW5kOiByZ2JhKDAsIDAsIDAsIDAuNTUpOwogIGNvbG9yOiAjZmZmOwogIGZvbnQtZmFtaWx5OiB2YXIoLS1mb250LW1vbm8pOwogIGZvbnQtc2l6ZTogMTEuNXB4OwogIGJhY2tkcm9wLWZpbHRlcjogYmx1cigyMHB4KTsKfQoKLnZpZGVvLXBsYXksCi52aWRlby1wcm9ncmVzcyB7CiAgYm9yZGVyOiAwOwogIHBhZGRpbmc6IDA7CiAgYmFja2dyb3VuZDogdHJhbnNwYXJlbnQ7CiAgY29sb3I6IGluaGVyaXQ7CiAgY3Vyc29yOiBwb2ludGVyOwp9CgoudmlkZW8tcGxheSB7CiAgZGlzcGxheTogaW5saW5lLWZsZXg7CiAgYWxpZ24taXRlbXM6IGNlbnRlcjsKICBqdXN0aWZ5LWNvbnRlbnQ6IGNlbnRlcjsKfQoKLnZpZGVvLXRpbWUgewogIG1pbi13aWR0aDogMzZweDsKICBvcGFjaXR5OiAwLjg1Owp9CgoudmlkZW8tcHJvZ3Jlc3MgewogIHBvc2l0aW9uOiByZWxhdGl2ZTsKICBmbGV4OiAxOwogIGhlaWdodDogM3B4OwogIG92ZXJmbG93OiBoaWRkZW47CiAgYm9yZGVyLXJhZGl1czogMnB4OwogIGJhY2tncm91bmQ6IHJnYmEoMjU1LCAyNTUsIDI1NSwgMC4xNSk7Cn0KCi52aWRlby1wcm9ncmVzcyBzcGFuIHsKICBwb3NpdGlvbjogYWJzb2x1dGU7CiAgaW5zZXQ6IDAgYXV0byAwIDA7CiAgYmFja2dyb3VuZDogdmFyKC0tYWNjZW50KTsKfQ==').decode()
+          if '.lightbox-video-controls {' not in text:
+              marker = '@media (max-width: 900px)'
+              text = text.replace(marker, css_add + '\n\n' + marker, 1) if marker in text else text.rstrip() + '\n\n' + css_add + '\n'
           css.write_text(text)
-
-          matrix = Path('docs/issue-21-concept-discrepancies.md')
-          text = matrix.read_text().rstrip() + '''
-25. Lightbox tag history/suggestion and passive info actions: A. Keep the concept affordances visible but disabled/coming soon until backed by real history/suggestion/detail APIs.
-26. Lightbox remove-from-library action: B. The backend already exposes `DELETE /api/v1/files/{id}` with untrack semantics, so the concept trash action must untrack the location through an app-owned confirmation dialog; it must never imply disk deletion.
-27. Lightbox add/remove tag interactions: B. Enter-to-add and per-tag removal map directly to the existing tag mutation API and should match the concept instead of exposing the functional-reference Add/Set/Remove button row.
-28. Audio preview: B as a domain extension. The concept reference does not include an audio mock, but Gooru already supports audio files; keep a styled functional audio stage without changing the photo/video concept layout.
-''' + '\n'
-          matrix.write_text(text)
 
           spec = Path('frontend/tests/shell.spec.ts')
           text = spec.read_text()
-          text = text.replace("  await dialog.getByLabel('Tags for sample.jpg').fill('reviewed');\n  await dialog.getByRole('button', { name: 'Add tags to sample.jpg' }).click();", "  await dialog.getByLabel('Tags for sample.jpg').fill('reviewed');\n  await dialog.getByLabel('Tags for sample.jpg').press('Enter');")
-          marker = "test('lightbox supports per-tag removal and confirmed untrack'"
-          if marker not in text:
-            text += r'''\n\ntest('lightbox supports per-tag removal and confirmed untrack', async ({ page }) => {\n  await mockAuth(page);\n  await mockShellApis(page);\n  const mutations: Array<{ method: string; csrf: string; body: unknown }> = [];\n  const untracks: Array<{ csrf: string; body: unknown }> = [];\n\n  await page.route('**/api/v1/files?**', async (route) => {\n    await route.fulfill({\n      contentType: 'application/json',\n      body: JSON.stringify({ files: [fileItem('bG9jOjE', 'sample.jpg')], total_count: 1, library_count: 1, facets: { kind: [{ value: 'photo', count: 1 }] } })\n    });\n  });\n  await page.route('**/api/v1/files/*/thumbnail', async (route) => {\n    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />' });\n  });\n  await page.route('**/api/v1/files/*/preview', async (route) => {\n    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64" />' });\n  });\n  await page.route('**/api/v1/files/tags', async (route) => {\n    mutations.push({ method: route.request().method(), csrf: route.request().headers()['x-gooru-csrf'] ?? '', body: route.request().postDataJSON() });\n    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ operation: 'remove', selector: { file_ids: ['bG9jOjE'] }, affected_count: 1 }) });\n  });\n  await page.route('**/api/v1/files/bG9jOjE', async (route) => {\n    if (route.request().method() !== 'DELETE') return route.fallback();\n    untracks.push({ csrf: route.request().headers()['x-gooru-csrf'] ?? '', body: route.request().postDataJSON() });\n    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'bG9jOjE', untracked: true }) });\n  });\n\n  await page.goto('/');\n  await signIn(page);\n  await page.getByRole('button', { name: 'Preview sample.jpg' }).click();\n  const dialog = page.getByRole('dialog', { name: 'sample.jpg' });\n  await expect(dialog.getByRole('button', { name: 'Remove blue' })).toBeVisible();\n  await dialog.getByRole('button', { name: 'Remove blue' }).click();\n  await expect.poll(() => mutations.length).toBe(1);\n  expect(mutations[0]).toMatchObject({ method: 'DELETE', csrf: 'csrf-one', body: { file_ids: ['bG9jOjE'], tags: ['blue'], verbose: false } });\n\n  await dialog.getByRole('button', { name: 'Remove sample.jpg from library' }).click();\n  await expect(page.getByRole('heading', { name: 'Remove from library' })).toBeVisible();\n  await page.getByRole('button', { name: 'Remove', exact: true }).click();\n  await expect.poll(() => untracks.length).toBe(1);\n  expect(untracks[0]).toMatchObject({ csrf: 'csrf-one', body: { mode: 'untrack' } });\n  await expect(page.getByRole('dialog', { name: 'sample.jpg' })).toHaveCount(0);\n});\n'''.replace('\\n', '\n')
+          text = replace_once(text, "  await dialog.getByLabel('Tags for sample.jpg').fill('reviewed');\n  await dialog.getByRole('button', { name: 'Add tags to sample.jpg' }).click();", "  await dialog.getByLabel('Tags for sample.jpg').fill('reviewed');\n  await dialog.getByLabel('Tags for sample.jpg').press('Enter');", 'existing preview tag test')
+          test_add = base64.b64decode('dGVzdCgnbGlnaHRib3ggc3VwcG9ydHMgcGVyLXRhZyByZW1vdmFsIGFuZCBjb25maXJtZWQgdW50cmFjaycsIGFzeW5jICh7IHBhZ2UgfSkgPT4gewogIGF3YWl0IG1vY2tBdXRoKHBhZ2UpOwogIGF3YWl0IG1vY2tTaGVsbEFwaXMocGFnZSk7CiAgY29uc3QgbXV0YXRpb25zOiBBcnJheTx7IG1ldGhvZDogc3RyaW5nOyBjc3JmOiBzdHJpbmc7IGJvZHk6IHVua25vd24gfT4gPSBbXTsKICBjb25zdCB1bnRyYWNrczogQXJyYXk8eyBjc3JmOiBzdHJpbmc7IGJvZHk6IHVua25vd24gfT4gPSBbXTsKCiAgYXdhaXQgcGFnZS5yb3V0ZSgnKiovYXBpL3YxL2ZpbGVzPyoqJywgYXN5bmMgKHJvdXRlKSA9PiB7CiAgICBhd2FpdCByb3V0ZS5mdWxmaWxsKHsKICAgICAgY29udGVudFR5cGU6ICdhcHBsaWNhdGlvbi9qc29uJywKICAgICAgYm9keTogSlNPTi5zdHJpbmdpZnkoeyBmaWxlczogW2ZpbGVJdGVtKCdiRzlqT2pFJywgJ3NhbXBsZS5qcGcnKV0sIHRvdGFsX2NvdW50OiAxLCBsaWJyYXJ5X2NvdW50OiAxLCBmYWNldHM6IHsga2luZDogW3sgdmFsdWU6ICdwaG90bycsIGNvdW50OiAxIH1dIH0gfSkKICAgIH0pOwogIH0pOwogIGF3YWl0IHBhZ2Uucm91dGUoJyoqL2FwaS92MS9maWxlcy8qL3RodW1ibmFpbCcsIGFzeW5jIChyb3V0ZSkgPT4gewogICAgYXdhaXQgcm91dGUuZnVsZmlsbCh7IGNvbnRlbnRUeXBlOiAnaW1hZ2Uvc3ZnK3htbCcsIGJvZHk6ICc8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiAvPicgfSk7CiAgfSk7CiAgYXdhaXQgcGFnZS5yb3V0ZSgnKiovYXBpL3YxL2ZpbGVzLyovcHJldmlldycsIGFzeW5jIChyb3V0ZSkgPT4gewogICAgYXdhaXQgcm91dGUuZnVsZmlsbCh7IGNvbnRlbnRUeXBlOiAnaW1hZ2Uvc3ZnK3htbCcsIGJvZHk6ICc8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgd2lkdGg9Ijk2IiBoZWlnaHQ9IjY0IiAvPicgfSk7CiAgfSk7CiAgYXdhaXQgcGFnZS5yb3V0ZSgnKiovYXBpL3YxL2ZpbGVzL3RhZ3MnLCBhc3luYyAocm91dGUpID0+IHsKICAgIG11dGF0aW9ucy5wdXNoKHsgbWV0aG9kOiByb3V0ZS5yZXF1ZXN0KCkubWV0aG9kKCksIGNzcmY6IHJvdXRlLnJlcXVlc3QoKS5oZWFkZXJzKClbJ3gtZ29vcnUtY3NyZiddID8/ICcnLCBib2R5OiByb3V0ZS5yZXF1ZXN0KCkucG9zdERhdGFKU09OKCkgfSk7CiAgICBhd2FpdCByb3V0ZS5mdWxmaWxsKHsgY29udGVudFR5cGU6ICdhcHBsaWNhdGlvbi9qc29uJywgYm9keTogSlNPTi5zdHJpbmdpZnkoeyBvcGVyYXRpb246ICdyZW1vdmUnLCBzZWxlY3RvcjogeyBmaWxlX2lkczogWydiRzlqT2pFJ10gfSwgYWZmZWN0ZWRfY291bnQ6IDEgfSkgfSk7CiAgfSk7CiAgYXdhaXQgcGFnZS5yb3V0ZSgnKiovYXBpL3YxL2ZpbGVzL2JHOWpPakUnLCBhc3luYyAocm91dGUpID0+IHsKICAgIGlmIChyb3V0ZS5yZXF1ZXN0KCkubWV0aG9kKCkgIT09ICdERUxFVEUnKSByZXR1cm4gcm91dGUuZmFsbGJhY2soKTsKICAgIHVudHJhY2tzLnB1c2goeyBjc3JmOiByb3V0ZS5yZXF1ZXN0KCkuaGVhZGVycygpWyd4LWdvb3J1LWNzcmYnXSA/PyAnJywgYm9keTogcm91dGUucmVxdWVzdCgpLnBvc3REYXRhSlNPTigpIH0pOwogICAgYXdhaXQgcm91dGUuZnVsZmlsbCh7IGNvbnRlbnRUeXBlOiAnYXBwbGljYXRpb24vanNvbicsIGJvZHk6IEpTT04uc3RyaW5naWZ5KHsgaWQ6ICdiRzlqT2pFJywgdW50cmFja2VkOiB0cnVlIH0pIH0pOwogIH0pOwoKICBhd2FpdCBwYWdlLmdvdG8oJy8nKTsKICBhd2FpdCBzaWduSW4ocGFnZSk7CiAgYXdhaXQgcGFnZS5nZXRCeVJvbGUoJ2J1dHRvbicsIHsgbmFtZTogJ1ByZXZpZXcgc2FtcGxlLmpwZycgfSkuY2xpY2soKTsKICBjb25zdCBkaWFsb2cgPSBwYWdlLmdldEJ5Um9sZSgnZGlhbG9nJywgeyBuYW1lOiAnc2FtcGxlLmpwZycgfSk7CgogIGF3YWl0IGRpYWxvZy5nZXRCeVJvbGUoJ2J1dHRvbicsIHsgbmFtZTogJ1JlbW92ZSBibHVlJyB9KS5jbGljaygpOwogIGF3YWl0IGV4cGVjdC5wb2xsKCgpID0+IG11dGF0aW9ucy5sZW5ndGgpLnRvQmUoMSk7CiAgZXhwZWN0KG11dGF0aW9uc1swXSkudG9NYXRjaE9iamVjdCh7IG1ldGhvZDogJ0RFTEVURScsIGNzcmY6ICdjc3JmLW9uZScsIGJvZHk6IHsgZmlsZV9pZHM6IFsnYkc5ak9qRSddLCB0YWdzOiBbJ2JsdWUnXSwgdmVyYm9zZTogZmFsc2UgfSB9KTsKCiAgYXdhaXQgZGlhbG9nLmdldEJ5Um9sZSgnYnV0dG9uJywgeyBuYW1lOiAnUmVtb3ZlIHNhbXBsZS5qcGcgZnJvbSBsaWJyYXJ5JyB9KS5jbGljaygpOwogIGF3YWl0IGV4cGVjdChwYWdlLmdldEJ5Um9sZSgnaGVhZGluZycsIHsgbmFtZTogJ1JlbW92ZSBmcm9tIGxpYnJhcnknIH0pKS50b0JlVmlzaWJsZSgpOwogIGF3YWl0IHBhZ2UuZ2V0QnlSb2xlKCdidXR0b24nLCB7IG5hbWU6ICdSZW1vdmUnLCBleGFjdDogdHJ1ZSB9KS5jbGljaygpOwogIGF3YWl0IGV4cGVjdC5wb2xsKCgpID0+IHVudHJhY2tzLmxlbmd0aCkudG9CZSgxKTsKICBleHBlY3QodW50cmFja3NbMF0pLnRvTWF0Y2hPYmplY3QoeyBjc3JmOiAnY3NyZi1vbmUnLCBib2R5OiB7IG1vZGU6ICd1bnRyYWNrJyB9IH0pOwogIGF3YWl0IGV4cGVjdChwYWdlLmdldEJ5Um9sZSgnZGlhbG9nJywgeyBuYW1lOiAnc2FtcGxlLmpwZycgfSkpLnRvSGF2ZUNvdW50KDApOwp9KTs=').decode()
+          if "test('lightbox supports per-tag removal and confirmed untrack'" not in text:
+              text = text.rstrip() + '\n\n' + test_add + '\n'
           spec.write_text(text)
           PY
       - name: Install frontend dependencies
@@ -468,10 +87,10 @@ jobs:
         run: go build ./...
       - name: Run Go tests
         run: go test ./...
-      - name: Persist validated lightbox port
+      - name: Persist validated lightbox wiring
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add frontend/src/lib/components/Icon.svelte frontend/src/lib/components/TagEditor.svelte frontend/src/lib/components/PreviewDialog.svelte frontend/src/lib/api/client.ts frontend/src/lib/queries/files.ts frontend/src/lib/state/tagWorkflow.svelte.ts frontend/src/lib/state/libraryWorkflow.svelte.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/styles/components.css frontend/tests/shell.spec.ts docs/issue-21-concept-discrepancies.md
-          git commit -m "#21 port preview lightbox from concept [skip ci]"
+          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/styles/components.css frontend/tests/shell.spec.ts
+          git commit -m "#21 wire exact lightbox behavior [skip ci]"
           git push
