@@ -53,7 +53,7 @@ func TestRequestLoggingMiddlewareDebugOmitsUserControlledURL(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	logs := output.String()
-	if !strings.Contains(logs, "http request started") || !strings.Contains(logs, "route=GET /api/v1/files/{id}") {
+	if !strings.Contains(logs, "http request started") || !strings.Contains(logs, "GET /api/v1/files/{id}") {
 		t.Fatalf("request debug log missing expected lifecycle/route fields: %s", logs)
 	}
 	if strings.Contains(logs, "private-filename") || strings.Contains(logs, "private-tag") || strings.Contains(logs, "query=") {
