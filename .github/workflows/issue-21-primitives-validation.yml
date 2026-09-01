@@ -37,6 +37,8 @@ jobs:
           test -s frontend/src/lib/assets/fonts/LICENSE-IBM-Plex.txt
       - name: Apply exact primitive port and regression coverage
         run: python3 .github/scripts/issue21_primitives_patch.py
+      - name: Correct focused-input fidelity regression
+        run: python3 .github/scripts/issue21_primitives_focus_test_patch.py
       - name: Check patch whitespace
         run: git diff --check
       - name: Install frontend dependencies
