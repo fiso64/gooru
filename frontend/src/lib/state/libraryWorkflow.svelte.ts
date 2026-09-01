@@ -1,13 +1,14 @@
 import { writable } from 'svelte/store';
 import type { FileItem } from '$lib/api/types';
 import type { FileSort, SortOrder } from '$lib/queries/files';
+import type { AppRoute } from '$lib/utils/appRoute';
 import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
-export function createLibraryWorkflow() {
+export function createLibraryWorkflow(initialRoute: AppRoute = 'library') {
   const searchDraft = writable('');
   const submittedSearch = writable('');
   const suggestionSearch = writable('');
-  let route = $state('library');
+  let route: AppRoute = $state(initialRoute);
   let activeKind = $state('');
   let activeSavedSearch = $state('');
   let sort: FileSort = $state('modified');
@@ -137,7 +138,7 @@ export function createLibraryWorkflow() {
     }
   }
 
-  function setRoute(next: string) {
+  function setRoute(next: AppRoute) {
     route = next;
   }
 
@@ -146,7 +147,7 @@ export function createLibraryWorkflow() {
     submittedSearch,
     suggestionSearch,
     get route() { return route; },
-    set route(value: string) { route = value; },
+    set route(value: AppRoute) { route = value; },
     get activeKind() { return activeKind; },
     get activeSavedSearch() { return activeSavedSearch; },
     get sort() { return sort; },
