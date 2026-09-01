@@ -26,6 +26,8 @@ import (
 
 var ErrUnsupportedMedia = errors.New("unsupported media")
 
+const derivativeJPEGQuality = 92
+
 type Thumbnailer interface {
 	Thumbnail(src string, dst io.Writer, size int, format string) error
 	BackendVersion() string
@@ -34,7 +36,7 @@ type Thumbnailer interface {
 type GoImageThumbnailer struct{}
 
 func (GoImageThumbnailer) BackendVersion() string {
-	return "go-image-v2"
+	return "go-image-v3"
 }
 
 func (GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
@@ -50,7 +52,7 @@ func (GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format 
 	resized := scaleImage(img, size)
 	switch format {
 	case "jpeg":
-		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: 84})
+		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: derivativeJPEGQuality})
 	case "png":
 		return png.Encode(dst, resized)
 	default:
