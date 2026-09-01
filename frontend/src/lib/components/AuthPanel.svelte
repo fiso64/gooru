@@ -80,13 +80,19 @@
     <div class="login-v2-foot">
       <div><span class="mono">first run?</span><span> on the server: </span><code>gooru user create-admin</code></div>
       <div class="login-v2-foot-links">
-        <a href="#" aria-disabled="true" tabindex="-1" onclick={(event) => event.preventDefault()}>docs</a>
+        <span class="login-v2-link-placeholder" aria-disabled="true">docs</span>
         <span class="sep">&middot;</span>
-        <a href="#" aria-disabled="true" tabindex="-1" onclick={(event) => event.preventDefault()}>source</a>
+        <span class="login-v2-link-placeholder" aria-disabled="true">source</span>
         <span class="sep">&middot;</span>
-        <a href="#" aria-disabled="true" tabindex="-1" onclick={(event) => event.preventDefault()}>changelog</a>
+        <span class="login-v2-link-placeholder" aria-disabled="true">changelog</span>
       </div>
     </div>
   </div>
   <div class="login-v2-bg" aria-hidden="true"></div>
 </div>
+
+<style>
+  .login-v2-link-placeholder {
+    color: var(--text-3);
+  }
+</style>
