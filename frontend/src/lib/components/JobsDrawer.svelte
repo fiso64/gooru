@@ -30,7 +30,7 @@
   </div>
   <div class="jobs-list">
     {#each jobs as job (job.id)}
-      <JobRow {job} compact onCancel={onCancel} />
+      <JobRow {job} onCancel={onCancel} />
     {:else}
       <div class="jobs-empty">No jobs have been recorded.</div>
     {/each}

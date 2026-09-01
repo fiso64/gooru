@@ -4,11 +4,9 @@
 
   let {
     job,
-    compact = false,
     onCancel
   } = $props<{
     job: Job;
-    compact?: boolean;
     onCancel?: (job: Job) => void;
   }>();
 
@@ -50,7 +48,7 @@
   const detail = $derived(job.error || timeLabel(job.started_at || job.submitted_at));
 </script>
 
-<div class:compact class="job-row">
+<div class="job-row">
   <div class="job-row-head">
     <span class="name">
       <Icon name={iconFor(job.type)} size={14} />
@@ -187,7 +185,4 @@
     background: var(--danger-soft);
   }
 
-  .compact {
-    padding-block: 10px;
-  }
 </style>
