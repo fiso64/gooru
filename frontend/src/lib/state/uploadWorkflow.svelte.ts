@@ -46,10 +46,20 @@ export function createUploadWorkflow() {
   }
 
   function select(nextFiles: FileList | File[] | null) {
-    files = nextFiles ? Array.from(nextFiles) : [];
+    const additions = nextFiles ? Array.from(nextFiles) : [];
+    if (!additions.length) return;
+    if (busy || activeJobID) {
+      status = 'Upload in progress; add more files after it finishes';
+      return;
+    }
+
+    // File picking and drop gestures are additive while a batch is staged. The
+    // explicit Clear/remove controls own destructive staging changes instead of
+    // a later drop silently replacing earlier work.
+    files = [...files, ...additions];
     items = stagedUploadItems(files, targetID);
     status = '';
-    if (autoUpload && files.length) {
+    if (autoUpload) {
       queueMicrotask(() => {
         status = 'Ready to auto-upload';
       });
