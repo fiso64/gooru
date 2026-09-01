@@ -30,6 +30,7 @@
   <div class="lightbox-tag-input">
     <Icon name="plus" size={12} />
     <TagAutocompleteInput
+      id={`tags-${fileID}`}
       value={draft}
       {tags}
       existing={existingTags}

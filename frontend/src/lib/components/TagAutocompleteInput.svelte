@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { isPlainTag, plainTagSuggestions, type TagCandidate } from '$lib/utils/tagSuggestions';
+  import { plainTagSuggestions, plainTagsFromInput, type TagCandidate } from '$lib/utils/tagSuggestions';
 
   let {
+    id,
     value,
     tags,
     existing = [],
@@ -11,6 +12,7 @@
     onInput,
     onCommit
   } = $props<{
+    id?: string;
     value: string;
     tags: TagCandidate[];
     existing?: string[];
@@ -32,11 +34,11 @@
   });
 
   function commit(raw: string) {
-    const tag = raw.trim();
-    if (!isPlainTag(tag) || existing.includes(tag)) return;
+    const tags = plainTagsFromInput(raw).filter((tag) => !existing.includes(tag));
+    if (!tags.length) return;
     open = false;
     active = 0;
-    onCommit(tag);
+    onCommit(tags.join(' '));
   }
 
   function handleInput(event: Event) {
@@ -80,6 +82,7 @@
 
 <div class="tag-autocomplete">
   <input
+    {id}
     bind:this={inputRef}
     value={value}
     {placeholder}

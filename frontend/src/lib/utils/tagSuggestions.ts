@@ -57,3 +57,7 @@ export function isPlainTag(value: string): boolean {
   const tag = value.trim();
   return Boolean(tag) && !tag.startsWith('@') && !tag.startsWith('-') && !/\s/.test(tag);
 }
+
+export function plainTagsFromInput(value: string): string[] {
+  return Array.from(new Set(value.split(/\s+/).map((tag) => tag.trim()).filter(isPlainTag)));
+}

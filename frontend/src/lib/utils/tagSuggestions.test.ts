@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPlainTag, plainTagSuggestions } from './tagSuggestions';
+import { isPlainTag, plainTagSuggestions, plainTagsFromInput } from './tagSuggestions';
 
 const tags = [
   { name: 'artist:alice', count: 8 },
@@ -28,5 +28,11 @@ describe('isPlainTag', () => {
     expect(isPlainTag('@rating:5')).toBe(false);
     expect(isPlainTag('-landscape')).toBe(false);
     expect(isPlainTag('two tags')).toBe(false);
+  });
+});
+
+describe('plainTagsFromInput', () => {
+  it('preserves multi-tag entry while excluding search-only syntax', () => {
+    expect(plainTagsFromInput('artist:alice landscape @rating:5 -exclude landscape')).toEqual(['artist:alice', 'landscape']);
   });
 });

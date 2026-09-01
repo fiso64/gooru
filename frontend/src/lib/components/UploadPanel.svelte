@@ -124,8 +124,8 @@
     input.value = '';
   }
 
-  function commitInitialTag(tag: string) {
-    onTagsInput(Array.from(new Set([...initialTags, tag])).join(' '));
+  function commitInitialTag(tagInput: string) {
+    onTagsInput(Array.from(new Set([...initialTags, ...parseTags(tagInput)])).join(' '));
     tagDraft = '';
   }
 
