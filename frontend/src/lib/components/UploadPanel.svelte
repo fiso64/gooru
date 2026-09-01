@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import Icon from './Icon.svelte';
+  import TagAutocompleteInput from './TagAutocompleteInput.svelte';
+  import type { TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
 
@@ -17,6 +19,7 @@
     targetID,
     conflictPolicy,
     autoUpload,
+    tags,
     onTargetInput,
     onFiles,
     onTagsInput,
@@ -39,6 +42,7 @@
     targetID: string;
     conflictPolicy: string;
     autoUpload: boolean;
+    tags: TagCandidate[];
     onTargetInput: (value: string) => void;
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
@@ -52,8 +56,6 @@
 
   let dragActive = $state(false);
   let fileInput: HTMLInputElement | undefined;
-  let tagInput = $state<HTMLInputElement | undefined>();
-  let tagEditorOpen = $state(false);
   let tagDraft = $state('');
   let previewURLs = $state<string[]>([]);
   let activePreviewURLs: string[] = [];
@@ -122,22 +124,9 @@
     input.value = '';
   }
 
-  function openTagEditor() {
-    tagEditorOpen = true;
-    queueMicrotask(() => tagInput?.focus());
-  }
-
-  function closeTagEditor() {
+  function commitInitialTag(tagInput: string) {
+    onTagsInput(Array.from(new Set([...initialTags, ...parseTags(tagInput)])).join(' '));
     tagDraft = '';
-    tagEditorOpen = false;
-  }
-
-  function commitTagDraft() {
-    const additions = parseTags(tagDraft);
-    if (additions.length) {
-      onTagsInput(Array.from(new Set([...initialTags, ...additions])).join(' '));
-    }
-    closeTagEditor();
   }
 
   function removeInitialTag(tag: string) {
@@ -209,27 +198,15 @@
               </span>
             {/each}
 
-            {#if tagEditorOpen}
-              <input
-                bind:this={tagInput}
-                class="g-input upload-tag-entry"
-                aria-label="Initial tag"
-                placeholder="subject:portrait"
-                value={tagDraft}
-                oninput={(event) => (tagDraft = event.currentTarget.value)}
-                onkeydown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    commitTagDraft();
-                  } else if (event.key === 'Escape') {
-                    event.preventDefault();
-                    closeTagEditor();
-                  }
-                }}
-              />
-            {:else}
-              <button class="g-btn g-btn-ghost g-btn-sm" type="button" onclick={openTagEditor}><Icon name="plus" size={12} /> Add tag</button>
-            {/if}
+            <TagAutocompleteInput
+              value={tagDraft}
+              {tags}
+              existing={initialTags}
+              placeholder="add tag — e.g. subject:portrait"
+              ariaLabel="Initial tags"
+              onInput={(value) => (tagDraft = value)}
+              onCommit={commitInitialTag}
+            />
           </div>
         </div>
 

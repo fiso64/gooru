@@ -738,12 +738,17 @@
 
 .upload-tags-control {
   flex-wrap: wrap;
+  min-height: 36px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
-.upload-tag-entry {
-  flex: 1 1 220px;
-  min-width: 180px;
-  max-width: 320px;
+.upload-tags-control:focus-within {
+  border-color: var(--accent-line);
 }
 
 .upload-tags-control .g-tag-x {

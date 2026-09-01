@@ -11,6 +11,7 @@
     tagDraft,
     tagBusy,
     tagError,
+    tags,
     onClose,
     onPrev,
     onNext,
@@ -24,11 +25,12 @@
     tagDraft: string;
     tagBusy: boolean;
     tagError: string;
+    tags: Array<{ name?: string; tag?: string; namespace?: string; value?: string; count?: number }>;
     onClose: () => void;
     onPrev: () => void;
     onNext: () => void;
     onTagInput: (fileID: string, value: string) => void;
-    onMutateTags: (file: FileItem, operation: 'add' | 'set' | 'remove') => void;
+    onMutateTags: (file: FileItem, operation: 'add' | 'set' | 'remove', value?: string) => void;
     onRemoveTag: (file: FileItem, tag: string) => void;
     onTagSearch: (tag: string) => void;
     onUntrack: (file: FileItem) => void;
@@ -172,9 +174,10 @@
         draft={tagDraft}
         busy={tagBusy}
         error={tagError}
-        canSubmit={Boolean(parseTags(tagDraft).length)}
+        {tags}
+        existingTags={file.tags}
         onInput={(value) => onTagInput(file.id, value)}
-        onMutate={(operation) => onMutateTags(file, operation)}
+        onCommit={(value) => onMutateTags(file, 'add', value)}
       />
     </div>
   </aside>

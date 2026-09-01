@@ -373,6 +373,7 @@
         targetID={upload.targetID}
         conflictPolicy={upload.conflictPolicy}
         autoUpload={upload.autoUpload}
+        tags={tagsQuery.data?.tags ?? []}
         onTargetInput={upload.setTarget}
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
@@ -457,11 +458,14 @@
       tagDraft={tagWorkflow.drafts[library.activeFile.id] ?? ''}
       tagBusy={Boolean(tagWorkflow.busy[library.activeFile.id])}
       tagError={tagWorkflow.errors[library.activeFile.id] ?? ''}
+      tags={tagsQuery.data?.tags ?? []}
       onClose={library.closePreview}
       onPrev={() => library.movePreview(-1, files)}
       onNext={() => library.movePreview(1, files)}
       onTagInput={tagWorkflow.updateDraft}
-      onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}
+      onMutateTags={(file, operation, value) => value == null
+        ? tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))
+        : tagWorkflow.mutateFileTags(file, operation, value, (variables) => tagMutation.mutateAsync(variables))}
       onRemoveTag={(file, tag) => tagWorkflow.removeTag(file, tag, (variables) => tagMutation.mutateAsync(variables))}
       onTagSearch={library.runTagSearch}
       onUntrack={untrackPreview}

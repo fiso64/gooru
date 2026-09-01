@@ -1,5 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import TagAutocompleteInput from './TagAutocompleteInput.svelte';
+  import type { TagCandidate } from '$lib/utils/tagSuggestions';
 
   let {
     fileID,
@@ -7,32 +9,36 @@
     draft,
     busy,
     error,
-    canSubmit,
+    tags,
+    existingTags,
     onInput,
-    onMutate
+    onCommit
   } = $props<{
     fileID: string;
     fileName: string;
     draft: string;
     busy: boolean;
     error: string;
-    canSubmit: boolean;
+    tags: TagCandidate[];
+    existingTags: string[];
     onInput: (value: string) => void;
-    onMutate: (operation: 'add' | 'set' | 'remove') => void;
+    onCommit: (value: string) => void;
   }>();
 </script>
 
 <div class="tag-editor">
-  <label class="sr-only" for={`tags-${fileID}`}>Tags for {fileName}</label>
   <div class="lightbox-tag-input">
     <Icon name="plus" size={12} />
-    <input
+    <TagAutocompleteInput
       id={`tags-${fileID}`}
       value={draft}
+      {tags}
+      existing={existingTags}
       placeholder="add tag — e.g. subject:portrait"
       disabled={busy}
-      oninput={(event) => onInput(event.currentTarget.value)}
-      onkeydown={(event) => { if (event.key === 'Enter' && canSubmit && !busy) onMutate('add'); }}
+      ariaLabel={`Tags for ${fileName}`}
+      {onInput}
+      {onCommit}
     />
   </div>
   {#if error}<p class="form-error">{error}</p>{/if}
