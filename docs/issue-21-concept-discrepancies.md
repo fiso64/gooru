@@ -30,3 +30,7 @@ This slice treats `temp/gooru-concept-ui/` as the visual source of truth and the
 22. Delete/replace/destructive media controls not currently exposed in the concept screens: C unless already backed by current backend behavior. Do not invent destructive UI that is not in the concept or backend requirement.
 23. Concept mock media names, counts, paths, and seeded upload queue: C. Real app views must render actual API data or empty states; mock data can only appear in tests/screenshots.
 24. Original active-content file serving from `/content`: B. The current media/content response policy must stay safe-by-default; the exact visual port must not weaken it.
+25. Lightbox tag history/suggestion and passive info actions: A. Keep the concept affordances visible but disabled/coming soon until backed by real history/suggestion/detail APIs.
+26. Lightbox remove-from-library action: B. The backend already exposes `DELETE /api/v1/files/{id}` with untrack semantics, so the concept trash action must untrack the location through an app-owned confirmation dialog; it must never imply disk deletion.
+27. Lightbox add/remove tag interactions: B. Enter-to-add and per-tag removal map directly to the existing tag mutation API and should match the concept instead of exposing the functional-reference Add/Set/Remove button row.
+28. Audio preview: B as a domain extension. The concept reference does not include an audio mock, but Gooru already supports audio files; keep a styled functional audio stage without changing the photo/video concept layout.
