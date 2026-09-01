@@ -23,53 +23,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Wire Jobs app state, discrepancy decisions, and regression coverage
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import base64
-
-          def replace_once(text, old, new, label):
-              if old not in text:
-                  raise SystemExit(f'{label} not found')
-              return text.replace(old, new, 1)
-
-          app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
-          text = app.read_text()
-          text = replace_once(text, "  let cancelRequestedJobID = $state('');\n  let fileMetadata = $state<{", "  let cancelRequestedJobID = $state('');\n  let jobsDrawerOpen = $state(false);\n  let fileMetadata = $state<{", 'jobs drawer state')
-          text = replace_once(text, "    fileMetadata = null;\n    cancelRequestedJobID = '';\n    closeActionDialog();", "    fileMetadata = null;\n    cancelRequestedJobID = '';\n    jobsDrawerOpen = false;\n    closeActionDialog();", 'jobs drawer auth reset')
-          text = replace_once(text, "  function handleKeydown(event: KeyboardEvent) {\n    library.handleKeydown(event, loadedFiles);\n  }\n\n  function closeActionDialog() {", "  function handleKeydown(event: KeyboardEvent) {\n    library.handleKeydown(event, loadedFiles);\n  }\n\n  function setRoute(route: string) {\n    jobsDrawerOpen = false;\n    library.setRoute(route);\n  }\n\n  function toggleJobsDrawer() {\n    jobsDrawerOpen = !jobsDrawerOpen;\n  }\n\n  function closeJobsDrawer() {\n    jobsDrawerOpen = false;\n  }\n\n  function closeActionDialog() {", 'jobs drawer helpers')
-          text = replace_once(text, "    jobsActiveCount={activeJobs.length}\n    kindCounts={page?.facets?.kind ?? []}", "    jobsActiveCount={activeJobs.length}\n    jobs={jobsQuery.data?.items ?? []}\n    jobsDrawerOpen={jobsDrawerOpen}\n    kindCounts={page?.facets?.kind ?? []}", 'AppShell jobs props')
-          text = replace_once(text, "    onRoute={library.setRoute}", "    onRoute={setRoute}", 'AppShell route wrapper')
-          text = replace_once(text, "    onSearchCommit={library.commitSearch}\n    onJobs={library.toggleJobsRoute}", "    onSearchCommit={library.commitSearch}\n    onJobs={toggleJobsDrawer}\n    onCloseJobs={closeJobsDrawer}\n    onCancelJob={cancelJob}", 'AppShell Jobs callbacks')
-          app.write_text(text)
-
-          workflow = Path('frontend/src/lib/state/libraryWorkflow.svelte.ts')
-          text = workflow.read_text()
-          text = replace_once(text, "\n  function toggleJobsRoute() {\n    route = route === 'jobs' ? 'library' : 'jobs';\n  }\n", "\n", 'obsolete Jobs route helper')
-          text = replace_once(text, "    handleKeydown,\n    setRoute,\n    toggleJobsRoute", "    handleKeydown,\n    setRoute", 'obsolete Jobs route export')
-          workflow.write_text(text)
-
-          docs = Path('docs/issue-21-concept-discrepancies.md')
-          text = docs.read_text()
-          additions = "\n".join([
-              "29. Jobs page and top-bar drawer row rendering: B. Use one shared concept-shaped row component so status, progress, timestamps, and cancel behavior cannot drift between the page and drawer.",
-              "30. Jobs pause-all control: A. The concept affordance remains visible in the drawer but disabled/coming soon because the backend has no pause/resume endpoint.",
-              "31. Concept job `done / total` counters: C. The backend exposes a normalized progress ratio but not authoritative item totals, so the real UI must render percentage/progress and timestamps rather than invent prototype counts.",
-              "32. Running-job cancel and clear-completed actions: B. Preserve the supported backend actions, but keep them visually subordinate (row/header hover or focus) so the resting Jobs surfaces remain faithful to the concept.",
-          ])
-          if '29. Jobs page and top-bar drawer row rendering:' not in text:
-              text = text.rstrip() + '\n' + additions + '\n'
-          docs.write_text(text)
-
-          spec = Path('frontend/tests/shell.spec.ts')
-          text = spec.read_text()
-          encoded = 'CnRlc3QoJ0pvYnMgZHJhd2VyIHByZXNlcnZlcyByb3V0ZSBhbmQgc2hhcmVzIHJlYWwgam9iIGFjdGlvbnMgd2l0aCB0aGUgcGFnZScsIGFzeW5jICh7IHBhZ2UgfSkgPT4gewogIGF3YWl0IG1vY2tBdXRoKHBhZ2UpOwogIGF3YWl0IG1vY2tTaGVsbEFwaXMocGFnZSk7CiAgYXdhaXQgcGFnZS5yb3V0ZSgnKiovYXBpL3YxL2ZpbGVzPyoqJywgYXN5bmMgKHJvdXRlKSA9PiB7CiAgICBhd2FpdCByb3V0ZS5mdWxmaWxsKHsgY29udGVudFR5cGU6ICdhcHBsaWNhdGlvbi9qc29uJywgYm9keTogSlNPTi5zdHJpbmdpZnkoeyBmaWxlczogW10sIHRvdGFsX2NvdW50OiAwLCBsaWJyYXJ5X2NvdW50OiAwLCBmYWNldHM6IHsga2luZDogW10gfSB9KSB9KTsKICB9KTsKCiAgbGV0IGNhbmNlbGVkID0gZmFsc2U7CiAgY29uc3QgY2FuY2VsczogQXJyYXk8eyBjc3JmOiBzdHJpbmc7IG1ldGhvZDogc3RyaW5nIH0+ID0gW107CiAgY29uc3QgY2xlYXJzOiBBcnJheTx7IGNzcmY6IHN0cmluZzsgc3RhdHVzOiBzdHJpbmcgfT4gPSBbXTsKCiAgYXdhaXQgcGFnZS5yb3V0ZSgnKiovYXBpL3YxL2pvYnMqKicsIGFzeW5jIChyb3V0ZSkgPT4gewogICAgY29uc3QgdXJsID0gbmV3IFVSTChyb3V0ZS5yZXF1ZXN0KCkudXJsKCkpOwogICAgaWYgKHVybC5wYXRobmFtZS5lbmRzV2l0aCgnL2pvYnMvam9iLXJ1bicpKSB7CiAgICAgIGlmIChyb3V0ZS5yZXF1ZXN0KCkubWV0aG9kKCkgPT09ICdERUxFVEUnKSB7CiAgICAgICAgY2FuY2Vscy5wdXNoKHsgY3NyZjogcm91dGUucmVxdWVzdCgpLmhlYWRlcnMoKVsneC1nb29ydS1jc3JmJ10gPz8gJycsIG1ldGhvZDogcm91dGUucmVxdWVzdCgpLm1ldGhvZCgpIH0pOwogICAgICAgIGNhbmNlbGVkID0gdHJ1ZTsKICAgICAgICByZXR1cm4gcm91dGUuZnVsZmlsbCh7CiAgICAgICAgICBjb250ZW50VHlwZTogJ2FwcGxpY2F0aW9uL2pzb24nLAogICAgICAgICAgYm9keTogSlNPTi5zdHJpbmdpZnkoeyBpZDogJ2pvYi1ydW4nLCB0eXBlOiAndXBsb2FkX2ltcG9ydCcsIHN0YXR1czogJ2NhbmNlbGVkJywgcHJvZ3Jlc3M6IDAuNCwgc3VibWl0dGVkX2F0OiAnMjAyNi0wNS0yMFQwMDowMDowMFonIH0pCiAgICAgICAgfSk7CiAgICAgIH0KICAgIH0KICAgIGlmICh1cmwucGF0aG5hbWUuZW5kc1dpdGgoJy9qb2JzJykgJiYgcm91dGUucmVxdWVzdCgpLm1ldGhvZCgpID09PSAnREVMRVRFJykgewogICAgICBjbGVhcnMucHVzaCh7IGNzcmY6IHJvdXRlLnJlcXVlc3QoKS5oZWFkZXJzKClbJ3gtZ29vcnUtY3NyZiddID8/ICcnLCBzdGF0dXM6IHVybC5zZWFyY2hQYXJhbXMuZ2V0KCdzdGF0dXMnKSA/PyAnJyB9KTsKICAgICAgcmV0dXJuIHJvdXRlLmZ1bGZpbGwoeyBjb250ZW50VHlwZTogJ2FwcGxpY2F0aW9uL2pzb24nLCBib2R5OiBKU09OLnN0cmluZ2lmeSh7IHJlbW92ZWQ6IDEgfSkgfSk7CiAgICB9CiAgICBpZiAodXJsLnBhdGhuYW1lLmVuZHNXaXRoKCcvam9icycpKSB7CiAgICAgIHJldHVybiByb3V0ZS5mdWxmaWxsKHsKICAgICAgICBjb250ZW50VHlwZTogJ2FwcGxpY2F0aW9uL2pzb24nLAogICAgICAgIGJvZHk6IEpTT04uc3RyaW5naWZ5KHsKICAgICAgICAgIGl0ZW1zOiBbCiAgICAgICAgICAgIHsgaWQ6ICdqb2ItcnVuJywgdHlwZTogJ3VwbG9hZF9pbXBvcnQnLCBzdGF0dXM6IGNhbmNlbGVkID8gJ2NhbmNlbGVkJyA6ICdydW5uaW5nJywgcHJvZ3Jlc3M6IDAuNCwgc3VibWl0dGVkX2F0OiAnMjAyNi0wNS0yMFQwMDowMDowMFonLCBzdGFydGVkX2F0OiAnMjAyNi0wNS0yMFQwMDowMTowMFonIH0sCiAgICAgICAgICAgIHsgaWQ6ICdqb2ItZG9uZScsIHR5cGU6ICd0YWdfbXV0YXRpb24nLCBzdGF0dXM6ICdjb21wbGV0ZWQnLCBwcm9ncmVzczogMSwgc3VibWl0dGVkX2F0OiAnMjAyNi0wNS0xOVQyMzowMDowMFonLCBzdGFydGVkX2F0OiAnMjAyNi0wNS0xOVQyMzowMTowMFonIH0KICAgICAgICAgIF0KICAgICAgICB9KQogICAgICB9KTsKICAgIH0KICAgIHJldHVybiByb3V0ZS5mYWxsYmFjaygpOwogIH0pOwoKICBhd2FpdCBwYWdlLmdvdG9vKCcvJyk7CiAgYXdhaXQgc2lnbkluKHBhZ2UpOwogIGF3YWl0IGV4cGVjdChwYWdlLmdldEJ5Um9sZSgnaGVhZGluZycsIHsgbmFtZTogJ0xpYnJhcnknIH0pKS50b0JlVmlzaWJsZSgpOwoKICBhd2FpdCBwYWdlLmxvY2F0b3IoJy50b3BiYXItcmlnaHQnKS5nZXRCeVJvbGUoJ2J1dHRvbicsIHsgbmFtZTogJ0pvYnMnIH0pLmNsaWNrKCk7CiAgY29uc3QgZHJhd2VyID0gcGFnZS5nZXRCeVJvbGUoJ2RpYWxvZycsIHsgbmFtZTogJ0pvYnMnIH0pOwogIGF3YWl0IGV4cGVjdChkcmF3ZXIpLnRvQmVWaXNpYmxlKCk7CiAgYXdhaXQgZXhwZWN0KHBhZ2UuZ2V0QnlSb2xlKCdoZWFkaW5nJywgeyBuYW1lOiAnTGlicmFyeScgfSkpLnRvQmVWaXNpYmxlKCk7CiAgYXdhaXQgZXhwZWN0KGRyYXdlci5nZXRCeVRleHQoJ0ltcG9ydCBtZWRpYScpKS50b0JlVmlzaWJsZSgpOwogIGF3YWl0IGV4cGVjdChkcmF3ZXIuZ2V0QnlSb2xlKCdidXR0b24nLCB7IG5hbWU6ICdQYXVzZSBhbGwgY29taW5nIHNvb24nIH0pKS50b0JlRGlzYWJsZWQoKTsKICBhd2FpdCBkcmF3ZXIubG9jYXRvcignLmpvYi1yb3cnKS5maWx0ZXIoeyBoYXNUZXh0OiAnSW1wb3J0IG1lZGlhJyB9KS5ob3ZlcigpOwogIGF3YWl0IGRyYXdlci5nZXRCeVJvbGUoJ2J1dHRvbicsIHsgbmFtZTogJ0NhbmNlbCBJbXBvcnQgbWVkaWEnIH0pLmNsaWNrKCk7CiAgYXdhaXQgZXhwZWN0LnBvbGwoKCkgPT4gY2FuY2VscykudG9FcXVhbChbeyBjc3JmOiAnY3NyZi1vbmUnLCBtZXRob2Q6ICdERUxFVEUnIH1dKTsKCiAgYXdhaXQgZHJhd2VyLmdldEJ5Um9sZSgnYnV0dG9uJywgeyBuYW1lOiAnQ2xvc2Ugam9icycgfSkuY2xpY2soKTsKICBhd2FpdCBleHBlY3QocGFnZS5nZXRCeVJvbGUoJ2RpYWxvZycsIHsgbmFtZTogJ0pvYnMnIH0pKS50b0hhdmVDb3VudCgwKTsKCiAgYXdhaXQgcGFnZS5sb2NhdG9yKCcuc2lkZWJhcicpLmdldEJ5Um9sZSgnYnV0dG9uJywgeyBuYW1lOiAvSm9icy8gfSkuY2xpY2soKTsKICBhd2FpdCBleHBlY3QocGFnZS5nZXRCeVJvbGUoJ2hlYWRpbmcnLCB7IG5hbWU6ICdCYWNrZ3JvdW5kIHdvcmsnIH0pKS50b0JlVmlzaWJsZSgpOwogIGF3YWl0IGV4cGVjdChwYWdlLmdldEJ5VGV4dCgnVGFnIGVkaXQnKSkudG9CZVZpc2libGUoKTsKICBhd2FpdCBwYWdlLmxvY2F0b3IoJy5qb2JzLXBhZ2UtaGVhZGVyJykuaG92ZXIoKTsKICBhd2FpdCBwYWdlLmdldEJ5Um9sZSgnYnV0dG9uJywgeyBuYW1lOiAnQ2xlYXIgY29tcGxldGVkJyB9KS5jbGljaygpOwogIGF3YWl0IGV4cGVjdC5wb2xsKCgpID0+IGNsZWFycykudG9FcXVhbChbeyBjc3JmOiAnY3NyZi1vbmUnLCBzdGF0dXM6ICdjb21wbGV0ZWQnIH1dKTsKfSk7Cg=='
-          test_body = base64.b64decode(encoded).decode()
-          if "test('Jobs drawer preserves route and shares real job actions with the page'" not in text:
-              text += test_body
-          spec.write_text(text)
-          PY
+      - name: Apply Jobs wiring and regression coverage
+        run: python3 .github/scripts/issue21_jobs_patch.py
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
