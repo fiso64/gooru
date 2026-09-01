@@ -20,10 +20,16 @@
 
   async function login() {
     if (loginBusy) return;
+    const username = loginUsername.trim();
+    if (!username || !loginPassword) {
+      loginError = 'username and password required.';
+      return;
+    }
+
     loginBusy = true;
     loginError = '';
     try {
-      const session = await new ApiClient().login(loginUsername.trim(), loginPassword);
+      const session = await new ApiClient().login(username, loginPassword);
       authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true });
       loginPassword = '';
     } catch (error) {
@@ -42,7 +48,6 @@
   {#if !$authState.user}
     <AuthPanel
       checked={$authState.checked}
-      username=""
       {loginUsername}
       {loginPassword}
       {loginBusy}
@@ -50,7 +55,6 @@
       onUsernameInput={(value) => (loginUsername = value)}
       onPasswordInput={(value) => (loginPassword = value)}
       onLogin={login}
-      onLogout={() => undefined}
     />
   {:else}
     <AuthenticatedApp />
