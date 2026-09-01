@@ -74,11 +74,18 @@
   }
 
   function handlePlaybackKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasCommandModifier(event) || isInteractiveShortcutTarget(event.target)) return;
-    if (event.code !== 'Space') return;
-    if (!videoElement && !audioElement) return;
+    if (event.defaultPrevented || hasCommandModifier(event) || event.code !== 'Space') return;
+
+    // A modal owns shortcuts even if focus accidentally remains on the control
+    // that opened it. Only native controls *inside* this preview get to keep Space.
+    const target = event.target;
+    const targetInsidePreview = target instanceof Node && Boolean(dialogElement?.contains(target));
+    if (targetInsidePreview && isInteractiveShortcutTarget(target)) return;
+
     event.preventDefault();
-    void togglePlayback();
+    event.stopPropagation();
+    if (videoElement || audioElement) void togglePlayback();
+    else dialogElement?.focus({ preventScroll: true });
   }
 
   function syncVideo() {
