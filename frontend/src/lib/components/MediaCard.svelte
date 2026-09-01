@@ -14,36 +14,34 @@
     onOpen: (file: FileItem) => void;
     onToggleSelect: (file: FileItem) => void;
   }>();
+
+  function openOrSelect(event: MouseEvent) {
+    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+      onToggleSelect(file);
+      return;
+    }
+    onOpen(file);
+  }
 </script>
 
-<article class:selected class="thumb">
-  <button class="thumb-open" type="button" aria-label={`Preview ${file.name}`} onclick={() => onOpen(file)}>
+<article class={`thumb${selected ? ' is-selected' : ''}`}>
+  <button class="thumb-open" type="button" aria-label={`Preview ${file.name}`} onclick={openOrSelect}>
     <img src={file.media_urls.thumbnail} alt={file.name} loading="lazy" decoding="async" draggable="false" />
     <span class="thumb-overlay"></span>
     <span class="thumb-badges">
       {#if file.media_kind === 'video'}
         <span class="thumb-badge"><Icon name="play" size={9} /> {mediaDuration(file) || 'video'}</span>
-      {:else if file.media_kind === 'audio' || file.media_type.startsWith('audio/')}
-        <span class="thumb-badge"><Icon name="audio" size={9} /> {mediaDuration(file) || 'audio'}</span>
       {:else if file.media_kind === 'gif'}
-        <span class="thumb-badge thumb-badge-gif">GIF</span>
+        <span class="thumb-badge thumb-badge-gif">GIF{mediaDuration(file) ? ` · ${mediaDuration(file)}` : ''}</span>
       {/if}
     </span>
     <span class="thumb-meta">
       <span class="thumb-meta-name">{file.name}</span>
       <span>{mediaDimensions(file)}</span>
     </span>
-    {#if file.tags.length}
-      <span class="thumb-tags">
-        {#each file.tags.slice(0, 3) as tag}
-          <span>{tag}</span>
-        {/each}
-      </span>
-    {/if}
   </button>
   <button
-    class="thumb-checkbox"
-    class:selected
+    class={`thumb-checkbox${selected ? ' is-selected' : ''}`}
     type="button"
     role="checkbox"
     aria-checked={selected}
