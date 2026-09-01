@@ -118,8 +118,8 @@ export function createLibraryWorkflow() {
 
   function handleKeydown(event: KeyboardEvent, files: FileItem[]) {
     if (event.key === 'Escape' && activeFile) closePreview();
-    if (activeFile && event.key === 'ArrowLeft') movePreview(-1, files);
-    if (activeFile && event.key === 'ArrowRight') movePreview(1, files);
+    if (activeFile && (event.key === 'ArrowLeft' || event.key === 'k')) movePreview(-1, files);
+    if (activeFile && (event.key === 'ArrowRight' || event.key === 'j')) movePreview(1, files);
   }
 
   function setRoute(next: string) {
