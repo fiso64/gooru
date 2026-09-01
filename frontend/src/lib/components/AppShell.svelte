@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
+  import JobsDrawer from './JobsDrawer.svelte';
   import Logo from './Logo.svelte';
   import SearchBar from './SearchBar.svelte';
+  import type { Job } from '$lib/api/types';
 
   let {
     username,
@@ -11,6 +13,8 @@
     libraryCount,
     tagCount,
     jobsActiveCount,
+    jobs,
+    jobsDrawerOpen,
     kindCounts,
     savedSearches,
     suggestions,
@@ -25,6 +29,8 @@
     onSearchDraft,
     onSearchCommit,
     onJobs,
+    onCloseJobs,
+    onCancelJob,
     children
   } = $props<{
     username: string;
@@ -33,6 +39,8 @@
     libraryCount: number;
     tagCount: number;
     jobsActiveCount: number;
+    jobs: Job[];
+    jobsDrawerOpen: boolean;
     kindCounts: Array<{ value: string; count: number }>;
     savedSearches: Array<{ id: string; name: string; query: string }>;
     suggestions: Array<{ name: string; count?: number }>;
@@ -47,6 +55,8 @@
     onSearchDraft: (value: string) => void;
     onSearchCommit: (value: string) => void;
     onJobs: () => void;
+    onCloseJobs: () => void;
+    onCancelJob: (job: Job) => void;
     children: Snippet;
   }>();
 
@@ -78,7 +88,15 @@
       </div>
     </form>
     <div class="topbar-right">
-      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Jobs" aria-label="Jobs" onclick={onJobs}>
+      <button
+        class="g-btn g-btn-ghost g-btn-sm g-btn-icon"
+        type="button"
+        title="Jobs"
+        aria-label="Jobs"
+        aria-expanded={jobsDrawerOpen}
+        aria-controls="jobs-drawer"
+        onclick={onJobs}
+      >
         <Icon name="jobs" size={16} />
         {#if jobsActiveCount > 0}<span class="topbar-badge">{jobsActiveCount}</span>{/if}
       </button>
@@ -88,6 +106,10 @@
       </button>
     </div>
   </header>
+
+  {#if jobsDrawerOpen}
+    <div id="jobs-drawer"><JobsDrawer {jobs} onClose={onCloseJobs} onCancel={onCancelJob} /></div>
+  {/if}
 
   <aside class="sidebar">
     <div class="sidebar-section">
