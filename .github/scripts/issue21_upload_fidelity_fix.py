@@ -3,6 +3,16 @@ from pathlib import Path
 path = Path('frontend/src/lib/components/UploadPanel.svelte')
 text = path.read_text()
 text = text.replace(
+    '  let tagInput: HTMLInputElement | undefined;\n',
+    '  let tagInput = $state<HTMLInputElement | undefined>();\n',
+    1,
+)
+text = text.replace(
+    '    const urls = uploadFiles.map((file) =>\n',
+    '    const urls = uploadFiles.map((file: File) =>\n',
+    1,
+)
+text = text.replace(
     '<section class="upload-queue-section">',
     '<section class="upload-queue-section" aria-label={uploadStatus || \'Upload queue\'}>',
     1,
