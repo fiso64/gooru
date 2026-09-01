@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
+import { ApiClient } from '$lib/api/client';
 import type { FileItem } from '$lib/api/types';
 import type { FileSort, SortOrder } from '$lib/queries/files';
 import {
@@ -71,6 +72,30 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     };
     window.addEventListener('popstate', restoreRoute);
     return () => window.removeEventListener('popstate', restoreRoute);
+  });
+
+  // AuthenticatedApp only instantiates this workflow after session resolution,
+  // so a direct preview URL can safely hydrate the file from the canonical API.
+  // Normal grid opens already carry the complete File object and skip this fetch.
+  $effect(() => {
+    if (!browser || route !== 'library') return;
+    const id = pendingPreviewID;
+    if (!id || activeFile?.id === id) return;
+    const controller = new AbortController();
+    new ApiClient()
+      .getFile(id, controller.signal)
+      .then((file) => {
+        if (!controller.signal.aborted && pendingPreviewID === id) activeFile = file;
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        if (pendingPreviewID === id) {
+          activeFile = null;
+          pendingPreviewID = '';
+        }
+        console.warn('Unable to restore media preview from URL', error);
+      });
+    return () => controller.abort();
   });
 
   function reset() {
@@ -167,11 +192,6 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     route = 'library';
   }
 
-  function resolvePreview(file: FileItem) {
-    if (pendingPreviewID !== file.id) return;
-    activeFile = file;
-  }
-
   function closePreview() {
     activeFile = null;
     pendingPreviewID = '';
@@ -242,7 +262,6 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     selectFiles,
     clearSelection,
     openPreview,
-    resolvePreview,
     closePreview,
     movePreview,
     handleKeydown,
