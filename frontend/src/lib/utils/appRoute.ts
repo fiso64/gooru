@@ -7,13 +7,15 @@ export interface LibraryURLState {
   kind: string;
   sort: FileSort;
   order: SortOrder;
+  fileID: string;
 }
 
 export const defaultLibraryURLState: LibraryURLState = {
   query: '',
   kind: '',
   sort: 'modified',
-  order: 'desc'
+  order: 'desc',
+  fileID: ''
 };
 
 const routePaths: Record<AppRoute, string> = {
@@ -45,7 +47,8 @@ export function libraryURLStateFromSearch(search: string): LibraryURLState {
     query: params.get('q')?.trim() ?? '',
     kind: params.get('type')?.trim() ?? '',
     sort: sort && fileSorts.has(sort) ? sort : defaultLibraryURLState.sort,
-    order: order === 'asc' || order === 'desc' ? order : defaultLibraryURLState.order
+    order: order === 'asc' || order === 'desc' ? order : defaultLibraryURLState.order,
+    fileID: params.get('file')?.trim() ?? ''
   };
 }
 
@@ -53,10 +56,12 @@ export function searchForLibraryURLState(state: LibraryURLState): string {
   const params = new URLSearchParams();
   const query = state.query.trim();
   const kind = state.kind.trim();
+  const fileID = state.fileID.trim();
   if (query) params.set('q', query);
   if (kind) params.set('type', kind);
   if (state.sort !== defaultLibraryURLState.sort) params.set('sort', state.sort);
   if (state.order !== defaultLibraryURLState.order) params.set('order', state.order);
+  if (fileID) params.set('file', fileID);
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
 }
