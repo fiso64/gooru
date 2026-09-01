@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+
   let {
     title,
     description,
@@ -26,10 +28,58 @@
     onCancel: () => void;
     onConfirm: () => void;
   }>();
+
+  let dialogRef: HTMLDivElement | undefined;
+
+  onMount(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    queueMicrotask(() => {
+      const first = dialogRef?.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      (first ?? dialogRef)?.focus();
+    });
+
+    function handleKeydown(event: KeyboardEvent) {
+      if (!dialogRef) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!busy) onCancel();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusable = Array.from(
+        dialogRef.querySelectorAll<HTMLElement>('input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')
+      ).filter((element) => !element.hasAttribute('hidden'));
+      if (!focusable.length) {
+        event.preventDefault();
+        dialogRef.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const current = document.activeElement;
+      if (event.shiftKey && (current === first || !dialogRef.contains(current))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (current === last || !dialogRef.contains(current))) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeydown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeydown, true);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  });
 </script>
 
 <div class="modal-backdrop" role="presentation">
-  <div class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="action-dialog-title">
+  <div bind:this={dialogRef} class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="action-dialog-title" tabindex="-1">
     <h2 id="action-dialog-title">{title}</h2>
     <p>{description}</p>
     {#if input}
