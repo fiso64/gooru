@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -78,7 +80,7 @@ var serveCmd = &cobra.Command{
 		}
 
 		logger.Info("gooru server starting",
-			"listen", cfg.Server.Listen,
+			"url", startupURL(cfg),
 			"auth_enabled", cfg.Auth.Enabled,
 			"uploads_enabled", cfg.Uploads.Enabled,
 		)
@@ -95,6 +97,21 @@ var serveCmd = &cobra.Command{
 		}
 		return err
 	},
+}
+
+func startupURL(cfg serve.Config) string {
+	if publicURL := strings.TrimSpace(cfg.Server.PublicURL); publicURL != "" {
+		return strings.TrimRight(publicURL, "/")
+	}
+
+	host, port, err := net.SplitHostPort(strings.TrimSpace(cfg.Server.Listen))
+	if err != nil {
+		return "http://" + strings.TrimSpace(cfg.Server.Listen)
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 func init() {
