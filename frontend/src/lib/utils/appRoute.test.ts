@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appRouteFromPath,
+  kitRouteForAppPath,
   libraryURLStateFromSearch,
   pathForAppRoute,
   searchForLibraryURLState
@@ -18,8 +19,19 @@ describe('app route URL policy', () => {
 
   it('restores routes from direct links and trailing-slash variants', () => {
     expect(appRouteFromPath('/upload')).toBe('upload');
+    expect(appRouteFromPath('/uploads')).toBe('upload');
     expect(appRouteFromPath('/settings/')).toBe('settings');
     expect(appRouteFromPath('/')).toBe('library');
+  });
+
+  it('reroutes known client-side views through the single SvelteKit shell route', () => {
+    expect(kitRouteForAppPath('/tags')).toBe('/');
+    expect(kitRouteForAppPath('/jobs/')).toBe('/');
+    expect(kitRouteForAppPath('/upload')).toBe('/');
+    expect(kitRouteForAppPath('/uploads')).toBe('/');
+    expect(kitRouteForAppPath('/settings')).toBe('/');
+    expect(kitRouteForAppPath('/does-not-exist')).toBe('/does-not-exist');
+    expect(kitRouteForAppPath('/_app/immutable/app.js')).toBe('/_app/immutable/app.js');
   });
 
   it('falls back to the library for unknown paths', () => {
