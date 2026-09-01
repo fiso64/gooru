@@ -106,9 +106,12 @@
             onmouseenter={() => (active = index)}
             onclick={() => commit(suggestion.name)}
           >
-            {@const separator = suggestion.name.indexOf(':')}
             <span>
-              {#if separator > 0}<span class="ns">{suggestion.name.slice(0, separator)}:</span>{suggestion.name.slice(separator + 1)}{:else}{suggestion.name}{/if}
+              {#if suggestion.name.includes(':')}
+                <span class="ns">{suggestion.name.slice(0, suggestion.name.indexOf(':'))}:</span>{suggestion.name.slice(suggestion.name.indexOf(':') + 1)}
+              {:else}
+                {suggestion.name}
+              {/if}
             </span>
             {#if suggestion.count}<span class="count">{suggestion.count.toLocaleString()}</span>{/if}
           </button>
