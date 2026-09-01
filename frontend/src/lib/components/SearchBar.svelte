@@ -1,12 +1,13 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { specialSearchSuggestions } from '$lib/search/specialSuggestions';
   import { parseSearchQuery, parseSearchToken, searchTokensToQuery, searchTokenToString, type SearchToken } from '$lib/search/tokens';
   import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
   type SuggestionLike = { name: string; count?: number };
   type SuggestionItem = {
-    kind: 'namespace' | 'tag' | 'valueless' | 'value';
+    kind: 'namespace' | 'tag' | 'valueless' | 'value' | 'special';
     commit: string;
     ns: string;
     val: string;
@@ -115,6 +116,10 @@
   ): SuggestionGroup[] {
     const tokenStrings = new Set(currentTokens.map(searchTokenToString));
     const takenPositiveTags = new Set(currentTokens.filter((token) => !token.neg).map((token) => `${token.ns}:${token.val}`));
+    const specialItems: SuggestionItem[] = specialSearchSuggestions(draftValue, [...tokenStrings]).map((item) => ({
+      kind: 'special',
+      ...item
+    }));
     let working = draftValue.trim();
     let negPrefix = '';
     if (working.startsWith('-')) {
@@ -149,6 +154,7 @@
           };
         });
       if (matchingTags.length) result.push({ head: term ? 'Tags' : 'Valueless', items: matchingTags });
+      if (specialItems.length) result.push({ head: 'Query', items: specialItems });
       return result;
     }
 
@@ -167,7 +173,11 @@
         const parsed = parseTag(tag);
         return { kind: 'value' as const, commit: `${negPrefix}${tag}`, ns: parsed.ns, val: parsed.value, count };
       });
-    return values.length ? [{ head: `${ns}:`, items: values }] : [];
+
+    const result: SuggestionGroup[] = [];
+    if (values.length) result.push({ head: `${ns}:`, items: values });
+    if (specialItems.length) result.push({ head: 'Query', items: specialItems });
+    return result;
   }
 
   function syncCommit(nextTokens: SearchToken[]) {
