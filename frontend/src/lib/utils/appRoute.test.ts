@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { appRouteFromPath, pathForAppRoute } from './appRoute';
+import {
+  appRouteFromPath,
+  libraryURLStateFromSearch,
+  pathForAppRoute,
+  searchForLibraryURLState
+} from './appRoute';
 
 describe('app route URL policy', () => {
   it('gives each top-level view a stable path', () => {
@@ -19,5 +24,26 @@ describe('app route URL policy', () => {
 
   it('falls back to the library for unknown paths', () => {
     expect(appRouteFromPath('/does-not-exist')).toBe('library');
+  });
+
+  it('round-trips meaningful library state while omitting defaults', () => {
+    const search = searchForLibraryURLState({ query: 'artist:foo bar', kind: 'photo', sort: 'name', order: 'asc' });
+    expect(search).toBe('?q=artist%3Afoo+bar&type=photo&sort=name&order=asc');
+    expect(libraryURLStateFromSearch(search)).toEqual({
+      query: 'artist:foo bar',
+      kind: 'photo',
+      sort: 'name',
+      order: 'asc'
+    });
+    expect(searchForLibraryURLState({ query: '', kind: '', sort: 'modified', order: 'desc' })).toBe('');
+  });
+
+  it('normalizes invalid URL state to safe library defaults', () => {
+    expect(libraryURLStateFromSearch('?sort=wat&order=sideways&q=%20fox%20')).toEqual({
+      query: 'fox',
+      kind: '',
+      sort: 'modified',
+      order: 'desc'
+    });
   });
 });
