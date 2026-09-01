@@ -75,6 +75,15 @@ export class ApiClient {
     await this.unwrap(this.client.POST('/auth/logout', { params: { header: this.csrfHeaderParam('POST') } }));
   }
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await this.unwrap(
+      this.client.POST('/auth/change-password', {
+        params: { header: this.csrfHeaderParam('POST') },
+        body: { current_password: currentPassword, new_password: newPassword }
+      })
+    );
+  }
+
   async listFiles(params: ListFilesParams = {}): Promise<FileListResponse> {
     return this.unwrap(
       this.client.GET('/files', {
