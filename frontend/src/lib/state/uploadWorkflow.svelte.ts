@@ -1,3 +1,4 @@
+import { untrack } from 'svelte';
 import { itemsFromJob, itemsFromResult, queuedItems, stagedUploadItems, uploadingItems, uploadSummary, type UploadItem } from './uploadItems';
 import { errorMessage, isTerminalJob, jobStatusText, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
@@ -61,22 +62,26 @@ export function createUploadWorkflow() {
   }
 
   function applyJob(job: Job) {
-    if (!job || job.id === handledJobID) return { completed: false, changedFiles: false };
-    status = jobStatusText(job);
-    items = itemsFromJob(items, job);
-    if (!isTerminalJob(job)) return { completed: false, changedFiles: false };
-    handledJobID = job.id;
-    activeJobID = '';
-    if (job.status !== 'completed') return { completed: true, changedFiles: false };
-    files = [];
-    status = uploadSummary(items) || 'Import completed';
-    return { completed: true, changedFiles: true };
+    return untrack(() => {
+      if (!job || job.id === handledJobID) return { completed: false, changedFiles: false };
+      status = jobStatusText(job);
+      items = itemsFromJob(items, job);
+      if (!isTerminalJob(job)) return { completed: false, changedFiles: false };
+      handledJobID = job.id;
+      activeJobID = '';
+      if (job.status !== 'completed') return { completed: true, changedFiles: false };
+      files = [];
+      status = uploadSummary(items) || 'Import completed';
+      return { completed: true, changedFiles: true };
+    });
   }
 
   function applyJobError(error: unknown) {
-    if (!activeJobID) return;
-    status = errorMessage(error);
-    activeJobID = '';
+    untrack(() => {
+      if (!activeJobID) return;
+      status = errorMessage(error);
+      activeJobID = '';
+    });
   }
 
   async function submit(mutate: UploadMutate) {
