@@ -1,4 +1,5 @@
 import { errorMessage, parseTags } from '$lib/utils/format';
+import { applyTagOperation } from '$lib/utils/tags';
 import type { FileItem, TagMutationResponse } from '$lib/api/types';
 import type { TagMutationVariables } from '$lib/queries/files';
 
@@ -26,6 +27,7 @@ export function createTagWorkflow() {
     errors = { ...errors, [file.id]: '' };
     try {
       await mutateTags({ operation, body: { file_ids: [file.id], tags } });
+      file.tags = applyTagOperation(file.tags, operation, tags);
       drafts = { ...drafts, [file.id]: '' };
     } catch (error) {
       errors = { ...errors, [file.id]: errorMessage(error) };
@@ -39,6 +41,7 @@ export function createTagWorkflow() {
     errors = { ...errors, [file.id]: '' };
     try {
       await mutateTags({ operation: 'remove', body: { file_ids: [file.id], tags: [tag] } });
+      file.tags = applyTagOperation(file.tags, 'remove', [tag]);
     } catch (error) {
       errors = { ...errors, [file.id]: errorMessage(error) };
     } finally {
