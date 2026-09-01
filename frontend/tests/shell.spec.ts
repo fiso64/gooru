@@ -639,3 +639,37 @@ test('Jobs drawer preserves route and shares real job actions with the page', as
   await page.getByRole('button', { name: 'Clear completed' }).click();
   await expect.poll(() => clears).toEqual([{ csrf: 'csrf-one', status: 'completed' }]);
 });
+
+
+test('Shortcuts matches the concept and question mark opens it outside text entry', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+
+  await page.locator('.main').click({ position: { x: 8, y: 8 } });
+  await page.keyboard.press('Shift+/');
+  await expect(page.getByRole('heading', { name: 'Shortcuts' })).toBeVisible();
+  await expect(page.getByText('Press').locator('..')).toContainText('from anywhere to open this cheatsheet.');
+  await expect(page.getByRole('heading', { name: 'Navigation' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Browsing' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Selection' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tagging' })).toBeVisible();
+
+  const futureFocusSearch = page.locator('.shortcut-row').filter({ hasText: 'Focus search' });
+  await expect(futureFocusSearch).toHaveAttribute('title', 'Coming soon');
+  const supportedNext = page.locator('.shortcut-row').filter({ hasText: 'Next file' });
+  await expect(supportedNext).not.toHaveAttribute('title', 'Coming soon');
+
+  await page.locator('.sidebar').getByRole('button', { name: /Library/ }).click();
+  const search = page.getByLabel('Search library');
+  await search.focus();
+  await page.keyboard.press('Shift+/');
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Shortcuts' })).toHaveCount(0);
+});

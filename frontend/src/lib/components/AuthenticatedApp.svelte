@@ -141,7 +141,18 @@
     };
   }
 
+  function isTypingTarget(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return false;
+    return target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
+  }
+
   function handleKeydown(event: KeyboardEvent) {
+    const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
+    if (shortcutsKey && !event.altKey && !event.ctrlKey && !event.metaKey && !isTypingTarget(event.target)) {
+      event.preventDefault();
+      setRoute('shortcuts');
+      return;
+    }
     library.handleKeydown(event, loadedFiles);
   }
 
