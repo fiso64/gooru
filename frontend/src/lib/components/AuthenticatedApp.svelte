@@ -316,6 +316,10 @@
     }
   }
 
+  async function changePassword(currentPassword: string, newPassword: string) {
+    await new ApiClient($authState.csrfToken).changePassword(currentPassword, newPassword);
+  }
+
   async function logout() {
     try {
       await new ApiClient($authState.csrfToken).logout();
@@ -383,7 +387,7 @@
     {:else if library.route === 'jobs'}
       <JobsView jobs={jobsQuery.data?.items ?? []} onCancel={cancelJob} onClearCompleted={clearCompletedJobs} />
     {:else if library.route === 'settings'}
-      <SettingsView username={$authState.user.username} onLogout={logout} />
+      <SettingsView username={$authState.user.username} onLogout={logout} onChangePassword={changePassword} />
     {:else if library.route === 'tags'}
       <TagsView
         tags={tagsQuery.data?.tags ?? []}

@@ -7,7 +7,7 @@ This slice treats `temp/gooru-concept-ui/` as the visual source of truth and the
 - C: remove or correct because it is not applicable or is inaccurate for Gooru.
 
 1. Settings route and sidebar entry: B for making the settings view reachable and keeping account sign out functional; A for unsupported settings controls inside the view. The issue owner explicitly asked for the settings view, not a disabled settings button.
-2. Settings password/config/library/appearance controls: A. They match plausible future server settings, but the backend does not expose mutable settings APIs in this issue. Controls stay greyed out with "coming soon" copy.
+2. Settings password: B because `/api/v1/auth/change-password` is already a CSRF-protected backend endpoint and must be wired to the concept `Change…` action. Other config/library/appearance controls remain A because there is no mutable settings API for them in this issue.
 3. Settings sign out: B. Session logout is already supported and should work from Settings.
 4. Login first-run command: C. The concept text `gooru auth init` is inaccurate for this repository; visible copy must use the verified command from the current CLI/docs.
 5. Login docs/source/changelog footer links: A. They remain visible as concept footer affordances but point at placeholder routes until docs pages exist.
@@ -39,3 +39,7 @@ This slice treats `temp/gooru-concept-ui/` as the visual source of truth and the
 31. Concept job `done / total` counters: C. The backend exposes a normalized progress ratio but not authoritative item totals, so the real UI must render percentage/progress and timestamps rather than invent prototype counts.
 32. Running-job cancel and clear-completed actions: B. Preserve the supported backend actions, but keep them visually subordinate (row/header hover or focus) so the resting Jobs surfaces remain faithful to the concept.
 33. Shortcuts `?` launcher: B. The concept page explicitly tells the user to press `?` from anywhere, so that launcher is implemented as a real global shortcut outside text-entry controls. It accepts both the printable `?` key and the layout-stable Shift+Slash representation; other concept shortcut rows that are not implemented remain visible but greyed as A rather than falsely advertising behavior.
+34. Settings hot-reload/save-instantly copy: C. The concept claims edits write `gooru.yaml` and hot-reload the server, but no such API exists; visible copy must say configuration is server-managed instead.
+35. Settings bearer-token section: C. Transitional bearer-token runtime auth was removed when DB-backed sessions/CSRF landed, so the concept token UI is inaccurate and must not expose or invent `sk_live`-style credentials.
+36. Settings mock filesystem paths, public URLs, processor versions, executable paths, and upload limits: C. Do not present prototype values as server facts; use neutral server-managed/not-exposed copy while keeping the concept section geometry.
+37. Settings Server, Library, Appearance, and Media processing controls: A. Keep the concept surfaces visible and disabled where plausible, without leaking filesystem paths or pretending unsupported settings are writable.

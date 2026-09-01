@@ -673,3 +673,44 @@ test('Shortcuts matches the concept and question mark opens it outside text entr
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Shortcuts' })).toHaveCount(0);
 });
+
+
+test('Settings preserves concept structure and changes password through CSRF', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
+  });
+
+  const changes: Array<{ csrf: string; body: unknown }> = [];
+  await page.route('**/api/v1/auth/change-password', async (route) => {
+    changes.push({
+      csrf: route.request().headers()['x-gooru-csrf'] ?? '',
+      body: route.request().postDataJSON()
+    });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.locator('.sidebar').getByRole('button', { name: 'Settings' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Server & library settings' })).toBeVisible();
+  for (const heading of ['Account', 'Appearance', 'Server', 'Library', 'Media processing']) {
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+  }
+  await expect(page.getByText('Auth tokens', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Listen address')).toBeDisabled();
+  await expect(page.getByLabel('Grid density coming soon')).toBeDisabled();
+  await expect(page.getByText('filesystem paths are not exposed')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Change…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Change password' });
+  await dialog.getByLabel('Current password').fill('old-secret');
+  await dialog.getByLabel('New password', { exact: true }).fill('new-secret');
+  await dialog.getByLabel('Confirm new password').fill('new-secret');
+  await dialog.getByRole('button', { name: 'Change password' }).click();
+
+  await expect.poll(() => changes).toEqual([{ csrf: 'csrf-one', body: { current_password: 'old-secret', new_password: 'new-secret' } }]);
+  await expect(page.getByRole('status')).toHaveText('Password updated.');
+});

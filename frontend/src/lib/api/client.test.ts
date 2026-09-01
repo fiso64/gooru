@@ -71,6 +71,29 @@ describe('ApiClient', () => {
     expect(JSON.parse(await bodyText(requests[0].body))).toEqual({ file_ids: ['file-one'], tags: ['reviewed'], verbose: false });
   });
 
+  it('changes passwords with CSRF and generated request fields', async () => {
+    const requests: Array<{ url: string; method: string; headers: Headers; body: string }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      requests.push({
+        url: relativeURL(request.url),
+        method: request.method,
+        headers: request.headers,
+        body: await request.clone().text()
+      });
+      return Response.json({ ok: true });
+    }) as typeof fetch;
+
+    await new ApiClient('secret-token').changePassword('old-secret', 'new-secret');
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].url).toBe('/api/v1/auth/change-password');
+    expect(requests[0].method).toBe('POST');
+    expect(requests[0].headers.get('Authorization')).toBeNull();
+    expect(requests[0].headers.get('X-Gooru-CSRF')).toBe('secret-token');
+    expect(JSON.parse(requests[0].body)).toEqual({ current_password: 'old-secret', new_password: 'new-secret' });
+  });
+
   it('uploads files with async preference', async () => {
     const requests: Array<{ url: string; method?: string; headers: Headers; body?: BodyInit | null }> = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
