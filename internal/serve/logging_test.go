@@ -37,24 +37,26 @@ func TestConfigRejectsUnknownLoggingLevel(t *testing.T) {
 	}
 }
 
-func TestRequestLoggingMiddlewareDebugOmitsQueryString(t *testing.T) {
+func TestRequestLoggingMiddlewareDebugOmitsUserControlledURL(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	previous := slog.Default()
 	slog.SetDefault(logger)
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	handler := requestLoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/files/{id}", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
-	}))
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/files?query=private-tag", nil)
+	})
+	handler := requestLoggingMiddleware(mux)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/private-filename?query=private-tag", nil)
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	logs := output.String()
-	if !strings.Contains(logs, "http request started") || !strings.Contains(logs, "path=/api/v1/files") {
-		t.Fatalf("request debug log missing expected lifecycle/path fields: %s", logs)
+	if !strings.Contains(logs, "http request started") || !strings.Contains(logs, "route=GET /api/v1/files/{id}") {
+		t.Fatalf("request debug log missing expected lifecycle/route fields: %s", logs)
 	}
-	if strings.Contains(logs, "private-tag") || strings.Contains(logs, "query=") {
-		t.Fatalf("request debug log leaked query string: %s", logs)
+	if strings.Contains(logs, "private-filename") || strings.Contains(logs, "private-tag") || strings.Contains(logs, "query=") {
+		t.Fatalf("request debug log leaked user-controlled URL content: %s", logs)
 	}
 }
