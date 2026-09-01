@@ -9,6 +9,7 @@
 .virtual-grid {
   position: relative;
   min-height: 100%;
+  flex: 0 0 auto;
 }
 
 .virtual-grid .grid {

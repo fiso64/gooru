@@ -274,7 +274,7 @@
   <span class="searchbar-icon"><Icon name="search" size={15} /></span>
   {#each tokens as token, index}
     <span class:neg={token.neg} class="searchbar-pill">
-      {#if token.neg}<span class="neg-symbol">-</span>{/if}
+      {#if token.neg}<span class="neg-symbol">−</span>{/if}
       {#if token.ns}<span class="ns">{token.ns}:</span>{/if}<span>{token.val}</span>
       <button class="x" type="button" aria-label={`Remove ${searchTokenToString(token)}`} onclick={(event) => { event.stopPropagation(); removeToken(index); }}>
         <Icon name="close" size={10} />
@@ -285,7 +285,7 @@
     bind:this={inputRef}
     class="searchbar-input"
     value={draft}
-    placeholder={tokens.length === 0 ? 'tag, namespace:value, -exclude' : ''}
+    placeholder={tokens.length === 0 ? 'tag, namespace:value, -exclude — try "subject:" or "hero"' : ''}
     spellcheck="false"
     autocapitalize="off"
     autocomplete="off"

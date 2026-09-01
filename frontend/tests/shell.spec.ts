@@ -209,11 +209,11 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
   expect(fileRequests[0]).toMatchObject({ token: '', includeFacets: 'true', signalSeen: true });
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
 
-  await page.evaluate(() => window.scrollTo(0, 10_000));
+  await page.locator('.main').evaluate((node) => { node.scrollTop = 10_000; node.dispatchEvent(new Event('scroll')); });
   await expect.poll(() => fileRequests.some((request) => request.token === '60')).toBe(true);
 
   for (let i = 0; i < 18; i += 1) {
-    await page.evaluate((step) => window.scrollTo(0, step * 2_500), i + 1);
+    await page.locator('.main').evaluate((node, step) => { node.scrollTop = step * 2_500; node.dispatchEvent(new Event('scroll')); }, i + 1);
     await page.waitForTimeout(75);
     if (await page.getByRole('button', { name: 'Preview large-560.jpg' }).count()) break;
   }
@@ -224,7 +224,7 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
   await expect(page.getByText('600 files')).toBeVisible();
   expect(await page.locator('.thumb').count()).toBeLessThan(total);
 
-  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.locator('.main').evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });
   await expect(page.getByRole('button', { name: 'Preview large-000.jpg' })).toBeVisible();
 });
 

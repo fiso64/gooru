@@ -13,8 +13,6 @@
     error,
     files,
     retainedStartIndex,
-    viewportHeight,
-    scrollY,
     totalCount,
     libraryCount,
     searchActive,
@@ -39,8 +37,6 @@
     error: unknown;
     files: FileItem[];
     retainedStartIndex: number;
-    viewportHeight: number;
-    scrollY: number;
     totalCount: number;
     libraryCount: number;
     searchActive: boolean;
@@ -63,8 +59,8 @@
   let mainHost = $state<HTMLElement | undefined>();
   let gridHost = $state<HTMLDivElement | undefined>();
   let gridWidth = $state(960);
-  let paneHeight = $state(viewportHeight || 900);
-  let paneScrollY = $state(scrollY || 0);
+  let paneHeight = $state(900);
+  let paneScrollY = $state(0);
   let gridTop = $state(0);
   const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex));
 

@@ -27,7 +27,6 @@
   import { createLibraryWorkflow } from '$lib/state/libraryWorkflow.svelte';
   import { createTagWorkflow } from '$lib/state/tagWorkflow.svelte';
   import { createUploadWorkflow } from '$lib/state/uploadWorkflow.svelte';
-  import { createViewportState } from '$lib/state/viewport.svelte';
   import { errorMessage } from '$lib/utils/format';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { Job, SavedSearchRequest } from '$lib/api/types';
@@ -39,7 +38,6 @@
   const suggestionSearch = library.suggestionSearch;
   const tagWorkflow = createTagWorkflow();
   const upload = createUploadWorkflow();
-  const viewport = createViewportState();
 
   let authScope = $state(0);
   let observedCSRF = $state('');
@@ -355,8 +353,6 @@
         error={filesQuery.error}
         {files}
         retainedStartIndex={retainedStartIndex}
-        viewportHeight={viewport.height}
-        scrollY={viewport.scrollY}
         totalCount={page?.total_count ?? files.length}
         libraryCount={page?.library_count ?? files.length}
         searchActive={Boolean($submittedSearch || library.activeKind)}
