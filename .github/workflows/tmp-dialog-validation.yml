@@ -1,6 +1,9 @@
 name: Temporary dialog validation
 
 on:
+  push:
+    branches:
+      - refactor/21-action-dialog-tag-input
   pull_request:
     branches:
       - main
