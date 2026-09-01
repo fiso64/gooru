@@ -3,6 +3,7 @@ import type { paths } from './openapi';
 import type {
   ApiErrorResponse,
   AuthMeResponse,
+  FileItem,
   FileListResponse,
   Job,
   JobListResponse,
@@ -102,6 +103,10 @@ export class ApiClient {
     );
   }
 
+  async getFile(id: string, signal?: AbortSignal): Promise<FileItem> {
+    return this.unwrap(this.client.GET('/files/{id}', { params: { path: { id } }, signal }));
+  }
+
   async searchSuggestions(q = '', limit?: number, existing = '', signal?: AbortSignal): Promise<SuggestionsResponse> {
     return this.unwrap(
       this.client.GET('/search/suggestions', {
@@ -143,7 +148,7 @@ export class ApiClient {
       return this.unwrap<TagMutationResponse>(this.client.POST('/files/tags', { params: { header: this.csrfHeaderParam('POST') }, body: requestBody }));
     }
     if (operation === 'set') {
-      return this.unwrap<TagMutationResponse>(this.client.PUT('/files/tags', { params: { header: this.csrfHeaderParam('PUT') }, body: requestBody }));
+      return this.unwrap<TagMutationResponse>(this.client.PUT('/files/tags', { params: { header: this.csrfHeaderParam('PUT'), path: undefined }, body: requestBody } as never));
     }
     return this.unwrap<TagMutationResponse>(this.client.DELETE('/files/tags', { params: { header: this.csrfHeaderParam('DELETE') }, body: requestBody }));
   }
