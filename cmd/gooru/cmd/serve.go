@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -48,6 +49,12 @@ var serveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+
+		logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: cfg.Logging.SlogLevel()}))
+		previousLogger := slog.Default()
+		slog.SetDefault(logger)
+		defer slog.SetDefault(previousLogger)
+
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		client, err := gooru.New(cfg.Database.Path, verbose)
@@ -71,8 +78,24 @@ var serveCmd = &cobra.Command{
 			}
 			server.SetAuthStore(sessionStore)
 		}
-		fmt.Fprintf(cmd.ErrOrStderr(), "serving gooru on http://%s\n", cfg.Server.Listen)
-		return server.ListenAndServe(ctx)
+
+		logger.Info("gooru server starting",
+			"listen", cfg.Server.Listen,
+			"auth_enabled", cfg.Auth.Enabled,
+			"uploads_enabled", cfg.Uploads.Enabled,
+		)
+		logger.Debug("server runtime configuration",
+			"logging_level", cfg.Logging.Level,
+			"preview_size", cfg.Media.PreviewSize,
+			"thumbnail_format", cfg.Media.ThumbnailFormat,
+			"jobs_max_queued", cfg.Jobs.MaxQueued,
+			"jobs_max_running", cfg.Jobs.MaxRunning,
+		)
+		err = server.ListenAndServe(ctx)
+		if err == nil {
+			logger.Info("gooru server stopped")
+		}
+		return err
 	},
 }
 
