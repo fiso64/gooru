@@ -276,14 +276,14 @@
   aria-haspopup="listbox"
   tabindex="-1"
   bind:this={rootRef}
-  onmousedown={() => inputRef?.focus()}
+  onclick={() => inputRef?.focus()}
 >
   <span class="searchbar-icon"><Icon name="search" size={15} /></span>
   {#each tokens as token, index}
     <span class:neg={token.neg} class="searchbar-pill">
       {#if token.neg}<span class="neg-symbol">−</span>{/if}
       {#if token.ns}<span class="ns">{token.ns}:</span>{/if}<span>{token.val}</span>
-      <button class="x" type="button" aria-label={`Remove ${searchTokenToString(token)}`} onclick={(event) => { event.stopPropagation(); removeToken(index); }}>
+      <button class="x" type="button" aria-label={`Remove ${searchTokenToString(token)}`} onclick={() => removeToken(index)}>
         <Icon name="close" size={10} />
       </button>
     </span>
@@ -302,7 +302,7 @@
     onkeydown={handleKeydown}
   />
   {#if tokens.length > 0 || draft}
-    <button class="searchbar-clear" type="button" aria-label="Clear search" title="Clear search" onclick={(event) => { event.stopPropagation(); clearAll(); }}>
+    <button class="searchbar-clear" type="button" aria-label="Clear search" title="Clear search" onclick={clearAll}>
       <Icon name="close" size={13} />
     </button>
   {/if}
