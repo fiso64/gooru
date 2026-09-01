@@ -70,7 +70,7 @@
   bottom: 7px;
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  align-items: flex-end;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: rgba(255, 255, 255, 0.92);
@@ -106,6 +106,7 @@
   gap: 4px;
   padding: 2px 6px;
   background: rgba(0, 0, 0, 0.72);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   border-radius: 3px;
   font-family: var(--font-mono);
@@ -128,10 +129,12 @@
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.55);
   border: 1.5px solid rgba(255, 255, 255, 0.55);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   display: grid;
   place-items: center;
   opacity: 0;
+  transition: opacity .12s, background .12s, border-color .12s;
   cursor: pointer;
   color: transparent;
 }
