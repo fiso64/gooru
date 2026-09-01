@@ -10,7 +10,8 @@ The `gooru serve` command runs the REST API, authenticated media backend, upload
 import endpoint, job polling routes, and static SvelteKit frontend. See
 [docs/SERVE.md](docs/SERVE.md) for local setup, production static-asset
 deployment, secure network access, upload configuration, and optional media tool
-dependencies.
+dependencies. Every supported YAML option is documented in the
+[serve configuration reference](docs/CONFIG.md).
 
 ## TODO
 
