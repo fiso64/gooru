@@ -2,40 +2,68 @@ import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 import type { FileItem } from '$lib/api/types';
 import type { FileSort, SortOrder } from '$lib/queries/files';
-import { appRouteFromPath, pathForAppRoute, type AppRoute } from '$lib/utils/appRoute';
+import {
+  appRouteFromPath,
+  defaultLibraryURLState,
+  libraryURLStateFromSearch,
+  pathForAppRoute,
+  searchForLibraryURLState,
+  type AppRoute
+} from '$lib/utils/appRoute';
 import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
 export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRouteFromPath(window.location.pathname) : 'library') {
-  const searchDraft = writable('');
-  const submittedSearch = writable('');
-  const suggestionSearch = writable('');
+  const initialLibraryState = browser && initialRoute === 'library'
+    ? libraryURLStateFromSearch(window.location.search)
+    : defaultLibraryURLState;
+  const searchDraft = writable(initialLibraryState.query);
+  const submittedSearch = writable(initialLibraryState.query);
+  const suggestionSearch = writable(initialLibraryState.query);
+  let submittedQuery = $state(initialLibraryState.query);
   let route: AppRoute = $state(initialRoute);
-  let activeKind = $state('');
+  let activeKind = $state(initialLibraryState.kind);
   let activeSavedSearch = $state('');
-  let sort: FileSort = $state('modified');
-  let order: SortOrder = $state('desc');
+  let sort: FileSort = $state(initialLibraryState.sort);
+  let order: SortOrder = $state(initialLibraryState.order);
   let selectedIDs = $state(new Set<string>());
   let activeFile = $state<FileItem | null>(null);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
   let suggestionDebounce: ReturnType<typeof setTimeout> | undefined;
 
-  // Top-level application views are real browser-history entries even though
-  // the static frontend is served through a single SPA fallback. Keep this
-  // synchronization at the workflow boundary so every route transition --
-  // sidebar navigation, tag/search transitions, keyboard shortcuts, etc. --
-  // follows the same policy.
+  function setSubmittedSearch(value: string) {
+    submittedQuery = value;
+    submittedSearch.set(value);
+  }
+
+  // Keep all top-level navigation plus durable library controls in one browser
+  // history policy. Search/filter/sort transitions become meaningful Back/Forward
+  // entries without making individual components aware of the History API.
   $effect(() => {
     if (!browser) return;
     const pathname = pathForAppRoute(route);
-    if (window.location.pathname !== pathname) {
-      window.history.pushState(null, '', pathname);
-    }
+    const search = route === 'library'
+      ? searchForLibraryURLState({ query: submittedQuery, kind: activeKind, sort, order })
+      : '';
+    const nextURL = `${pathname}${search}`;
+    const currentURL = `${window.location.pathname}${window.location.search}`;
+    if (currentURL !== nextURL) window.history.pushState(null, '', nextURL);
   });
 
   $effect(() => {
     if (!browser) return;
     const restoreRoute = () => {
-      route = appRouteFromPath(window.location.pathname);
+      const nextRoute = appRouteFromPath(window.location.pathname);
+      const nextLibraryState = nextRoute === 'library'
+        ? libraryURLStateFromSearch(window.location.search)
+        : defaultLibraryURLState;
+      route = nextRoute;
+      activeKind = nextLibraryState.kind;
+      activeSavedSearch = '';
+      sort = nextLibraryState.sort;
+      order = nextLibraryState.order;
+      searchDraft.set(nextLibraryState.query);
+      suggestionSearch.set(nextLibraryState.query);
+      setSubmittedSearch(nextLibraryState.query);
       activeFile = null;
       selectedIDs = new Set();
     };
@@ -49,7 +77,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   }
 
   function submitSearch() {
-    submittedSearch.set(get(searchDraft).trim());
+    setSubmittedSearch(get(searchDraft).trim());
     selectedIDs = new Set();
     route = 'library';
   }
@@ -73,13 +101,13 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     const query = value.trim();
     searchDraft.set(query);
     suggestionSearch.set(query);
-    submittedSearch.set(query);
+    setSubmittedSearch(query);
     selectedIDs = new Set();
     route = 'library';
   }
 
   function filterQuery() {
-    const parts = [get(submittedSearch).trim()];
+    const parts = [submittedQuery.trim()];
     if (activeKind) parts.push(`type:${activeKind}`);
     return parts.filter(Boolean).join(' ');
   }
@@ -93,7 +121,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     activeKind = '';
     searchDraft.set(query);
     suggestionSearch.set(query);
-    submittedSearch.set(query);
+    setSubmittedSearch(query);
     selectedIDs = new Set();
     activeFile = null;
     route = 'library';
@@ -103,7 +131,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     activeSavedSearch = name;
     searchDraft.set(query);
     suggestionSearch.set(query);
-    submittedSearch.set(query);
+    setSubmittedSearch(query);
     route = 'library';
   }
 
@@ -111,7 +139,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     const next = [get(searchDraft).trim(), value].filter(Boolean).join(' ');
     searchDraft.set(next);
     suggestionSearch.set(next);
-    submittedSearch.set(next);
+    setSubmittedSearch(next);
     route = 'library';
   }
 
