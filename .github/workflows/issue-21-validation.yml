@@ -5,20 +5,91 @@ on:
     branches:
       - agent/issue-21-exact-concept-port
 
+permissions:
+  contents: write
+
 jobs:
-  diagnose:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Align and instrument scroll regression
+      - name: Apply exact-shell recovery patch
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
+          app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = app.read_text()
+          text = text.replace("  import { createViewportState } from '$lib/state/viewport.svelte';\n", '')
+          text = text.replace('  const viewport = createViewportState();\n', '')
+          old = '''  $effect(() => {
+    fileMetadataKey;
+    fileMetadata = null;
+  });
+
+  $effect(() => {
+    fileMetadataKey;
+    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);
+    if (!metadataPage) return;
+    fileMetadata = {
+      total_count: metadataPage.total_count,
+      library_count: metadataPage.library_count,
+      facets: metadataPage.facets
+    };
+  });'''
+          new = '''  let observedFileMetadataKey = $state('');
+
+  $effect(() => {
+    const key = fileMetadataKey;
+    if (key !== observedFileMetadataKey) {
+      observedFileMetadataKey = key;
+      fileMetadata = null;
+    }
+    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);
+    if (!metadataPage) return;
+    fileMetadata = {
+      total_count: metadataPage.total_count,
+      library_count: metadataPage.library_count,
+      facets: metadataPage.facets
+    };
+  });'''
+          if old not in text:
+            raise SystemExit('metadata effect block not found')
+          text = text.replace(old, new)
+          text = text.replace('        viewportHeight={viewport.height}\n        scrollY={viewport.scrollY}\n', '')
+          app.write_text(text)
+
+          grid = Path('frontend/src/lib/components/MediaGrid.svelte')
+          text = grid.read_text()
+          text = text.replace('    viewportHeight,\n    scrollY,\n', '')
+          text = text.replace('    viewportHeight: number;\n    scrollY: number;\n', '')
+          text = text.replace('  let paneHeight = $state(viewportHeight || 900);\n  let paneScrollY = $state(scrollY || 0);\n', '  let paneHeight = $state(900);\n  let paneScrollY = $state(0);\n')
+          old_virtual = '  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex));'
+          new_virtual = '''  const virtualItemCount = $derived(Math.max(
+    totalCount || 0,
+    retainedStartIndex + files.length + (hasNextPage ? 1 : 0)
+  ));
+  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualItemCount, retainedStartIndex));'''
+          if old_virtual not in text:
+            raise SystemExit('virtual expression not found')
+          text = text.replace(old_virtual, new_virtual)
+          grid.write_text(text)
+
+          search = Path('frontend/src/lib/components/SearchBar.svelte')
+          text = search.read_text()
+          text = text.replace("'tag, namespace:value, -exclude'", "'tag, namespace:value, -exclude — try \"subject:\" or \"hero\"'")
+          text = text.replace('<span class="neg-symbol">-</span>', '<span class="neg-symbol">−</span>')
+          search.write_text(text)
 
           spec = Path('frontend/tests/shell.spec.ts')
           text = spec.read_text()
@@ -34,30 +105,37 @@ jobs:
               "await page.evaluate(() => window.scrollTo(0, 0));",
               "await page.locator('.main').evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });"
           )
-          needle = "  await expect(page.getByRole('button', { name: 'Preview large-560.jpg' })).toHaveCount(1);"
-          debug = '''  console.log('FILE_REQUESTS', JSON.stringify(fileRequests));
-  console.log('VIRTUAL_METRICS', await page.evaluate(() => {
-    const main = document.querySelector('.main') as HTMLElement;
-    const host = document.querySelector('.virtual-grid') as HTMLElement;
-    const grid = document.querySelector('[data-testid="virtual-media-grid"]') as HTMLElement;
-    const labels = Array.from(document.querySelectorAll('.thumb-open')).map((node) => node.getAttribute('aria-label'));
-    return {
-      main: { scrollTop: main?.scrollTop, scrollHeight: main?.scrollHeight, clientHeight: main?.clientHeight },
-      host: { offsetTop: host?.offsetTop, offsetHeight: host?.offsetHeight, styleHeight: host?.style.height },
-      grid: { offsetTop: grid?.offsetTop, transform: grid?.style.transform, width: grid?.getBoundingClientRect().width },
-      labels: [labels[0], labels[labels.length - 1], labels.length]
-    };
-  }));
-''' + needle
-          text = text.replace(needle, debug)
           spec.write_text(text)
           PY
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Check frontend
+        working-directory: frontend
+        run: npm run check
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Run frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
       - name: Install Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
-      - name: Diagnose large-library scroll
+      - name: Run frontend end-to-end tests
         working-directory: frontend
-        run: npx playwright test tests/shell.spec.ts -g "loads paginated large libraries"
+        run: npm run test:e2e
+      - name: Build Go packages
+        run: go build ./...
+      - name: Run Go tests
+        run: go test ./...
+      - name: Persist validated shell recovery patch
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/MediaGrid.svelte frontend/src/lib/components/SearchBar.svelte frontend/tests/shell.spec.ts
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "#21 keep bounded pagination working in concept scroll pane"
+          git push
