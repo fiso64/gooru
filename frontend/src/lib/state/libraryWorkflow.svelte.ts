@@ -73,11 +73,6 @@ export function createLibraryWorkflow() {
     route = 'library';
   }
 
-  function runPreviewTagSearch(query: string) {
-    runTagSearch(query);
-    activeFile = null;
-  }
-
   function runSavedSearch(query: string, name: string) {
     activeSavedSearch = name;
     searchDraft.set(query);
@@ -169,7 +164,6 @@ export function createLibraryWorkflow() {
     filterQuery,
     setKind,
     runTagSearch,
-    runPreviewTagSearch,
     runSavedSearch,
     applySuggestion,
     toggleSelect,

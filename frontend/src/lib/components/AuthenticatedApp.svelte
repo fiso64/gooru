@@ -463,7 +463,7 @@
       onTagInput={tagWorkflow.updateDraft}
       onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}
       onRemoveTag={(file, tag) => tagWorkflow.removeTag(file, tag, (variables) => tagMutation.mutateAsync(variables))}
-      onTagSearch={library.runPreviewTagSearch}
+      onTagSearch={library.runTagSearch}
       onUntrack={untrackPreview}
     />
   {/if}
