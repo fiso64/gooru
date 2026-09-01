@@ -42,7 +42,7 @@ func (GovipsImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, for
 	switch format {
 	case "jpeg":
 		params := vips.NewDefaultJPEGExportParams()
-		params.Quality = 84
+		params.Quality = derivativeJPEGQuality
 		params.StripMetadata = true
 		data, _, err = image.Export(params)
 	case "png":
