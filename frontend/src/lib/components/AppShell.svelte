@@ -53,9 +53,7 @@
   const kinds = [
     { key: 'photo', label: 'Photos', icon: 'photo' },
     { key: 'video', label: 'Videos', icon: 'video' },
-    { key: 'gif', label: 'GIFs', icon: 'gif' },
-    { key: 'audio', label: 'Audio', icon: 'audio' },
-    { key: 'other', label: 'Other', icon: 'folder' }
+    { key: 'gif', label: 'GIFs', icon: 'gif' }
   ];
 
   function kindCount(kind: string) {
@@ -84,7 +82,7 @@
         <Icon name="jobs" size={16} />
         {#if jobsActiveCount > 0}<span class="topbar-badge">{jobsActiveCount}</span>{/if}
       </button>
-      <button class="g-btn g-btn-ghost g-btn-sm" type="button" title={username} onclick={() => onRoute('account')}>
+      <button class="g-btn g-btn-ghost g-btn-sm" type="button" title={username} onclick={() => onRoute('settings')}>
         <Icon name="user" size={14} />
         <span>{username}</span>
       </button>
@@ -125,7 +123,7 @@
       {/each}
     </div>
 
-    <div class="sidebar-section">
+    <div class="sidebar-section saved-searches-section">
       <div class="sidebar-section-head">
         <span>Saved searches</span>
         <button class="sidebar-head-action" type="button" title="Save current search" aria-label="Save current search" onclick={onCreateSavedSearch}>
@@ -138,12 +136,14 @@
             <Icon name="bookmark" size={14} />
             <span class="truncate">{saved.name}</span>
           </button>
-          <button class="sidebar-mini" type="button" title={`Update ${saved.name}`} aria-label={`Update ${saved.name}`} onclick={() => onUpdateSavedSearch(saved.id, saved.name, saved.query)}>
-            <Icon name="check" size={11} />
-          </button>
-          <button class="sidebar-mini" type="button" title={`Delete ${saved.name}`} aria-label={`Delete ${saved.name}`} onclick={() => onDeleteSavedSearch(saved.id, saved.name)}>
-            <Icon name="trash" size={11} />
-          </button>
+          <div class="sidebar-saved-actions">
+            <button class="sidebar-mini" type="button" title={`Update ${saved.name}`} aria-label={`Update ${saved.name}`} onclick={() => onUpdateSavedSearch(saved.id, saved.name, saved.query)}>
+              <Icon name="check" size={11} />
+            </button>
+            <button class="sidebar-mini" type="button" title={`Delete ${saved.name}`} aria-label={`Delete ${saved.name}`} onclick={() => onDeleteSavedSearch(saved.id, saved.name)}>
+              <Icon name="trash" size={11} />
+            </button>
+          </div>
         </div>
       {:else}
         <div class="sidebar-note">No saved searches yet</div>
