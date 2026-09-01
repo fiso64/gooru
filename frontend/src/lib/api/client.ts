@@ -148,7 +148,7 @@ export class ApiClient {
       return this.unwrap<TagMutationResponse>(this.client.POST('/files/tags', { params: { header: this.csrfHeaderParam('POST') }, body: requestBody }));
     }
     if (operation === 'set') {
-      return this.unwrap<TagMutationResponse>(this.client.PUT('/files/tags', { params: { header: this.csrfHeaderParam('PUT'), path: undefined }, body: requestBody } as never));
+      return this.unwrap<TagMutationResponse>(this.client.PUT('/files/tags', { params: { header: this.csrfHeaderParam('PUT') }, body: requestBody }));
     }
     return this.unwrap<TagMutationResponse>(this.client.DELETE('/files/tags', { params: { header: this.csrfHeaderParam('DELETE') }, body: requestBody }));
   }
