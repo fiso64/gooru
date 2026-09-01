@@ -341,7 +341,7 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("auth.cookie_same_site must be one of: lax, strict, none"))
 	}
 	if !cfg.Auth.Enabled && !cfg.Auth.AllowUnsafeNoAuthNonLoopback && !isLoopbackListen(cfg.Server.Listen) {
-		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_nonloopback for trusted development"))
+		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_non_loopback for trusted development"))
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"
