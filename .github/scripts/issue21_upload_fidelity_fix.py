@@ -23,3 +23,22 @@ text = text.replace(
     1,
 )
 path.write_text(text)
+
+spec = Path('frontend/tests/shell.spec.ts')
+text = spec.read_text()
+text = text.replace(
+    "  await expect(page.getByText('Importing', { exact: true })).toBeVisible();\n",
+    "  await expect(page.getByText('importing', { exact: true })).toBeVisible();\n",
+    1,
+)
+text = text.replace(
+    "  await expect(page.locator('.upload-zone')).toHaveClass(/drag-active/);\n",
+    "  await expect(page.locator('.upload-zone')).toHaveClass(/is-drag/);\n",
+    1,
+)
+text = text.replace(
+    "  await expect(page.getByRole('button', { name: 'Paste URL' })).toBeDisabled();\n",
+    "  await expect(page.getByRole('button', { name: 'Paste URL', exact: true })).toBeDisabled();\n",
+    1,
+)
+spec.write_text(text)
