@@ -91,6 +91,15 @@ replace_once(
   transition: background .12s, border-color .12s, color .12s;
 }
 
+/* The concept tile is a div. The Svelte port uses a semantic button, so the
+   concept's global .gooru-root button font shorthand would otherwise override
+   the tile typography. Keep the accessible element while rendering the same
+   mono 12.5px tile as the concept. */
+button.tagscloud-item {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
 .tagscloud-item:hover {
   background: var(--surface-2);
   border-color: var(--border-strong);
