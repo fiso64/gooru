@@ -69,6 +69,7 @@ export function createLibraryWorkflow() {
     suggestionSearch.set(query);
     submittedSearch.set(query);
     selectedIDs = new Set();
+    activeFile = null;
     route = 'library';
   }
 

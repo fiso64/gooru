@@ -17,6 +17,7 @@
     onTagInput,
     onMutateTags,
     onRemoveTag,
+    onTagSearch,
     onUntrack
   } = $props<{
     file: FileItem;
@@ -29,6 +30,7 @@
     onTagInput: (fileID: string, value: string) => void;
     onMutateTags: (file: FileItem, operation: 'add' | 'set' | 'remove') => void;
     onRemoveTag: (file: FileItem, tag: string) => void;
+    onTagSearch: (tag: string) => void;
     onUntrack: (file: FileItem) => void;
   }>();
 
@@ -148,11 +150,13 @@
           <div class="lightbox-tag-list">
             {#each group.tags as tag}
               <span class="g-tag">
-                {#if tag.includes(':')}
-                  <span class="ns">{tag.split(':')[0]}:</span><span>{tag.slice(tag.indexOf(':') + 1)}</span>
-                {:else}
-                  <span>{tag}</span>
-                {/if}
+                <button class="g-tag-search" type="button" aria-label={`Search for ${tag}`} onclick={() => onTagSearch(tag)}>
+                  {#if tag.includes(':')}
+                    <span class="ns">{tag.split(':')[0]}:</span><span>{tag.slice(tag.indexOf(':') + 1)}</span>
+                  {:else}
+                    <span>{tag}</span>
+                  {/if}
+                </button>
                 <button class="g-tag-x" type="button" aria-label={`Remove ${tag}`} disabled={tagBusy} onclick={() => onRemoveTag(file, tag)}>
                   <Icon name="close" size={11} />
                 </button>
@@ -243,6 +247,23 @@
 </div>
 
 <style>
+  :global(.lightbox-tag-list .g-tag-search) {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  :global(.lightbox-tag-list .g-tag-search:focus-visible) {
+    outline: 2px solid var(--accent-line);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
   :global(.lightbox-stage img.native-size) {
     inset: 50% auto auto 50%;
     width: auto;
