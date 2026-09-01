@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"gooru.local/types"
 )
 
 var virtualMediaKinds = map[string]struct{}{
@@ -180,7 +182,7 @@ func (b *SQLBuilder) buildMediaKindQuery(value string) {
 	b.args = append(b.args, value)
 }
 
-func (b *SQLBuilder) buildUserTagQuery(tagStr string, parsed ParsedTag) {
+func (b *SQLBuilder) buildUserTagQuery(tagStr string, parsed types.ParsedTag) {
 	if parsed.Value == "" && !strings.HasSuffix(tagStr, ":") {
 		if b.target == "id" {
 			b.query.WriteString(`SELECT DISTINCT l.id as id FROM locations l LEFT JOIN content_tags ct ON l.content_hash = ct.content_hash LEFT JOIN tags t ON ct.tag_id = t.id WHERE (t.key = ? OR lower(l.path) LIKE lower(?))`)
