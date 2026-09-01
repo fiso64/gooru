@@ -265,9 +265,9 @@ func (cfg *Config) Validate() error {
 		cfg.Uploads.ConflictPolicy = "rename"
 	}
 	switch cfg.Uploads.ConflictPolicy {
-	case "rename", "error":
+	case "skip", "rename", "replace", "error":
 	default:
-		errs = append(errs, errors.New("uploads.conflict_policy must be one of: rename, error"))
+		errs = append(errs, errors.New("uploads.conflict_policy must be one of: skip, rename, replace, error"))
 	}
 	seenTargets := make(map[string]struct{}, len(cfg.Uploads.Targets))
 	for i := range cfg.Uploads.Targets {
