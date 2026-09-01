@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import { parseSearchQuery, parseSearchToken, searchTokensToQuery, searchTokenToString, type SearchToken } from '$lib/search/tokens';
+  import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
   type SuggestionLike = { name: string; count?: number };
@@ -46,6 +47,7 @@
     if (value === lastSyncedValue) return;
     tokens = parseSearchQuery(value);
     draft = '';
+    open = false;
     lastSyncedValue = value;
   });
 
@@ -55,9 +57,7 @@
 
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const editing = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable;
-      if (event.key === '/' && !editing) {
+      if (event.key === '/' && !isEditableShortcutTarget(event.target)) {
         event.preventDefault();
         inputRef?.focus();
       }
@@ -185,10 +185,12 @@
     const key = searchTokenToString(token);
     if (tokens.some((item) => searchTokenToString(item) === key)) {
       draft = '';
+      open = false;
       onDraftInput('');
       return;
     }
     draft = '';
+    open = false;
     active = 0;
     onDraftInput('');
     syncCommit([...tokens, token]);
@@ -212,6 +214,7 @@
 
   function clearAll() {
     draft = '';
+    open = false;
     active = 0;
     onDraftInput('');
     syncCommit([]);
@@ -219,19 +222,21 @@
 
   function handleInput(event: Event) {
     draft = (event.currentTarget as HTMLInputElement).value;
-    open = true;
+    open = Boolean(draft.trim());
     active = 0;
     onDraftInput(draft);
   }
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'ArrowDown') {
+      if (!draft.trim()) return;
       event.preventDefault();
       active = Math.min(active + 1, Math.max(flat.length - 1, 0));
       open = true;
       return;
     }
     if (event.key === 'ArrowUp') {
+      if (!draft.trim()) return;
       event.preventDefault();
       active = Math.max(active - 1, 0);
       open = true;
@@ -248,9 +253,11 @@
       return;
     }
     if (event.key === 'Escape') {
+      event.preventDefault();
       open = false;
       draft = '';
       onDraftInput('');
+      inputRef?.blur();
       return;
     }
     if (event.key === 'Backspace' && !draft && tokens.length > 0) {
@@ -269,14 +276,14 @@
   aria-haspopup="listbox"
   tabindex="-1"
   bind:this={rootRef}
-  onmousedown={() => inputRef?.focus()}
+  onclick={() => inputRef?.focus()}
 >
   <span class="searchbar-icon"><Icon name="search" size={15} /></span>
   {#each tokens as token, index}
     <span class:neg={token.neg} class="searchbar-pill">
       {#if token.neg}<span class="neg-symbol">−</span>{/if}
       {#if token.ns}<span class="ns">{token.ns}:</span>{/if}<span>{token.val}</span>
-      <button class="x" type="button" aria-label={`Remove ${searchTokenToString(token)}`} onclick={(event) => { event.stopPropagation(); removeToken(index); }}>
+      <button class="x" type="button" aria-label={`Remove ${searchTokenToString(token)}`} onclick={() => removeToken(index)}>
         <Icon name="close" size={10} />
       </button>
     </span>
@@ -291,16 +298,16 @@
     autocomplete="off"
     aria-label="Search library"
     oninput={handleInput}
-    onfocus={() => (open = true)}
+    onfocus={() => (open = Boolean(draft.trim()))}
     onkeydown={handleKeydown}
   />
   {#if tokens.length > 0 || draft}
-    <button class="searchbar-clear" type="button" aria-label="Clear search" title="Clear search" onclick={(event) => { event.stopPropagation(); clearAll(); }}>
+    <button class="searchbar-clear" type="button" aria-label="Clear search" title="Clear search" onclick={clearAll}>
       <Icon name="close" size={13} />
     </button>
   {/if}
 
-  {#if open && flat.length > 0}
+  {#if open && draft.trim() && flat.length > 0}
     <ul id="searchbar-suggestions" class="search-suggestions" role="listbox" aria-label="Search suggestions" onmousedown={(event) => event.preventDefault()}>
       {#each groups as group, groupIndex}
         {@const offset = groups.slice(0, groupIndex).reduce((sum, item) => sum + item.items.length, 0)}
