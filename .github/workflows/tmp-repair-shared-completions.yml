@@ -1,0 +1,37 @@
+name: Temporary shared completion branch repair
+
+on:
+  push:
+    branches:
+      - refactor/21-shared-completions
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.head_commit.message == 'ci: repair shared completion branch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/21-shared-completions
+      - name: Repair malformed Svelte closing block and remove this workflow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = path.read_text()
+          bad = '{/if>}'
+          if bad not in text:
+              raise SystemExit('expected malformed closing block not found')
+          path.write_text(text.replace(bad, '{/if}', 1))
+          PY
+          rm .github/workflows/tmp-repair-shared-completions.yml
+      - name: Commit repair
+        run: |
+          git config user.name "autonomous-maintainer"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add frontend/src/lib/components/AuthenticatedApp.svelte .github/workflows/tmp-repair-shared-completions.yml
+          git commit -m "fix(frontend): repair shared completion integration"
+          git push origin HEAD:refactor/21-shared-completions
