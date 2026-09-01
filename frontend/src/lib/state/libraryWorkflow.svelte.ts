@@ -27,6 +27,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   let order: SortOrder = $state(initialLibraryState.order);
   let selectedIDs = $state(new Set<string>());
   let activeFile = $state<FileItem | null>(null);
+  let pendingPreviewID = $state(initialLibraryState.fileID);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
   let suggestionDebounce: ReturnType<typeof setTimeout> | undefined;
 
@@ -35,14 +36,14 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     submittedSearch.set(value);
   }
 
-  // Keep all top-level navigation plus durable library controls in one browser
-  // history policy. Search/filter/sort transitions become meaningful Back/Forward
-  // entries without making individual components aware of the History API.
+  // Keep top-level navigation, durable library controls, and the active preview
+  // in one browser-history policy. Components remain unaware of the History API,
+  // and a preview URL can be restored independently of the currently loaded page.
   $effect(() => {
     if (!browser) return;
     const pathname = pathForAppRoute(route);
     const search = route === 'library'
-      ? searchForLibraryURLState({ query: submittedQuery, kind: activeKind, sort, order })
+      ? searchForLibraryURLState({ query: submittedQuery, kind: activeKind, sort, order, fileID: pendingPreviewID })
       : '';
     const nextURL = `${pathname}${search}`;
     const currentURL = `${window.location.pathname}${window.location.search}`;
@@ -61,6 +62,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
       activeSavedSearch = '';
       sort = nextLibraryState.sort;
       order = nextLibraryState.order;
+      pendingPreviewID = nextLibraryState.fileID;
       searchDraft.set(nextLibraryState.query);
       suggestionSearch.set(nextLibraryState.query);
       setSubmittedSearch(nextLibraryState.query);
@@ -124,6 +126,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     setSubmittedSearch(query);
     selectedIDs = new Set();
     activeFile = null;
+    pendingPreviewID = '';
     route = 'library';
   }
 
@@ -160,16 +163,26 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
   function openPreview(file: FileItem) {
     activeFile = file;
+    pendingPreviewID = file.id;
+    route = 'library';
+  }
+
+  function resolvePreview(file: FileItem) {
+    if (pendingPreviewID !== file.id) return;
+    activeFile = file;
   }
 
   function closePreview() {
     activeFile = null;
+    pendingPreviewID = '';
   }
 
   function movePreview(delta: number, files: FileItem[]) {
     if (!activeFile || !files.length) return;
     const index = files.findIndex((file) => file.id === activeFile?.id);
-    activeFile = files[(index + delta + files.length) % files.length] ?? activeFile;
+    const next = files[(index + delta + files.length) % files.length] ?? activeFile;
+    activeFile = next;
+    pendingPreviewID = next.id;
   }
 
   function handleKeydown(event: KeyboardEvent, files: FileItem[]) {
@@ -193,6 +206,10 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
   function setRoute(next: string) {
     route = appRouteFromPath(pathForAppRoute(next));
+    if (route !== 'library') {
+      activeFile = null;
+      pendingPreviewID = '';
+    }
   }
 
   return {
@@ -210,6 +227,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     get selectedIDs() { return selectedIDs; },
     set selectedIDs(value: Set<string>) { selectedIDs = value; },
     get activeFile() { return activeFile; },
+    get pendingPreviewID() { return pendingPreviewID; },
     reset,
     submitSearch,
     setSearch,
@@ -224,6 +242,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     selectFiles,
     clearSelection,
     openPreview,
+    resolvePreview,
     closePreview,
     movePreview,
     handleKeydown,
