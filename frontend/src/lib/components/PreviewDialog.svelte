@@ -90,7 +90,9 @@
   role="dialog"
   aria-modal="true"
   aria-labelledby="preview-title"
+  tabindex="-1"
   onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+  onkeydown={(event) => { if (event.key === 'Escape') onClose(); }}
 >
   <aside class="lightbox-aside">
     <div class="panel-row">

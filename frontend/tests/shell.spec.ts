@@ -364,8 +364,8 @@ test('tag index renders real tag counts and navigates to a tag query', async ({ 
   await page.goto('/');
   await signIn(page);
   await page.getByRole('button', { name: /Tags/ }).first().click();
-  await expect(page.getByRole('heading', { name: 'Tag index' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'rating: 3' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '2 tags across 3 files' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'rating', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /rating:safe/ })).toBeVisible();
   await page.getByRole('button', { name: /rating:safe/ }).click();
   await expect.poll(() => fileQueries).toContain('rating:safe');
@@ -548,4 +548,29 @@ test('lightbox supports per-tag removal and confirmed untrack', async ({ page })
   await expect.poll(() => untracks.length).toBe(1);
   expect(untracks[0]).toMatchObject({ csrf: 'csrf-one', body: { mode: 'untrack' } });
   await expect(page.getByRole('dialog', { name: 'sample.jpg' })).toHaveCount(0);
+});
+
+
+test('Tags index matches concept grouping and filtering', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 9, library_count: 9, facets: { kind: [] } }) });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByText('Tags', { exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: '2 tags across 9 files' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'tags', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'rating', exact: true })).toBeVisible();
+
+  const filter = page.getByLabel('Filter tags');
+  await filter.fill('safe');
+  await expect(page.locator('.tagscloud-item')).toHaveCount(1);
+  await expect(page.locator('.tagscloud-item').filter({ hasText: 'rating:safe' })).toBeVisible();
+
+  await page.locator('.tagscloud-item').filter({ hasText: 'rating:safe' }).click();
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  await expect(page.locator('.searchbar-pill').filter({ hasText: 'rating:safe' })).toBeVisible();
 });

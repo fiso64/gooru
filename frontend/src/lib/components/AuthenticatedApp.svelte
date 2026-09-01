@@ -357,6 +357,7 @@
     {:else if library.route === 'tags'}
       <TagsView
         tags={tagsQuery.data?.tags ?? []}
+        libraryCount={page?.library_count ?? files.length}
         loading={tagsQuery.isLoading}
         error={tagsQuery.isError ? errorMessage(tagsQuery.error) : ''}
         onTag={library.runTagSearch}

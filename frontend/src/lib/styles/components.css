@@ -869,8 +869,8 @@
 
 .tagscloud {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px;
 }
 
 .tagscloud-dense {
@@ -896,6 +896,44 @@
 
 .tagscloud-item .ns {
   color: var(--accent);
+}
+
+.tag-filter-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-bottom: 12px;
+  background: var(--bg);
+}
+
+.tag-ns-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 18px 0 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.tag-ns-header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+}
+
+.tag-ns-header .count {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+
+.tagscloud-item .tag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tag-index-section {
