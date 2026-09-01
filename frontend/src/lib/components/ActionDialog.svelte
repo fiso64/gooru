@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import TagAutocompleteInput from './TagAutocompleteInput.svelte';
+  import type { TagCandidate } from '$lib/utils/tagSuggestions';
 
   let {
     title,
@@ -11,6 +13,8 @@
     busy = false,
     error = '',
     input = true,
+    tagInput = false,
+    tagCandidates = [],
     onInput,
     onCancel,
     onConfirm
@@ -24,6 +28,8 @@
     busy?: boolean;
     error?: string;
     input?: boolean;
+    tagInput?: boolean;
+    tagCandidates?: TagCandidate[];
     onInput?: (value: string) => void;
     onCancel: () => void;
     onConfirm: () => void;
@@ -85,12 +91,25 @@
     {#if input}
       <label>
         <span>{label}</span>
-        <input
-          value={value ?? ''}
-          disabled={busy}
-          oninput={(event) => onInput?.(event.currentTarget.value)}
-          onkeydown={(event) => { if (event.key === 'Enter') onConfirm(); }}
-        />
+        {#if tagInput}
+          <div class="dialog-tag-input">
+            <TagAutocompleteInput
+              value={value ?? ''}
+              tags={tagCandidates}
+              disabled={busy}
+              ariaLabel={label ?? 'Tags'}
+              onInput={(next) => onInput?.(next)}
+              onCommit={(next) => onInput?.(next)}
+            />
+          </div>
+        {:else}
+          <input
+            value={value ?? ''}
+            disabled={busy}
+            oninput={(event) => onInput?.(event.currentTarget.value)}
+            onkeydown={(event) => { if (event.key === 'Enter') onConfirm(); }}
+          />
+        {/if}
       </label>
     {/if}
     {#if error}<div class="dialog-error">{error}</div>{/if}
@@ -100,3 +119,24 @@
     </div>
   </div>
 </div>
+
+<style>
+  .dialog-tag-input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-3);
+    background: var(--surface);
+    transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+  }
+
+  .dialog-tag-input:focus-within {
+    border-color: var(--accent-line);
+    background: var(--bg-2);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+
+  .dialog-tag-input :global(.tag-autocomplete) {
+    width: 100%;
+  }
+</style>
