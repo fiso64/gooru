@@ -7,7 +7,6 @@ import (
 
 var reservedTagKeys = map[string]struct{}{
 	"ext":  {},
-	"kind": {},
 	"type": {},
 }
 
