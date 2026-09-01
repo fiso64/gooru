@@ -27,6 +27,7 @@
     onSelectAll,
     onClearSelection,
     onBulkTag,
+    onBulkUntag,
     onLoadMore,
     onLoadPrevious,
     actions
@@ -51,6 +52,7 @@
     onSelectAll: () => void;
     onClearSelection: () => void;
     onBulkTag: () => void;
+    onBulkUntag: () => void;
     onLoadMore: () => void;
     onLoadPrevious: () => void;
     actions?: Snippet;
@@ -121,16 +123,19 @@
 <main bind:this={mainHost} class="main" onscroll={handleScroll}>
   {#if selectedIDs.size > 0}
     <div class="selection-bar">
-      <div>
+      <div class="selection-summary">
         <Icon name="check" size={14} active />
         <span><b>{selectedIDs.size}</b> of <span>{totalCount || files.length}</span> selected</span>
         {#if selectedIDs.size < files.length}
-          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>Select loaded</button>
+          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>
+            {files.length === (totalCount || files.length) ? `Select all ${files.length}` : `Select all loaded ${files.length}`}
+          </button>
         {/if}
       </div>
       <div class="sb-actions">
-        <button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> Tag</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> Tag…</button>
         <button class="g-btn g-btn-sm" type="button" disabled title="Export bundles are not supported yet"><Icon name="download" size={13} /> Export</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="trash" size={13} /> Untag…</button>
         <button class="g-btn g-btn-sm g-btn-icon" type="button" title="Clear" aria-label="Clear selection" onclick={onClearSelection}><Icon name="close" size={13} /></button>
       </div>
     </div>
@@ -141,7 +146,7 @@
       <h1>Library</h1>
       <span class="library-head-meta">
         {(totalCount || files.length).toLocaleString()} file{(totalCount || files.length) === 1 ? '' : 's'}
-        {#if searchActive && libraryCount} filtered from {libraryCount.toLocaleString()}{/if}
+        {#if searchActive && libraryCount} · filtered from {libraryCount.toLocaleString()}{/if}
       </span>
     </div>
     {#if actions}{@render actions()}{/if}
@@ -157,9 +162,17 @@
     <div class="empty-state error-state"><p>{errorMessage(error)}</p></div>
   {:else if !files.length}
     <div class="empty-state">
-      <div class="empty-icon"><Icon name="search" size={24} /></div>
-      <h2>No results</h2>
-      <p>{searchActive ? 'Nothing matches the active filters.' : 'Your library is empty. Import files to start browsing.'}</p>
+      <div class="empty-state-inner">
+        <div class="empty-icon"><Icon name="search" size={24} /></div>
+        <h2>No results</h2>
+        <p>
+          {#if searchActive}
+            Nothing matches your filters. Try removing a pill, or check the tag spelling.
+          {:else}
+            Your library is empty. Drag files in, or run <code>gooru import</code> from a terminal.
+          {/if}
+        </p>
+      </div>
     </div>
   {:else}
     <div bind:this={gridHost} class="virtual-grid" style={`height: ${virtual.totalHeight}px;`}>
@@ -179,7 +192,10 @@
     </div>
     {#if hasNextPage || isFetchingNextPage}
       <div bind:this={loadMoreSentinel} class="infinite-sentinel" data-testid="infinite-scroll-sentinel">
-        {isFetchingNextPage ? 'Loading more results' : 'More results available'}
+        <span class="infinite-sentinel-content">
+          <span class="infinite-sentinel-spinner" aria-hidden="true"></span>
+          Loading more
+        </span>
       </div>
     {/if}
   {/if}
