@@ -134,7 +134,7 @@ test('Jobs drawer preserves route and shares real job actions with the page', as
 
   await page.locator('.sidebar').getByRole('button', { name: /Jobs/ }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
-  await expect(page.getByText('Tag edit')).toBeVisible();
+  await expect(page.getByText('Tag edit', { exact: true })).toBeVisible();
   await page.locator('.jobs-page-header').hover();
   await page.getByRole('button', { name: 'Clear completed' }).click();
   await expect.poll(() => clears).toEqual([{ csrf: 'csrf-one', status: 'completed' }]);
