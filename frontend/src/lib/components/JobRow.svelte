@@ -64,18 +64,18 @@
   </div>
   <div class="job-meta">
     <span>{percent}%</span>
-    <span>{detail}</span>
+    {#if detail}<span class="job-detail">{detail}</span>{/if}
   </div>
 </div>
 
 <style>
   .job-row {
     position: relative;
-    padding: 12px 14px;
+    padding: 14px 16px;
     border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 7px;
   }
 
   .job-row:first-child {
@@ -85,8 +85,9 @@
   .job-row-head {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    justify-content: flex-start;
+    gap: 10px;
+    padding-right: 58px;
     font-size: 12.5px;
   }
 
@@ -137,24 +138,25 @@
 
   .job-meta {
     display: flex;
-    justify-content: space-between;
-    gap: 12px;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    min-width: 0;
     font-family: var(--font-mono);
     font-size: 10.5px;
     color: var(--text-4);
   }
 
-  .job-meta span:last-child {
+  .job-detail {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    text-align: right;
   }
 
   .job-cancel {
     position: absolute;
-    top: 7px;
+    top: 9px;
     right: 10px;
     min-height: 24px;
     padding: 2px 7px;
@@ -184,5 +186,4 @@
   .job-cancel:hover {
     background: var(--danger-soft);
   }
-
 </style>
