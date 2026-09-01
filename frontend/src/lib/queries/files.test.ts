@@ -36,6 +36,24 @@ describe('files query options', () => {
     expect(requests[1].url).not.toContain('include_facets=true');
   });
 
+  it('retains the previous grid while a new query key is loading', () => {
+    const options = filesQueryOptions(
+      () => true,
+      () => '',
+      () => '',
+      () => 'modified',
+      () => 'desc',
+      () => 1
+    );
+    const previous = {
+      pages: [{ files: [], next_page_token: '', total_count: 0, library_count: 0 }],
+      pageParams: ['']
+    };
+
+    expect(options.placeholderData(previous)).toBe(previous);
+    expect(options.placeholderData(undefined)).toBeUndefined();
+  });
+
   it('decodes offset page tokens for retained window positioning', () => {
     expect(pageTokenOffset('')).toBe(0);
     expect(pageTokenOffset('180')).toBe(180);
