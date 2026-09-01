@@ -131,6 +131,14 @@ func isInlineOriginalMedia(contentType string) bool {
 }
 
 func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, file types.FileInfo, kind string) {
+	// A static image derivative necessarily discards GIF animation. The preview
+	// route is used by the full viewer, so preserve the original animated media
+	// there while thumbnails remain cheap static derivatives for grids/lists.
+	if kind == "preview" && mediaKindForType(originalContentType(file)) == "gif" {
+		m.ServeContent(w, r, file)
+		return
+	}
+
 	size, err := m.derivativeSize(r, kind)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
