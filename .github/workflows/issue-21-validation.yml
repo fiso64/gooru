@@ -27,44 +27,13 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
           text = app.read_text()
           text = text.replace("  import { createViewportState } from '$lib/state/viewport.svelte';\n", '')
           text = text.replace('  const viewport = createViewportState();\n', '')
-          old = '''  $effect(() => {
-    fileMetadataKey;
-    fileMetadata = null;
-  });
-
-  $effect(() => {
-    fileMetadataKey;
-    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);
-    if (!metadataPage) return;
-    fileMetadata = {
-      total_count: metadataPage.total_count,
-      library_count: metadataPage.library_count,
-      facets: metadataPage.facets
-    };
-  });'''
-          new = '''  let observedFileMetadataKey = $state('');
-
-  $effect(() => {
-    const key = fileMetadataKey;
-    if (key !== observedFileMetadataKey) {
-      observedFileMetadataKey = key;
-      fileMetadata = null;
-    }
-    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);
-    if (!metadataPage) return;
-    fileMetadata = {
-      total_count: metadataPage.total_count,
-      library_count: metadataPage.library_count,
-      facets: metadataPage.facets
-    };
-  });'''
-          if old not in text:
-            raise SystemExit('metadata effect block not found')
+          old = "  $effect(() => {\n    fileMetadataKey;\n    fileMetadata = null;\n  });\n\n  $effect(() => {\n    fileMetadataKey;\n    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);\n    if (!metadataPage) return;\n    fileMetadata = {\n      total_count: metadataPage.total_count,\n      library_count: metadataPage.library_count,\n      facets: metadataPage.facets\n    };\n  });"
+          new = "  let observedFileMetadataKey = $state('');\n\n  $effect(() => {\n    const key = fileMetadataKey;\n    if (key !== observedFileMetadataKey) {\n      observedFileMetadataKey = key;\n      fileMetadata = null;\n    }\n    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);\n    if (!metadataPage) return;\n    fileMetadata = {\n      total_count: metadataPage.total_count,\n      library_count: metadataPage.library_count,\n      facets: metadataPage.facets\n    };\n  });"
+          if old not in text: raise SystemExit('metadata effect block not found')
           text = text.replace(old, new)
           text = text.replace('        viewportHeight={viewport.height}\n        scrollY={viewport.scrollY}\n', '')
           app.write_text(text)
@@ -75,36 +44,21 @@ jobs:
           text = text.replace('    viewportHeight: number;\n    scrollY: number;\n', '')
           text = text.replace('  let paneHeight = $state(viewportHeight || 900);\n  let paneScrollY = $state(scrollY || 0);\n', '  let paneHeight = $state(900);\n  let paneScrollY = $state(0);\n')
           old_virtual = '  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex));'
-          new_virtual = '''  const virtualItemCount = $derived(Math.max(
-    totalCount || 0,
-    retainedStartIndex + files.length + (hasNextPage ? 1 : 0)
-  ));
-  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualItemCount, retainedStartIndex));'''
-          if old_virtual not in text:
-            raise SystemExit('virtual expression not found')
+          new_virtual = "  const virtualItemCount = $derived(Math.max(\n    totalCount || 0,\n    retainedStartIndex + files.length + (hasNextPage ? 1 : 0)\n  ));\n  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualItemCount, retainedStartIndex));"
+          if old_virtual not in text: raise SystemExit('virtual expression not found')
           text = text.replace(old_virtual, new_virtual)
           grid.write_text(text)
 
           search = Path('frontend/src/lib/components/SearchBar.svelte')
-          text = search.read_text()
-          text = text.replace("'tag, namespace:value, -exclude'", "'tag, namespace:value, -exclude — try \"subject:\" or \"hero\"'")
+          text = search.read_text().replace("'tag, namespace:value, -exclude'", "'tag, namespace:value, -exclude — try \"subject:\" or \"hero\"'")
           text = text.replace('<span class="neg-symbol">-</span>', '<span class="neg-symbol">−</span>')
           search.write_text(text)
 
           spec = Path('frontend/tests/shell.spec.ts')
           text = spec.read_text()
-          text = text.replace(
-              "await page.evaluate(() => window.scrollTo(0, 10_000));",
-              "await page.locator('.main').evaluate((node) => { node.scrollTop = 10_000; node.dispatchEvent(new Event('scroll')); });"
-          )
-          text = text.replace(
-              "await page.evaluate((step) => window.scrollTo(0, step * 2_500), i + 1);",
-              "await page.locator('.main').evaluate((node, step) => { node.scrollTop = step * 2_500; node.dispatchEvent(new Event('scroll')); }, i + 1);"
-          )
-          text = text.replace(
-              "await page.evaluate(() => window.scrollTo(0, 0));",
-              "await page.locator('.main').evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });"
-          )
+          text = text.replace("await page.evaluate(() => window.scrollTo(0, 10_000));", "await page.locator('.main').evaluate((node) => { node.scrollTop = 10_000; node.dispatchEvent(new Event('scroll')); });")
+          text = text.replace("await page.evaluate((step) => window.scrollTo(0, step * 2_500), i + 1);", "await page.locator('.main').evaluate((node, step) => { node.scrollTop = step * 2_500; node.dispatchEvent(new Event('scroll')); }, i + 1);")
+          text = text.replace("await page.evaluate(() => window.scrollTo(0, 0));", "await page.locator('.main').evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });")
           spec.write_text(text)
           PY
       - name: Install frontend dependencies
@@ -134,8 +88,6 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/MediaGrid.svelte frontend/src/lib/components/SearchBar.svelte frontend/tests/shell.spec.ts
-          if git diff --cached --quiet; then
-            exit 0
-          fi
+          if git diff --cached --quiet; then exit 0; fi
           git commit -m "#21 keep bounded pagination working in concept scroll pane"
           git push
