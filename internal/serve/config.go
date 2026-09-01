@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -88,6 +89,19 @@ type ToolsConfig struct {
 
 type LoggingConfig struct {
 	Level string `yaml:"level"`
+}
+
+func (cfg LoggingConfig) SlogLevel() slog.Level {
+	switch strings.ToLower(strings.TrimSpace(cfg.Level)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 type Overrides struct {
@@ -327,7 +341,16 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("auth.cookie_same_site must be one of: lax, strict, none"))
 	}
 	if !cfg.Auth.Enabled && !cfg.Auth.AllowUnsafeNoAuthNonLoopback && !isLoopbackListen(cfg.Server.Listen) {
-		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_non_loopback for trusted development"))
+		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_nonloopback for trusted development"))
+	}
+	if cfg.Logging.Level == "" {
+		cfg.Logging.Level = "info"
+	}
+	cfg.Logging.Level = strings.ToLower(strings.TrimSpace(cfg.Logging.Level))
+	switch cfg.Logging.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		errs = append(errs, errors.New("logging.level must be one of: debug, info, warn, error"))
 	}
 	return errors.Join(errs...)
 }
