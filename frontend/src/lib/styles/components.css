@@ -283,7 +283,7 @@
   cursor: not-allowed;
 }
 
-.g-btn-primary {
+.gooru-root .g-btn-primary {
   background: var(--accent);
   color: var(--accent-ink);
   border-color: var(--accent);
