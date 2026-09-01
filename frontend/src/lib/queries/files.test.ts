@@ -30,7 +30,7 @@ describe('files query options', () => {
     expect(requests[0].signal).toBeInstanceOf(AbortSignal);
     expect(requests[0].signal?.aborted).toBe(false);
     expect(requests[0].url).toContain(`limit=${pageLimit}`);
-    expect(new URL(requests[0].url, 'http://localhost').searchParams.get('query')).toBe('rating:safe kind:photo');
+    expect(new URL(requests[0].url, 'http://localhost').searchParams.get('query')).toBe('rating:safe type:photo');
     expect(requests[0].url).toContain('include_facets=true');
     expect(requests[1].url).toContain('page_token=next-page');
     expect(requests[1].url).not.toContain('include_facets=true');
