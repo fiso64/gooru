@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import Icon from './Icon.svelte';
   import { formatBytes, parseTags } from '$lib/utils/format';
-  import type { UploadItem } from '$lib/state/uploadItems';
+  import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
 
   let {
     uploadFiles,
@@ -34,7 +35,7 @@
     cancelRequested?: boolean;
     uploadStatus: string;
     activeUploadJobID: string;
-    targets: Array<{ id: string; name: string }>;
+    targets: UploadTargetOption[];
     targetID: string;
     conflictPolicy: string;
     autoUpload: boolean;
@@ -55,22 +56,39 @@
   let tagEditorOpen = $state(false);
   let tagDraft = $state('');
   let previewURLs = $state<string[]>([]);
+  let activePreviewURLs: string[] = [];
 
   const stagedItems = $derived(uploadItems.filter((item: UploadItem) => item.status === 'staged'));
   const queueItems = $derived(uploadItems.filter((item: UploadItem) => item.status !== 'staged'));
   const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
   const queueBytes = $derived(queueItems.reduce((sum: number, item: UploadItem) => sum + item.size, 0));
   const initialTags = $derived(parseTags(uploadTags));
+  const selectedTargetID = $derived(effectiveUploadTargetID(targetID, targets));
 
-  $effect(() => {
-    const urls = uploadFiles.map((file: File) =>
+  function clearPreviewURLs() {
+    for (const url of activePreviewURLs) if (url) URL.revokeObjectURL(url);
+    activePreviewURLs = [];
+    previewURLs = [];
+  }
+
+  function replacePreviewURLs(files: File[]) {
+    clearPreviewURLs();
+    activePreviewURLs = files.map((file: File) =>
       file.type.startsWith('image/') || file.type.startsWith('video/') ? URL.createObjectURL(file) : ''
     );
-    previewURLs = urls;
-    return () => {
-      for (const url of urls) if (url) URL.revokeObjectURL(url);
-    };
+    previewURLs = [...activePreviewURLs];
+  }
+
+  $effect(() => {
+    const files = uploadFiles;
+    if (files.length) {
+      replacePreviewURLs(files);
+      return;
+    }
+    if (!uploadItems.length) clearPreviewURLs();
   });
+
+  onDestroy(clearPreviewURLs);
 
   function chooseFiles() {
     fileInput?.click();
@@ -165,7 +183,7 @@
       <section class="g-card upload-config-card">
         <label class="field-row">
           <span>Target</span>
-          <select class="g-input" value={targetID} onchange={(event) => onTargetInput(event.currentTarget.value)}>
+          <select class="g-input" value={selectedTargetID} onchange={(event) => onTargetInput(event.currentTarget.value)}>
             {#each targets as target}
               <option value={target.id}>{target.name}</option>
             {:else}
