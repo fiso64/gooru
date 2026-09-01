@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Logo from './Logo.svelte';
 
   let {
@@ -12,7 +13,6 @@
     onLogin
   } = $props<{
     checked: boolean;
-    username: string;
     loginUsername: string;
     loginPassword: string;
     loginBusy: boolean;
@@ -20,8 +20,13 @@
     onUsernameInput: (value: string) => void;
     onPasswordInput: (value: string) => void;
     onLogin: () => void;
-    onLogout: () => void;
   }>();
+
+  let usernameInput: HTMLInputElement;
+
+  onMount(() => {
+    usernameInput?.focus();
+  });
 </script>
 
 <div class="login-v2">
@@ -29,9 +34,9 @@
     <div class="login-v2-id">
       <div class="login-v2-mark"><Logo size={16} /></div>
       <div class="login-v2-id-meta">
-        <span>v0.4.2</span>
+        <span>server</span>
         <span class="sep">&middot;</span>
-        <span>{checked ? 'session' : 'checking'}</span>
+        <span>{checked ? 'ready' : 'checking'}</span>
         <span class="sep">&middot;</span>
         <span>gpl-3.0</span>
       </div>
@@ -41,6 +46,7 @@
       <div class="login-v2-field">
         <label for="lg-user">user</label>
         <input
+          bind:this={usernameInput}
           id="lg-user"
           class="g-input"
           aria-label="Username"
@@ -64,21 +70,21 @@
         />
       </div>
       {#if loginError}
-        <div class="login-v2-error"><span class="prompt">!</span><span>{loginError}</span></div>
+        <div class="login-v2-error" role="alert"><span class="prompt">!</span><span>{loginError}</span></div>
       {/if}
       <button class="g-btn g-btn-primary auth-submit" type="submit" disabled={loginBusy} aria-label="Sign in">
-        {loginBusy ? 'authenticating...' : 'sign in'}
+        {loginBusy ? 'authenticating…' : 'sign in'}
       </button>
     </form>
 
     <div class="login-v2-foot">
       <div><span class="mono">first run?</span><span> on the server: </span><code>gooru user create-admin</code></div>
       <div class="login-v2-foot-links">
-        <a href="/docs" tabindex="-1">docs</a>
+        <a href="#" aria-disabled="true" tabindex="-1" onclick={(event) => event.preventDefault()}>docs</a>
         <span class="sep">&middot;</span>
-        <a href="/source" tabindex="-1">source</a>
+        <a href="#" aria-disabled="true" tabindex="-1" onclick={(event) => event.preventDefault()}>source</a>
         <span class="sep">&middot;</span>
-        <a href="/changelog" tabindex="-1">changelog</a>
+        <a href="#" aria-disabled="true" tabindex="-1" onclick={(event) => event.preventDefault()}>changelog</a>
       </div>
     </div>
   </div>
