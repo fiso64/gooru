@@ -16,7 +16,7 @@
 
 <svelte:window onkeydown={(event) => { if (event.key === 'Escape') onClose(); }} />
 
-<div class="jobs-drawer" role="dialog" aria-modal="false" aria-labelledby="jobs-drawer-title">
+<div class="jobs-drawer" role="dialog" aria-modal="false" aria-labelledby="jobs-drawer-title" tabindex="-1">
   <div class="jobs-drawer-head">
     <h3 id="jobs-drawer-title">Jobs</h3>
     <div class="jobs-drawer-actions">
