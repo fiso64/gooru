@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
   import { formatBytes, groupTags, mediaDimensions, mediaDuration, parseTags } from '$lib/utils/format';
+  import { claimFocus } from '$lib/utils/focus';
   import { hasCommandModifier, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { canUseOriginalInViewer, preserveNativeViewerSize, viewerImageSource } from '$lib/utils/media';
   import type { FileItem } from '$lib/api/types';
@@ -36,6 +38,7 @@
     onUntrack: (file: FileItem) => void;
   }>();
 
+  let dialogElement = $state<HTMLDivElement | undefined>();
   let videoElement = $state<HTMLVideoElement | undefined>();
   let audioElement = $state<HTMLAudioElement | undefined>();
   let videoPaused = $state(true);
@@ -46,6 +49,11 @@
   const originalAvailable = $derived(canUseOriginalInViewer(file));
   const imageSource = $derived(viewerImageSource(file, preferOriginal));
   const nativeImageSize = $derived(preserveNativeViewerSize(file));
+
+  onMount(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    return claimFocus(dialogElement, previous);
+  });
 
   $effect(() => {
     file.id;
@@ -107,6 +115,7 @@
 <svelte:window onkeydown={handlePlaybackKeydown} />
 
 <div
+  bind:this={dialogElement}
   class="lightbox"
   role="dialog"
   aria-modal="true"
