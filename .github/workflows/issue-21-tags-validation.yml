@@ -23,7 +23,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Wire Tags count, styles, and regression coverage
+      - name: Wire Tags count, styles, regression coverage, and lightbox a11y
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -47,8 +47,24 @@ jobs:
               text = replace_once(text, marker, additions + marker, 'tag style insertion')
           css.write_text(text)
 
+          preview = Path('frontend/src/lib/components/PreviewDialog.svelte')
+          text = preview.read_text()
+          text = replace_once(
+              text,
+              '  aria-labelledby="preview-title"\n  onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}',
+              '  aria-labelledby="preview-title"\n  tabindex="-1"\n  onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}\n  onkeydown={(event) => { if (event.key === \'Escape\') onClose(); }}',
+              'lightbox accessibility attributes'
+          )
+          preview.write_text(text)
+
           spec = Path('frontend/tests/shell.spec.ts')
           text = spec.read_text()
+          text = replace_once(
+              text,
+              "  await expect(page.getByRole('heading', { name: 'Tag index' })).toBeVisible();\n  await expect(page.getByRole('button', { name: 'rating: 3' })).toBeVisible();",
+              "  await expect(page.getByRole('heading', { name: '2 tags across 3 files' })).toBeVisible();\n  await expect(page.getByRole('heading', { name: 'rating', exact: true })).toBeVisible();",
+              'legacy Tags assertion'
+          )
           if "test('Tags index matches concept grouping and filtering'" not in text:
               text += """\n\ntest('Tags index matches concept grouping and filtering', async ({ page }) => {\n  await mockAuth(page);\n  await mockShellApis(page);\n  await page.route('**/api/v1/files?**', async (route) => {\n    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 9, library_count: 9, facets: { kind: [] } }) });\n  });\n\n  await page.goto('/');\n  await signIn(page);\n  await page.getByText('Tags', { exact: true }).first().click();\n  await expect(page.getByRole('heading', { name: '2 tags across 9 files' })).toBeVisible();\n  await expect(page.getByRole('heading', { name: 'tags', exact: true })).toBeVisible();\n  await expect(page.getByRole('heading', { name: 'rating', exact: true })).toBeVisible();\n\n  const filter = page.getByLabel('Filter tags');\n  await filter.fill('safe');\n  await expect(page.locator('.tagscloud-item')).toHaveCount(1);\n  await expect(page.locator('.tagscloud-item').filter({ hasText: 'rating:safe' })).toBeVisible();\n\n  await page.locator('.tagscloud-item').filter({ hasText: 'rating:safe' }).click();\n  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();\n  await expect(page.locator('.searchbar-pill').filter({ hasText: 'rating:safe' })).toBeVisible();\n});\n"""
           spec.write_text(text)
@@ -56,9 +72,11 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
-      - name: Check frontend
+      - name: Check frontend with zero warnings
         working-directory: frontend
-        run: npm run check
+        run: |
+          npm run check | tee /tmp/svelte-check.log
+          grep -q "svelte-check found 0 errors and 0 warnings" /tmp/svelte-check.log
       - name: Build frontend
         working-directory: frontend
         run: npm run build
@@ -79,6 +97,6 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/styles/components.css frontend/tests/shell.spec.ts
+          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/PreviewDialog.svelte frontend/src/lib/styles/components.css frontend/tests/shell.spec.ts
           git commit -m "#21 wire exact Tags index [skip ci]"
           git push
