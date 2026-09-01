@@ -12,7 +12,7 @@
     onClearCompleted: () => void;
   }>();
 
-  const hasCompleted = $derived(jobs.some((job) => job.status === 'completed' || job.status === 'failed' || job.status === 'canceled'));
+  const hasCompleted = $derived(jobs.some((job: Job) => job.status === 'completed' || job.status === 'failed' || job.status === 'canceled'));
 </script>
 
 <main class="main">
