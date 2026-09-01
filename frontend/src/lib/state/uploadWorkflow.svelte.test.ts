@@ -12,8 +12,40 @@ vi.mock('svelte', async () => {
 
 import { createUploadWorkflow } from './uploadWorkflow.svelte';
 
+function uploadFile(name: string): File {
+  return { name, size: 10, type: 'image/jpeg', lastModified: 0 } as File;
+}
+
 describe('createUploadWorkflow', () => {
   beforeEach(() => untrackSpy.mockClear());
+
+  it('appends later file selections to the staged batch', () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg')]);
+    workflow.select([uploadFile('second.jpg')]);
+
+    expect(workflow.files.map((file) => file.name)).toEqual(['first.jpg', 'second.jpg']);
+    expect(workflow.items.map((item) => [item.name, item.status])).toEqual([
+      ['first.jpg', 'staged'],
+      ['second.jpg', 'staged']
+    ]);
+  });
+
+  it('does not let a new drop overwrite an active queued batch', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('queued.jpg')]);
+    await workflow.submit(async () => ({
+      id: 'job-queued',
+      type: 'upload_import',
+      status: 'pending',
+      submitted_at: '2026-09-01T00:00:00Z'
+    } as Job));
+
+    workflow.select([uploadFile('later.jpg')]);
+    expect(workflow.files.map((file) => file.name)).toEqual(['queued.jpg']);
+    expect(workflow.items.map((item) => item.name)).toEqual(['queued.jpg']);
+    expect(workflow.status).toContain('Upload in progress');
+  });
 
   it('applies polled jobs outside the caller reactive dependency graph', () => {
     const workflow = createUploadWorkflow();
