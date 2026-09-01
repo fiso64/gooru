@@ -55,6 +55,7 @@
   aria-labelledby="password-dialog-title"
   tabindex="-1"
   onclick={(event) => { if (event.target === event.currentTarget) close(); }}
+  onkeydown={(event) => { if (event.key === 'Escape') close(); }}
 >
   <form class="action-dialog password-dialog" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
     <div>
