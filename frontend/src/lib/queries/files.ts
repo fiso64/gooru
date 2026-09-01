@@ -92,3 +92,15 @@ export function createTagMutation(getCSRFToken: () => string, queryClient: Query
     }
   }));
 }
+
+export function createUntrackFileMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<void, Error, string>(() => ({
+    mutationFn: (id) => new ApiClient(getCSRFToken()).untrackFile(id),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: fileKeys.all }),
+        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
+      ]);
+    }
+  }));
+}
