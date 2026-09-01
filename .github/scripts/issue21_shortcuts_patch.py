@@ -12,15 +12,15 @@ text = app.read_text()
 text = replace_once(
     text,
     "  function handleKeydown(event: KeyboardEvent) {\n    library.handleKeydown(event, loadedFiles);\n  }",
-    "  function isTypingTarget(target: EventTarget | null) {\n    if (!(target instanceof HTMLElement)) return false;\n    return target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';\n  }\n\n  function handleKeydown(event: KeyboardEvent) {\n    if (event.key === '?' && !isTypingTarget(event.target)) {\n      event.preventDefault();\n      setRoute('shortcuts');\n      return;\n    }\n    library.handleKeydown(event, loadedFiles);\n  }",
+    "  function isTypingTarget(target: EventTarget | null) {\n    if (!(target instanceof HTMLElement)) return false;\n    return target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';\n  }\n\n  function handleKeydown(event: KeyboardEvent) {\n    const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);\n    if (shortcutsKey && !event.altKey && !event.ctrlKey && !event.metaKey && !isTypingTarget(event.target)) {\n      event.preventDefault();\n      setRoute('shortcuts');\n      return;\n    }\n    library.handleKeydown(event, loadedFiles);\n  }",
     "global shortcuts handler",
 )
 app.write_text(text)
 
 docs = Path("docs/issue-21-concept-discrepancies.md")
 text = docs.read_text()
-addition = "33. Shortcuts `?` launcher: B. The concept page explicitly tells the user to press `?` from anywhere, so that launcher is implemented as a real global shortcut outside text-entry controls. Other concept shortcut rows that are not implemented remain visible but greyed as A rather than falsely advertising behavior."
-if addition not in text:
+addition = "33. Shortcuts `?` launcher: B. The concept page explicitly tells the user to press `?` from anywhere, so that launcher is implemented as a real global shortcut outside text-entry controls. It accepts both the printable `?` key and the layout-stable Shift+Slash representation; other concept shortcut rows that are not implemented remain visible but greyed as A rather than falsely advertising behavior."
+if "33. Shortcuts `?` launcher:" not in text:
     text = text.rstrip() + "\n" + addition + "\n"
 docs.write_text(text)
 
@@ -39,6 +39,7 @@ test('Shortcuts matches the concept and question mark opens it outside text entr
   await signIn(page);
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 
+  await page.locator('.main').click({ position: { x: 8, y: 8 } });
   await page.keyboard.press('Shift+/');
   await expect(page.getByRole('heading', { name: 'Shortcuts' })).toBeVisible();
   await expect(page.getByText('Press').locator('..')).toContainText('from anywhere to open this cheatsheet.');
