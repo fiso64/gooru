@@ -11,7 +11,7 @@ export interface VirtualGrid {
 }
 
 const gridPadding = 16 * 2;
-const gridGap = 4;
+const gridGap = 5;
 const minCardWidth = 180;
 
 export function gridColumns(containerWidth: number) {

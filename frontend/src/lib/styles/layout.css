@@ -355,17 +355,12 @@
   margin-top: auto;
 }
 
-.sidebar-section-head,
-.g-eyebrow {
+.sidebar-section-head {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-4);
-}
-
-.g-eyebrow-accent {
-  color: var(--accent);
 }
 
 .sidebar-section-head {

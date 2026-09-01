@@ -750,3 +750,56 @@ test('login matches concept without fabricating build metadata', async ({ page }
   await expect.poll(() => loginRequests).toBe(1);
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 });
+
+
+test('uses exact concept primitives and font weights', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files: [fileItem('concept-one', 'concept.jpg')], total_count: 1, library_count: 1, facets: { kind: [{ value: 'photo', count: 1 }] } })
+    });
+  });
+
+  await page.goto('/');
+  const input = page.getByLabel('Username');
+  const inputStyle = await input.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { padding: style.padding, radius: style.borderRadius, fontSize: style.fontSize };
+  });
+  expect(inputStyle).toEqual({ padding: '9px 12px', radius: '4px', fontSize: '14px' });
+  await input.evaluate((node) => node.blur());
+  await expect.poll(() => input.evaluate((node) => getComputedStyle(node).borderRadius)).toBe('6px');
+
+  const fontFaces = await page.evaluate(() => Array.from(document.fonts).map((face) => ({
+    family: face.family.replace(/["']/g, ''),
+    weight: face.weight
+  })));
+  expect(fontFaces).toContainEqual({ family: 'IBM Plex Sans', weight: '500' });
+  expect(fontFaces).toContainEqual({ family: 'IBM Plex Sans', weight: '700' });
+  expect(fontFaces).toContainEqual({ family: 'IBM Plex Mono', weight: '500' });
+  expect(fontFaces).toContainEqual({ family: 'IBM Plex Mono', weight: '600' });
+
+  await signIn(page);
+  const sortButton = page.getByTitle('Sort direction');
+  const buttonStyle = await sortButton.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { padding: style.padding, radius: style.borderRadius, fontSize: style.fontSize, weight: style.fontWeight, gap: style.gap };
+  });
+  expect(buttonStyle).toEqual({ padding: '5px 10px', radius: '6px', fontSize: '14px', weight: '400', gap: '6px' });
+
+  const segment = page.getByRole('button', { name: 'Modified' });
+  const segmentStyle = await segment.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { padding: style.padding, radius: style.borderRadius, fontSize: style.fontSize, weight: style.fontWeight };
+  });
+  expect(segmentStyle).toEqual({ padding: '5px 12px', radius: '4px', fontSize: '12px', weight: '500' });
+
+  const grid = page.getByTestId('virtual-media-grid');
+  const gridStyle = await grid.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { gap: style.gap, padding: style.padding };
+  });
+  expect(gridStyle).toEqual({ gap: '5px', padding: '16px' });
+});

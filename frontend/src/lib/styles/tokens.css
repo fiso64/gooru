@@ -7,8 +7,22 @@
 
 @font-face {
   font-family: 'IBM Plex Sans';
+  src: url('$lib/assets/fonts/IBMPlexSans-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans';
   src: url('$lib/assets/fonts/IBMPlexSans-SemiBold.ttf') format('truetype');
   font-weight: 600;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans';
+  src: url('$lib/assets/fonts/IBMPlexSans-Bold.ttf') format('truetype');
+  font-weight: 700;
   font-display: swap;
 }
 
@@ -16,6 +30,20 @@
   font-family: 'IBM Plex Mono';
   src: url('$lib/assets/fonts/IBMPlexMono-Regular.ttf') format('truetype');
   font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('$lib/assets/fonts/IBMPlexMono-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('$lib/assets/fonts/IBMPlexMono-SemiBold.ttf') format('truetype');
+  font-weight: 600;
   font-display: swap;
 }
 
