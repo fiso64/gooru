@@ -3,7 +3,7 @@
     {
       name: 'Navigation',
       items: [
-        { keys: ['/'], description: 'Focus search', supported: false },
+        { keys: ['/'], description: 'Focus search', supported: true },
         { keys: ['g', 'l'], description: 'Go to library', supported: false },
         { keys: ['g', 't'], description: 'Go to tags', supported: false },
         { keys: ['g', 's'], description: 'Go to settings', supported: false },
@@ -17,7 +17,7 @@
         { keys: ['k'], description: 'Previous file', supported: true },
         { keys: ['↵'], description: 'Open lightbox', supported: false },
         { keys: ['Esc'], description: 'Close lightbox / clear selection', supported: true },
-        { keys: ['Space'], description: 'Quick preview', supported: false }
+        { keys: ['Space'], description: 'Play / pause viewer media', supported: true }
       ]
     },
     {
@@ -26,7 +26,7 @@
         { keys: ['x'], description: 'Toggle select', supported: false },
         { keys: ['⇧', 'click'], description: 'Range select', supported: false },
         { keys: ['⌘', 'a'], description: 'Select all', supported: false },
-        { keys: ['Esc'], description: 'Clear selection', supported: false }
+        { keys: ['Esc'], description: 'Clear selection', supported: true }
       ]
     },
     {
