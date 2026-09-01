@@ -36,7 +36,18 @@ jobs:
           test -s frontend/src/lib/assets/fonts/IBMPlexMono-Medium.ttf
           test -s frontend/src/lib/assets/fonts/LICENSE-IBM-Plex.txt
       - name: Apply exact primitive port and regression coverage
-        run: python3 .github/scripts/issue21_primitives_patch.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/issue21_primitives_patch.py')
+          text = path.read_text()
+          old = 'r"\\.g-btn \\{.*?(?=\\.g-card \\{)"'
+          new = 'r"(?m)^\\.g-btn \\{.*?(?=^\\.g-card \\{)"'
+          if old not in text:
+              raise SystemExit('generic g-btn regex not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          python3 .github/scripts/issue21_primitives_patch.py
       - name: Correct focused-input fidelity regression
         run: python3 .github/scripts/issue21_primitives_focus_test_patch.py
       - name: Check patch whitespace
