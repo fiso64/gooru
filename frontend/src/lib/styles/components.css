@@ -1096,19 +1096,20 @@
 }
 
 .lightbox {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 20;
+  background: oklch(0.10 0.005 70 / 0.92);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   display: grid;
   grid-template-columns: 320px 1fr 60px;
-  background: oklch(0.10 0.005 70 / 0.94);
-  backdrop-filter: blur(20px);
+  z-index: 20;
 }
 
 .lightbox-aside {
   border-right: 1px solid var(--border);
   background: var(--bg);
-  padding: 18px;
+  padding: 18px 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1124,10 +1125,10 @@
 
 .lightbox-name {
   font-family: var(--font-display);
-  font-size: 24px;
-  font-weight: 400;
-  word-break: break-word;
-  line-height: 1.1;
+  font-size: 22px;
+  letter-spacing: -0.005em;
+  word-break: break-all;
+  line-height: 1.15;
   margin: 0;
 }
 
@@ -1135,7 +1136,7 @@
   display: grid;
   grid-template-columns: max-content 1fr;
   column-gap: 16px;
-  row-gap: 5px;
+  row-gap: 4px;
   font-family: var(--font-mono);
   font-size: 11.5px;
 }
@@ -1145,17 +1146,22 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-size: 10px;
+  align-self: center;
 }
 
 .lightbox-meta dd {
   color: var(--text);
   margin: 0;
-  word-break: break-word;
+}
+
+.lightbox-meta dd.path {
+  word-break: break-all;
 }
 
 .lightbox-meta dd.hash {
   font-size: 10.5px;
   color: var(--text-2);
+  word-break: break-all;
 }
 
 .lightbox-tags {
@@ -1165,12 +1171,14 @@
 }
 
 .lightbox-tag-group {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
 .lightbox-tag-group-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1200,9 +1208,10 @@
 .lightbox-tag-input input {
   min-width: 0;
   flex: 1;
-  border: 0;
-  outline: 0;
   background: transparent;
+  border: 0;
+  outline: none;
+  font: inherit;
   color: var(--text);
 }
 
@@ -1277,6 +1286,7 @@
   width: 36px;
   height: 36px;
   padding: 0;
+  justify-content: center;
 }
 
 .rail-spacer {
@@ -1286,6 +1296,7 @@
 .lightbox-nav-arrow {
   position: absolute;
   top: 50%;
+  transform: translateY(-50%);
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -1295,16 +1306,20 @@
   display: grid;
   place-items: center;
   cursor: pointer;
+  transition: background .12s, color .12s, transform .12s;
+}
+
+.lightbox-nav-arrow:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--text);
 }
 
 .lightbox-nav-arrow.prev {
   left: 12px;
-  transform: translateY(-50%) rotate(45deg);
 }
 
 .lightbox-nav-arrow.next {
   right: 12px;
-  transform: translateY(-50%) rotate(-135deg);
 }
 
 .login-v2 {

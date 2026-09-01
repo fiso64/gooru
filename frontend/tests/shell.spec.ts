@@ -803,3 +803,72 @@ test('uses exact concept primitives and font weights', async ({ page }) => {
   });
   expect(gridStyle).toEqual({ gap: '5px', padding: '16px' });
 });
+
+
+test('matches concept Lightbox geometry and navigation', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const first = fileItem('lightbox-one', 'first-very-long-preview-name.jpg');
+  const second = fileItem('lightbox-two', 'second.jpg');
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files: [first, second], total_count: 2, library_count: 2, facets: { kind: [{ value: 'photo', count: 2 }] } })
+    });
+  });
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#444"/></svg>' });
+  });
+  await page.route('**/api/v1/files/*/preview', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64" fill="#222"/></svg>' });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByRole('button', { name: `Preview ${first.name}` }).click();
+
+  let dialog = page.getByRole('dialog', { name: first.name });
+  await expect(dialog).toBeVisible();
+  const shellStyle = await dialog.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { position: style.position, backdrop: style.backdropFilter };
+  });
+  expect(shellStyle.position).toBe('absolute');
+  expect(shellStyle.backdrop).toBe('blur(20px)');
+
+  const asideStyle = await dialog.locator('.lightbox-aside').evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { top: style.paddingTop, right: style.paddingRight, bottom: style.paddingBottom, left: style.paddingLeft };
+  });
+  expect(asideStyle).toEqual({ top: '18px', right: '18px', bottom: '16px', left: '18px' });
+
+  const titleStyle = await dialog.getByRole('heading', { name: first.name }).evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { fontSize: style.fontSize, wordBreak: style.wordBreak };
+  });
+  expect(titleStyle).toEqual({ fontSize: '22px', wordBreak: 'break-all' });
+  await expect.poll(() => dialog.locator('.lightbox-meta').evaluate((node) => getComputedStyle(node).rowGap)).toBe('4px');
+  await expect.poll(() => dialog.getByRole('button', { name: 'Add tag' }).evaluate((node) => getComputedStyle(node).justifyContent)).toBe('center');
+
+  const prevTransform = await dialog.getByRole('button', { name: 'Previous file' }).evaluate((node) => {
+    const matrix = new DOMMatrix(getComputedStyle(node).transform);
+    return { a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d };
+  });
+  expect(prevTransform).toEqual({ a: 1, b: 0, c: 0, d: 1 });
+
+  await dialog.getByRole('button', { name: 'Add tag' }).click();
+  await expect(dialog.getByLabel(`Tags for ${first.name}`)).toBeFocused();
+  await dialog.getByLabel(`Tags for ${first.name}`).evaluate((node) => (node as HTMLInputElement).blur());
+
+  await page.keyboard.press('ArrowRight');
+  dialog = page.getByRole('dialog', { name: second.name });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('k');
+  dialog = page.getByRole('dialog', { name: first.name });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('j');
+  dialog = page.getByRole('dialog', { name: second.name });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
