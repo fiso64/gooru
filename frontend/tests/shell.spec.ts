@@ -574,3 +574,68 @@ test('Tags index matches concept grouping and filtering', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await expect(page.locator('.searchbar-pill').filter({ hasText: 'rating:safe' })).toBeVisible();
 });
+
+
+test('Jobs drawer preserves route and shares real job actions with the page', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
+  });
+
+  let canceled = false;
+  const cancels: Array<{ csrf: string; method: string }> = [];
+  const clears: Array<{ csrf: string; status: string }> = [];
+
+  await page.route('**/api/v1/jobs**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/jobs/job-run') && route.request().method() === 'DELETE') {
+      cancels.push({ csrf: route.request().headers()['x-gooru-csrf'] ?? '', method: route.request().method() });
+      canceled = true;
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'job-run', type: 'upload_import', status: 'canceled', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z' })
+      });
+    }
+    if (url.pathname.endsWith('/jobs') && route.request().method() === 'DELETE') {
+      clears.push({ csrf: route.request().headers()['x-gooru-csrf'] ?? '', status: url.searchParams.get('status') ?? '' });
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ removed: 1 }) });
+    }
+    if (url.pathname.endsWith('/jobs')) {
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [
+            { id: 'job-run', type: 'upload_import', status: canceled ? 'canceled' : 'running', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z' },
+            { id: 'job-done', type: 'tag_mutation', status: 'completed', progress: 1, submitted_at: '2026-05-19T23:00:00Z', started_at: '2026-05-19T23:01:00Z' }
+          ]
+        })
+      });
+    }
+    return route.fallback();
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+
+  await page.locator('.topbar-right').getByRole('button', { name: 'Jobs' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Jobs' });
+  await expect(drawer).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  await expect(drawer.getByText('Import media')).toBeVisible();
+  await expect(drawer.getByRole('button', { name: 'Pause all coming soon' })).toBeDisabled();
+  await drawer.locator('.job-row').filter({ hasText: 'Import media' }).hover();
+  await drawer.getByRole('button', { name: 'Cancel Import media' }).click();
+  await expect.poll(() => cancels).toEqual([{ csrf: 'csrf-one', method: 'DELETE' }]);
+
+  await drawer.getByRole('button', { name: 'Close jobs' }).click();
+  await expect(page.getByRole('dialog', { name: 'Jobs' })).toHaveCount(0);
+
+  await page.locator('.sidebar').getByRole('button', { name: /Jobs/ }).click();
+  await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
+  await expect(page.getByText('Tag edit', { exact: true })).toBeVisible();
+  await page.locator('.jobs-page-header').hover();
+  await page.getByRole('button', { name: 'Clear completed' }).click();
+  await expect.poll(() => clears).toEqual([{ csrf: 'csrf-one', status: 'completed' }]);
+});

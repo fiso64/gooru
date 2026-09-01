@@ -43,6 +43,7 @@
   let observedCSRF = $state('');
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let cancelRequestedJobID = $state('');
+  let jobsDrawerOpen = $state(false);
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -98,6 +99,7 @@
     upload.reset();
     fileMetadata = null;
     cancelRequestedJobID = '';
+    jobsDrawerOpen = false;
     closeActionDialog();
   });
 
@@ -141,6 +143,19 @@
 
   function handleKeydown(event: KeyboardEvent) {
     library.handleKeydown(event, loadedFiles);
+  }
+
+  function setRoute(route: string) {
+    jobsDrawerOpen = false;
+    library.setRoute(route);
+  }
+
+  function toggleJobsDrawer() {
+    jobsDrawerOpen = !jobsDrawerOpen;
+  }
+
+  function closeJobsDrawer() {
+    jobsDrawerOpen = false;
   }
 
   function closeActionDialog() {
@@ -311,12 +326,14 @@
     libraryCount={page?.library_count ?? files.length}
     tagCount={tagsQuery.data?.tags.length ?? 0}
     jobsActiveCount={activeJobs.length}
+    jobs={jobsQuery.data?.items ?? []}
+    jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={page?.facets?.kind ?? []}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     tags={tagsQuery.data?.tags ?? []}
     search={$searchDraft}
-    onRoute={library.setRoute}
+    onRoute={setRoute}
     onKind={library.setKind}
     onSavedSearch={library.runSavedSearch}
     onCreateSavedSearch={createSavedSearch}
@@ -324,7 +341,9 @@
     onDeleteSavedSearch={deleteSavedSearch}
     onSearchDraft={library.setSearchDraft}
     onSearchCommit={library.commitSearch}
-    onJobs={library.toggleJobsRoute}
+    onJobs={toggleJobsDrawer}
+    onCloseJobs={closeJobsDrawer}
+    onCancelJob={cancelJob}
   >
     {#if library.route === 'upload'}
       <UploadPanel

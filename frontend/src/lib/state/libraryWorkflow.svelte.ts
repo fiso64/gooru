@@ -126,9 +126,6 @@ export function createLibraryWorkflow() {
     route = next;
   }
 
-  function toggleJobsRoute() {
-    route = route === 'jobs' ? 'library' : 'jobs';
-  }
 
   return {
     searchDraft,
@@ -162,8 +159,7 @@ export function createLibraryWorkflow() {
     closePreview,
     movePreview,
     handleKeydown,
-    setRoute,
-    toggleJobsRoute
+    setRoute
   };
 }
 
