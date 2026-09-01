@@ -20,8 +20,8 @@ export function createTagWorkflow() {
     drafts = { ...drafts, [fileID]: value };
   }
 
-  async function mutateFile(file: FileItem, operation: 'add' | 'set' | 'remove', mutateTags: MutateTags) {
-    const tags = parseTags(drafts[file.id] ?? '');
+  async function mutateFileTags(file: FileItem, operation: 'add' | 'set' | 'remove', tagInput: string, mutateTags: MutateTags) {
+    const tags = parseTags(tagInput);
     if (!tags.length) return;
     busy = { ...busy, [file.id]: true };
     errors = { ...errors, [file.id]: '' };
@@ -34,6 +34,10 @@ export function createTagWorkflow() {
     } finally {
       busy = { ...busy, [file.id]: false };
     }
+  }
+
+  async function mutateFile(file: FileItem, operation: 'add' | 'set' | 'remove', mutateTags: MutateTags) {
+    return mutateFileTags(file, operation, drafts[file.id] ?? '', mutateTags);
   }
 
   async function removeTag(file: FileItem, tag: string, mutateTags: MutateTags) {
@@ -71,6 +75,7 @@ export function createTagWorkflow() {
     reset,
     updateDraft,
     mutateFile,
+    mutateFileTags,
     removeTag,
     bulkSelected,
     bulkFiltered
