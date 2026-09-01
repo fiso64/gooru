@@ -1,13 +1,15 @@
+import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 import type { FileItem } from '$lib/api/types';
 import type { FileSort, SortOrder } from '$lib/queries/files';
+import { appRouteFromPath, pathForAppRoute, type AppRoute } from '$lib/utils/appRoute';
 import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
-export function createLibraryWorkflow() {
+export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRouteFromPath(window.location.pathname) : 'library') {
   const searchDraft = writable('');
   const submittedSearch = writable('');
   const suggestionSearch = writable('');
-  let route = $state('library');
+  let route: AppRoute = $state(initialRoute);
   let activeKind = $state('');
   let activeSavedSearch = $state('');
   let sort: FileSort = $state('modified');
@@ -16,6 +18,30 @@ export function createLibraryWorkflow() {
   let activeFile = $state<FileItem | null>(null);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
   let suggestionDebounce: ReturnType<typeof setTimeout> | undefined;
+
+  // Top-level application views are real browser-history entries even though
+  // the static frontend is served through a single SPA fallback. Keep this
+  // synchronization at the workflow boundary so every route transition --
+  // sidebar navigation, tag/search transitions, keyboard shortcuts, etc. --
+  // follows the same policy.
+  $effect(() => {
+    if (!browser) return;
+    const pathname = pathForAppRoute(route);
+    if (window.location.pathname !== pathname) {
+      window.history.pushState(null, '', pathname);
+    }
+  });
+
+  $effect(() => {
+    if (!browser) return;
+    const restoreRoute = () => {
+      route = appRouteFromPath(window.location.pathname);
+      activeFile = null;
+      selectedIDs = new Set();
+    };
+    window.addEventListener('popstate', restoreRoute);
+    return () => window.removeEventListener('popstate', restoreRoute);
+  });
 
   function reset() {
     selectedIDs = new Set();
@@ -138,7 +164,7 @@ export function createLibraryWorkflow() {
   }
 
   function setRoute(next: string) {
-    route = next;
+    route = appRouteFromPath(pathForAppRoute(next));
   }
 
   return {
@@ -146,7 +172,7 @@ export function createLibraryWorkflow() {
     submittedSearch,
     suggestionSearch,
     get route() { return route; },
-    set route(value: string) { route = value; },
+    set route(value: AppRoute) { route = value; },
     get activeKind() { return activeKind; },
     get activeSavedSearch() { return activeSavedSearch; },
     get sort() { return sort; },
