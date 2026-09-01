@@ -99,6 +99,21 @@ describe('ApiClient', () => {
     expect(formText).toContain('rename');
   });
 
+  it('does not reparse multipart uploads before fetch', async () => {
+    const formData = vi.spyOn(Request.prototype, 'formData').mockRejectedValue(new Error('multipart body was reparsed'));
+    globalThis.fetch = (async () => Response.json({ id: 'job-one', type: 'upload_import', status: 'pending' }, { status: 202 })) as typeof fetch;
+
+    try {
+      const client = new ApiClient('secret-token');
+      const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
+      await client.uploadFiles([file], ['reviewed']);
+
+      expect(formData).not.toHaveBeenCalled();
+    } finally {
+      formData.mockRestore();
+    }
+  });
+
   it('fetches jobs with cookies and cancels with CSRF', async () => {
     const requests: Array<{ url: string; method?: string; headers: Headers }> = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
