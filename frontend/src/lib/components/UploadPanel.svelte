@@ -206,6 +206,7 @@
               ariaLabel="Initial tags"
               onInput={(value) => (tagDraft = value)}
               onCommit={commitInitialTag}
+              onRemoveLast={removeInitialTag}
             />
           </div>
         </div>
