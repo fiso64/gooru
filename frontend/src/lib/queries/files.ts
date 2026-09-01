@@ -19,7 +19,7 @@ export const fileKeys = {
 
 function queryWithKind(search: string, kind: string) {
   const parts = [search.trim()];
-  if (kind) parts.push(`kind:${kind}`);
+  if (kind) parts.push(`type:${kind}`);
   return parts.filter(Boolean).join(' ');
 }
 
