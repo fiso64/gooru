@@ -48,8 +48,15 @@
 
 <svelte:window onkeydown={(event) => { if (event.key === 'Escape') close(); }} />
 
-<div class="modal-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) close(); }}>
-  <form class="action-dialog password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
+<div
+  class="modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="password-dialog-title"
+  tabindex="-1"
+  onclick={(event) => { if (event.target === event.currentTarget) close(); }}
+>
+  <form class="action-dialog password-dialog" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
     <div>
       <h2 id="password-dialog-title">Change password</h2>
       <p>Update the password for the current Gooru account. Your active browser session stays signed in.</p>
@@ -57,7 +64,7 @@
 
     <label>
       Current password
-      <input name="current-password" type="password" autocomplete="current-password" bind:value={currentPassword} disabled={busy} autofocus />
+      <input name="current-password" type="password" autocomplete="current-password" bind:value={currentPassword} disabled={busy} />
     </label>
     <label>
       New password
