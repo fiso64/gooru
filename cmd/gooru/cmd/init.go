@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gooru.local/cmd/gooru/config"
 	"gooru.local/gooru"
 	"gooru.local/types"
 )
@@ -19,7 +18,10 @@ import (
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initializes a new Gooru database.",
-	Long: `Initializes a new Gooru database at the default location (~/.config/gooru/gooru.db).
+	Long: `Initializes a new Gooru database at the configured location.
+
+The default remains ~/.config/gooru/gooru.db. Use the persistent --database flag
+when initializing an independent instance database.
 
 This is the first command you must run. It will prompt you to choose a hashing
 strategy for the new database. This choice is permanent and cannot be changed later.
@@ -32,7 +34,7 @@ strategy for the new database. This choice is permanent and cannot be changed la
   hashes the entire file content. Choose this if you need guaranteed content integrity
   for critical documents or archives.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dbPath, err := config.GetDBPath()
+		dbPath, err := configuredDatabasePath()
 		if err != nil {
 			return fmt.Errorf("failed to get db path: %w", err)
 		}

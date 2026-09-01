@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	"gooru.local/cmd/gooru/config"
 	"gooru.local/internal/database"
 	"gooru.local/internal/serve"
 	"gooru.local/types"
@@ -35,11 +34,11 @@ var userCreateAdminCmd = &cobra.Command{
 		if strings.TrimSpace(userCreateAdminFlags.username) == "" {
 			return errors.New("--username is required")
 		}
-		dbPath, err := config.GetDBPath()
+		dbPath, err := configuredDatabasePath()
 		if err != nil {
 			return fmt.Errorf("failed to get db path: %w", err)
 		}
-		cfg, err := serve.LoadConfig(userCreateAdminFlags.configPath, dbPath, serve.Overrides{})
+		cfg, err := serve.LoadConfig(userCreateAdminFlags.configPath, dbPath, serve.Overrides{DatabasePath: databasePath})
 		if err != nil {
 			return err
 		}

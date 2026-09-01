@@ -9,7 +9,6 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"gooru.local/cmd/gooru/config"
 	"gooru.local/gooru"
 	"gooru.local/internal/database"
 	"gooru.local/internal/serve"
@@ -20,7 +19,6 @@ var serveFlags struct {
 	listen       string
 	publicURL    string
 	authToken    string
-	databasePath string
 	printDefault bool
 }
 
@@ -28,7 +26,7 @@ var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Runs the Gooru HTTP API and frontend server.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dbPath, err := config.GetDBPath()
+		dbPath, err := configuredDatabasePath()
 		if err != nil {
 			return fmt.Errorf("failed to get db path: %w", err)
 		}
@@ -44,7 +42,7 @@ var serveCmd = &cobra.Command{
 			Listen:       serveFlags.listen,
 			PublicURL:    serveFlags.publicURL,
 			AuthToken:    serveFlags.authToken,
-			DatabasePath: serveFlags.databasePath,
+			DatabasePath: databasePath,
 		})
 		if err != nil {
 			return err
@@ -105,6 +103,5 @@ func init() {
 	serveCmd.Flags().StringVar(&serveFlags.listen, "listen", "", "Override server.listen, for example 127.0.0.1:5678")
 	serveCmd.Flags().StringVar(&serveFlags.publicURL, "public-url", "", "Override server.public_url")
 	serveCmd.Flags().StringVar(&serveFlags.authToken, "auth-token", "", "Deprecated; DB-backed users replace token auth")
-	serveCmd.Flags().StringVar(&serveFlags.databasePath, "database", "", "Override database.path")
 	serveCmd.Flags().BoolVar(&serveFlags.printDefault, "print-default-config", false, "Print the default YAML server config and exit")
 }
