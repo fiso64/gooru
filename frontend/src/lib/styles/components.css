@@ -769,8 +769,7 @@
 }
 
 .upload-zone:hover,
-.upload-zone.is-drag,
-.upload-zone.drag-active {
+.upload-zone.is-drag {
   background: var(--accent-soft);
   border-color: var(--accent-line);
 }
@@ -838,8 +837,7 @@
   pointer-events: auto;
 }
 
-.upload-list-card,
-.upload-list-wrap {
+.upload-list-card {
   overflow: hidden;
 }
 

@@ -24,7 +24,7 @@ This slice treats `temp/gooru-concept-ui/` as the visual source of truth and the
 16. Search suggestions from backend: B. The concept autocomplete should use debounced API suggestions and cancellation rather than static prototype data.
 17. Tag index/count surface: B. The backend exposes bounded tag counts, so Tags remains a real view.
 18. Jobs view and drawer/status button: B. The backend exposes jobs, cancel, and clear actions.
-19. Account view separate from Settings: A. The concept has account controls in Settings; the existing Account route can remain as a compact reachable utility view, but Settings is the primary concept location for sign out.
+19. Separate Account route from Settings: C. The concept places account/session controls in Settings, and all current navigation routes there; remove the unreachable duplicate Account view instead of carrying #26 residue.
 20. Shortcuts view: A. The concept includes it as a static/help surface; keep visible with applicable shortcuts and mark unsupported commands as future where needed.
 21. Appearance controls in Settings: A. Accent/grid controls are concept features but are not persisted server settings in this issue.
 22. Delete/replace/destructive media controls not currently exposed in the concept screens: C unless already backed by current backend behavior. Do not invent destructive UI that is not in the concept or backend requirement.

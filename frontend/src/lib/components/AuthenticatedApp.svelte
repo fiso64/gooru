@@ -1,6 +1,5 @@
 <script lang="ts">
   import AppShell from '$lib/components/AppShell.svelte';
-  import AccountView from '$lib/components/AccountView.svelte';
   import ActionDialog from '$lib/components/ActionDialog.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import JobsView from '$lib/components/JobsView.svelte';
@@ -397,8 +396,6 @@
         onTag={library.runTagSearch}
         onNamespace={(namespace) => library.runTagSearch(`${namespace}:`)}
       />
-    {:else if library.route === 'account'}
-      <AccountView username={$authState.user.username} onLogout={logout} />
     {:else if library.route === 'shortcuts'}
       <ShortcutsView />
     {:else}
