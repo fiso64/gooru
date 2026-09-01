@@ -1,10 +1,21 @@
-import { flushSync } from 'svelte';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from '$lib/api/types';
+
+const { untrackSpy } = vi.hoisted(() => ({
+  untrackSpy: vi.fn((fn: () => unknown) => fn())
+}));
+
+vi.mock('svelte', async () => {
+  const actual = await vi.importActual<typeof import('svelte')>('svelte');
+  return { ...actual, untrack: untrackSpy };
+});
+
 import { createUploadWorkflow } from './uploadWorkflow.svelte';
 
 describe('createUploadWorkflow', () => {
-  it('does not subscribe the caller effect to workflow state while applying a polled job', () => {
+  beforeEach(() => untrackSpy.mockClear());
+
+  it('applies polled jobs outside the caller reactive dependency graph', () => {
     const workflow = createUploadWorkflow();
     const job = {
       id: 'job-1',
@@ -14,18 +25,19 @@ describe('createUploadWorkflow', () => {
       progress: 0.5
     } as Job;
 
-    let runs = 0;
-    const dispose = $effect.root(() => {
-      $effect(() => {
-        runs += 1;
-        workflow.applyJob(job);
-      });
-    });
-
-    expect(() => flushSync()).not.toThrow();
-    expect(runs).toBe(1);
+    expect(workflow.applyJob(job)).toEqual({ completed: false, changedFiles: false });
+    expect(untrackSpy).toHaveBeenCalledOnce();
     expect(workflow.status).toBe('Importing');
+  });
 
-    dispose();
+  it('handles polling errors outside the caller reactive dependency graph', () => {
+    const workflow = createUploadWorkflow();
+    workflow.activeJobID = 'job-1';
+
+    workflow.applyJobError(new Error('poll failed'));
+
+    expect(untrackSpy).toHaveBeenCalledOnce();
+    expect(workflow.status).toBe('poll failed');
+    expect(workflow.activeJobID).toBe('');
   });
 });
