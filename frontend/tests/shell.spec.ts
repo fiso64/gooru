@@ -399,12 +399,18 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   await signIn(page);
   await page.getByRole('button', { name: 'Upload' }).click();
   await page.locator('input[type="file"]').setInputFiles({ name: 'upload.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('upload') });
-  await page.getByPlaceholder('collection:inbox @review').fill('incoming');
+  await page.getByRole('button', { name: 'Add tag' }).click();
+  await page.getByLabel('Initial tag').fill('incoming');
+  await page.getByLabel('Initial tag').press('Enter');
   await page.getByRole('button', { name: 'Upload 1' }).click();
-  await expect(page.getByText('Importing', { exact: true })).toBeVisible();
+  await expect(page.getByText('importing', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Queue · 1 file/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause all' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Clear done' })).toBeDisabled();
   const deleteResponse = page.waitForResponse((response) =>
     response.url().endsWith('/api/v1/jobs/job-one') && response.request().method() === 'DELETE'
   );
+  await page.locator('.upload-queue-head').hover();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await deleteResponse;
   await expect.poll(() => cancelRequests).toEqual([{ csrf: 'csrf-one', method: 'DELETE' }]);
@@ -424,7 +430,7 @@ test('stages uploads from drag and drop', async ({ page }) => {
     return transfer;
   });
   await page.locator('.upload-zone').dispatchEvent('dragover', { dataTransfer });
-  await expect(page.locator('.upload-zone')).toHaveClass(/drag-active/);
+  await expect(page.locator('.upload-zone')).toHaveClass(/is-drag/);
   await page.locator('.upload-zone').dispatchEvent('drop', { dataTransfer });
   await expect(page.getByText('dropped.jpg')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Upload 1' })).toBeVisible();
@@ -1080,4 +1086,67 @@ test('matches concept utility views while exposing only real capabilities', asyn
   });
   expect(rowStyle).toEqual({ padding: '12px 14px', gap: '6px', display: 'flex' });
   await expect.poll(() => row.locator('.job-progress').evaluate((node) => getComputedStyle(node).height)).toBe('4px');
+});
+
+
+test('matches exact Upload staging surface and releases local previews', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = URL.revokeObjectURL.bind(URL);
+    const state = window as typeof window & { __gooruRevoked?: string[] };
+    state.__gooruRevoked = [];
+    URL.revokeObjectURL = (url: string) => {
+      state.__gooruRevoked?.push(url);
+      original(url);
+    };
+  });
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.locator('.sidebar').getByRole('button', { name: 'Upload' }).click();
+  await expect(page.getByRole('heading', { name: 'Import media into your library' })).toBeVisible();
+
+  const stackStyle = await page.locator('.upload-stack').evaluate((node) => ({ gap: getComputedStyle(node).gap }));
+  expect(stackStyle.gap).toBe('28px');
+  const configStyle = await page.locator('.upload-config-card').evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { padding: style.padding, gap: style.gap };
+  });
+  expect(configStyle).toEqual({ padding: '18px', gap: '16px' });
+  const zoneStyle = await page.locator('.upload-zone').evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { padding: style.padding, radius: style.borderRadius };
+  });
+  expect(zoneStyle.padding).toBe('48px 24px');
+  await expect(page.getByText(/max 5 GB/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Paste URL', exact: true })).toBeDisabled();
+
+  await expect(page.getByLabel('Initial tag')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add tag' }).click();
+  const tagInput = page.getByLabel('Initial tag');
+  await expect(tagInput).toBeFocused();
+  await tagInput.fill('collection:may-2026 @review');
+  await tagInput.press('Enter');
+  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(2);
+  await expect(page.locator('.upload-tags-control')).toContainText('collection:may-2026');
+  await expect(page.locator('.upload-tags-control')).toContainText('@review');
+  await page.getByRole('button', { name: 'Remove collection:may-2026' }).click();
+  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(1);
+
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zs1sAAAAASUVORK5CYII=', 'base64');
+  await page.locator('input[type="file"]').setInputFiles({ name: 'stage.png', mimeType: 'image/png', buffer: png });
+  const stagedRow = page.locator('.upload-row-staged').filter({ hasText: 'stage.png' });
+  await expect(stagedRow).toBeVisible();
+  const preview = stagedRow.locator('.thumb-tile img');
+  await expect(preview).toHaveAttribute('src', /^blob:/);
+  const previewURL = await preview.getAttribute('src');
+  expect(previewURL).toBeTruthy();
+
+  await stagedRow.getByRole('button', { name: 'Remove stage.png from staging' }).click();
+  await expect(stagedRow).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __gooruRevoked?: string[] }).__gooruRevoked ?? [])).toContain(previewURL!);
 });

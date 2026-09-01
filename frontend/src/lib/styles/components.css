@@ -711,7 +711,7 @@
 .upload-stack {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 28px;
 }
 
 .upload-config-card {
@@ -721,22 +721,39 @@
   gap: 16px;
 }
 
-.upload-tags-control,
 .inline-control,
 .account-control,
-.upload-zone-actions,
-.upload-list-actions {
+.upload-zone-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.upload-tags-control,
+.upload-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .upload-tags-control {
   flex-wrap: wrap;
 }
 
-.upload-tags-control .g-input {
-  flex: 1 1 260px;
+.upload-tag-entry {
+  flex: 1 1 220px;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.upload-tags-control .g-tag-x {
+  display: inline-flex;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
 .upload-zone {
@@ -790,6 +807,35 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+}
+
+.upload-queue-head {
+  position: relative;
+}
+
+.upload-queue-actions,
+.upload-cancel-action {
+  transition: opacity 0.12s;
+}
+
+.upload-cancel-action {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.upload-queue-head.has-active-job:hover .upload-queue-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.upload-queue-head.has-active-job:hover .upload-cancel-action,
+.upload-cancel-action:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .upload-list-card,
