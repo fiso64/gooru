@@ -12,7 +12,7 @@
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { createFilesQuery, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
+  import { createFilesQuery, createTagMutation, createUntrackFileMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
@@ -49,7 +49,7 @@
     facets?: { kind?: Array<{ value: string; count: number }> };
   } | null>(null);
   let actionDialog = $state<{
-    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered';
+    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered' | 'untrack-file';
     value: string;
     error: string;
     busy: boolean;
@@ -74,6 +74,7 @@
   const suggestionsQuery = createSuggestionsQuery(() => Boolean($authState.user), () => $suggestionSearch, () => $submittedSearch, () => authScope);
 
   const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);
+  const untrackFileMutation = createUntrackFileMutation(() => $authState.csrfToken, queryClient);
   const uploadMutation = createUploadMutation(() => $authState.csrfToken, queryClient);
   const cancelJobMutation = createCancelJobMutation(() => $authState.csrfToken, queryClient);
   const clearJobsMutation = createClearJobsMutation(() => $authState.csrfToken, queryClient);
@@ -166,6 +167,10 @@
     actionDialog = { kind: 'save-delete', value: '', error: '', busy: false, id, name, previousQuery: '' };
   }
 
+  function untrackPreview(file: { id: string; name: string }) {
+    actionDialog = { kind: 'untrack-file', value: '', error: '', busy: false, id: file.id, name: file.name, previousQuery: '' };
+  }
+
   function bulkTagSelected() {
     actionDialog = { kind: 'bulk-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
   }
@@ -203,6 +208,9 @@
         if (changed) library.clearSelection();
       } else if (actionDialog.kind === 'bulk-filtered') {
         await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));
+      } else if (actionDialog.kind === 'untrack-file') {
+        await untrackFileMutation.mutateAsync(actionDialog.id);
+        if (library.activeFile?.id === actionDialog.id) library.closePreview();
       }
       closeActionDialog();
     } catch (error) {
@@ -249,6 +257,7 @@
       case 'bulk-selected': return 'Tag selected files';
       case 'bulk-remove-selected': return 'Untag selected files';
       case 'bulk-filtered': return 'Tag filtered results';
+      case 'untrack-file': return 'Remove from library';
       default: return '';
     }
   }
@@ -261,6 +270,7 @@
       case 'bulk-selected': return `Add tags to ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? '' : 's'}.`;
       case 'bulk-remove-selected': return `Remove tags from ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? '' : 's'}.`;
       case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';
+      case 'untrack-file': return `Untrack \"${actionDialog.name}\" from the library. The file remains on disk.`;
       default: return '';
     }
   }
@@ -275,6 +285,7 @@
       case 'bulk-selected':
       case 'bulk-filtered': return 'Add tags';
       case 'bulk-remove-selected': return 'Remove tags';
+      case 'untrack-file': return 'Remove';
       default: return 'Save';
     }
   }
@@ -419,6 +430,8 @@
       onNext={() => library.movePreview(1, files)}
       onTagInput={tagWorkflow.updateDraft}
       onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}
+      onRemoveTag={(file, tag) => tagWorkflow.removeTag(file, tag, (variables) => tagMutation.mutateAsync(variables))}
+      onUntrack={untrackPreview}
     />
   {/if}
 
@@ -429,10 +442,10 @@
       label={actionDialogLabel()}
       value={actionDialog.value}
       confirmText={actionDialogConfirmText()}
-      destructive={actionDialog.kind === 'save-delete'}
+      destructive={actionDialog.kind === 'save-delete' || actionDialog.kind === 'untrack-file'}
       busy={actionDialog.busy}
       error={actionDialog.error}
-      input={actionDialog.kind !== 'save-delete'}
+      input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'untrack-file'}
       onInput={(value) => (actionDialog = { ...actionDialog, value, error: '' })}
       onCancel={closeActionDialog}
       onConfirm={submitActionDialog}

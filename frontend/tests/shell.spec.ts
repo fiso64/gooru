@@ -164,7 +164,7 @@ test('renders direct thumbnails, preview, and csrf tag mutation', async ({ page 
   expect(contentRequests).toEqual([]);
 
   await dialog.getByLabel('Tags for sample.jpg').fill('reviewed');
-  await dialog.getByRole('button', { name: 'Add tags to sample.jpg' }).click();
+  await dialog.getByLabel('Tags for sample.jpg').press('Enter');
   await expect.poll(() => mutations.length).toBe(1);
   expect(mutations[0]).toMatchObject({ authorization: '', csrf: 'csrf-one', method: 'POST', body: { file_ids: ['bG9jOjE'], tags: ['reviewed'] } });
 });
@@ -503,4 +503,49 @@ test('bulk selection supports concept untag action', async ({ page }) => {
   await expect.poll(() => mutations.length).toBe(1);
   expect(mutations[0]).toMatchObject({ method: 'DELETE', csrf: 'csrf-one', body: { file_ids: ['one'], tags: ['blue'], verbose: false } });
   await expect(page.locator('.selection-bar')).toHaveCount(0);
+});
+
+test('lightbox supports per-tag removal and confirmed untrack', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const mutations: Array<{ method: string; csrf: string; body: unknown }> = [];
+  const untracks: Array<{ csrf: string; body: unknown }> = [];
+
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files: [fileItem('bG9jOjE', 'sample.jpg')], total_count: 1, library_count: 1, facets: { kind: [{ value: 'photo', count: 1 }] } })
+    });
+  });
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />' });
+  });
+  await page.route('**/api/v1/files/*/preview', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64" />' });
+  });
+  await page.route('**/api/v1/files/tags', async (route) => {
+    mutations.push({ method: route.request().method(), csrf: route.request().headers()['x-gooru-csrf'] ?? '', body: route.request().postDataJSON() });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ operation: 'remove', selector: { file_ids: ['bG9jOjE'] }, affected_count: 1 }) });
+  });
+  await page.route('**/api/v1/files/bG9jOjE', async (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    untracks.push({ csrf: route.request().headers()['x-gooru-csrf'] ?? '', body: route.request().postDataJSON() });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'bG9jOjE', untracked: true }) });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByRole('button', { name: 'Preview sample.jpg' }).click();
+  const dialog = page.getByRole('dialog', { name: 'sample.jpg' });
+
+  await dialog.getByRole('button', { name: 'Remove blue' }).click();
+  await expect.poll(() => mutations.length).toBe(1);
+  expect(mutations[0]).toMatchObject({ method: 'DELETE', csrf: 'csrf-one', body: { file_ids: ['bG9jOjE'], tags: ['blue'], verbose: false } });
+
+  await dialog.getByRole('button', { name: 'Remove sample.jpg from library' }).click();
+  await expect(page.getByRole('heading', { name: 'Remove from library' })).toBeVisible();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect.poll(() => untracks.length).toBe(1);
+  expect(untracks[0]).toMatchObject({ csrf: 'csrf-one', body: { mode: 'untrack' } });
+  await expect(page.getByRole('dialog', { name: 'sample.jpg' })).toHaveCount(0);
 });
