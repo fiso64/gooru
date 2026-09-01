@@ -35,7 +35,7 @@ test('login matches concept without fabricating build metadata', async ({ page }
   await expect(page.getByText('v0.4.2', { exact: true })).toHaveCount(0);
   await expect(page.getByText('4f7a91d', { exact: true })).toHaveCount(0);
   await expect(page.getByText('gooru user create-admin', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'docs' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByText('docs', { exact: true })).toHaveAttribute('aria-disabled', 'true');
 
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('alert')).toHaveText(/username and password required/);
