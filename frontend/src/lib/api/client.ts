@@ -139,6 +139,15 @@ export class ApiClient {
     return this.unwrap<TagMutationResponse>(this.client.DELETE('/files/tags', { headers: this.csrfHeaders('DELETE'), body: requestBody }));
   }
 
+  async untrackFile(id: string): Promise<void> {
+    await this.unwrap(
+      this.client.DELETE('/files/{id}', {
+        params: { header: this.csrfHeaderParam('DELETE'), path: { id } },
+        body: { mode: 'untrack' }
+      })
+    );
+  }
+
   async getUploadTargets(): Promise<UploadTargetsResponse> {
     return this.unwrap(this.client.GET('/upload-targets'));
   }
