@@ -28,15 +28,23 @@ const routePaths: Record<AppRoute, string> = {
 };
 
 const pathRoutes = new Map(Object.entries(routePaths).map(([route, pathname]) => [pathname, route as AppRoute]));
+pathRoutes.set('/uploads', 'upload');
 const fileSorts = new Set<FileSort>(['modified', 'name', 'size', 'kind']);
+
+function normalizeAppPath(pathname: string): string {
+  return pathname !== '/' ? pathname.replace(/\/+$/, '') : '/';
+}
 
 export function pathForAppRoute(route: string): string {
   return routePaths[route as AppRoute] ?? routePaths.library;
 }
 
 export function appRouteFromPath(pathname: string): AppRoute {
-  const normalized = pathname !== '/' ? pathname.replace(/\/+$/, '') : '/';
-  return pathRoutes.get(normalized) ?? 'library';
+  return pathRoutes.get(normalizeAppPath(pathname)) ?? 'library';
+}
+
+export function kitRouteForAppPath(pathname: string): string {
+  return pathRoutes.has(normalizeAppPath(pathname)) ? '/' : pathname;
 }
 
 export function libraryURLStateFromSearch(search: string): LibraryURLState {
