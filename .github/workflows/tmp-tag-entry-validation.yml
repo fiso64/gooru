@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - refactor/21-tag-entry-policy
+  pull_request:
+    branches:
+      - main
 
 jobs:
   validate:
