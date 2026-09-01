@@ -24,6 +24,13 @@ export interface UploadItem {
   error?: string;
 }
 
+export type UploadTargetOption = { id: string; name: string };
+
+export function effectiveUploadTargetID(targetID: string, targets: UploadTargetOption[]): string {
+  if (targetID && targets.some((target) => target.id === targetID)) return targetID;
+  return targets[0]?.id ?? '';
+}
+
 export function stagedUploadItems(files: File[], targetID = ''): UploadItem[] {
   return files.map((file) => ({
     name: file.name,
@@ -67,7 +74,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       type: prior?.type ?? '',
       targetID: file.target_id,
       status: file.status,
-      progress: file.status === 'error' ? 100 : 100,
+      progress: 100,
       error: file.error
     };
   });
