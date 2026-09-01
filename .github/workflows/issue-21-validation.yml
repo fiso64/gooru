@@ -35,7 +35,20 @@ jobs:
               "await page.locator('.main').evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });"
           )
           needle = "  await expect(page.getByRole('button', { name: 'Preview large-560.jpg' })).toHaveCount(1);"
-          debug = "  console.log('FILE_REQUESTS', JSON.stringify(fileRequests));\n  console.log('MAIN_METRICS', await page.locator('.main').evaluate((node) => ({ scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight })));\n" + needle
+          debug = '''  console.log('FILE_REQUESTS', JSON.stringify(fileRequests));
+  console.log('VIRTUAL_METRICS', await page.evaluate(() => {
+    const main = document.querySelector('.main') as HTMLElement;
+    const host = document.querySelector('.virtual-grid') as HTMLElement;
+    const grid = document.querySelector('[data-testid="virtual-media-grid"]') as HTMLElement;
+    const labels = Array.from(document.querySelectorAll('.thumb-open')).map((node) => node.getAttribute('aria-label'));
+    return {
+      main: { scrollTop: main?.scrollTop, scrollHeight: main?.scrollHeight, clientHeight: main?.clientHeight },
+      host: { offsetTop: host?.offsetTop, offsetHeight: host?.offsetHeight, styleHeight: host?.style.height },
+      grid: { offsetTop: grid?.offsetTop, transform: grid?.style.transform, width: grid?.getBoundingClientRect().width },
+      labels: [labels[0], labels[labels.length - 1], labels.length]
+    };
+  }));
+''' + needle
           text = text.replace(needle, debug)
           spec.write_text(text)
           PY
