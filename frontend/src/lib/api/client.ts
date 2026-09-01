@@ -211,27 +211,9 @@ function absoluteBaseURL(baseURL: string): string {
   return new URL(baseURL, origin).href.replace(/\/$/, '');
 }
 
-async function generatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const request = new Request(input, init);
-  const headers = new Headers(request.headers);
-  let body: BodyInit | null | undefined;
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    if ((headers.get('content-type') ?? '').startsWith('multipart/form-data')) {
-      body = await request.clone().formData();
-      headers.delete('content-type');
-    } else {
-      body = await request.clone().text();
-    }
-  }
-  return fetch(request.url, {
-    method: request.method === 'GET' ? undefined : request.method,
-    headers,
-    body,
-    credentials: request.credentials,
-    signal: request.signal
-  });
+function generatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, init);
 }
-
 
 function savedSearchBody(body: SavedSearchRequest) {
   return {
