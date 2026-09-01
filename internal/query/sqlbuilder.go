@@ -192,6 +192,24 @@ func (b *SQLBuilder) buildFactor(factor *Factor) {
 	}
 }
 
+func mediaTypeExpression() string {
+	return `coalesce(mm.media_kind, CASE
+		WHEN lower(l.extension) = '.gif' THEN 'gif'
+		WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+		WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+		ELSE 'other'
+	END)`
+}
+
+func (b *SQLBuilder) buildMediaTypeQuery(value string) {
+	selectColumn := `DISTINCT l.content_hash as hash`
+	if b.target == "id" {
+		selectColumn = `l.id as id`
+	}
+	b.query.WriteString(`SELECT ` + selectColumn + ` FROM locations l LEFT JOIN media_metadata mm ON mm.location_id = l.id WHERE lower(` + mediaTypeExpression() + `) = lower(?)`)
+	b.args = append(b.args, value)
+}
+
 // buildTagQuery generates the base, simple SELECT statement for a single tag,
 // handling both normal tags and virtual metadata tags.
 func (b *SQLBuilder) buildTagQuery(tagStr string) {
@@ -229,6 +247,10 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 			value = "." + value
 		}
 		b.args = append(b.args, value)
+	case "type":
+		// type: is the existing virtual media-kind field. Keep it separate from
+		// user tags so UI facets and explicit queries share one vocabulary.
+		b.buildMediaTypeQuery(parsed.Value)
 	// Add other virtual tags like 'size', 'path', etc. here in the future.
 	default:
 		if parsed.Value == "" && !strings.HasSuffix(tagStr, ":") {
