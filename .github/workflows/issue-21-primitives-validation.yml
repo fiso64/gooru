@@ -1,0 +1,83 @@
+name: issue-21 primitive fidelity validation
+
+on:
+  push:
+    branches:
+      - agent/issue-21-exact-concept-port
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Fetch pinned IBM Plex concept weights
+        run: |
+          set -euo pipefail
+          base=https://raw.githubusercontent.com/IBM/plex/bf260093582f04622aacc1e9f9ca604d7ccd0c42
+          curl --fail --location --retry 3 "$base/packages/plex-sans/fonts/complete/ttf/IBMPlexSans-Medium.ttf" -o frontend/src/lib/assets/fonts/IBMPlexSans-Medium.ttf
+          curl --fail --location --retry 3 "$base/packages/plex-sans/fonts/complete/ttf/IBMPlexSans-Bold.ttf" -o frontend/src/lib/assets/fonts/IBMPlexSans-Bold.ttf
+          curl --fail --location --retry 3 "$base/packages/plex-mono/fonts/complete/ttf/IBMPlexMono-Medium.ttf" -o frontend/src/lib/assets/fonts/IBMPlexMono-Medium.ttf
+          curl --fail --location --retry 3 "$base/packages/plex-sans/LICENSE.txt" -o frontend/src/lib/assets/fonts/LICENSE-IBM-Plex.txt
+          test -s frontend/src/lib/assets/fonts/IBMPlexSans-Medium.ttf
+          test -s frontend/src/lib/assets/fonts/IBMPlexSans-Bold.ttf
+          test -s frontend/src/lib/assets/fonts/IBMPlexMono-Medium.ttf
+          test -s frontend/src/lib/assets/fonts/LICENSE-IBM-Plex.txt
+      - name: Apply exact primitive port and regression coverage
+        run: python3 .github/scripts/issue21_primitives_patch.py
+      - name: Check patch whitespace
+        run: git diff --check
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Check frontend with zero warnings
+        working-directory: frontend
+        run: |
+          npm run check | tee /tmp/svelte-check.log
+          grep -q "svelte-check found 0 errors and 0 warnings" /tmp/svelte-check.log
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Run frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Install Playwright browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run frontend end-to-end tests
+        working-directory: frontend
+        run: npm run test:e2e
+      - name: Build Go packages
+        run: go build ./...
+      - name: Run Go tests
+        run: go test ./...
+      - name: Persist validated primitive port
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            frontend/src/lib/assets/fonts/IBMPlexSans-Medium.ttf \
+            frontend/src/lib/assets/fonts/IBMPlexSans-Bold.ttf \
+            frontend/src/lib/assets/fonts/IBMPlexMono-Medium.ttf \
+            frontend/src/lib/assets/fonts/LICENSE-IBM-Plex.txt \
+            frontend/src/lib/styles/tokens.css \
+            frontend/src/lib/styles/base.css \
+            frontend/src/lib/styles/layout.css \
+            frontend/src/lib/styles/components.css \
+            frontend/src/lib/state/ui.ts \
+            frontend/tests/shell.spec.ts \
+            docs/issue-21-concept-discrepancies.md
+          git commit -m "#21 port exact concept design primitives [skip ci]"
+          git push
