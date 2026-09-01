@@ -69,6 +69,12 @@
   function kindCount(kind: string) {
     return kindCounts.find((item: { value: string; count: number }) => item.value === kind)?.count ?? 0;
   }
+
+  function openLibrary() {
+    if (route === 'library' && !activeKind) onSearchCommit('');
+    onRoute('library');
+    onKind('');
+  }
 </script>
 
 <div class="app-shell">
@@ -113,7 +119,7 @@
 
   <aside class="sidebar">
     <div class="sidebar-section">
-      <button class:active={route === 'library' && !activeKind} class="sidebar-item" type="button" onclick={() => { onRoute('library'); onKind(''); }}>
+      <button class:active={route === 'library' && !activeKind} class="sidebar-item" type="button" onclick={openLibrary}>
         <Icon name="library" size={16} active={route === 'library' && !activeKind} />
         <span>Library</span>
         <span class="count">{libraryCount.toLocaleString()}</span>

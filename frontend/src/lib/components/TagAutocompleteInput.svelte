@@ -8,6 +8,7 @@
     existing = [],
     placeholder = 'add tag',
     disabled = false,
+    readOnly = false,
     ariaLabel = 'Tag',
     onInput,
     onCommit,
@@ -19,6 +20,7 @@
     existing?: string[];
     placeholder?: string;
     disabled?: boolean;
+    readOnly?: boolean;
     ariaLabel?: string;
     onInput: (value: string) => void;
     onCommit: (value: string) => void;
@@ -29,14 +31,15 @@
   let active = $state(0);
   let inputRef = $state<HTMLInputElement | undefined>();
   let suppressBlurCommit = false;
-  const suggestions = $derived(plainTagSuggestions(value, tags, existing));
+  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, tags, existing));
 
   $effect(() => {
     if (active >= suggestions.length) active = 0;
-    if (!value.trim()) open = false;
+    if (!value.trim() || readOnly) open = false;
   });
 
   function commit(raw: string) {
+    if (readOnly) return;
     const nextTags = plainTagsFromInput(raw).filter((tag) => !existing.includes(tag));
     open = false;
     active = 0;
@@ -45,6 +48,7 @@
   }
 
   function selectSuggestion(suggestion: PlainTagSuggestion) {
+    if (readOnly) return;
     if (suggestion.kind === 'namespace') {
       onInput(suggestion.name);
       open = true;
@@ -56,6 +60,7 @@
   }
 
   function handleInput(event: Event) {
+    if (readOnly) return;
     const next = (event.currentTarget as HTMLInputElement).value;
     onInput(next);
     open = Boolean(next.trim());
@@ -64,6 +69,7 @@
 
   function handleBlur() {
     open = false;
+    if (readOnly) return;
     if (suppressBlurCommit) {
       suppressBlurCommit = false;
       return;
@@ -72,6 +78,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if (readOnly) return;
     if (event.key === 'ArrowDown' && suggestions.length) {
       event.preventDefault();
       open = true;
@@ -116,13 +123,15 @@
     value={value}
     {placeholder}
     {disabled}
+    readonly={readOnly}
     aria-label={ariaLabel}
     aria-expanded={open && suggestions.length > 0}
     aria-haspopup="listbox"
+    aria-busy={readOnly}
     autocomplete="off"
     spellcheck="false"
     oninput={handleInput}
-    onfocus={() => (open = Boolean(value.trim()))}
+    onfocus={() => (open = !readOnly && Boolean(value.trim()))}
     onblur={handleBlur}
     onkeydown={handleKeydown}
   />

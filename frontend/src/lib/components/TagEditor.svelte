@@ -35,7 +35,7 @@
       {tags}
       existing={existingTags}
       placeholder="add tag — e.g. subject:portrait"
-      disabled={busy}
+      readOnly={busy}
       ariaLabel={`Tags for ${fileName}`}
       {onInput}
       {onCommit}
