@@ -1,6 +1,7 @@
 <script lang="ts">
   import AppShell from '$lib/components/AppShell.svelte';
   import ActionDialog from '$lib/components/ActionDialog.svelte';
+  import GlobalFileDrop from '$lib/components/GlobalFileDrop.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import JobsView from '$lib/components/JobsView.svelte';
   import MediaGrid from '$lib/components/MediaGrid.svelte';
@@ -333,6 +334,13 @@
 {#if $authState.user}
   {@const files = loadedFiles}
   {@const page = fileMetadata}
+  <GlobalFileDrop
+    onFiles={(files) => {
+      library.closePreview();
+      setRoute('upload');
+      selectUploadFiles(files);
+    }}
+  />
   <AppShell
     username={$authState.user.username}
     route={library.route}
