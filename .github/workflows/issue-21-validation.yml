@@ -6,7 +6,7 @@ on:
       - agent/issue-21-exact-concept-port
 
 jobs:
-  diagnose:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,33 +15,49 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply recovery patch and diagnostics
+      - name: Apply minimal concept-scroll patch
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
+          css = Path('frontend/src/lib/styles/components.css')
+          text = css.read_text()
+          old = ".virtual-grid {\n  position: relative;\n  min-height: 100%;\n}"
+          new = ".virtual-grid {\n  position: relative;\n  min-height: 100%;\n  flex: 0 0 auto;\n}"
+          if old not in text: raise SystemExit('virtual-grid css block not found')
+          css.write_text(text.replace(old, new))
+
           app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
           text = app.read_text().replace("  import { createViewportState } from '$lib/state/viewport.svelte';\n", '').replace('  const viewport = createViewportState();\n', '')
-          old = "  $effect(() => {\n    fileMetadataKey;\n    fileMetadata = null;\n  });\n\n  $effect(() => {\n    fileMetadataKey;\n    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);\n    if (!metadataPage) return;\n    fileMetadata = {\n      total_count: metadataPage.total_count,\n      library_count: metadataPage.library_count,\n      facets: metadataPage.facets\n    };\n  });"
-          new = "  let observedFileMetadataKey = $state('');\n\n  $effect(() => {\n    const key = fileMetadataKey;\n    if (key !== observedFileMetadataKey) { observedFileMetadataKey = key; fileMetadata = null; }\n    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);\n    if (!metadataPage) return;\n    fileMetadata = { total_count: metadataPage.total_count, library_count: metadataPage.library_count, facets: metadataPage.facets };\n  });"
-          text = text.replace(old, new).replace('        viewportHeight={viewport.height}\n        scrollY={viewport.scrollY}\n', '')
+          text = text.replace('        viewportHeight={viewport.height}\n        scrollY={viewport.scrollY}\n', '')
           app.write_text(text)
+
           grid = Path('frontend/src/lib/components/MediaGrid.svelte')
-          text = grid.read_text().replace('    viewportHeight,\n    scrollY,\n', '').replace('    viewportHeight: number;\n    scrollY: number;\n', '').replace('  let paneHeight = $state(viewportHeight || 900);\n  let paneScrollY = $state(scrollY || 0);\n', '  let paneHeight = $state(900);\n  let paneScrollY = $state(0);\n')
-          text = text.replace('  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex));', "  const virtualItemCount = $derived(Math.max(totalCount || 0, retainedStartIndex + files.length + (hasNextPage ? 1 : 0)));\n  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualItemCount, retainedStartIndex));")
+          text = grid.read_text().replace('    viewportHeight,\n    scrollY,\n', '').replace('    viewportHeight: number;\n    scrollY: number;\n', '')
+          text = text.replace('  let paneHeight = $state(viewportHeight || 900);\n  let paneScrollY = $state(scrollY || 0);\n', '  let paneHeight = $state(900);\n  let paneScrollY = $state(0);\n')
           grid.write_text(text)
+
+          search = Path('frontend/src/lib/components/SearchBar.svelte')
+          text = search.read_text().replace("'tag, namespace:value, -exclude'", "'tag, namespace:value, -exclude — try \"subject:\" or \"hero\"'")
+          text = text.replace('<span class="neg-symbol">-</span>', '<span class="neg-symbol">−</span>')
+          search.write_text(text)
+
           spec = Path('frontend/tests/shell.spec.ts')
-          text = spec.read_text().replace("await page.evaluate(() => window.scrollTo(0, 10_000));", "await page.locator('.main').evaluate((node) => { node.scrollTop = 10_000; node.dispatchEvent(new Event('scroll')); });").replace("await page.evaluate((step) => window.scrollTo(0, step * 2_500), i + 1);", "await page.locator('.main').evaluate((node, step) => { node.scrollTop = step * 2_500; node.dispatchEvent(new Event('scroll')); }, i + 1);").replace("await page.evaluate(() => window.scrollTo(0, 0));", "await page.locator('.main').evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });")
-          needle = "  await expect(page.getByRole('button', { name: 'Preview large-560.jpg' })).toHaveCount(1);"
-          debug = "  console.log('TRACE_REQUESTS', JSON.stringify(fileRequests));\n  console.log('TRACE_HEADING', await page.locator('.library-head-meta').textContent());\n  console.log('TRACE_MAIN', await page.locator('.main').evaluate((node) => ({scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight})));\n  console.log('TRACE_HOST', await page.locator('.virtual-grid').evaluate((node) => ({offsetTop: (node as HTMLElement).offsetTop, offsetHeight: (node as HTMLElement).offsetHeight, styleHeight: (node as HTMLElement).style.height})));\n  console.log('TRACE_GRID', await page.locator('[data-testid=virtual-media-grid]').evaluate((node) => ({transform: (node as HTMLElement).style.transform, width: node.getBoundingClientRect().width, count: node.querySelectorAll('.thumb').length, first: node.querySelector('.thumb-open')?.getAttribute('aria-label'), last: Array.from(node.querySelectorAll('.thumb-open')).at(-1)?.getAttribute('aria-label')})));\n" + needle
-          text = text.replace(needle, debug)
+          text = spec.read_text()
+          text = text.replace("await page.evaluate(() => window.scrollTo(0, 10_000));", "await page.locator('.main').evaluate((node) => { node.scrollTop = 10_000; node.dispatchEvent(new Event('scroll')); });")
+          text = text.replace("await page.evaluate((step) => window.scrollTo(0, step * 2_500), i + 1);", "await page.locator('.main').evaluate((node, step) => { node.scrollTop = step * 2_500; node.dispatchEvent(new Event('scroll')); }, i + 1);")
+          text = text.replace("await page.evaluate(() => window.scrollTo(0, 0));", "await page.locator('.main').evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });")
           spec.write_text(text)
           PY
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Check frontend
+        working-directory: frontend
+        run: npm run check
       - name: Install Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium
-      - name: Trace large-library scroll
+      - name: Validate large-library recovery
         working-directory: frontend
         run: npx playwright test tests/shell.spec.ts -g "loads paginated large libraries"
