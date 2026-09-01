@@ -1,60 +1,352 @@
 <script lang="ts">
-  import { Upload } from '@lucide/svelte';
-  import JobStatus from './JobStatus.svelte';
+  import Icon from './Icon.svelte';
+  import { formatBytes, parseTags } from '$lib/utils/format';
+  import type { UploadItem } from '$lib/state/uploadItems';
 
   let {
     uploadFiles,
+    uploadItems,
     uploadTags,
     uploadBusy,
     cancelBusy,
+    cancelRequested = false,
     uploadStatus,
     activeUploadJobID,
+    targets,
+    targetID,
+    conflictPolicy,
+    autoUpload,
+    onTargetInput,
     onFiles,
     onTagsInput,
+    onConflictInput,
+    onAutoUploadInput,
     onSubmit,
-    onCancel
+    onCancel,
+    onClear,
+    onRemove
   } = $props<{
     uploadFiles: File[];
+    uploadItems: UploadItem[];
     uploadTags: string;
     uploadBusy: boolean;
     cancelBusy: boolean;
+    cancelRequested?: boolean;
     uploadStatus: string;
     activeUploadJobID: string;
-    onFiles: (files: FileList | null) => void;
+    targets: Array<{ id: string; name: string }>;
+    targetID: string;
+    conflictPolicy: string;
+    autoUpload: boolean;
+    onTargetInput: (value: string) => void;
+    onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
+    onConflictInput: (value: string) => void;
+    onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;
-    onCancel: () => void;
+    onCancel: (jobID: string) => void;
+    onClear: () => void;
+    onRemove: (index: number) => void;
   }>();
+
+  let dragActive = $state(false);
+  let fileInput: HTMLInputElement | undefined;
+  let tagInput = $state<HTMLInputElement | undefined>();
+  let tagEditorOpen = $state(false);
+  let tagDraft = $state('');
+  let previewURLs = $state<string[]>([]);
+
+  const stagedItems = $derived(uploadItems.filter((item: UploadItem) => item.status === 'staged'));
+  const queueItems = $derived(uploadItems.filter((item: UploadItem) => item.status !== 'staged'));
+  const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
+  const queueBytes = $derived(queueItems.reduce((sum: number, item: UploadItem) => sum + item.size, 0));
+  const initialTags = $derived(parseTags(uploadTags));
+
+  $effect(() => {
+    const urls = uploadFiles.map((file: File) =>
+      file.type.startsWith('image/') || file.type.startsWith('video/') ? URL.createObjectURL(file) : ''
+    );
+    previewURLs = urls;
+    return () => {
+      for (const url of urls) if (url) URL.revokeObjectURL(url);
+    };
+  });
+
+  function chooseFiles() {
+    fileInput?.click();
+  }
+
+  function hasFiles(event: DragEvent) {
+    return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+  }
+
+  function handleDragOver(event: DragEvent) {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragActive = true;
+  }
+
+  function handleDragLeave(event: DragEvent) {
+    if (event.currentTarget !== event.target) return;
+    dragActive = false;
+  }
+
+  function handleDrop(event: DragEvent) {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragActive = false;
+    onFiles(event.dataTransfer?.files ?? null);
+  }
+
+  function picked(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    onFiles(input.files);
+    input.value = '';
+  }
+
+  function openTagEditor() {
+    tagEditorOpen = true;
+    queueMicrotask(() => tagInput?.focus());
+  }
+
+  function closeTagEditor() {
+    tagDraft = '';
+    tagEditorOpen = false;
+  }
+
+  function commitTagDraft() {
+    const additions = parseTags(tagDraft);
+    if (additions.length) {
+      onTagsInput(Array.from(new Set([...initialTags, ...additions])).join(' '));
+    }
+    closeTagEditor();
+  }
+
+  function removeInitialTag(tag: string) {
+    onTagsInput(initialTags.filter((candidate) => candidate !== tag).join(' '));
+  }
+
+  function itemIcon(item: UploadItem) {
+    if (item.type?.startsWith('video/')) return 'video';
+    if (item.type?.startsWith('audio/')) return 'audio';
+    if (item.type === 'image/gif') return 'gif';
+    if (item.name.match(/\.(zip|tar|gz)$/i)) return 'folder';
+    return 'photo';
+  }
+
+  function statusClass(status: string) {
+    if (status === 'imported' || status === 'uploaded') return 'ok';
+    if (status === 'error') return 'err';
+    return '';
+  }
+
+  function statusLabel(status: string) {
+    return status.replace(/_/g, ' ');
+  }
+
+  function stagedPreview(index: number) {
+    return previewURLs[index] ?? '';
+  }
+
+  function queuePreview(index: number) {
+    return previewURLs[index] ?? '';
+  }
 </script>
 
-<form class="rounded-md border border-white/10 bg-white/[0.03] p-3" onsubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-  <div class="mb-2 flex items-center gap-2 text-xs uppercase text-zinc-500">
-    <Upload size={14} />
-    <span>Upload</span>
+<main class="main">
+  <div class="page">
+    <div class="page-header">
+      <div class="g-eyebrow g-eyebrow-accent">Upload</div>
+      <h1>Import media into your library</h1>
+      <p>Files are content-hashed on receipt. Duplicates are detected automatically. Initial tags can be applied here.</p>
+    </div>
+
+    <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+      <section class="g-card upload-config-card">
+        <label class="field-row">
+          <span>Target</span>
+          <select class="g-input" value={targetID} onchange={(event) => onTargetInput(event.currentTarget.value)}>
+            {#each targets as target}
+              <option value={target.id}>{target.name}</option>
+            {:else}
+              <option value="">Default target</option>
+            {/each}
+          </select>
+        </label>
+
+        <div class="field-row">
+          <span>Initial tags</span>
+          <div class="field-control upload-tags-control">
+            {#each initialTags as tag}
+              {@const separator = tag.indexOf(':')}
+              <span class="g-tag">
+                {#if separator > 0}
+                  <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
+                {:else}
+                  <span>{tag}</span>
+                {/if}
+                <button class="g-tag-x" type="button" aria-label={`Remove ${tag}`} onclick={() => removeInitialTag(tag)}>
+                  <Icon name="close" size={11} />
+                </button>
+              </span>
+            {/each}
+
+            {#if tagEditorOpen}
+              <input
+                bind:this={tagInput}
+                class="g-input upload-tag-entry"
+                aria-label="Initial tag"
+                placeholder="subject:portrait"
+                value={tagDraft}
+                oninput={(event) => (tagDraft = event.currentTarget.value)}
+                onkeydown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commitTagDraft();
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeTagEditor();
+                  }
+                }}
+              />
+            {:else}
+              <button class="g-btn g-btn-ghost g-btn-sm" type="button" onclick={openTagEditor}><Icon name="plus" size={12} /> Add tag</button>
+            {/if}
+          </div>
+        </div>
+
+        <div class="field-row">
+          <span>On conflict</span>
+          <div class="field-control">
+            <div class="seg" aria-label="Upload conflict policy">
+              {#each [{ value: 'skip', label: 'Skip' }, { value: 'rename', label: 'Rename' }, { value: 'replace', label: 'Replace' }] as option}
+                <button type="button" class={conflictPolicy === option.value ? 'is-active' : ''} onclick={() => onConflictInput(option.value)}>{option.label}</button>
+              {/each}
+            </div>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <span>On drop</span>
+          <div class="field-control">
+            <div class="seg" aria-label="Upload drop behavior">
+              <button type="button" class={!autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(false)}>Stage first</button>
+              <button type="button" class={autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(true)}>Auto-upload</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        class={`upload-zone ${dragActive ? 'is-drag' : ''}`}
+        role="button"
+        tabindex="0"
+        onkeydown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); chooseFiles(); } }}
+        onclick={chooseFiles}
+        ondragover={handleDragOver}
+        ondragleave={handleDragLeave}
+        ondrop={handleDrop}
+      >
+        <input bind:this={fileInput} type="file" multiple hidden onchange={picked} />
+        <div class="icon-wrap"><Icon name="upload" size={26} /></div>
+        <h3>Drop files here</h3>
+        <p>or click to browse</p>
+        <div class="upload-zone-actions">
+          <button class="g-btn g-btn-primary" type="button" onclick={(event) => { event.stopPropagation(); chooseFiles(); }}><Icon name="folder" size={14} /> Choose files…</button>
+          <button class="g-btn" type="button" disabled title="Paste URL import coming soon" onclick={(event) => event.stopPropagation()}><Icon name="external" size={14} /> Paste URL</button>
+        </div>
+      </section>
+
+      {#if stagedItems.length > 0}
+        <section>
+          <div class="upload-list-head">
+            <div class="g-eyebrow">Staged · {stagedItems.length} {stagedItems.length === 1 ? 'file' : 'files'} · {formatBytes(stagedBytes)}</div>
+            <div class="upload-list-actions">
+              <button class="g-btn g-btn-sm" type="button" onclick={onClear}><Icon name="close" size={12} /> Clear staged</button>
+              <button class="g-btn g-btn-primary g-btn-sm" type="submit" disabled={uploadBusy || Boolean(activeUploadJobID)}>
+                <Icon name="upload" size={12} /> Upload {stagedItems.length} {stagedItems.length === 1 ? 'file' : 'files'}
+              </button>
+            </div>
+          </div>
+          <div class="g-card upload-list-card">
+            <div class="upload-list">
+              {#each stagedItems as item, index}
+                {@const preview = stagedPreview(index)}
+                <div class="upload-row upload-row-staged">
+                  <div class="thumb-tile">
+                    {#if preview && item.type?.startsWith('video/')}
+                      <!-- svelte-ignore a11y_media_has_caption -->
+                      <video src={preview} muted playsinline preload="metadata"></video>
+                    {:else if preview && item.type?.startsWith('image/')}
+                      <img src={preview} alt="" />
+                    {:else}
+                      <Icon name={itemIcon(item)} size={18} />
+                    {/if}
+                  </div>
+                  <div><div class="name">{item.name}</div></div>
+                  <div class="size">{formatBytes(item.size)}</div>
+                  <div class="progress is-staged" aria-hidden="true"></div>
+                  <div class="status">
+                    <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => onRemove(index)}>
+                      <Icon name="close" size={11} />
+                    </button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        </section>
+      {/if}
+
+      {#if queueItems.length > 0}
+        <section class="upload-queue-section" aria-label={uploadStatus || 'Upload queue'}>
+          <div class:has-active-job={Boolean(activeUploadJobID)} class="upload-list-head upload-queue-head">
+            <div class="g-eyebrow">Queue · {queueItems.length} {queueItems.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
+            <div class="upload-list-actions upload-queue-actions">
+              <button class="g-btn g-btn-sm" type="button" disabled title="Pause uploads coming soon"><Icon name="pause" size={12} /> Pause all</button>
+              <button class="g-btn g-btn-sm" type="button" disabled={Boolean(activeUploadJobID)} onclick={onClear}><Icon name="close" size={12} /> Clear done</button>
+            </div>
+            {#if activeUploadJobID}
+              <button
+                class="g-btn g-btn-sm upload-cancel-action"
+                type="button"
+                disabled={cancelBusy || cancelRequested}
+                onclick={() => onCancel(activeUploadJobID)}
+              >
+                {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
+              </button>
+            {/if}
+          </div>
+          <div class="g-card upload-list-card">
+            <div class="upload-list">
+              {#each queueItems as item, index}
+                {@const preview = queuePreview(index)}
+                <div class="upload-row">
+                  <div class="thumb-tile">
+                    {#if preview && item.type?.startsWith('video/')}
+                      <!-- svelte-ignore a11y_media_has_caption -->
+                      <video src={preview} muted playsinline preload="metadata"></video>
+                    {:else if preview && item.type?.startsWith('image/')}
+                      <img src={preview} alt="" />
+                    {:else}
+                      <Icon name={itemIcon(item)} size={18} />
+                    {/if}
+                  </div>
+                  <div>
+                    <div class="name">{item.name}</div>
+                    {#if item.error}<div class="upload-error">{item.error}</div>{/if}
+                  </div>
+                  <div class="size">{formatBytes(item.size)}</div>
+                  <div class="progress" aria-label={`${statusLabel(item.status)} ${item.progress}%`}>
+                    <div style={`width: ${item.progress}%`}></div>
+                  </div>
+                  <div class={`status ${statusClass(item.status)}`}>{statusLabel(item.status)}</div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        </section>
+      {/if}
+    </form>
   </div>
-  <input
-    class="block w-full text-xs text-zinc-300 file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-xs file:text-zinc-100"
-    type="file"
-    multiple
-    onchange={(event) => onFiles(event.currentTarget.files)}
-  />
-  <input
-    class="mt-2 w-full rounded border border-white/10 bg-black/20 px-2 py-1.5 text-xs text-zinc-100 outline-none placeholder:text-zinc-500"
-    value={uploadTags}
-    oninput={(event) => onTagsInput(event.currentTarget.value)}
-    placeholder="initial tags"
-  />
-  <button
-    class="mt-2 w-full rounded-md border border-emerald-400/30 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-    type="submit"
-    disabled={!uploadFiles.length || uploadBusy || Boolean(activeUploadJobID)}
-  >
-    {uploadBusy ? uploadStatus : activeUploadJobID ? 'Import running' : `Import ${uploadFiles.length || ''}`.trim()}
-  </button>
-  {#if activeUploadJobID}
-    <JobStatus jobID={activeUploadJobID} status={uploadStatus} {cancelBusy} onCancel={onCancel} />
-  {/if}
-  {#if uploadStatus && !uploadBusy && !activeUploadJobID}
-    <p class="mt-2 text-xs text-zinc-300">{uploadStatus}</p>
-  {/if}
-</form>
+</main>

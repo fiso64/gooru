@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Login screen — self-hosted admin vibe. No photo mosaic, no marketing copy.
 // Server diagnostics up top, tight form below, build/source info in the footer.
 

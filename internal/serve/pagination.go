@@ -94,6 +94,13 @@ func NextPageToken(offset int, limit int, returned int) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("offset:%d", next)))
 }
 
+func PageOffsetToken(offset int) string {
+	if offset < 0 {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("offset:%d", offset)))
+}
+
 // PaginateInMemory preserves the current offset-token API while isolating the
 // compatibility shortcut from handlers. Replace this with store-backed cursor
 // pagination when the library layer can provide stable database cursors.

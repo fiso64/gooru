@@ -1,10 +1,13 @@
 package serve
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,10 +45,37 @@ func TestFrontendImmutableAssetsUseLongCache(t *testing.T) {
 	}
 }
 
+func TestFrontendIndexAllowsOnlyHashedInlineScripts(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Server.FrontendDir = writeFrontendBuildWithIndex(t, `<script>window.__gooru = true;</script><script src="/_app/immutable/app.js"></script>`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	NewServer(cfg).Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("index CSP should not allow all inline scripts, got %q", csp)
+	}
+	if want := "'sha256-" + scriptHash("window.__gooru = true;") + "'"; !strings.Contains(csp, want) {
+		t.Fatalf("index CSP missing inline script hash %s, got %q", want, csp)
+	}
+	if strings.Contains(csp, scriptHash("")) {
+		t.Fatalf("index CSP should not hash external script tags, got %q", csp)
+	}
+}
+
 func writeFrontendBuild(t *testing.T) string {
+	return writeFrontendBuildWithIndex(t, "<!doctype html><title>Gooru</title>")
+}
+
+func writeFrontendBuildWithIndex(t *testing.T, index string) string {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<!doctype html><title>Gooru</title>"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte(index), 0600); err != nil {
 		t.Fatalf("write index: %v", err)
 	}
 	assetDir := filepath.Join(root, "_app", "immutable")
@@ -56,4 +86,9 @@ func writeFrontendBuild(t *testing.T) string {
 		t.Fatalf("write asset: %v", err)
 	}
 	return root
+}
+
+func scriptHash(script string) string {
+	sum := sha256.Sum256([]byte(script))
+	return base64.StdEncoding.EncodeToString(sum[:])
 }

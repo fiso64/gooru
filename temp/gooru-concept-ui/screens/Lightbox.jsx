@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Lightbox — left tag panel + centered stage + right rail of actions.
 
 const {useState: _useSLB, useEffect: _useELB, useRef: _useRLB} = React;

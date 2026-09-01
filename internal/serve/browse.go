@@ -21,7 +21,7 @@ var ErrNotFound = errors.New("not found")
 type Library interface {
 	ListFiles(ctx context.Context, query string) ([]types.FileInfo, error)
 	GetFile(ctx context.Context, locationID int64) (types.FileInfo, error)
-	ListTags(ctx context.Context, counts bool) ([]TagDTO, error)
+	ListTags(ctx context.Context, counts bool, limit int) ([]TagDTO, error)
 }
 
 type PagedLibrary interface {
@@ -99,15 +99,24 @@ func (l *GooruLibrary) ListFilesSearch(ctx context.Context, query string, page P
 		return PageResult[types.FileInfo]{}, err
 	}
 	limit := page.Limit + 1
-	files, err := l.client.GetFilesInfoByQueryPageSorted(query, limit, cursor, sort, order, l.verbose)
+	var files []types.FileInfo
+	if cursor != nil {
+		files, err = l.client.GetFilesInfoByQueryPageSorted(query, limit, cursor, sort, order, l.verbose)
+	} else {
+		files, err = l.client.GetFilesInfoByQueryPageSortedOffset(query, limit, page.Offset, sort, order, l.verbose)
+	}
 	if err != nil {
 		return PageResult[types.FileInfo]{}, err
 	}
 	result := PageResult[types.FileInfo]{Items: files}
 	if len(result.Items) > page.Limit {
 		result.Items = result.Items[:page.Limit]
-		last := result.Items[len(result.Items)-1]
-		result.NextPageToken = CursorPageToken(sort, order, last.ID)
+		if cursor != nil {
+			last := result.Items[len(result.Items)-1]
+			result.NextPageToken = CursorPageToken(sort, order, last.ID)
+		} else {
+			result.NextPageToken = NextPageToken(page.Offset, page.Limit, page.Limit)
+		}
 	}
 	return result, nil
 }
@@ -123,12 +132,12 @@ func (l *GooruLibrary) GetFile(ctx context.Context, locationID int64) (types.Fil
 	return file, err
 }
 
-func (l *GooruLibrary) ListTags(ctx context.Context, counts bool) ([]TagDTO, error) {
+func (l *GooruLibrary) ListTags(ctx context.Context, counts bool, limit int) ([]TagDTO, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if counts {
-		tags, err := l.client.GetAllTagsWithCounts()
+		tags, err := l.client.GetTagsWithCounts(limit)
 		if err != nil {
 			return nil, err
 		}
@@ -139,7 +148,7 @@ func (l *GooruLibrary) ListTags(ctx context.Context, counts bool) ([]TagDTO, err
 		}
 		return out, nil
 	}
-	tags, err := l.client.GetAllTags()
+	tags, err := l.client.GetTags(limit)
 	if err != nil {
 		return nil, err
 	}
@@ -264,11 +273,12 @@ func (l *GooruLibrary) GetFileByPublicID(ctx context.Context, id string) (types.
 }
 
 type FileListResponse struct {
-	Files         []FileDTO `json:"files"`
-	NextPageToken string    `json:"next_page_token,omitempty"`
-	TotalCount    int       `json:"total_count"`
-	LibraryCount  int       `json:"library_count"`
-	Facets        FacetsDTO `json:"facets,omitempty"`
+	Files             []FileDTO `json:"files"`
+	NextPageToken     string    `json:"next_page_token,omitempty"`
+	PreviousPageToken string    `json:"previous_page_token,omitempty"`
+	TotalCount        int       `json:"total_count"`
+	LibraryCount      int       `json:"library_count"`
+	Facets            FacetsDTO `json:"facets,omitempty"`
 }
 
 type TagListResponse struct {
@@ -340,24 +350,24 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := FileListResponse{
-		Files:         make([]FileDTO, 0, len(pageResult.Items)),
-		NextPageToken: pageResult.NextPageToken,
+		Files:             make([]FileDTO, 0, len(pageResult.Items)),
+		NextPageToken:     pageResult.NextPageToken,
+		PreviousPageToken: PageOffsetToken(page.Offset - page.Limit),
 	}
 	response.TotalCount = page.Offset + len(pageResult.Items)
 	if pageResult.NextPageToken != "" {
 		response.TotalCount++
 	}
-	if search, ok := s.library.(SearchLibrary); ok {
+	includeAggregates := r.URL.Query().Get("include_facets") == "true"
+	if search, ok := s.library.(SearchLibrary); ok && includeAggregates {
 		if total, err := s.countFiles(r.Context(), queryText); err == nil {
 			response.TotalCount = total
 		}
 		if total, err := search.LibraryCount(r.Context()); err == nil {
 			response.LibraryCount = total
 		}
-		if r.URL.Query().Get("include_facets") == "true" {
-			if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
-				response.Facets.Kind = kind
-			}
+		if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
+			response.Facets.Kind = kind
 		}
 	}
 	for _, file := range pageResult.Items {
@@ -450,7 +460,11 @@ func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file library is not configured", nil)
 		return
 	}
-	tags, err := s.library.ListTags(r.Context(), r.URL.Query().Get("counts") == "true")
+	limit, _ := strconvAtoiDefault(r.URL.Query().Get("limit"), 200)
+	if limit > 500 {
+		limit = 500
+	}
+	tags, err := s.library.ListTags(r.Context(), r.URL.Query().Get("counts") == "true", limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load tags", nil)
 		return
@@ -661,6 +675,8 @@ func mediaKindForType(mediaType string) string {
 		return "photo"
 	case strings.HasPrefix(mediaType, "video/"):
 		return "video"
+	case strings.HasPrefix(mediaType, "audio/"):
+		return "audio"
 	default:
 		return "other"
 	}

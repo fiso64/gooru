@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Gooru — mock data for the design.
 // Real thumbnails come from Unsplash (source URLs). Each file has rich tags
 // across namespaces so the UI exposes real metadata structure.

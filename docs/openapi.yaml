@@ -379,6 +379,7 @@ paths:
         - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
+        - $ref: "#/components/parameters/CSRF"
       requestBody:
         required: true
         content:
@@ -394,6 +395,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "503":
@@ -404,6 +407,7 @@ paths:
         - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
+        - $ref: "#/components/parameters/CSRF"
       requestBody:
         required: true
         content:
@@ -419,6 +423,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "503":
@@ -430,6 +436,7 @@ paths:
         - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
+        - $ref: "#/components/parameters/CSRF"
       requestBody:
         required: true
         content:
@@ -445,6 +452,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "503":
@@ -470,6 +479,7 @@ paths:
         - sessionAuth: []
       parameters:
         - $ref: "#/components/parameters/PreferAsync"
+        - $ref: "#/components/parameters/CSRF"
       requestBody:
         required: true
         content:
@@ -486,6 +496,10 @@ paths:
                 target_id:
                   type: string
                   description: Configured upload target ID. Defaults to the first configured target.
+                conflict_policy:
+                  type: string
+                  enum: [skip, rename, replace]
+                  description: How to handle uploaded filenames that already exist in the target.
                 tags:
                   type: string
                   description: Space- or comma-separated initial tags.
@@ -520,6 +534,14 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: limit
+          in: query
+          required: false
+          description: Maximum tags to return. Defaults to 200 and is capped at 500.
+          schema:
+            type: integer
+            default: 200
+            maximum: 500
       responses:
         "200":
           description: Tags, optionally with counts.
@@ -693,6 +715,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     delete:
       summary: Clear finished jobs.
       security:
@@ -743,6 +767,8 @@ paths:
                 $ref: "#/components/schemas/Job"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
@@ -755,6 +781,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/CSRF"
       responses:
         "202":
           description: Cancellation requested.
@@ -764,6 +791,8 @@ paths:
                 $ref: "#/components/schemas/Job"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 components:
@@ -802,7 +831,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     Forbidden:
-      description: Request is not allowed by server configuration.
+      description: Request is forbidden, including failed CSRF validation or insufficient privileges.
       content:
         application/json:
           schema:
@@ -1067,6 +1096,8 @@ components:
             $ref: "#/components/schemas/File"
         next_page_token:
           type: string
+        previous_page_token:
+          type: string
         total_count:
           type: integer
           description: Total number of files matching the current query.
@@ -1129,7 +1160,7 @@ components:
           type: string
         media_kind:
           type: string
-          enum: [photo, video, gif, other]
+          enum: [photo, video, gif, audio, other]
         metadata:
           $ref: "#/components/schemas/MediaMetadata"
         tags:

@@ -4,29 +4,56 @@ export interface VirtualGrid {
   files: FileItem[];
   totalHeight: number;
   offsetTop: number;
+  columns: number;
+  rowHeight: number;
+  needsPrevious: boolean;
+  needsNext: boolean;
 }
 
-export function gridColumns(viewportWidth: number) {
-  if (viewportWidth >= 1536) return 8;
-  if (viewportWidth >= 1280) return 6;
-  if (viewportWidth >= 1024) return 4;
-  if (viewportWidth >= 640) return 3;
-  return 2;
+const gridPadding = 16 * 2;
+const gridGap = 5;
+const minCardWidth = 180;
+
+export function gridColumns(containerWidth: number) {
+  const innerWidth = Math.max(0, containerWidth - gridPadding);
+  return Math.max(1, Math.floor((innerWidth + gridGap) / (minCardWidth + gridGap)));
 }
 
-export function virtualGrid(files: FileItem[], viewportWidth: number, viewportHeight: number, scrollY: number): VirtualGrid {
-  const columns = gridColumns(viewportWidth);
-  const rowHeight = viewportWidth >= 1024 ? 432 : viewportWidth >= 640 ? 392 : 352;
+export function gridRowHeight(containerWidth: number, columns = gridColumns(containerWidth)) {
+  const innerWidth = Math.max(0, containerWidth - gridPadding);
+  const cardWidth = columns > 0 ? (innerWidth - gridGap * (columns - 1)) / columns : minCardWidth;
+  return Math.max(minCardWidth, cardWidth) + gridGap;
+}
+
+export function virtualGrid(
+  files: FileItem[],
+  containerWidth: number,
+  viewportHeight: number,
+  scrollY: number,
+  gridTop: number,
+  totalItems = files.length,
+  retainedStartIndex = 0
+): VirtualGrid {
+  const columns = gridColumns(containerWidth);
+  const rowHeight = gridRowHeight(containerWidth, columns);
   const overscanRows = 4;
-  const totalRows = Math.ceil(files.length / columns);
-  const startRow = Math.max(0, Math.floor((scrollY - 260) / rowHeight) - overscanRows);
+  const totalRows = Math.ceil(Math.max(totalItems, retainedStartIndex + files.length) / columns);
+  const viewportStart = Math.max(0, scrollY - gridTop);
+  const startRow = Math.max(0, Math.floor(viewportStart / rowHeight) - overscanRows);
   const visibleRows = Math.ceil(viewportHeight / rowHeight) + overscanRows * 2;
   const endRow = Math.min(totalRows, startRow + visibleRows);
-  const startIndex = startRow * columns;
-  const endIndex = Math.min(files.length, endRow * columns);
+  const retainedEndIndex = retainedStartIndex + files.length;
+  const globalStartIndex = startRow * columns;
+  const globalEndIndex = endRow * columns;
+  const startIndex = Math.max(retainedStartIndex, globalStartIndex);
+  const endIndex = Math.min(retainedEndIndex, globalEndIndex);
   return {
-    files: files.slice(startIndex, endIndex),
+    files: startIndex < endIndex ? files.slice(startIndex - retainedStartIndex, endIndex - retainedStartIndex) : [],
     totalHeight: totalRows * rowHeight,
-    offsetTop: startRow * rowHeight
+    offsetTop: Math.floor(startIndex / columns) * rowHeight,
+    columns,
+    rowHeight,
+    needsPrevious: globalStartIndex < retainedStartIndex,
+    needsNext: globalEndIndex > retainedEndIndex
   };
 }

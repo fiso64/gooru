@@ -1,3 +1,5 @@
+import React from 'react';
+
 // SearchBar — inline pills + IDE-style autocomplete dropdown.
 //
 // A "token" is one of:

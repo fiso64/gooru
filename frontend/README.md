@@ -23,3 +23,15 @@ The static output is written to `frontend/build`. `gooru serve` serves that dire
 
 See [../docs/SERVE.md](../docs/SERVE.md) for the full runtime configuration and
 deployment notes.
+
+## API client
+
+`../docs/openapi.yaml` is the API source of truth. Regenerate the frontend API
+types before changing endpoint shapes:
+
+```bash
+npm run generate:api
+```
+
+`src/lib/api/openapi.ts` is generated and `src/lib/api/client.ts` is a thin
+`openapi-fetch` facade used by the Svelte query modules.

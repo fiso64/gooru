@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Library screen — clean gallery grid, no inline metadata.
 // Selection bar appears when any file is selected.
 

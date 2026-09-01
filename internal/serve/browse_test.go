@@ -107,8 +107,8 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode next page token: %v", err)
 	}
-	if strings.HasPrefix(string(decodedToken), "offset:") {
-		t.Fatalf("file search should use cursor token, got %q", string(decodedToken))
+	if !strings.HasPrefix(string(decodedToken), "offset:") {
+		t.Fatalf("file search should use offset token for bidirectional UI paging, got %q", string(decodedToken))
 	}
 	if strings.HasPrefix(page.Files[0].ID, "loc:") {
 		t.Fatalf("file id exposed storage prefix: %q", page.Files[0].ID)
@@ -146,6 +146,12 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	}
 	if nextPage.NextPageToken != "" {
 		t.Fatalf("did not expect trailing next page token, got %q", nextPage.NextPageToken)
+	}
+	if nextPage.PreviousPageToken == "" {
+		t.Fatal("expected previous page token on later page")
+	}
+	if nextPage.LibraryCount != 0 || len(nextPage.Facets.Kind) != 0 {
+		t.Fatalf("later pages should not include aggregate metadata without include_facets, got library=%d facets=%+v", nextPage.LibraryCount, nextPage.Facets)
 	}
 
 	detailReq := authedRequest(http.MethodGet, "/api/v1/files/"+page.Files[0].ID)
@@ -577,6 +583,33 @@ func TestListTagsWithCounts(t *testing.T) {
 	}
 }
 
+func TestListTagsWithoutCountsHonorsLimit(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/tags?limit=1"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response TagListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode tags response: %v", err)
+	}
+	if len(response.Tags) != 1 {
+		t.Fatalf("expected exactly one limited tag, got %+v", response.Tags)
+	}
+	if response.Tags[0].Count != nil {
+		t.Fatalf("expected counts=false response without counts, got %+v", response.Tags[0])
+	}
+}
+
+func TestMediaKindForAudioType(t *testing.T) {
+	if got := mediaKindForType("audio/mpeg"); got != "audio" {
+		t.Fatalf("expected audio media kind, got %q", got)
+	}
+}
+
 func newTestBrowseServer(t *testing.T) (*Server, func()) {
 	t.Helper()
 	dir := t.TempDir()
@@ -701,7 +734,7 @@ func (emptyLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) 
 	return types.FileInfo{}, ErrNotFound
 }
 
-func (emptyLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+func (emptyLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }
 
@@ -733,6 +766,6 @@ func (errorLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) 
 	return types.FileInfo{}, ErrNotFound
 }
 
-func (errorLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+func (errorLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }

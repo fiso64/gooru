@@ -96,6 +96,54 @@ func TestUploadConflictPolicyErrorRejectsExistingName(t *testing.T) {
 	}
 }
 
+func TestUploadRequestedConflictPolicySkipReturnsSkippedFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("existing"), 0600); err != nil {
+		t.Fatalf("write existing file: %v", err)
+	}
+	library := &recordingUploadLibrary{}
+	server := newUploadTestServer(t, dir, true, library)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{"a.txt": "uploaded"}, nil, "", "skip"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "existing" {
+		t.Fatalf("existing file was overwritten: %q", got)
+	}
+	var response UploadImportResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Files) != 1 || response.Files[0].Status != "skipped" {
+		t.Fatalf("expected skipped response, got %+v", response.Files)
+	}
+}
+
+func TestUploadRequestedConflictPolicyReplaceOverwritesExistingName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("existing"), 0600); err != nil {
+		t.Fatalf("write existing file: %v", err)
+	}
+	library := &recordingUploadLibrary{}
+	server := newUploadTestServer(t, dir, true, library)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{"a.txt": "uploaded"}, nil, "", "replace"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "uploaded" {
+		t.Fatalf("existing file was not replaced: %q", got)
+	}
+	if len(library.paths) != 1 || filepath.Base(library.paths[0]) != "a.txt" {
+		t.Fatalf("unexpected imported paths: %+v", library.paths)
+	}
+}
+
 func TestUploadUsesRequestedTargetID(t *testing.T) {
 	defaultDir := t.TempDir()
 	archiveDir := t.TempDir()
@@ -444,12 +492,16 @@ func uploadRequest(t *testing.T, files map[string]string, tags []string) *http.R
 }
 
 func uploadRequestWithTarget(t *testing.T, files map[string]string, tags []string, targetID string) *http.Request {
+	return uploadRequestWithConflict(t, files, tags, targetID, "")
+}
+
+func uploadRequestWithConflict(t *testing.T, files map[string]string, tags []string, targetID string, conflictPolicy string) *http.Request {
 	t.Helper()
 	binaryFiles := make(map[string][]byte, len(files))
 	for name, content := range files {
 		binaryFiles[name] = []byte(content)
 	}
-	return uploadBinaryRequestWithTarget(t, binaryFiles, tags, targetID)
+	return uploadBinaryRequestWithConflict(t, binaryFiles, tags, targetID, conflictPolicy)
 }
 
 func uploadBinaryRequest(t *testing.T, files map[string][]byte, tags []string) *http.Request {
@@ -457,6 +509,10 @@ func uploadBinaryRequest(t *testing.T, files map[string][]byte, tags []string) *
 }
 
 func uploadBinaryRequestWithTarget(t *testing.T, files map[string][]byte, tags []string, targetID string) *http.Request {
+	return uploadBinaryRequestWithConflict(t, files, tags, targetID, "")
+}
+
+func uploadBinaryRequestWithConflict(t *testing.T, files map[string][]byte, tags []string, targetID string, conflictPolicy string) *http.Request {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -477,6 +533,11 @@ func uploadBinaryRequestWithTarget(t *testing.T, files map[string][]byte, tags [
 	if targetID != "" {
 		if err := writer.WriteField("target_id", targetID); err != nil {
 			t.Fatalf("write target_id field: %v", err)
+		}
+	}
+	if conflictPolicy != "" {
+		if err := writer.WriteField("conflict_policy", conflictPolicy); err != nil {
+			t.Fatalf("write conflict_policy field: %v", err)
 		}
 	}
 	if err := writer.Close(); err != nil {
@@ -510,7 +571,7 @@ func (l *recordingUploadLibrary) GetFile(_ context.Context, _ int64) (types.File
 	return types.FileInfo{}, ErrNotFound
 }
 
-func (l *recordingUploadLibrary) ListTags(_ context.Context, _ bool) ([]TagDTO, error) {
+func (l *recordingUploadLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }
 
@@ -522,7 +583,11 @@ func (l *recordingUploadLibrary) ImportUploadedFiles(_ context.Context, files []
 	l.tags = tags
 	response := UploadImportResponse{AffectedCount: len(files)}
 	for _, file := range files {
-		response.Files = append(response.Files, UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID, Status: "imported"})
+		status := file.Status
+		if status == "" {
+			status = "imported"
+		}
+		response.Files = append(response.Files, UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID, Status: status})
 	}
 	return response, nil
 }

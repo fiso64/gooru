@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Gooru icons — three style variants so the user can pick.
 // Style "line": thin (1.5) stroke, rounded — Lucide-ish
 // Style "solid": filled glyphs

@@ -1,4 +1,28 @@
-import type { ApiErrorResponse, AuthMeResponse, FileListResponse, Job, JobListResponse, NamespacesResponse, SavedSearch, SavedSearchRequest, SavedSearchesResponse, SuggestionsResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse, UploadImportResponse, UploadTargetsResponse } from './types';
+import createClient from 'openapi-fetch';
+import type { paths } from './openapi';
+import type {
+  ApiErrorResponse,
+  AuthMeResponse,
+  FileListResponse,
+  Job,
+  JobListResponse,
+  NamespacesResponse,
+  SavedSearch,
+  SavedSearchRequest,
+  SavedSearchesResponse,
+  SuggestionsResponse,
+  TagListResponse,
+  TagMutationOperation,
+  TagMutationRequest,
+  TagMutationResponse,
+  UploadImportResponse,
+  UploadTargetsResponse
+} from './types';
+
+type FileSort = 'name' | 'modified' | 'size' | 'kind';
+type SortOrder = 'asc' | 'desc';
+type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+type ClearableJobStatus = 'completed' | 'failed' | 'canceled';
 
 export class ApiError extends Error {
   code: string;
@@ -12,168 +36,210 @@ export class ApiError extends Error {
   }
 }
 
+let unauthorizedHandler: (() => void) | undefined;
+
+export function setUnauthorizedHandler(handler: (() => void) | undefined) {
+  unauthorizedHandler = handler;
+}
+
 export interface ListFilesParams {
   query?: string;
   limit?: number;
   pageToken?: string;
-  sort?: 'name' | 'modified' | 'size' | 'kind';
-  order?: 'asc' | 'desc';
+  sort?: FileSort;
+  order?: SortOrder;
   includeFacets?: boolean;
+  signal?: AbortSignal;
 }
 
 export class ApiClient {
   readonly baseURL: string;
   readonly csrfToken: string;
+  private readonly client: ReturnType<typeof createClient<paths>>;
 
   constructor(csrfToken = '', baseURL = '/api/v1') {
     this.baseURL = baseURL;
     this.csrfToken = csrfToken;
+    this.client = createClient<paths>({ baseUrl: absoluteBaseURL(baseURL), credentials: 'same-origin', fetch: generatedFetch });
   }
 
   async login(username: string, password: string): Promise<AuthMeResponse> {
-    return this.request<AuthMeResponse>(`${this.baseURL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
+    return this.unwrap(this.client.POST('/auth/login', { body: { username, password } }));
   }
 
   async me(): Promise<AuthMeResponse> {
-    return this.request<AuthMeResponse>(`${this.baseURL}/auth/me`);
+    return this.unwrap(this.client.GET('/auth/me'));
   }
 
   async logout(): Promise<void> {
-    await this.request<{ ok: boolean }>(`${this.baseURL}/auth/logout`, {
-      method: 'POST'
-    });
+    await this.unwrap(this.client.POST('/auth/logout', { params: { header: this.csrfHeaderParam('POST') } }));
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await this.unwrap(
+      this.client.POST('/auth/change-password', {
+        params: { header: this.csrfHeaderParam('POST') },
+        body: { current_password: currentPassword, new_password: newPassword }
+      })
+    );
   }
 
   async listFiles(params: ListFilesParams = {}): Promise<FileListResponse> {
-    const url = new URL(`${this.baseURL}/files`, globalThis.location?.origin ?? 'http://localhost');
-    if (params.query) url.searchParams.set('query', params.query);
-    if (params.limit) url.searchParams.set('limit', String(params.limit));
-    if (params.pageToken) url.searchParams.set('page_token', params.pageToken);
-    if (params.sort) url.searchParams.set('sort', params.sort);
-    if (params.order) url.searchParams.set('order', params.order);
-    if (params.includeFacets) url.searchParams.set('include_facets', 'true');
-    return this.request<FileListResponse>(url.pathname + url.search);
+    return this.unwrap(
+      this.client.GET('/files', {
+        params: {
+          query: {
+            query: params.query || undefined,
+            limit: params.limit,
+            page_token: params.pageToken,
+            sort: params.sort,
+            order: params.order,
+            include_facets: params.includeFacets || undefined
+          }
+        },
+        signal: params.signal
+      })
+    );
   }
 
-  async searchSuggestions(q = '', limit?: number, existing = ''): Promise<SuggestionsResponse> {
-    const url = new URL(`${this.baseURL}/search/suggestions`, globalThis.location?.origin ?? 'http://localhost');
-    if (q) url.searchParams.set('q', q);
-    if (existing) url.searchParams.set('existing', existing);
-    if (limit) url.searchParams.set('limit', String(limit));
-    return this.request<SuggestionsResponse>(url.pathname + url.search);
+  async searchSuggestions(q = '', limit?: number, existing = '', signal?: AbortSignal): Promise<SuggestionsResponse> {
+    return this.unwrap(
+      this.client.GET('/search/suggestions', {
+        params: { query: { q: q || undefined, limit, existing: existing || undefined } },
+        signal
+      })
+    );
   }
 
   async tagNamespaces(): Promise<NamespacesResponse> {
-    return this.request<NamespacesResponse>(`${this.baseURL}/tags/namespaces`);
+    return this.unwrap(this.client.GET('/tags/namespaces'));
+  }
+
+  async listTags(counts = true, limit = 200): Promise<TagListResponse> {
+    return this.unwrap(this.client.GET('/tags', { params: { query: { counts, limit } } }));
   }
 
   async listSavedSearches(): Promise<SavedSearchesResponse> {
-    return this.request<SavedSearchesResponse>(`${this.baseURL}/saved-searches`);
+    return this.unwrap(this.client.GET('/saved-searches'));
   }
 
   async createSavedSearch(body: SavedSearchRequest): Promise<SavedSearch> {
-    return this.request<SavedSearch>(`${this.baseURL}/saved-searches`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    return this.unwrap<SavedSearch>(this.client.POST('/saved-searches', { params: { header: this.csrfHeaderParam('POST') }, body: savedSearchBody(body) }));
   }
 
   async updateSavedSearch(id: string, body: SavedSearchRequest): Promise<SavedSearch> {
-    return this.request<SavedSearch>(`${this.baseURL}/saved-searches/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    return this.unwrap<SavedSearch>(
+      this.client.PUT('/saved-searches/{id}', { params: { header: this.csrfHeaderParam('PUT'), path: { id } }, body: savedSearchBody(body) })
+    );
   }
 
   async deleteSavedSearch(id: string): Promise<void> {
-    await this.request<{ ok: boolean }>(`${this.baseURL}/saved-searches/${encodeURIComponent(id)}`, {
-      method: 'DELETE'
-    });
+    await this.unwrap(this.client.DELETE('/saved-searches/{id}', { params: { header: this.csrfHeaderParam('DELETE'), path: { id } } }));
   }
 
   async mutateTags(operation: TagMutationOperation, body: TagMutationRequest): Promise<TagMutationResponse> {
-    const method = operation === 'add' ? 'POST' : operation === 'set' ? 'PUT' : 'DELETE';
-    return this.request<TagMutationResponse>(`${this.baseURL}/files/tags`, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    const requestBody = tagMutationBody(body);
+    if (operation === 'add') {
+      return this.unwrap<TagMutationResponse>(this.client.POST('/files/tags', { params: { header: this.csrfHeaderParam('POST') }, body: requestBody }));
+    }
+    if (operation === 'set') {
+      return this.unwrap<TagMutationResponse>(this.client.PUT('/files/tags', { params: { header: this.csrfHeaderParam('PUT') }, body: requestBody }));
+    }
+    return this.unwrap<TagMutationResponse>(this.client.DELETE('/files/tags', { params: { header: this.csrfHeaderParam('DELETE') }, body: requestBody }));
+  }
+
+  async untrackFile(id: string): Promise<void> {
+    await this.unwrap(
+      this.client.DELETE('/files/{id}', {
+        params: { header: this.csrfHeaderParam('DELETE'), path: { id } },
+        body: { mode: 'untrack' }
+      })
+    );
   }
 
   async getUploadTargets(): Promise<UploadTargetsResponse> {
-    return this.request<UploadTargetsResponse>(`${this.baseURL}/upload-targets`);
+    return this.unwrap(this.client.GET('/upload-targets'));
   }
 
-  async uploadFiles(files: File[], tags: string[] = [], preferAsync = true, targetID = ''): Promise<Job | UploadImportResponse> {
+  async uploadFiles(files: File[], tags: string[] = [], preferAsync = true, targetID = '', conflictPolicy = 'rename'): Promise<Job | UploadImportResponse> {
     const form = new FormData();
     for (const file of files) form.append('files', file, file.name);
     if (tags.length) form.append('tags', tags.join(' '));
     if (targetID) form.append('target_id', targetID);
-    return this.request<Job | UploadImportResponse>(`${this.baseURL}/uploads`, {
-      method: 'POST',
-      headers: preferAsync ? { Prefer: 'respond-async' } : undefined,
-      body: form
-    });
+    if (conflictPolicy) form.append('conflict_policy', conflictPolicy);
+    return this.unwrap(
+      this.client.POST('/uploads', {
+        params: { header: { ...this.csrfHeaderParam('POST'), ...(preferAsync ? { Prefer: 'respond-async' as const } : {}) } },
+        // openapi-fetch supports FormData, but the generated schema models multipart
+        // fields structurally. Keep the browser-native body so filenames and blobs
+        // are preserved exactly.
+        body: form as never
+      })
+    );
   }
 
   async getJob(id: string): Promise<Job> {
-    return this.request<Job>(`${this.baseURL}/jobs/${id}`);
+    return this.unwrap(this.client.GET('/jobs/{id}', { params: { path: { id } } }));
   }
 
-  async listJobs(status = ''): Promise<JobListResponse> {
-    const url = new URL(`${this.baseURL}/jobs`, globalThis.location?.origin ?? 'http://localhost');
-    if (status) url.searchParams.set('status', status);
-    return this.request<JobListResponse>(url.pathname + url.search);
+  async listJobs(status: JobStatus | '' = ''): Promise<JobListResponse> {
+    return this.unwrap(this.client.GET('/jobs', { params: { query: { status: status || undefined } } }));
   }
 
   async cancelJob(id: string): Promise<Job> {
-    return this.request<Job>(`${this.baseURL}/jobs/${id}`, {
-      method: 'DELETE'
-    });
+    return this.unwrap(this.client.DELETE('/jobs/{id}', { params: { header: this.csrfHeaderParam('DELETE'), path: { id } } }));
   }
 
   async clearJobs(status = 'completed'): Promise<{ removed: number }> {
-    const url = new URL(`${this.baseURL}/jobs`, globalThis.location?.origin ?? 'http://localhost');
-    if (status) url.searchParams.set('status', status);
-    return this.request<{ removed: number }>(url.pathname + url.search, {
-      method: 'DELETE'
-    });
+    const clearStatus = (['completed', 'failed', 'canceled'].includes(status) ? status : 'completed') as ClearableJobStatus;
+    return this.unwrap(this.client.DELETE('/jobs', { params: { header: this.csrfHeaderParam('DELETE'), query: { status: clearStatus } } }));
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const headers = new Headers(init.headers);
-    headers.set('Accept', 'application/json');
-    if (this.csrfToken && isMutatingMethod(init.method ?? 'GET')) {
-      headers.set('X-Gooru-CSRF', this.csrfToken);
-    }
-    const response = await fetch(path, {
-      ...init,
-      headers,
-      credentials: 'same-origin'
-    });
+  private csrfHeaderParam(method: string): { 'X-Gooru-CSRF': string } {
+    return { 'X-Gooru-CSRF': isMutatingMethod(method) ? this.csrfToken : '' };
+  }
+
+  private async unwrap<T>(request: Promise<{ data?: unknown; error?: unknown; response: Response }>): Promise<T> {
+    const { data, error, response } = await request;
     if (!response.ok) {
-      let payload: ApiErrorResponse | undefined;
-      try {
-        payload = (await response.json()) as ApiErrorResponse;
-      } catch {
-        // Keep the fallback below.
-      }
-      throw new ApiError(
+      const payload = error as ApiErrorResponse | undefined;
+      const apiError = new ApiError(
         response.status,
         payload?.error.code ?? 'http_error',
         payload?.error.message ?? `Request failed with HTTP ${response.status}`
       );
+      if (response.status === 401) unauthorizedHandler?.();
+      throw apiError;
     }
-    return (await response.json()) as T;
+    return data as T;
   }
 }
 
 function isMutatingMethod(method: string): boolean {
   return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
+}
+
+function absoluteBaseURL(baseURL: string): string {
+  const origin = globalThis.location?.origin ?? 'http://localhost';
+  return new URL(baseURL, origin).href.replace(/\/$/, '');
+}
+
+function generatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, init);
+}
+
+function savedSearchBody(body: SavedSearchRequest) {
+  return {
+    name: body.name,
+    query: body.query,
+    sort: body.sort ?? 'name',
+    order: body.order ?? 'asc'
+  };
+}
+
+function tagMutationBody(body: TagMutationRequest) {
+  return {
+    ...body,
+    verbose: body.verbose ?? false
+  };
 }

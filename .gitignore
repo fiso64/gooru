@@ -1,4 +1,6 @@
 go.sum
+node_modules/
+.dev/
 *.db
 test*.txt
 *.exe

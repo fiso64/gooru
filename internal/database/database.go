@@ -929,12 +929,24 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 // GetAllTags retrieves all unique tags from the database.
 // This includes synthesized simple tags for keys that only have key-value pairs.
 func (s *Store) GetAllTags() ([]string, error) {
+	return s.GetTags(0)
+}
+
+// GetTags retrieves unique tags from the database, optionally bounded by limit.
+// This includes synthesized simple tags for keys that only have key-value pairs.
+func (s *Store) GetTags(limit int) ([]string, error) {
+	limitSQL := ""
+	args := []any{}
+	if limit > 0 {
+		limitSQL = " LIMIT ?"
+		args = append(args, limit)
+	}
 	query := `
 		SELECT key, value FROM tags
 		UNION
 		SELECT DISTINCT key, '' AS value FROM tags
-		ORDER BY key, value`
-	rows, err := s.Query(query)
+		ORDER BY key, value` + limitSQL
+	rows, err := s.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -959,6 +971,18 @@ func (s *Store) GetAllTags() ([]string, error) {
 // It always includes a row for each unique tag key (e.g. 'photo') with its aggregate count,
 // as well as rows for specific key-value tags (e.g. 'photo:album1').
 func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
+	return s.GetTagsWithCounts(0)
+}
+
+// GetTagsWithCounts retrieves tags and their usage counts, sorted by count descending.
+// A positive limit constrains the number of returned rows for bounded tag-index UIs.
+func (s *Store) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
+	limitSQL := ""
+	args := []any{}
+	if limit > 0 {
+		limitSQL = " LIMIT ?"
+		args = append(args, limit)
+	}
 	query := `
 		WITH key_counts AS (
 			SELECT
@@ -977,8 +1001,8 @@ func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 		FROM tags
 		WHERE value != '' AND files_count > 0
 		ORDER BY final_count DESC, tag_str ASC
-	`
-	rows, err := s.Query(query)
+	` + limitSQL
+	rows, err := s.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1805,6 +1829,21 @@ func (s *Store) GetFilesInfoByLocationQueryPageSorted(query string, args []inter
 	return s.scanFileInfos(finalQuery, pagedArgs...)
 }
 
+// GetFilesInfoByLocationQueryPageSortedOffset executes a location-ID query and returns one bounded offset page.
+func (s *Store) GetFilesInfoByLocationQueryPageSortedOffset(query string, args []interface{}, limit int, offset int, sort string, order string) ([]types.FileInfo, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_locations(id) AS (%s)
+		SELECT %s
+		FROM locations l
+		JOIN result_locations rl ON l.id = rl.id
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		ORDER BY %s %s, l.id ASC
+		LIMIT ? OFFSET ?
+	`, query, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))
+	pagedArgs := append(append([]interface{}{}, args...), limit, offset)
+	return s.scanFileInfos(finalQuery, pagedArgs...)
+}
+
 // GetAllFilesInfoPageSorted retrieves one bounded keyset page with a validated sort.
 func (s *Store) GetAllFilesInfoPageSorted(limit int, cursor *types.PageCursor, sort string, order string) ([]types.FileInfo, error) {
 	cursorClause, cursorArgs, err := s.fileCursorClause(cursor, sort, order)
@@ -1821,6 +1860,18 @@ func (s *Store) GetAllFilesInfoPageSorted(limit int, cursor *types.PageCursor, s
 	`, fileInfoColumns(), cursorClause, fileSortExpression(sort), sortOrder(order))
 	args := append(cursorArgs, limit)
 	return s.scanFileInfos(query, args...)
+}
+
+// GetAllFilesInfoPageSortedOffset retrieves one bounded offset page with a validated sort.
+func (s *Store) GetAllFilesInfoPageSortedOffset(limit int, offset int, sort string, order string) ([]types.FileInfo, error) {
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM locations l
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		ORDER BY %s %s, l.id ASC
+		LIMIT ? OFFSET ?
+	`, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))
+	return s.scanFileInfos(query, limit, offset)
 }
 
 func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileInfo, error) {

@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Gooru — top-level App component
 //
 // Final, baked-in look (Tweaks panel removed). Everything below the
