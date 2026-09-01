@@ -74,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	h = securityHeadersMiddleware(h)
 	h = requestSizeMiddleware(s.cfg.Server.MaxRequestBodyBytes, h)
 	h = corsMiddleware(s.cfg.Server.CORSOrigins, h)
+	h = requestLoggingMiddleware(h)
 	return h
 }
 
