@@ -227,3 +227,20 @@
     <button class="g-btn g-btn-ghost" type="button" title="Remove from library" aria-label={`Remove ${file.name} from library`} onclick={() => onUntrack(file)}><Icon name="trash" size={16} /></button>
   </aside>
 </div>
+
+<style>
+  :global(.lightbox-stage img.native-size) {
+    inset: 50% auto auto 50%;
+    width: auto;
+    height: auto;
+    max-width: calc(100% - 72px);
+    max-height: calc(100% - 72px);
+    transform: translate(-50%, -50%);
+  }
+
+  :global(.lightbox-rail .g-btn[aria-pressed='true']) {
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
+  }
+</style>
