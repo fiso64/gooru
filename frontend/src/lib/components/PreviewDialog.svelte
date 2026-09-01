@@ -2,6 +2,7 @@
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
   import { formatBytes, groupTags, mediaDimensions, mediaDuration, parseTags } from '$lib/utils/format';
+  import { hasCommandModifier, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -31,6 +32,7 @@
   }>();
 
   let videoElement = $state<HTMLVideoElement | undefined>();
+  let audioElement = $state<HTMLAudioElement | undefined>();
   let videoPaused = $state(true);
   let videoTime = $state(0);
   let videoLength = $state(0);
@@ -47,11 +49,19 @@
     document.getElementById(`tags-${file.id}`)?.focus();
   }
 
-  async function toggleVideo() {
-    const video = videoElement;
-    if (!video) return;
-    if (video.paused) await video.play();
-    else video.pause();
+  async function togglePlayback() {
+    const media = videoElement ?? audioElement;
+    if (!media) return;
+    if (media.paused) await media.play();
+    else media.pause();
+  }
+
+  function handlePlaybackKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented || hasCommandModifier(event) || isInteractiveShortcutTarget(event.target)) return;
+    if (event.code !== 'Space') return;
+    if (!videoElement && !audioElement) return;
+    event.preventDefault();
+    void togglePlayback();
   }
 
   function syncVideo() {
@@ -85,6 +95,8 @@
   }
 </script>
 
+<svelte:window onkeydown={handlePlaybackKeydown} />
+
 <div
   class="lightbox"
   role="dialog"
@@ -92,7 +104,6 @@
   aria-labelledby="preview-title"
   tabindex="-1"
   onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}
-  onkeydown={(event) => { if (event.key === 'Escape') onClose(); }}
 >
   <aside class="lightbox-aside">
     <div class="panel-row">
@@ -167,6 +178,9 @@
         src={file.media_urls.content}
         poster={file.media_urls.preview}
         preload="metadata"
+        autoplay
+        loop
+        onclick={() => void togglePlayback()}
         onloadedmetadata={syncVideo}
         ontimeupdate={syncVideo}
         onplay={syncVideo}
@@ -175,7 +189,7 @@
       ></video>
 
       <div class="lightbox-video-controls">
-        <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={toggleVideo}>
+        <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={() => void togglePlayback()}>
           <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
         </button>
         <span class="video-time">{clock(videoTime)}</span>
@@ -187,7 +201,7 @@
     {:else if file.media_kind === 'audio' || file.media_type.startsWith('audio/')}
       <div class="audio-stage">
         <div class="audio-art"><Icon name="audio" size={42} /></div>
-        <audio src={file.media_urls.content} controls preload="metadata"></audio>
+        <audio bind:this={audioElement} src={file.media_urls.content} controls preload="metadata"></audio>
       </div>
     {:else}
       <img src={file.media_urls.preview} alt={file.name} />
