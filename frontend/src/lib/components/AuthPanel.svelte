@@ -3,7 +3,6 @@
   import Logo from './Logo.svelte';
 
   let {
-    checked,
     loginUsername,
     loginPassword,
     loginBusy,
@@ -12,7 +11,6 @@
     onPasswordInput,
     onLogin
   } = $props<{
-    checked: boolean;
     loginUsername: string;
     loginPassword: string;
     loginBusy: boolean;
@@ -36,7 +34,7 @@
       <div class="login-v2-id-meta">
         <span>server</span>
         <span class="sep">&middot;</span>
-        <span>{checked ? 'ready' : 'checking'}</span>
+        <span>ready</span>
         <span class="sep">&middot;</span>
         <span>gpl-3.0</span>
       </div>

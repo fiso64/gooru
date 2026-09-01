@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import AuthenticatedApp from '$lib/components/AuthenticatedApp.svelte';
   import AuthPanel from '$lib/components/AuthPanel.svelte';
+  import SessionLoading from '$lib/components/SessionLoading.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
   import { errorMessage } from '$lib/utils/format';
@@ -45,9 +46,10 @@
 </svelte:head>
 
 <div class="gooru-root gooru-accent-sodium gooru-type-editorial">
-  {#if !$authState.user}
+  {#if !$authState.checked}
+    <SessionLoading />
+  {:else if !$authState.user}
     <AuthPanel
-      checked={$authState.checked}
       {loginUsername}
       {loginPassword}
       {loginBusy}

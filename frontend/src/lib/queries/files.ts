@@ -72,7 +72,8 @@ export function filesQueryOptions(
       }),
     getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined,
     getPreviousPageParam: (firstPage: FileListResponse) => firstPage.previous_page_token || undefined,
-    maxPages: retainedFilePages
+    maxPages: retainedFilePages,
+    placeholderData: (previousData: InfiniteData<FileListResponse, string> | undefined) => previousData
   };
 }
 
