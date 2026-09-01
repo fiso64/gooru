@@ -34,6 +34,18 @@ export function createTagWorkflow() {
     }
   }
 
+  async function removeTag(file: FileItem, tag: string, mutateTags: MutateTags) {
+    busy = { ...busy, [file.id]: true };
+    errors = { ...errors, [file.id]: '' };
+    try {
+      await mutateTags({ operation: 'remove', body: { file_ids: [file.id], tags: [tag] } });
+    } catch (error) {
+      errors = { ...errors, [file.id]: errorMessage(error) };
+    } finally {
+      busy = { ...busy, [file.id]: false };
+    }
+  }
+
   async function bulkSelected(ids: Set<string>, tagInput: string, operation: 'add' | 'remove', mutateTags: MutateTags) {
     const tags = parseTags(tagInput);
     if (!tags.length || !ids.size) return false;
@@ -56,6 +68,7 @@ export function createTagWorkflow() {
     reset,
     updateDraft,
     mutateFile,
+    removeTag,
     bulkSelected,
     bulkFiltered
   };
