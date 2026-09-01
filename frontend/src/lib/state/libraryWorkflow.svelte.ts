@@ -163,8 +163,8 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     }
   }
 
-  function setRoute(next: AppRoute) {
-    route = next;
+  function setRoute(next: string) {
+    route = appRouteFromPath(pathForAppRoute(next));
   }
 
   return {
