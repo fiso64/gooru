@@ -872,3 +872,52 @@ test('matches concept Lightbox geometry and navigation', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
+
+
+test('matches concept Tags index styling and routes tag clicks', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files: [], total_count: 3, library_count: 3, facets: { kind: [] } })
+    });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.locator('.sidebar .sidebar-item').filter({ hasText: 'Tags' }).click();
+
+  const heading = page.getByRole('heading', { name: '2 tags across 3 files' });
+  await expect(heading).toBeVisible();
+  const headingTracking = await heading.evaluate((node) => parseFloat(getComputedStyle(node).letterSpacing));
+  expect(headingTracking).toBeCloseTo(-0.38, 2);
+
+  const safeTile = page.locator('.tagscloud-item').filter({ hasText: 'rating:safe' });
+  await expect(safeTile).toBeVisible();
+  const tileStyle = await safeTile.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      alignItems: style.alignItems,
+      padding: style.padding,
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize
+    };
+  });
+  expect(tileStyle.alignItems).toBe('center');
+  expect(tileStyle.padding).toBe('8px 12px');
+  expect(tileStyle.fontFamily).toContain('IBM Plex Mono');
+  expect(tileStyle.fontSize).toBe('12.5px');
+  await expect.poll(() => safeTile.locator('.ns').evaluate((node) => getComputedStyle(node).fontWeight)).toBe('500');
+  await expect.poll(() => safeTile.locator('.count').evaluate((node) => getComputedStyle(node).fontSize)).toBe('11px');
+
+  const filter = page.getByLabel('Filter tags');
+  await filter.fill('blue');
+  await expect(safeTile).toHaveCount(0);
+  const blueTile = page.locator('.tagscloud-item').filter({ hasText: 'blue' });
+  await expect(blueTile).toBeVisible();
+
+  await blueTile.click();
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  await expect(page.getByLabel('Remove blue')).toBeVisible();
+});
