@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"gooru.local/cmd/gooru/config"
@@ -14,9 +15,10 @@ import (
 )
 
 var (
-	svc     *gooru.Client
-	verbose bool
-	rootCmd = &cobra.Command{
+	svc          *gooru.Client
+	verbose      bool
+	databasePath string
+	rootCmd      = &cobra.Command{
 		Use:   "gooru",
 		Short: "A blazing-fast local file tagger.",
 		Long:  `Gooru is a CLI tool for tagging local files. It uses content hashing to track files, so tags are stable across renames and moves.`,
@@ -26,7 +28,7 @@ var (
 				return nil
 			}
 
-			dbPath, err := config.GetDBPath()
+			dbPath, err := configuredDatabasePath()
 			if err != nil {
 				return fmt.Errorf("failed to get db path: %w", err)
 			}
@@ -47,6 +49,13 @@ var (
 		},
 	}
 )
+
+func configuredDatabasePath() (string, error) {
+	if path := strings.TrimSpace(databasePath); path != "" {
+		return path, nil
+	}
+	return config.GetDBPath()
+}
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
@@ -73,4 +82,5 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose logging, including SQL statements")
+	rootCmd.PersistentFlags().StringVar(&databasePath, "database", "", "Path to the Gooru database (overrides the default and database.path in server config)")
 }
