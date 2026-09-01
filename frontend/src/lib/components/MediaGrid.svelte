@@ -60,44 +60,54 @@
     actions?: Snippet;
   }>();
 
+  let mainHost = $state<HTMLElement | undefined>();
   let gridHost = $state<HTMLDivElement | undefined>();
   let gridWidth = $state(960);
+  let paneHeight = $state(viewportHeight || 900);
+  let paneScrollY = $state(scrollY || 0);
   let gridTop = $state(0);
-  const virtual = $derived(virtualGrid(files, gridWidth, viewportHeight, scrollY, gridTop, totalCount || files.length, retainedStartIndex));
+  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex));
+
+  function handleScroll() {
+    paneScrollY = mainHost?.scrollTop ?? 0;
+  }
 
   $effect(() => {
-    const node = gridHost;
-    if (!node) return;
+    const main = mainHost;
+    const grid = gridHost;
+    if (!main || !grid) return;
+
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const rect = node.getBoundingClientRect();
-      gridWidth = rect.width;
-      gridTop = rect.top + window.scrollY;
+      gridWidth = grid.getBoundingClientRect().width;
+      paneHeight = main.clientHeight;
+      paneScrollY = main.scrollTop;
+      gridTop = grid.offsetTop;
     };
     const schedule = () => {
       if (frame) return;
       frame = requestAnimationFrame(measure);
     };
     const observer = new ResizeObserver(schedule);
-    observer.observe(node);
+    observer.observe(main);
+    observer.observe(grid);
     measure();
-    window.addEventListener('resize', schedule);
     return () => {
       if (frame) cancelAnimationFrame(frame);
-      observer?.disconnect();
-      window.removeEventListener('resize', schedule);
+      observer.disconnect();
     };
   });
 
   $effect(() => {
     const node = loadMoreSentinel;
-    if (!node || !hasNextPage || isFetchingNextPage) return;
+    const root = mainHost;
+    if (!node || !root || !hasNextPage || isFetchingNextPage) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
       },
-      { rootMargin: '900px 0px' }
+      { root, rootMargin: '900px 0px' }
     );
     observer.observe(node);
     return () => observer.disconnect();
@@ -112,7 +122,7 @@
   });
 </script>
 
-<main class="main">
+<main bind:this={mainHost} class="main" onscroll={handleScroll}>
   {#if selectedIDs.size > 0}
     <div class="selection-bar">
       <div>
