@@ -49,7 +49,7 @@
     facets?: { kind?: Array<{ value: string; count: number }> };
   } | null>(null);
   let actionDialog = $state<{
-    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-filtered';
+    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered';
     value: string;
     error: string;
     busy: boolean;
@@ -170,6 +170,10 @@
     actionDialog = { kind: 'bulk-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
   }
 
+  function bulkUntagSelected() {
+    actionDialog = { kind: 'bulk-remove-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
+  }
+
   function bulkTagFiltered() {
     actionDialog = { kind: 'bulk-filtered', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
   }
@@ -192,7 +196,10 @@
       } else if (actionDialog.kind === 'save-delete') {
         await ctx.remove(actionDialog.id);
       } else if (actionDialog.kind === 'bulk-selected') {
-        const changed = await tagWorkflow.bulkSelected(library.selectedIDs, value, (variables) => tagMutation.mutateAsync(variables));
+        const changed = await tagWorkflow.bulkSelected(library.selectedIDs, value, 'add', (variables) => tagMutation.mutateAsync(variables));
+        if (changed) library.clearSelection();
+      } else if (actionDialog.kind === 'bulk-remove-selected') {
+        const changed = await tagWorkflow.bulkSelected(library.selectedIDs, value, 'remove', (variables) => tagMutation.mutateAsync(variables));
         if (changed) library.clearSelection();
       } else if (actionDialog.kind === 'bulk-filtered') {
         await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));
@@ -240,6 +247,7 @@
       case 'save-update': return 'Update saved search';
       case 'save-delete': return 'Delete saved search';
       case 'bulk-selected': return 'Tag selected files';
+      case 'bulk-remove-selected': return 'Untag selected files';
       case 'bulk-filtered': return 'Tag filtered results';
       default: return '';
     }
@@ -251,6 +259,7 @@
       case 'save-update': return `Update "${actionDialog.name}" with the current search and sort.`;
       case 'save-delete': return `Delete "${actionDialog.name}" from saved searches.`;
       case 'bulk-selected': return `Add tags to ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? '' : 's'}.`;
+      case 'bulk-remove-selected': return `Remove tags from ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? '' : 's'}.`;
       case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';
       default: return '';
     }
@@ -265,6 +274,7 @@
       case 'save-delete': return 'Delete';
       case 'bulk-selected':
       case 'bulk-filtered': return 'Add tags';
+      case 'bulk-remove-selected': return 'Remove tags';
       default: return 'Save';
     }
   }
@@ -367,6 +377,7 @@
         onSelectAll={() => library.selectFiles(files)}
         onClearSelection={library.clearSelection}
         onBulkTag={bulkTagSelected}
+        onBulkUntag={bulkUntagSelected}
         onLoadMore={() => { if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) void filesQuery.fetchNextPage(); }}
         onLoadPrevious={() => { if (filesQuery.hasPreviousPage && !filesQuery.isFetchingPreviousPage) void filesQuery.fetchPreviousPage(); }}
       >

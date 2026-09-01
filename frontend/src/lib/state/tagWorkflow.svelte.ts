@@ -34,10 +34,10 @@ export function createTagWorkflow() {
     }
   }
 
-  async function bulkSelected(ids: Set<string>, tagInput: string, mutateTags: MutateTags) {
+  async function bulkSelected(ids: Set<string>, tagInput: string, operation: 'add' | 'remove', mutateTags: MutateTags) {
     const tags = parseTags(tagInput);
     if (!tags.length || !ids.size) return false;
-    await mutateTags({ operation: 'add', body: { file_ids: Array.from(ids), tags } });
+    await mutateTags({ operation, body: { file_ids: Array.from(ids), tags } });
     return true;
   }
 

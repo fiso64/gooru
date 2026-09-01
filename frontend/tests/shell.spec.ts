@@ -461,3 +461,46 @@ test('upload result details preserve duplicate and error statuses', async ({ pag
   await expect(page.getByText('duplicate existing', { exact: true })).toBeVisible();
   await expect(page.getByText('unsupported media')).toBeVisible();
 });
+
+
+test('bulk selection supports concept untag action', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const files = [fileItem('one', 'one.jpg'), fileItem('two', 'two.jpg')];
+  const mutations: Array<{ method: string; csrf: string; body: unknown }> = [];
+
+  await page.route('**/api/v1/files?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files, total_count: 2, library_count: 2, facets: { kind: [{ value: 'photo', count: 2 }] } })
+    });
+  });
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />' });
+  });
+  await page.route('**/api/v1/files/tags', async (route) => {
+    mutations.push({
+      method: route.request().method(),
+      csrf: route.request().headers()['x-gooru-csrf'] ?? '',
+      body: route.request().postDataJSON()
+    });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ operation: 'remove', selector: { file_ids: ['one'] }, affected_count: 1 })
+    });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
+  await expect(page.locator('.thumb.is-selected')).toHaveCount(1);
+  await expect(page.getByText('1 of 2 selected')).toBeVisible();
+  await page.getByRole('button', { name: 'Untag…' }).click();
+  await expect(page.getByRole('heading', { name: 'Untag selected files' })).toBeVisible();
+  await page.getByLabel('Tags').fill('blue');
+  await page.getByRole('button', { name: 'Remove tags' }).click();
+
+  await expect.poll(() => mutations.length).toBe(1);
+  expect(mutations[0]).toMatchObject({ method: 'DELETE', csrf: 'csrf-one', body: { file_ids: ['one'], tags: ['blue'], verbose: false } });
+  await expect(page.locator('.selection-bar')).toHaveCount(0);
+});
