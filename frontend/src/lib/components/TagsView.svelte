@@ -1,41 +1,62 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
   import type { TagItem } from '$lib/api/types';
 
   let {
     tags,
+    libraryCount,
     loading,
     error,
     onTag,
     onNamespace
   } = $props<{
     tags: TagItem[];
+    libraryCount: number;
     loading: boolean;
     error: string;
     onTag: (tag: string) => void;
     onNamespace: (namespace: string) => void;
   }>();
 
-  const namespaces = $derived.by(() => {
-    const counts = new Map<string, number>();
-    for (const tag of tags) {
-      if (!tag.namespace) continue;
-      counts.set(tag.namespace, (counts.get(tag.namespace) ?? 0) + (tag.count ?? 0));
-    }
-    return Array.from(counts.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-  });
+  let filter = $state('');
+  const preferredNamespaces = ['', 'rating', 'subject', 'location', 'people', 'color', 'year', 'collection', 'film', 'camera'];
 
-  const unnamespaced = $derived.by(() => tags.filter((tag: TagItem) => !tag.namespace));
+  const grouped = $derived.by(() => {
+    const needle = filter.trim().toLowerCase();
+    const groups = new Map<string, TagItem[]>();
+    for (const tag of tags) {
+      if (needle && !tag.name.toLowerCase().includes(needle)) continue;
+      const key = tag.namespace ?? '';
+      const items = groups.get(key) ?? [];
+      items.push(tag);
+      groups.set(key, items);
+    }
+
+    const ordered = [
+      ...preferredNamespaces.filter((namespace) => groups.has(namespace)),
+      ...Array.from(groups.keys())
+        .filter((namespace) => !preferredNamespaces.includes(namespace))
+        .sort((a, b) => a.localeCompare(b))
+    ];
+
+    return ordered.map((namespace) => ({
+      namespace,
+      label: namespace || 'tags',
+      tags: (groups.get(namespace) ?? []).sort((a, b) => (b.count ?? 0) - (a.count ?? 0) || a.name.localeCompare(b.name))
+    }));
+  });
 </script>
 
 <main class="main">
   <div class="page">
     <div class="page-header">
       <div class="g-eyebrow g-eyebrow-accent">Tags</div>
-      <h1>Tag index</h1>
-      <p>Browse real tag counts from the library and jump directly into filtered searches.</p>
+      <h1>{tags.length.toLocaleString()} tags across {libraryCount.toLocaleString()} files</h1>
+      <p>Browse by namespace. Click any tag to filter the library.</p>
+    </div>
+
+    <div class="tag-filter-sticky">
+      <label class="sr-only" for="tag-filter">Filter tags</label>
+      <input id="tag-filter" class="g-input" placeholder="Filter tags…" bind:value={filter} />
     </div>
 
     {#if loading}
@@ -46,45 +67,27 @@
       </div>
     {:else if error}
       <div class="empty-row error-state">{error}</div>
-    {:else if tags.length}
-      {#if namespaces.length}
-        <section class="tag-index-section">
-          <div class="list-head"><span class="g-eyebrow">Namespaces</span><span class="g-eyebrow">{namespaces.length}</span></div>
+    {:else if grouped.length}
+      {#each grouped as group}
+        <section>
+          <div class="tag-ns-header">
+            <h3>{group.label}</h3>
+            <span class="count">{group.tags.length.toLocaleString()} {group.tags.length === 1 ? 'tag' : 'tags'}</span>
+          </div>
           <div class="tagscloud">
-            {#each namespaces as item}
-              <button class="tagscloud-item" type="button" onclick={() => onNamespace(item.name)}>
-                <span><Icon name="tags" size={13} /> {item.name}:</span>
-                <span class="count">{item.count.toLocaleString()}</span>
+            {#each group.tags as tag}
+              <button class="tagscloud-item" type="button" onclick={() => onTag(tag.name)}>
+                <span class="tag-name">
+                  {#if tag.namespace}<span class="ns">{tag.namespace}:</span>{tag.value}{:else}{tag.name}{/if}
+                </span>
+                <span class="count">{(tag.count ?? 0).toLocaleString()}</span>
               </button>
             {/each}
           </div>
         </section>
-      {/if}
-
-      <section class="tag-index-section">
-        <div class="list-head"><span class="g-eyebrow">Tags</span><span class="g-eyebrow">{tags.length.toLocaleString()}</span></div>
-        <div class="tagscloud tagscloud-dense">
-          {#each tags as tag}
-            <button class="tagscloud-item" type="button" onclick={() => onTag(tag.name)}>
-              <span>
-                {#if tag.namespace}<span class="ns">{tag.namespace}:</span>{tag.value}{:else}{tag.name}{/if}
-              </span>
-              <span class="count">{(tag.count ?? 0).toLocaleString()}</span>
-            </button>
-          {/each}
-        </div>
-      </section>
-
-      {#if unnamespaced.length}
-        <section class="tag-index-section">
-          <div class="list-head"><span class="g-eyebrow">Plain tags</span><span class="g-eyebrow">{unnamespaced.length}</span></div>
-          <div class="tag-strip">
-            {#each unnamespaced as tag}
-              <button class="g-tag" type="button" onclick={() => onTag(tag.name)}>{tag.name}<span class="tag-count">{tag.count ?? 0}</span></button>
-            {/each}
-          </div>
-        </section>
-      {/if}
+      {/each}
+    {:else if tags.length}
+      <div class="empty-row">No tags match “{filter}”.</div>
     {:else}
       <div class="empty-row">No tags have been indexed yet.</div>
     {/if}
