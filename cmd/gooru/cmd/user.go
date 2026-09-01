@@ -143,7 +143,7 @@ func promptPassword(cmd *cobra.Command) (string, error) {
 	if password != confirm {
 		return "", errors.New("passwords do not match")
 	}
-	if err := serve.ValidatePasswordStrength(password); err != nil {
+	if err := serve.ValidatePassword(password); err != nil {
 		return "", err
 	}
 	return password, nil

@@ -21,7 +21,7 @@ const (
 )
 
 func HashPassword(password string) (string, error) {
-	if err := ValidatePasswordStrength(password); err != nil {
+	if err := ValidatePassword(password); err != nil {
 		return "", err
 	}
 	salt := make([]byte, passwordHashSaltBytes)
@@ -75,10 +75,12 @@ func VerifyPassword(encoded string, password string) (bool, error) {
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
-func ValidatePasswordStrength(password string) error {
-	password = strings.TrimSpace(password)
-	if len(password) < 8 {
-		return errors.New("password must be at least 8 characters")
+// ValidatePassword enforces only that an account actually has a password.
+// Password composition and length are deliberately left to the user; Argon2id
+// provides the storage-side protection independently of that policy choice.
+func ValidatePassword(password string) error {
+	if password == "" {
+		return errors.New("password is required")
 	}
 	return nil
 }
