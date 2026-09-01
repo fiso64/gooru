@@ -1,0 +1,103 @@
+name: Validate shared tag entry
+
+on:
+  push:
+    branches: [refactor/21-shared-tag-entry]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/21-shared-tag-entry
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Wire shared tag entry into viewer and uploads
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          tag_editor = Path('frontend/src/lib/components/TagEditor.svelte')
+          tag_editor.write_text('''<script lang="ts">\n  import Icon from './Icon.svelte';\n  import TagAutocompleteInput from './TagAutocompleteInput.svelte';\n  import type { TagCandidate } from '$lib/utils/tagSuggestions';\n\n  let {\n    fileID,\n    fileName,\n    draft,\n    busy,\n    error,\n    tags,\n    existingTags,\n    onInput,\n    onCommit\n  } = $props<{\n    fileID: string;\n    fileName: string;\n    draft: string;\n    busy: boolean;\n    error: string;\n    tags: TagCandidate[];\n    existingTags: string[];\n    onInput: (value: string) => void;\n    onCommit: (value: string) => void;\n  }>();\n</script>\n\n<div class="tag-editor">\n  <div class="lightbox-tag-input">\n    <Icon name="plus" size={12} />\n    <TagAutocompleteInput\n      value={draft}\n      {tags}\n      existing={existingTags}\n      placeholder="add tag — e.g. subject:portrait"\n      disabled={busy}\n      ariaLabel={`Tags for ${fileName}`}\n      {onInput}\n      {onCommit}\n    />\n  </div>\n  {#if error}<p class="form-error">{error}</p>{/if}\n</div>\n''')
+
+          tag_workflow = Path('frontend/src/lib/state/tagWorkflow.svelte.ts')
+          text = tag_workflow.read_text()
+          old = '''  async function mutateFile(file: FileItem, operation: 'add' | 'set' | 'remove', mutateTags: MutateTags) {\n    const tags = parseTags(drafts[file.id] ?? '');\n    if (!tags.length) return;\n    busy = { ...busy, [file.id]: true };\n    errors = { ...errors, [file.id]: '' };\n    try {\n      await mutateTags({ operation, body: { file_ids: [file.id], tags } });\n      file.tags = applyTagOperation(file.tags, operation, tags);\n      drafts = { ...drafts, [file.id]: '' };\n    } catch (error) {\n      errors = { ...errors, [file.id]: errorMessage(error) };\n    } finally {\n      busy = { ...busy, [file.id]: false };\n    }\n  }\n'''
+          new = '''  async function mutateFileTags(file: FileItem, operation: 'add' | 'set' | 'remove', tagInput: string, mutateTags: MutateTags) {\n    const tags = parseTags(tagInput);\n    if (!tags.length) return;\n    busy = { ...busy, [file.id]: true };\n    errors = { ...errors, [file.id]: '' };\n    try {\n      await mutateTags({ operation, body: { file_ids: [file.id], tags } });\n      file.tags = applyTagOperation(file.tags, operation, tags);\n      drafts = { ...drafts, [file.id]: '' };\n    } catch (error) {\n      errors = { ...errors, [file.id]: errorMessage(error) };\n    } finally {\n      busy = { ...busy, [file.id]: false };\n    }\n  }\n\n  async function mutateFile(file: FileItem, operation: 'add' | 'set' | 'remove', mutateTags: MutateTags) {\n    return mutateFileTags(file, operation, drafts[file.id] ?? '', mutateTags);\n  }\n'''
+          if old not in text:
+              raise SystemExit('tag workflow mutation block not found')
+          text = text.replace(old, new, 1)
+          text = text.replace('    mutateFile,\n    removeTag,', '    mutateFile,\n    mutateFileTags,\n    removeTag,', 1)
+          tag_workflow.write_text(text)
+
+          preview = Path('frontend/src/lib/components/PreviewDialog.svelte')
+          text = preview.read_text()
+          text = text.replace('    tagError,\n    onClose,', '    tagError,\n    tags,\n    onClose,', 1)
+          text = text.replace('    tagError: string;\n    onClose:', "    tagError: string;\n    tags: Array<{ name?: string; tag?: string; namespace?: string; value?: string; count?: number }>;\n    onClose:", 1)
+          old = '''      <TagEditor\n        fileID={file.id}\n        fileName={file.name}\n        draft={tagDraft}\n        busy={tagBusy}\n        error={tagError}\n        canSubmit={Boolean(parseTags(tagDraft).length)}\n        onInput={(value) => onTagInput(file.id, value)}\n        onMutate={(operation) => onMutateTags(file, operation)}\n      />'''
+          new = '''      <TagEditor\n        fileID={file.id}\n        fileName={file.name}\n        draft={tagDraft}\n        busy={tagBusy}\n        error={tagError}\n        {tags}\n        existingTags={file.tags}\n        onInput={(value) => onTagInput(file.id, value)}\n        onCommit={(value) => onMutateTags(file, 'add', value)}\n      />'''
+          if old not in text:
+              raise SystemExit('Preview TagEditor block not found')
+          text = text.replace(old, new, 1)
+          text = text.replace("    onMutateTags: (file: FileItem, operation: 'add' | 'set' | 'remove') => void;", "    onMutateTags: (file: FileItem, operation: 'add' | 'set' | 'remove', value?: string) => void;", 1)
+          preview.write_text(text)
+
+          upload = Path('frontend/src/lib/components/UploadPanel.svelte')
+          text = upload.read_text()
+          text = text.replace("  import Icon from './Icon.svelte';", "  import Icon from './Icon.svelte';\n  import TagAutocompleteInput from './TagAutocompleteInput.svelte';\n  import type { TagCandidate } from '$lib/utils/tagSuggestions';", 1)
+          text = text.replace('    autoUpload,\n    onTargetInput,', '    autoUpload,\n    tags,\n    onTargetInput,', 1)
+          text = text.replace('    autoUpload: boolean;\n    onTargetInput:', '    autoUpload: boolean;\n    tags: TagCandidate[];\n    onTargetInput:', 1)
+          text = text.replace("  let tagInput = $state<HTMLInputElement | undefined>();\n  let tagEditorOpen = $state(false);\n", '')
+          start = text.index('  function openTagEditor() {')
+          end = text.index('  function itemIcon(', start)
+          replacement = '''  function commitInitialTag(tag: string) {\n    onTagsInput(Array.from(new Set([...initialTags, tag])).join(' '));\n    tagDraft = '';\n  }\n\n  function removeInitialTag(tag: string) {\n    onTagsInput(initialTags.filter((candidate) => candidate !== tag).join(' '));\n  }\n\n'''
+          text = text[:start] + replacement + text[end:]
+          old = '''            {#if tagEditorOpen}\n              <input\n                bind:this={tagInput}\n                class="g-input upload-tag-entry"\n                aria-label="Initial tag"\n                placeholder="subject:portrait"\n                value={tagDraft}\n                oninput={(event) => (tagDraft = event.currentTarget.value)}\n                onkeydown={(event) => {\n                  if (event.key === 'Enter') {\n                    event.preventDefault();\n                    commitTagDraft();\n                  } else if (event.key === 'Escape') {\n                    event.preventDefault();\n                    closeTagEditor();\n                  }\n                }}\n              />\n            {:else}\n              <button class="g-btn g-btn-ghost g-btn-sm" type="button" onclick={openTagEditor}><Icon name="plus" size={12} /> Add tag</button>\n            {/if}'''
+          new = '''            <TagAutocompleteInput\n              value={tagDraft}\n              {tags}\n              existing={initialTags}\n              placeholder="add tag — e.g. subject:portrait"\n              ariaLabel="Initial tags"\n              onInput={(value) => (tagDraft = value)}\n              onCommit={commitInitialTag}\n            />'''
+          if old not in text:
+              raise SystemExit('upload tag editor block not found')
+          text = text.replace(old, new, 1)
+          upload.write_text(text)
+
+          app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = app.read_text()
+          text = text.replace('        autoUpload={upload.autoUpload}\n        onTargetInput=', '        autoUpload={upload.autoUpload}\n        tags={tagsQuery.data?.tags ?? []}\n        onTargetInput=', 1)
+          text = text.replace('      tagError={tagWorkflow.errors[library.activeFile.id] ?? \'\'}\n      onClose=', '      tagError={tagWorkflow.errors[library.activeFile.id] ?? \'\'}\n      tags={tagsQuery.data?.tags ?? []}\n      onClose=', 1)
+          old = "      onMutateTags={(file, operation) => tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))}"
+          new = "      onMutateTags={(file, operation, value) => value == null\n        ? tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))\n        : tagWorkflow.mutateFileTags(file, operation, value, (variables) => tagMutation.mutateAsync(variables))}"
+          if old not in text:
+              raise SystemExit('app mutate handler not found')
+          app.write_text(text.replace(old, new, 1))
+          PY
+      - name: Backend validation
+        run: |
+          go build ./...
+          go test ./...
+      - name: Frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend validation
+        working-directory: frontend
+        run: |
+          npm run test:unit
+          npm run check
+          npm run build
+      - name: Commit validated slice and remove temporary workflow
+        run: |
+          git config user.name "ChatGPT Codex Connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/validate-shared-tag-entry.yml
+          git add frontend/src/lib/components/TagEditor.svelte frontend/src/lib/components/UploadPanel.svelte frontend/src/lib/components/PreviewDialog.svelte frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/state/tagWorkflow.svelte.ts frontend/src/lib/components/TagAutocompleteInput.svelte frontend/src/lib/utils/tagSuggestions.ts frontend/src/lib/utils/tagSuggestions.test.ts
+          git commit -m "refactor(frontend): share tag entry autocomplete"
+          git push origin HEAD:refactor/21-shared-tag-entry
