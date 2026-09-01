@@ -2,6 +2,7 @@
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
   import { formatBytes, groupTags, mediaDimensions, mediaDuration, parseTags } from '$lib/utils/format';
+  import { canUseOriginalInViewer, preserveNativeViewerSize, viewerImageSource } from '$lib/utils/media';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -34,7 +35,11 @@
   let videoPaused = $state(true);
   let videoTime = $state(0);
   let videoLength = $state(0);
+  let preferOriginal = $state(false);
   const videoProgress = $derived(videoLength > 0 ? Math.min(100, Math.max(0, (videoTime / videoLength) * 100)) : 0);
+  const originalAvailable = $derived(canUseOriginalInViewer(file));
+  const imageSource = $derived(viewerImageSource(file, preferOriginal));
+  const nativeImageSize = $derived(preserveNativeViewerSize(file));
 
   $effect(() => {
     file.id;
@@ -190,7 +195,7 @@
         <audio src={file.media_urls.content} controls preload="metadata"></audio>
       </div>
     {:else}
-      <img src={file.media_urls.preview} alt={file.name} />
+      <img class:native-size={nativeImageSize} src={imageSource} alt={file.name} />
     {/if}
 
     <button class="lightbox-nav-arrow prev" type="button" title="Previous (←)" aria-label="Previous file" onclick={onPrev}><Icon name="chev_left" size={20} /></button>
@@ -199,6 +204,18 @@
 
   <aside class="lightbox-rail">
     <button class="g-btn g-btn-ghost" type="button" title="Add tag" aria-label="Add tag" onclick={focusTagInput}><Icon name="tag" size={16} /></button>
+    {#if originalAvailable}
+      <button
+        class="g-btn g-btn-ghost"
+        type="button"
+        aria-label={preferOriginal ? 'Use derived preview' : 'Use original media'}
+        aria-pressed={preferOriginal}
+        title={preferOriginal ? 'Using original media; click to use preview' : 'Load original media'}
+        onclick={() => { preferOriginal = !preferOriginal; }}
+      >
+        <Icon name="photo" size={16} active={preferOriginal} />
+      </button>
+    {/if}
     <a class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original" aria-label={`Download ${file.name}`}>
       <Icon name="download" size={16} />
     </a>
