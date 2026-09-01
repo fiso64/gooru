@@ -38,13 +38,13 @@
 
 <style>
   .jobs-page {
-    max-width: none;
-    margin: 0;
+    width: min(100%, 760px);
+    margin-inline: auto;
   }
 
   .jobs-page-header {
     position: relative;
-    max-width: 72ch;
+    max-width: 62ch;
   }
 
   .jobs-clear {
@@ -70,7 +70,7 @@
   .jobs-empty {
     padding: 36px 18px;
     color: var(--text-3);
-    text-align: center;
+    text-align: left;
     font-family: var(--font-mono);
     font-size: 11px;
   }
