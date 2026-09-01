@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import type { FileItem } from '$lib/api/types';
 import type { FileSort, SortOrder } from '$lib/queries/files';
+import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
 export function createLibraryWorkflow() {
   const searchDraft = writable('');
@@ -117,15 +118,27 @@ export function createLibraryWorkflow() {
   }
 
   function handleKeydown(event: KeyboardEvent, files: FileItem[]) {
-    if (event.key === 'Escape' && activeFile) closePreview();
-    if (activeFile && (event.key === 'ArrowLeft' || event.key === 'k')) movePreview(-1, files);
-    if (activeFile && (event.key === 'ArrowRight' || event.key === 'j')) movePreview(1, files);
+    if (event.defaultPrevented || isEditableShortcutTarget(event.target)) return;
+
+    if (event.key === 'Escape') {
+      if (activeFile) closePreview();
+      else if (selectedIDs.size) clearSelection();
+      return;
+    }
+    if (activeFile && (event.key === 'ArrowLeft' || event.key === 'k')) {
+      event.preventDefault();
+      movePreview(-1, files);
+      return;
+    }
+    if (activeFile && (event.key === 'ArrowRight' || event.key === 'j')) {
+      event.preventDefault();
+      movePreview(1, files);
+    }
   }
 
   function setRoute(next: string) {
     route = next;
   }
-
 
   return {
     searchDraft,
