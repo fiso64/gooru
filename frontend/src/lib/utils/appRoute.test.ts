@@ -26,16 +26,17 @@ describe('app route URL policy', () => {
     expect(appRouteFromPath('/does-not-exist')).toBe('library');
   });
 
-  it('round-trips meaningful library state while omitting defaults', () => {
-    const search = searchForLibraryURLState({ query: 'artist:foo bar', kind: 'photo', sort: 'name', order: 'asc' });
-    expect(search).toBe('?q=artist%3Afoo+bar&type=photo&sort=name&order=asc');
+  it('round-trips meaningful library and preview state while omitting defaults', () => {
+    const search = searchForLibraryURLState({ query: 'artist:foo bar', kind: 'photo', sort: 'name', order: 'asc', fileID: 'opaque-file' });
+    expect(search).toBe('?q=artist%3Afoo+bar&type=photo&sort=name&order=asc&file=opaque-file');
     expect(libraryURLStateFromSearch(search)).toEqual({
       query: 'artist:foo bar',
       kind: 'photo',
       sort: 'name',
-      order: 'asc'
+      order: 'asc',
+      fileID: 'opaque-file'
     });
-    expect(searchForLibraryURLState({ query: '', kind: '', sort: 'modified', order: 'desc' })).toBe('');
+    expect(searchForLibraryURLState({ query: '', kind: '', sort: 'modified', order: 'desc', fileID: '' })).toBe('');
   });
 
   it('normalizes invalid URL state to safe library defaults', () => {
@@ -43,7 +44,8 @@ describe('app route URL policy', () => {
       query: 'fox',
       kind: '',
       sort: 'modified',
-      order: 'desc'
+      order: 'desc',
+      fileID: ''
     });
   });
 });

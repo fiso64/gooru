@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
+import { ApiClient } from '$lib/api/client';
 import type { FileItem } from '$lib/api/types';
 import type { FileSort, SortOrder } from '$lib/queries/files';
 import {
@@ -27,6 +28,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   let order: SortOrder = $state(initialLibraryState.order);
   let selectedIDs = $state(new Set<string>());
   let activeFile = $state<FileItem | null>(null);
+  let pendingPreviewID = $state(initialLibraryState.fileID);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
   let suggestionDebounce: ReturnType<typeof setTimeout> | undefined;
 
@@ -35,14 +37,14 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     submittedSearch.set(value);
   }
 
-  // Keep all top-level navigation plus durable library controls in one browser
-  // history policy. Search/filter/sort transitions become meaningful Back/Forward
-  // entries without making individual components aware of the History API.
+  // Keep top-level navigation, durable library controls, and the active preview
+  // in one browser-history policy. Components remain unaware of the History API,
+  // and a preview URL can be restored independently of the currently loaded page.
   $effect(() => {
     if (!browser) return;
     const pathname = pathForAppRoute(route);
     const search = route === 'library'
-      ? searchForLibraryURLState({ query: submittedQuery, kind: activeKind, sort, order })
+      ? searchForLibraryURLState({ query: submittedQuery, kind: activeKind, sort, order, fileID: pendingPreviewID })
       : '';
     const nextURL = `${pathname}${search}`;
     const currentURL = `${window.location.pathname}${window.location.search}`;
@@ -61,6 +63,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
       activeSavedSearch = '';
       sort = nextLibraryState.sort;
       order = nextLibraryState.order;
+      pendingPreviewID = nextLibraryState.fileID;
       searchDraft.set(nextLibraryState.query);
       suggestionSearch.set(nextLibraryState.query);
       setSubmittedSearch(nextLibraryState.query);
@@ -69,6 +72,30 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     };
     window.addEventListener('popstate', restoreRoute);
     return () => window.removeEventListener('popstate', restoreRoute);
+  });
+
+  // AuthenticatedApp only instantiates this workflow after session resolution,
+  // so a direct preview URL can safely hydrate the file from the canonical API.
+  // Normal grid opens already carry the complete File object and skip this fetch.
+  $effect(() => {
+    if (!browser || route !== 'library') return;
+    const id = pendingPreviewID;
+    if (!id || activeFile?.id === id) return;
+    const controller = new AbortController();
+    new ApiClient()
+      .getFile(id, controller.signal)
+      .then((file) => {
+        if (!controller.signal.aborted && pendingPreviewID === id) activeFile = file;
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        if (pendingPreviewID === id) {
+          activeFile = null;
+          pendingPreviewID = '';
+        }
+        console.warn('Unable to restore media preview from URL', error);
+      });
+    return () => controller.abort();
   });
 
   function reset() {
@@ -124,6 +151,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     setSubmittedSearch(query);
     selectedIDs = new Set();
     activeFile = null;
+    pendingPreviewID = '';
     route = 'library';
   }
 
@@ -160,16 +188,21 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
   function openPreview(file: FileItem) {
     activeFile = file;
+    pendingPreviewID = file.id;
+    route = 'library';
   }
 
   function closePreview() {
     activeFile = null;
+    pendingPreviewID = '';
   }
 
   function movePreview(delta: number, files: FileItem[]) {
     if (!activeFile || !files.length) return;
     const index = files.findIndex((file) => file.id === activeFile?.id);
-    activeFile = files[(index + delta + files.length) % files.length] ?? activeFile;
+    const next = files[(index + delta + files.length) % files.length] ?? activeFile;
+    activeFile = next;
+    pendingPreviewID = next.id;
   }
 
   function handleKeydown(event: KeyboardEvent, files: FileItem[]) {
@@ -193,6 +226,10 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
   function setRoute(next: string) {
     route = appRouteFromPath(pathForAppRoute(next));
+    if (route !== 'library') {
+      activeFile = null;
+      pendingPreviewID = '';
+    }
   }
 
   return {
@@ -210,6 +247,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     get selectedIDs() { return selectedIDs; },
     set selectedIDs(value: Set<string>) { selectedIDs = value; },
     get activeFile() { return activeFile; },
+    get pendingPreviewID() { return pendingPreviewID; },
     reset,
     submitSearch,
     setSearch,

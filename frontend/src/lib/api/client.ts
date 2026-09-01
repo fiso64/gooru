@@ -3,6 +3,7 @@ import type { paths } from './openapi';
 import type {
   ApiErrorResponse,
   AuthMeResponse,
+  FileItem,
   FileListResponse,
   Job,
   JobListResponse,
@@ -100,6 +101,10 @@ export class ApiClient {
         signal: params.signal
       })
     );
+  }
+
+  async getFile(id: string, signal?: AbortSignal): Promise<FileItem> {
+    return this.unwrap(this.client.GET('/files/{id}', { params: { path: { id } }, signal }));
   }
 
   async searchSuggestions(q = '', limit?: number, existing = '', signal?: AbortSignal): Promise<SuggestionsResponse> {
