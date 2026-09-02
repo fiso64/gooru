@@ -6,17 +6,19 @@
   let {
     file,
     selected,
+    selectionActive,
     onOpen,
     onToggleSelect
   } = $props<{
     file: FileItem;
     selected: boolean;
+    selectionActive: boolean;
     onOpen: (file: FileItem) => void;
     onToggleSelect: (file: FileItem) => void;
   }>();
 
   function openOrSelect(event: MouseEvent) {
-    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+    if (selectionActive || event.shiftKey || event.metaKey || event.ctrlKey) {
       onToggleSelect(file);
       return;
     }
@@ -24,8 +26,13 @@
   }
 </script>
 
-<article class={`thumb${selected ? ' is-selected' : ''}`}>
-  <button class="thumb-open" type="button" aria-label={`Preview ${file.name}`} onclick={openOrSelect}>
+<article class={`thumb${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`}>
+  <button
+    class="thumb-open"
+    type="button"
+    aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`}
+    onclick={openOrSelect}
+  >
     <img src={file.media_urls.thumbnail} alt={file.name} loading="lazy" decoding="async" draggable="false" />
     <span class="thumb-overlay"></span>
     <span class="thumb-badges">
@@ -50,4 +57,9 @@
   >
     {#if selected}<Icon name="check" size={12} active />{/if}
   </button>
+  {#if selectionActive}
+    <button class="thumb-preview" type="button" aria-label={`Preview ${file.name}`} title="Preview" onclick={() => onOpen(file)}>
+      <Icon name="search" size={13} />
+    </button>
+  {/if}
 </article>
