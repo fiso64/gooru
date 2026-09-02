@@ -2,11 +2,12 @@
   import Icon from './Icon.svelte';
   import { parseSearchQuery, parseSearchToken, searchTokensToQuery, searchTokenToString, type SearchToken } from '$lib/search/tokens';
   import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { specialSearchSuggestions } from '$lib/utils/searchSuggestions';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
   type SuggestionLike = { name: string; count?: number };
   type SuggestionItem = {
-    kind: 'namespace' | 'tag' | 'valueless' | 'value';
+    kind: 'namespace' | 'tag' | 'valueless' | 'value' | 'expression';
     commit: string;
     ns: string;
     val: string;
@@ -107,6 +108,15 @@
       .sort((a, b) => b.count - a.count || a.ns.localeCompare(b.ns));
   }
 
+  function expressionGroup(draftValue: string, currentTokens: SearchToken[]): SuggestionGroup[] {
+    const existing = currentTokens.map(searchTokenToString);
+    const items = specialSearchSuggestions(draftValue, existing).map((item) => ({
+      ...item,
+      kind: 'expression' as const
+    }));
+    return items.length ? [{ head: 'Expressions', items }] : [];
+  }
+
   function computeSuggestions(
     draftValue: string,
     currentTokens: SearchToken[],
@@ -149,7 +159,7 @@
           };
         });
       if (matchingTags.length) result.push({ head: term ? 'Tags' : 'Valueless', items: matchingTags });
-      return result;
+      return [...result, ...expressionGroup(draftValue, currentTokens)];
     }
 
     const colon = working.indexOf(':');
@@ -167,7 +177,8 @@
         const parsed = parseTag(tag);
         return { kind: 'value' as const, commit: `${negPrefix}${tag}`, ns: parsed.ns, val: parsed.value, count };
       });
-    return values.length ? [{ head: `${ns}:`, items: values }] : [];
+    const result = values.length ? [{ head: `${ns}:`, items: values }] : [];
+    return [...result, ...expressionGroup(draftValue, currentTokens)];
   }
 
   function syncCommit(nextTokens: SearchToken[]) {
