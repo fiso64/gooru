@@ -6,13 +6,23 @@
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
   import { errorMessage } from '$lib/utils/format';
+  import { accentTheme, type AccentTheme } from '$lib/utils/theme';
 
   let loginUsername = $state('');
   let loginPassword = $state('');
   let loginBusy = $state(false);
   let loginError = $state('');
+  let runtimeAccent = $state<AccentTheme | null>(null);
 
   onMount(() => {
+    fetch('/api/v1/ui-config', { credentials: 'same-origin' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return await response.json() as { accent_color?: string };
+      })
+      .then((config) => { runtimeAccent = accentTheme(config?.accent_color ?? ''); })
+      .catch(() => { runtimeAccent = null; });
+
     new ApiClient()
       .me()
       .then((session) => authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true }))
@@ -45,7 +55,10 @@
   <title>Gooru Library</title>
 </svelte:head>
 
-<div class="gooru-root gooru-accent-sodium gooru-type-editorial">
+<div
+  class="gooru-root gooru-accent-sodium gooru-type-editorial"
+  style={runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : undefined}
+>
   {#if !$authState.checked}
     <SessionLoading />
   {:else if !$authState.user}
