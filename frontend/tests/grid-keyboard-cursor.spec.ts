@@ -60,7 +60,7 @@ async function mockApp(page: Page) {
     contentType: 'application/json',
     body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })
   }));
-  await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32"/></svg>' }));
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#fff"/></svg>' }));
   await page.route('**/api/v1/files/*/preview', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64"/></svg>' }));
 
   await page.goto('/');
@@ -70,7 +70,7 @@ async function mockApp(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('ArrowDown enters the media grid from committed search and cursor actions select, move, and open', async ({ page }) => {
+test('ArrowDown enters the media grid with a high-contrast cursor and cursor actions select, move, and open', async ({ page }) => {
   await mockApp(page);
 
   const search = page.getByLabel('Search library');
@@ -83,6 +83,19 @@ test('ArrowDown enters the media grid from committed search and cursor actions s
   const cards = page.locator('.thumb-open');
   await expect(cards.nth(0)).toBeFocused();
   await expect(cards.nth(0)).toHaveAccessibleName('Preview one.jpg');
+  const cursor = await cards.nth(0).evaluate((node) => {
+    const style = getComputedStyle(node, '::after');
+    return {
+      content: style.content,
+      borderStyle: style.borderStyle,
+      borderColor: style.borderColor,
+      boxShadow: style.boxShadow
+    };
+  });
+  expect(cursor.content).not.toBe('none');
+  expect(cursor.borderStyle).toBe('dashed');
+  expect(cursor.borderColor).toBe('rgb(255, 255, 255)');
+  expect(cursor.boxShadow).toContain('rgb(0, 0, 0)');
 
   await page.keyboard.press('Space');
   await expect(page.getByText('1 of 3 selected')).toBeVisible();
