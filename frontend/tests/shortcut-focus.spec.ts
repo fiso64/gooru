@@ -72,6 +72,9 @@ async function makeMediaControllable(page: Page, selector: 'video' | 'audio') {
   await expect(media).toHaveCount(1);
   await media.evaluate((node) => {
     const element = node as HTMLMediaElement;
+    element.style.width = '320px';
+    element.style.height = '180px';
+    element.style.display = 'block';
     let paused = false;
     let currentTime = 4;
     let playCalls = 0;
