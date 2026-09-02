@@ -1,7 +1,8 @@
 name: Maintainer encryption VFS validation
 on:
   push:
-    branches: [feat/28-database-encryption-vfs]
+    branches:
+      - feat/28-database-encryption-vfs
 permissions:
   contents: write
 jobs:
@@ -14,57 +15,15 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Wire encrypted store lifecycle
+        shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('internal/database/database.go')
-          s = p.read_text()
-          old = '''type Store struct {
-\tDB             *sql.DB
-\tdataSourceName string
-\tlogger         *log.Logger
-}'''
-          new = '''type Store struct {
-\tDB             *sql.DB
-\tdataSourceName string
-\tlogger         *log.Logger
-\tbackendClose   func() error
-}'''
-          if old not in s:
-              raise SystemExit('Store struct pattern not found')
-          s = s.replace(old, new, 1)
-          old = '[]string{dataSourceName, dataSourceName + "-wal", dataSourceName + "-shm"}'
-          new = '[]string{dataSourceName, dataSourceName + "-wal", dataSourceName + "-shm", dataSourceName + "-journal"}'
-          if old not in s:
-              raise SystemExit('SecureDBFiles pattern not found')
-          s = s.replace(old, new, 1)
-          old = '''func (s *Store) Close() error {
-\terr := s.DB.Close()
-\tif secureErr := SecureDBFiles(s.dataSourceName); err == nil {
-\t\terr = secureErr
-\t}
-\treturn err
-}'''
-          new = '''func (s *Store) Close() error {
-\tvar err error
-\tif s.backendClose != nil {
-\t\terr = s.backendClose()
-\t} else {
-\t\terr = s.DB.Close()
-\t}
-\tif secureErr := SecureDBFiles(s.dataSourceName); err == nil {
-\t\terr = secureErr
-\t}
-\treturn err
-}'''
-          if old not in s:
-              raise SystemExit('Store.Close pattern not found')
-          p.write_text(s.replace(old, new, 1))
-          PY
+          python3 -c 'from pathlib import Path; p=Path("internal/database/database.go"); s=p.read_text(); s=s.replace("\tlogger         *log.Logger\n}", "\tlogger         *log.Logger\n\tbackendClose   func() error\n}", 1); s=s.replace("dataSourceName + \"-shm\"}", "dataSourceName + \"-shm\", dataSourceName + \"-journal\"}", 1); s=s.replace("err := s.DB.Close()", "var err error\n\tif s.backendClose != nil {\n\t\terr = s.backendClose()\n\t} else {\n\t\terr = s.DB.Close()\n\t}", 1); p.write_text(s)'
+          grep -q 'backendClose' internal/database/database.go
+          grep -q -- '-journal' internal/database/database.go
           go get gosqlite.org/vfs/crypto@v0.14.0
           go mod tidy
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add internal/database/database.go go.mod go.sum
           git commit -m 'feat(database): wire encrypted store lifecycle'
           git push
