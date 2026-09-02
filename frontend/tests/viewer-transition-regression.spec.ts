@@ -77,47 +77,44 @@ async function mockApp(page: Page) {
   return { releaseTall };
 }
 
-test('old image keeps its geometry until a different-aspect target paints', async ({ page }) => {
+test('presented image node and geometry survive while a different-aspect target loads', async ({ page }) => {
   const { releaseTall } = await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
 
-  const incoming = page.locator('.viewer-incoming-media');
-  await expect(incoming).toBeVisible();
-  const before = await incoming.boundingBox();
+  const media = page.locator('.viewer-incoming-media');
+  await expect(media).toBeVisible();
+  const before = await media.boundingBox();
   expect(before).not.toBeNull();
   expect(before!.width / before!.height).toBeGreaterThan(2);
+  await media.evaluate((node) => {
+    (window as typeof window & { __presentedViewerNode?: Element }).__presentedViewerNode = node;
+  });
 
   await page.getByLabel('Next file').click();
   await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
+  await expect(media).toHaveAttribute('src', /\/tall\/preview/);
 
-  const outgoing = page.locator('.viewer-outgoing-media');
-  await expect(outgoing).toBeVisible();
-  const during = await outgoing.boundingBox();
+  // #162 replaced the actually-painted node with a fresh outgoing <img>. On slow
+  // images that clone can itself need decode/presentation and expose a blank frame.
+  // Keep the same real node mounted instead, with its old geometry frozen.
+  expect(await page.evaluate(() => document.querySelector('.viewer-incoming-media') === (window as typeof window & { __presentedViewerNode?: Element }).__presentedViewerNode)).toBe(true);
+  await expect(page.locator('.viewer-outgoing-media')).toHaveCount(0);
+
+  const during = await media.boundingBox();
   expect(during).not.toBeNull();
   expect(Math.abs(during!.width - before!.width)).toBeLessThan(0.5);
   expect(Math.abs(during!.height - before!.height)).toBeLessThan(0.5);
 
   await page.waitForTimeout(75);
-  const stillDuring = await outgoing.boundingBox();
+  const stillDuring = await media.boundingBox();
   expect(stillDuring).not.toBeNull();
   expect(Math.abs(stillDuring!.width - before!.width)).toBeLessThan(0.5);
   expect(Math.abs(stillDuring!.height - before!.height)).toBeLessThan(0.5);
 
-  await incoming.evaluate((node) => {
-    const state = window as typeof window & { __outgoingPresentAtFirstPaint?: boolean };
-    node.addEventListener('load', () => {
-      requestAnimationFrame(() => {
-        state.__outgoingPresentAtFirstPaint = Boolean(document.querySelector('.viewer-outgoing-media'));
-      });
-    }, { once: true });
-  });
-
   releaseTall();
-  await expect.poll(() => page.evaluate(() => (window as typeof window & { __outgoingPresentAtFirstPaint?: boolean }).__outgoingPresentAtFirstPaint)).toBe(true);
-  await expect(outgoing).toHaveCount(0);
-  await expect(incoming).toBeVisible();
   await expect.poll(async () => {
-    const box = await incoming.boundingBox();
+    const box = await media.boundingBox();
     return box ? box.width / box.height : Number.POSITIVE_INFINITY;
   }).toBeLessThan(1);
+  expect(await page.evaluate(() => document.querySelector('.viewer-incoming-media') === (window as typeof window & { __presentedViewerNode?: Element }).__presentedViewerNode)).toBe(true);
 });
