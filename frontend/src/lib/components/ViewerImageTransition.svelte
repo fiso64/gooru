@@ -15,62 +15,36 @@
   // already-painted bitmap while a replacement src loads; replacing that element
   // with a newly-created "outgoing" clone loses that guarantee and can itself flash
   // while the clone is decoded/presented.
-  let currentSource = $state(source);
-  let currentStyle = $state(style);
-  let currentAlt = $state(alt);
-  let pendingStyle = style;
-  let pendingAlt = alt;
-  let loadingTarget = false;
+  let presentedSource = $state('');
+  let presentedStyle = $state('');
 
   $effect(() => {
     const nextSource = source;
     const nextStyle = style;
-    const nextAlt = alt;
 
-    if (currentSource !== nextSource) {
-      // Start the next request immediately, but freeze the currently presented
-      // geometry until that same DOM node reports the replacement source loaded.
-      // This keeps old pixels at old dimensions without cloning the painted node.
-      currentSource = nextSource;
-      pendingStyle = nextStyle;
-      pendingAlt = nextAlt;
-      loadingTarget = true;
-      return;
-    }
-
-    if (loadingTarget) {
-      pendingStyle = nextStyle;
-      pendingAlt = nextAlt;
-    } else {
-      currentStyle = nextStyle;
-      currentAlt = nextAlt;
+    // Before the first successful load there are no old pixels to preserve, so let
+    // geometry follow the parent normally. After a load, freeze that presented
+    // geometry whenever a different source is in flight on the same DOM node.
+    if (!presentedSource || presentedSource === nextSource) {
+      presentedStyle = nextStyle;
     }
   });
 
   function handleLoad(event: Event) {
     const image = event.currentTarget;
     if (!(image instanceof HTMLImageElement)) return;
-    const loadedSource = image.getAttribute('src');
-    if (loadedSource !== currentSource) return;
+    const loadedSource = image.getAttribute('src') ?? '';
+    if (loadedSource !== source) return;
 
     onload?.(event);
-
-    // Parent geometry may reconcile from naturalWidth/naturalHeight in `onload`.
-    // Commit the latest target style in a microtask so those reactive updates can
-    // feed `pendingStyle` before the browser paints the newly loaded pixels.
-    queueMicrotask(() => {
-      if (image.getAttribute('src') !== currentSource) return;
-      loadingTarget = false;
-      currentStyle = pendingStyle;
-      currentAlt = pendingAlt;
-    });
+    presentedSource = loadedSource;
   }
 </script>
 
 <img
   class="viewer-visual-media viewer-incoming-media"
-  style={currentStyle}
-  src={currentSource}
-  alt={currentAlt}
+  style={presentedStyle}
+  src={source}
+  {alt}
   onload={handleLoad}
 />
