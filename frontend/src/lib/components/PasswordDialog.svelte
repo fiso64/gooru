@@ -44,9 +44,36 @@
       busy = false;
     }
   }
+
+  function isEditableTarget(target: EventTarget | null) {
+    return target instanceof Element && Boolean(target.closest('input, textarea, [contenteditable=""], [contenteditable="true"]'));
+  }
+
+  function isNativeEnterControl(target: EventTarget | null) {
+    return target instanceof Element && Boolean(target.closest('button, a[href], select, summary, [role="button"], [role="link"]'));
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== 'Enter') return;
+
+    const modifiedSubmit = event.ctrlKey || event.metaKey;
+    if (modifiedSubmit || (!isEditableTarget(event.target) && !isNativeEnterControl(event.target))) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void submit();
+      return;
+    }
+
+    if (isEditableTarget(event.target)) event.preventDefault();
+  }
 </script>
 
-<svelte:window onkeydown={(event) => { if (event.key === 'Escape') close(); }} />
+<svelte:window onkeydown={handleKeydown} />
 
 <div
   class="modal-backdrop"
@@ -55,7 +82,6 @@
   aria-labelledby="password-dialog-title"
   tabindex="-1"
   onclick={(event) => { if (event.target === event.currentTarget) close(); }}
-  onkeydown={(event) => { if (event.key === 'Escape') close(); }}
 >
   <form class="action-dialog password-dialog" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
     <div>
