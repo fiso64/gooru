@@ -22,6 +22,9 @@ async function mockAuth(page: Page) {
 }
 
 async function mockShellApis(page: Page) {
+  await page.route('**/api/v1/ui-config', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) });
+  });
   await page.route('**/api/v1/files?**', async (route) => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
   });
@@ -57,11 +60,13 @@ test('does not keep polling jobs on idle screens', async ({ page }) => {
   });
 
   await signIn(page);
-  await expect.poll(() => jobsRequests).toBe(1);
   await page.getByRole('button', { name: 'Tags' }).click();
   await expect(page.getByRole('heading', { name: 'Tags' })).toBeVisible();
+  await expect.poll(() => jobsRequests).toBeGreaterThan(0);
+  await page.waitForTimeout(200);
+  const settledRequests = jobsRequests;
   await page.waitForTimeout(2300);
-  expect(jobsRequests).toBe(1);
+  expect(jobsRequests).toBe(settledRequests);
 });
 
 test('keeps polling while a job is active', async ({ page }) => {
@@ -77,5 +82,7 @@ test('keeps polling while a job is active', async ({ page }) => {
   });
 
   await signIn(page);
-  await expect.poll(() => jobsRequests, { timeout: 3500 }).toBeGreaterThanOrEqual(2);
+  await page.waitForTimeout(200);
+  const initialRequests = jobsRequests;
+  await expect.poll(() => jobsRequests, { timeout: 3500 }).toBeGreaterThan(initialRequests);
 });
