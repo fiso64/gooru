@@ -110,7 +110,7 @@ func TestServeComicManifestAndIndividualPage(t *testing.T) {
 	if len(manifest.Pages) != 2 || manifest.Pages[0].Name != "01.png" || manifest.Pages[1].Name != "02.png" {
 		t.Fatalf("unexpected manifest: %+v", manifest)
 	}
-	if manifest.Pages[1].URL != "/api/v1/files/file-id/comic?page=1" {
+	if manifest.Pages[1].URL != "/api/v1/comics/file-id/1" {
 		t.Fatalf("second page URL = %q", manifest.Pages[1].URL)
 	}
 
