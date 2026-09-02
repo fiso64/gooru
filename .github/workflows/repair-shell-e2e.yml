@@ -47,7 +47,9 @@ jobs:
             ("""  expect(rowStyle).toEqual({ padding: '12px 14px', gap: '6px', display: 'flex' });""",
              """  expect(rowStyle).toEqual({ padding: '14px 16px', gap: '7px', display: 'flex' });"""),
             ("""  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(2);\n  await expect(page.locator('.upload-tags-control')).toContainText('collection:may-2026');\n  await expect(page.locator('.upload-tags-control')).toContainText('@review');""",
-             """  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(1);\n  await expect(page.locator('.upload-tags-control')).toContainText('collection:may-2026');\n  await expect(page.locator('.upload-tags-control')).not.toContainText('@review');""")
+             """  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(1);\n  await expect(page.locator('.upload-tags-control')).toContainText('collection:may-2026');\n  await expect(page.locator('.upload-tags-control')).not.toContainText('@review');"""),
+            ("""  await page.getByRole('button', { name: 'Remove collection:may-2026' }).click();\n  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(1);""",
+             """  await page.getByRole('button', { name: 'Remove collection:may-2026' }).click();\n  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(0);""")
           ]
           for old, new in replacements:
             if s.count(old) != 1:
