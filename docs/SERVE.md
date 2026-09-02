@@ -210,8 +210,11 @@ Authenticated users can persist browser queries through `GET`/`POST`
 `/api/v1/saved-searches` and `PUT`/`DELETE /api/v1/saved-searches/{id}`. Saved
 searches are scoped to the current DB-backed user.
 
-`DELETE /api/v1/files/{id}` currently supports `{"mode":"untrack"}` to remove a
-tracked location without deleting the underlying file from disk.
+`DELETE /api/v1/files/{id}` accepts `{"mode":"untrack"}` to remove only the
+tracked location or `{"mode":"delete"}` to also remove the underlying file. Physical
+deletion is deliberately limited to files inside configured upload-target roots; other
+indexed paths remain untrack-only. File responses expose `can_delete` so clients do not
+offer destructive deletion where the server will refuse it.
 
 ## Jobs
 

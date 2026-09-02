@@ -285,8 +285,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Untrack one file location.
-         * @description Removes the selected location from the library database. Content and tags remain when other locations reference the same content.
+         * Untrack a file location or delete managed uploaded content.
+         * @description Untrack removes only the selected database location. Delete also removes the underlying file, but is accepted only for paths inside configured upload targets.
          */
         delete: {
             parameters: {
@@ -307,7 +307,7 @@ export interface paths {
                          * @default untrack
                          * @enum {string}
                          */
-                        mode?: "untrack";
+                        mode?: "untrack" | "delete";
                     };
                 };
             };
@@ -325,6 +325,15 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                /** @description Physical deletion was requested for a file outside configured upload targets. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
             };
         };
         options?: never;
@@ -1283,6 +1292,8 @@ export interface components {
             metadata: components["schemas"]["MediaMetadata"];
             tags: string[];
             media_urls: components["schemas"]["MediaURLs"];
+            /** @description True when the file path is inside a configured upload target and may be physically deleted through the API. */
+            can_delete: boolean;
         };
         /** @description Optional media metadata. Fields are omitted when unavailable or extraction fails. */
         MediaMetadata: {
@@ -1313,7 +1324,7 @@ export interface components {
         };
         DeleteFileResponse: {
             /** @enum {string} */
-            mode: "untrack";
+            mode: "untrack" | "delete";
             removed_locations: number;
         };
         SuggestionsResponse: {

@@ -173,8 +173,8 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
-      summary: Untrack one file location.
-      description: Removes the selected location from the library database. Content and tags remain when other locations reference the same content.
+      summary: Untrack a file location or delete managed uploaded content.
+      description: Untrack removes only the selected database location. Delete also removes the underlying file, but is accepted only for paths inside configured upload targets.
       security:
         - sessionAuth: []
       parameters:
@@ -193,7 +193,7 @@ paths:
               properties:
                 mode:
                   type: string
-                  enum: [untrack]
+                  enum: [untrack, delete]
                   default: untrack
       responses:
         "200":
@@ -210,6 +210,12 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: Physical deletion was requested for a file outside configured upload targets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /files/{id}/thumbnail:
     get:
       summary: Get a cacheable thumbnail for a tracked file.
@@ -1135,6 +1141,7 @@ components:
         - metadata
         - tags
         - media_urls
+        - can_delete
       properties:
         id:
           type: string
@@ -1169,6 +1176,9 @@ components:
             type: string
         media_urls:
           $ref: "#/components/schemas/MediaURLs"
+        can_delete:
+          type: boolean
+          description: True when the file path is inside a configured upload target and may be physically deleted through the API.
     MediaMetadata:
       type: object
       description: Optional media metadata. Fields are omitted when unavailable or extraction fails.
@@ -1227,7 +1237,7 @@ components:
       properties:
         mode:
           type: string
-          enum: [untrack]
+          enum: [untrack, delete]
         removed_locations:
           type: integer
     SuggestionsResponse:

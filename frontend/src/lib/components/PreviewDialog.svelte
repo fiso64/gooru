@@ -21,7 +21,8 @@
     onMutateTags,
     onRemoveTag,
     onTagSearch,
-    onUntrack
+    onUntrack,
+    onDelete
   } = $props<{
     file: FileItem;
     tagDraft: string;
@@ -36,6 +37,7 @@
     onRemoveTag: (file: FileItem, tag: string) => void;
     onTagSearch: (tag: string) => void;
     onUntrack: (file: FileItem) => void;
+    onDelete: (file: FileItem) => void;
   }>();
 
   let dialogElement = $state<HTMLDivElement | undefined>();
@@ -261,7 +263,10 @@
     </a>
     <div class="rail-spacer"></div>
     <button class="g-btn g-btn-ghost" type="button" disabled title="Additional info coming soon" aria-label="Info"><Icon name="info" size={16} /></button>
-    <button class="g-btn g-btn-ghost" type="button" title="Remove from library" aria-label={`Remove ${file.name} from library`} onclick={() => onUntrack(file)}><Icon name="trash" size={16} /></button>
+    {#if file.can_delete}
+      <button class="g-btn g-btn-ghost" type="button" title="Delete file from disk" aria-label={`Delete ${file.name} from disk`} onclick={() => onDelete(file)}><Icon name="trash" size={16} /></button>
+    {/if}
+    <button class="g-btn g-btn-ghost" type="button" title="Remove from library without deleting the file" aria-label={`Untrack ${file.name} from library`} onclick={() => onUntrack(file)}><Icon name="close" size={16} /></button>
   </aside>
 </div>
 

@@ -307,6 +307,7 @@ type FileDTO struct {
 	Metadata        MediaMetadata `json:"metadata,omitempty"`
 	Tags            []string      `json:"tags"`
 	MediaURLs       MediaURLs     `json:"media_urls"`
+	CanDelete       bool          `json:"can_delete"`
 }
 
 type MediaURLs struct {
@@ -485,28 +486,43 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request, public
 	if req.Mode == "" {
 		req.Mode = "untrack"
 	}
-	if req.Mode != "untrack" {
-		writeError(w, http.StatusBadRequest, "invalid_request", "mode must be untrack", nil)
+	if req.Mode != "untrack" && req.Mode != "delete" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "mode must be untrack or delete", nil)
 		return
 	}
 	if _, ok := s.library.(PublicFileLibrary); !ok {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file mutation service is not configured", nil)
 		return
 	}
-	deleted, err := s.deleteFileByPublicID(r.Context(), publicID)
+
+	var deleted bool
+	var err error
+	if req.Mode == "delete" {
+		deleted, err = s.deleteManagedFile(r.Context(), publicID)
+	} else {
+		deleted, err = s.deleteFileByPublicID(r.Context(), publicID)
+	}
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
 	}
+	if errors.Is(err, ErrFileNotManaged) {
+		writeError(w, http.StatusConflict, "file_not_managed", "file is outside configured upload targets; untrack it instead", nil)
+		return
+	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to untrack file", nil)
+		action := "untrack"
+		if req.Mode == "delete" {
+			action = "delete"
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to "+action+" file", nil)
 		return
 	}
 	if !deleted {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"mode": "untrack", "removed_locations": 1})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"mode": req.Mode, "removed_locations": 1})
 }
 
 func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetadata bool) FileDTO {
@@ -529,6 +545,7 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 			Content:   "/api/v1/files/" + id + "/content",
 			Download:  "/api/v1/files/" + id + "/download",
 		},
+		CanDelete: s.canDeleteFilePath(file.Path),
 	}
 	if s.cfg.Server.ExposePaths {
 		dto.Path = file.Path
