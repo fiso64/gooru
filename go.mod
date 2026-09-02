@@ -5,7 +5,6 @@ go 1.25.0
 require (
 	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/davidbyttow/govips/v2 v2.17.0
-	github.com/mattn/go-sqlite3 v1.14.50
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/winfsp/cgofuse v1.6.0
