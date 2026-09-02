@@ -87,7 +87,7 @@ test('plain Enter stays inside tag input while Ctrl+Enter accepts the modal', as
   await page.getByLabel('Select all files in current view').click();
   await page.keyboard.press('t');
   const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
-  const input = page.getByLabel('Tags');
+  const input = page.getByRole('textbox', { name: 'Tags', exact: true });
   await expect(dialog).toBeVisible();
   await expect(input).toBeFocused();
 
