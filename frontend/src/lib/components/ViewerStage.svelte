@@ -120,10 +120,16 @@
   });
 
   $effect(() => {
-    renderedFile.id;
+    const nextFile = renderedFile;
     renderedImageSource;
-    intrinsicWidth = 0;
-    intrinsicHeight = 0;
+    const rendersImage = nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
+    // The next image is preloaded and decoded before this source swap. Preserve the
+    // current geometry until its own load event supplies new intrinsic dimensions,
+    // otherwise the rendered image collapses to 0x0 for a frame during navigation.
+    if (!rendersImage) {
+      intrinsicWidth = 0;
+      intrinsicHeight = 0;
+    }
     videoPaused = true;
     videoTime = 0;
     videoLength = 0;
