@@ -70,11 +70,15 @@ async function mockApp(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('ArrowDown enters the media grid and cursor actions select, move, and open', async ({ page }) => {
+test('ArrowDown enters the media grid from committed search and cursor actions select, move, and open', async ({ page }) => {
   await mockApp(page);
 
-  await page.getByRole('heading', { name: 'Library' }).click();
-  await page.keyboard.press('ArrowDown');
+  const search = page.getByLabel('Search library');
+  await search.fill('alpha');
+  await search.press('Enter');
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('');
+  await search.press('ArrowDown');
 
   const cards = page.locator('.thumb-open');
   await expect(cards.nth(0)).toBeFocused();
