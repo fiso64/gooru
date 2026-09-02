@@ -1,0 +1,309 @@
+name: maintainer-comic-navigation-cache
+on:
+  push:
+    branches: [fix/22-comic-navigation-cache]
+permissions:
+  contents: write
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Apply comic archive cache
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'anchor not found in {path}: {old[:160]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace('internal/serve/media.go', '''type MediaService struct {
+          \tcfg         Config
+          \tthumbnailer Thumbnailer
+          \tcacheMu     sync.Mutex
+          \tcacheLocks  map[string]*cacheLock
+          }
+          ''', '''type MediaService struct {
+          \tcfg         Config
+          \tthumbnailer Thumbnailer
+          \tcacheMu     sync.Mutex
+          \tcacheLocks  map[string]*cacheLock
+          \tcomicMu     sync.Mutex
+          \tcomicCache  map[string]*cachedComicArchive
+          \tcomicTick   uint64
+          }
+          ''')
+
+          replace('internal/serve/comic.go', '''const maxComicPageBytes int64 = 96 << 20
+          ''', '''const (
+          \tmaxComicPageBytes       int64 = 96 << 20
+          \tmaxCachedComicArchives        = 4
+          )
+          ''')
+
+          replace('internal/serve/comic.go', '''type comicArchive struct {
+          \treader *zip.Reader
+          \tpages  []*zip.File
+          \tclose  func() error
+          }
+          ''', '''type comicArchive struct {
+          \treader *zip.Reader
+          \tpages  []*zip.File
+          \tclose  func() error
+          }
+
+          type cachedComicArchive struct {
+          \tkey      string
+          \tpath     string
+          \tarchive  *comicArchive
+          \trefs     int
+          \tlastUsed uint64
+          }
+          ''')
+
+          anchor = '''func (m *MediaService) openComicArchive(path string) (*comicArchive, error) {
+          \tsource, err := m.openMediaSource(path)
+          \tif err != nil {
+          \t\treturn nil, fmt.Errorf("open cbz: %w", err)
+          \t}
+          \tarchive, err := openComicArchiveReader(path, source, source.size, source.Close)
+          \tif err != nil {
+          \t\t_ = source.Close()
+          \t\treturn nil, err
+          \t}
+          \treturn archive, nil
+          }
+          '''
+          addition = anchor + '''
+          func comicArchiveCacheKey(file types.FileInfo) string {
+          \treturn file.Path + "\\x00" + strconv.FormatInt(file.Size, 10) + "\\x00" + strconv.FormatInt(file.ModTime, 10)
+          }
+
+          func (m *MediaService) acquireComicArchive(file types.FileInfo) (*comicArchive, func(), error) {
+          \tkey := comicArchiveCacheKey(file)
+
+          \tm.comicMu.Lock()
+          \tif entry := m.comicCache[key]; entry != nil {
+          \t\tm.comicTick++
+          \t\tentry.refs++
+          \t\tentry.lastUsed = m.comicTick
+          \t\tm.comicMu.Unlock()
+          \t\treturn entry.archive, func() { m.releaseComicArchive(entry) }, nil
+          \t}
+          \tm.comicMu.Unlock()
+
+          \tarchive, err := m.openComicArchive(file.Path)
+          \tif err != nil {
+          \t\treturn nil, nil, err
+          \t}
+          \tentry := &cachedComicArchive{key: key, path: file.Path, archive: archive, refs: 1}
+
+          \tm.comicMu.Lock()
+          \tif m.comicCache == nil {
+          \t\tm.comicCache = make(map[string]*cachedComicArchive)
+          \t}
+          \tif existing := m.comicCache[key]; existing != nil {
+          \t\tm.comicTick++
+          \t\texisting.refs++
+          \t\texisting.lastUsed = m.comicTick
+          \t\tm.comicMu.Unlock()
+          \t\t_ = archive.Close()
+          \t\treturn existing.archive, func() { m.releaseComicArchive(existing) }, nil
+          \t}
+          \tm.comicTick++
+          \tentry.lastUsed = m.comicTick
+          \tm.comicCache[key] = entry
+          \tstale := m.removeIdleComicArchivesForPathLocked(file.Path, key)
+          \tevicted := m.evictIdleComicArchivesLocked()
+          \tm.comicMu.Unlock()
+          \tcloseComicArchives(append(stale, evicted...))
+
+          \treturn archive, func() { m.releaseComicArchive(entry) }, nil
+          }
+
+          func (m *MediaService) releaseComicArchive(entry *cachedComicArchive) {
+          \tvar closed []*comicArchive
+          \tm.comicMu.Lock()
+          \tif entry.refs > 0 {
+          \t\tentry.refs--
+          \t}
+          \tif entry.refs == 0 && m.comicCache[entry.key] == entry {
+          \t\tfor _, other := range m.comicCache {
+          \t\t\tif other.path == entry.path && other.key != entry.key {
+          \t\t\t\tdelete(m.comicCache, entry.key)
+          \t\t\t\tclosed = append(closed, entry.archive)
+          \t\t\t\tbreak
+          \t\t\t}
+          \t\t}
+          \t}
+          \tclosed = append(closed, m.evictIdleComicArchivesLocked()...)
+          \tm.comicMu.Unlock()
+          \tcloseComicArchives(closed)
+          }
+
+          func (m *MediaService) removeIdleComicArchivesForPathLocked(path, keepKey string) []*comicArchive {
+          \tvar removed []*comicArchive
+          \tfor key, entry := range m.comicCache {
+          \t\tif key == keepKey || entry.path != path || entry.refs != 0 {
+          \t\t\tcontinue
+          \t\t}
+          \t\tdelete(m.comicCache, key)
+          \t\tremoved = append(removed, entry.archive)
+          \t}
+          \treturn removed
+          }
+
+          func (m *MediaService) evictIdleComicArchivesLocked() []*comicArchive {
+          \tvar removed []*comicArchive
+          \tfor len(m.comicCache) > maxCachedComicArchives {
+          \t\tvar oldest *cachedComicArchive
+          \t\tfor _, entry := range m.comicCache {
+          \t\t\tif entry.refs != 0 || (oldest != nil && entry.lastUsed >= oldest.lastUsed) {
+          \t\t\t\tcontinue
+          \t\t\t}
+          \t\t\toldest = entry
+          \t\t}
+          \t\tif oldest == nil {
+          \t\t\tbreak
+          \t\t}
+          \t\tdelete(m.comicCache, oldest.key)
+          \t\tremoved = append(removed, oldest.archive)
+          \t}
+          \treturn removed
+          }
+
+          func closeComicArchives(archives []*comicArchive) {
+          \tfor _, archive := range archives {
+          \t\t_ = archive.Close()
+          \t}
+          }
+          '''
+          replace('internal/serve/comic.go', anchor, addition)
+
+          replace('internal/serve/comic.go', '''func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file types.FileInfo, publicID string) {
+          \tarchive, err := m.openComicArchive(file.Path)
+          ''', '''func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file types.FileInfo, publicID string) {
+          \tarchive, release, err := m.acquireComicArchive(file)
+          ''')
+          replace('internal/serve/comic.go', '''\tdefer archive.Close()
+
+          \trawPage := strings.TrimSpace(r.URL.Query().Get("page"))
+          ''', '''\tdefer release()
+
+          \trawPage := strings.TrimSpace(r.URL.Query().Get("page"))
+          ''')
+
+          anchor_test = '''func TestCBZCoverThumbnailUsesFirstNaturalPage(t *testing.T) {'''
+          new_test = r'''func TestServeComicReusesArchiveIndexAcrossPageNavigation(t *testing.T) {
+          	entries := make(map[string][]byte, 250)
+          	page := tinyPNG(t, 2, 2, color.White)
+          	for index := 0; index < 250; index++ {
+          		entries[fmt.Sprintf("pages/%04d.png", index)] = page
+          	}
+          	path := writeComic(t, entries)
+          	info, err := os.Stat(path)
+          	if err != nil {
+          		t.Fatal(err)
+          	}
+          	file := types.FileInfo{Path: path, Hash: "comic-hash", Size: info.Size(), ModTime: info.ModTime().UnixNano()}
+          	service := NewMediaService(DefaultConfig(filepath.Join(t.TempDir(), "gooru.db")))
+
+          	serve := func(target string) {
+          		t.Helper()
+          		recorder := httptest.NewRecorder()
+          		request := httptest.NewRequest(http.MethodGet, target, nil)
+          		service.ServeComic(recorder, request, file, "file-id")
+          		if recorder.Code != http.StatusOK {
+          			t.Fatalf("%s status = %d: %s", target, recorder.Code, recorder.Body.String())
+          		}
+          	}
+
+          	serve("/api/v1/comics/file-id")
+          	key := comicArchiveCacheKey(file)
+          	service.comicMu.Lock()
+          	first := service.comicCache[key]
+          	service.comicMu.Unlock()
+          	if first == nil {
+          		t.Fatal("expected manifest request to retain a cached comic archive index")
+          	}
+
+          	for _, pageIndex := range []int{0, 1, 2, 1, 0, 100, 101, 100} {
+          		serve(fmt.Sprintf("/api/v1/comics/file-id/%d?page=%d", pageIndex, pageIndex))
+          	}
+          	service.comicMu.Lock()
+          	after := service.comicCache[key]
+          	cacheSize := len(service.comicCache)
+          	service.comicMu.Unlock()
+          	if after != first {
+          		t.Fatal("page navigation rebuilt the comic archive index instead of reusing it")
+          	}
+          	if cacheSize != 1 {
+          		t.Fatalf("comic cache size = %d, want 1", cacheSize)
+          	}
+          }
+
+          func TestComicArchiveCacheInvalidatesWhenTrackedFileChanges(t *testing.T) {
+          	page := tinyPNG(t, 2, 2, color.White)
+          	path := writeComic(t, map[string][]byte{"1.png": page})
+          	info, err := os.Stat(path)
+          	if err != nil {
+          		t.Fatal(err)
+          	}
+          	service := NewMediaService(DefaultConfig(filepath.Join(t.TempDir(), "gooru.db")))
+          	firstFile := types.FileInfo{Path: path, Size: info.Size(), ModTime: info.ModTime().UnixNano()}
+          	first, releaseFirst, err := service.acquireComicArchive(firstFile)
+          	if err != nil {
+          		t.Fatal(err)
+          	}
+          	releaseFirst()
+
+          	changedFile := firstFile
+          	changedFile.ModTime++
+          	second, releaseSecond, err := service.acquireComicArchive(changedFile)
+          	if err != nil {
+          		t.Fatal(err)
+          	}
+          	releaseSecond()
+          	if first == second {
+          		t.Fatal("changed tracked file metadata reused a stale comic archive")
+          	}
+          	service.comicMu.Lock()
+          	cacheSize := len(service.comicCache)
+          	service.comicMu.Unlock()
+          	if cacheSize != 1 {
+          		t.Fatalf("comic cache size after invalidation = %d, want 1", cacheSize)
+          	}
+          }
+
+          ''' + anchor_test
+          replace('internal/serve/comic_test.go', anchor_test, new_test)
+
+          replace('internal/serve/comic_test.go', '''\t"encoding/json"
+          ''', '''\t"encoding/json"
+          \t"fmt"
+          ''')
+          PY
+          gofmt -w internal/serve/media.go internal/serve/comic.go internal/serve/comic_test.go
+      - name: Validate focused comic tests
+        run: go test ./internal/serve -run 'Test(ServeComic|ComicArchive|OpenComic|CBZ)' -count=1
+      - name: Validate full Go suite
+        run: go test ./...
+      - name: Commit validated fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/maintainer-comic-navigation-cache.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/serve/media.go internal/serve/comic.go internal/serve/comic_test.go .github/workflows/maintainer-comic-navigation-cache.yml
+          git commit -m 'fix: reuse comic archive indexes while navigating'
+          git push origin HEAD:fix/22-comic-navigation-cache
