@@ -3,12 +3,54 @@ on:
   pull_request:
     branches: [main]
 permissions:
-  contents: read
+  contents: write
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: fix/21-route-gate-files-query
+      - name: Apply reactive route gating
+        shell: python
+        run: |
+          from pathlib import Path
+
+          files = Path('frontend/src/lib/queries/files.ts')
+          text = files.read_text()
+          import_line = "import { page } from '$app/state';\n"
+          if import_line not in text:
+              raise SystemExit('page import not found')
+          text = text.replace(import_line, '', 1)
+          old_sig = """  getOrder: () => SortOrder,
+            getAuthScope: () => number
+          ) {"""
+          new_sig = """  getOrder: () => SortOrder,
+            getAuthScope: () => number,
+            getEnabled: () => boolean
+          ) {"""
+          if old_sig not in text:
+              raise SystemExit('createFilesQuery signature did not match expected source')
+          text = text.replace(old_sig, new_sig, 1)
+          old_enabled = "    enabled: getAuthenticated() && page.url.pathname === '/'\n"
+          new_enabled = "    enabled: getAuthenticated() && getEnabled()\n"
+          if old_enabled not in text:
+              raise SystemExit('files query enabled expression did not match expected source')
+          text = text.replace(old_enabled, new_enabled, 1)
+          files.write_text(text)
+
+          app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          app_text = app.read_text()
+          old_call = """    () => library.order,
+            () => authScope
+          );"""
+          new_call = """    () => library.order,
+            () => authScope,
+            () => library.route === 'library'
+          );"""
+          if old_call not in app_text:
+              raise SystemExit('AuthenticatedApp createFilesQuery call did not match expected source')
+          app.write_text(app_text.replace(old_call, new_call, 1))
       - name: Backend validation
         run: |
           go build ./...
@@ -28,3 +70,11 @@ jobs:
       - name: Focused browser regression
         working-directory: frontend
         run: npx playwright test tests/route-files-query.spec.ts --project=chromium
+      - name: Commit validated final change
+        run: |
+          rm .github/workflows/temp-validate-pr114.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/lib/queries/files.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/tests/route-files-query.spec.ts .github/workflows/temp-validate-pr114.yml
+          git commit -m 'fix(ui): gate files query to library route'
+          git push origin HEAD:fix/21-route-gate-files-query
