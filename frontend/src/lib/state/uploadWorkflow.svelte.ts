@@ -17,6 +17,8 @@ import type { UploadVariables } from '$lib/queries/library';
 type UploadMutate = (variables: UploadVariables) => Promise<Job | UploadImportResponse>;
 type CancelJob = (jobID: string) => Promise<Job>;
 
+export const browserUploadConcurrency = 4;
+
 export function createUploadWorkflow() {
   let files = $state<File[]>([]);
   let items = $state<UploadItem[]>([]);
@@ -130,39 +132,51 @@ export function createUploadWorkflow() {
     busy = true;
     trackedJobs = {};
     items = waitingUploadItems(items.length ? items : stagedUploadItems(files, targetID));
+    const batchFiles = files;
     const parsedTags = parseTags(tags);
+    const batchTargetID = targetID;
+    const batchConflictPolicy = conflictPolicy;
     let queued = 0;
     let changedFiles = false;
+    let nextIndex = 0;
 
-    for (let index = 0; index < files.length; index += 1) {
-      const file = files[index];
-      items = uploadingItem(items, index);
-      status = `Uploading ${index + 1}/${files.length} · 0%`;
-      try {
-        const response = await mutate({
-          files: [file],
-          tags: parsedTags,
-          preferAsync: true,
-          targetID,
-          conflictPolicy,
-          onProgress: (progress) => {
-            items = uploadProgressItem(items, index, progress);
-            status = `Uploading ${index + 1}/${files.length} · ${Math.round(progress)}%`;
+    async function uploadNext() {
+      while (nextIndex < batchFiles.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const file = batchFiles[index];
+        items = uploadingItem(items, index);
+        status = uploadSummary(items);
+        try {
+          const response = await mutate({
+            files: [file],
+            tags: parsedTags,
+            preferAsync: true,
+            targetID: batchTargetID,
+            conflictPolicy: batchConflictPolicy,
+            onProgress: (progress) => {
+              items = uploadProgressItem(items, index, progress);
+              status = uploadSummary(items);
+            }
+          });
+          if ('id' in response) {
+            trackedJobs = { ...trackedJobs, [response.id]: index };
+            items = queuedItem(items, index);
+            queued += 1;
+          } else {
+            items = itemFromResult(items, index, response);
+            changedFiles = true;
           }
-        });
-        if ('id' in response) {
-          trackedJobs = { ...trackedJobs, [response.id]: index };
-          items = queuedItem(items, index);
-          queued += 1;
-        } else {
-          items = itemFromResult(items, index, response);
-          changedFiles = true;
+        } catch (error) {
+          const message = errorMessage(error);
+          items = items.map((item, itemIndex) => itemIndex === index ? { ...item, status: 'error', error: message } : item);
         }
-      } catch (error) {
-        const message = errorMessage(error);
-        items = items.map((item, itemIndex) => itemIndex === index ? { ...item, status: 'error', error: message } : item);
+        status = uploadSummary(items);
       }
     }
+
+    const workerCount = Math.min(browserUploadConcurrency, batchFiles.length);
+    await Promise.all(Array.from({ length: workerCount }, () => uploadNext()));
 
     busy = false;
     if (hasActiveJobs()) status = uploadSummary(items);
