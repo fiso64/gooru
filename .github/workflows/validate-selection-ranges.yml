@@ -1,0 +1,218 @@
+name: validate selection ranges
+
+on:
+  push:
+    branches: [feat/115-selection-ranges]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/115-selection-ranges
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply implementation and regression coverage
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f'{path}: expected one occurrence, found {text.count(old)}')
+              p.write_text(text.replace(old, new, 1))
+
+          # Selection primitive supports applying one desired state across a range,
+          # including query-wide selections represented by exclusions.
+          replace_once(
+              'frontend/src/lib/state/selection.ts',
+              """export function selectionRequest(selection: LibrarySelection):\n""",
+              """export function setSelectionRange(selection: LibrarySelection, fileIDs: string[], selected: boolean): LibrarySelection {\n  if (selection.mode === 'query') {\n    const excludedIDs = new Set(selection.excludedIDs);\n    for (const fileID of fileIDs) {\n      if (selected) excludedIDs.delete(fileID);\n      else excludedIDs.add(fileID);\n    }\n    return { ...selection, excludedIDs };\n  }\n\n  const ids = new Set(selection.ids);\n  for (const fileID of fileIDs) {\n    if (selected) ids.add(fileID);\n    else ids.delete(fileID);\n  }\n  return { mode: 'explicit', ids };\n}\n\nexport function selectionRequest(selection: LibrarySelection):\n"""
+          )
+
+          replace_once(
+              'frontend/src/lib/state/selection.test.ts',
+              "import { emptySelection, selectAllMatching, selectionActive, selectionCount, selectionHas, selectionRequest, toggleSelection } from './selection';",
+              "import { emptySelection, selectAllMatching, selectionActive, selectionCount, selectionHas, selectionRequest, setSelectionRange, toggleSelection } from './selection';"
+          )
+          replace_once(
+              'frontend/src/lib/state/selection.test.ts',
+              """  it('keeps deselected query matches as exclusions', () => {\n    let selection = selectAllMatching('type:video');\n    selection = toggleSelection(selection, 'skip-me');\n    expect(selectionHas(selection, 'skip-me')).toBe(false);\n    expect(selectionHas(selection, 'keep-me')).toBe(true);\n    expect(selectionCount(selection, 8)).toBe(7);\n    expect(selectionRequest(selection)).toEqual({ query: 'type:video', exclude_file_ids: ['skip-me'] });\n  });\n""",
+              """  it('keeps deselected query matches as exclusions', () => {\n    let selection = selectAllMatching('type:video');\n    selection = toggleSelection(selection, 'skip-me');\n    expect(selectionHas(selection, 'skip-me')).toBe(false);\n    expect(selectionHas(selection, 'keep-me')).toBe(true);\n    expect(selectionCount(selection, 8)).toBe(7);\n    expect(selectionRequest(selection)).toEqual({ query: 'type:video', exclude_file_ids: ['skip-me'] });\n  });\n\n  it('applies select and deselect ranges to explicit and query selections', () => {\n    let explicit = setSelectionRange(emptySelection(), ['a', 'b', 'c'], true);\n    expect(selectionRequest(explicit)).toEqual({ file_ids: ['a', 'b', 'c'] });\n    explicit = setSelectionRange(explicit, ['b', 'c'], false);\n    expect(selectionRequest(explicit)).toEqual({ file_ids: ['a'] });\n\n    let query = setSelectionRange(selectAllMatching('rating:safe'), ['b', 'c'], false);\n    expect(selectionHas(query, 'b')).toBe(false);\n    expect(selectionHas(query, 'c')).toBe(false);\n    query = setSelectionRange(query, ['c'], true);\n    expect(selectionRequest(query)).toEqual({ query: 'rating:safe', exclude_file_ids: ['b'] });\n  });\n"""
+          )
+
+          # Track the most recently selected item as the range anchor. A shift-click
+          # applies the target's toggled state across the inclusive loaded-file range.
+          replace_once(
+              'frontend/src/lib/state/libraryWorkflow.svelte.ts',
+              """  selectionHas,\n  toggleSelection,\n""",
+              """  selectionHas,\n  setSelectionRange,\n  toggleSelection,\n"""
+          )
+          replace_once(
+              'frontend/src/lib/state/libraryWorkflow.svelte.ts',
+              """  let selection: LibrarySelection = $state(emptySelection());\n  let activeFile = $state<FileItem | null>(null);\n""",
+              """  let selection: LibrarySelection = $state(emptySelection());\n  let selectionAnchorID = $state('');\n  let activeFile = $state<FileItem | null>(null);\n"""
+          )
+          p = Path('frontend/src/lib/state/libraryWorkflow.svelte.ts')
+          text = p.read_text()
+          text = re.sub(r'(?m)^(\s*)selection = emptySelection\(\);$', lambda m: f"{m.group(1)}selection = emptySelection();\n{m.group(1)}selectionAnchorID = '';", text)
+          p.write_text(text)
+          replace_once(
+              'frontend/src/lib/state/libraryWorkflow.svelte.ts',
+              """  function toggleSelect(file: FileItem) {\n    selection = toggleSelection(selection, file.id);\n  }\n\n  function selectAll() {\n    selection = selectAllMatching(filterQuery());\n  }\n\n  function clearSelection() {\n    selection = emptySelection();\n    selectionAnchorID = '';\n  }\n""",
+              """  function toggleSelect(file: FileItem, files: FileItem[] = [], range = false) {\n    const targetSelected = selectionHas(selection, file.id);\n    const anchorIndex = selectionAnchorID ? files.findIndex((candidate) => candidate.id === selectionAnchorID) : -1;\n    const targetIndex = files.findIndex((candidate) => candidate.id === file.id);\n    if (range && anchorIndex >= 0 && targetIndex >= 0) {\n      const start = Math.min(anchorIndex, targetIndex);\n      const end = Math.max(anchorIndex, targetIndex);\n      selection = setSelectionRange(selection, files.slice(start, end + 1).map((candidate) => candidate.id), !targetSelected);\n      if (!targetSelected) selectionAnchorID = file.id;\n      else if (!selectionHas(selection, selectionAnchorID)) selectionAnchorID = '';\n      return;\n    }\n\n    selection = toggleSelection(selection, file.id);\n    if (!targetSelected) selectionAnchorID = file.id;\n    else if (selectionAnchorID === file.id) selectionAnchorID = '';\n  }\n\n  function selectAll() {\n    selection = selectAllMatching(filterQuery());\n    selectionAnchorID = '';\n  }\n\n  function clearSelection() {\n    selection = emptySelection();\n    selectionAnchorID = '';\n  }\n"""
+          )
+
+          # Carry the shift modifier from either the card surface or checkbox through
+          # MediaGrid so the workflow can resolve the inclusive range against loaded files.
+          replace_once(
+              'frontend/src/lib/components/MediaCard.svelte',
+              """    onToggleSelect: (file: FileItem) => void;\n""",
+              """    onToggleSelect: (file: FileItem, range: boolean) => void;\n"""
+          )
+          p = Path('frontend/src/lib/components/MediaCard.svelte')
+          text = p.read_text()
+          text = text.replace('onToggleSelect(file);', 'onToggleSelect(file, event.shiftKey);', 1)
+          text = text.replace('onToggleSelect(file);', 'onToggleSelect(file, false);', 1)
+          text = text.replace('onclick={() => onToggleSelect(file)}', 'onclick={(event) => onToggleSelect(file, event.shiftKey)}')
+          text = text.replace(
+              """    cursor: pointer;\n  }\n\n  .thumb-preview:hover,\n""",
+              """    cursor: pointer;\n    opacity: 0;\n    pointer-events: none;\n    transition: opacity .12s, background .12s, border-color .12s;\n  }\n\n  :global(.thumb:hover) .thumb-preview {\n    opacity: 1;\n    pointer-events: auto;\n  }\n\n  .thumb-preview:hover,\n"""
+          )
+          p.write_text(text)
+
+          replace_once(
+              'frontend/src/lib/components/MediaGrid.svelte',
+              """    onToggleSelect: (file: FileItem) => void;\n""",
+              """    onToggleSelect: (file: FileItem, files: FileItem[], range: boolean) => void;\n"""
+          )
+          replace_once(
+              'frontend/src/lib/components/MediaGrid.svelte',
+              """            onToggleSelect={onToggleSelect}\n""",
+              """            onToggleSelect={(target, range) => onToggleSelect(target, files, range)}\n"""
+          )
+
+          Path('frontend/tests/selection-range.spec.ts').write_text(r'''import { expect, test, type Page } from '@playwright/test';
+
+const session = {
+  user: { id: 'usr_test', username: 'mac', role: 'admin' },
+  capabilities: { upload: true, tag: true, delete: true, admin: true },
+  csrf_token: 'csrf-one'
+};
+
+function fileItem(index: number) {
+  const id = `file-${index}`;
+  return {
+    id,
+    content_id: `hash-${id}`,
+    name: `range-${index}.jpg`,
+    safe_display_path: `library/${id}.jpg`,
+    size: 2048,
+    modified_time: '2026-05-20T00:00:00Z',
+    media_type: 'image/jpeg',
+    media_kind: 'photo',
+    metadata: { image_width: 800, image_height: 600 },
+    tags: [],
+    media_urls: {
+      thumbnail: `/api/v1/files/${id}/thumbnail`,
+      preview: `/api/v1/files/${id}/preview`,
+      content: `/api/v1/files/${id}/content`,
+      download: `/api/v1/files/${id}/download`
+    }
+  };
+}
+
+async function mockApp(page: Page) {
+  await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
+  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default' }] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  const files = Array.from({ length: 6 }, (_, index) => fileItem(index));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [{ value: 'photo', count: files.length }] } })
+  }));
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#777"/></svg>'
+  }));
+}
+
+test('shift-click selects and deselects ranges from the most recent selection anchor', async ({ page }) => {
+  await mockApp(page);
+  await page.goto('/');
+  const cards = page.locator('.thumb');
+  await expect(cards).toHaveCount(6);
+
+  await cards.nth(0).hover();
+  await cards.nth(0).locator('.thumb-checkbox').click();
+  await expect(page.locator('.thumb-checkbox.is-selected')).toHaveCount(1);
+
+  const hiddenPreview = cards.nth(1).locator('.thumb-preview');
+  await expect(hiddenPreview).toBeAttached();
+  await expect(hiddenPreview).toHaveCSS('opacity', '0');
+  await cards.nth(1).hover();
+  await expect(hiddenPreview).toHaveCSS('opacity', '1');
+
+  await cards.nth(3).locator('.thumb-open').click({ modifiers: ['Shift'] });
+  await expect(page.locator('.thumb-checkbox.is-selected')).toHaveCount(4);
+
+  await cards.nth(1).locator('.thumb-open').click({ modifiers: ['Shift'] });
+  await expect(page.locator('.thumb-checkbox.is-selected')).toHaveCount(1);
+  await expect(cards.nth(0).locator('.thumb-checkbox')).toHaveClass(/is-selected/);
+
+  await cards.nth(4).locator('.thumb-open').click();
+  await expect(page.locator('.thumb-checkbox.is-selected')).toHaveCount(2);
+  await cards.nth(2).locator('.thumb-open').click({ modifiers: ['Shift'] });
+  await expect(page.locator('.thumb-checkbox.is-selected')).toHaveCount(4);
+  await expect(cards.nth(0).locator('.thumb-checkbox')).toHaveClass(/is-selected/);
+  await expect(cards.nth(2).locator('.thumb-checkbox')).toHaveClass(/is-selected/);
+  await expect(cards.nth(3).locator('.thumb-checkbox')).toHaveClass(/is-selected/);
+  await expect(cards.nth(4).locator('.thumb-checkbox')).toHaveClass(/is-selected/);
+});
+''')
+          PY
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Static check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Focused browser regression
+        working-directory: frontend
+        run: npx playwright test tests/selection-range.spec.ts --project=chromium
+      - name: Commit validated implementation and remove temporary workflow
+        if: success()
+        shell: bash
+        run: |
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/state/selection.ts frontend/src/lib/state/selection.test.ts frontend/src/lib/state/libraryWorkflow.svelte.ts frontend/src/lib/components/MediaCard.svelte frontend/src/lib/components/MediaGrid.svelte frontend/tests/selection-range.spec.ts
+          git commit -m "feat(selection): support shift-click ranges"
+          git rm .github/workflows/validate-selection-ranges.yml
+          git commit -m "chore: remove temporary selection validation"
+          git push origin HEAD:feat/115-selection-ranges
