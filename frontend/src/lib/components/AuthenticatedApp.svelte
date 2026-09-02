@@ -12,7 +12,7 @@
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { createFilesQuery, createFileRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
+  import { createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
@@ -25,6 +25,7 @@
     createUploadTargetsQuery
   } from '$lib/queries/library';
   import { createLibraryWorkflow } from '$lib/state/libraryWorkflow.svelte';
+  import { selectionRequest } from '$lib/state/selection';
   import { createTagWorkflow } from '$lib/state/tagWorkflow.svelte';
   import { createUploadWorkflow } from '$lib/state/uploadWorkflow.svelte';
   import { errorMessage } from '$lib/utils/format';
@@ -52,7 +53,7 @@
     facets?: { kind?: Array<{ value: string; count: number }> };
   } | null>(null);
   let actionDialog = $state<{
-    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'untrack-file' | 'delete-file';
+    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-untrack-selected' | 'bulk-delete-selected' | 'untrack-file' | 'delete-file';
     value: string;
     error: string;
     busy: boolean;
@@ -79,6 +80,7 @@
 
   const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);
   const fileRemovalMutation = createFileRemovalMutation(() => $authState.csrfToken, queryClient);
+  const filesRemovalMutation = createFilesRemovalMutation(() => $authState.csrfToken, queryClient);
   const uploadMutation = createUploadMutation(() => $authState.csrfToken, queryClient);
   const cancelJobMutation = createCancelJobMutation(() => $authState.csrfToken, queryClient);
   const clearJobsMutation = createClearJobsMutation(() => $authState.csrfToken, queryClient);
@@ -162,12 +164,14 @@
     }
 
     if (!modified && !editable && library.route === 'library' && !library.activeFile && actionDialog.kind === 'none') {
-      const action = libraryShortcutAction(event.key, selectedCount);
+      const action = libraryShortcutAction(event.key, selectedCount, event.shiftKey);
       if (action) {
         event.preventDefault();
         if (action === 'select-all') library.selectAll();
         else if (action === 'tag-selected') bulkTagSelected();
-        else bulkUntagSelected();
+        else if (action === 'untag-selected') bulkUntagSelected();
+        else if (action === 'untrack-selected') bulkUntrackSelected();
+        else bulkDeleteSelected();
         return;
       }
     }
@@ -229,13 +233,24 @@
     actionDialog = { kind: 'bulk-remove-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
   }
 
+  function bulkUntrackSelected() {
+    actionDialog = { kind: 'bulk-untrack-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
+  }
+
+  function bulkDeleteSelected() {
+    actionDialog = { kind: 'bulk-delete-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
+  }
+
+  function isBulkTagDialog(kind = actionDialog.kind) {
+    return kind === 'bulk-selected' || kind === 'bulk-remove-selected';
+  }
 
   async function submitActionDialog() {
     if (actionDialog.busy || actionDialog.kind === 'none') return;
     const ctx = savedSearchContext();
     const value = actionDialog.value.trim();
-    if ((actionDialog.kind === 'save-create' || actionDialog.kind === 'save-update' || actionDialog.kind.startsWith('bulk-')) && !value) {
-      actionDialog = { ...actionDialog, error: actionDialog.kind.startsWith('bulk-') ? 'Enter at least one tag.' : 'Enter a name.' };
+    if ((actionDialog.kind === 'save-create' || actionDialog.kind === 'save-update' || isBulkTagDialog()) && !value) {
+      actionDialog = { ...actionDialog, error: isBulkTagDialog() ? 'Enter at least one tag.' : 'Enter a name.' };
       return;
     }
     actionDialog = { ...actionDialog, busy: true, error: '' };
@@ -253,6 +268,12 @@
       } else if (actionDialog.kind === 'bulk-remove-selected') {
         const changed = await tagWorkflow.bulkSelected(library.selection, value, 'remove', (variables) => tagMutation.mutateAsync(variables));
         if (changed) library.clearSelection();
+      } else if (actionDialog.kind === 'bulk-untrack-selected' || actionDialog.kind === 'bulk-delete-selected') {
+        await filesRemovalMutation.mutateAsync({
+          ...selectionRequest(library.selection),
+          mode: actionDialog.kind === 'bulk-delete-selected' ? 'delete' : 'untrack'
+        });
+        library.clearSelection();
       } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {
         await fileRemovalMutation.mutateAsync({ id: actionDialog.id, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });
         if (library.activeFile?.id === actionDialog.id) library.closePreview();
@@ -301,6 +322,8 @@
       case 'save-delete': return 'Delete saved search';
       case 'bulk-selected': return 'Tag selected files';
       case 'bulk-remove-selected': return 'Untag selected files';
+      case 'bulk-untrack-selected': return 'Untrack selected files';
+      case 'bulk-delete-selected': return 'Delete selected files';
       case 'untrack-file': return 'Remove from library';
       case 'delete-file': return 'Delete file';
       default: return '';
@@ -314,6 +337,8 @@
       case 'save-delete': return `Delete "${actionDialog.name}" from saved searches.`;
       case 'bulk-selected': return `Add tags to ${selectedCount} selected file${selectedCount === 1 ? '' : 's'}.`;
       case 'bulk-remove-selected': return `Remove tags from ${selectedCount} selected file${selectedCount === 1 ? '' : 's'}.`;
+      case 'bulk-untrack-selected': return `Untrack ${selectedCount} selected file${selectedCount === 1 ? '' : 's'} from the library. Files remain on disk.`;
+      case 'bulk-delete-selected': return `Permanently delete ${selectedCount} selected file${selectedCount === 1 ? '' : 's'} from disk and remove them from the library. Only files in managed upload targets can be deleted.`;
       case 'untrack-file': return `Untrack \"${actionDialog.name}\" from the library. The file remains on disk.`;
       case 'delete-file': return `Permanently delete \"${actionDialog.name}\" from disk and remove it from the library.`;
       default: return '';
@@ -321,7 +346,7 @@
   }
 
   function actionDialogLabel() {
-    return actionDialog.kind.startsWith('bulk-') ? 'Tags' : 'Name';
+    return isBulkTagDialog() ? 'Tags' : 'Name';
   }
 
   function actionDialogConfirmText() {
@@ -329,6 +354,8 @@
       case 'save-delete': return 'Delete';
       case 'bulk-selected': return 'Add tags';
       case 'bulk-remove-selected': return 'Remove tags';
+      case 'bulk-untrack-selected': return 'Untrack';
+      case 'bulk-delete-selected': return 'Delete files';
       case 'untrack-file': return 'Remove';
       case 'delete-file': return 'Delete file';
       default: return 'Save';
@@ -450,6 +477,8 @@
         onClearSelection={library.clearSelection}
         onBulkTag={bulkTagSelected}
         onBulkUntag={bulkUntagSelected}
+        onBulkUntrack={bulkUntrackSelected}
+        onBulkDelete={bulkDeleteSelected}
         onLoadMore={() => { if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) void filesQuery.fetchNextPage(); }}
         onLoadPrevious={() => { if (filesQuery.hasPreviousPage && !filesQuery.isFetchingPreviousPage) void filesQuery.fetchPreviousPage(); }}
       >
@@ -508,11 +537,11 @@
       label={actionDialogLabel()}
       value={actionDialog.value}
       confirmText={actionDialogConfirmText()}
-      destructive={actionDialog.kind === 'save-delete' || actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file'}
+      destructive={actionDialog.kind === 'save-delete' || actionDialog.kind === 'bulk-untrack-selected' || actionDialog.kind === 'bulk-delete-selected' || actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file'}
       busy={actionDialog.busy}
       error={actionDialog.error}
-      input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'untrack-file' && actionDialog.kind !== 'delete-file'}
-      tagInput={actionDialog.kind.startsWith('bulk-')}
+      input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'bulk-untrack-selected' && actionDialog.kind !== 'bulk-delete-selected' && actionDialog.kind !== 'untrack-file' && actionDialog.kind !== 'delete-file'}
+      tagInput={isBulkTagDialog()}
       tagCandidates={tagsQuery.data?.tags ?? []}
       onInput={(value) => (actionDialog = { ...actionDialog, value, error: '' })}
       onCancel={closeActionDialog}

@@ -1,7 +1,7 @@
 import { createInfiniteQuery, createMutation } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
 import { libraryKeys } from './library';
-import type { FileListResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse } from '$lib/api/types';
+import type { FileListResponse, FileRemovalRequest, FileRemovalResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
 import type { InfiniteData, QueryFunctionContext } from '@tanstack/query-core';
 
@@ -87,6 +87,18 @@ export interface TagMutationVariables {
 export function createTagMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<TagMutationResponse, Error, TagMutationVariables>(() => ({
     mutationFn: ({ operation, body }) => new ApiClient(getCSRFToken()).mutateTags(operation, body),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: fileKeys.all }),
+        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
+      ]);
+    }
+  }));
+}
+
+export function createFilesRemovalMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<FileRemovalResponse, Error, FileRemovalRequest>(() => ({
+    mutationFn: (body) => new ApiClient(getCSRFToken()).removeFiles(body),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: fileKeys.all }),

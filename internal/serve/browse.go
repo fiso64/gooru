@@ -326,6 +326,21 @@ type TagDTO struct {
 	Count     *int   `json:"count,omitempty"`
 }
 
+func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleListFiles(w, r)
+	case http.MethodDelete:
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		s.handleRemoveFiles(w, r)
+	default:
+		w.Header().Set("Allow", "GET, DELETE")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+	}
+}
+
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	if s.library == nil {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file library is not configured", nil)

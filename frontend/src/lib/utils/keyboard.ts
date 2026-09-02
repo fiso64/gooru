@@ -50,13 +50,14 @@ export function hasCommandModifier(event: KeyboardEvent) {
   return event.altKey || event.ctrlKey || event.metaKey;
 }
 
-export type LibraryShortcutAction = 'select-all' | 'tag-selected' | 'untag-selected' | null;
+export type LibraryShortcutAction = 'select-all' | 'tag-selected' | 'untag-selected' | 'untrack-selected' | 'delete-selected' | null;
 
-export function libraryShortcutAction(key: string, selectedCount: number): LibraryShortcutAction {
+export function libraryShortcutAction(key: string, selectedCount: number, shiftKey = false): LibraryShortcutAction {
   switch (key.toLowerCase()) {
     case 'a': return 'select-all';
     case 't': return selectedCount > 0 ? 'tag-selected' : null;
     case 'u': return selectedCount > 0 ? 'untag-selected' : null;
+    case 'delete': return selectedCount > 0 ? (shiftKey ? 'delete-selected' : 'untrack-selected') : null;
     default: return null;
   }
 }
