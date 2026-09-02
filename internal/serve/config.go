@@ -76,10 +76,11 @@ type UploadTarget struct {
 }
 
 type MediaConfig struct {
-	CacheDir        string `yaml:"cache_dir"`
-	ThumbnailSizes  []int  `yaml:"thumbnail_sizes"`
-	ThumbnailFormat string `yaml:"thumbnail_format"`
-	PreviewSize     int    `yaml:"preview_size"`
+	CacheDir          string `yaml:"cache_dir"`
+	ThumbnailSizes    []int  `yaml:"thumbnail_sizes"`
+	ThumbnailFormat   string `yaml:"thumbnail_format"`
+	PreviewSize       int    `yaml:"preview_size"`
+	LoadFullByDefault bool   `yaml:"load_full_by_default"`
 }
 
 type JobsConfig struct {
