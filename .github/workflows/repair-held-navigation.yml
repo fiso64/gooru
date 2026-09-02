@@ -1,0 +1,198 @@
+name: validate held-navigation viewer repair
+on:
+  push:
+    branches: [fix/22-held-navigation-presentation]
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/22-held-navigation-presentation
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply viewer presentation repair and regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          stage = Path('frontend/src/lib/components/ViewerStage.svelte')
+          s = stage.read_text()
+          old = '''  $effect(() => {
+    const targetFile = file;
+    const targetImageSource = imageSource;
+    const generation = ++transitionGeneration;
+    waitingForTarget = false;
+
+    if (!displayedFile) {
+      displayedFile = targetFile;
+      displayedImageSource = targetImageSource;
+      return;
+    }
+    if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
+
+    const waitingTimer = setTimeout(() => {
+      if (generation === transitionGeneration) waitingForTarget = true;
+    }, 200);
+    const preloadSource = targetFile.media_kind === 'video' || targetFile.media_kind === 'audio'
+      ? viewerPreloadSource(targetFile)
+      : targetImageSource;
+
+    void preloadViewerMediaSource(targetFile, preloadSource)
+      .catch(() => undefined)
+      .then((preloaded) => {
+        if (generation !== transitionGeneration) return;
+        clearTimeout(waitingTimer);
+        const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+        if (rendersImage && preloaded?.width && preloaded.height) {
+          intrinsicWidth = preloaded.width;
+          intrinsicHeight = preloaded.height;
+        }
+        displayedFile = targetFile;
+        displayedImageSource = targetImageSource;
+        waitingForTarget = false;
+      });
+
+    return () => {
+      clearTimeout(waitingTimer);
+      if (generation === transitionGeneration) transitionGeneration += 1;
+    };
+  });'''
+          new = '''  $effect(() => {
+    const targetFile = file;
+    const targetImageSource = imageSource;
+    const generation = ++transitionGeneration;
+    waitingForTarget = false;
+
+    if (!displayedFile) {
+      displayedFile = targetFile;
+      displayedImageSource = targetImageSource;
+      return;
+    }
+    if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
+
+    const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+    if (rendersImage) {
+      // Foreground images should enter the browser's native loading/decoding pipeline immediately.
+      // Blocking the visible source swap on Image.decode() starves progressive presentation when
+      // key-repeat advances targets faster than full decodes can finish. Metadata preserves atomic
+      // geometry where available; the real image load reconciles natural dimensions afterward.
+      const metadataWidth = targetFile.metadata?.image_width ?? 0;
+      const metadataHeight = targetFile.metadata?.image_height ?? 0;
+      if (metadataWidth > 0 && metadataHeight > 0) {
+        intrinsicWidth = metadataWidth;
+        intrinsicHeight = metadataHeight;
+      }
+      displayedFile = targetFile;
+      displayedImageSource = targetImageSource;
+      return;
+    }
+
+    const waitingTimer = setTimeout(() => {
+      if (generation === transitionGeneration) waitingForTarget = true;
+    }, 200);
+    const preloadSource = viewerPreloadSource(targetFile);
+
+    void preloadViewerMediaSource(targetFile, preloadSource)
+      .catch(() => undefined)
+      .then(() => {
+        if (generation !== transitionGeneration) return;
+        clearTimeout(waitingTimer);
+        displayedFile = targetFile;
+        displayedImageSource = targetImageSource;
+        waitingForTarget = false;
+      });
+
+    return () => {
+      clearTimeout(waitingTimer);
+      if (generation === transitionGeneration) transitionGeneration += 1;
+    };
+  });'''
+          if s.count(old) != 1:
+            raise SystemExit(f'expected one ViewerStage transition block, found {s.count(old)}')
+          s = s.replace(old, new)
+          s = s.replace(
+            '''    // Image transitions install the dimensions captured by the decoded preload before
+    // swapping sources. Non-image media still waits for its own metadata event.''',
+            '''    // Image transitions install metadata dimensions before swapping sources, then the
+    // rendered image reconciles natural dimensions on load. Non-image media waits for metadata.'''
+          )
+          stage.write_text(s)
+
+          test = Path('frontend/tests/viewer-animation.spec.ts')
+          t = test.read_text()
+          anchor = '''test('rotation keeps the requested direction when crossing the 0/360 boundary', async ({ page }) => {'''
+          regression = '''test('held navigation keeps image presentation advancing when full image decode is backlogged', async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalDecode = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = function () {
+      if (!this.src.includes('/preview')) return originalDecode ? originalDecode.call(this) : Promise.resolve();
+      return new Promise<void>(() => {});
+    };
+  });
+
+  await mockApp(page);
+  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
+
+  const media = page.locator('.viewer-visual-media');
+  await expect(media).toBeVisible();
+  await expect(media).toHaveAttribute('src', /\/wide\/preview/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.viewer-stage');
+    if (!(target instanceof HTMLElement)) throw new Error('viewer stage missing');
+    for (let i = 0; i < 5; i += 1) {
+      target.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        code: 'ArrowRight',
+        repeat: i > 0,
+        bubbles: true,
+        cancelable: true
+      }));
+    }
+  });
+
+  await expect(page.getByRole('dialog', { name: 'sixth.jpg' })).toBeVisible();
+  await expect(media).toHaveAttribute('src', /\/sixth\/preview/);
+});
+
+'''
+          if t.count(anchor) != 1:
+            raise SystemExit(f'expected one viewer-animation insertion anchor, found {t.count(anchor)}')
+          t = t.replace(anchor, regression + anchor)
+          test.write_text(t)
+          PY
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Static check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Viewer browser regressions
+        working-directory: frontend
+        run: npx playwright test tests/viewer-animation.spec.ts --project=chromium
+      - name: Commit repair and remove temporary workflow
+        if: success()
+        run: |
+          rm .github/workflows/repair-held-navigation.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-animation.spec.ts .github/workflows/repair-held-navigation.yml
+          git commit -m "fix(viewer): keep held navigation presenting images"
+          git push origin HEAD:fix/22-held-navigation-presentation
