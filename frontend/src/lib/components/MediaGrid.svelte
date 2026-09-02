@@ -88,7 +88,11 @@
     const target = event.target;
     const fromLibrarySearch = target instanceof HTMLElement && target.classList.contains('searchbar-input');
     if (isEditableShortcutTarget(target) && !fromLibrarySearch) return;
-    if (document.activeElement instanceof HTMLElement && document.activeElement.classList.contains('thumb-open')) return;
+    const activeElement = document.activeElement;
+    // Grid-entry shortcuts belong to the Library view. Do not let the
+    // background grid steal focus while a viewer or another dialog owns input.
+    if (activeElement instanceof HTMLElement && activeElement.closest('[role="dialog"]')) return;
+    if (activeElement instanceof HTMLElement && activeElement.classList.contains('thumb-open')) return;
     const first = gridHost?.querySelector<HTMLButtonElement>('.thumb-open');
     if (!first) return;
     event.preventDefault();
