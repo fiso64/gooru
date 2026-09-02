@@ -22,16 +22,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Integrate semantic selection
-        shell: python
+        shell: python {0}
         run: |
           from pathlib import Path
-
-          def replace(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f'missing expected block in {path}: {old[:80]!r}')
-              p.write_text(text.replace(old, new))
 
           p = Path('frontend/src/lib/state/libraryWorkflow.svelte.ts')
           text = p.read_text()
@@ -71,8 +64,7 @@ jobs:
           function selectedCount(totalCount: number) {
             return selectionCount(selection, totalCount);
           }'''
-          if old not in text:
-              raise SystemExit('selection function block changed unexpectedly')
+          if old not in text: raise SystemExit('selection function block changed unexpectedly')
           text = text.replace(old, new)
           text = text.replace('else if (selectedIDs.size) clearSelection();', 'else if (selectionActive(selection)) clearSelection();')
           text = text.replace("    get selectedIDs() { return selectedIDs; },\n    set selectedIDs(value: Set<string>) { selectedIDs = value; },", "    get selection() { return selection; },")
@@ -80,8 +72,7 @@ jobs:
           p.write_text(text)
 
           p = Path('frontend/src/lib/state/tagWorkflow.svelte.ts')
-          text = p.read_text()
-          text = text.replace("import type { TagMutationVariables } from '$lib/queries/files';", "import type { TagMutationVariables } from '$lib/queries/files';\nimport { selectionRequest, type LibrarySelection } from '$lib/state/selection';")
+          text = p.read_text().replace("import type { TagMutationVariables } from '$lib/queries/files';", "import type { TagMutationVariables } from '$lib/queries/files';\nimport { selectionRequest, type LibrarySelection } from '$lib/state/selection';")
           old = '''  async function bulkSelected(ids: Set<string>, tagInput: string, operation: 'add' | 'remove', mutateTags: MutateTags) {
             const tags = parseTags(tagInput);
             if (!tags.length || !ids.size) return false;
@@ -103,10 +94,8 @@ jobs:
             await mutateTags({ operation, body: { ...selector, tags } });
             return true;
           }'''
-          if old not in text:
-              raise SystemExit('bulk tag block changed unexpectedly')
-          text = text.replace(old, new).replace('    bulkSelected,\n    bulkFiltered', '    bulkSelected')
-          p.write_text(text)
+          if old not in text: raise SystemExit('bulk tag block changed unexpectedly')
+          p.write_text(text.replace(old, new).replace('    bulkSelected,\n    bulkFiltered', '    bulkSelected'))
 
           p = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
           text = p.read_text()
@@ -126,17 +115,11 @@ jobs:
             <div class="seg" aria-label="Sort field">'''
           new_actions = '''          <div class="library-head-actions">
             <label class="g-btn g-btn-sm" title="Select all files in the current view">
-              <input
-                type="checkbox"
-                aria-label="Select all files in current view"
-                checked={currentTotalCount > 0 && selectedCount === currentTotalCount}
-                onchange={(event) => event.currentTarget.checked ? library.selectAll() : library.clearSelection()}
-              />
+              <input type="checkbox" aria-label="Select all files in current view" checked={currentTotalCount > 0 && selectedCount === currentTotalCount} onchange={(event) => event.currentTarget.checked ? library.selectAll() : library.clearSelection()} />
               Select all
             </label>
             <div class="seg" aria-label="Sort field">'''
-          if old_actions not in text:
-              raise SystemExit('library action block changed unexpectedly')
+          if old_actions not in text: raise SystemExit('library action block changed unexpectedly')
           text = text.replace(old_actions, new_actions)
           old_filtered = '''            {#if library.filterQuery()}
               <button class="g-btn g-btn-sm" type="button" title="Tag every matching file without materializing all results" onclick={bulkTagFiltered}>
@@ -144,54 +127,25 @@ jobs:
               </button>
             {/if}
 '''
-          if old_filtered not in text:
-              raise SystemExit('Tag filtered block changed unexpectedly')
-          text = text.replace(old_filtered, '')
-          p.write_text(text)
+          if old_filtered not in text: raise SystemExit('Tag filtered block changed unexpectedly')
+          p.write_text(text.replace(old_filtered, ''))
 
           p = Path('frontend/src/lib/components/MediaGrid.svelte')
-          text = p.read_text()
-          text = text.replace('    selectedIDs,', '    selectedCount,\n    isSelected,')
-          text = text.replace('    selectedIDs: Set<string>;', '    selectedCount: number;\n    isSelected: (fileID: string) => boolean;')
-          text = text.replace('{#if selectedIDs.size > 0}', '{#if selectedCount > 0}')
-          text = text.replace('<span><b>{selectedIDs.size}</b> of <span>{totalCount || files.length}</span> selected</span>', '<span><b>{selectedCount}</b> of <span>{totalCount || files.length}</span> selected</span>')
-          text = text.replace('{#if selectedIDs.size < files.length}\n          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>\n            {files.length === (totalCount || files.length) ? `Select all ${files.length}` : `Select all loaded ${files.length}`}\n          </button>\n        {/if}', '{#if selectedCount < (totalCount || files.length)}\n          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>\n            Select all {(totalCount || files.length).toLocaleString()}\n          </button>\n        {/if}')
-          text = text.replace('selected={selectedIDs.has(file.id)}', 'selected={isSelected(file.id)}')
-          text = text.replace('selectionActive={selectedIDs.size > 0}', 'selectionActive={selectedCount > 0}')
-          p.write_text(text)
+          text = p.read_text().replace('    selectedIDs,', '    selectedCount,\n    isSelected,').replace('    selectedIDs: Set<string>;', '    selectedCount: number;\n    isSelected: (fileID: string) => boolean;')
+          text = text.replace('{#if selectedIDs.size > 0}', '{#if selectedCount > 0}').replace('<span><b>{selectedIDs.size}</b> of <span>{totalCount || files.length}</span> selected</span>', '<span><b>{selectedCount}</b> of <span>{totalCount || files.length}</span> selected</span>')
+          text = text.replace('{#if selectedIDs.size < files.length}\n          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>\n            {files.length === (totalCount || files.length) ? `Select all ${files.length}` : `Select all loaded ${files.length}`}\n          </button>\n        {/if}', '{#if selectedCount < (totalCount || files.length)}\n          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>Select all {(totalCount || files.length).toLocaleString()}</button>\n        {/if}')
+          p.write_text(text.replace('selected={selectedIDs.has(file.id)}', 'selected={isSelected(file.id)}').replace('selectionActive={selectedIDs.size > 0}', 'selectionActive={selectedCount > 0}'))
 
           p = Path('docs/openapi.yaml')
           text = p.read_text()
-          old = '''        query:
-          type: string
-          description: Query selector. Exactly one of file_ids or query must be provided.
-        tags:'''
-          new = '''        query:
-          type: string
-          description: Query selector. Exactly one of file_ids or query must be provided.
-        exclude_file_ids:
-          type: array
-          items:
-            type: string
-          description: Opaque file IDs to exclude from a query selector. Only valid with query.
-        tags:'''
-          if old not in text:
-              raise SystemExit('TagMutationRequest schema block changed unexpectedly')
+          old = '        query:\n          type: string\n          description: Query selector. Exactly one of file_ids or query must be provided.\n        tags:'
+          new = '        query:\n          type: string\n          description: Query selector. Exactly one of file_ids or query must be provided.\n        exclude_file_ids:\n          type: array\n          items:\n            type: string\n          description: Opaque file IDs to exclude from a query selector. Only valid with query.\n        tags:'
+          if old not in text: raise SystemExit('TagMutationRequest schema block changed unexpectedly')
           text = text.replace(old, new, 1)
-          old = '''            query:
-              type: string
-        matched_files:'''
-          new = '''            query:
-              type: string
-            exclude_file_ids:
-              type: array
-              items:
-                type: string
-        matched_files:'''
-          if old not in text:
-              raise SystemExit('TagMutation selector schema block changed unexpectedly')
-          text = text.replace(old, new, 1)
-          p.write_text(text)
+          old = '            query:\n              type: string\n        matched_files:'
+          new = '            query:\n              type: string\n            exclude_file_ids:\n              type: array\n              items:\n                type: string\n        matched_files:'
+          if old not in text: raise SystemExit('selector schema block changed unexpectedly')
+          p.write_text(text.replace(old, new, 1))
       - name: Generate API client
         working-directory: frontend
         run: |
