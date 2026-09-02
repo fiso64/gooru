@@ -130,6 +130,30 @@ test('pointer viewer controls return focus to the stage so shortcuts remain glob
   await expect(page.locator('.viewer-visual-media')).toHaveAttribute('style', /rotate\(180deg\)/);
 });
 
+test('viewer tag editor keeps Left and Right for caret movement', async ({ page }) => {
+  await mockApp(page);
+
+  await page.getByRole('button', { name: 'Preview two.jpg' }).click();
+  const dialog = page.getByRole('dialog', { name: 'two.jpg' });
+  await expect(dialog).toBeVisible();
+
+  const tagInput = page.getByLabel('Tags for two.jpg');
+  await tagInput.fill('portrait');
+  await tagInput.evaluate((node) => {
+    const input = node as HTMLInputElement;
+    input.setSelectionRange(4, 4);
+  });
+  await expect(tagInput).toBeFocused();
+
+  await page.keyboard.press('ArrowLeft');
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => tagInput.evaluate((node) => (node as HTMLInputElement).selectionStart)).toBe(3);
+
+  await page.keyboard.press('ArrowRight');
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => tagInput.evaluate((node) => (node as HTMLInputElement).selectionStart)).toBe(4);
+});
+
 test('Space pauses the current video once and does not reactivate the seek control', async ({ page }) => {
   await mockApp(page, [fileItem('video', 'clip.mp4', 'video')]);
 
