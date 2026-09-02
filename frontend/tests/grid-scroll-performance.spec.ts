@@ -10,7 +10,7 @@ function fileItem(index: number) {
   const id = `file-${index}`;
   return {
     id, content_id: `hash-${id}`, name: `perf-${index}.jpg`, safe_display_path: `library/${id}.jpg`,
-    size: 2048, modified_time: '2026-05-20T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo',
+    size: 2048, modified_time: '2026-05-20T00:00:00Z', media_type: index % 2 ? 'video/mp4' : 'image/jpeg', media_kind: index % 2 ? 'video' : 'photo',
     metadata: { image_width: 800, image_height: 600 }, tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`,
@@ -44,6 +44,9 @@ test('large library keeps a bounded DOM while sustained scrolling advances the v
   await expect(page.getByText('10,000 files')).toBeVisible();
   const cards = page.locator('.thumb');
   await expect.poll(() => cards.count()).toBeLessThan(100);
+  const badge = page.locator('.thumb-badge').first();
+  await expect(badge).toBeVisible();
+  expect(await badge.evaluate((node) => getComputedStyle(node).backdropFilter)).toBe('none');
 
   const samples = await page.locator('.main').evaluate(async (node) => {
     const grid = node.querySelector<HTMLElement>('[data-testid="virtual-media-grid"]')!;
