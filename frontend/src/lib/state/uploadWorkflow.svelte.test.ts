@@ -139,4 +139,21 @@ describe('createUploadWorkflow', () => {
     expect(workflow.items[0].status).toBe('imported');
     expect(workflow.items[1].status).toBe('queued');
   });
+
+  it('cancels all per-file jobs from the existing batch cancel action', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
+    await workflow.submit(async (variables) => pendingJob(`job-${variables.files[0].name}`));
+    const canceled: string[] = [];
+
+    const result = await workflow.cancel(async (id) => {
+      canceled.push(id);
+      return { ...pendingJob(id), status: 'canceled' } as Job;
+    });
+
+    expect(result).toEqual({ changed: true });
+    expect(canceled).toEqual(['job-first.jpg', 'job-second.jpg']);
+    expect(workflow.activeJobIDs).toEqual([]);
+    expect(workflow.items.map((item) => item.status)).toEqual(['canceled', 'canceled']);
+  });
 });
