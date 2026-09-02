@@ -4,13 +4,7 @@
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { preserveNativeViewerSize } from '$lib/utils/media';
-  import {
-    rotateViewerLeft,
-    rotateViewerRight,
-    viewerScale,
-    viewerTransform,
-    type ViewerFitMode
-  } from '$lib/utils/viewerGeometry';
+  import { rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerFitMode } from '$lib/utils/viewer';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -40,15 +34,17 @@
   let videoLength = $state(0);
 
   const videoProgress = $derived(videoLength > 0 ? Math.min(100, Math.max(0, (videoTime / videoLength) * 100)) : 0);
-  const fitPadding = $derived(isFullscreen ? 0 : 72);
-  const scale = $derived(viewerScale(
-    { width: intrinsicWidth, height: intrinsicHeight },
-    { width: Math.max(0, stageWidth - fitPadding), height: Math.max(0, stageHeight - fitPadding) },
+  const geometry = $derived(viewerGeometry({
+    intrinsicWidth,
+    intrinsicHeight,
+    viewportWidth: stageWidth,
+    viewportHeight: stageHeight,
     rotation,
     fitMode,
-    preserveNativeViewerSize(file) ? 1 : Number.POSITIVE_INFINITY
-  ));
-  const visualStyle = $derived(`transform: ${viewerTransform(rotation, scale)};`);
+    inset: isFullscreen ? 0 : 36,
+    maxScale: preserveNativeViewerSize(file) ? 1 : Number.POSITIVE_INFINITY
+  }));
+  const visualStyle = $derived(viewerMediaStyle(geometry));
 
   onMount(() => {
     const stage = stageElement;
@@ -143,13 +139,13 @@
     if (key === 'r') {
       event.preventDefault();
       event.stopPropagation();
-      rotation = rotateViewerRight(rotation);
+      rotation = rotateViewer(rotation, 'right');
       return;
     }
     if (key === 'l') {
       event.preventDefault();
       event.stopPropagation();
-      rotation = rotateViewerLeft(rotation);
+      rotation = rotateViewer(rotation, 'left');
       return;
     }
     if (event.key === '1') {
@@ -234,8 +230,8 @@
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
     <button type="button" class="viewer-mode-button" class:active={fitMode === 'screen'} aria-label="Fit to screen" title="Fit to screen (1)" onclick={() => { fitMode = 'screen'; }}>1</button>
     <button type="button" class="viewer-mode-button" class:active={fitMode === 'actual'} aria-label="Actual size" title="Actual size (2)" onclick={() => { fitMode = 'actual'; }}>2</button>
-    <button type="button" class="viewer-mode-button" aria-label="Rotate left" title="Rotate left (L)" onclick={() => { rotation = rotateViewerLeft(rotation); }}>↺</button>
-    <button type="button" class="viewer-mode-button" aria-label="Rotate right" title="Rotate right (R)" onclick={() => { rotation = rotateViewerRight(rotation); }}>↻</button>
+    <button type="button" class="viewer-mode-button" aria-label="Rotate left" title="Rotate left (L)" onclick={() => { rotation = rotateViewer(rotation, 'left'); }}>↺</button>
+    <button type="button" class="viewer-mode-button" aria-label="Rotate right" title="Rotate right (R)" onclick={() => { rotation = rotateViewer(rotation, 'right'); }}>↻</button>
     <button type="button" class="viewer-mode-button" class:active={isFullscreen} aria-label="Toggle fullscreen" title="Fullscreen (F)" onclick={() => void toggleFullscreen()}>F</button>
   </div>
 
@@ -256,16 +252,8 @@
   }
 
   :global(.viewer-stage .viewer-visual-media) {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: auto;
-    height: auto;
-    max-width: none;
-    max-height: none;
     object-fit: contain;
-    transform-origin: center;
-    transition: transform 120ms ease;
+    transition: width 120ms ease, height 120ms ease, transform 120ms ease;
   }
 
   :global(.viewer-stage .viewer-audio-stage) {
