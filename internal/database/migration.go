@@ -5,40 +5,155 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/sqlite3"
-	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"io/fs"
+	"sort"
+	"strconv"
+	"strings"
 )
 
 //go:embed migrations
 var migrationsFS embed.FS
 
-// RunMigrations checks the current database schema version and applies any
-// pending migrations on the exact database connection supplied by the caller.
-// This is important for connection-specific storage backends such as encrypted
-// SQLite VFSes: reopening by path could bypass the configured backend entirely.
+const migrationTable = "schema_migrations"
+
+type embeddedMigration struct {
+	version int
+	name    string
+	sql     string
+}
+
+// RunMigrations applies embedded up migrations to the exact database connection
+// supplied by the caller. The runner deliberately depends only on database/sql,
+// so connection-specific storage backends (including encrypted SQLite VFSes) can
+// be introduced without importing a migration driver that registers its own
+// competing SQLite database/sql driver.
+//
+// The schema_migrations table remains compatible with the golang-migrate SQLite
+// layout used by older Gooru releases: one (version, dirty) row and a unique
+// version index. A failed migration is left dirty so startup fails closed rather
+// than attempting later migrations on an uncertain schema.
 func RunMigrations(db *sql.DB) error {
-	sourceDriver, err := iofs.New(migrationsFS, "migrations")
+	migrations, err := loadEmbeddedMigrations()
 	if err != nil {
-		return fmt.Errorf("could not create migration source driver: %w", err)
+		return err
 	}
-	defer sourceDriver.Close()
-
-	databaseDriver, err := sqlite3.WithInstance(db, &sqlite3.Config{})
-	if err != nil {
-		return fmt.Errorf("could not create migration database driver: %w", err)
+	if err := ensureMigrationTable(db); err != nil {
+		return err
 	}
 
-	m, err := migrate.NewWithInstance("iofs", sourceDriver, "sqlite3", databaseDriver)
+	current, dirty, err := currentMigrationVersion(db)
 	if err != nil {
-		return fmt.Errorf("could not create migrate instance: %w", err)
+		return err
 	}
-	// Do not call m.Close(): sqlite3.WithInstance wraps the caller-owned *sql.DB,
-	// and the migrate driver's Close method would close that live connection.
+	if dirty {
+		return fmt.Errorf("database migration version %d is dirty", current)
+	}
 
-	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("an error occurred while running migrations: %w", err)
+	for _, migration := range migrations {
+		if migration.version <= current {
+			continue
+		}
+		if err := applyMigration(db, migration); err != nil {
+			return err
+		}
+		current = migration.version
+	}
+	return nil
+}
+
+func loadEmbeddedMigrations() ([]embeddedMigration, error) {
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		return nil, fmt.Errorf("read embedded migrations: %w", err)
+	}
+
+	migrations := make([]embeddedMigration, 0, len(entries)/2)
+	seen := make(map[int]string)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".up.sql") {
+			continue
+		}
+		prefix, _, ok := strings.Cut(entry.Name(), "_")
+		if !ok {
+			return nil, fmt.Errorf("invalid migration filename %q", entry.Name())
+		}
+		version, err := strconv.Atoi(prefix)
+		if err != nil || version <= 0 {
+			return nil, fmt.Errorf("invalid migration version in %q", entry.Name())
+		}
+		if previous, exists := seen[version]; exists {
+			return nil, fmt.Errorf("duplicate migration version %d in %q and %q", version, previous, entry.Name())
+		}
+		body, err := migrationsFS.ReadFile("migrations/" + entry.Name())
+		if err != nil {
+			return nil, fmt.Errorf("read migration %q: %w", entry.Name(), err)
+		}
+		seen[version] = entry.Name()
+		migrations = append(migrations, embeddedMigration{version: version, name: entry.Name(), sql: string(body)})
+	}
+	sort.Slice(migrations, func(i, j int) bool { return migrations[i].version < migrations[j].version })
+	return migrations, nil
+}
+
+func ensureMigrationTable(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS schema_migrations (version uint64, dirty bool);
+CREATE UNIQUE INDEX IF NOT EXISTS version_unique ON schema_migrations (version);
+`)
+	if err != nil {
+		return fmt.Errorf("ensure migration table: %w", err)
+	}
+	return nil
+}
+
+func currentMigrationVersion(db *sql.DB) (version int, dirty bool, err error) {
+	err = db.QueryRow(`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read migration version: %w", err)
+	}
+	return version, dirty, nil
+}
+
+func setMigrationVersion(db *sql.DB, version int, dirty bool) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin migration version update: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM schema_migrations`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("clear migration version: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations (version, dirty) VALUES (?, ?)`, version, dirty); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("write migration version: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration version: %w", err)
+	}
+	return nil
+}
+
+func applyMigration(db *sql.DB, migration embeddedMigration) error {
+	if err := setMigrationVersion(db, migration.version, true); err != nil {
+		return fmt.Errorf("mark migration %s dirty: %w", migration.name, err)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin migration %s: %w", migration.name, err)
+	}
+	if _, err := tx.Exec(migration.sql); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("apply migration %s: %w", migration.name, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %s: %w", migration.name, err)
+	}
+	if err := setMigrationVersion(db, migration.version, false); err != nil {
+		return fmt.Errorf("mark migration %s clean: %w", migration.name, err)
 	}
 	return nil
 }
