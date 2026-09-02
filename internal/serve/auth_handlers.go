@@ -2,6 +2,7 @@ package serve
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 )
 
@@ -56,9 +57,13 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	auth, err := s.auth.Login(r.Context(), req.Username, req.Password)
 	if err != nil {
 		status, message := authHTTPStatus(err)
+		if status == http.StatusUnauthorized {
+			slog.InfoContext(r.Context(), "authentication rejected")
+		}
 		writeError(w, status, "unauthorized", message, nil)
 		return
 	}
+	slog.InfoContext(r.Context(), "authentication succeeded")
 	s.setSessionCookie(w, r, auth.Token, auth.Session.ExpiresAt)
 	writeJSON(w, http.StatusOK, s.authResponse(auth, auth.CSRFToken))
 }
@@ -80,6 +85,7 @@ func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	slog.InfoContext(r.Context(), "session revoked")
 	s.clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -129,6 +135,9 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.auth.ChangePassword(r.Context(), auth.User.ID, req.CurrentPassword, req.NewPassword); err != nil {
 		status, message := authHTTPStatus(err)
+		if status == http.StatusUnauthorized {
+			slog.InfoContext(r.Context(), "password change rejected")
+		}
 		if status == http.StatusInternalServerError {
 			writeError(w, status, "internal_error", message, nil)
 		} else {
@@ -136,6 +145,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	slog.InfoContext(r.Context(), "password changed")
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
