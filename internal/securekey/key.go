@@ -9,7 +9,11 @@ import (
 	"strings"
 )
 
-const Size = 32
+const (
+	Size        = 32
+	EnvKey      = "GOORU_ENCRYPTION_KEY"
+	EnvKeyFile  = "GOORU_ENCRYPTION_KEY_FILE"
+)
 
 var ErrInvalidKey = errors.New("encryption key must decode to exactly 32 bytes")
 
@@ -19,6 +23,25 @@ var ErrInvalidKey = errors.New("encryption key must decode to exactly 32 bytes")
 type Source struct {
 	Env  string
 	File string
+}
+
+// LoadProcess resolves Gooru's process-wide encryption key contract. Encryption
+// is disabled when neither source is configured; setting either source opts in.
+func LoadProcess() (key []byte, enabled bool, err error) {
+	_, hasEnv := os.LookupEnv(EnvKey)
+	file := strings.TrimSpace(os.Getenv(EnvKeyFile))
+	if !hasEnv && file == "" {
+		return nil, false, nil
+	}
+	source := Source{File: file}
+	if hasEnv {
+		source.Env = EnvKey
+	}
+	key, err = Load(source)
+	if err != nil {
+		return nil, true, err
+	}
+	return key, true, nil
 }
 
 // Load resolves one base64-encoded 256-bit key. Exactly one source must be set.
