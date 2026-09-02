@@ -27,6 +27,10 @@ const gif = {
 
 async function mockApp(page: Page) {
   let loggedIn = false;
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ load_full_media_by_default: false })
+  }));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
     contentType: 'application/json',
@@ -65,13 +69,16 @@ test('GIF fit-to-screen scales like other media while actual size stays 1:1', as
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview tiny.gif' }).click();
 
+  const stage = page.locator('.viewer-stage');
   const media = page.locator('.viewer-visual-media');
+  await expect(stage).toBeVisible();
   await expect(media).toBeVisible();
   await expect(media).toHaveAttribute('src', /\/tiny-gif\/content/);
 
   await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(40);
-  await page.getByRole('button', { name: 'Actual size' }).click();
+  await stage.focus();
+  await page.keyboard.press('2');
   await expect.poll(() => media.evaluate((node) => Math.round(node.getBoundingClientRect().width))).toBe(40);
-  await page.getByRole('button', { name: 'Fit to screen' }).click();
+  await page.keyboard.press('1');
   await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(40);
 });
