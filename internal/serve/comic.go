@@ -11,6 +11,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -35,15 +36,39 @@ type comicManifest struct {
 }
 
 type comicArchive struct {
-	reader *zip.ReadCloser
+	reader *zip.Reader
 	pages  []*zip.File
+	close  func() error
 }
 
 func openComicArchive(path string) (*comicArchive, error) {
-	if !strings.EqualFold(filepath.Ext(path), ".cbz") {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open cbz: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("stat cbz: %w", err)
+	}
+	archive, err := openComicArchiveReader(path, file, info.Size(), file.Close)
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return archive, nil
+}
+
+// openComicArchiveReader contains the archive logic independently of the
+// filesystem. The caller retains ownership of readerAt if construction fails;
+// on success comicArchive owns closeFn. Encrypted media can later provide
+// authenticated random-access plaintext here without changing page bounds,
+// ordering, or HTTP behavior.
+func openComicArchiveReader(name string, readerAt io.ReaderAt, size int64, closeFn func() error) (*comicArchive, error) {
+	if !strings.EqualFold(filepath.Ext(name), ".cbz") {
 		return nil, errNotComicArchive
 	}
-	reader, err := zip.OpenReader(path)
+	reader, err := zip.NewReader(readerAt, size)
 	if err != nil {
 		return nil, fmt.Errorf("open cbz: %w", err)
 	}
@@ -56,13 +81,17 @@ func openComicArchive(path string) (*comicArchive, error) {
 	}
 	sort.SliceStable(pages, func(i, j int) bool { return naturalLess(pages[i].Name, pages[j].Name) })
 	if len(pages) == 0 {
-		_ = reader.Close()
 		return nil, fmt.Errorf("%w: archive has no supported image pages", ErrUnsupportedMedia)
 	}
-	return &comicArchive{reader: reader, pages: pages}, nil
+	return &comicArchive{reader: reader, pages: pages, close: closeFn}, nil
 }
 
-func (a *comicArchive) Close() error { return a.reader.Close() }
+func (a *comicArchive) Close() error {
+	if a.close == nil {
+		return nil
+	}
+	return a.close()
+}
 
 func (a *comicArchive) openPage(index int) (io.ReadCloser, *zip.File, error) {
 	if index < 0 || index >= len(a.pages) {
