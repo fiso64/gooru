@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
   import ViewerStage from './ViewerStage.svelte';
@@ -67,14 +67,16 @@
 
   $effect(() => {
     file.id;
-    comicController?.abort();
-    comicController = undefined;
-    comicManifest = null;
-    comicPageIndex = 0;
-    comicEntered = false;
-    comicLoading = false;
-    comicError = '';
-    onNestedNavigationChange(false);
+    untrack(() => {
+      comicController?.abort();
+      comicController = undefined;
+      comicManifest = null;
+      comicPageIndex = 0;
+      comicEntered = false;
+      comicLoading = false;
+      comicError = '';
+      onNestedNavigationChange(false);
+    });
   });
 
   $effect(() => {

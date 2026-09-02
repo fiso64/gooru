@@ -180,6 +180,7 @@
     }
 
     if (onPrimaryAction && (event.code === 'Space' || event.key === 'Enter')) {
+      if (isInteractiveShortcutTarget(target)) return;
       event.preventDefault();
       event.stopPropagation();
       onPrimaryAction();
