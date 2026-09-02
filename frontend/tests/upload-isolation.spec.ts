@@ -62,12 +62,12 @@ test('isolates browser upload failures per file and keeps siblings active', asyn
   await mockAuth(page);
   await mockShellApis(page);
 
-  const uploadBodies: Buffer[] = [];
-  let requestIndex = 0;
+  const uploadBodies: string[] = [];
+  let successfulUploads = 0;
   await page.route('**/api/v1/uploads', async (route) => {
-    uploadBodies.push(route.request().postDataBuffer() ?? Buffer.alloc(0));
-    requestIndex += 1;
-    if (requestIndex === 2) {
+    const body = (route.request().postDataBuffer() ?? Buffer.alloc(0)).toString();
+    uploadBodies.push(body);
+    if (body.includes('huge.mp4')) {
       await route.fulfill({
         status: 400,
         contentType: 'application/json',
@@ -75,10 +75,11 @@ test('isolates browser upload failures per file and keeps siblings active', asyn
       });
       return;
     }
+    successfulUploads += 1;
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify({ id: `job-${requestIndex}`, type: 'upload_import', status: 'pending', submitted_at: '2026-09-02T00:00:00Z' })
+      body: JSON.stringify({ id: `job-${successfulUploads}`, type: 'upload_import', status: 'pending', submitted_at: '2026-09-02T00:00:00Z' })
     });
   });
 
@@ -95,10 +96,10 @@ test('isolates browser upload failures per file and keeps siblings active', asyn
   await page.getByRole('button', { name: /Upload 3 files/ }).click();
 
   await expect.poll(() => uploadBodies.length).toBe(3);
-  expect(uploadBodies[0].toString()).toContain('small-a.jpg');
-  expect(uploadBodies[0].toString()).not.toContain('huge.mp4');
-  expect(uploadBodies[1].toString()).toContain('huge.mp4');
-  expect(uploadBodies[2].toString()).toContain('small-b.jpg');
+  expect(uploadBodies.some((body) => body.includes('small-a.jpg'))).toBe(true);
+  expect(uploadBodies.some((body) => body.includes('huge.mp4'))).toBe(true);
+  expect(uploadBodies.some((body) => body.includes('small-b.jpg'))).toBe(true);
+  expect(uploadBodies.every((body) => ['small-a.jpg', 'huge.mp4', 'small-b.jpg'].filter((name) => body.includes(name)).length === 1)).toBe(true);
 
   const first = page.locator('.upload-row').filter({ hasText: 'small-a.jpg' });
   const failed = page.locator('.upload-row').filter({ hasText: 'huge.mp4' });
