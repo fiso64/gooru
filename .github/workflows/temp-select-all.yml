@@ -1,0 +1,216 @@
+name: Temporary semantic select-all validation
+on:
+  push:
+    branches: [feat/21-query-select-all]
+    paths: [.github/workflows/temp-select-all.yml]
+permissions:
+  contents: write
+jobs:
+  integrate:
+    if: github.event.head_commit.message != 'ci: remove select-all helper'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/21-query-select-all
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Integrate semantic selection
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing expected block in {path}: {old[:80]!r}')
+              p.write_text(text.replace(old, new))
+
+          p = Path('frontend/src/lib/state/libraryWorkflow.svelte.ts')
+          text = p.read_text()
+          text = text.replace("import { isEditableShortcutTarget } from '$lib/utils/keyboard';", "import { isEditableShortcutTarget } from '$lib/utils/keyboard';\nimport { emptySelection, selectAllMatching, selectionActive, selectionCount, selectionHas, toggleSelection, type LibrarySelection } from '$lib/state/selection';")
+          text = text.replace('  let selectedIDs = $state(new Set<string>());', '  let selection: LibrarySelection = $state(emptySelection());')
+          text = text.replace('selectedIDs = new Set();', 'selection = emptySelection();')
+          old = '''  function toggleSelect(file: FileItem) {
+            const next = new Set(selectedIDs);
+            if (next.has(file.id)) next.delete(file.id);
+            else next.add(file.id);
+            selectedIDs = next;
+          }
+
+          function selectFiles(files: FileItem[]) {
+            selectedIDs = new Set(files.map((file) => file.id));
+          }
+
+          function clearSelection() {
+            selectedIDs = new Set();
+          }'''
+          new = '''  function toggleSelect(file: FileItem) {
+            selection = toggleSelection(selection, file.id);
+          }
+
+          function selectAll() {
+            selection = selectAllMatching(filterQuery());
+          }
+
+          function clearSelection() {
+            selection = emptySelection();
+          }
+
+          function isSelected(fileID: string) {
+            return selectionHas(selection, fileID);
+          }
+
+          function selectedCount(totalCount: number) {
+            return selectionCount(selection, totalCount);
+          }'''
+          if old not in text:
+              raise SystemExit('selection function block changed unexpectedly')
+          text = text.replace(old, new)
+          text = text.replace('else if (selectedIDs.size) clearSelection();', 'else if (selectionActive(selection)) clearSelection();')
+          text = text.replace("    get selectedIDs() { return selectedIDs; },\n    set selectedIDs(value: Set<string>) { selectedIDs = value; },", "    get selection() { return selection; },")
+          text = text.replace('    selectFiles,\n    clearSelection,', '    selectAll,\n    clearSelection,\n    isSelected,\n    selectedCount,')
+          p.write_text(text)
+
+          p = Path('frontend/src/lib/state/tagWorkflow.svelte.ts')
+          text = p.read_text()
+          text = text.replace("import type { TagMutationVariables } from '$lib/queries/files';", "import type { TagMutationVariables } from '$lib/queries/files';\nimport { selectionRequest, type LibrarySelection } from '$lib/state/selection';")
+          old = '''  async function bulkSelected(ids: Set<string>, tagInput: string, operation: 'add' | 'remove', mutateTags: MutateTags) {
+            const tags = parseTags(tagInput);
+            if (!tags.length || !ids.size) return false;
+            await mutateTags({ operation, body: { file_ids: Array.from(ids), tags } });
+            return true;
+          }
+
+          async function bulkFiltered(query: string, tagInput: string, mutateTags: MutateTags) {
+            if (!query) return false;
+            const tags = parseTags(tagInput);
+            if (!tags.length) return false;
+            await mutateTags({ operation: 'add', body: { query, tags } });
+            return true;
+          }'''
+          new = '''  async function bulkSelected(selection: LibrarySelection, tagInput: string, operation: 'add' | 'remove', mutateTags: MutateTags) {
+            const tags = parseTags(tagInput);
+            const selector = selectionRequest(selection);
+            if (!tags.length || ('file_ids' in selector && !selector.file_ids.length)) return false;
+            await mutateTags({ operation, body: { ...selector, tags } });
+            return true;
+          }'''
+          if old not in text:
+              raise SystemExit('bulk tag block changed unexpectedly')
+          text = text.replace(old, new).replace('    bulkSelected,\n    bulkFiltered', '    bulkSelected')
+          p.write_text(text)
+
+          p = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = p.read_text()
+          text = text.replace("    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered' | 'untrack-file' | 'delete-file';", "    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'untrack-file' | 'delete-file';")
+          text = text.replace('  const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.activeKind}|${library.sort}|${library.order}`);', '  const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.activeKind}|${library.sort}|${library.order}`);\n  const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);\n  const selectedCount = $derived(library.selectedCount(currentTotalCount));')
+          text = text.replace("\n  function bulkTagFiltered() {\n    actionDialog = { kind: 'bulk-filtered', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };\n  }\n", '\n')
+          text = text.replace('tagWorkflow.bulkSelected(library.selectedIDs, value', 'tagWorkflow.bulkSelected(library.selection, value')
+          text = text.replace("      } else if (actionDialog.kind === 'bulk-filtered') {\n        await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));\n", '')
+          text = text.replace("      case 'bulk-filtered': return 'Tag filtered results';\n", '')
+          text = text.replace('`Add tags to ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? \'\' : \'s\'}.`', '`Add tags to ${selectedCount} selected file${selectedCount === 1 ? \'\' : \'s\'}.`')
+          text = text.replace('`Remove tags from ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? \'\' : \'s\'}.`', '`Remove tags from ${selectedCount} selected file${selectedCount === 1 ? \'\' : \'s\'}.`')
+          text = text.replace("      case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';\n", '')
+          text = text.replace("      case 'bulk-filtered': return 'Add tags';\n", '')
+          text = text.replace('        selectedIDs={library.selectedIDs}', '        selectedCount={selectedCount}\n        isSelected={library.isSelected}')
+          text = text.replace('        onSelectAll={() => library.selectFiles(files)}', '        onSelectAll={library.selectAll}')
+          old_actions = '''          <div class="library-head-actions">
+            <div class="seg" aria-label="Sort field">'''
+          new_actions = '''          <div class="library-head-actions">
+            <label class="g-btn g-btn-sm" title="Select all files in the current view">
+              <input
+                type="checkbox"
+                aria-label="Select all files in current view"
+                checked={currentTotalCount > 0 && selectedCount === currentTotalCount}
+                onchange={(event) => event.currentTarget.checked ? library.selectAll() : library.clearSelection()}
+              />
+              Select all
+            </label>
+            <div class="seg" aria-label="Sort field">'''
+          if old_actions not in text:
+              raise SystemExit('library action block changed unexpectedly')
+          text = text.replace(old_actions, new_actions)
+          old_filtered = '''            {#if library.filterQuery()}
+              <button class="g-btn g-btn-sm" type="button" title="Tag every matching file without materializing all results" onclick={bulkTagFiltered}>
+                <Icon name="tag" size={14} /> Tag filtered
+              </button>
+            {/if}
+'''
+          if old_filtered not in text:
+              raise SystemExit('Tag filtered block changed unexpectedly')
+          text = text.replace(old_filtered, '')
+          p.write_text(text)
+
+          p = Path('frontend/src/lib/components/MediaGrid.svelte')
+          text = p.read_text()
+          text = text.replace('    selectedIDs,', '    selectedCount,\n    isSelected,')
+          text = text.replace('    selectedIDs: Set<string>;', '    selectedCount: number;\n    isSelected: (fileID: string) => boolean;')
+          text = text.replace('{#if selectedIDs.size > 0}', '{#if selectedCount > 0}')
+          text = text.replace('<span><b>{selectedIDs.size}</b> of <span>{totalCount || files.length}</span> selected</span>', '<span><b>{selectedCount}</b> of <span>{totalCount || files.length}</span> selected</span>')
+          text = text.replace('{#if selectedIDs.size < files.length}\n          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>\n            {files.length === (totalCount || files.length) ? `Select all ${files.length}` : `Select all loaded ${files.length}`}\n          </button>\n        {/if}', '{#if selectedCount < (totalCount || files.length)}\n          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>\n            Select all {(totalCount || files.length).toLocaleString()}\n          </button>\n        {/if}')
+          text = text.replace('selected={selectedIDs.has(file.id)}', 'selected={isSelected(file.id)}')
+          text = text.replace('selectionActive={selectedIDs.size > 0}', 'selectionActive={selectedCount > 0}')
+          p.write_text(text)
+
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+          old = '''        query:
+          type: string
+          description: Query selector. Exactly one of file_ids or query must be provided.
+        tags:'''
+          new = '''        query:
+          type: string
+          description: Query selector. Exactly one of file_ids or query must be provided.
+        exclude_file_ids:
+          type: array
+          items:
+            type: string
+          description: Opaque file IDs to exclude from a query selector. Only valid with query.
+        tags:'''
+          if old not in text:
+              raise SystemExit('TagMutationRequest schema block changed unexpectedly')
+          text = text.replace(old, new, 1)
+          old = '''            query:
+              type: string
+        matched_files:'''
+          new = '''            query:
+              type: string
+            exclude_file_ids:
+              type: array
+              items:
+                type: string
+        matched_files:'''
+          if old not in text:
+              raise SystemExit('TagMutation selector schema block changed unexpectedly')
+          text = text.replace(old, new, 1)
+          p.write_text(text)
+      - name: Generate API client
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run generate:api
+      - name: Format Go
+        run: gofmt -w internal/serve/tag_mutations.go internal/serve/tag_mutation_exclusions_test.go gooru/tagging_query_exclusions.go gooru/tagging_query_exclusions_test.go
+      - name: Validate
+        run: |
+          go build ./...
+          go test ./...
+          cd frontend
+          npm run test:unit
+          npm run check
+          npm run build
+      - name: Commit integrated changes
+        run: |
+          git config user.name autonomous-maintainer
+          git config user.email autonomous-maintainer@users.noreply.github.com
+          git add docs/openapi.yaml frontend/src/lib/api/openapi.ts frontend/src/lib/state frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/MediaGrid.svelte internal/serve/tag_mutations.go internal/serve/tag_mutation_exclusions_test.go gooru/tagging_query_exclusions.go gooru/tagging_query_exclusions_test.go
+          git commit -m "feat(library): select all matching files [select-all-generated]"
+          git push origin HEAD:feat/21-query-select-all
