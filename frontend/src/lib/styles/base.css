@@ -31,6 +31,13 @@
   margin-inline-end: 8px;
 }
 
+/* The Library header label has text before its direct shortcut underline.
+   That whitespace is an anonymous flex item and can collapse away, rendering
+   "Selectall". Give the underlined word fragment an explicit word gap. */
+.gooru-root .library-head-actions > label.g-btn > u {
+  margin-inline-start: 0.25em;
+}
+
 .gooru-root ::selection {
   background: var(--accent);
   color: var(--accent-ink);
