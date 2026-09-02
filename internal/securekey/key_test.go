@@ -1,0 +1,71 @@
+package securekey
+
+import (
+	"encoding/base64"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func encodedKey(fill byte) string {
+	key := make([]byte, Size)
+	for i := range key {
+		key[i] = fill
+	}
+	return base64.StdEncoding.EncodeToString(key)
+}
+
+func TestLoadFromEnvironment(t *testing.T) {
+	const name = "GOORU_TEST_ENCRYPTION_KEY"
+	t.Setenv(name, "  "+encodedKey(0x2a)+"\n")
+	key, err := Load(Source{Env: name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(key) != Size || key[0] != 0x2a || key[Size-1] != 0x2a {
+		t.Fatalf("unexpected decoded key")
+	}
+}
+
+func TestLoadFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte(encodedKey(0x7f)+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	key, err := Load(Source{File: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(key) != Size || key[0] != 0x7f {
+		t.Fatalf("unexpected decoded key")
+	}
+}
+
+func TestLoadRequiresExactlyOneSource(t *testing.T) {
+	if _, err := Load(Source{}); err == nil {
+		t.Fatal("expected missing source to fail")
+	}
+	if _, err := Load(Source{Env: "A", File: "B"}); err == nil {
+		t.Fatal("expected multiple sources to fail")
+	}
+}
+
+func TestLoadRejectsMissingOrMalformedKey(t *testing.T) {
+	const missing = "GOORU_TEST_MISSING_ENCRYPTION_KEY"
+	if _, err := Load(Source{Env: missing}); err == nil {
+		t.Fatal("expected missing environment variable to fail")
+	}
+
+	const malformed = "GOORU_TEST_BAD_ENCRYPTION_KEY"
+	t.Setenv(malformed, "not-base64")
+	if _, err := Load(Source{Env: malformed}); err == nil {
+		t.Fatal("expected malformed base64 to fail")
+	}
+
+	const short = "GOORU_TEST_SHORT_ENCRYPTION_KEY"
+	t.Setenv(short, base64.StdEncoding.EncodeToString([]byte("short")))
+	if _, err := Load(Source{Env: short}); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expected ErrInvalidKey, got %v", err)
+	}
+}
