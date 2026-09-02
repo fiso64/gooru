@@ -12,6 +12,11 @@ export type PlainTagSuggestion = {
   kind: 'tag' | 'namespace';
 };
 
+export type PlainTagInputContext = {
+  committed: string[];
+  draft: string;
+};
+
 export function candidateTagName(candidate: TagCandidate): string {
   return candidate.name ?? candidate.tag ?? (candidate.namespace ? `${candidate.namespace}:${candidate.value ?? ''}` : (candidate.value ?? ''));
 }
@@ -84,4 +89,17 @@ export function isPlainTag(value: string): boolean {
 
 export function plainTagsFromInput(value: string): string[] {
   return Array.from(new Set(value.split(/\s+/).map((tag) => tag.trim()).filter(isPlainTag)));
+}
+
+export function plainTagInputContext(value: string): PlainTagInputContext {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return { committed: [], draft: '' };
+  if (/\s$/.test(value)) return { committed: tokens.filter(isPlainTag), draft: '' };
+  const draft = tokens.pop() ?? '';
+  return { committed: tokens.filter(isPlainTag), draft };
+}
+
+export function replacePlainTagInputDraft(value: string, replacement: string): string {
+  const { committed } = plainTagInputContext(value);
+  return [...committed, replacement].filter(Boolean).join(' ');
 }
