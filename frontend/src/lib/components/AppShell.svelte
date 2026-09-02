@@ -16,6 +16,8 @@
     jobs,
     jobsDrawerOpen,
     kindCounts,
+    comicCount,
+    comicActive,
     savedSearches,
     suggestions,
     tags,
@@ -42,6 +44,8 @@
     jobs: Job[];
     jobsDrawerOpen: boolean;
     kindCounts: Array<{ value: string; count: number }>;
+    comicCount: number;
+    comicActive: boolean;
     savedSearches: Array<{ id: string; name: string; query: string }>;
     suggestions: Array<{ name: string; count?: number }>;
     tags: Array<{ name?: string; tag?: string; namespace?: string; value?: string; count?: number }>;
@@ -74,6 +78,14 @@
     if (route === 'library' && !activeKind) onSearchCommit('');
     onRoute('library');
     onKind('');
+  }
+
+  function toggleComics() {
+    const terms = search.trim().split(/\s+/).filter((term: string) => term && term.toLowerCase() !== 'ext:cbz');
+    if (!comicActive) terms.push('ext:cbz');
+    onRoute('library');
+    onKind('');
+    onSearchCommit(terms.join(' '));
   }
 </script>
 
@@ -149,6 +161,13 @@
           <span class="count">{kindCount(kind.key).toLocaleString()}</span>
         </button>
       {/each}
+      {#if comicCount > 0}
+        <button class:active={route === 'library' && comicActive} class="sidebar-item" type="button" onclick={toggleComics}>
+          <Icon name="bookmark" size={16} active={route === 'library' && comicActive} />
+          <span>Comics</span>
+          <span class="count">{comicCount.toLocaleString()}</span>
+        </button>
+      {/if}
     </div>
 
     <div class="sidebar-section saved-searches-section">

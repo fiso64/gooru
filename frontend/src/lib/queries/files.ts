@@ -1,4 +1,4 @@
-import { createInfiniteQuery, createMutation } from '@tanstack/svelte-query';
+import { createInfiniteQuery, createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
 import { libraryKeys } from './library';
 import type { FileListResponse, FileRemovalRequest, FileRemovalResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse } from '$lib/api/types';
@@ -14,6 +14,7 @@ export const fileKeys = {
   all: ['files'] as const,
   pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder) =>
     ['files', 'pages', scope, query, kind, sort, order] as const,
+  count: (scope: number, query: string) => ['files', 'count', scope, query] as const,
   suggestions: (scope: number, q: string, existing: string) => ['files', 'suggestions', scope, q, existing] as const
 };
 
@@ -47,6 +48,26 @@ export function createFilesQuery(
   return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() => ({
     ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope),
     enabled: getAuthenticated() && getEnabled()
+  }));
+}
+
+export function createFileCountQuery(
+  getAuthenticated: () => boolean,
+  getQuery: () => string,
+  getAuthScope: () => number,
+  getEnabled: () => boolean = () => true
+) {
+  return createQuery(() => ({
+    queryKey: fileKeys.count(getAuthScope(), getQuery()),
+    enabled: getAuthenticated() && getEnabled(),
+    queryFn: ({ signal }) => new ApiClient().listFiles({
+      query: getQuery(),
+      limit: 1,
+      sort: 'modified',
+      order: 'desc',
+      includeFacets: false,
+      signal
+    })
   }));
 }
 

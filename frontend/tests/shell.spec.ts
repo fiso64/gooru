@@ -1150,3 +1150,59 @@ test('matches exact Upload staging surface and releases local previews', async (
   await expect(stagedRow).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __gooruRevoked?: string[] }).__gooruRevoked ?? [])).toContain(previewURL!);
 });
+
+
+test('shows the Comics kind only when CBZ files exist and filters with ext:cbz', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const queries: string[] = [];
+  await page.route('**/api/v1/files?**', async (route) => {
+    const url = new URL(route.request().url());
+    const query = url.searchParams.get('query') ?? '';
+    queries.push(query);
+    const isComicQuery = query === 'ext:cbz';
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        files: isComicQuery ? [fileItem('comic', 'book.cbz', 'other')] : [fileItem('photo', 'sample.jpg')],
+        total_count: isComicQuery ? 1 : 2,
+        library_count: 2,
+        facets: url.searchParams.get('include_facets') === 'true' ? { kind: [{ value: 'photo', count: 1 }] } : undefined
+      })
+    });
+  });
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => {
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />' });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  const comics = page.getByRole('button', { name: /Comics/ });
+  await expect(comics).toBeVisible();
+  await expect(comics).toContainText('1');
+
+  await comics.click();
+  await expect.poll(() => queries.filter((query) => query === 'ext:cbz').length).toBeGreaterThanOrEqual(2);
+  await expect(comics).toHaveClass(/active/);
+});
+
+test('hides the Comics kind when no CBZ files exist', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await page.route('**/api/v1/files?**', async (route) => {
+    const url = new URL(route.request().url());
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        files: [],
+        total_count: 0,
+        library_count: 0,
+        facets: url.searchParams.get('include_facets') === 'true' ? { kind: [] } : undefined
+      })
+    });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  await expect(page.getByRole('button', { name: /Comics/ })).toHaveCount(0);
+});
