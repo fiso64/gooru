@@ -166,6 +166,11 @@
     }
   }
 
+  function restoreStageFocusAfterPointer(event: MouseEvent) {
+    if (event.detail <= 0) return;
+    queueMicrotask(() => stageElement?.focus({ preventScroll: true }));
+  }
+
   function handleViewerKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
     const target = event.target;
@@ -248,6 +253,7 @@
     if (!rect.width) return;
     video.currentTime = Math.max(0, Math.min(videoLength, ((event.clientX - rect.left) / rect.width) * videoLength));
     syncVideo();
+    restoreStageFocusAfterPointer(event);
   }
 
   function clock(seconds: number) {
@@ -271,7 +277,7 @@
       preload="auto"
       autoplay
       loop
-      onclick={() => void togglePlayback()}
+      onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}
       onloadedmetadata={syncVideo}
       ontimeupdate={syncVideo}
       onplay={syncVideo}
@@ -280,7 +286,7 @@
     ></video>
 
     <div class="lightbox-video-controls">
-      <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={() => void togglePlayback()}>
+      <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}>
         <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
       </button>
       <span class="video-time">{clock(videoTime)}</span>
@@ -299,15 +305,15 @@
   {/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
-    <button type="button" class="viewer-mode-button" class:active={fitMode === 'screen'} aria-label="Fit to screen" title="Fit to screen (1)" onclick={() => { fitMode = 'screen'; }}>1</button>
-    <button type="button" class="viewer-mode-button" class:active={fitMode === 'actual'} aria-label="Actual size" title="Actual size (2)" onclick={() => { fitMode = 'actual'; }}>2</button>
-    <button type="button" class="viewer-mode-button" aria-label="Rotate left" title="Rotate left (L)" onclick={() => { rotation = rotateViewer(rotation, 'left'); }}>↺</button>
-    <button type="button" class="viewer-mode-button" aria-label="Rotate right" title="Rotate right (R)" onclick={() => { rotation = rotateViewer(rotation, 'right'); }}>↻</button>
-    <button type="button" class="viewer-mode-button" class:active={isFullscreen} aria-label="Toggle fullscreen" title="Fullscreen (F)" onclick={() => void toggleFullscreen()}>F</button>
+    <button type="button" class="viewer-mode-button" class:active={fitMode === 'screen'} aria-label="Fit to screen" title="Fit to screen (1)" onclick={(event) => { fitMode = 'screen'; restoreStageFocusAfterPointer(event); }}>1</button>
+    <button type="button" class="viewer-mode-button" class:active={fitMode === 'actual'} aria-label="Actual size" title="Actual size (2)" onclick={(event) => { fitMode = 'actual'; restoreStageFocusAfterPointer(event); }}>2</button>
+    <button type="button" class="viewer-mode-button" aria-label="Rotate left" title="Rotate left (L)" onclick={(event) => { rotation = rotateViewer(rotation, 'left'); restoreStageFocusAfterPointer(event); }}>↺</button>
+    <button type="button" class="viewer-mode-button" aria-label="Rotate right" title="Rotate right (R)" onclick={(event) => { rotation = rotateViewer(rotation, 'right'); restoreStageFocusAfterPointer(event); }}>↻</button>
+    <button type="button" class="viewer-mode-button" class:active={isFullscreen} aria-label="Toggle fullscreen" title="Fullscreen (F)" onclick={(event) => { void toggleFullscreen(); restoreStageFocusAfterPointer(event); }}>F</button>
   </div>
 
-  <button class="lightbox-nav-arrow prev" type="button" title={`Previous ${navigationUnit} (←)`} aria-label={`Previous ${navigationUnit}`} onclick={onPrev}><Icon name="chev_left" size={20} /></button>
-  <button class="lightbox-nav-arrow next" type="button" title={`Next ${navigationUnit} (→)`} aria-label={`Next ${navigationUnit}`} onclick={onNext}><Icon name="chev_right" size={20} /></button>
+  <button class="lightbox-nav-arrow prev" type="button" title={`Previous ${navigationUnit} (←)`} aria-label={`Previous ${navigationUnit}`} onclick={(event) => { onPrev(); restoreStageFocusAfterPointer(event); }}><Icon name="chev_left" size={20} /></button>
+  <button class="lightbox-nav-arrow next" type="button" title={`Next ${navigationUnit} (→)`} aria-label={`Next ${navigationUnit}`} onclick={(event) => { onNext(); restoreStageFocusAfterPointer(event); }}><Icon name="chev_right" size={20} /></button>
 </div>
 
 <style>
