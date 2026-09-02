@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle } from './viewer';
 
 describe('viewer geometry policy', () => {
-  it('normalizes and rotates in quarter turns', () => {
+  it('normalizes geometry while preserving continuous visual rotation', () => {
     expect(normalizeViewerRotation(-90)).toBe(270);
-    expect(rotateViewer(0, 'left')).toBe(270);
-    expect(rotateViewer(270, 'right')).toBe(0);
+    expect(rotateViewer(0, 'left')).toBe(-90);
+    expect(rotateViewer(270, 'right')).toBe(360);
+    expect(rotateViewer(-270, 'left')).toBe(-360);
   });
 
   it('fits unrotated media maximally inside the usable viewport', () => {
@@ -28,12 +29,12 @@ describe('viewer geometry policy', () => {
       intrinsicHeight: 900,
       viewportWidth: 1000,
       viewportHeight: 800,
-      rotation: 90,
+      rotation: 450,
       fitMode: 'screen'
     });
     expect(geometry.width).toBeCloseTo(800);
     expect(geometry.height).toBeCloseTo(450);
-    expect(geometry.rotation).toBe(90);
+    expect(geometry.rotation).toBe(450);
   });
 
   it('keeps one-to-one mode at intrinsic dimensions regardless of rotation', () => {
@@ -42,10 +43,10 @@ describe('viewer geometry policy', () => {
       intrinsicHeight: 480,
       viewportWidth: 200,
       viewportHeight: 200,
-      rotation: 270,
+      rotation: -90,
       fitMode: 'actual'
     });
-    expect(geometry).toEqual({ width: 640, height: 480, rotation: 270, scale: 1 });
+    expect(geometry).toEqual({ width: 640, height: 480, rotation: -90, scale: 1 });
   });
 
   it('can cap fit-to-screen scaling for media that should stay at native size', () => {
@@ -62,6 +63,6 @@ describe('viewer geometry policy', () => {
   });
 
   it('renders geometry as a centered rotation transform', () => {
-    expect(viewerMediaStyle({ width: 100, height: 50, rotation: 90, scale: 1 })).toContain('rotate(90deg)');
+    expect(viewerMediaStyle({ width: 100, height: 50, rotation: 360, scale: 1 })).toContain('rotate(360deg)');
   });
 });
