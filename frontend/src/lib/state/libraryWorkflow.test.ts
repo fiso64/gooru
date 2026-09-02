@@ -19,10 +19,10 @@ function storeValue<T>(store: { subscribe: (run: (value: T) => void) => () => vo
 function file(id: string): FileItem {
   return {
     id,
-    media_kind: 'image',
+    media_kind: 'photo',
     media_type: 'image/jpeg',
     media_urls: { content: `/content/${id}`, preview: `/preview/${id}`, thumbnail: '', download: '' }
-  } as FileItem;
+  } as unknown as FileItem;
 }
 
 beforeEach(() => preloadViewerMedia.mockClear());
