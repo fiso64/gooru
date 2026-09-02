@@ -124,12 +124,13 @@ test('Delete and Shift+Delete remove a query-wide selection through confirmation
 
 	const selectAll = page.getByLabel('Select all files in current view');
 	await selectAll.click();
-	await expect(page.getByRole('button', { name: 'Untrack…' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Delete…' })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Untrack', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
 
 	await page.keyboard.press('Delete');
-	await expect(page.getByRole('dialog', { name: 'Untrack selected files' })).toBeVisible();
-	await page.getByRole('button', { name: 'Untrack', exact: true }).click();
+	const untrackDialog = page.getByRole('dialog', { name: 'Untrack selected files' });
+	await expect(untrackDialog).toBeVisible();
+	await untrackDialog.getByRole('button', { name: 'Untrack', exact: true }).click();
 	await expect.poll(() => removals.length).toBe(1);
 	expect(removals[0]).toEqual({ mode: 'untrack', query: '*' });
 	await expect(page.getByText('3 of 3 selected')).toHaveCount(0);

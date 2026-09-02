@@ -55,11 +55,6 @@
     syncTagValue(committedTags.filter((candidate) => candidate !== tag));
   }
 
-  function isNativeEnterControl(target: EventTarget | null) {
-    if (!(target instanceof Element)) return false;
-    return Boolean(target.closest('button, a[href], select, summary, [role="button"], [role="link"]'));
-  }
-
   function isEditableTarget(target: EventTarget | null) {
     if (!(target instanceof Element)) return false;
     return Boolean(target.closest('input, textarea, [contenteditable=""], [contenteditable="true"]'));
@@ -88,11 +83,10 @@
       }
       if (event.key === 'Enter') {
         const modifiedSubmit = event.ctrlKey || event.metaKey;
-        if (modifiedSubmit || (!isEditableTarget(event.target) && !isNativeEnterControl(event.target))) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          if (!busy) onConfirm();
-        }
+        if (!modifiedSubmit && isEditableTarget(event.target)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!busy) onConfirm();
         return;
       }
       if (event.key !== 'Tab') return;
