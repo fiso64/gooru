@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { TagItem } from '$lib/api/types';
+  import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
 
   let {
     tags,
@@ -18,6 +19,7 @@
   }>();
 
   let filter = $state('');
+  let tagPage = $state<HTMLElement | undefined>();
   const preferredNamespaces = ['', 'rating', 'subject', 'location', 'people', 'color', 'year', 'collection', 'film', 'camera'];
 
   const grouped = $derived.by(() => {
@@ -44,10 +46,22 @@
       tags: (groups.get(namespace) ?? []).sort((a, b) => (b.count ?? 0) - (a.count ?? 0) || a.name.localeCompare(b.name))
     }));
   });
+
+  function handleGridKeydown(event: KeyboardEvent) {
+    if (!isGridDirection(event.key) || !(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('tagscloud-item')) return;
+    const buttons = Array.from(tagPage?.querySelectorAll<HTMLButtonElement>('.tagscloud-item:not(.skeleton)') ?? []);
+    const currentIndex = buttons.indexOf(event.target);
+    if (currentIndex < 0) return;
+    const nextIndex = nextGridIndex(buttons.map((button) => button.getBoundingClientRect()), currentIndex, event.key);
+    if (nextIndex === currentIndex) return;
+    event.preventDefault();
+    buttons[nextIndex]?.focus({ preventScroll: true });
+    buttons[nextIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
 </script>
 
 <main class="main">
-  <div class="page">
+  <div bind:this={tagPage} class="page" onkeydown={handleGridKeydown}>
     <div class="page-header">
       <div class="g-eyebrow g-eyebrow-accent">Tags</div>
       <h1>{tags.length.toLocaleString()} tags across {libraryCount.toLocaleString()} files</h1>
@@ -92,3 +106,11 @@
     {/if}
   </div>
 </main>
+
+<style>
+  :global(.tagscloud-item:focus-visible) {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 1px var(--panel), 0 0 0 6px var(--accent-soft);
+  }
+</style>
