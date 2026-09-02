@@ -26,7 +26,6 @@
   }>();
 
   let stageElement = $state<HTMLDivElement | undefined>();
-  let visualElement = $state<HTMLElement | undefined>();
   let videoElement = $state<HTMLVideoElement | undefined>();
   let audioElement = $state<HTMLAudioElement | undefined>();
   let rotation = $state(0);
@@ -87,7 +86,6 @@
   function syncImage(event: Event) {
     const image = event.currentTarget;
     if (!(image instanceof HTMLImageElement)) return;
-    visualElement = image;
     intrinsicWidth = image.naturalWidth;
     intrinsicHeight = image.naturalHeight;
   }
@@ -95,7 +93,6 @@
   function syncVideo() {
     const video = videoElement;
     if (!video) return;
-    visualElement = video;
     if (video.videoWidth > 0 && video.videoHeight > 0) {
       intrinsicWidth = video.videoWidth;
       intrinsicHeight = video.videoHeight;
@@ -128,6 +125,13 @@
     const target = event.target;
     const targetInsideStage = target instanceof Node && Boolean(stageElement?.contains(target));
     if (targetInsideStage && isInteractiveShortcutTarget(target)) return;
+
+    if (event.key === 'Escape' && isFullscreen) {
+      event.preventDefault();
+      event.stopPropagation();
+      void document.exitFullscreen();
+      return;
+    }
 
     const key = event.key.toLowerCase();
     if (key === 'f') {
@@ -219,7 +223,7 @@
       <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(file) || '0:00')}</span>
     </div>
   {:else if file.media_kind === 'audio' || file.media_type.startsWith('audio/')}
-    <div bind:this={visualElement} class="audio-stage viewer-audio-stage" style={`transform: rotate(${rotation}deg);`}>
+    <div class="audio-stage viewer-audio-stage" style={`transform: rotate(${rotation}deg);`}>
       <div class="audio-art"><Icon name="audio" size={42} /></div>
       <audio bind:this={audioElement} src={file.media_urls.content} controls preload="metadata"></audio>
     </div>
