@@ -1,0 +1,168 @@
+name: maintainer-fix-tags-counts
+on:
+  push:
+    branches: [fix/21-tags-shell-counts]
+permissions:
+  contents: write
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply regression fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'anchor not found in {path}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace('internal/serve/browse.go', '''type TagListResponse struct {
+          \tTags []TagDTO `json:"tags"`
+          }
+          ''', '''type TagListResponse struct {
+          \tTags         []TagDTO `json:"tags"`
+          \tLibraryCount int      `json:"library_count"`
+          \tFacets       FacetsDTO `json:"facets,omitempty"`
+          }
+          ''')
+
+          replace('internal/serve/browse.go', '''\ttags, err := s.library.ListTags(r.Context(), r.URL.Query().Get("counts") == "true", limit)
+          \tif err != nil {
+          \t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to load tags", nil)
+          \t\treturn
+          \t}
+          \twriteJSON(w, http.StatusOK, TagListResponse{Tags: tags})
+          ''', '''\ttags, err := s.library.ListTags(r.Context(), r.URL.Query().Get("counts") == "true", limit)
+          \tif err != nil {
+          \t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to load tags", nil)
+          \t\treturn
+          \t}
+          \tresponse := TagListResponse{Tags: tags}
+          \tif search, ok := s.library.(SearchLibrary); ok {
+          \t\tif total, err := search.LibraryCount(r.Context()); err == nil {
+          \t\t\tresponse.LibraryCount = total
+          \t\t}
+          \t\tif kind, err := search.KindFacets(r.Context(), ""); err == nil {
+          \t\t\tresponse.Facets.Kind = kind
+          \t\t}
+          \t}
+          \twriteJSON(w, http.StatusOK, response)
+          ''')
+
+          anchor = '''func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {'''
+          test = '''func TestTagsIncludeLibrarySummaryWithoutListingFiles(t *testing.T) {
+          \tserver, cleanup := newTestBrowseServer(t)
+          \tdefer cleanup()
+
+          \trec := httptest.NewRecorder()
+          \tserver.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/tags?counts=true"))
+          \tif rec.Code != http.StatusOK {
+          \t\tt.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+          \t}
+          \tvar response TagListResponse
+          \tif err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+          \t\tt.Fatalf("decode tags response: %v", err)
+          \t}
+          \tif response.LibraryCount != 3 {
+          \t\tt.Fatalf("expected library count 3, got %d", response.LibraryCount)
+          \t}
+          \tcounts := facetCounts(response.Facets.Kind)
+          \tif counts["photo"] == 0 || counts["other"] == 0 {
+          \t\tt.Fatalf("expected global kind facets in tags response, got %+v", response.Facets.Kind)
+          \t}
+          }
+
+          ''' + anchor
+          replace('internal/serve/browse_test.go', anchor, test)
+
+          replace('docs/openapi.yaml', '''    TagListResponse:
+                type: object
+                required: [tags]
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Tag"
+          ''', '''    TagListResponse:
+                type: object
+                required: [tags, library_count]
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Tag"
+                  library_count:
+                    type: integer
+                    description: Total tracked files in the library.
+                  facets:
+                    $ref: "#/components/schemas/Facets"
+          ''')
+
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte', 'libraryCount={page?.library_count ?? files.length}', 'libraryCount={page?.library_count ?? tagsQuery.data?.library_count ?? files.length}')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte', 'kindCounts={page?.facets?.kind ?? []}', 'kindCounts={page?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? []}')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte', 'libraryCount={page?.library_count ?? files.length}', 'libraryCount={page?.library_count ?? tagsQuery.data?.library_count ?? files.length}')
+
+          replace('frontend/tests/route-files-query.spec.ts', '''  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));''', '''  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify({
+                tags: [],
+                library_count: 7,
+                facets: { kind: [{ value: 'photo', count: 4 }, { value: 'video', count: 2 }, { value: 'gif', count: 1 }] }
+              })
+            }));''')
+          replace('frontend/tests/route-files-query.spec.ts', '''  await expect(page.getByRole('heading', { name: 'Tags' })).toBeVisible();
+            await page.waitForTimeout(250);
+            expect(filesRequests).toBe(0);
+          ''', '''  await expect(page.getByRole('heading', { name: 'Tags' })).toBeVisible();
+            await expect(page.getByRole('button', { name: /^Library 7$/ })).toBeVisible();
+            await expect(page.getByRole('button', { name: /^Photos 4$/ })).toBeVisible();
+            await expect(page.getByRole('button', { name: /^Videos 2$/ })).toBeVisible();
+            await expect(page.getByRole('button', { name: /^GIFs 1$/ })).toBeVisible();
+            await page.waitForTimeout(250);
+            expect(filesRequests).toBe(0);
+          ''')
+          PY
+          gofmt -w internal/serve/browse.go internal/serve/browse_test.go
+      - name: Install frontend dependencies and regenerate API types
+        run: |
+          cd frontend
+          npm ci
+          npm run generate:api
+      - name: Validate backend
+        run: go test ./...
+      - name: Validate frontend
+        run: |
+          cd frontend
+          npm run test:unit
+          npm run check
+          npm run build
+      - name: Validate browser regression
+        run: |
+          cd frontend
+          npx playwright install --with-deps chromium
+          npx playwright test tests/route-files-query.spec.ts --project=chromium
+      - name: Commit validated fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/maintainer-fix-tags-counts.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/serve/browse.go internal/serve/browse_test.go docs/openapi.yaml frontend/src/lib/api/openapi.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/tests/route-files-query.spec.ts .github/workflows/maintainer-fix-tags-counts.yml
+          git commit -m 'fix: restore shell counts off library routes'
+          git push origin HEAD:fix/21-tags-shell-counts
