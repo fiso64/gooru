@@ -247,7 +247,10 @@ func TestGetFileInfoForSourceMatchesPlaintextContentIdentity(t *testing.T) {
     }
 
     changed := append([]byte(nil), content...)
-    changed[len(changed)/2] ^= 0xff
+    // StrategyPartial deliberately samples selected regions. Mutate the first
+    // sampled chunk so this assertion tests the algorithm rather than assuming
+    // unsampled middle bytes affect the configured content identity.
+    changed[0] ^= 0xff
     changedInfo, status, err := client.GetFileInfoForSource(logicalPath, bytes.NewReader(changed), int64(len(changed)), 5678)
     if err != nil {
         t.Fatal(err)
