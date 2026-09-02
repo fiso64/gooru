@@ -4,15 +4,16 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strings"
 )
 
 const (
-	Size        = 32
-	EnvKey      = "GOORU_ENCRYPTION_KEY"
-	EnvKeyFile  = "GOORU_ENCRYPTION_KEY_FILE"
+	Size       = 32
+	EnvKey     = "GOORU_ENCRYPTION_KEY"
+	EnvKeyFile = "GOORU_ENCRYPTION_KEY_FILE"
 )
 
 var ErrInvalidKey = errors.New("encryption key must decode to exactly 32 bytes")
@@ -61,9 +62,14 @@ func Load(source Source) ([]byte, error) {
 		}
 		encoded = value
 	} else {
-		info, err := os.Stat(fileName)
+		file, err := os.Open(fileName)
 		if err != nil {
-			return nil, fmt.Errorf("stat encryption key file: %w", err)
+			return nil, fmt.Errorf("open encryption key file: %w", err)
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			return nil, fmt.Errorf("inspect encryption key file: %w", err)
 		}
 		if !info.Mode().IsRegular() {
 			return nil, errors.New("encryption key file must be a regular file")
@@ -71,7 +77,7 @@ func Load(source Source) ([]byte, error) {
 		if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 			return nil, errors.New("encryption key file must not be readable or writable by group or others")
 		}
-		data, err := os.ReadFile(fileName)
+		data, err := io.ReadAll(file)
 		if err != nil {
 			return nil, fmt.Errorf("read encryption key file: %w", err)
 		}
