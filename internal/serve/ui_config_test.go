@@ -23,9 +23,10 @@ func TestConfigValidatesAccentColor(t *testing.T) {
 	}
 }
 
-func TestUIConfigIsPublicAndContainsAccent(t *testing.T) {
+func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg := DefaultConfig(t.TempDir() + "/gooru.db")
 	cfg.UI.AccentColor = "#2f80ed"
+	cfg.Media.LoadFullByDefault = true
 	server := NewServer(cfg)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/ui-config", nil)
@@ -35,5 +36,8 @@ func TestUIConfigIsPublicAndContainsAccent(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"accent_color":"#2f80ed"`) {
 		t.Fatalf("response missing accent: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"load_full_media_by_default":true`) {
+		t.Fatalf("response missing full-media preference: %s", rec.Body.String())
 	}
 }
