@@ -27,10 +27,11 @@ type TagMutationLibrary interface {
 }
 
 type TagMutationRequest struct {
-	FileIDs []string `json:"file_ids,omitempty"`
-	Query   string   `json:"query,omitempty"`
-	Tags    []string `json:"tags"`
-	Verbose bool     `json:"verbose,omitempty"`
+	FileIDs        []string `json:"file_ids,omitempty"`
+	Query          string   `json:"query,omitempty"`
+	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
+	Tags           []string `json:"tags"`
+	Verbose        bool     `json:"verbose,omitempty"`
 }
 
 type TagMutationResponse struct {
@@ -42,8 +43,9 @@ type TagMutationResponse struct {
 }
 
 type TagMutationSelector struct {
-	FileIDs []string `json:"file_ids,omitempty"`
-	Query   string   `json:"query,omitempty"`
+	FileIDs        []string `json:"file_ids,omitempty"`
+	Query          string   `json:"query,omitempty"`
+	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 }
 
 type NotificationDTO struct {
@@ -121,10 +123,8 @@ func tagOperationForMethod(method string) (TagOperation, bool) {
 }
 
 func (s *Server) validateTagMutationFiles(ctx context.Context, request TagMutationRequest) error {
-	if len(request.FileIDs) == 0 {
-		return nil
-	}
-	for _, encoded := range request.FileIDs {
+	ids := append(append([]string(nil), request.FileIDs...), request.ExcludeFileIDs...)
+	for _, encoded := range ids {
 		if _, err := s.getFileByPublicID(ctx, encoded); err != nil {
 			return err
 		}
@@ -148,6 +148,7 @@ func decodeTagMutationRequest(r *http.Request) (TagMutationRequest, error) {
 	}
 	request.Query = strings.TrimSpace(request.Query)
 	request.FileIDs = normalizeStrings(request.FileIDs)
+	request.ExcludeFileIDs = normalizeStrings(request.ExcludeFileIDs)
 	request.Tags = normalizeStrings(request.Tags)
 	return request, nil
 }
@@ -166,11 +167,23 @@ func validateTagMutationRequest(operation TagOperation, request TagMutationReque
 			return err
 		}
 	}
+	if len(request.ExcludeFileIDs) > 0 && !hasQuery {
+		return errors.New("exclude_file_ids requires a query selector")
+	}
 	if hasIDs {
 		seen := map[string]struct{}{}
 		for _, id := range request.FileIDs {
 			if _, ok := seen[id]; ok {
 				return fmt.Errorf("duplicate file id %q", id)
+			}
+			seen[id] = struct{}{}
+		}
+	}
+	if len(request.ExcludeFileIDs) > 0 {
+		seen := map[string]struct{}{}
+		for _, id := range request.ExcludeFileIDs {
+			if _, ok := seen[id]; ok {
+				return fmt.Errorf("duplicate excluded file id %q", id)
 			}
 			seen[id] = struct{}{}
 		}
@@ -193,7 +206,7 @@ func (l *GooruLibrary) MutateTags(ctx context.Context, operation TagOperation, r
 	}
 	response := TagMutationResponse{
 		Operation: operation,
-		Selector:  TagMutationSelector{FileIDs: request.FileIDs, Query: request.Query},
+		Selector:  TagMutationSelector{FileIDs: request.FileIDs, Query: request.Query, ExcludeFileIDs: request.ExcludeFileIDs},
 	}
 	if len(request.FileIDs) > 0 {
 		paths := make([]string, 0, len(request.FileIDs))
@@ -214,7 +227,15 @@ func (l *GooruLibrary) MutateTags(ctx context.Context, operation TagOperation, r
 		return response, nil
 	}
 
-	affected, err := l.mutateTagQuery(operation, request.Query, request.Tags)
+	excludedHashes := make([]string, 0, len(request.ExcludeFileIDs))
+	for _, encoded := range request.ExcludeFileIDs {
+		file, err := l.GetFileByPublicID(ctx, encoded)
+		if err != nil {
+			return TagMutationResponse{}, err
+		}
+		excludedHashes = append(excludedHashes, file.Hash)
+	}
+	affected, err := l.mutateTagQueryExcluding(operation, request.Query, request.Tags, excludedHashes)
 	if err != nil {
 		return TagMutationResponse{}, err
 	}
@@ -236,13 +257,26 @@ func (l *GooruLibrary) mutateTagPaths(operation TagOperation, paths []string, ta
 }
 
 func (l *GooruLibrary) mutateTagQuery(operation TagOperation, expression string, tags []string) (int, error) {
+	return l.mutateTagQueryExcluding(operation, expression, tags, nil)
+}
+
+func (l *GooruLibrary) mutateTagQueryExcluding(operation TagOperation, expression string, tags, excludedHashes []string) (int, error) {
 	switch operation {
 	case TagOperationAdd:
-		return l.client.TagFilesByQuery(expression, tags)
+		if len(excludedHashes) == 0 {
+			return l.client.TagFilesByQuery(expression, tags)
+		}
+		return l.client.TagFilesByQueryExcluding(expression, tags, excludedHashes)
 	case TagOperationSet:
-		return l.client.SetTagsForFilesByQuery(expression, tags)
+		if len(excludedHashes) == 0 {
+			return l.client.SetTagsForFilesByQuery(expression, tags)
+		}
+		return l.client.SetTagsForFilesByQueryExcluding(expression, tags, excludedHashes)
 	case TagOperationRemove:
-		return l.client.UntagFilesByQuery(expression, tags)
+		if len(excludedHashes) == 0 {
+			return l.client.UntagFilesByQuery(expression, tags)
+		}
+		return l.client.UntagFilesByQueryExcluding(expression, tags, excludedHashes)
 	default:
 		return 0, fmt.Errorf("unsupported tag operation %q", operation)
 	}
