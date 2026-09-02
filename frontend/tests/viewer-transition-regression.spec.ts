@@ -77,44 +77,48 @@ async function mockApp(page: Page) {
   return { releaseTall };
 }
 
-test('presented image node and geometry survive while a different-aspect target loads', async ({ page }) => {
+test('painted image stays untouched while a different-aspect target loads behind it', async ({ page }) => {
   const { releaseTall } = await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
 
-  const media = page.locator('.viewer-incoming-media');
-  await expect(media).toBeVisible();
-  const before = await media.boundingBox();
+  const presented = page.locator('.viewer-incoming-media');
+  await expect(presented).toBeVisible();
+  await expect(presented).toHaveAttribute('src', /\/wide\/preview/);
+  const before = await presented.boundingBox();
   expect(before).not.toBeNull();
   expect(before!.width / before!.height).toBeGreaterThan(2);
-  await media.evaluate((node) => {
+  await presented.evaluate((node) => {
     (window as typeof window & { __presentedViewerNode?: Element }).__presentedViewerNode = node;
   });
 
   await page.getByLabel('Next file').click();
   await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
-  await expect(media).toHaveAttribute('src', /\/tall\/preview/);
 
-  // #162 replaced the actually-painted node with a fresh outgoing <img>. On slow
-  // images that clone can itself need decode/presentation and expose a blank frame.
-  // Keep the same real node mounted instead, with its old geometry frozen.
+  // The target request starts in the inactive slot while the already-painted node
+  // remains completely unchanged above it. This is the boundary #162 violated by
+  // replacing the painted node with a newly-created clone of the old source.
+  await expect(presented).toHaveAttribute('src', /\/wide\/preview/);
+  await expect(page.locator('.viewer-buffer-media')).toHaveAttribute('src', /\/tall\/preview/);
   expect(await page.evaluate(() => document.querySelector('.viewer-incoming-media') === (window as typeof window & { __presentedViewerNode?: Element }).__presentedViewerNode)).toBe(true);
-  await expect(page.locator('.viewer-outgoing-media')).toHaveCount(0);
 
-  const during = await media.boundingBox();
+  const during = await presented.boundingBox();
   expect(during).not.toBeNull();
   expect(Math.abs(during!.width - before!.width)).toBeLessThan(0.5);
   expect(Math.abs(during!.height - before!.height)).toBeLessThan(0.5);
 
   await page.waitForTimeout(75);
-  const stillDuring = await media.boundingBox();
+  const stillDuring = await presented.boundingBox();
   expect(stillDuring).not.toBeNull();
   expect(Math.abs(stillDuring!.width - before!.width)).toBeLessThan(0.5);
   expect(Math.abs(stillDuring!.height - before!.height)).toBeLessThan(0.5);
 
   releaseTall();
+  await expect(page.locator('.viewer-incoming-media')).toHaveAttribute('src', /\/tall\/preview/);
   await expect.poll(async () => {
-    const box = await media.boundingBox();
+    const box = await page.locator('.viewer-incoming-media').boundingBox();
     return box ? box.width / box.height : Number.POSITIVE_INFINITY;
   }).toBeLessThan(1);
-  expect(await page.evaluate(() => document.querySelector('.viewer-incoming-media') === (window as typeof window & { __presentedViewerNode?: Element }).__presentedViewerNode)).toBe(true);
+
+  // The old painted node was not destroyed; it is now the reusable inactive slot.
+  expect(await page.evaluate(() => document.querySelector('.viewer-buffer-media') === (window as typeof window & { __presentedViewerNode?: Element }).__presentedViewerNode)).toBe(true);
 });
