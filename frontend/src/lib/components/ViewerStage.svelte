@@ -23,8 +23,8 @@
   let stageElement = $state<HTMLDivElement | undefined>();
   let videoElement = $state<HTMLVideoElement | undefined>();
   let audioElement = $state<HTMLAudioElement | undefined>();
-  let displayedFile = $state<FileItem>(file);
-  let displayedImageSource = $state(imageSource);
+  let displayedFile = $state<FileItem | undefined>();
+  let displayedImageSource = $state('');
   let waitingForTarget = $state(false);
   let transitionGeneration = 0;
   let rotation = $state(0);
@@ -38,6 +38,8 @@
   let videoTime = $state(0);
   let videoLength = $state(0);
 
+  const renderedFile = $derived(displayedFile ?? file);
+  const renderedImageSource = $derived(displayedFile ? displayedImageSource : imageSource);
   const videoProgress = $derived(videoLength > 0 ? Math.min(100, Math.max(0, (videoTime / videoLength) * 100)) : 0);
   const geometry = $derived(viewerGeometry({
     intrinsicWidth,
@@ -47,7 +49,7 @@
     rotation,
     fitMode,
     inset: isFullscreen ? 0 : 36,
-    maxScale: preserveNativeViewerSize(displayedFile) ? 1 : Number.POSITIVE_INFINITY
+    maxScale: preserveNativeViewerSize(renderedFile) ? 1 : Number.POSITIVE_INFINITY
   }));
   const visualStyle = $derived(viewerMediaStyle(geometry));
 
@@ -80,12 +82,20 @@
     const targetImageSource = imageSource;
     const generation = ++transitionGeneration;
     waitingForTarget = false;
+
+    if (!displayedFile) {
+      displayedFile = targetFile;
+      displayedImageSource = targetImageSource;
+      return;
+    }
     if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
 
     const waitingTimer = setTimeout(() => {
       if (generation === transitionGeneration) waitingForTarget = true;
     }, 200);
-    const preloadSource = targetFile.media_kind === 'image' ? targetImageSource : viewerPreloadSource(targetFile);
+    const preloadSource = targetFile.media_kind === 'video' || targetFile.media_kind === 'audio'
+      ? viewerPreloadSource(targetFile)
+      : targetImageSource;
 
     void preloadViewerMediaSource(targetFile, preloadSource)
       .catch(() => undefined)
@@ -104,7 +114,7 @@
   });
 
   $effect(() => {
-    displayedFile.id;
+    renderedFile.id;
     intrinsicWidth = 0;
     intrinsicHeight = 0;
     videoPaused = true;
@@ -222,14 +232,14 @@
 <svelte:window onkeydown={handleViewerKeydown} />
 
 <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget}>
-  {#if displayedFile.media_kind === 'video'}
+  {#if renderedFile.media_kind === 'video'}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
       bind:this={videoElement}
       class="viewer-visual-media"
       style={visualStyle}
-      src={displayedFile.media_urls.content}
-      poster={displayedFile.media_urls.preview}
+      src={renderedFile.media_urls.content}
+      poster={renderedFile.media_urls.preview}
       preload="auto"
       autoplay
       loop
@@ -249,15 +259,15 @@
       <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo}>
         <span style={`width: ${videoProgress}%`}></span>
       </button>
-      <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(displayedFile) || '0:00')}</span>
+      <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(renderedFile) || '0:00')}</span>
     </div>
-  {:else if displayedFile.media_kind === 'audio' || displayedFile.media_type.startsWith('audio/')}
+  {:else if renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')}
     <div class="audio-stage viewer-audio-stage" style={`transform: rotate(${rotation}deg);`}>
       <div class="audio-art"><Icon name="audio" size={42} /></div>
-      <audio bind:this={audioElement} src={displayedFile.media_urls.content} controls preload="auto"></audio>
+      <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>
     </div>
   {:else}
-    <img class="viewer-visual-media" style={visualStyle} src={displayedImageSource} alt={displayedFile.name} onload={syncImage} />
+    <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
   {/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
