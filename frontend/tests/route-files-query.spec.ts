@@ -31,7 +31,7 @@ test('non-library route does not materialize the files grid and library still lo
   await page.waitForTimeout(250);
   expect(filesRequests).toBe(0);
 
-  await page.getByRole('button', { name: 'Library' }).click();
+  await page.getByRole('button', { name: /^Library \d+$/ }).click();
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await expect.poll(() => filesRequests).toBeGreaterThan(0);
 });
