@@ -12,21 +12,23 @@ import (
 	"strings"
 	"time"
 
+	"gooru.local/internal/securekey"
 	"gopkg.in/yaml.v3"
 )
 
 const DefaultListenAddress = "127.0.0.1:5678"
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Auth     AuthConfig     `yaml:"auth"`
-	Uploads  UploadsConfig  `yaml:"uploads"`
-	Media    MediaConfig    `yaml:"media"`
-	Jobs     JobsConfig     `yaml:"jobs"`
-	Tools    ToolsConfig    `yaml:"tools"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	UI       UIConfig       `yaml:"ui"`
+	Server     ServerConfig     `yaml:"server"`
+	Database   DatabaseConfig   `yaml:"database"`
+	Encryption EncryptionConfig `yaml:"encryption"`
+	Auth       AuthConfig       `yaml:"auth"`
+	Uploads    UploadsConfig    `yaml:"uploads"`
+	Media      MediaConfig      `yaml:"media"`
+	Jobs       JobsConfig       `yaml:"jobs"`
+	Tools      ToolsConfig      `yaml:"tools"`
+	Logging    LoggingConfig    `yaml:"logging"`
+	UI         UIConfig         `yaml:"ui"`
 }
 
 type ServerConfig struct {
@@ -43,6 +45,11 @@ type ServerConfig struct {
 
 type DatabaseConfig struct {
 	Path string `yaml:"path"`
+}
+
+type EncryptionConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Key     []byte `yaml:"-"`
 }
 
 type AuthConfig struct {
@@ -198,6 +205,18 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 }
 
 func (cfg *Config) ResolveSecrets() error {
+	if !cfg.Encryption.Enabled {
+		cfg.Encryption.Key = nil
+		return nil
+	}
+	key, configured, err := securekey.LoadProcess()
+	if err != nil {
+		return fmt.Errorf("resolve encryption key: %w", err)
+	}
+	if !configured {
+		return fmt.Errorf("encryption.enabled requires an encryption key via %s or %s", securekey.EnvKey, securekey.EnvKeyFile)
+	}
+	cfg.Encryption.Key = key
 	return nil
 }
 
@@ -234,6 +253,9 @@ func (cfg *Config) Validate() error {
 	}
 	if strings.TrimSpace(cfg.Database.Path) == "" {
 		errs = append(errs, errors.New("database.path is required"))
+	}
+	if cfg.Encryption.Enabled && len(cfg.Encryption.Key) != securekey.Size {
+		errs = append(errs, errors.New("encryption.enabled requires a resolved 256-bit encryption key"))
 	}
 	if cfg.Server.MaxRequestBodyBytes <= 0 {
 		errs = append(errs, errors.New("server.max_request_body_bytes must be greater than zero"))
