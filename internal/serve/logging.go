@@ -19,18 +19,22 @@ func requestLoggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		slog.DebugContext(r.Context(), "http request started", "method", r.Method)
 
-		logged := &loggingResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		logged := &loggingResponseWriter{ResponseWriter: w}
 		next.ServeHTTP(logged, r)
 
+		status := logged.status
+		if status == 0 {
+			status = http.StatusOK
+		}
 		route := r.Pattern
 		if route == "" {
 			route = "unmatched"
 		}
-		level := requestCompletionLogLevel(r.Method, logged.status)
+		level := requestCompletionLogLevel(r.Method, status)
 		slog.Log(r.Context(), level, "http request completed",
 			"method", r.Method,
 			"route", route,
-			"status", logged.status,
+			"status", status,
 			"duration", time.Since(start),
 		)
 	})
@@ -42,6 +46,9 @@ type loggingResponseWriter struct {
 }
 
 func (w *loggingResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
