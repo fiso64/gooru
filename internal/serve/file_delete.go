@@ -24,27 +24,38 @@ func (s *Server) canDeleteFilePath(path string) bool {
 	if path == "" {
 		return false
 	}
-	filePath, err := filepath.Abs(path)
+	filePath, err := canonicalExistingPath(path)
 	if err != nil {
 		return false
 	}
-	filePath = filepath.Clean(filePath)
 	for _, target := range s.cfg.Uploads.Targets {
 		root := strings.TrimSpace(target.Path)
 		if root == "" {
 			continue
 		}
-		rootPath, err := filepath.Abs(root)
+		rootPath, err := canonicalExistingPath(root)
 		if err != nil {
 			continue
 		}
-		rel, err := filepath.Rel(filepath.Clean(rootPath), filePath)
+		rel, err := filepath.Rel(rootPath, filePath)
 		if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
 		return true
 	}
 	return false
+}
+
+func canonicalExistingPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
 }
 
 func (s *Server) deleteManagedFile(ctx context.Context, publicID string) (bool, error) {
