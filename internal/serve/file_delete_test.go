@@ -72,6 +72,29 @@ func TestDeleteModeRejectsFileOutsideUploadTargets(t *testing.T) {
 	}
 }
 
+func TestManagedDeleteRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	outsideFile := filepath.Join(outside, "outside.jpg")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	cfg := DefaultConfig(filepath.Join(root, "gooru.db"))
+	cfg.Uploads.Targets = []UploadTarget{{ID: "managed", Name: "Managed", Path: root}}
+	server := NewServerWithLibrary(cfg, emptyLibrary{})
+	if server.canDeleteFilePath(filepath.Join(link, "outside.jpg")) {
+		t.Fatal("symlinked path escaping the configured target must not be physically deletable")
+	}
+	if _, err := os.Stat(outsideFile); err != nil {
+		t.Fatalf("outside file unexpectedly changed: %v", err)
+	}
+}
+
 func TestManagedDeleteRollsBackFileWhenLibraryMutationFails(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kept.jpg")
