@@ -26,6 +26,8 @@ export function viewerImageSource(file: ViewerMedia, preferOriginal: boolean): s
   return file.media_urls.preview;
 }
 
-export function preserveNativeViewerSize(file: ViewerMedia): boolean {
-  return isAnimatedGif(file);
+export function preserveNativeViewerSize(_file: ViewerMedia): boolean {
+  // Fit-to-screen is a display mode, not a media-type policy. Keep this boundary
+  // explicit for now because ViewerStage consumes it, but no format opts out of fitting.
+  return false;
 }

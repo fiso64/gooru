@@ -22,10 +22,10 @@ describe('viewer media source policy', () => {
     expect(viewerImageSource(media(), true)).toBe('/content/original');
   });
 
-  it('always uses original GIF content so animation is preserved', () => {
+  it('always uses original GIF content so animation is preserved without restricting fit scaling', () => {
     const gif = media({ media_kind: 'gif', media_type: 'image/gif' });
     expect(viewerImageSource(gif, false)).toBe('/content/original');
-    expect(preserveNativeViewerSize(gif)).toBe(true);
+    expect(preserveNativeViewerSize(gif)).toBe(false);
   });
 
   it('falls back to the preview when original content is unavailable', () => {
