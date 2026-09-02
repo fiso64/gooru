@@ -1,3 +1,5 @@
+import { compareCompletionRank } from './completionRanking';
+
 export type TagCandidate = {
   name?: string;
   tag?: string;
@@ -66,7 +68,7 @@ export function plainTagSuggestions(
       const candidateValue = nameColon >= 0 ? lower.slice(nameColon + 1) : lower;
       return lower.includes(query) || candidateValue.includes(query);
     })
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    .sort((a, b) => compareCompletionRank(a.name, b.name, value, a.count, b.count));
 
   const namespaces = colon >= 0
     ? []
