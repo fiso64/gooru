@@ -85,6 +85,36 @@ test('navigation between differently sized images does not tween width or height
   expect(await media.evaluate((node) => getComputedStyle(node).transitionProperty)).not.toMatch(/(?:^|,\s*)(?:width|height)(?:,|$)/);
 });
 
+test('navigation never collapses the displayed image while swapping decoded sources', async ({ page }) => {
+  await mockApp(page);
+  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
+
+  const media = page.locator('.viewer-visual-media');
+  await expect(media).toBeVisible();
+  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(0);
+  await media.evaluate((node) => {
+    const state = window as typeof window & { __viewerZeroSizeObserved?: boolean; __viewerSizeObserver?: MutationObserver };
+    state.__viewerZeroSizeObserved = false;
+    const inspect = () => {
+      const rect = node.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) state.__viewerZeroSizeObserved = true;
+    };
+    const observer = new MutationObserver(inspect);
+    observer.observe(node, { attributes: true, attributeFilter: ['style', 'src'] });
+    state.__viewerSizeObserver = observer;
+  });
+
+  await page.getByLabel('Next file').click();
+  await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
+  await expect.poll(() => media.getAttribute('src')).toContain('/tall/preview');
+  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => (window as typeof window & { __viewerZeroSizeObserved?: boolean }).__viewerZeroSizeObserved)).toBe(false);
+  await page.evaluate(() => {
+    const state = window as typeof window & { __viewerSizeObserver?: MutationObserver };
+    state.__viewerSizeObserver?.disconnect();
+  });
+});
+
 test('rotation keeps the requested direction when crossing the 0/360 boundary', async ({ page }) => {
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
