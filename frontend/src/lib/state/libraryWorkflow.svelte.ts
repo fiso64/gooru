@@ -12,6 +12,8 @@ import {
   type AppRoute
 } from '$lib/utils/appRoute';
 import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+import { previewNeighbor } from '$lib/utils/viewerNavigation';
+import { clearViewerPreloadCache, preloadViewerMedia } from '$lib/utils/viewerPreload';
 import {
   emptySelection,
   selectAllMatching,
@@ -110,6 +112,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   function reset() {
     selection = emptySelection();
     activeFile = null;
+    clearViewerPreloadCache();
   }
 
   function submitSearch() {
@@ -202,10 +205,16 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     return selectionCount(selection, totalCount);
   }
 
-  function openPreview(file: FileItem) {
+  function primePreviewNeighbor(file: FileItem, files: FileItem[]) {
+    const next = previewNeighbor(file, files, 1);
+    if (next) void preloadViewerMedia(next).catch(() => undefined);
+  }
+
+  function openPreview(file: FileItem, files: FileItem[] = []) {
     activeFile = file;
     pendingPreviewID = file.id;
     route = 'library';
+    primePreviewNeighbor(file, files);
   }
 
   function closePreview() {
@@ -214,11 +223,12 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   }
 
   function movePreview(delta: number, files: FileItem[]) {
-    if (!activeFile || !files.length) return;
-    const index = files.findIndex((file) => file.id === activeFile?.id);
-    const next = files[(index + delta + files.length) % files.length] ?? activeFile;
+    const next = previewNeighbor(activeFile, files, delta);
+    if (!next) return;
+    void preloadViewerMedia(next).catch(() => undefined);
     activeFile = next;
     pendingPreviewID = next.id;
+    primePreviewNeighbor(next, files);
   }
 
   function handleKeydown(event: KeyboardEvent, files: FileItem[]) {
