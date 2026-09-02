@@ -20,13 +20,22 @@ type stagedFileDeletion struct {
 }
 
 func (s *Server) canDeleteFilePath(path string) bool {
+	_, ok := s.managedDeletePath(path)
+	return ok
+}
+
+func (s *Server) managedDeletePath(path string) (string, bool) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return false
+		return "", false
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		return "", false
 	}
 	filePath, err := canonicalExistingPath(path)
 	if err != nil {
-		return false
+		return "", false
 	}
 	for _, target := range s.cfg.Uploads.Targets {
 		root := strings.TrimSpace(target.Path)
@@ -41,9 +50,9 @@ func (s *Server) canDeleteFilePath(path string) bool {
 		if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
-		return true
+		return filePath, true
 	}
-	return false
+	return "", false
 }
 
 func canonicalExistingPath(path string) (string, error) {
@@ -63,9 +72,11 @@ func (s *Server) deleteManagedFile(ctx context.Context, publicID string) (bool, 
 	if err != nil {
 		return false, err
 	}
-	if !s.canDeleteFilePath(file.Path) {
+	managedPath, ok := s.managedDeletePath(file.Path)
+	if !ok {
 		return false, ErrFileNotManaged
 	}
+	file.Path = managedPath
 
 	staged, err := stageFileDeletion(file)
 	if err != nil {
