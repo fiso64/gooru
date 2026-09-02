@@ -48,6 +48,19 @@ describe('viewer geometry policy', () => {
     expect(geometry).toEqual({ width: 640, height: 480, rotation: 270, scale: 1 });
   });
 
+  it('can cap fit-to-screen scaling for media that should stay at native size', () => {
+    const geometry = viewerGeometry({
+      intrinsicWidth: 320,
+      intrinsicHeight: 200,
+      viewportWidth: 1920,
+      viewportHeight: 1080,
+      rotation: 90,
+      fitMode: 'screen',
+      maxScale: 1
+    });
+    expect(geometry).toEqual({ width: 320, height: 200, rotation: 90, scale: 1 });
+  });
+
   it('renders geometry as a centered rotation transform', () => {
     expect(viewerMediaStyle({ width: 100, height: 50, rotation: 90, scale: 1 })).toContain('rotate(90deg)');
   });
