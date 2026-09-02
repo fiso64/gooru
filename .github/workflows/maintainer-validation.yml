@@ -42,3 +42,5 @@ jobs:
       - name: Shortcut spacing regression
         working-directory: frontend
         run: npx playwright test tests/accent-controls.spec.ts --project=chromium
+
+# Rerun after tightening the rendered-spacing assertion.
