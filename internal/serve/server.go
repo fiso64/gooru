@@ -275,6 +275,13 @@ func requestReadTimeoutMiddleware(timeout time.Duration, next http.Handler) http
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		controller := http.NewResponseController(w)
+		// http.Server.WriteTimeout starts after the request headers are read,
+		// so it can expire while a large upload body is still arriving and
+		// prevent the handler from returning its small JSON response. Uploads
+		// are already bounded by an idle read deadline and optional size limit.
+		if r.URL.Path == "/api/v1/uploads" {
+			_ = controller.SetWriteDeadline(time.Time{})
+		}
 		if r.Body == nil || r.Body == http.NoBody || controller.SetReadDeadline(time.Time{}) != nil {
 			next.ServeHTTP(w, r)
 			return

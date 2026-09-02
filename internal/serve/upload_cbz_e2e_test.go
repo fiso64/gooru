@@ -69,12 +69,12 @@ func TestCBZUploadImportAndOpenGoldenPath(t *testing.T) {
 	}
 }
 
-func TestCBZUploadCanProgressLongerThanReadTimeout(t *testing.T) {
+func TestCBZUploadCanProgressLongerThanServerIOTimeouts(t *testing.T) {
 	uploadDir := t.TempDir()
 	library := &recordingUploadLibrary{}
 	server := newUploadTestServer(t, uploadDir, true, library)
 	server.cfg.Server.ReadTimeout = 40 * time.Millisecond
-	server.cfg.Server.WriteTimeout = 2 * time.Second
+	server.cfg.Server.WriteTimeout = 40 * time.Millisecond
 	server.cfg.Server.MaxRequestBodyBytes = 2 << 20
 
 	page := tinyPNG(t, 3, 2, color.White)
