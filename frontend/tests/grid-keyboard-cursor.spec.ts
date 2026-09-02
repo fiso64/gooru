@@ -76,16 +76,16 @@ test('ArrowDown enters the media grid and cursor actions select, move, and open'
   await page.getByRole('heading', { name: 'Library' }).click();
   await page.keyboard.press('ArrowDown');
 
-  const first = page.getByRole('button', { name: 'Preview one.jpg' });
-  await expect(first).toBeFocused();
+  const cards = page.locator('.thumb-open');
+  await expect(cards.nth(0)).toBeFocused();
+  await expect(cards.nth(0)).toHaveAccessibleName('Preview one.jpg');
 
   await page.keyboard.press('Space');
   await expect(page.getByText('1 of 3 selected')).toBeVisible();
-  await expect(first).toBeFocused();
+  await expect(cards.nth(0)).toBeFocused();
 
   await page.keyboard.press('ArrowRight');
-  const second = page.getByRole('button', { name: 'Select two.jpg' });
-  await expect(second).toBeFocused();
+  await expect(cards.nth(1)).toBeFocused();
 
   await page.keyboard.press('Enter');
   await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
@@ -105,8 +105,8 @@ test('ArrowDown enters the tags grid without stealing arrows from the filter', a
   await page.getByRole('heading', { name: /tags across/i }).click();
   await page.keyboard.press('ArrowDown');
 
-  const first = page.getByRole('button', { name: /alpha/i });
-  await expect(first).toBeFocused();
+  const tagItems = page.locator('.tagscloud-item:not(.skeleton)');
+  await expect(tagItems.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('button', { name: /beta/i })).toBeFocused();
+  await expect(tagItems.nth(1)).toBeFocused();
 });
