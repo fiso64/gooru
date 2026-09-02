@@ -240,7 +240,10 @@ type savedUpload struct {
 	replace         bool
 }
 
-var errUploadTooLarge = errors.New("uploaded file exceeds max_file_size_bytes")
+var (
+	errUploadTooLarge = errors.New("uploaded file exceeds max_file_size_bytes")
+	errUploadConflict = errors.New("uploaded filename conflicts with an existing file")
+)
 
 type uploadFileError struct {
 	name string
@@ -296,16 +299,29 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 	for _, header := range files {
 		name, err := safeUploadName(header.Filename)
 		if err != nil {
+			if len(files) > 1 {
+				saved = append(saved, savedUpload{name: header.Filename, size: header.Size, targetID: target.ID, status: "error", error: err.Error()})
+				continue
+			}
 			return nil, uploadFileError{name: header.Filename, err: err}
 		}
 		src, err := header.Open()
 		if err != nil {
+			fileErr := fmt.Errorf("failed to read uploaded file")
+			if len(files) > 1 {
+				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: fileErr.Error()})
+				continue
+			}
 			removeSavedUploads(saved)
-			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to read uploaded file")}
+			return nil, uploadFileError{name: name, err: fileErr}
 		}
 		dst, path, tmpPath, skipped, err := createUploadDestination(target.Path, name, conflictPolicy)
 		if err != nil {
 			_ = src.Close()
+			if len(files) > 1 && errors.Is(err, errUploadConflict) {
+				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: err.Error()})
+				continue
+			}
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
 		}
@@ -342,6 +358,10 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 		}
 		if err := commitUploadDestination(tmpPath, path); err != nil {
 			_ = os.Remove(tmpPath)
+			if len(files) > 1 && errors.Is(err, errUploadConflict) {
+				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: err.Error()})
+				continue
+			}
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
 		}
@@ -442,7 +462,7 @@ func createUploadDestination(dir string, name string, conflictPolicy string) (*o
 			case "skip":
 				return nil, path, "", true, nil
 			case "error":
-				return nil, "", "", false, errors.New("uploaded filename conflicts with an existing file")
+				return nil, "", "", false, errUploadConflict
 			case "replace":
 				file, err := os.CreateTemp(dir, "."+candidate+".tmp-*")
 				if err != nil {
@@ -466,7 +486,7 @@ func createUploadDestination(dir string, name string, conflictPolicy string) (*o
 func commitUploadDestination(tmpPath string, finalPath string) error {
 	if err := os.Link(tmpPath, finalPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return errors.New("uploaded filename conflicts with an existing file")
+			return errUploadConflict
 		}
 		return fmt.Errorf("failed to store uploaded file")
 	}
