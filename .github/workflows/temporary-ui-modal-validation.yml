@@ -22,4 +22,7 @@ jobs:
       - run: npm run test:unit
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test tests/selection-ui-modal.spec.ts --project=chromium
+      - name: Validate selection toolbar
+        run: npx playwright test tests/selection-ui-modal.spec.ts --project=chromium -g "selection toolbar"
+      - name: Validate modal Enter policy
+        run: npx playwright test tests/selection-ui-modal.spec.ts --project=chromium -g "plain Enter"
