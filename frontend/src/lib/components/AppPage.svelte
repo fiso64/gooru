@@ -14,6 +14,23 @@
   let loginBusy = $state(false);
   let loginError = $state('');
   let runtimeAccent = $state<AccentTheme | null>(null);
+  let faviconHref = $state('/favicon.svg');
+
+  async function applyRuntimeConfig(config: { accent_color?: string; load_full_media_by_default?: boolean }) {
+    runtimeAccent = accentTheme(config.accent_color ?? '');
+    runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
+    faviconHref = '/favicon.svg';
+    if (!runtimeAccent) return;
+
+    try {
+      const response = await fetch('/favicon.svg', { credentials: 'same-origin' });
+      if (!response.ok) return;
+      const svg = (await response.text()).replaceAll('#ffd060', runtimeAccent.accent);
+      faviconHref = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    } catch {
+      faviconHref = '/favicon.svg';
+    }
+  }
 
   onMount(() => {
     const configPromise = fetch('/api/v1/ui-config', { credentials: 'same-origin' })
@@ -25,15 +42,13 @@
     const sessionPromise = new ApiClient().me();
 
     void Promise.all([configPromise, sessionPromise])
-      .then(([config, session]) => {
-        runtimeAccent = accentTheme(config.accent_color ?? '');
-        runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
+      .then(async ([config, session]) => {
+        await applyRuntimeConfig(config);
         authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true });
       })
       .catch(async () => {
         const config = await configPromise;
-        runtimeAccent = accentTheme(config.accent_color ?? '');
-        runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
+        await applyRuntimeConfig(config);
         authState.set({ user: null, csrfToken: '', checked: true });
       });
   });
@@ -62,6 +77,7 @@
 
 <svelte:head>
   <title>Gooru Library</title>
+  <link rel="icon" href={faviconHref} type="image/svg+xml" />
 </svelte:head>
 
 <div

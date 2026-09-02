@@ -109,3 +109,7 @@ textarea {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
+
+.gooru-root .login-v2-spirals path {
+  stroke: var(--accent);
+}
