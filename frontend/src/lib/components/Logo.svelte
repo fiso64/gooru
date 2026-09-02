@@ -11,7 +11,7 @@
   <img src="/gooru-logo.svg" alt="" aria-hidden="true" />
   <svg class="gooru-logo-accent" viewBox="7.57 -187.22 944.03 247.49" aria-hidden="true">
     <defs>
-      <mask id="gooru-logo-spiral-mask" mask-type="alpha">
+      <mask id="gooru-logo-spiral-mask" style="mask-type: alpha;">
         <image href="/favicon.svg" x="173.55" y="-185.975" width="223.125" height="226.1" />
         <image href="/favicon.svg" x="411.55" y="-185.975" width="223.125" height="226.1" />
       </mask>
