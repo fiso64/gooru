@@ -15,7 +15,7 @@ This page documents every supported YAML field in the server configuration. Path
 | `server.frontend_dir` | `frontend/build` | Directory containing the built static frontend. |
 | `server.max_request_body_bytes` | `33554432` (32 MiB) | Maximum request body size for the regular API. Must be greater than zero. Browser/API uploads are governed separately by `uploads.max_file_size_bytes` so large media is not accidentally capped by this generic limit. |
 
-Server read/write/idle timeouts are internal defaults and are not YAML options.
+Server read/write/idle timeouts are internal defaults and are not YAML options. The request read timeout is enforced as an inactivity limit after headers are accepted, so a steadily progressing large upload is not rejected merely for taking longer than the default timeout.
 
 ## `database`
 
