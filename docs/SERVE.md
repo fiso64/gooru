@@ -105,15 +105,39 @@ normal usernames or passwords in YAML config.
 ## Logging
 
 `gooru serve` writes structured text logs to stderr. `logging.level` accepts
-`debug`, `info`, `warn`, or `error` and defaults to `info`. Setting it to `debug`
-adds server runtime details and HTTP request lifecycle entries, so a source run
-such as `go run ./cmd/gooru serve --config serve.yaml` produces debug output in
-the invoking terminal.
+`debug`, `info`, `warn`, or `error` and defaults to `info`.
 
-Request debug logs intentionally record the matched route pattern rather than
-raw URL paths or query strings. Headers, request bodies, library file names, and
-filesystem paths are not logged by the request middleware. This keeps debug
-logging useful without turning it into an avoidable library-metadata leak.
+The logging policy is:
+
+- **debug**: high-frequency diagnostic lifecycle data such as routine read
+  requests and queued work;
+- **info**: successful or expected state transitions that are useful to an
+  operator, including mutating requests, authentication/session changes, and
+  background-job start/completion/cancellation;
+- **warn**: degraded or failed operations that need attention but do not make the
+  daemon unusable, including 5xx request outcomes, failed jobs, and queue
+  saturation;
+- **error**: reserved for failures at process/subsystem boundaries where the
+  daemon cannot continue the requested responsibility safely.
+
+New features should log the domain event at the layer that owns the transition,
+not copy request payloads into logs or add duplicate messages at every call
+layer. HTTP completion logging provides request outcome and timing; background
+jobs log their own lifecycle because they can outlive the request that started
+them.
+
+Logs are intentionally metadata-minimizing. Do not log passwords, session/CSRF
+or API tokens, request bodies, raw query strings, concrete media URL path values,
+filesystem paths, filenames, tags/search expressions, job results, or arbitrary
+error strings that can embed those values. Prefer fixed event names, route
+patterns, opaque internal IDs when correlation is necessary, bounded counts,
+status values, and durations. A subsystem may log richer data only when it is
+both operationally necessary and explicitly reviewed for privacy/sensitivity.
+
+Setting `logging.level: debug` adds request lifecycle and other diagnostic
+records in the invoking terminal. Request logs record the matched route pattern
+rather than raw URL paths or query strings; headers, request bodies, library file
+names, and filesystem paths remain excluded.
 
 ## Local Development
 
