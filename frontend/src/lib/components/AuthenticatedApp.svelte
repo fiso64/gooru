@@ -512,6 +512,8 @@
       busy={actionDialog.busy}
       error={actionDialog.error}
       input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'untrack-file' && actionDialog.kind !== 'delete-file'}
+      tagInput={actionDialog.kind.startsWith('bulk-')}
+      tagCandidates={tagsQuery.data?.tags ?? []}
       onInput={(value) => (actionDialog = { ...actionDialog, value, error: '' })}
       onCancel={closeActionDialog}
       onConfirm={submitActionDialog}
