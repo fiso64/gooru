@@ -4,6 +4,7 @@
   import TagEditor from './TagEditor.svelte';
   import ViewerStage from './ViewerStage.svelte';
   import { ApiClient } from '$lib/api/client';
+  import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import { adjacentComicPages, comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
   import { errorMessage, formatBytes, groupTags, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
@@ -47,7 +48,7 @@
   }>();
 
   let dialogElement = $state<HTMLDivElement | undefined>();
-  let preferOriginal = $state(false);
+  let preferOriginal = $state($runtimeConfig.loadFullMediaByDefault);
   let comicManifest = $state<ComicManifest | null>(null);
   let comicPageIndex = $state(0);
   let comicEntered = $state(false);
