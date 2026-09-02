@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
+  import {
+    plainTagInputContext,
+    plainTagSuggestions,
+    plainTagsFromInput,
+    replacePlainTagInputDraft,
+    type PlainTagSuggestion,
+    type TagCandidate
+  } from '$lib/utils/tagSuggestions';
 
   let {
     id,
@@ -9,6 +16,7 @@
     placeholder = 'add tag',
     disabled = false,
     readOnly = false,
+    multiple = false,
     ariaLabel = 'Tag',
     onInput,
     onCommit,
@@ -21,6 +29,7 @@
     placeholder?: string;
     disabled?: boolean;
     readOnly?: boolean;
+    multiple?: boolean;
     ariaLabel?: string;
     onInput: (value: string) => void;
     onCommit: (value: string) => void;
@@ -31,16 +40,18 @@
   let active = $state(0);
   let inputRef = $state<HTMLInputElement | undefined>();
   let suppressBlurCommit = false;
-  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, tags, existing));
+  const inputContext = $derived(multiple ? plainTagInputContext(value) : { committed: [] as string[], draft: value });
+  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(inputContext.draft, tags, [...existing, ...inputContext.committed]));
 
   $effect(() => {
     if (active >= suggestions.length) active = 0;
-    if (!value.trim() || readOnly) open = false;
+    if (!inputContext.draft.trim() || readOnly) open = false;
   });
 
-  function commit(raw: string) {
+  function commit(raw: string, replaceDraft = false) {
     if (readOnly) return;
-    const nextTags = plainTagsFromInput(raw).filter((tag) => !existing.includes(tag));
+    const source = multiple && replaceDraft ? replacePlainTagInputDraft(value, raw) : raw;
+    const nextTags = plainTagsFromInput(source).filter((tag) => !existing.includes(tag));
     open = false;
     active = 0;
     if (!nextTags.length) return;
@@ -50,20 +61,21 @@
   function selectSuggestion(suggestion: PlainTagSuggestion) {
     if (readOnly) return;
     if (suggestion.kind === 'namespace') {
-      onInput(suggestion.name);
+      onInput(multiple ? replacePlainTagInputDraft(value, suggestion.name) : suggestion.name);
       open = true;
       active = 0;
       inputRef?.focus();
       return;
     }
-    commit(suggestion.name);
+    commit(suggestion.name, multiple);
   }
 
   function handleInput(event: Event) {
     if (readOnly) return;
     const next = (event.currentTarget as HTMLInputElement).value;
     onInput(next);
-    open = Boolean(next.trim());
+    const context = multiple ? plainTagInputContext(next) : { draft: next };
+    open = Boolean(context.draft.trim());
     active = 0;
   }
 
@@ -131,7 +143,7 @@
     autocomplete="off"
     spellcheck="false"
     oninput={handleInput}
-    onfocus={() => (open = !readOnly && Boolean(value.trim()))}
+    onfocus={() => (open = !readOnly && Boolean(inputContext.draft.trim()))}
     onblur={handleBlur}
     onkeydown={handleKeydown}
   />
