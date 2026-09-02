@@ -71,11 +71,15 @@
 <style>
   .job-row {
     position: relative;
+    width: 100%;
+    box-sizing: border-box;
     padding: 14px 16px;
     border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 7px;
+    text-align: left;
   }
 
   .job-row:first-child {
@@ -83,11 +87,13 @@
   }
 
   .job-row-head {
+    width: 100%;
     display: flex;
     align-items: center;
     justify-content: flex-start;
     gap: 10px;
     padding-right: 58px;
+    box-sizing: border-box;
     font-size: 12.5px;
   }
 
@@ -95,6 +101,7 @@
     min-width: 0;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 8px;
   }
 
@@ -120,6 +127,7 @@
   .status.error { color: var(--danger); }
 
   .job-progress {
+    width: 100%;
     height: 4px;
     background: var(--surface-2);
     border-radius: 2px;
@@ -137,6 +145,7 @@
   .job-progress.canceled > div { background: var(--text-3); }
 
   .job-meta {
+    width: 100%;
     display: flex;
     align-items: center;
     justify-content: flex-start;
