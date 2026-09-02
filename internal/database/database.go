@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "gosqlite.org"
 	"gooru.local/types"
 )
 
