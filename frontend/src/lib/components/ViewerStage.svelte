@@ -108,9 +108,14 @@
 
     void preloadViewerMediaSource(targetFile, preloadSource)
       .catch(() => undefined)
-      .then(() => {
+      .then((preloaded) => {
         if (generation !== transitionGeneration) return;
         clearTimeout(waitingTimer);
+        const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+        if (rendersImage && preloaded?.width && preloaded.height) {
+          intrinsicWidth = preloaded.width;
+          intrinsicHeight = preloaded.height;
+        }
         displayedFile = targetFile;
         displayedImageSource = targetImageSource;
         waitingForTarget = false;
@@ -126,9 +131,8 @@
     const nextFile = renderedFile;
     renderedImageSource;
     const rendersImage = nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
-    // The next image is preloaded and decoded before this source swap. Preserve the
-    // current geometry until its own load event supplies new intrinsic dimensions,
-    // otherwise the rendered image collapses to 0x0 for a frame during navigation.
+    // Image transitions install the dimensions captured by the decoded preload before
+    // swapping sources. Non-image media still waits for its own metadata event.
     if (!rendersImage) {
       intrinsicWidth = 0;
       intrinsicHeight = 0;
@@ -374,7 +378,7 @@
 
   :global(.viewer-stage .viewer-visual-media) {
     object-fit: contain;
-    transition: width 120ms ease, height 120ms ease, transform 120ms ease, filter 120ms ease, opacity 120ms ease;
+    transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
   }
 
   :global(.viewer-stage .viewer-audio-stage) {
