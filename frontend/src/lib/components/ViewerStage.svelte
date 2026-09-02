@@ -78,10 +78,10 @@
   $effect(() => {
     const targetFile = file;
     const targetImageSource = imageSource;
-    if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
-
     const generation = ++transitionGeneration;
     waitingForTarget = false;
+    if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
+
     const waitingTimer = setTimeout(() => {
       if (generation === transitionGeneration) waitingForTarget = true;
     }, 200);
@@ -97,7 +97,10 @@
         waitingForTarget = false;
       });
 
-    return () => clearTimeout(waitingTimer);
+    return () => {
+      clearTimeout(waitingTimer);
+      if (generation === transitionGeneration) transitionGeneration += 1;
+    };
   });
 
   $effect(() => {
