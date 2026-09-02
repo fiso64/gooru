@@ -21,7 +21,7 @@ describe('viewer preload source policy', () => {
     expect(viewerPreloadSource(media())).toBe('/preview/file-1');
   });
 
-  it('preloads original GIF bytes so animation is warmed before navigation', () => {
+  it('preloads original GIF bytes so animation is decoded before navigation', () => {
     expect(viewerPreloadSource(media({ media_type: 'image/gif' }))).toBe('/content/file-1');
   });
 
@@ -30,42 +30,7 @@ describe('viewer preload source policy', () => {
     expect(viewerPreloadSource(media({ media_kind: 'audio', media_type: 'audio/mpeg' }))).toBe('/content/file-1');
   });
 
-  it('warms image sources without forcing speculative full decodes', async () => {
-    const decoded: string[] = [];
-
-    class FakeImage {
-      onload: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      naturalWidth = 1200;
-      naturalHeight = 1800;
-      private source = '';
-
-      set src(value: string) {
-        this.source = value;
-        if (!value) return;
-        queueMicrotask(() => this.onload?.());
-      }
-
-      get src() {
-        return this.source;
-      }
-
-      decode() {
-        decoded.push(this.source);
-        return Promise.resolve();
-      }
-    }
-
-    vi.stubGlobal('window', {});
-    vi.stubGlobal('Image', FakeImage);
-
-    await preloadViewerMediaSource(media({ id: 'normal' }), '/image/normal');
-    await preloadViewerMediaSource(media({ id: 'comic', media_kind: 'other', media_type: 'application/vnd.comicbook+zip' }), '/api/v1/comics/comic/1');
-
-    expect(decoded).toEqual([]);
-  });
-
-  it('keeps at most two image loads in flight and continues queued work as slots free', async () => {
+  it('keeps at most two image decodes in flight and continues queued work as slots free', async () => {
     const started: string[] = [];
     const pending = new Map<string, () => void>();
 
@@ -79,8 +44,7 @@ describe('viewer preload source policy', () => {
       set src(value: string) {
         this.source = value;
         if (!value) return;
-        started.push(value);
-        pending.set(value, () => queueMicrotask(() => this.onload?.()));
+        queueMicrotask(() => this.onload?.());
       }
 
       get src() {
@@ -88,7 +52,8 @@ describe('viewer preload source policy', () => {
       }
 
       decode() {
-        throw new Error('speculative preload should not decode');
+        started.push(this.source);
+        return new Promise<void>((resolve) => pending.set(this.source, resolve));
       }
     }
 

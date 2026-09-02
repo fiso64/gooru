@@ -16,9 +16,9 @@ type SlotRelease = () => void;
 
 const preloadCache = new Map<string, PreloadEntry>();
 const maxCachedPreloads = 6;
-const maxConcurrentImageLoads = 2;
-let activeImageLoads = 0;
-const imageLoadWaiters: Array<(release: SlotRelease) => void> = [];
+const maxConcurrentImageDecodes = 2;
+let activeImageDecodes = 0;
+const imageDecodeWaiters: Array<(release: SlotRelease) => void> = [];
 
 export function viewerPreloadSource(file: PreloadableViewerMedia): string {
   if (file.media_kind === 'video' || file.media_kind === 'audio' || file.media_type.startsWith('audio/')) {
@@ -27,21 +27,21 @@ export function viewerPreloadSource(file: PreloadableViewerMedia): string {
   return viewerImageSource(file, false);
 }
 
-function releaseImageLoadSlot(): void {
-  const next = imageLoadWaiters.shift();
+function releaseImageDecodeSlot(): void {
+  const next = imageDecodeWaiters.shift();
   if (next) {
-    next(releaseImageLoadSlot);
+    next(releaseImageDecodeSlot);
     return;
   }
-  activeImageLoads = Math.max(0, activeImageLoads - 1);
+  activeImageDecodes = Math.max(0, activeImageDecodes - 1);
 }
 
-function acquireImageLoadSlot(): Promise<SlotRelease> {
-  if (activeImageLoads < maxConcurrentImageLoads) {
-    activeImageLoads += 1;
-    return Promise.resolve(releaseImageLoadSlot);
+function acquireImageDecodeSlot(): Promise<SlotRelease> {
+  if (activeImageDecodes < maxConcurrentImageDecodes) {
+    activeImageDecodes += 1;
+    return Promise.resolve(releaseImageDecodeSlot);
   }
-  return new Promise((resolve) => imageLoadWaiters.push(resolve));
+  return new Promise((resolve) => imageDecodeWaiters.push(resolve));
 }
 
 function remember(key: string, entry: PreloadEntry): Promise<ViewerPreloadResult> {
@@ -79,7 +79,7 @@ function preloadImage(source: string): PreloadEntry {
 
   const promise = new Promise<ViewerPreloadResult>((resolve, reject) => {
     rejectPromise = reject;
-    void acquireImageLoadSlot().then((release) => {
+    void acquireImageDecodeSlot().then((release) => {
       releaseSlot = release;
       if (cancelled) {
         finish(undefined, reject, undefined, new Error(`Cancelled image preload ${source}`));
@@ -88,10 +88,11 @@ function preloadImage(source: string): PreloadEntry {
 
       image = new Image();
       image.onload = () => {
-        // The real foreground <img> owns decode and presentation. Preloaders only
-        // warm bytes/browser cache so speculative work cannot compete by forcing
-        // additional full decodes during rapid normal-image or comic navigation.
-        finish(resolve, reject, { width: image!.naturalWidth, height: image!.naturalHeight });
+        const decoded = typeof image!.decode === 'function' ? image!.decode() : Promise.resolve();
+        decoded.then(
+          () => finish(resolve, reject, { width: image!.naturalWidth, height: image!.naturalHeight }),
+          () => finish(resolve, reject, { width: image!.naturalWidth, height: image!.naturalHeight })
+        );
       };
       image.onerror = () => finish(undefined, reject, undefined, new Error(`Unable to preload image ${source}`));
       image.src = source;
