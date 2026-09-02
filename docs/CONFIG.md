@@ -78,6 +78,7 @@ uploads:
 | `media.thumbnail_sizes` | `[256, 512]` | Thumbnail dimensions to generate/cache. The list must be non-empty; each value must be between 1 and 4096. |
 | `media.thumbnail_format` | `jpeg` | Thumbnail output format: `jpeg` or `png`. |
 | `media.preview_size` | `1280` | Requested long-edge size for image previews. Must be greater than zero. |
+| `media.load_full_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |
 
 ## `jobs`
 
@@ -147,6 +148,7 @@ media:
   thumbnail_sizes: [256, 512]
   thumbnail_format: jpeg
   preview_size: 1280
+  load_full_by_default: false
 
 jobs:
   completed_ttl: 1h
