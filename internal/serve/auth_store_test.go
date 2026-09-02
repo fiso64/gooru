@@ -213,7 +213,7 @@ func newAuthTestStore(t *testing.T) *AuthStore {
 		t.Fatalf("open db: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := database.RunMigrations(db, dbPath); err != nil {
+	if err := database.RunMigrations(db); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
 	return NewAuthStore(db, time.Hour)

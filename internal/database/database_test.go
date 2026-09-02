@@ -47,7 +47,7 @@ func TestLocationPublicIDsArePersistedAndResolved(t *testing.T) {
 		t.Fatalf("NewStore: %v", err)
 	}
 	defer store.Close()
-	if err := RunMigrations(store.DB, dbPath); err != nil {
+	if err := RunMigrations(store.DB); err != nil {
 		t.Fatalf("RunMigrations: %v", err)
 	}
 	if _, err := store.Exec(`INSERT INTO contents (hash) VALUES (?)`, "hash-one"); err != nil {

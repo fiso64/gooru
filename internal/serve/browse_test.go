@@ -631,7 +631,7 @@ func newAuthenticatedBrowseServer(t *testing.T) (*Server, AuthSession, func()) {
 	if err != nil {
 		t.Fatalf("open auth db: %v", err)
 	}
-	if err := database.RunMigrations(db, dbPath); err != nil {
+	if err := database.RunMigrations(db); err != nil {
 		t.Fatalf("run auth migrations: %v", err)
 	}
 	store := NewAuthStore(db, cfg.Auth.SessionTTL)
