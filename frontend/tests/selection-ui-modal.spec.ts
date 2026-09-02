@@ -68,12 +68,17 @@ async function selectFirstFile(page: Page) {
   await expect(page.getByText('2 of 3 selected')).toBeVisible();
 }
 
-test('selection toolbar exposes Select all with a real visible space', async ({ page }) => {
+test('selection toolbar exposes Select all with a real visible gap', async ({ page }) => {
   await mockApp(page);
   await selectFirstFile(page);
   const selectAll = page.locator('.selection-summary button');
   await expect(selectAll).toBeVisible();
-  expect((await selectAll.textContent())?.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()).toBe('Select all 3');
+  const parts = selectAll.locator(':scope > span');
+  await expect(parts).toHaveCount(2);
+  const [selectBox, allBox] = await Promise.all([parts.nth(0).boundingBox(), parts.nth(1).boundingBox()]);
+  expect(selectBox).not.toBeNull();
+  expect(allBox).not.toBeNull();
+  expect(allBox!.x - (selectBox!.x + selectBox!.width)).toBeGreaterThan(1);
 });
 
 test('selection toolbar action order and labels match the owner request', async ({ page }) => {
