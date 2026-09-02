@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   complete-and-validate:
+    if: github.event.head_commit.message != 'feat(ui): wire configurable runtime accent'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +61,7 @@ jobs:
           text = p.read_text()
           text = text.replace("  import { errorMessage } from '$lib/utils/format';\n", "  import { errorMessage } from '$lib/utils/format';\n  import { accentTheme, type AccentTheme } from '$lib/utils/theme';\n", 1)
           text = text.replace("  let loginError = $state('');\n", "  let loginError = $state('');\n  let runtimeAccent = $state<AccentTheme | null>(null);\n", 1)
-          text = text.replace("  onMount(() => {\n    new ApiClient()\n", "  onMount(() => {\n    fetch('/api/v1/ui-config', { credentials: 'same-origin' })\n      .then(async (response) => response.ok ? response.json() as Promise<{ accent_color?: string }> : {})\n      .then((config) => { runtimeAccent = accentTheme(config.accent_color ?? ''); })\n      .catch(() => { runtimeAccent = null; });\n\n    new ApiClient()\n", 1)
+          text = text.replace("  onMount(() => {\n    new ApiClient()\n", "  onMount(() => {\n    fetch('/api/v1/ui-config', { credentials: 'same-origin' })\n      .then(async (response) => {\n        if (!response.ok) return null;\n        return await response.json() as { accent_color?: string };\n      })\n      .then((config) => { runtimeAccent = accentTheme(config?.accent_color ?? ''); })\n      .catch(() => { runtimeAccent = null; });\n\n    new ApiClient()\n", 1)
           text = text.replace('<div class="gooru-root gooru-accent-sodium gooru-type-editorial">', '<div\n  class="gooru-root gooru-accent-sodium gooru-type-editorial"\n  style={runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : undefined}\n>')
           p.write_text(text)
 
