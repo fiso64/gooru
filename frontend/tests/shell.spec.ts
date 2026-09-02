@@ -399,9 +399,8 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   await signIn(page);
   await page.getByRole('button', { name: 'Upload' }).click();
   await page.locator('input[type="file"]').setInputFiles({ name: 'upload.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('upload') });
-  await page.getByRole('button', { name: 'Add tag' }).click();
-  await page.getByLabel('Initial tag').fill('incoming');
-  await page.getByLabel('Initial tag').press('Enter');
+  await page.getByLabel('Initial tags').fill('incoming');
+  await page.getByLabel('Initial tags').press('Enter');
   await page.getByRole('button', { name: 'Upload 1' }).click();
   await expect(page.getByText('importing', { exact: true })).toBeVisible();
   await expect(page.getByText(/Queue · 1 file/)).toBeVisible();
@@ -440,17 +439,18 @@ test('upload result details preserve duplicate and error statuses', async ({ pag
   await mockAuth(page);
   await mockShellApis(page);
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
+  const uploadResults = [
+    { name: 'new.jpg', size: 6, target_id: 'default', status: 'imported' },
+    { name: 'dupe.jpg', size: 4, target_id: 'default', status: 'duplicate_existing' },
+    { name: 'bad.jpg', size: 3, target_id: 'default', status: 'error', error: 'unsupported media' }
+  ] as const;
+  let uploadResultIndex = 0;
   await page.route('**/api/v1/uploads', async (route) => {
+    const result = uploadResults[uploadResultIndex++];
+    if (!result) return route.fulfill({ status: 500, body: 'unexpected upload request' });
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({
-        affected_count: 1,
-        files: [
-          { name: 'new.jpg', size: 6, target_id: 'default', status: 'imported' },
-          { name: 'dupe.jpg', size: 4, target_id: 'default', status: 'duplicate_existing' },
-          { name: 'bad.jpg', size: 3, target_id: 'default', status: 'error', error: 'unsupported media' }
-        ]
-      })
+      body: JSON.stringify({ affected_count: result.status === 'imported' ? 1 : 0, files: [result] })
     });
   });
 
@@ -501,7 +501,7 @@ test('bulk selection supports concept untag action', async ({ page }) => {
   await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
   await expect(page.locator('.thumb.is-selected')).toHaveCount(1);
   await expect(page.getByText('1 of 2 selected')).toBeVisible();
-  await page.getByRole('button', { name: 'Untag…' }).click();
+  await page.locator('.selection-bar .sb-actions button').filter({ hasText: 'Untag' }).click();
   await expect(page.getByRole('heading', { name: 'Untag selected files' })).toBeVisible();
   await page.getByLabel('Tags').fill('blue');
   await page.getByRole('button', { name: 'Remove tags' }).click();
@@ -548,7 +548,7 @@ test('lightbox supports per-tag removal and confirmed untrack', async ({ page })
   await expect.poll(() => mutations.length).toBe(1);
   expect(mutations[0]).toMatchObject({ method: 'DELETE', csrf: 'csrf-one', body: { file_ids: ['bG9jOjE'], tags: ['blue'], verbose: false } });
 
-  await dialog.getByRole('button', { name: 'Remove sample.jpg from library' }).click();
+  await dialog.getByRole('button', { name: 'Untrack sample.jpg from library' }).click();
   await expect(page.getByRole('heading', { name: 'Remove from library' })).toBeVisible();
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
   await expect.poll(() => untracks.length).toBe(1);
@@ -667,8 +667,8 @@ test('Shortcuts matches the concept and question mark opens it outside text entr
   await expect(page.getByRole('heading', { name: 'Selection' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Tagging' })).toBeVisible();
 
-  const futureFocusSearch = page.locator('.shortcut-row').filter({ hasText: 'Focus search' });
-  await expect(futureFocusSearch).toHaveAttribute('title', 'Coming soon');
+  const supportedFocusSearch = page.locator('.shortcut-row').filter({ hasText: 'Focus search' });
+  await expect(supportedFocusSearch).not.toHaveAttribute('title', 'Coming soon');
   const supportedNext = page.locator('.shortcut-row').filter({ hasText: 'Next file' });
   await expect(supportedNext).not.toHaveAttribute('title', 'Coming soon');
 
@@ -707,8 +707,8 @@ test('Settings preserves concept structure and changes password through CSRF', a
   }
   await expect(page.getByText('Auth tokens', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Listen address')).toBeDisabled();
-  await expect(page.getByLabel('Grid density coming soon')).toBeDisabled();
-  await expect(page.getByText('filesystem paths are not exposed')).toBeVisible();
+  await expect(page.getByLabel('Appearance settings unavailable').getByLabel('Grid density')).toBeDisabled();
+  await expect(page.getByLabel('Library settings').getByText('Configured in gooru.yaml')).toBeVisible();
 
   await page.getByRole('button', { name: 'Change…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Change password' });
@@ -1043,8 +1043,8 @@ test('matches concept utility views while exposing only real capabilities', asyn
   expect(sectionStyle.columns).toMatch(/^220px /);
   expect(sectionStyle.gap).toBe('32px');
   expect(sectionStyle.padding).toBe('28px 0px');
-  await expect(page.getByLabel('Appearance settings coming soon').getByRole('slider')).toBeDisabled();
-  await expect(page.getByLabel('Server settings coming soon').getByLabel('Public URL')).toBeDisabled();
+  await expect(page.getByLabel('Appearance settings unavailable').getByRole('slider')).toBeDisabled();
+  await expect(page.getByLabel('Server settings').getByLabel('Public URL')).toBeDisabled();
   await expect(page.getByText('Auth tokens', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Change…' })).toBeEnabled();
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeEnabled();
@@ -1060,7 +1060,7 @@ test('matches concept utility views while exposing only real capabilities', asyn
   });
   expect(shortcutGridStyle.gap).toBe('24px 40px');
   expect(shortcutGridStyle.columns).not.toBe('none');
-  const futureShortcut = page.locator('.shortcut-row').filter({ hasText: 'Focus search' });
+  const futureShortcut = page.locator('.shortcut-row').filter({ hasText: 'Go to library' });
   await expect.poll(() => futureShortcut.evaluate((node) => getComputedStyle(node).opacity)).toBe('0.42');
   const launcherShortcut = page.locator('.shortcut-row').filter({ hasText: 'Show this cheatsheet' });
   expect(await launcherShortcut.evaluate((node) => getComputedStyle(node).opacity)).toBe('1');
@@ -1084,7 +1084,7 @@ test('matches concept utility views while exposing only real capabilities', asyn
     const style = getComputedStyle(node);
     return { padding: style.padding, gap: style.gap, display: style.display };
   });
-  expect(rowStyle).toEqual({ padding: '12px 14px', gap: '6px', display: 'flex' });
+  expect(rowStyle).toEqual({ padding: '14px 16px', gap: '7px', display: 'flex' });
   await expect.poll(() => row.locator('.job-progress').evaluate((node) => getComputedStyle(node).height)).toBe('4px');
 });
 
@@ -1125,17 +1125,17 @@ test('matches exact Upload staging surface and releases local previews', async (
   await expect(page.getByText(/max 5 GB/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Paste URL', exact: true })).toBeDisabled();
 
-  await expect(page.getByLabel('Initial tag')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Add tag' }).click();
-  const tagInput = page.getByLabel('Initial tag');
+  const tagInput = page.getByLabel('Initial tags');
+  await expect(tagInput).toBeVisible();
+  await tagInput.focus();
   await expect(tagInput).toBeFocused();
   await tagInput.fill('collection:may-2026 @review');
   await tagInput.press('Enter');
-  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(2);
-  await expect(page.locator('.upload-tags-control')).toContainText('collection:may-2026');
-  await expect(page.locator('.upload-tags-control')).toContainText('@review');
-  await page.getByRole('button', { name: 'Remove collection:may-2026' }).click();
   await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(1);
+  await expect(page.locator('.upload-tags-control')).toContainText('collection:may-2026');
+  await expect(page.locator('.upload-tags-control')).not.toContainText('@review');
+  await page.getByRole('button', { name: 'Remove collection:may-2026' }).click();
+  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(0);
 
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zs1sAAAAASUVORK5CYII=', 'base64');
   await page.locator('input[type="file"]').setInputFiles({ name: 'stage.png', mimeType: 'image/png', buffer: png });
