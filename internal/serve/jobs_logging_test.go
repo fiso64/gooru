@@ -6,12 +6,30 @@ import (
 	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
+type lockedLogBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *lockedLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *lockedLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
 func TestJobLifecycleLogging(t *testing.T) {
-	var output bytes.Buffer
+	var output lockedLogBuffer
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(previous) })
@@ -91,7 +109,7 @@ func waitForLoggedJobStatus(t *testing.T, manager *JobManager, id string, want J
 	t.Fatalf("job %s status = %s, want %s", id, job.Status, want)
 }
 
-func waitForLogContains(t *testing.T, output *bytes.Buffer, want string) {
+func waitForLogContains(t *testing.T, output *lockedLogBuffer, want string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
