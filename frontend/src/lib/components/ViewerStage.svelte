@@ -245,6 +245,7 @@
   }
 
   function seekVideo(event: MouseEvent) {
+    restoreStageFocusAfterPointer(event);
     const video = videoElement;
     if (!video || !videoLength) return;
     const button = event.currentTarget;
@@ -253,7 +254,6 @@
     if (!rect.width) return;
     video.currentTime = Math.max(0, Math.min(videoLength, ((event.clientX - rect.left) / rect.width) * videoLength));
     syncVideo();
-    restoreStageFocusAfterPointer(event);
   }
 
   function clock(seconds: number) {
