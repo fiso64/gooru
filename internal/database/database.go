@@ -25,6 +25,7 @@ type Store struct {
 	DB             *sql.DB
 	dataSourceName string
 	logger         *log.Logger
+	backendClose   func() error
 }
 
 // Tx is a transaction wrapper that logs queries.
@@ -78,7 +79,7 @@ func NewStore(dataSourceName string, verbose bool) (*Store, error) {
 
 // SecureDBFiles constrains the SQLite database and sidecar files to owner-only access.
 func SecureDBFiles(dataSourceName string) error {
-	for _, path := range []string{dataSourceName, dataSourceName + "-wal", dataSourceName + "-shm"} {
+	for _, path := range []string{dataSourceName, dataSourceName + "-wal", dataSourceName + "-shm", dataSourceName + "-journal"} {
 		if err := os.Chmod(path, 0600); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("secure database file %s: %w", path, err)
 		}
@@ -88,7 +89,12 @@ func SecureDBFiles(dataSourceName string) error {
 
 // Close closes the database connection.
 func (s *Store) Close() error {
-	err := s.DB.Close()
+	var err error
+	if s.backendClose != nil {
+		err = s.backendClose()
+	} else {
+		err = s.DB.Close()
+	}
 	if secureErr := SecureDBFiles(s.dataSourceName); err == nil {
 		err = secureErr
 	}
