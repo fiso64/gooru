@@ -1,13 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { hasDraggedFiles } from './fileDrop';
+import { hasDraggedFiles, isPasteableMediaFile, pastedMediaFiles } from './fileDrop';
 
-describe('hasDraggedFiles', () => {
-  it('accepts operating-system file drags', () => {
+function file(type: string, name: string) {
+  return { type, name } as File;
+}
+
+describe('global file ingress', () => {
+  it('recognizes file drag payloads', () => {
     expect(hasDraggedFiles(['text/plain', 'Files'])).toBe(true);
+    expect(hasDraggedFiles(['text/plain'])).toBe(false);
+    expect(hasDraggedFiles(null)).toBe(false);
   });
 
-  it('ignores text/link drags and missing transfer data', () => {
-    expect(hasDraggedFiles(['text/plain', 'text/uri-list'])).toBe(false);
-    expect(hasDraggedFiles(null)).toBe(false);
+  it('accepts pasted image, gif, and video files', () => {
+    expect(isPasteableMediaFile(file('image/png', 'image.png'))).toBe(true);
+    expect(isPasteableMediaFile(file('image/gif', 'animated.gif'))).toBe(true);
+    expect(isPasteableMediaFile(file('video/mp4', 'clip.mp4'))).toBe(true);
+  });
+
+  it('leaves non-media clipboard files out of the upload ingress', () => {
+    const image = file('image/jpeg', 'photo.jpg');
+    const text = file('text/plain', 'notes.txt');
+    const archive = file('application/zip', 'files.zip');
+
+    expect(pastedMediaFiles([text, image, archive])).toEqual([image]);
   });
 });
