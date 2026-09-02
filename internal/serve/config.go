@@ -26,6 +26,7 @@ type Config struct {
 	Jobs     JobsConfig     `yaml:"jobs"`
 	Tools    ToolsConfig    `yaml:"tools"`
 	Logging  LoggingConfig  `yaml:"logging"`
+	UI       UIConfig       `yaml:"ui"`
 }
 
 type ServerConfig struct {
@@ -89,6 +90,10 @@ type ToolsConfig struct {
 
 type LoggingConfig struct {
 	Level string `yaml:"level"`
+}
+
+type UIConfig struct {
+	AccentColor string `yaml:"accent_color"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
@@ -343,6 +348,10 @@ func (cfg *Config) Validate() error {
 	if !cfg.Auth.Enabled && !cfg.Auth.AllowUnsafeNoAuthNonLoopback && !isLoopbackListen(cfg.Server.Listen) {
 		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_non_loopback for trusted development"))
 	}
+	cfg.UI.AccentColor = strings.TrimSpace(cfg.UI.AccentColor)
+	if cfg.UI.AccentColor != "" && !accentColorPattern.MatchString(cfg.UI.AccentColor) {
+		errs = append(errs, errors.New("ui.accent_color must be a six-digit hex color such as #2f80ed"))
+	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"
 	}
@@ -365,6 +374,7 @@ func hasUploadTarget(targets []UploadTarget) bool {
 }
 
 var uploadTargetIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+var accentColorPattern = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
 func validUploadTargetID(id string) bool {
 	return uploadTargetIDPattern.MatchString(id)

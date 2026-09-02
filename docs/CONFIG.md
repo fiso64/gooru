@@ -97,6 +97,12 @@ uploads:
 
 Tool paths may be executable names resolved through `PATH` or explicit paths appropriate for the host.
 
+## `ui`
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `ui.accent_color` | empty | Optional runtime UI accent in six-digit hex form such as `#2f80ed`. When empty, the built-in yellow accent is used. The UI derives readable foreground and translucent accent tokens from this color. |
+
 ## `logging`
 
 | Option | Default | Description |
@@ -154,6 +160,9 @@ tools:
 
 logging:
   level: info
+
+ui:
+  accent_color: "#2f80ed"
 ```
 
 For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default remains the quickest way to verify defaults for the exact binary being run:

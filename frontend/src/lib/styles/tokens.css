@@ -89,8 +89,8 @@ textarea {
   --text-4: oklch(0.42 0.012 80);
   --accent: oklch(0.88 0.14 85);
   --accent-ink: oklch(0.20 0.05 80);
-  --accent-soft: oklch(0.88 0.14 85 / 0.12);
-  --accent-line: oklch(0.88 0.14 85 / 0.45);
+  --accent-soft: color-mix(in oklab, var(--accent) 12%, transparent);
+  --accent-line: color-mix(in oklab, var(--accent) 45%, transparent);
   --danger: oklch(0.70 0.18 25);
   --danger-soft: oklch(0.70 0.18 25 / 0.14);
   --ok: oklch(0.78 0.14 150);
