@@ -13,11 +13,11 @@
     {
       name: 'Browsing',
       items: [
-        { keys: ['j'], description: 'Next file', supported: true },
-        { keys: ['k'], description: 'Previous file', supported: true },
-        { keys: ['↵'], description: 'Open lightbox', supported: false },
+        { keys: ['j'], description: 'Next file / comic page', supported: true },
+        { keys: ['k'], description: 'Previous file / comic page', supported: true },
+        { keys: ['↵'], description: 'Enter / exit comic', supported: true },
         { keys: ['Esc'], description: 'Close lightbox / clear selection', supported: true },
-        { keys: ['Space'], description: 'Play / pause viewer media', supported: true }
+        { keys: ['Space'], description: 'Play media or enter / exit comic', supported: true }
       ]
     },
     {
