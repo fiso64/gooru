@@ -239,7 +239,7 @@ func TestUploadRejectsOversizedMultipartBeforeStaging(t *testing.T) {
 	}
 }
 
-func TestUploadCleansEarlierFilesWhenBatchFails(t *testing.T) {
+func TestUploadIsolatesOversizedFileWithinBatch(t *testing.T) {
 	dir := t.TempDir()
 	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
 	server.cfg.Uploads.MaxFileSizeBytes = 3
@@ -250,9 +250,28 @@ func TestUploadCleansEarlierFilesWhenBatchFails(t *testing.T) {
 		"b.txt": "too-large",
 	}, nil))
 
-	assertAPIError(t, rec, http.StatusRequestEntityTooLarge, "payload_too_large")
-	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
-		t.Fatalf("failed batch should not leave uploaded files, entries=%v err=%v", entries, err)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response UploadImportResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	byName := make(map[string]UploadedFileDTO, len(response.Files))
+	for _, file := range response.Files {
+		byName[file.Name] = file
+	}
+	if byName["a.txt"].Status != "imported" {
+		t.Fatalf("valid sibling should import, got %+v", byName)
+	}
+	if byName["b.txt"].Status != "error" || byName["b.txt"].Error != errUploadTooLarge.Error() {
+		t.Fatalf("oversized member should fail independently, got %+v", byName)
+	}
+	if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "ok" {
+		t.Fatalf("valid sibling was not retained: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "b.txt")); !os.IsNotExist(err) {
+		t.Fatalf("oversized member should not be retained, err=%v", err)
 	}
 }
 
@@ -587,7 +606,7 @@ func (l *recordingUploadLibrary) ImportUploadedFiles(_ context.Context, files []
 		if status == "" {
 			status = "imported"
 		}
-		response.Files = append(response.Files, UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID, Status: status})
+		response.Files = append(response.Files, UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID, Status: status, Error: file.Error})
 	}
 	return response, nil
 }
