@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { ApiClient } from '$lib/api/client';
   import Icon from './Icon.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import { parseTags } from '$lib/utils/format';
@@ -16,6 +15,8 @@
     busy = false,
     error = '',
     input = true,
+    tagInput = false,
+    tagCandidates = [],
     onInput,
     onCancel,
     onConfirm
@@ -29,16 +30,16 @@
     busy?: boolean;
     error?: string;
     input?: boolean;
+    tagInput?: boolean;
+    tagCandidates?: TagCandidate[];
     onInput?: (value: string) => void;
     onCancel: () => void;
     onConfirm: () => void;
   }>();
 
   let dialogRef: HTMLDivElement | undefined;
-  let tagCandidates = $state<TagCandidate[]>([]);
   let tagDraft = $state('');
   let committedTags = $state<string[]>([]);
-  const tagInput = $derived(input && label === 'Tags');
 
   function syncTagValue(tags: string[]) {
     committedTags = Array.from(new Set(tags));
@@ -56,16 +57,7 @@
 
   onMount(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (tagInput) {
-      committedTags = parseTags(value ?? '');
-      void new ApiClient()
-        .listTags(true)
-        .then((response) => (tagCandidates = response.tags))
-        .catch(() => {
-          // Completion data is optional; manual tag entry must remain usable.
-          tagCandidates = [];
-        });
-    }
+    if (tagInput) committedTags = parseTags(value ?? '');
 
     queueMicrotask(() => {
       const first = dialogRef?.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])');
