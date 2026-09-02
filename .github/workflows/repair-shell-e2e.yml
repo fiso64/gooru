@@ -41,7 +41,13 @@ jobs:
             ("""  const futureShortcut = page.locator('.shortcut-row').filter({ hasText: 'Focus search' });\n  await expect.poll(() => futureShortcut.evaluate((node) => getComputedStyle(node).opacity)).toBe('0.42');""",
              """  const futureShortcut = page.locator('.shortcut-row').filter({ hasText: 'Go to library' });\n  await expect.poll(() => futureShortcut.evaluate((node) => getComputedStyle(node).opacity)).toBe('0.42');"""),
             ("""  await expect(page.getByLabel('Initial tag')).toHaveCount(0);\n  await page.getByRole('button', { name: 'Add tag' }).click();\n  const tagInput = page.getByLabel('Initial tag');\n  await expect(tagInput).toBeFocused();""",
-             """  const tagInput = page.getByLabel('Initial tags');\n  await expect(tagInput).toBeVisible();\n  await tagInput.focus();\n  await expect(tagInput).toBeFocused();""")
+             """  const tagInput = page.getByLabel('Initial tags');\n  await expect(tagInput).toBeVisible();\n  await tagInput.focus();\n  await expect(tagInput).toBeFocused();"""),
+            ("""  await expect(page.getByText('filesystem paths are not exposed')).toBeVisible();""",
+             """  await expect(page.getByLabel('Library settings').getByText('Configured in gooru.yaml')).toBeVisible();"""),
+            ("""  expect(rowStyle).toEqual({ padding: '12px 14px', gap: '6px', display: 'flex' });""",
+             """  expect(rowStyle).toEqual({ padding: '14px 16px', gap: '7px', display: 'flex' });"""),
+            ("""  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(2);\n  await expect(page.locator('.upload-tags-control')).toContainText('collection:may-2026');\n  await expect(page.locator('.upload-tags-control')).toContainText('@review');""",
+             """  await expect(page.locator('.upload-tags-control .g-tag')).toHaveCount(1);\n  await expect(page.locator('.upload-tags-control')).toContainText('collection:may-2026');\n  await expect(page.locator('.upload-tags-control')).not.toContainText('@review');""")
           ]
           for old, new in replacements:
             if s.count(old) != 1:
