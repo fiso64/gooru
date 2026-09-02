@@ -12,7 +12,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"gooru.local/types"
 )
@@ -154,7 +156,7 @@ func TestServeComicReusesArchiveIndexAcrossPageNavigation(t *testing.T) {
 	}
 
 	serve("/api/v1/comics/file-id")
-	key := comicArchiveCacheKey(file)
+	key := comicArchiveCacheKey(path, info.Size(), info.ModTime().UnixNano())
 	service.comicMu.Lock()
 	first := service.comicCache[key]
 	service.comicMu.Unlock()
@@ -177,7 +179,45 @@ func TestServeComicReusesArchiveIndexAcrossPageNavigation(t *testing.T) {
 	}
 }
 
-func TestComicArchiveCacheInvalidatesWhenTrackedFileChanges(t *testing.T) {
+func TestServeComicCacheSupportsConcurrentPageRequests(t *testing.T) {
+	entries := make(map[string][]byte, 32)
+	page := tinyPNG(t, 4, 4, color.White)
+	for index := 0; index < 32; index++ {
+		entries[fmt.Sprintf("%02d.png", index)] = page
+	}
+	path := writeComic(t, entries)
+	service := NewMediaService(DefaultConfig(filepath.Join(t.TempDir(), "gooru.db")))
+	file := types.FileInfo{Path: path}
+
+	warm := httptest.NewRecorder()
+	service.ServeComic(warm, httptest.NewRequest(http.MethodGet, "/api/v1/comics/file-id", nil), file, "file-id")
+	if warm.Code != http.StatusOK {
+		t.Fatalf("manifest status = %d: %s", warm.Code, warm.Body.String())
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 32)
+	for index := 0; index < 32; index++ {
+		index := index
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			recorder := httptest.NewRecorder()
+			target := fmt.Sprintf("/api/v1/comics/file-id/%d?page=%d", index, index)
+			service.ServeComic(recorder, httptest.NewRequest(http.MethodGet, target, nil), file, "file-id")
+			if recorder.Code != http.StatusOK {
+				errs <- fmt.Errorf("%s status = %d: %s", target, recorder.Code, recorder.Body.String())
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
+}
+
+func TestComicArchiveCacheInvalidatesWhenSourceChangesBeforeTrackedMetadata(t *testing.T) {
 	page := tinyPNG(t, 2, 2, color.White)
 	path := writeComic(t, map[string][]byte{"1.png": page})
 	info, err := os.Stat(path)
@@ -185,22 +225,26 @@ func TestComicArchiveCacheInvalidatesWhenTrackedFileChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewMediaService(DefaultConfig(filepath.Join(t.TempDir(), "gooru.db")))
-	firstFile := types.FileInfo{Path: path, Size: info.Size(), ModTime: info.ModTime().UnixNano()}
-	first, releaseFirst, err := service.acquireComicArchive(firstFile)
+	tracked := types.FileInfo{Path: path, Size: info.Size(), ModTime: info.ModTime().Unix()}
+	first, releaseFirst, err := service.acquireComicArchive(tracked)
 	if err != nil {
 		t.Fatal(err)
 	}
 	releaseFirst()
 
-	changedFile := firstFile
-	changedFile.ModTime++
-	second, releaseSecond, err := service.acquireComicArchive(changedFile)
+	// Keep the database-facing FileInfo unchanged and mutate only the actual
+	// source metadata. The next request must not reuse the stale ZIP index.
+	changedTime := info.ModTime().Add(2 * time.Second)
+	if err := os.Chtimes(path, changedTime, changedTime); err != nil {
+		t.Fatal(err)
+	}
+	second, releaseSecond, err := service.acquireComicArchive(tracked)
 	if err != nil {
 		t.Fatal(err)
 	}
 	releaseSecond()
 	if first == second {
-		t.Fatal("changed tracked file metadata reused a stale comic archive")
+		t.Fatal("changed source reused a stale comic archive before tracked metadata refreshed")
 	}
 	service.comicMu.Lock()
 	cacheSize := len(service.comicCache)

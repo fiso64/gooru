@@ -83,12 +83,19 @@ func (m *MediaService) openComicArchive(path string) (*comicArchive, error) {
 	return archive, nil
 }
 
-func comicArchiveCacheKey(file types.FileInfo) string {
-	return file.Path + "\x00" + strconv.FormatInt(file.Size, 10) + "\x00" + strconv.FormatInt(file.ModTime, 10)
+func comicArchiveCacheKey(path string, size, modTimeNano int64) string {
+	return path + "\x00" + strconv.FormatInt(size, 10) + "\x00" + strconv.FormatInt(modTimeNano, 10)
 }
 
 func (m *MediaService) acquireComicArchive(file types.FileInfo) (*comicArchive, func(), error) {
-	key := comicArchiveCacheKey(file)
+	// Open the current source before consulting the cache. This makes cache
+	// invalidation follow the file actually being served rather than possibly
+	// stale database metadata, and avoids a stat/open race on cache misses.
+	source, err := m.openMediaSource(file.Path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open cbz: %w", err)
+	}
+	key := comicArchiveCacheKey(file.Path, source.size, source.modTime.UnixNano())
 
 	m.comicMu.Lock()
 	if entry := m.comicCache[key]; entry != nil {
@@ -96,12 +103,14 @@ func (m *MediaService) acquireComicArchive(file types.FileInfo) (*comicArchive, 
 		entry.refs++
 		entry.lastUsed = m.comicTick
 		m.comicMu.Unlock()
+		_ = source.Close()
 		return entry.archive, func() { m.releaseComicArchive(entry) }, nil
 	}
 	m.comicMu.Unlock()
 
-	archive, err := m.openComicArchive(file.Path)
+	archive, err := openComicArchiveReader(file.Path, source, source.size, source.Close)
 	if err != nil {
+		_ = source.Close()
 		return nil, nil, err
 	}
 	entry := &cachedComicArchive{key: key, path: file.Path, archive: archive, refs: 1}
