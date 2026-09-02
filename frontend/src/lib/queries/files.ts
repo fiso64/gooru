@@ -57,7 +57,7 @@ export function createFileCountQuery(
   getAuthScope: () => number,
   getEnabled: () => boolean = () => true
 ) {
-  return createQuery<FileListResponse, Error>(() => ({
+  return createQuery(() => ({
     queryKey: fileKeys.count(getAuthScope(), getQuery()),
     enabled: getAuthenticated() && getEnabled(),
     queryFn: ({ signal }) => new ApiClient().listFiles({
