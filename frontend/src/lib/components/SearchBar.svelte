@@ -2,6 +2,7 @@
   import Icon from './Icon.svelte';
   import { specialSearchSuggestions } from '$lib/search/specialSuggestions';
   import { parseSearchQuery, parseSearchToken, searchTokensToQuery, searchTokenToString, type SearchToken } from '$lib/search/tokens';
+  import { compareCompletionRank } from '$lib/utils/completionRanking';
   import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
@@ -142,6 +143,7 @@
           const parsed = parseTag(tag);
           return term ? parsed.value.toLowerCase().includes(term) : !parsed.ns;
         })
+        .sort((a, b) => compareCompletionRank(parseTag(a.tag).value, parseTag(b.tag).value, term, a.count, b.count))
         .slice(0, term ? 8 : 5)
         .map(({ tag, count }) => {
           const parsed = parseTag(tag);
@@ -168,6 +170,7 @@
         if (parsed.ns.toLowerCase() !== ns) return false;
         return !valFrag || parsed.value.toLowerCase().includes(valFrag);
       })
+      .sort((a, b) => compareCompletionRank(parseTag(a.tag).value, parseTag(b.tag).value, valFrag, a.count, b.count))
       .slice(0, 12)
       .map(({ tag, count }) => {
         const parsed = parseTag(tag);
