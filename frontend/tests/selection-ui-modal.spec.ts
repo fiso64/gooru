@@ -82,8 +82,8 @@ test('selection toolbar action order and labels match the owner request', async 
   const actions = page.locator('.sb-actions > button');
   await expect(actions).toHaveCount(6);
   await expect(actions.nth(0)).toHaveAccessibleName('Export');
-  await expect(actions.nth(1)).toHaveAccessibleName('Tag…');
-  await expect(actions.nth(2)).toHaveAccessibleName('Untag…');
+  await expect(actions.nth(1)).toHaveAccessibleName(/T\s+ag…/);
+  await expect(actions.nth(2)).toHaveAccessibleName(/U\s+ntag…/);
   await expect(actions.nth(3)).toHaveAccessibleName('Untrack');
   await expect(actions.nth(4)).toHaveAccessibleName('Delete');
   await expect(actions.nth(5)).toHaveAccessibleName('Clear selection');
@@ -101,6 +101,7 @@ test('selection toolbar gives Untag and Untrack distinct icons', async ({ page }
   expect(untagPath).not.toBe(deletePath);
   expect(untrackPath).not.toBe(deletePath);
   expect(untrackPath).not.toBe(untagPath);
+  expect(untrackPath).toContain('m19.5 10 2 2-2 2');
 });
 
 test('plain Enter confirms no-input removal dialogs even when Cancel owns focus', async ({ page }) => {
@@ -122,6 +123,6 @@ test('plain Enter confirms no-input removal dialogs even when Cancel owns focus'
   await page.keyboard.press('Enter');
 
   await expect.poll(() => removals.length).toBe(1);
-  expect(removals[0]).toEqual({ mode: 'untrack', ids: ['two', 'three'] });
+  expect(removals[0]).toEqual({ mode: 'untrack', query: '*', exclude_file_ids: ['one'] });
   await expect(dialog).toHaveCount(0);
 });
