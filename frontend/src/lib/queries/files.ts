@@ -41,11 +41,13 @@ export function createFilesQuery(
   getKind: () => string,
   getSort: () => FileSort,
   getOrder: () => SortOrder,
-  getAuthScope: () => number
+  getAuthScope: () => number,
+  getEnabled: () => boolean
 ) {
-  return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() =>
-    filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope)
-  );
+  return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() => ({
+    ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope),
+    enabled: getAuthenticated() && getEnabled()
+  }));
 }
 
 export function filesQueryOptions(
