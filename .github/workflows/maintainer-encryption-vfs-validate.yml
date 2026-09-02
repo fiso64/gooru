@@ -1,0 +1,93 @@
+name: Maintainer encryption VFS validation
+on:
+  push:
+    branches: [feat/28-database-encryption-vfs]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Wire encrypted store lifecycle
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/database/database.go')
+          s = p.read_text()
+          old = '''type Store struct {
+\tDB             *sql.DB
+\tdataSourceName string
+\tlogger         *log.Logger
+}'''
+          new = '''type Store struct {
+\tDB             *sql.DB
+\tdataSourceName string
+\tlogger         *log.Logger
+\tbackendClose   func() error
+}'''
+          if old not in s:
+              raise SystemExit('Store struct pattern not found')
+          s = s.replace(old, new, 1)
+          old = '[]string{dataSourceName, dataSourceName + "-wal", dataSourceName + "-shm"}'
+          new = '[]string{dataSourceName, dataSourceName + "-wal", dataSourceName + "-shm", dataSourceName + "-journal"}'
+          if old not in s:
+              raise SystemExit('SecureDBFiles pattern not found')
+          s = s.replace(old, new, 1)
+          old = '''func (s *Store) Close() error {
+\terr := s.DB.Close()
+\tif secureErr := SecureDBFiles(s.dataSourceName); err == nil {
+\t\terr = secureErr
+\t}
+\treturn err
+}'''
+          new = '''func (s *Store) Close() error {
+\tvar err error
+\tif s.backendClose != nil {
+\t\terr = s.backendClose()
+\t} else {
+\t\terr = s.DB.Close()
+\t}
+\tif secureErr := SecureDBFiles(s.dataSourceName); err == nil {
+\t\terr = secureErr
+\t}
+\treturn err
+}'''
+          if old not in s:
+              raise SystemExit('Store.Close pattern not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          go get gosqlite.org/vfs/crypto@v0.14.0
+          go mod tidy
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/database/database.go go.mod go.sum
+          git commit -m 'feat(database): wire encrypted store lifecycle'
+          git push
+      - name: Focused encryption tests
+        run: go test ./internal/database -run 'Encrypted|MigratePlaintext' -count=1 -v
+      - name: Go build
+        run: go build ./...
+      - name: Go tests
+        run: go test ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
