@@ -99,23 +99,33 @@
     }
     if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
 
+    const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+    if (rendersImage) {
+      // Foreground images should enter the browser's native loading/decoding pipeline immediately.
+      // Blocking the visible source swap on Image.decode() starves progressive presentation when
+      // key-repeat advances targets faster than full decodes can finish. Metadata preserves atomic
+      // geometry where available; the real image load reconciles natural dimensions afterward.
+      const metadataWidth = targetFile.metadata?.image_width ?? 0;
+      const metadataHeight = targetFile.metadata?.image_height ?? 0;
+      if (metadataWidth > 0 && metadataHeight > 0) {
+        intrinsicWidth = metadataWidth;
+        intrinsicHeight = metadataHeight;
+      }
+      displayedFile = targetFile;
+      displayedImageSource = targetImageSource;
+      return;
+    }
+
     const waitingTimer = setTimeout(() => {
       if (generation === transitionGeneration) waitingForTarget = true;
     }, 200);
-    const preloadSource = targetFile.media_kind === 'video' || targetFile.media_kind === 'audio'
-      ? viewerPreloadSource(targetFile)
-      : targetImageSource;
+    const preloadSource = viewerPreloadSource(targetFile);
 
     void preloadViewerMediaSource(targetFile, preloadSource)
       .catch(() => undefined)
-      .then((preloaded) => {
+      .then(() => {
         if (generation !== transitionGeneration) return;
         clearTimeout(waitingTimer);
-        const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
-        if (rendersImage && preloaded?.width && preloaded.height) {
-          intrinsicWidth = preloaded.width;
-          intrinsicHeight = preloaded.height;
-        }
         displayedFile = targetFile;
         displayedImageSource = targetImageSource;
         waitingForTarget = false;
@@ -131,8 +141,8 @@
     const nextFile = renderedFile;
     renderedImageSource;
     const rendersImage = nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
-    // Image transitions install the dimensions captured by the decoded preload before
-    // swapping sources. Non-image media still waits for its own metadata event.
+    // Image transitions install metadata dimensions before swapping sources, then the
+    // rendered image reconciles natural dimensions on load. Non-image media waits for metadata.
     if (!rendersImage) {
       intrinsicWidth = 0;
       intrinsicHeight = 0;
