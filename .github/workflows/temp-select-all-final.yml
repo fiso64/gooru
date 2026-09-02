@@ -1,0 +1,54 @@
+name: Temporary final select-all validation
+on:
+  push:
+    branches:
+      - feat/21-query-select-all
+    paths:
+      - .github/workflows/temp-select-all-final.yml
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/21-query-select-all
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Fix tag action confirmation copy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = p.read_text()
+          old = "      case 'bulk-selected':\n      case 'bulk-remove-selected': return 'Remove tags';"
+          new = "      case 'bulk-selected': return 'Add tags';\n      case 'bulk-remove-selected': return 'Remove tags';"
+          if old not in text:
+              raise SystemExit('bulk action confirmation block changed unexpectedly')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          git config user.name autonomous-maintainer
+          git config user.email autonomous-maintainer@users.noreply.github.com
+          git add frontend/src/lib/components/AuthenticatedApp.svelte
+          git commit -m "fix(selection): keep tag confirmation copy correct"
+          git push origin HEAD:feat/21-query-select-all
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Validate Go
+        run: |
+          go build ./...
+          go test ./...
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm run test:unit
+          npm run check
+          npm run build
