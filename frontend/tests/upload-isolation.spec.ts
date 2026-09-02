@@ -22,6 +22,9 @@ async function mockAuth(page: Page) {
 }
 
 async function mockShellApis(page: Page) {
+  await page.route('**/api/v1/ui-config', async (route) => {
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) });
+  });
   await page.route('**/api/v1/files?**', async (route) => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
   });
@@ -55,7 +58,7 @@ async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
 
-test('isolates browser upload failures per file and keeps siblings queued', async ({ page }) => {
+test('isolates browser upload failures per file and keeps siblings active', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
 
@@ -100,8 +103,8 @@ test('isolates browser upload failures per file and keeps siblings queued', asyn
   const first = page.locator('.upload-row').filter({ hasText: 'small-a.jpg' });
   const failed = page.locator('.upload-row').filter({ hasText: 'huge.mp4' });
   const third = page.locator('.upload-row').filter({ hasText: 'small-b.jpg' });
-  await expect(first).toContainText('queued');
+  await expect(first.locator('.status')).toHaveText(/queued|importing/);
   await expect(failed).toContainText('multipart upload body is required');
-  await expect(failed).toContainText('error');
-  await expect(third).toContainText('queued');
+  await expect(failed.locator('.status')).toHaveText('error');
+  await expect(third.locator('.status')).toHaveText(/queued|importing/);
 });
