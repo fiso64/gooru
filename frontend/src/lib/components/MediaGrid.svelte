@@ -79,7 +79,10 @@
   }
 
   function focusFirstGridItem(event: KeyboardEvent) {
-    if (event.defaultPrevented || event.key !== 'ArrowDown' || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
+    if (event.defaultPrevented || event.key !== 'ArrowDown' || hasCommandModifier(event)) return;
+    const target = event.target;
+    const fromLibrarySearch = target instanceof HTMLElement && target.classList.contains('searchbar-input');
+    if (isEditableShortcutTarget(target) && !fromLibrarySearch) return;
     if (document.activeElement instanceof HTMLElement && document.activeElement.classList.contains('thumb-open')) return;
     const first = gridHost?.querySelector<HTMLButtonElement>('.thumb-open');
     if (!first) return;
