@@ -5,7 +5,7 @@
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import type { Snippet } from 'svelte';
-  import { virtualGrid } from '$lib/state/ui';
+  import { virtualGrid, virtualGridStartRow } from '$lib/state/ui';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -75,7 +75,12 @@
   const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex));
 
   function handleScroll() {
-    paneScrollY = mainHost?.scrollTop ?? 0;
+    const nextScrollY = mainHost?.scrollTop ?? 0;
+    // The rendered file slice changes only when the overscanned virtual window
+    // crosses a row boundary. Avoid invalidating the Svelte tree for every
+    // intermediate scroll event inside the same window.
+    if (virtualGridStartRow(nextScrollY, gridTop, virtual.rowHeight) === virtualGridStartRow(paneScrollY, gridTop, virtual.rowHeight)) return;
+    paneScrollY = nextScrollY;
   }
 
   function focusFirstGridItem(event: KeyboardEvent) {

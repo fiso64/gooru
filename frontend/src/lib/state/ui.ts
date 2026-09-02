@@ -13,6 +13,7 @@ export interface VirtualGrid {
 const gridPadding = 16 * 2;
 const gridGap = 5;
 const minCardWidth = 180;
+const overscanRows = 4;
 
 export function gridColumns(containerWidth: number) {
   const innerWidth = Math.max(0, containerWidth - gridPadding);
@@ -23,6 +24,12 @@ export function gridRowHeight(containerWidth: number, columns = gridColumns(cont
   const innerWidth = Math.max(0, containerWidth - gridPadding);
   const cardWidth = columns > 0 ? (innerWidth - gridGap * (columns - 1)) / columns : minCardWidth;
   return Math.max(minCardWidth, cardWidth) + gridGap;
+}
+
+export function virtualGridStartRow(scrollY: number, gridTop: number, rowHeight: number) {
+  if (!Number.isFinite(rowHeight) || rowHeight <= 0) return 0;
+  const viewportStart = Math.max(0, scrollY - gridTop);
+  return Math.max(0, Math.floor(viewportStart / rowHeight) - overscanRows);
 }
 
 export function virtualGrid(
@@ -36,10 +43,8 @@ export function virtualGrid(
 ): VirtualGrid {
   const columns = gridColumns(containerWidth);
   const rowHeight = gridRowHeight(containerWidth, columns);
-  const overscanRows = 4;
   const totalRows = Math.ceil(Math.max(totalItems, retainedStartIndex + files.length) / columns);
-  const viewportStart = Math.max(0, scrollY - gridTop);
-  const startRow = Math.max(0, Math.floor(viewportStart / rowHeight) - overscanRows);
+  const startRow = virtualGridStartRow(scrollY, gridTop, rowHeight);
   const visibleRows = Math.ceil(viewportHeight / rowHeight) + overscanRows * 2;
   const endRow = Math.min(totalRows, startRow + visibleRows);
   const retainedEndIndex = retainedStartIndex + files.length;
