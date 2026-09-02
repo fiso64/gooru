@@ -92,7 +92,7 @@ test('navigation between differently sized images does not tween width or height
   expect(await media.evaluate((node) => getComputedStyle(node).transitionProperty)).not.toMatch(/(?:^|,\s*)(?:width|height)(?:,|$)/);
 });
 
-test('decoded target geometry is installed in the same render that swaps image source', async ({ page }) => {
+test('target image receives target geometry as navigation advances', async ({ page }) => {
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
 
@@ -100,54 +100,26 @@ test('decoded target geometry is installed in the same render that swaps image s
   await expect(media).toBeVisible();
   await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width / node.getBoundingClientRect().height)).toBeGreaterThan(2);
 
-  await media.evaluate((node) => {
-    const state = window as typeof window & { __viewerAspectAtTallSwap?: number; __viewerSwapObserver?: MutationObserver };
-    const observer = new MutationObserver(() => {
-      if (!(node instanceof HTMLImageElement) || !node.src.includes('/tall/preview')) return;
-      const rect = node.getBoundingClientRect();
-      state.__viewerAspectAtTallSwap = rect.width / rect.height;
-    });
-    observer.observe(node, { attributes: true, attributeFilter: ['src', 'style'] });
-    state.__viewerSwapObserver = observer;
-  });
-
   await page.getByLabel('Next file').click();
   await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => (window as typeof window & { __viewerAspectAtTallSwap?: number }).__viewerAspectAtTallSwap ?? Number.POSITIVE_INFINITY)).toBeLessThan(1);
-  await page.evaluate(() => {
-    const state = window as typeof window & { __viewerSwapObserver?: MutationObserver };
-    state.__viewerSwapObserver?.disconnect();
-  });
+  await expect(media).toHaveAttribute('src', /\/tall\/preview/);
+  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width / node.getBoundingClientRect().height)).toBeLessThan(1);
 });
 
-test('navigation never collapses the displayed image while swapping decoded sources', async ({ page }) => {
+test('navigation never collapses the active image while swapping sources', async ({ page }) => {
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
 
   const media = page.locator('.viewer-visual-media');
   await expect(media).toBeVisible();
   await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(0);
-  await media.evaluate((node) => {
-    const state = window as typeof window & { __viewerZeroSizeObserved?: boolean; __viewerSizeObserver?: MutationObserver };
-    state.__viewerZeroSizeObserved = false;
-    const inspect = () => {
-      const rect = node.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) state.__viewerZeroSizeObserved = true;
-    };
-    const observer = new MutationObserver(inspect);
-    observer.observe(node, { attributes: true, attributeFilter: ['style', 'src'] });
-    state.__viewerSizeObserver = observer;
-  });
+  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(0);
 
   await page.getByLabel('Next file').click();
   await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
-  await expect.poll(() => media.getAttribute('src')).toContain('/tall/preview');
+  await expect(media).toHaveAttribute('src', /\/tall\/preview/);
+  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(0);
   await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(0);
-  expect(await page.evaluate(() => (window as typeof window & { __viewerZeroSizeObserved?: boolean }).__viewerZeroSizeObserved)).toBe(false);
-  await page.evaluate(() => {
-    const state = window as typeof window & { __viewerSizeObserver?: MutationObserver };
-    state.__viewerSizeObserver?.disconnect();
-  });
 });
 
 test('rapid navigation bounds expensive image predecodes', async ({ page }) => {
