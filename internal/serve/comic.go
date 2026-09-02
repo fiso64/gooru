@@ -59,6 +59,19 @@ func openComicArchive(path string) (*comicArchive, error) {
 	return archive, nil
 }
 
+func (m *MediaService) openComicArchive(path string) (*comicArchive, error) {
+	source, err := m.openMediaSource(path)
+	if err != nil {
+		return nil, fmt.Errorf("open cbz: %w", err)
+	}
+	archive, err := openComicArchiveReader(path, source, source.size, source.Close)
+	if err != nil {
+		_ = source.Close()
+		return nil, err
+	}
+	return archive, nil
+}
+
 // openComicArchiveReader contains the archive logic independently of the
 // filesystem. The caller retains ownership of readerAt if construction fails;
 // on success comicArchive owns closeFn. Encrypted media can later provide
@@ -158,7 +171,7 @@ func numericPrefixLength(value string) int {
 }
 
 func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file types.FileInfo, publicID string) {
-	archive, err := openComicArchive(file.Path)
+	archive, err := m.openComicArchive(file.Path)
 	if errors.Is(err, errNotComicArchive) || errors.Is(err, ErrUnsupportedMedia) {
 		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media", "file is not a readable CBZ archive", nil)
 		return
@@ -213,12 +226,25 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 	_, _ = io.Copy(w, io.LimitReader(reader, maxComicPageBytes))
 }
 
+func (m *MediaService) thumbnailCBZFirstPage(src string, dst io.Writer, size int, format string) error {
+	archive, err := m.openComicArchive(src)
+	if err != nil {
+		return err
+	}
+	defer archive.Close()
+	return thumbnailComicArchiveFirstPage(archive, dst, size, format)
+}
+
 func thumbnailCBZFirstPage(src string, dst io.Writer, size int, format string) error {
 	archive, err := openComicArchive(src)
 	if err != nil {
 		return err
 	}
 	defer archive.Close()
+	return thumbnailComicArchiveFirstPage(archive, dst, size, format)
+}
+
+func thumbnailComicArchiveFirstPage(archive *comicArchive, dst io.Writer, size int, format string) error {
 	reader, _, err := archive.openPage(0)
 	if err != nil {
 		return err

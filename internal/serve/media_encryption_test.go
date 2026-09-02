@@ -27,6 +27,7 @@ func protectedMediaTestServer(t *testing.T, file types.FileInfo) *Server {
 func TestProtectedContentDisablesBrowserCaching(t *testing.T) {
 	file := writeNamedMediaFile(t, "photo.png", []byte("png"))
 	server := protectedMediaTestServer(t, types.FileInfo{ID: 91, Path: file, Hash: "protected-content", Size: 3})
+	encryptMediaFixture(t, file, server.cfg.Encryption.Key)
 	rec := httptest.NewRecorder()
 	req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(91)+"/content")
 

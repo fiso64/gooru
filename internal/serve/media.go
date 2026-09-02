@@ -78,20 +78,15 @@ func NewMediaService(cfg Config) *MediaService {
 }
 
 func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
-	f, err := os.Open(file.Path)
+	source, err := m.openMediaSource(file.Path)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "file content not found", nil)
 		return
 	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil || info.IsDir() {
-		writeError(w, http.StatusNotFound, "not_found", "file content not found", nil)
-		return
-	}
+	defer source.Close()
 	applyOriginalContentPolicy(w, file)
 	m.applyProtectedMediaCachePolicy(w)
-	http.ServeContent(w, r, filepath.Base(file.Path), info.ModTime(), f)
+	http.ServeContent(w, r, filepath.Base(file.Path), source.modTime, source)
 }
 
 func (m *MediaService) ServeDownload(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
@@ -238,7 +233,7 @@ func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err 
 
 func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
-		return thumbnailCBZFirstPage(file.Path, dst, size, format)
+		return m.thumbnailCBZFirstPage(file.Path, dst, size, format)
 	}
 	return m.thumbnailer.Thumbnail(file.Path, dst, size, format)
 }
