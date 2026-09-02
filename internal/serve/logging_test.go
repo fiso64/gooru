@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -96,7 +97,7 @@ func TestRequestLoggingMiddlewareCompletionLevels(t *testing.T) {
 			if !strings.Contains(logs, "level="+tt.wantLevel+" msg=\"http request completed\"") {
 				t.Fatalf("completion log level mismatch: %s", logs)
 			}
-			if !strings.Contains(logs, "status="+http.StatusText(tt.status)) && !strings.Contains(logs, "status="+statusString(tt.status)) {
+			if !strings.Contains(logs, "status="+strconv.Itoa(tt.status)) {
 				t.Fatalf("completion log missing status %d: %s", tt.status, logs)
 			}
 		})
@@ -112,8 +113,4 @@ func TestLoggingResponseWriterPreservesFirstStatus(t *testing.T) {
 	if writer.status != http.StatusCreated {
 		t.Fatalf("status = %d, want %d", writer.status, http.StatusCreated)
 	}
-}
-
-func statusString(status int) string {
-	return string(rune('0'+status/100)) + string(rune('0'+status/10%10)) + string(rune('0'+status%10))
 }
