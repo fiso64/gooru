@@ -10,6 +10,10 @@ describe('accentTheme', () => {
     expect(accentTheme('#3156a8')).toEqual({ accent: '#3156a8', accentInk: '#fffdf6' });
   });
 
+  it('chooses dark ink for mid-bright accents when it has stronger contrast', () => {
+    expect(accentTheme('#888800')).toEqual({ accent: '#888800', accentInk: '#241f12' });
+  });
+
   it('rejects values outside the server-supported color grammar', () => {
     expect(accentTheme('red')).toBeNull();
     expect(accentTheme('#fff')).toBeNull();
