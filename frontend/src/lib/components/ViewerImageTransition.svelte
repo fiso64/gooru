@@ -11,85 +11,132 @@
     onload?: (event: Event) => void;
   }>();
 
-  // These intentionally capture the initial props. Subsequent prop changes are
-  // reconciled by the effect below so source transitions can snapshot the last
-  // presented image before installing the next target.
-  let currentSource = $state(source);
-  let currentStyle = $state(style);
-  let currentAlt = $state(alt);
-  let outgoing = $state<{ source: string; style: string } | null>(null);
-  let releaseGeneration = 0;
+  type Slot = 0 | 1;
+
+  // Keep two stable image elements and alternate them. The currently presented
+  // element is never mutated while its replacement loads; the inactive slot loads
+  // and paints behind it, then becomes active on the next animation frame.
+  let initialized = $state(false);
+  let activeSlot = $state<Slot>(0);
+  let pendingSlot = $state<Slot | null>(null);
+  let sourceA = $state('');
+  let sourceB = $state('');
+  let styleA = $state('');
+  let styleB = $state('');
+  let altA = $state('');
+  let altB = $state('');
+  let promotionGeneration = 0;
+
+  function slotSource(slot: Slot) {
+    return slot === 0 ? sourceA : sourceB;
+  }
+
+  function setSlot(slot: Slot, nextSource: string, nextStyle: string, nextAlt: string) {
+    if (slot === 0) {
+      sourceA = nextSource;
+      styleA = nextStyle;
+      altA = nextAlt;
+    } else {
+      sourceB = nextSource;
+      styleB = nextStyle;
+      altB = nextAlt;
+    }
+  }
+
+  function updateSlotPresentation(slot: Slot, nextStyle: string, nextAlt: string) {
+    if (slot === 0) {
+      styleA = nextStyle;
+      altA = nextAlt;
+    } else {
+      styleB = nextStyle;
+      altB = nextAlt;
+    }
+  }
 
   $effect(() => {
     const nextSource = source;
     const nextStyle = style;
     const nextAlt = alt;
 
-    if (currentSource === nextSource) {
-      currentStyle = nextStyle;
-      currentAlt = nextAlt;
+    if (!initialized) {
+      setSlot(0, nextSource, nextStyle, nextAlt);
+      initialized = true;
       return;
     }
 
-    // Invalidate a pending outgoing-layer release from an older target. Rapid
-    // navigation should keep the last fully presented pixels until the newest
-    // incoming image has itself reached a painted frame.
-    releaseGeneration += 1;
-    if (!outgoing && currentSource) outgoing = { source: currentSource, style: currentStyle };
-    currentSource = nextSource;
-    currentStyle = nextStyle;
-    currentAlt = nextAlt;
+    const activeSource = slotSource(activeSlot);
+    if (nextSource === activeSource && pendingSlot == null) {
+      updateSlotPresentation(activeSlot, nextStyle, nextAlt);
+      return;
+    }
+
+    if (pendingSlot != null && nextSource === slotSource(pendingSlot)) {
+      updateSlotPresentation(pendingSlot, nextStyle, nextAlt);
+      return;
+    }
+
+    // Rapid navigation reuses the inactive slot for the newest target while the
+    // active, already-painted slot stays untouched.
+    promotionGeneration += 1;
+    const targetSlot: Slot = activeSlot === 0 ? 1 : 0;
+    setSlot(targetSlot, nextSource, nextStyle, nextAlt);
+    pendingSlot = targetSlot;
   });
 
-  function handleLoad(event: Event) {
+  function handleLoad(slot: Slot, event: Event) {
     const image = event.currentTarget;
-    const loadedSource = image instanceof HTMLImageElement ? image.getAttribute('src') : null;
-    onload?.(event);
+    if (!(image instanceof HTMLImageElement)) return;
+    const loadedSource = image.getAttribute('src') ?? '';
 
-    // `load` means the image data is available, but it can fire before the browser
-    // has presented those pixels. Removing the backing layer synchronously can
-    // therefore expose a blank frame. Keep it through one paint and release it on
-    // the following frame; stale callbacks are ignored if navigation moved again.
-    const generation = ++releaseGeneration;
+    // The first slot is already the presented image; its load only synchronizes
+    // intrinsic geometry. Later loads promote only the newest requested source.
+    if (pendingSlot == null) {
+      if (slot === activeSlot && loadedSource === source) onload?.(event);
+      return;
+    }
+    if (slot !== pendingSlot || loadedSource !== source || loadedSource !== slotSource(slot)) return;
+
+    onload?.(event);
+    const generation = ++promotionGeneration;
     requestAnimationFrame(() => {
-      if (generation !== releaseGeneration || loadedSource !== currentSource) return;
-      requestAnimationFrame(() => {
-        if (generation !== releaseGeneration || loadedSource !== currentSource) return;
-        outgoing = null;
-      });
+      if (generation !== promotionGeneration || pendingSlot !== slot || source !== loadedSource) return;
+      activeSlot = slot;
+      pendingSlot = null;
     });
   }
 </script>
 
-{#if outgoing}
+{#if sourceA}
   <img
-    class="viewer-outgoing-media"
-    style={outgoing.style}
-    src={outgoing.source}
-    alt=""
-    aria-hidden="true"
+    class="viewer-image-slot"
+    class:viewer-visual-media={activeSlot === 0}
+    class:viewer-incoming-media={activeSlot === 0}
+    class:viewer-buffer-media={activeSlot !== 0}
+    style={`${styleA};z-index:${activeSlot === 0 ? 1 : 0}`}
+    src={sourceA}
+    alt={activeSlot === 0 ? altA : ''}
+    aria-hidden={activeSlot === 0 ? undefined : 'true'}
+    onload={(event) => handleLoad(0, event)}
   />
 {/if}
 
-{#key currentSource}
+{#if sourceB}
   <img
-    class="viewer-visual-media viewer-incoming-media"
-    style={currentStyle}
-    src={currentSource}
-    alt={currentAlt}
-    onload={handleLoad}
+    class="viewer-image-slot"
+    class:viewer-visual-media={activeSlot === 1}
+    class:viewer-incoming-media={activeSlot === 1}
+    class:viewer-buffer-media={activeSlot !== 1}
+    style={`${styleB};z-index:${activeSlot === 1 ? 1 : 0}`}
+    src={sourceB}
+    alt={activeSlot === 1 ? altB : ''}
+    aria-hidden={activeSlot === 1 ? undefined : 'true'}
+    onload={(event) => handleLoad(1, event)}
   />
-{/key}
+{/if}
 
 <style>
-  :global(.viewer-stage .viewer-outgoing-media) {
-    z-index: 0;
+  :global(.viewer-stage .viewer-image-slot) {
     object-fit: contain;
     pointer-events: none;
-    transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
-  }
-
-  :global(.viewer-stage .viewer-incoming-media) {
-    z-index: 1;
   }
 </style>
