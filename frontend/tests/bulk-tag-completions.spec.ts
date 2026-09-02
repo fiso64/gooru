@@ -88,7 +88,7 @@ test('Tag selected exposes existing tag completions without covering dialog acti
 test('Untag selected exposes existing tag completions', async ({ page }) => {
   await openSelectedLibrary(page);
 
-  await page.getByRole('button', { name: 'Untag…' }).click();
+  await page.locator('.sb-actions button').filter({ hasText: 'Untag…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Untag selected files' });
   await dialog.getByLabel('Tags').fill('bl');
   const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
