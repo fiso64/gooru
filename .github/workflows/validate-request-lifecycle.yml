@@ -41,3 +41,4 @@ jobs:
       - name: Request lifecycle regression
         working-directory: frontend
         run: npx playwright test tests/jobs-polling.spec.ts --project=chromium
+      # Keep this branch-local workflow disposable; remove it after validation.
