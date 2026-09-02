@@ -75,15 +75,15 @@ test('empty viewer tag field uses Left and Right to leave the editor and navigat
 
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('dialog', { name: 'three.jpg' })).toBeVisible();
-  await expect(twoTags).not.toBeFocused();
-
   const threeTags = page.getByLabel('Tags for three.jpg');
+  await expect(threeTags).not.toBeFocused();
+
   await threeTags.focus();
   await expect(threeTags).toBeFocused();
   await page.keyboard.press('ArrowLeft');
 
   await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
-  await expect(threeTags).not.toBeFocused();
+  await expect(page.getByLabel('Tags for two.jpg')).not.toBeFocused();
 });
 
 test('non-empty viewer tag field keeps Left and Right for caret movement', async ({ page }) => {
