@@ -1,0 +1,42 @@
+name: Temporary CBZ viewer validation
+on:
+  push:
+    branches:
+      - feat/22-cbz-viewer
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Go build
+        run: go build ./...
+      - name: Go tests
+        run: go test ./...
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci
+      - name: Regenerate API client
+        working-directory: frontend
+        run: npm run generate:api
+      - name: Verify generated API is committed
+        run: git diff --exit-code -- frontend/src/lib/api/openapi.ts
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Frontend checks
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
