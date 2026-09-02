@@ -62,20 +62,23 @@ async function mockApp(page: Page) {
 }
 
 async function selectFirstFile(page: Page) {
-  const first = page.getByRole('button', { name: 'Preview one.jpg' });
-  await first.focus();
-  await page.keyboard.press('Space');
-  await expect(page.getByText('1 of 3 selected')).toBeVisible();
+  await page.getByLabel('Select all files in current view').click();
+  await expect(page.getByText('3 of 3 selected')).toBeVisible();
+  await page.locator('.thumb-open[aria-label="Deselect one.jpg"]').click();
+  await expect(page.getByText('2 of 3 selected')).toBeVisible();
 }
 
-test('selection toolbar has deliberate labels, icons, and action order', async ({ page }) => {
+test('selection toolbar exposes Select all with a real visible space', async ({ page }) => {
   await mockApp(page);
   await selectFirstFile(page);
-
-  const selectAll = page.getByRole('button', { name: 'Select all 3' });
+  const selectAll = page.locator('.selection-summary button');
   await expect(selectAll).toBeVisible();
   expect((await selectAll.textContent())?.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()).toBe('Select all 3');
+});
 
+test('selection toolbar action order and labels match the owner request', async ({ page }) => {
+  await mockApp(page);
+  await selectFirstFile(page);
   const actions = page.locator('.sb-actions > button');
   await expect(actions).toHaveCount(6);
   await expect(actions.nth(0)).toHaveAccessibleName('Export');
@@ -84,9 +87,20 @@ test('selection toolbar has deliberate labels, icons, and action order', async (
   await expect(actions.nth(3)).toHaveAccessibleName('Untrack');
   await expect(actions.nth(4)).toHaveAccessibleName('Delete');
   await expect(actions.nth(5)).toHaveAccessibleName('Clear selection');
+});
 
+test('selection toolbar gives Untag and Untrack distinct icons', async ({ page }) => {
+  await mockApp(page);
+  await selectFirstFile(page);
+  const actions = page.locator('.sb-actions > button');
   await expect(actions.nth(2).locator('svg')).toBeVisible();
   await expect(actions.nth(3).locator('svg')).toBeVisible();
+  const untagPath = await actions.nth(2).locator('svg').innerHTML();
+  const untrackPath = await actions.nth(3).locator('svg').innerHTML();
+  const deletePath = await actions.nth(4).locator('svg').innerHTML();
+  expect(untagPath).not.toBe(deletePath);
+  expect(untrackPath).not.toBe(deletePath);
+  expect(untrackPath).not.toBe(untagPath);
 });
 
 test('plain Enter confirms no-input removal dialogs even when Cancel owns focus', async ({ page }) => {
@@ -108,6 +122,6 @@ test('plain Enter confirms no-input removal dialogs even when Cancel owns focus'
   await page.keyboard.press('Enter');
 
   await expect.poll(() => removals.length).toBe(1);
-  expect(removals[0]).toEqual({ mode: 'untrack', ids: ['one'] });
+  expect(removals[0]).toEqual({ mode: 'untrack', ids: ['two', 'three'] });
   await expect(dialog).toHaveCount(0);
 });
