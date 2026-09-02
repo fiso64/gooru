@@ -43,6 +43,8 @@
   let videoPaused = $state(true);
   let videoTime = $state(0);
   let videoLength = $state(0);
+  let playbackControlsIdle = $state(false);
+  let playbackControlsTimer: ReturnType<typeof setTimeout> | undefined;
 
   const renderedFile = $derived(displayedFile ?? file);
   const renderedImageSource = $derived(displayedFile ? displayedImageSource : imageSource);
@@ -80,6 +82,7 @@
     return () => {
       observer.disconnect();
       document.removeEventListener('fullscreenchange', syncFullscreen);
+      if (playbackControlsTimer) clearTimeout(playbackControlsTimer);
     };
   });
 
@@ -133,6 +136,12 @@
     videoPaused = true;
     videoTime = 0;
     videoLength = 0;
+    if (nextFile.media_kind === 'video') showPlaybackControls();
+    else if (playbackControlsTimer) {
+      clearTimeout(playbackControlsTimer);
+      playbackControlsTimer = undefined;
+      playbackControlsIdle = false;
+    }
   });
 
   function syncImage(event: Event) {
@@ -154,9 +163,20 @@
     videoLength = Number.isFinite(video.duration) ? video.duration : 0;
   }
 
+  function showPlaybackControls() {
+    if (renderedFile.media_kind !== 'video') return;
+    playbackControlsIdle = false;
+    if (playbackControlsTimer) clearTimeout(playbackControlsTimer);
+    playbackControlsTimer = setTimeout(() => {
+      playbackControlsIdle = true;
+      playbackControlsTimer = undefined;
+    }, 2000);
+  }
+
   async function togglePlayback() {
     const media = videoElement ?? audioElement;
     if (!media) return;
+    showPlaybackControls();
     if (media.paused) await media.play();
     else media.pause();
   }
@@ -187,6 +207,7 @@
 
   function handleViewerKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
+    showPlaybackControls();
     const target = event.target;
     const targetInsideStage = target instanceof Node && Boolean(stageElement?.contains(target));
     if (targetInsideStage && isInteractiveShortcutTarget(target)) return;
@@ -288,7 +309,7 @@
 
 <svelte:window onkeydown={handleViewerKeydown} />
 
-<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget}>
+<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={showPlaybackControls}>
   {#if renderedFile.media_kind === 'video'}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
@@ -308,7 +329,7 @@
       onended={syncVideo}
     ></video>
 
-    <div class="lightbox-video-controls">
+    <div class="lightbox-video-controls" class:is-idle={playbackControlsIdle} onpointerenter={showPlaybackControls} onfocusin={showPlaybackControls}>
       <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}>
         <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
       </button>

@@ -103,19 +103,33 @@ for (const kind of ['video', 'audio'] as const) {
   });
 }
 
-test('video seekbar fades out until hover or keyboard focus', async ({ page }) => {
+test('complete video control panel fades after idle and returns on interaction', async ({ page }) => {
   await mockApp(page, 'video');
   await makeMediaControllable(page, 'video');
+  const stage = page.locator('.viewer-stage');
+  const controls = page.locator('.lightbox-video-controls');
   const seekbar = page.getByRole('button', { name: 'Seek video' });
 
-  await expect.poll(() => seekbar.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('0');
-
-  await seekbar.hover();
+  await expect(controls.getByRole('button', { name: 'Pause video' })).toBeVisible();
+  await expect(controls.locator('.video-time')).toHaveCount(2);
+  await expect(seekbar).toBeVisible();
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
   await expect.poll(() => seekbar.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('1');
 
-  await page.locator('.viewer-stage').hover({ position: { x: 20, y: 20 } });
-  await expect.poll(() => seekbar.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('0');
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity), { timeout: 3500 }).toBe('0');
+
+  const box = await stage.boundingBox();
+  if (!box) throw new Error('viewer stage has no bounding box');
+  await page.mouse.move(box.x + 30, box.y + 30);
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
 
   await seekbar.focus();
-  await expect.poll(() => seekbar.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('1');
+  await page.waitForTimeout(2200);
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+
+  await stage.focus();
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity), { timeout: 3500 }).toBe('0');
+
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
 });

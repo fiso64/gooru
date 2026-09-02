@@ -13,8 +13,6 @@
   transform: translateY(-50%);
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.15);
-  opacity: 0;
-  transition: opacity 160ms ease;
 }
 
 .video-progress span {
@@ -25,15 +23,14 @@
   transform: translateY(-50%);
   border-radius: 3px;
   background: var(--accent);
-  opacity: 0;
+}
+
+.lightbox-video-controls {
   transition: opacity 160ms ease;
 }
 
-.video-progress:hover::before,
-.video-progress:hover span,
-.video-progress:focus::before,
-.video-progress:focus span {
-  opacity: 1;
+.lightbox-video-controls.is-idle:not(:hover):not(:focus-within) {
+  opacity: 0;
 }
 
 /* Keep rotation/fade transitions, but do not tween media dimensions between files. */
