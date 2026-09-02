@@ -29,6 +29,10 @@ function fileItem(id: string, name: string) {
 
 async function mockApp(page: Page) {
   let loggedIn = false;
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({})
+  }));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
     contentType: 'application/json',
@@ -59,30 +63,35 @@ async function mockApp(page: Page) {
   }));
 }
 
-async function signIn(page: Page) {
+async function openSelectedLibrary(page: Page) {
+  await mockApp(page);
+  await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
 }
 
-test('bulk Tag and Untag dialogs expose existing tag completions', async ({ page }) => {
-  await mockApp(page);
-  await page.goto('/');
-  await signIn(page);
-  await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
+test('Tag selected exposes existing tag completions without covering dialog actions', async ({ page }) => {
+  await openSelectedLibrary(page);
 
   await page.getByRole('button', { name: 'Tag…' }).click();
-  const tagDialog = page.getByRole('dialog', { name: 'Tag selected files' });
-  await tagDialog.getByLabel('Tags').fill('rat');
-  const tagSuggestions = tagDialog.getByRole('listbox', { name: 'Tags suggestions' });
-  await expect(tagSuggestions).toBeVisible();
-  await expect(tagSuggestions.getByRole('option', { name: /rating:safe/ })).toBeVisible();
-  await tagDialog.getByRole('button', { name: 'Cancel' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
+  await dialog.getByLabel('Tags').fill('rat');
+  const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
+  await expect(suggestions).toBeVisible();
+  await expect(suggestions.getByRole('option', { name: /rating:safe/ })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toBeHidden();
+});
+
+test('Untag selected exposes existing tag completions', async ({ page }) => {
+  await openSelectedLibrary(page);
 
   await page.getByRole('button', { name: 'Untag…' }).click();
-  const untagDialog = page.getByRole('dialog', { name: 'Untag selected files' });
-  await untagDialog.getByLabel('Tags').fill('bl');
-  const untagSuggestions = untagDialog.getByRole('listbox', { name: 'Tags suggestions' });
-  await expect(untagSuggestions).toBeVisible();
-  await expect(untagSuggestions.getByRole('option', { name: /blue/ })).toBeVisible();
+  const dialog = page.getByRole('dialog', { name: 'Untag selected files' });
+  await dialog.getByLabel('Tags').fill('bl');
+  const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
+  await expect(suggestions).toBeVisible();
+  await expect(suggestions.getByRole('option', { name: /blue/ })).toBeVisible();
 });
