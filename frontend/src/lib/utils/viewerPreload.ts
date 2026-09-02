@@ -2,8 +2,13 @@ import { viewerImageSource, type ViewerMedia } from './media';
 
 export type PreloadableViewerMedia = ViewerMedia & { id: string };
 
+export type ViewerPreloadResult = {
+  width?: number;
+  height?: number;
+};
+
 type PreloadEntry = {
-  promise: Promise<void>;
+  promise: Promise<ViewerPreloadResult>;
   dispose: () => void;
 };
 
@@ -17,7 +22,7 @@ export function viewerPreloadSource(file: PreloadableViewerMedia): string {
   return viewerImageSource(file, false);
 }
 
-function remember(key: string, entry: PreloadEntry): Promise<void> {
+function remember(key: string, entry: PreloadEntry): Promise<ViewerPreloadResult> {
   preloadCache.set(key, entry);
   while (preloadCache.size > maxCachedPreloads) {
     const oldest = preloadCache.keys().next().value as string | undefined;
@@ -31,10 +36,13 @@ function remember(key: string, entry: PreloadEntry): Promise<void> {
 
 function preloadImage(source: string): PreloadEntry {
   const image = new Image();
-  const promise = new Promise<void>((resolve, reject) => {
+  const promise = new Promise<ViewerPreloadResult>((resolve, reject) => {
     image.onload = () => {
       const decoded = typeof image.decode === 'function' ? image.decode() : Promise.resolve();
-      decoded.then(resolve, resolve);
+      decoded.then(
+        () => resolve({ width: image.naturalWidth, height: image.naturalHeight }),
+        () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+      );
     };
     image.onerror = () => reject(new Error(`Unable to preload image ${source}`));
     image.src = source;
@@ -51,11 +59,11 @@ function preloadImage(source: string): PreloadEntry {
 
 function preloadMedia(source: string, kind: 'video' | 'audio'): PreloadEntry {
   const media = document.createElement(kind);
-  const promise = new Promise<void>((resolve, reject) => {
+  const promise = new Promise<ViewerPreloadResult>((resolve, reject) => {
     const loaded = () => {
       media.removeEventListener('loadeddata', loaded);
       media.removeEventListener('error', failed);
-      resolve();
+      resolve({});
     };
     const failed = () => {
       media.removeEventListener('loadeddata', loaded);
@@ -77,8 +85,8 @@ function preloadMedia(source: string, kind: 'video' | 'audio'): PreloadEntry {
   };
 }
 
-export function preloadViewerMediaSource(file: PreloadableViewerMedia, source: string): Promise<void> {
-  if (typeof window === 'undefined' || !source) return Promise.resolve();
+export function preloadViewerMediaSource(file: PreloadableViewerMedia, source: string): Promise<ViewerPreloadResult> {
+  if (typeof window === 'undefined' || !source) return Promise.resolve({});
   const key = `${file.id}|${source}`;
   const cached = preloadCache.get(key);
   if (cached) return cached.promise;
@@ -96,7 +104,7 @@ export function preloadViewerMediaSource(file: PreloadableViewerMedia, source: s
   return remember(key, entry);
 }
 
-export function preloadViewerMedia(file: PreloadableViewerMedia): Promise<void> {
+export function preloadViewerMedia(file: PreloadableViewerMedia): Promise<ViewerPreloadResult> {
   return preloadViewerMediaSource(file, viewerPreloadSource(file));
 }
 

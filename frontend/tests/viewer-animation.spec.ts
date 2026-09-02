@@ -85,6 +85,34 @@ test('navigation between differently sized images does not tween width or height
   expect(await media.evaluate((node) => getComputedStyle(node).transitionProperty)).not.toMatch(/(?:^|,\s*)(?:width|height)(?:,|$)/);
 });
 
+test('decoded target geometry is installed in the same render that swaps image source', async ({ page }) => {
+  await mockApp(page);
+  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
+
+  const media = page.locator('.viewer-visual-media');
+  await expect(media).toBeVisible();
+  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width / node.getBoundingClientRect().height)).toBeGreaterThan(2);
+
+  await media.evaluate((node) => {
+    const state = window as typeof window & { __viewerAspectAtTallSwap?: number; __viewerSwapObserver?: MutationObserver };
+    const observer = new MutationObserver(() => {
+      if (!(node instanceof HTMLImageElement) || !node.src.includes('/tall/preview')) return;
+      const rect = node.getBoundingClientRect();
+      state.__viewerAspectAtTallSwap = rect.width / rect.height;
+    });
+    observer.observe(node, { attributes: true, attributeFilter: ['src', 'style'] });
+    state.__viewerSwapObserver = observer;
+  });
+
+  await page.getByLabel('Next file').click();
+  await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __viewerAspectAtTallSwap?: number }).__viewerAspectAtTallSwap ?? Number.POSITIVE_INFINITY)).toBeLessThan(1);
+  await page.evaluate(() => {
+    const state = window as typeof window & { __viewerSwapObserver?: MutationObserver };
+    state.__viewerSwapObserver?.disconnect();
+  });
+});
+
 test('navigation never collapses the displayed image while swapping decoded sources', async ({ page }) => {
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
