@@ -155,7 +155,12 @@ func authHTTPStatus(err error) (int, string) {
 
 func requestSizeMiddleware(limit int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		// Uploads have their own per-file limit and stream large bodies to disk.
+		// Applying the generic API-body cap here makes large media impossible
+		// even when uploads.max_file_size_bytes is intentionally left unset.
+		if r.URL.Path != "/api/v1/uploads" {
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+		}
 		next.ServeHTTP(w, r)
 	})
 }
