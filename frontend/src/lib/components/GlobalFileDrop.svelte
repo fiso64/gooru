@@ -1,8 +1,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { hasDraggedFiles } from '$lib/utils/fileDrop';
+  import { clipboardMediaFiles, hasDraggedFiles } from '$lib/utils/fileDrop';
 
-  let { onFiles } = $props<{ onFiles: (files: FileList) => void }>();
+  let { onFiles } = $props<{ onFiles: (files: FileList | File[]) => void }>();
 
   let dragDepth = $state(0);
   const active = $derived(dragDepth > 0);
@@ -45,6 +45,16 @@
     const files = event.dataTransfer?.files;
     if (files?.length) onFiles(files);
   }
+
+  function handlePaste(event: ClipboardEvent) {
+    const files = clipboardMediaFiles(event.clipboardData);
+    if (!files.length) return;
+
+    // Only consume the paste when the clipboard actually contains media files.
+    // Plain text and other clipboard data continue to the focused control.
+    event.preventDefault();
+    onFiles(files);
+  }
 </script>
 
 <svelte:window
@@ -52,6 +62,7 @@
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
+  onpaste={handlePaste}
 />
 
 {#if active}
