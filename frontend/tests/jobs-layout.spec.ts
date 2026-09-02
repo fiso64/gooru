@@ -33,7 +33,7 @@ test('jobs view stays compact and left-aligns row content', async ({ page }) => 
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('button', { name: 'Jobs' }).click();
+  await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
 
   const pageBox = await page.locator('.jobs-page').boundingBox();
