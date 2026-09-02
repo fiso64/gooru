@@ -126,6 +126,32 @@ func TestCBZUploadCanProgressLongerThanReadTimeout(t *testing.T) {
 	}
 }
 
+func TestCBZUploadIsNotCappedByGenericAPIRequestLimit(t *testing.T) {
+	uploadDir := t.TempDir()
+	library := &recordingUploadLibrary{}
+	server := newUploadTestServer(t, uploadDir, true, library)
+	server.cfg.Server.MaxRequestBodyBytes = 512
+
+	page := tinyPNG(t, 3, 2, color.White)
+	comicPath := writeComic(t, map[string][]byte{
+		"pages/1.png": page,
+		"padding.bin": deterministicNoise(8 << 10),
+	})
+	comic := mustReadFile(t, comicPath)
+	if len(comic) <= int(server.cfg.Server.MaxRequestBodyBytes) {
+		t.Fatalf("test archive is only %d bytes; need more than generic limit", len(comic))
+	}
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"book.cbz": comic}, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(library.files) != 1 || filepath.Base(library.files[0].Path) != "book.cbz" {
+		t.Fatalf("comic upload did not reach importer: %+v", library.files)
+	}
+}
+
 type pacedReader struct {
 	reader *bytes.Reader
 	chunk  int
