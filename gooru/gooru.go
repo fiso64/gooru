@@ -20,6 +20,14 @@ var (
 	ErrDBVersionMismatch = errors.New("database version mismatch: the application version is incompatible with the database file")
 )
 
+// DatabaseOpenOptions controls how an existing Gooru database is opened.
+// Encryption remains opt-in; plaintext migration only occurs when explicitly
+// requested by a caller that has already resolved protected-mode configuration.
+type DatabaseOpenOptions struct {
+	EncryptionKey    []byte
+	MigratePlaintext bool
+}
+
 // Init creates and initializes a new Gooru database with a chosen hashing strategy.
 // It will overwrite an existing file, so the caller is responsible for any checks.
 func Init(dbPath string, strategy types.HashingStrategy, verbose bool) error {
@@ -63,12 +71,16 @@ type Client struct {
 	hasher *hashing.Hasher
 }
 
-// New creates a new Client and initializes the database connection.
-// It will return ErrDBUninitialized if the database has not been created with `gooru init`.
-// It also runs any pending database migrations automatically.
-// The caller is responsible for calling Close() on the returned client.
+// New creates a new Client using the ordinary plaintext database path.
 func New(dbPath string, verbose bool) (*Client, error) {
-	store, err := database.NewStore(dbPath, verbose)
+	return NewWithDatabaseOptions(dbPath, verbose, DatabaseOpenOptions{})
+}
+
+// NewWithDatabaseOptions creates a Client using the selected database storage
+// policy. Encrypted mode may explicitly migrate an existing plaintext database
+// before opening it; wrong-key/unknown encrypted files are never remigrated.
+func NewWithDatabaseOptions(dbPath string, verbose bool, options DatabaseOpenOptions) (*Client, error) {
+	store, err := openDatabaseStore(dbPath, verbose, options)
 	if err != nil {
 		// This can happen if the file doesn't exist.
 		if os.IsNotExist(err) {
@@ -121,6 +133,24 @@ func New(dbPath string, verbose bool) (*Client, error) {
 	}
 
 	return &Client{store: store, hasher: hasher}, nil
+}
+
+func openDatabaseStore(dbPath string, verbose bool, options DatabaseOpenOptions) (*database.Store, error) {
+	if len(options.EncryptionKey) == 0 {
+		return database.NewStore(dbPath, verbose)
+	}
+	if options.MigratePlaintext {
+		plain, err := database.IsPlaintextDatabase(dbPath)
+		if err != nil {
+			return nil, err
+		}
+		if plain {
+			if err := database.MigratePlaintextDatabase(dbPath, options.EncryptionKey); err != nil {
+				return nil, fmt.Errorf("migrate database to encrypted storage: %w", err)
+			}
+		}
+	}
+	return database.NewEncryptedStore(dbPath, verbose, options.EncryptionKey)
 }
 
 // Close closes the underlying database connection.
