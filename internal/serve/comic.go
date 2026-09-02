@@ -147,7 +147,7 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 			pages = append(pages, comicPage{
 				Index: index,
 				Name:  filepath.Base(page.Name),
-				URL:   "/api/v1/files/" + publicID + "/comic?page=" + strconv.Itoa(index),
+				URL:   "/api/v1/comics/" + publicID + "/" + strconv.Itoa(index),
 			})
 		}
 		w.Header().Set("Content-Type", "application/json")
