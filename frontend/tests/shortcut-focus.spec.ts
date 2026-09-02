@@ -128,8 +128,9 @@ test('Delete and Shift+Delete remove a query-wide selection through confirmation
   await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
 
   await page.keyboard.press('Delete');
-  await expect(page.getByRole('dialog', { name: 'Untrack selected files' })).toBeVisible();
-  await page.getByRole('button', { name: 'Untrack', exact: true }).click();
+  const untrackDialog = page.getByRole('dialog', { name: 'Untrack selected files' });
+  await expect(untrackDialog).toBeVisible();
+  await untrackDialog.getByRole('button', { name: 'Untrack', exact: true }).click();
   await expect.poll(() => removals.length).toBe(1);
   expect(removals[0]).toEqual({ mode: 'untrack', query: '*' });
   await expect(page.getByText('3 of 3 selected')).toHaveCount(0);
@@ -167,6 +168,7 @@ test('pointer viewer controls return focus to the stage so shortcuts remain glob
   await page.keyboard.press('Space');
   await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
 
+  await page.locator('.viewer-stage').hover();
   await page.getByLabel('Rotate right').click();
   await expect(page.locator('.viewer-stage')).toBeFocused();
   await page.keyboard.press('r');
