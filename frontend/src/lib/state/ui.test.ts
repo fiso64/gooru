@@ -6,7 +6,8 @@ describe('virtual grid scrolling', () => {
     const rowHeight = gridRowHeight(960);
     expect(virtualGridStartRow(0, 120, rowHeight)).toBe(0);
     expect(virtualGridStartRow(120 + rowHeight * 4.9, 120, rowHeight)).toBe(0);
-    expect(virtualGridStartRow(120 + rowHeight * 5.1, 120, rowHeight)).toBe(1);
+    expect(virtualGridStartRow(120 + rowHeight * 5.1, 120, rowHeight)).toBe(0);
+    expect(virtualGridStartRow(120 + rowHeight * 7.1, 120, rowHeight)).toBe(3);
   });
 
   it('changes the rendered slice only when the virtual start row changes', () => {

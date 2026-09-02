@@ -14,6 +14,7 @@ const gridPadding = 16 * 2;
 const gridGap = 5;
 const minCardWidth = 180;
 const overscanRows = 4;
+const virtualWindowStrideRows = 3;
 
 export function gridColumns(containerWidth: number) {
   const innerWidth = Math.max(0, containerWidth - gridPadding);
@@ -29,7 +30,8 @@ export function gridRowHeight(containerWidth: number, columns = gridColumns(cont
 export function virtualGridStartRow(scrollY: number, gridTop: number, rowHeight: number) {
   if (!Number.isFinite(rowHeight) || rowHeight <= 0) return 0;
   const viewportStart = Math.max(0, scrollY - gridTop);
-  return Math.max(0, Math.floor(viewportStart / rowHeight) - overscanRows);
+  const overscannedStart = Math.max(0, Math.floor(viewportStart / rowHeight) - overscanRows);
+  return Math.floor(overscannedStart / virtualWindowStrideRows) * virtualWindowStrideRows;
 }
 
 export function virtualGrid(
@@ -45,7 +47,9 @@ export function virtualGrid(
   const rowHeight = gridRowHeight(containerWidth, columns);
   const totalRows = Math.ceil(Math.max(totalItems, retainedStartIndex + files.length) / columns);
   const startRow = virtualGridStartRow(scrollY, gridTop, rowHeight);
-  const visibleRows = Math.ceil(viewportHeight / rowHeight) + overscanRows * 2;
+  // Keep enough trailing rows for the window to stay mounted while its
+  // chunked start lags the viewport by up to stride - 1 rows.
+  const visibleRows = Math.ceil(viewportHeight / rowHeight) + overscanRows * 2 + virtualWindowStrideRows - 1;
   const endRow = Math.min(totalRows, startRow + visibleRows);
   const retainedEndIndex = retainedStartIndex + files.length;
   const globalStartIndex = startRow * columns;
