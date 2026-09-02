@@ -2,7 +2,12 @@ import { viewerImageSource, type ViewerMedia } from './media';
 
 export type PreloadableViewerMedia = ViewerMedia & { id: string };
 
-const preloadCache = new Map<string, Promise<void>>();
+type PreloadEntry = {
+  promise: Promise<void>;
+  dispose: () => void;
+};
+
+const preloadCache = new Map<string, PreloadEntry>();
 const maxCachedPreloads = 6;
 
 export function viewerPreloadSource(file: PreloadableViewerMedia): string {
@@ -12,19 +17,21 @@ export function viewerPreloadSource(file: PreloadableViewerMedia): string {
   return viewerImageSource(file, false);
 }
 
-function remember(key: string, promise: Promise<void>): Promise<void> {
-  preloadCache.set(key, promise);
+function remember(key: string, entry: PreloadEntry): Promise<void> {
+  preloadCache.set(key, entry);
   while (preloadCache.size > maxCachedPreloads) {
     const oldest = preloadCache.keys().next().value as string | undefined;
     if (oldest == null) break;
+    const evicted = preloadCache.get(oldest);
     preloadCache.delete(oldest);
+    evicted?.dispose();
   }
-  return promise;
+  return entry.promise;
 }
 
-function preloadImage(source: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
+function preloadImage(source: string): PreloadEntry {
+  const image = new Image();
+  const promise = new Promise<void>((resolve, reject) => {
     image.onload = () => {
       const decoded = typeof image.decode === 'function' ? image.decode() : Promise.resolve();
       decoded.then(resolve, resolve);
@@ -32,23 +39,27 @@ function preloadImage(source: string): Promise<void> {
     image.onerror = () => reject(new Error(`Unable to preload image ${source}`));
     image.src = source;
   });
+  return {
+    promise,
+    dispose: () => {
+      image.onload = null;
+      image.onerror = null;
+      image.src = '';
+    }
+  };
 }
 
-function preloadMedia(source: string, kind: 'video' | 'audio'): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const media = document.createElement(kind);
-    const cleanup = () => {
+function preloadMedia(source: string, kind: 'video' | 'audio'): PreloadEntry {
+  const media = document.createElement(kind);
+  const promise = new Promise<void>((resolve, reject) => {
+    const loaded = () => {
       media.removeEventListener('loadeddata', loaded);
       media.removeEventListener('error', failed);
-      media.removeAttribute('src');
-      media.load();
-    };
-    const loaded = () => {
-      cleanup();
       resolve();
     };
     const failed = () => {
-      cleanup();
+      media.removeEventListener('loadeddata', loaded);
+      media.removeEventListener('error', failed);
       reject(new Error(`Unable to preload ${kind} ${source}`));
     };
     media.preload = 'auto';
@@ -57,22 +68,32 @@ function preloadMedia(source: string, kind: 'video' | 'audio'): Promise<void> {
     media.src = source;
     media.load();
   });
+  return {
+    promise,
+    dispose: () => {
+      media.removeAttribute('src');
+      media.load();
+    }
+  };
 }
 
 export function preloadViewerMediaSource(file: PreloadableViewerMedia, source: string): Promise<void> {
   if (typeof window === 'undefined' || !source) return Promise.resolve();
   const key = `${file.id}|${source}`;
   const cached = preloadCache.get(key);
-  if (cached) return cached;
+  if (cached) return cached.promise;
 
   const kind = file.media_kind === 'video'
     ? 'video'
     : (file.media_kind === 'audio' || file.media_type.startsWith('audio/') ? 'audio' : 'image');
-  const promise = kind === 'image' ? preloadImage(source) : preloadMedia(source, kind);
-  return remember(key, promise.catch((error) => {
-    preloadCache.delete(key);
+  const entry = kind === 'image' ? preloadImage(source) : preloadMedia(source, kind);
+  entry.promise = entry.promise.catch((error) => {
+    const current = preloadCache.get(key);
+    if (current === entry) preloadCache.delete(key);
+    entry.dispose();
     throw error;
-  }));
+  });
+  return remember(key, entry);
 }
 
 export function preloadViewerMedia(file: PreloadableViewerMedia): Promise<void> {
@@ -80,5 +101,6 @@ export function preloadViewerMedia(file: PreloadableViewerMedia): Promise<void> 
 }
 
 export function clearViewerPreloadCache(): void {
+  for (const entry of preloadCache.values()) entry.dispose();
   preloadCache.clear();
 }
