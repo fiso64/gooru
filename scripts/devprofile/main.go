@@ -52,7 +52,7 @@ func main() {
 	store, err := database.NewStore(dbPath, false)
 	must(err)
 	defer func() { must(store.Close()) }()
-	must(database.RunMigrations(store.DB, dbPath))
+	must(database.RunMigrations(store.DB))
 	must(ensureHashingStrategy(store))
 	must(upsertDevAdmin(context.Background(), store.DB))
 	must(database.SecureDBFiles(dbPath))
