@@ -51,7 +51,6 @@
     <div class="page-header">
       <div class="g-eyebrow g-eyebrow-accent">Tags</div>
       <h1>{tags.length.toLocaleString()} tags across {libraryCount.toLocaleString()} files</h1>
-      <p>Browse by namespace. Click any tag to filter the library.</p>
     </div>
 
     <div class="tag-filter-sticky">

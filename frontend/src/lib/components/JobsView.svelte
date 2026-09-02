@@ -20,7 +20,7 @@
     <div class="page-header jobs-page-header">
       <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
       <h1>Background work</h1>
-      <p>Thumbnailing, imports, bulk tag edits. Cancel anything that's still running. Completed jobs are kept for 1 hour.</p>
+      <p>Completed jobs remain visible for 1 hour.</p>
       {#if hasCompleted}
         <button class="g-btn g-btn-ghost g-btn-sm jobs-clear" type="button" onclick={onClearCompleted}>Clear completed</button>
       {/if}
