@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const session = {
   user: { id: 'usr_test', username: 'mac', role: 'admin' },
@@ -54,6 +54,24 @@ async function mockLibrary(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
+async function gapAfterShortcut(locator: Locator) {
+  return locator.evaluate((node) => {
+    const underline = node.querySelector(':scope > u');
+    if (!(underline instanceof HTMLElement)) throw new Error('shortcut label is missing a direct underline');
+
+    let tail = underline.nextSibling;
+    while (tail && !(tail instanceof Text)) tail = tail.nextSibling;
+    if (!(tail instanceof Text) || tail.length === 0) throw new Error('shortcut label is missing trailing text');
+
+    const firstVisibleCharacter = tail.data.search(/\S/);
+    if (firstVisibleCharacter < 0) throw new Error('shortcut label trailing text is blank');
+    const tailRange = document.createRange();
+    tailRange.setStart(tail, firstVisibleCharacter);
+    tailRange.setEnd(tail, firstVisibleCharacter + 1);
+    return tailRange.getBoundingClientRect().left - underline.getBoundingClientRect().right;
+  });
+}
+
 test('select-all checkbox follows the configured accent', async ({ page }) => {
   await mockLibrary(page);
 
@@ -67,4 +85,21 @@ test('select-all checkbox follows the configured accent', async ({ page }) => {
   await selectAll.click();
   await expect(selectAll).toBeChecked();
   await expect(selectAll).toHaveCSS('accent-color', 'rgb(12, 34, 56)');
+});
+
+test('shortcut underlines do not create visual spaces inside button labels', async ({ page }) => {
+  await mockLibrary(page);
+
+  const selectAll = page.getByLabel('Select all files in current view');
+  const selectAllLabel = page.locator('label.g-btn:has(input[aria-label="Select all files in current view"])');
+  await expect(selectAllLabel).toHaveCount(1);
+  expect(await gapAfterShortcut(selectAllLabel)).toBeLessThanOrEqual(1);
+
+  await selectAll.click();
+  await expect(page.locator('.selection-bar')).toBeVisible();
+
+  const shortcutButtons = page.locator('.selection-bar button.g-btn:has(> u)');
+  await expect(shortcutButtons).toHaveCount(2);
+  expect(await gapAfterShortcut(shortcutButtons.nth(0))).toBeLessThanOrEqual(1);
+  expect(await gapAfterShortcut(shortcutButtons.nth(1))).toBeLessThanOrEqual(1);
 });
