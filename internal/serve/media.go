@@ -177,7 +177,7 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare media cache", nil)
 		return
 	}
-	genErr := m.thumbnailer.Thumbnail(file.Path, out, size, format)
+	genErr := m.generateThumbnail(file, out, size, format)
 	closeErr := out.Close()
 	if genErr != nil || closeErr != nil {
 		_ = os.Remove(tmp)
@@ -200,6 +200,13 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	}
 	w.Header().Set("X-Gooru-Cache", "miss")
 	m.serveCachedDerivative(w, r, cachePath, format)
+}
+
+func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {
+	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
+		return thumbnailCBZFirstPage(file.Path, dst, size, format)
+	}
+	return m.thumbnailer.Thumbnail(file.Path, dst, size, format)
 }
 
 func (m *MediaService) lockCachePath(path string) func() {
@@ -255,13 +262,17 @@ func (m *MediaService) cachePath(file types.FileInfo, kind string, size int, for
 	if err != nil {
 		return "", err
 	}
+	backendVersion := m.thumbnailer.BackendVersion()
+	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
+		backendVersion += "|cbz-cover-v1"
+	}
 	key := strings.Join([]string{
 		file.Hash,
 		mediaKindForType(mediaTypeForPath(file.Path)),
 		kind,
 		strconv.Itoa(size),
 		format,
-		m.thumbnailer.BackendVersion(),
+		backendVersion,
 	}, "|")
 	sum := sha256.Sum256([]byte(key))
 	name := hex.EncodeToString(sum[:]) + "." + derivativeExtension(format)
