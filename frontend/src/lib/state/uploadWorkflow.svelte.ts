@@ -1,15 +1,16 @@
 import { untrack } from 'svelte';
 import {
-  itemsFromJob,
-  itemsFromResult,
-  queuedItems,
+  itemFromJob,
+  itemFromResult,
+  queuedItem,
   stagedUploadItems,
-  uploadingItems,
-  uploadProgressItems,
+  uploadingItem,
+  uploadProgressItem,
   uploadSummary,
+  waitingUploadItems,
   type UploadItem
 } from './uploadItems';
-import { errorMessage, isTerminalJob, jobStatusText, parseTags } from '$lib/utils/format';
+import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
 import type { UploadVariables } from '$lib/queries/library';
 
@@ -26,8 +27,7 @@ export function createUploadWorkflow() {
   let busy = $state(false);
   let cancelBusy = $state(false);
   let status = $state('');
-  let activeJobID = $state('');
-  let handledJobID = $state('');
+  let trackedJobs = $state<Record<string, number>>({});
 
   function reset() {
     files = [];
@@ -38,8 +38,7 @@ export function createUploadWorkflow() {
     busy = false;
     cancelBusy = false;
     status = '';
-    activeJobID = '';
-    handledJobID = '';
+    trackedJobs = {};
   }
 
   function clear() {
@@ -54,17 +53,18 @@ export function createUploadWorkflow() {
     status = '';
   }
 
+  function hasActiveJobs() {
+    return Object.keys(trackedJobs).length > 0;
+  }
+
   function select(nextFiles: FileList | File[] | null) {
     const additions = nextFiles ? Array.from(nextFiles) : [];
     if (!additions.length) return;
-    if (busy || activeJobID) {
+    if (busy || hasActiveJobs()) {
       status = 'Upload in progress; add more files after it finishes';
       return;
     }
 
-    // File picking and drop gestures are additive while a batch is staged. The
-    // explicit Clear/remove controls own destructive staging changes instead of
-    // a later drop silently replacing earlier work.
     files = [...files, ...additions];
     items = stagedUploadItems(files, targetID);
     status = '';
@@ -82,82 +82,121 @@ export function createUploadWorkflow() {
 
   function applyJob(job: Job) {
     return untrack(() => {
-      if (!job || job.id === handledJobID) return { completed: false, changedFiles: false };
-      status = jobStatusText(job);
-      items = itemsFromJob(items, job);
+      const index = trackedJobs[job?.id];
+      if (!job || index === undefined) return { completed: false, changedFiles: false };
+      items = itemFromJob(items, index, job);
       if (!isTerminalJob(job)) return { completed: false, changedFiles: false };
-      handledJobID = job.id;
-      activeJobID = '';
-      if (job.status !== 'completed') return { completed: true, changedFiles: false };
-      files = [];
-      status = uploadSummary(items) || 'Import completed';
-      return { completed: true, changedFiles: true };
+
+      const nextTrackedJobs = { ...trackedJobs };
+      delete nextTrackedJobs[job.id];
+      trackedJobs = nextTrackedJobs;
+      const changedFiles = job.status === 'completed';
+      if (!busy && !hasActiveJobs()) finishBatch();
+      else status = uploadSummary(items);
+      return { completed: true, changedFiles };
     });
   }
 
   function applyJobError(error: unknown) {
     untrack(() => {
-      if (!activeJobID) return;
+      const jobID = Object.keys(trackedJobs)[0];
+      if (!jobID) return;
+      const index = trackedJobs[jobID];
       status = errorMessage(error);
-      activeJobID = '';
+      items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: status } : item);
     });
   }
 
-  async function submit(mutate: UploadMutate) {
-    if (!files.length || busy || activeJobID) return { queued: false, changedFiles: false };
-    busy = true;
-    status = 'Uploading 0%';
-    items = uploadingItems(items.length ? items : stagedUploadItems(files, targetID));
-    try {
-      const response = await mutate({
-        files,
-        tags: parseTags(tags),
-        preferAsync: true,
-        targetID,
-        conflictPolicy,
-        onProgress: (progress) => {
-          items = uploadProgressItems(items, progress);
-          status = `Uploading ${Math.round(progress)}%`;
-        }
-      });
-      if ('id' in response) {
-        handledJobID = '';
-        activeJobID = response.id;
-        items = queuedItems(items);
-        status = 'Upload complete · queued for import';
-        return { queued: true, changedFiles: false };
-      }
-      items = itemsFromResult(response, items);
-      status = uploadSummary(items);
-      files = [];
-      tags = '';
-      return { queued: false, changedFiles: true };
-    } catch (error) {
-      status = errorMessage(error);
-      items = items.map((item) => ({ ...item, status: 'error', error: status }));
-      return { queued: false, changedFiles: false };
-    } finally {
-      busy = false;
+  function applyJobs(jobs: Job[]) {
+    let completed = false;
+    let changedFiles = false;
+    for (const job of jobs) {
+      if (trackedJobs[job.id] === undefined) continue;
+      const result = applyJob(job);
+      completed ||= result.completed;
+      changedFiles ||= result.changedFiles;
     }
+    return { completed, changedFiles };
   }
 
-  async function cancel(mutate: CancelJob, jobID = activeJobID) {
-    if (!jobID || cancelBusy) return { changed: false };
+  function finishBatch() {
+    files = [];
+    tags = '';
+    status = uploadSummary(items) || 'Upload finished';
+  }
+
+  async function submit(mutate: UploadMutate) {
+    if (!files.length || busy || hasActiveJobs()) return { queued: false, changedFiles: false };
+    busy = true;
+    trackedJobs = {};
+    items = waitingUploadItems(items.length ? items : stagedUploadItems(files, targetID));
+    const parsedTags = parseTags(tags);
+    let queued = 0;
+    let changedFiles = false;
+
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index];
+      items = uploadingItem(items, index);
+      status = `Uploading ${index + 1}/${files.length} · 0%`;
+      try {
+        const response = await mutate({
+          files: [file],
+          tags: parsedTags,
+          preferAsync: true,
+          targetID,
+          conflictPolicy,
+          onProgress: (progress) => {
+            items = uploadProgressItem(items, index, progress);
+            status = `Uploading ${index + 1}/${files.length} · ${Math.round(progress)}%`;
+          }
+        });
+        if ('id' in response) {
+          trackedJobs = { ...trackedJobs, [response.id]: index };
+          items = queuedItem(items, index);
+          queued += 1;
+        } else {
+          items = itemFromResult(items, index, response);
+          changedFiles = true;
+        }
+      } catch (error) {
+        const message = errorMessage(error);
+        items = items.map((item, itemIndex) => itemIndex === index ? { ...item, status: 'error', error: message } : item);
+      }
+    }
+
+    busy = false;
+    if (hasActiveJobs()) status = uploadSummary(items);
+    else finishBatch();
+    return { queued: queued > 0, changedFiles };
+  }
+
+  async function cancel(mutate: CancelJob, _jobID = Object.keys(trackedJobs)[0] ?? '') {
+    const jobIDs = Object.keys(trackedJobs);
+    if (!jobIDs.length || cancelBusy) return { changed: false };
     cancelBusy = true;
-    status = 'Canceled';
-    items = items.map((item) => ({ ...item, status: 'canceled', progress: item.progress || 100 }));
-    handledJobID = jobID;
-    activeJobID = '';
+    let changed = false;
     try {
-      const job = await mutate(jobID);
-      status = jobStatusText(job);
-      items = itemsFromJob(items, job);
-      if (isTerminalJob(job)) handledJobID = job.id;
-      else activeJobID = job.id;
-      return { changed: true };
-    } catch (error) {
-      status = errorMessage(error);
-      return { changed: false };
+      for (const jobID of jobIDs) {
+        const index = trackedJobs[jobID];
+        if (index === undefined) continue;
+        try {
+          const job = await mutate(jobID);
+          items = itemFromJob(items, index, job);
+          if (isTerminalJob(job)) {
+            const nextTrackedJobs = { ...trackedJobs };
+            delete nextTrackedJobs[jobID];
+            trackedJobs = nextTrackedJobs;
+          }
+          changed = true;
+        } catch (error) {
+          const message = errorMessage(error);
+          items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: message } : item);
+          status = message;
+        }
+      }
+      if (!busy && !hasActiveJobs()) finishBatch();
+      else status = uploadSummary(items);
+      return { changed };
     } finally {
       cancelBusy = false;
     }
@@ -176,7 +215,8 @@ export function createUploadWorkflow() {
     get busy() { return busy; },
     get cancelBusy() { return cancelBusy; },
     get status() { return status; },
-    get activeJobID() { return activeJobID; },
+    get activeJobID() { return Object.keys(trackedJobs)[0] ?? ''; },
+    get activeJobIDs() { return Object.keys(trackedJobs); },
     reset,
     clear,
     removeAt,
@@ -184,6 +224,7 @@ export function createUploadWorkflow() {
     setTarget,
     applyJob,
     applyJobError,
+    applyJobs,
     submit,
     cancel
   };
