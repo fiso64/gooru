@@ -61,21 +61,29 @@ async function mockApp(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
+async function selectFirstFile(page: Page) {
+  const first = page.getByRole('button', { name: 'Preview one.jpg' });
+  await first.focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByText('1 of 3 selected')).toBeVisible();
+}
+
 test('selection toolbar has deliberate labels, icons, and action order', async ({ page }) => {
   await mockApp(page);
-  await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
+  await selectFirstFile(page);
 
-  await expect(page.getByRole('button', { name: 'Select all 3' })).toBeVisible();
+  const selectAll = page.getByRole('button', { name: 'Select all 3' });
+  await expect(selectAll).toBeVisible();
+  expect((await selectAll.textContent())?.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()).toBe('Select all 3');
+
   const actions = page.locator('.sb-actions > button');
   await expect(actions).toHaveCount(6);
-  expect((await actions.allTextContents()).map((value) => value.replace(/\s+/g, ' ').trim())).toEqual([
-    'Export',
-    'Tag…',
-    'Untag…',
-    'Untrack',
-    'Delete',
-    ''
-  ]);
+  await expect(actions.nth(0)).toHaveAccessibleName('Export');
+  await expect(actions.nth(1)).toHaveAccessibleName('Tag…');
+  await expect(actions.nth(2)).toHaveAccessibleName('Untag…');
+  await expect(actions.nth(3)).toHaveAccessibleName('Untrack');
+  await expect(actions.nth(4)).toHaveAccessibleName('Delete');
+  await expect(actions.nth(5)).toHaveAccessibleName('Clear selection');
 
   await expect(actions.nth(2).locator('svg')).toBeVisible();
   await expect(actions.nth(3).locator('svg')).toBeVisible();
@@ -90,7 +98,7 @@ test('plain Enter confirms no-input removal dialogs even when Cancel owns focus'
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ mode: 'untrack', removed_locations: 1 }) });
   });
 
-  await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
+  await selectFirstFile(page);
   await page.keyboard.press('Delete');
   const dialog = page.getByRole('dialog', { name: 'Untrack selected files' });
   await expect(dialog).toBeVisible();
