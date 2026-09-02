@@ -3,6 +3,7 @@ import { isTerminalJob } from '$lib/utils/format';
 
 export type UploadItemStatus =
   | 'staged'
+  | 'waiting'
   | 'uploading'
   | 'queued'
   | 'importing'
@@ -42,17 +43,35 @@ export function stagedUploadItems(files: File[], targetID = ''): UploadItem[] {
   }));
 }
 
-export function uploadingItems(items: UploadItem[]): UploadItem[] {
-  return items.map((item) => ({ ...item, status: 'uploading', progress: 0, error: '' }));
+export function waitingUploadItems(items: UploadItem[]): UploadItem[] {
+  return items.map((item) => ({ ...item, status: 'waiting', progress: 0, error: '' }));
 }
 
-export function uploadProgressItems(items: UploadItem[], progress: number): UploadItem[] {
+export function uploadingItem(items: UploadItem[], index: number): UploadItem[] {
+  return updateUploadItem(items, index, (item) => ({ ...item, status: 'uploading', progress: 0, error: '' }));
+}
+
+export function uploadProgressItem(items: UploadItem[], index: number, progress: number): UploadItem[] {
   const safeProgress = Math.max(0, Math.min(100, Math.round(progress)));
-  return items.map((item) => ({ ...item, status: 'uploading', progress: safeProgress }));
+  return updateUploadItem(items, index, (item) => ({ ...item, status: 'uploading', progress: safeProgress }));
 }
 
-export function queuedItems(items: UploadItem[]): UploadItem[] {
-  return items.map((item) => ({ ...item, status: 'queued', progress: 100 }));
+export function queuedItem(items: UploadItem[], index: number): UploadItem[] {
+  return updateUploadItem(items, index, (item) => ({ ...item, status: 'queued', progress: 100 }));
+}
+
+export function itemFromJob(items: UploadItem[], index: number, job: Job): UploadItem[] {
+  const current = items[index];
+  if (!current) return items;
+  const next = itemsFromJob([current], job)[0];
+  return next ? updateUploadItem(items, index, () => next) : items;
+}
+
+export function itemFromResult(items: UploadItem[], index: number, response: UploadImportResponse): UploadItem[] {
+  const current = items[index];
+  if (!current) return items;
+  const next = itemsFromResult(response, [current])[0];
+  return next ? updateUploadItem(items, index, () => next) : items;
 }
 
 export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
@@ -95,6 +114,10 @@ export function uploadSummary(items: UploadItem[]): string {
   return Object.entries(counts)
     .map(([status, count]) => `${count} ${status.replace(/_/g, ' ')}`)
     .join(' / ');
+}
+
+function updateUploadItem(items: UploadItem[], index: number, update: (item: UploadItem) => UploadItem): UploadItem[] {
+  return items.map((item, itemIndex) => (itemIndex === index ? update(item) : item));
 }
 
 function isUploadImportResponse(value: unknown): value is UploadImportResponse {
