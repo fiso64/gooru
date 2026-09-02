@@ -184,6 +184,7 @@
           <MediaCard
             {file}
             selected={selectedIDs.has(file.id)}
+            selectionActive={selectedIDs.size > 0}
             onOpen={onOpen}
             onToggleSelect={onToggleSelect}
           />
