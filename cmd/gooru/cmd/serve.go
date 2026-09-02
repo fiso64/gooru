@@ -49,6 +49,9 @@ var serveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if err := ensureStorageEncryptionReady(cfg); err != nil {
+			return err
+		}
 
 		logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: cfg.Logging.SlogLevel()}))
 		previousLogger := slog.Default()
