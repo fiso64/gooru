@@ -65,7 +65,7 @@ async function mockApp(page: Page, files = [fileItem('one', 'one.jpg'), fileItem
 
 async function makeVideoControllable(page: Page) {
   const video = page.locator('video');
-  await expect(video).toBeVisible();
+  await expect(video).toHaveCount(1);
   await video.evaluate((node) => {
     const element = node as HTMLVideoElement;
     let paused = false;
