@@ -2,6 +2,7 @@
   import Icon from './Icon.svelte';
   import MediaCard from './MediaCard.svelte';
   import { errorMessage } from '$lib/utils/format';
+  import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
   import type { Snippet } from 'svelte';
   import { virtualGrid } from '$lib/state/ui';
   import type { FileItem } from '$lib/api/types';
@@ -72,6 +73,19 @@
     paneScrollY = mainHost?.scrollTop ?? 0;
   }
 
+  function handleGridKeydown(event: KeyboardEvent) {
+    if (!isGridDirection(event.key) || !(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('thumb-open')) return;
+    const buttons = Array.from(gridHost?.querySelectorAll<HTMLButtonElement>('.thumb-open') ?? []);
+    const currentIndex = buttons.indexOf(event.target);
+    if (currentIndex < 0) return;
+    const nextIndex = nextGridIndex(buttons.map((button) => button.getBoundingClientRect()), currentIndex, event.key);
+    if (nextIndex === currentIndex) return;
+    event.preventDefault();
+    event.stopPropagation();
+    buttons[nextIndex]?.focus({ preventScroll: true });
+    buttons[nextIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
   $effect(() => {
     const main = mainHost;
     const grid = gridHost;
@@ -130,14 +144,14 @@
         <span><b>{selectedCount}</b> of <span>{totalCount || files.length}</span> selected</span>
         {#if selectedCount < (totalCount || files.length)}
           <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>
-            Select all {(totalCount || files.length).toLocaleString()}
+            Select <u>a</u>ll {(totalCount || files.length).toLocaleString()}
           </button>
         {/if}
       </div>
       <div class="sb-actions">
-        <button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> Tag…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> <u>T</u>ag…</button>
         <button class="g-btn g-btn-sm" type="button" disabled title="Export bundles are not supported yet"><Icon name="download" size={13} /> Export</button>
-        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="trash" size={13} /> Untag…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="trash" size={13} /> <u>U</u>ntag…</button>
         <button class="g-btn g-btn-sm g-btn-icon" type="button" title="Clear" aria-label="Clear selection" onclick={onClearSelection}><Icon name="close" size={13} /></button>
       </div>
     </div>
@@ -178,7 +192,7 @@
     </div>
   {:else}
     <div bind:this={gridHost} class="virtual-grid" style={`height: ${virtual.totalHeight}px;`}>
-      <div class="grid" data-testid="virtual-media-grid" style={`transform: translateY(${virtual.offsetTop}px);`}>
+      <div class="grid" data-testid="virtual-media-grid" style={`transform: translateY(${virtual.offsetTop}px);`} onkeydown={handleGridKeydown}>
         {#if isFetchingPreviousPage}
           <div class="thumb skeleton"></div>
         {/if}

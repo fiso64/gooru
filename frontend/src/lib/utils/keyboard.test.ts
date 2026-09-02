@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isEditableShortcutTarget, isInteractiveShortcutTarget } from './keyboard';
+import { isEditableShortcutTarget, isInteractiveShortcutTarget, libraryShortcutAction } from './keyboard';
 
 type FakeNode = {
   tagName?: string;
@@ -29,5 +29,14 @@ describe('global shortcut target policy', () => {
     expect(isInteractiveShortcutTarget(node({ tagName: 'audio', controls: true }))).toBe(true);
     expect(isInteractiveShortcutTarget(node({ tagName: 'video', controls: false }))).toBe(false);
     expect(isInteractiveShortcutTarget(node({ tagName: 'div' }))).toBe(false);
+  });
+
+  it('maps library action shortcuts without enabling tag actions for an empty selection', () => {
+    expect(libraryShortcutAction('a', 0)).toBe('select-all');
+    expect(libraryShortcutAction('A', 3)).toBe('select-all');
+    expect(libraryShortcutAction('t', 2)).toBe('tag-selected');
+    expect(libraryShortcutAction('u', 2)).toBe('untag-selected');
+    expect(libraryShortcutAction('t', 0)).toBeNull();
+    expect(libraryShortcutAction('u', 0)).toBeNull();
   });
 });

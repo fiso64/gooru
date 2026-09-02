@@ -24,6 +24,20 @@
     }
     onOpen(file);
   }
+
+  function handleKeyboardAction(event: KeyboardEvent) {
+    if (event.code === 'Space') {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleSelect(file);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      onOpen(file);
+    }
+  }
 </script>
 
 <article class={`thumb${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`}>
@@ -32,6 +46,7 @@
     type="button"
     aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`}
     onclick={openOrSelect}
+    onkeydown={handleKeyboardAction}
   >
     <img src={file.media_urls.thumbnail} alt={file.name} loading="lazy" decoding="async" draggable="false" />
     <span class="thumb-overlay"></span>
@@ -65,6 +80,12 @@
 </article>
 
 <style>
+  :global(.thumb-open:focus-visible) {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 1px var(--panel), 0 0 0 6px var(--accent-soft);
+  }
+
   .thumb-preview {
     position: absolute;
     z-index: 3;
