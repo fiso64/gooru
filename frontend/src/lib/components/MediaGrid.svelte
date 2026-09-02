@@ -16,7 +16,8 @@
     totalCount,
     libraryCount,
     searchActive,
-    selectedIDs,
+    selectedCount,
+    isSelected,
     hasNextPage,
     isFetchingNextPage,
     hasPreviousPage,
@@ -41,7 +42,8 @@
     totalCount: number;
     libraryCount: number;
     searchActive: boolean;
-    selectedIDs: Set<string>;
+    selectedCount: number;
+    isSelected: (fileID: string) => boolean;
     hasNextPage: boolean;
     isFetchingNextPage: boolean;
     hasPreviousPage: boolean;
@@ -121,14 +123,14 @@
 </script>
 
 <main bind:this={mainHost} class="main" onscroll={handleScroll}>
-  {#if selectedIDs.size > 0}
+  {#if selectedCount > 0}
     <div class="selection-bar">
       <div class="selection-summary">
         <Icon name="check" size={14} active />
-        <span><b>{selectedIDs.size}</b> of <span>{totalCount || files.length}</span> selected</span>
-        {#if selectedIDs.size < files.length}
+        <span><b>{selectedCount}</b> of <span>{totalCount || files.length}</span> selected</span>
+        {#if selectedCount < (totalCount || files.length)}
           <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>
-            {files.length === (totalCount || files.length) ? `Select all ${files.length}` : `Select all loaded ${files.length}`}
+            Select all {(totalCount || files.length).toLocaleString()}
           </button>
         {/if}
       </div>
@@ -183,8 +185,8 @@
         {#each virtual.files as file (file.id)}
           <MediaCard
             {file}
-            selected={selectedIDs.has(file.id)}
-            selectionActive={selectedIDs.size > 0}
+            selected={isSelected(file.id)}
+            selectionActive={selectedCount > 0}
             onOpen={onOpen}
             onToggleSelect={onToggleSelect}
           />
