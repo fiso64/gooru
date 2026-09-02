@@ -95,6 +95,10 @@ func (s *Store) Close() error {
 	return err
 }
 
+func logQuery(logger *log.Logger, query string, args []interface{}) {
+	logger.Printf("QUERY: %s\n-- ARGS: %d bound values redacted", query, len(args))
+}
+
 // Begin starts a new transaction.
 func (s *Store) Begin() (*Tx, error) {
 	tx, err := s.DB.Begin()
@@ -106,29 +110,29 @@ func (s *Store) Begin() (*Tx, error) {
 
 // Querier implementations for logging on Store
 func (s *Store) Exec(query string, args ...interface{}) (sql.Result, error) {
-	s.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	logQuery(s.logger, query, args)
 	return s.DB.Exec(query, args...)
 }
 func (s *Store) Query(query string, args ...interface{}) (*sql.Rows, error) {
-	s.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	logQuery(s.logger, query, args)
 	return s.DB.Query(query, args...)
 }
 func (s *Store) QueryRow(query string, args ...interface{}) *sql.Row {
-	s.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	logQuery(s.logger, query, args)
 	return s.DB.QueryRow(query, args...)
 }
 
 // Querier implementations for logging on Tx
 func (tx *Tx) Exec(query string, args ...interface{}) (sql.Result, error) {
-	tx.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	logQuery(tx.logger, query, args)
 	return tx.Tx.Exec(query, args...)
 }
 func (tx *Tx) Query(query string, args ...interface{}) (*sql.Rows, error) {
-	tx.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	logQuery(tx.logger, query, args)
 	return tx.Tx.Query(query, args...)
 }
 func (tx *Tx) QueryRow(query string, args ...interface{}) *sql.Row {
-	tx.logger.Printf("QUERY: %s\n-- ARGS: %v", query, args)
+	logQuery(tx.logger, query, args)
 	return tx.Tx.QueryRow(query, args...)
 }
 
