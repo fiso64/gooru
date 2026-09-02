@@ -44,13 +44,18 @@ jobs:
           old = """            query:
                           type: string
                     matched_files:"""
+          # The YAML block scalar strips ten leading spaces from this script.
+          old = old.replace('          type: string', '      type: string')
           new = """            query:
-                          type: string
-                        exclude_file_ids:
-                          type: array
-                          items:
-                            type: string
+                    type: string
+                  exclude_file_ids:
+                    type: array
+                    items:
+                      type: string
                     matched_files:"""
+          # Build this replacement from the exact on-disk indentation instead of relying on editor indentation.
+          old = "            query:\n              type: string\n        matched_files:"
+          new = "            query:\n              type: string\n            exclude_file_ids:\n              type: array\n              items:\n                type: string\n        matched_files:"
           if old not in text:
               raise SystemExit('TagMutationResponse selector block changed unexpectedly')
           p.write_text(text.replace(old, new, 1))
