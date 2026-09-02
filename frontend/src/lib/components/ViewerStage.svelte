@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
-  import ViewerImageTransition from './ViewerImageTransition.svelte';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { preserveNativeViewerSize } from '$lib/utils/media';
@@ -360,7 +359,7 @@
       <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>
     </div>
   {:else}
-    <ViewerImageTransition source={renderedImageSource} style={visualStyle} alt={renderedFile.name} onload={syncImage} />
+    <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
   {/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
