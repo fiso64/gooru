@@ -3,6 +3,8 @@ package serve
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -20,6 +22,21 @@ func TestConfigValidatesAccentColor(t *testing.T) {
 	cfg.UI.AccentColor = "red; background:url(https://example.invalid)"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.accent_color") {
 		t.Fatalf("expected invalid accent color error, got %v", err)
+	}
+}
+
+func TestConfigLoadsFullMediaDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gooru.yaml")
+	if err := os.WriteFile(path, []byte("media:\n  load_full_by_default: true\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Media.LoadFullByDefault {
+		t.Fatal("media.load_full_by_default was not loaded")
 	}
 }
 
