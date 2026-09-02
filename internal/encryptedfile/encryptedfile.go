@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	magic          = "GOORUENC"
-	version   byte = 1
+	magic        = "GOORUENC"
+	version byte = 1
 
 	// ChunkSize bounds authentication/decryption work for random reads while
 	// keeping ciphertext overhead small for large media files.
@@ -30,10 +30,10 @@ const (
 )
 
 var (
-	ErrInvalidKey        = errors.New("encrypted file key must be 32 bytes")
-	ErrInvalidFormat     = errors.New("invalid encrypted file format")
-	ErrAuthentication    = errors.New("encrypted file authentication failed")
-	ErrPlaintextSize     = errors.New("plaintext size does not match declared size")
+	ErrInvalidKey     = errors.New("encrypted file key must be 32 bytes")
+	ErrInvalidFormat  = errors.New("invalid encrypted file format")
+	ErrAuthentication = errors.New("encrypted file authentication failed")
+	ErrPlaintextSize  = errors.New("plaintext size does not match declared size")
 )
 
 // Encrypt writes a versioned, chunk-authenticated encrypted representation of
@@ -83,12 +83,12 @@ func Encrypt(dst io.Writer, src io.Reader, plaintextSize int64, key []byte) erro
 	}
 
 	var extra [1]byte
-	n, err := src.Read(extra[:])
-	if n != 0 || (err != nil && !errors.Is(err, io.EOF)) {
-		if err != nil && !errors.Is(err, io.EOF) {
-			return err
-		}
+	n, err := io.ReadFull(src, extra[:])
+	if n > 0 {
 		return fmt.Errorf("%w: source contains more bytes than declared", ErrPlaintextSize)
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
 	}
 	return nil
 }
@@ -96,13 +96,13 @@ func Encrypt(dst io.Writer, src io.Reader, plaintextSize int64, key []byte) erro
 // File exposes authenticated plaintext with Reader, ReaderAt, and Seeker
 // semantics. Each random read decrypts only the chunks intersecting that range.
 type File struct {
-	file      *os.File
-	aead      cipher.AEAD
-	core      []byte
-	prefix    [noncePrefixSize]byte
-	size      int64
-	offset    int64
-	modTime   time.Time
+	file    *os.File
+	aead    cipher.AEAD
+	core    []byte
+	prefix  [noncePrefixSize]byte
+	size    int64
+	offset  int64
+	modTime time.Time
 }
 
 func Open(path string, key []byte) (*File, error) {
@@ -139,7 +139,7 @@ func Open(path string, key []byte) (*File, error) {
 		return nil, ErrInvalidFormat
 	}
 	plaintextSize := int64(binary.LittleEndian.Uint64(core[16:24]))
-	if plaintextSize < 0 {
+	if plaintextSize < 0 || plaintextSize > info.Size() {
 		_ = opened.Close()
 		return nil, ErrInvalidFormat
 	}
@@ -151,7 +151,12 @@ func Open(path string, key []byte) (*File, error) {
 	}
 
 	chunks := chunkCount(plaintextSize)
-	expectedSize := int64(headerSize) + plaintextSize + int64(chunks)*int64(aead.Overhead())
+	overhead := int64(chunks) * int64(aead.Overhead())
+	if overhead < 0 || plaintextSize > math.MaxInt64-int64(headerSize)-overhead {
+		_ = opened.Close()
+		return nil, ErrInvalidFormat
+	}
+	expectedSize := int64(headerSize) + plaintextSize + overhead
 	if info.Size() != expectedSize {
 		_ = opened.Close()
 		return nil, fmt.Errorf("%w: ciphertext size mismatch", ErrInvalidFormat)
@@ -290,8 +295,12 @@ func chunkAAD(core []byte, index uint64) []byte {
 }
 
 func chunkCount(size int64) uint64 {
-	if size == 0 {
+	if size <= 0 {
 		return 0
 	}
-	return uint64((size + ChunkSize - 1) / ChunkSize)
+	chunks := uint64(size / ChunkSize)
+	if size%ChunkSize != 0 {
+		chunks++
+	}
+	return chunks
 }
