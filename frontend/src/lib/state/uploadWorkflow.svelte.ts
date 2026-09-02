@@ -97,6 +97,16 @@ export function createUploadWorkflow() {
     });
   }
 
+  function applyJobError(error: unknown) {
+    untrack(() => {
+      const jobID = Object.keys(trackedJobs)[0];
+      if (!jobID) return;
+      const index = trackedJobs[jobID];
+      status = errorMessage(error);
+      items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: status } : item);
+    });
+  }
+
   function applyJobs(jobs: Job[]) {
     let completed = false;
     let changedFiles = false;
@@ -160,32 +170,26 @@ export function createUploadWorkflow() {
     return { queued: queued > 0, changedFiles };
   }
 
-  async function cancel(mutate: CancelJob) {
-    const jobIDs = Object.keys(trackedJobs);
-    if (!jobIDs.length || cancelBusy) return { changed: false };
+  async function cancel(mutate: CancelJob, jobID = Object.keys(trackedJobs)[0] ?? '') {
+    const index = trackedJobs[jobID];
+    if (!jobID || index === undefined || cancelBusy) return { changed: false };
     cancelBusy = true;
-    let changed = false;
     try {
-      for (const jobID of jobIDs) {
-        const index = trackedJobs[jobID];
-        if (index === undefined) continue;
-        try {
-          const job = await mutate(jobID);
-          items = itemFromJob(items, index, job);
-          if (isTerminalJob(job)) {
-            const nextTrackedJobs = { ...trackedJobs };
-            delete nextTrackedJobs[jobID];
-            trackedJobs = nextTrackedJobs;
-          }
-          changed = true;
-        } catch (error) {
-          const message = errorMessage(error);
-          items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: message } : item);
-        }
+      const job = await mutate(jobID);
+      items = itemFromJob(items, index, job);
+      if (isTerminalJob(job)) {
+        const nextTrackedJobs = { ...trackedJobs };
+        delete nextTrackedJobs[jobID];
+        trackedJobs = nextTrackedJobs;
       }
       if (!busy && !hasActiveJobs()) finishBatch();
       else status = uploadSummary(items);
-      return { changed };
+      return { changed: true };
+    } catch (error) {
+      const message = errorMessage(error);
+      items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: message } : item);
+      status = message;
+      return { changed: false };
     } finally {
       cancelBusy = false;
     }
@@ -212,6 +216,7 @@ export function createUploadWorkflow() {
     select,
     setTarget,
     applyJob,
+    applyJobError,
     applyJobs,
     submit,
     cancel
