@@ -2,10 +2,11 @@
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
-  import { formatBytes, groupTags, mediaDimensions, mediaDuration, parseTags } from '$lib/utils/format';
+  import ViewerStage from './ViewerStage.svelte';
+  import { formatBytes, groupTags, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
-  import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
-  import { canUseOriginalInViewer, preserveNativeViewerSize, viewerImageSource } from '$lib/utils/media';
+  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { canUseOriginalInViewer, viewerImageSource } from '$lib/utils/media';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -41,86 +42,25 @@
   }>();
 
   let dialogElement = $state<HTMLDivElement | undefined>();
-  let videoElement = $state<HTMLVideoElement | undefined>();
-  let audioElement = $state<HTMLAudioElement | undefined>();
-  let videoPaused = $state(true);
-  let videoTime = $state(0);
-  let videoLength = $state(0);
   let preferOriginal = $state(false);
-  const videoProgress = $derived(videoLength > 0 ? Math.min(100, Math.max(0, (videoTime / videoLength) * 100)) : 0);
   const originalAvailable = $derived(canUseOriginalInViewer(file));
   const imageSource = $derived(viewerImageSource(file, preferOriginal));
-  const nativeImageSize = $derived(preserveNativeViewerSize(file));
 
   onMount(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     return claimFocus(dialogElement, previous);
   });
 
-  $effect(() => {
-    file.id;
-    videoPaused = true;
-    videoTime = 0;
-    videoLength = 0;
-  });
-
   function focusTagInput() {
     document.getElementById(`tags-${file.id}`)?.focus();
   }
 
-  async function togglePlayback() {
-    const media = videoElement ?? audioElement;
-    if (!media) return;
-    if (media.paused) await media.play();
-    else media.pause();
-  }
-
   function handleViewerKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event)) return;
-
-    if (event.key.toLowerCase() === 't' && !isEditableShortcutTarget(event.target)) {
-      event.preventDefault();
-      event.stopPropagation();
-      focusTagInput();
-      return;
-    }
-
-    if (event.code !== 'Space') return;
-
-    // A modal owns shortcuts even if focus accidentally remains on the control
-    // that opened it. Only native controls *inside* this preview get to keep Space.
-    const target = event.target;
-    const targetInsidePreview = target instanceof Node && Boolean(dialogElement?.contains(target));
-    if (targetInsidePreview && isInteractiveShortcutTarget(target)) return;
-
+    if (event.key.toLowerCase() !== 't' || isEditableShortcutTarget(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
-    if (videoElement || audioElement) void togglePlayback();
-    else dialogElement?.focus({ preventScroll: true });
-  }
-
-  function syncVideo() {
-    if (!videoElement) return;
-    videoPaused = videoElement.paused;
-    videoTime = videoElement.currentTime;
-    videoLength = Number.isFinite(videoElement.duration) ? videoElement.duration : 0;
-  }
-
-  function seekVideo(event: MouseEvent) {
-    const video = videoElement;
-    if (!video || !videoLength) return;
-    const button = event.currentTarget;
-    if (!(button instanceof HTMLElement)) return;
-    const rect = button.getBoundingClientRect();
-    if (!rect.width) return;
-    video.currentTime = Math.max(0, Math.min(videoLength, ((event.clientX - rect.left) / rect.width) * videoLength));
-    syncVideo();
-  }
-
-  function clock(seconds: number) {
-    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
-    const whole = Math.floor(seconds);
-    return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+    focusTagInput();
   }
 
   function modifiedLabel(value: string) {
@@ -209,46 +149,7 @@
     </div>
   </aside>
 
-  <div class="lightbox-stage">
-    {#if file.media_kind === 'video'}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video
-        bind:this={videoElement}
-        src={file.media_urls.content}
-        poster={file.media_urls.preview}
-        preload="metadata"
-        autoplay
-        loop
-        onclick={() => void togglePlayback()}
-        onloadedmetadata={syncVideo}
-        ontimeupdate={syncVideo}
-        onplay={syncVideo}
-        onpause={syncVideo}
-        onended={syncVideo}
-      ></video>
-
-      <div class="lightbox-video-controls">
-        <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={() => void togglePlayback()}>
-          <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
-        </button>
-        <span class="video-time">{clock(videoTime)}</span>
-        <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo}>
-          <span style={`width: ${videoProgress}%`}></span>
-        </button>
-        <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(file) || '0:00')}</span>
-      </div>
-    {:else if file.media_kind === 'audio' || file.media_type.startsWith('audio/')}
-      <div class="audio-stage">
-        <div class="audio-art"><Icon name="audio" size={42} /></div>
-        <audio bind:this={audioElement} src={file.media_urls.content} controls preload="metadata"></audio>
-      </div>
-    {:else}
-      <img class:native-size={nativeImageSize} src={imageSource} alt={file.name} />
-    {/if}
-
-    <button class="lightbox-nav-arrow prev" type="button" title="Previous (←)" aria-label="Previous file" onclick={onPrev}><Icon name="chev_left" size={20} /></button>
-    <button class="lightbox-nav-arrow next" type="button" title="Next (→)" aria-label="Next file" onclick={onNext}><Icon name="chev_right" size={20} /></button>
-  </div>
+  <ViewerStage {file} {imageSource} {onPrev} {onNext} />
 
   <aside class="lightbox-rail">
     <button class="g-btn g-btn-ghost" type="button" title="Add tag" aria-label="Add tag" onclick={focusTagInput}><Icon name="tag" size={16} /></button>
@@ -295,15 +196,6 @@
     outline: 2px solid var(--accent-line);
     outline-offset: 2px;
     border-radius: 2px;
-  }
-
-  :global(.lightbox-stage img.native-size) {
-    inset: 50% auto auto 50%;
-    width: auto;
-    height: auto;
-    max-width: calc(100% - 72px);
-    max-height: calc(100% - 72px);
-    transform: translate(-50%, -50%);
   }
 
   :global(.lightbox-rail .g-btn[aria-pressed='true']) {
