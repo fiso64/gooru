@@ -239,12 +239,12 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
       else if (selectionActive(selection)) clearSelection();
       return;
     }
-    if (activeFile && (event.key === 'ArrowLeft' || event.key === 'k')) {
+    if (activeFile && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'k')) {
       event.preventDefault();
       movePreview(-1, files);
       return;
     }
-    if (activeFile && (event.key === 'ArrowRight' || event.key === 'j')) {
+    if (activeFile && !event.shiftKey && (event.key === 'ArrowRight' || event.key === 'j')) {
       event.preventDefault();
       movePreview(1, files);
     }

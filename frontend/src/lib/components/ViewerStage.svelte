@@ -161,6 +161,14 @@
     else media.pause();
   }
 
+  function seekPlayback(deltaSeconds: number) {
+    const media = videoElement ?? audioElement;
+    if (!media || !Number.isFinite(media.duration) || media.duration <= 0) return false;
+    media.currentTime = Math.max(0, Math.min(media.duration, media.currentTime + deltaSeconds));
+    if (media === videoElement) syncVideo();
+    return true;
+  }
+
   async function toggleFullscreen() {
     const stage = stageElement;
     if (!stage) return;
@@ -196,6 +204,15 @@
       event.stopPropagation();
       onPrimaryAction();
       return;
+    }
+
+    if (event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      const delta = event.key === 'ArrowLeft' ? -5 : 5;
+      if (seekPlayback(delta)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
     }
 
     if (keyboardNavigation && (event.key === 'ArrowLeft' || event.key === 'k')) {
