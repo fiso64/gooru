@@ -6,19 +6,23 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-function fileItem(id: string, name: string, kind: 'photo' | 'video' = 'photo') {
+type TestMediaKind = 'photo' | 'video' | 'audio';
+
+function fileItem(id: string, name: string, kind: TestMediaKind = 'photo') {
   return {
     id,
     content_id: `hash-${id}`,
     name,
     safe_display_path: `library/${name}`,
-    size: kind === 'video' ? 104857600 : 2048,
+    size: kind === 'photo' ? 2048 : 104857600,
     modified_time: '2026-05-20T00:00:00Z',
-    media_type: kind === 'video' ? 'video/mp4' : 'image/jpeg',
+    media_type: kind === 'video' ? 'video/mp4' : kind === 'audio' ? 'audio/mpeg' : 'image/jpeg',
     media_kind: kind,
     metadata: kind === 'video'
       ? { video_width: 1920, video_height: 1080, video_duration: 8 }
-      : { image_width: 800, image_height: 600 },
+      : kind === 'audio'
+        ? { audio_duration: 8 }
+        : { image_width: 800, image_height: 600 },
     tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`,
@@ -63,11 +67,11 @@ async function mockApp(page: Page, files = [fileItem('one', 'one.jpg'), fileItem
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-async function makeVideoControllable(page: Page) {
-  const video = page.locator('video');
-  await expect(video).toHaveCount(1);
-  await video.evaluate((node) => {
-    const element = node as HTMLVideoElement;
+async function makeMediaControllable(page: Page, selector: 'video' | 'audio') {
+  const media = page.locator(selector);
+  await expect(media).toHaveCount(1);
+  await media.evaluate((node) => {
+    const element = node as HTMLMediaElement;
     let paused = false;
     let currentTime = 4;
     let playCalls = 0;
@@ -93,6 +97,10 @@ async function makeVideoControllable(page: Page) {
     (window as typeof window & { __viewerMediaState?: () => unknown }).__viewerMediaState = () => ({ paused, currentTime, playCalls, pauseCalls });
     element.dispatchEvent(new Event('loadedmetadata'));
   });
+}
+
+async function makeVideoControllable(page: Page) {
+  await makeMediaControllable(page, 'video');
 }
 
 async function viewerMediaState(page: Page) {
@@ -179,6 +187,41 @@ test('Space pauses the current video once and does not reactivate the seek contr
   const afterSpace = await viewerMediaState(page) as { paused: boolean; currentTime: number; playCalls: number; pauseCalls: number };
   expect(afterSpace).toMatchObject({ paused: true, playCalls: 1, pauseCalls: 2 });
   expect(afterSpace.currentTime).toBe(afterSeek.currentTime);
+});
+
+test('clicking video toggles playback and restores shortcut focus', async ({ page }) => {
+  await mockApp(page, [fileItem('video', 'clip.mp4', 'video')]);
+
+  await page.getByRole('button', { name: 'Preview clip.mp4' }).click();
+  await makeVideoControllable(page);
+  const video = page.locator('video');
+
+  await video.click();
+  await expect.poll(() => viewerMediaState(page)).toEqual({ paused: true, currentTime: 4, playCalls: 0, pauseCalls: 1 });
+  await expect(page.locator('.viewer-stage')).toBeFocused();
+
+  await video.click();
+  await expect.poll(() => viewerMediaState(page)).toEqual({ paused: false, currentTime: 4, playCalls: 1, pauseCalls: 1 });
+  await expect(page.locator('.viewer-stage')).toBeFocused();
+});
+
+test('Space toggles audio globally but remains text input inside the tag editor', async ({ page }) => {
+  await mockApp(page, [fileItem('audio', 'song.mp3', 'audio')]);
+
+  await page.getByRole('button', { name: 'Preview song.mp3' }).click();
+  await makeMediaControllable(page, 'audio');
+  await page.locator('.viewer-stage').focus();
+
+  await page.keyboard.press('Space');
+  await expect.poll(() => viewerMediaState(page)).toEqual({ paused: true, currentTime: 4, playCalls: 0, pauseCalls: 1 });
+  await page.keyboard.press('Space');
+  await expect.poll(() => viewerMediaState(page)).toEqual({ paused: false, currentTime: 4, playCalls: 1, pauseCalls: 1 });
+
+  const tagInput = page.getByLabel('Tags for song.mp3');
+  await tagInput.fill('music');
+  await tagInput.press('Space');
+  await expect(tagInput).toHaveValue('music ');
+  expect(await viewerMediaState(page)).toEqual({ paused: false, currentTime: 4, playCalls: 1, pauseCalls: 1 });
 });
 
 test('Space after navigating to video controls the current item instead of the opener', async ({ page }) => {
