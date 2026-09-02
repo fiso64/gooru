@@ -8,6 +8,7 @@ export type ViewerGeometryInput = {
   rotation: number;
   fitMode: ViewerFitMode;
   inset?: number;
+  maxScale?: number;
 };
 
 export type ViewerGeometry = {
@@ -44,7 +45,8 @@ export function viewerGeometry(input: ViewerGeometryInput): ViewerGeometry {
   const quarterTurn = rotation === 90 || rotation === 270;
   const rotatedWidth = quarterTurn ? intrinsicHeight : intrinsicWidth;
   const rotatedHeight = quarterTurn ? intrinsicWidth : intrinsicHeight;
-  const scale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight);
+  const maxScale = input.maxScale ?? Number.POSITIVE_INFINITY;
+  const scale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight, maxScale);
 
   return {
     width: intrinsicWidth * scale,
