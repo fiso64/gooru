@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -327,6 +328,45 @@ func (c *Client) GetFileInfoForFile(filePath string, useMetadataHeuristic bool) 
 
 	// Path and content are both unknown.
 	return fileInfo, types.StatusNotInDB, nil
+}
+
+// GetFileInfoForSource computes content identity and status from a supplied
+// plaintext random-access source while treating filePath as the logical storage
+// location. It mirrors the content-centric branch of GetFileInfoForFile without
+// requiring the logical path itself to contain plaintext bytes.
+func (c *Client) GetFileInfoForSource(filePath string, source io.ReaderAt, size int64, modTime int64) (types.FileInfo, types.FileStatus, error) {
+	absPath, err := resolvePath(filePath)
+	if err != nil {
+		return types.FileInfo{Path: filePath}, 0, err
+	}
+	currentHash, err := c.hasher.HashSource(source, size)
+	if err != nil {
+		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("could not hash file source for verification: %w", err)
+	}
+	dbInfo, err := c.store.GetLocationByPath(absPath)
+	if err != nil && err != sql.ErrNoRows {
+		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("database lookup failed: %w", err)
+	}
+	pathInDB := err != sql.ErrNoRows
+	if pathInDB {
+		if currentHash != dbInfo.Hash {
+			return types.FileInfo{Path: filePath, Hash: currentHash, Size: size, ModTime: modTime}, types.StatusModified, nil
+		}
+		tags, err := c.store.GetTagsForContent(dbInfo.Hash)
+		if err != nil {
+			return types.FileInfo{Path: filePath}, 0, err
+		}
+		return types.FileInfo{Path: filePath, Hash: dbInfo.Hash, Size: size, ModTime: modTime, Tags: tags}, types.StatusOK, nil
+	}
+	tags, err := c.store.GetTagsForContent(currentHash)
+	if err != nil {
+		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("failed to check for existing content: %w", err)
+	}
+	info := types.FileInfo{Path: filePath, Hash: currentHash, Size: size, ModTime: modTime, Tags: tags}
+	if len(tags) > 0 {
+		return info, types.StatusUntrackedContent, nil
+	}
+	return info, types.StatusNotInDB, nil
 }
 
 // ContentExists reports whether a content hash is already tracked.

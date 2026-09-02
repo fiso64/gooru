@@ -2,38 +2,50 @@ package hashing
 
 import (
 	"fmt"
+	"io"
 	"runtime"
 	"sync"
 
-	"gooru.local/types"
 	"gooru.local/internal/hashing/hashes"
+	"gooru.local/types"
 )
 
 // hashFunc is a function signature for any file hashing implementation.
 type hashFunc func(string) (string, error)
+type hashSourceFunc func(io.ReaderAt, int64) (string, error)
 
 // Hasher is configured with a specific hashing strategy.
 type Hasher struct {
-	hashFile hashFunc
+	hashFile   hashFunc
+	hashSource hashSourceFunc
 }
 
 // NewHasher creates a new Hasher based on the provided strategy.
 func NewHasher(strategy types.HashingStrategy) (*Hasher, error) {
 	var hf hashFunc
+	var hs hashSourceFunc
 	switch strategy {
 	case types.StrategyPartial:
 		hf = hashes.HashFile
+		hs = hashes.HashSource
 	case types.StrategyFull:
 		hf = hashes.HashFileFull
+		hs = hashes.HashSourceFull
 	default:
 		return nil, fmt.Errorf("unknown hashing strategy: %s", strategy)
 	}
-	return &Hasher{hashFile: hf}, nil
+	return &Hasher{hashFile: hf, hashSource: hs}, nil
 }
 
 // HashFile computes a hash for the given file path using the configured strategy.
 func (h *Hasher) HashFile(filePath string) (string, error) {
 	return h.hashFile(filePath)
+}
+
+// HashSource computes the same content identity from an arbitrary random-access
+// source. This is the path-independent primitive used by protected storage.
+func (h *Hasher) HashSource(source io.ReaderAt, size int64) (string, error) {
+	return h.hashSource(source, size)
 }
 
 // Job represents a file to be hashed.
