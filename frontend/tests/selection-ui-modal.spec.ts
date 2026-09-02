@@ -104,25 +104,39 @@ test('selection toolbar gives Untag and Untrack distinct icons', async ({ page }
   expect(untrackPath).toContain('m19.5 10 2 2-2 2');
 });
 
-test('plain Enter confirms no-input removal dialogs even when Cancel owns focus', async ({ page }) => {
+test('plain Enter confirms no-input Untrack and Delete dialogs even when Cancel owns focus', async ({ page }) => {
   await mockApp(page);
   const removals: unknown[] = [];
   await page.route('**/api/v1/files', async (route) => {
     if (route.request().method() !== 'DELETE') return route.fallback();
-    removals.push(route.request().postDataJSON());
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ mode: 'untrack', removed_locations: 1 }) });
+    const removal = route.request().postDataJSON();
+    removals.push(removal);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ mode: (removal as { mode: string }).mode, removed_locations: 1 })
+    });
   });
 
   await selectFirstFile(page);
   await page.keyboard.press('Delete');
-  const dialog = page.getByRole('dialog', { name: 'Untrack selected files' });
+  let dialog = page.getByRole('dialog', { name: 'Untrack selected files' });
   await expect(dialog).toBeVisible();
-
   await dialog.getByRole('button', { name: 'Cancel' }).focus();
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
   await page.keyboard.press('Enter');
 
   await expect.poll(() => removals.length).toBe(1);
   expect(removals[0]).toEqual({ mode: 'untrack', query: '*', exclude_file_ids: ['one'] });
+  await expect(dialog).toHaveCount(0);
+
+  await selectFirstFile(page);
+  await page.keyboard.press('Shift+Delete');
+  dialog = page.getByRole('dialog', { name: 'Delete selected files' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).focus();
+  await page.keyboard.press('Enter');
+
+  await expect.poll(() => removals.length).toBe(2);
+  expect(removals[1]).toEqual({ mode: 'delete', query: '*', exclude_file_ids: ['one'] });
   await expect(dialog).toHaveCount(0);
 });
