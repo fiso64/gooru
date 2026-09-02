@@ -17,6 +17,36 @@ func encodedKey(fill byte) string {
 	return base64.StdEncoding.EncodeToString(key)
 }
 
+func TestLoadProcessIsOptIn(t *testing.T) {
+	t.Setenv(EnvKey, "")
+	if err := os.Unsetenv(EnvKey); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvKeyFile, "")
+	key, enabled, err := LoadProcess()
+	if err != nil || enabled || key != nil {
+		t.Fatalf("disabled process key = (%v, %v, %v), want nil, false, nil", key, enabled, err)
+	}
+
+	t.Setenv(EnvKey, encodedKey(0x44))
+	key, enabled, err = LoadProcess()
+	if err != nil || !enabled || len(key) != Size || key[0] != 0x44 {
+		t.Fatalf("enabled process key did not resolve: enabled=%v len=%d err=%v", enabled, len(key), err)
+	}
+}
+
+func TestLoadProcessRejectsCompetingSources(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte(encodedKey(0x11)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvKey, encodedKey(0x22))
+	t.Setenv(EnvKeyFile, path)
+	if _, enabled, err := LoadProcess(); !enabled || err == nil {
+		t.Fatalf("expected enabled process configuration with competing sources to fail")
+	}
+}
+
 func TestLoadFromEnvironment(t *testing.T) {
 	const name = "GOORU_TEST_ENCRYPTION_KEY"
 	t.Setenv(name, "  "+encodedKey(0x2a)+"\n")
