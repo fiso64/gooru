@@ -6,8 +6,9 @@ type ShortcutNode = {
   getAttribute?: (name: string) => string | null;
 };
 
-const editableTags = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
-const interactiveTags = new Set(['BUTTON', 'A']);
+const editableTags = new Set(['TEXTAREA', 'SELECT']);
+const nonEditingInputTypes = new Set(['button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit']);
+const interactiveTags = new Set(['BUTTON', 'A', 'INPUT']);
 const interactiveRoles = new Set(['button', 'checkbox', 'combobox', 'link', 'listbox', 'menuitem', 'option', 'radio', 'slider', 'spinbutton', 'switch', 'tab', 'textbox']);
 
 function shortcutAncestors(target: EventTarget | null) {
@@ -20,19 +21,25 @@ function shortcutAncestors(target: EventTarget | null) {
   return nodes;
 }
 
+function isEditingNode(node: ShortcutNode) {
+  const tag = node.tagName?.toUpperCase();
+  if (Boolean(node.isContentEditable)) return true;
+  if (tag && editableTags.has(tag)) return true;
+  if (tag !== 'INPUT') return false;
+  const type = node.getAttribute?.('type')?.toLowerCase() ?? 'text';
+  return !nonEditingInputTypes.has(type);
+}
+
 /** Returns true when a global shortcut would steal normal text/editing input. */
 export function isEditableShortcutTarget(target: EventTarget | null) {
-  return shortcutAncestors(target).some((node) => {
-    const tag = node.tagName?.toUpperCase();
-    return Boolean(node.isContentEditable) || (tag ? editableTags.has(tag) : false);
-  });
+  return shortcutAncestors(target).some(isEditingNode);
 }
 
 /** Returns true when Space/etc. should be left to the focused native control. */
 export function isInteractiveShortcutTarget(target: EventTarget | null) {
   return shortcutAncestors(target).some((node) => {
     const tag = node.tagName?.toUpperCase();
-    if (Boolean(node.isContentEditable) || (tag ? editableTags.has(tag) || interactiveTags.has(tag) : false)) return true;
+    if (isEditingNode(node) || (tag ? interactiveTags.has(tag) : false)) return true;
     if ((tag === 'AUDIO' || tag === 'VIDEO') && node.controls) return true;
     const role = node.getAttribute?.('role')?.toLowerCase();
     return role ? interactiveRoles.has(role) : false;
