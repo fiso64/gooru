@@ -67,7 +67,8 @@
     () => library.activeKind,
     () => library.sort,
     () => library.order,
-    () => authScope
+    () => authScope,
+    () => library.route === 'library'
   );
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
