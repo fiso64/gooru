@@ -118,7 +118,7 @@ export function createTagMutation(getCSRFToken: () => string, queryClient: Query
 }
 
 export function createFilesRemovalMutation(getCSRFToken: () => string, queryClient: QueryClient) {
-  return createMutation<FileRemovalResponse, Error, FileRemovalVariables>(() => ({
+  return createMutation<FileRemovalResponse, Error, FileRemovalRequest>(() => ({
     mutationFn: (body) => new ApiClient(getCSRFToken()).removeFiles(body),
     onSuccess: async () => {
       await Promise.all([
