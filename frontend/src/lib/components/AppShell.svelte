@@ -81,7 +81,7 @@
   }
 
   function toggleComics() {
-    const terms = search.trim().split(/\s+/).filter((term) => term && term.toLowerCase() !== 'ext:cbz');
+    const terms = search.trim().split(/\s+/).filter((term: string) => term && term.toLowerCase() !== 'ext:cbz');
     if (!comicActive) terms.push('ext:cbz');
     onRoute('library');
     onKind('');
