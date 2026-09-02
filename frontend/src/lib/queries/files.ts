@@ -1,3 +1,4 @@
+import { page } from '$app/state';
 import { createInfiniteQuery, createMutation } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
 import { libraryKeys } from './library';
@@ -43,9 +44,10 @@ export function createFilesQuery(
   getOrder: () => SortOrder,
   getAuthScope: () => number
 ) {
-  return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() =>
-    filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope)
-  );
+  return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() => ({
+    ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope),
+    enabled: getAuthenticated() && page.url.pathname === '/'
+  }));
 }
 
 export function filesQueryOptions(
