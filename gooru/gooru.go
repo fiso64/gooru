@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"gooru.local/types"
 	"gooru.local/internal/database"
 	"gooru.local/internal/hashing"
+	"gooru.local/types"
 )
 
 const libraryDBVersion = 2 // Represents the database version this library code is compatible with.
@@ -39,7 +39,7 @@ func Init(dbPath string, strategy types.HashingStrategy, verbose bool) error {
 	defer store.Close()
 
 	// 3. Run all migrations to set up the schema from scratch.
-	if err := database.RunMigrations(store.DB, dbPath); err != nil {
+	if err := database.RunMigrations(store.DB); err != nil {
 		if removeErr := os.Remove(dbPath); removeErr != nil {
 			return fmt.Errorf("failed to initialize database schema: %w (and failed to clean up: %v)", err, removeErr)
 		}
@@ -79,7 +79,7 @@ func New(dbPath string, verbose bool) (*Client, error) {
 
 	// Run migrations before any other operation.
 	// This ensures the schema is always up-to-date.
-	if err := database.RunMigrations(store.DB, dbPath); err != nil {
+	if err := database.RunMigrations(store.DB); err != nil {
 		store.Close()
 		return nil, fmt.Errorf("failed to apply database migrations: %w", err)
 	}
