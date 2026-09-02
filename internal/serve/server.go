@@ -62,6 +62,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/files/tags", s.adminProtected(http.HandlerFunc(s.handleMutateTags)))
 	mux.Handle("/api/v1/files/", s.protected(http.HandlerFunc(s.handleFile)))
 	mux.Handle("/api/v1/files", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListFiles)))
+	mux.Handle("/api/v1/comics/", s.protected(http.HandlerFunc(s.handleComic)))
 	mux.Handle("/api/v1/search/suggestions", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleSearchSuggestions)))
 	mux.Handle("/api/v1/saved-searches/", s.protected(http.HandlerFunc(s.handleSavedSearch)))
 	mux.Handle("/api/v1/saved-searches", s.protected(http.HandlerFunc(s.handleSavedSearches)))
