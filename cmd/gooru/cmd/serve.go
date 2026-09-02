@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"gooru.local/gooru"
 	"gooru.local/internal/serve"
 )
 
