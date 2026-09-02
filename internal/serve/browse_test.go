@@ -169,6 +169,28 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	}
 }
 
+func TestTagsIncludeLibrarySummaryWithoutListingFiles(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/tags?counts=true"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response TagListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode tags response: %v", err)
+	}
+	if response.LibraryCount != 3 {
+		t.Fatalf("expected library count 3, got %d", response.LibraryCount)
+	}
+	counts := facetCounts(response.Facets.Kind)
+	if counts["photo"] == 0 || counts["other"] == 0 {
+		t.Fatalf("expected global kind facets in tags response, got %+v", response.Facets.Kind)
+	}
+}
+
 func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)
 	defer cleanup()

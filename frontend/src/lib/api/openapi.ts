@@ -1413,6 +1413,9 @@ export interface components {
         };
         TagListResponse: {
             tags: components["schemas"]["Tag"][];
+            /** @description Total tracked files in the library. */
+            library_count: number;
+            facets?: components["schemas"]["Facets"];
         };
         Tag: {
             name: string;

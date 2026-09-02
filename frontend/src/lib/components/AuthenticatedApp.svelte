@@ -364,12 +364,12 @@
     username={$authState.user.username}
     route={library.route}
     activeKind={library.activeKind}
-    libraryCount={page?.library_count ?? files.length}
+    libraryCount={page?.library_count ?? tagsQuery.data?.library_count ?? files.length}
     tagCount={tagsQuery.data?.tags.length ?? 0}
     jobsActiveCount={activeJobs.length}
     jobs={jobsQuery.data?.items ?? []}
     jobsDrawerOpen={jobsDrawerOpen}
-    kindCounts={page?.facets?.kind ?? []}
+    kindCounts={page?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? []}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     tags={tagsQuery.data?.tags ?? []}
@@ -418,7 +418,7 @@
     {:else if library.route === 'tags'}
       <TagsView
         tags={tagsQuery.data?.tags ?? []}
-        libraryCount={page?.library_count ?? files.length}
+        libraryCount={page?.library_count ?? tagsQuery.data?.library_count ?? files.length}
         loading={tagsQuery.isLoading}
         error={tagsQuery.isError ? errorMessage(tagsQuery.error) : ''}
         onTag={library.runTagSearch}

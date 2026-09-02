@@ -1310,12 +1310,17 @@ components:
           type: string
     TagListResponse:
       type: object
-      required: [tags]
+      required: [tags, library_count]
       properties:
         tags:
           type: array
           items:
             $ref: "#/components/schemas/Tag"
+        library_count:
+          type: integer
+          description: Total tracked files in the library.
+        facets:
+          $ref: "#/components/schemas/Facets"
     Tag:
       type: object
       required: [name]
