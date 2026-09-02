@@ -1189,6 +1189,8 @@ export interface components {
             file_ids?: string[];
             /** @description Query selector. Exactly one of file_ids or query must be provided. */
             query?: string;
+            /** @description Opaque file IDs to exclude from a query selector. Only valid with query. */
+            exclude_file_ids?: string[];
             tags: string[];
             /** @default false */
             verbose: boolean;
@@ -1199,6 +1201,7 @@ export interface components {
             selector: {
                 file_ids?: string[];
                 query?: string;
+                exclude_file_ids?: string[];
             };
             matched_files?: number;
             affected_count: number;
