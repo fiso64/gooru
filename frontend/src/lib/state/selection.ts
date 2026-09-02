@@ -47,6 +47,24 @@ export function toggleSelection(selection: LibrarySelection, fileID: string): Li
   return { mode: 'explicit', ids };
 }
 
+export function setSelectionRange(selection: LibrarySelection, fileIDs: string[], selected: boolean): LibrarySelection {
+  if (selection.mode === 'query') {
+    const excludedIDs = new Set(selection.excludedIDs);
+    for (const fileID of fileIDs) {
+      if (selected) excludedIDs.delete(fileID);
+      else excludedIDs.add(fileID);
+    }
+    return { ...selection, excludedIDs };
+  }
+
+  const ids = new Set(selection.ids);
+  for (const fileID of fileIDs) {
+    if (selected) ids.add(fileID);
+    else ids.delete(fileID);
+  }
+  return { mode: 'explicit', ids };
+}
+
 export function selectionRequest(selection: LibrarySelection):
   | { file_ids: string[] }
   | { query: string; exclude_file_ids?: string[] } {

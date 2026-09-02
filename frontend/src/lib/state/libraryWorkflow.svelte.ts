@@ -20,6 +20,7 @@ import {
   selectionActive,
   selectionCount,
   selectionHas,
+  setSelectionRange,
   toggleSelection,
   type LibrarySelection
 } from '$lib/state/selection';
@@ -38,6 +39,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   let sort: FileSort = $state(initialLibraryState.sort);
   let order: SortOrder = $state(initialLibraryState.order);
   let selection: LibrarySelection = $state(emptySelection());
+  let selectionAnchorID = $state('');
   let activeFile = $state<FileItem | null>(null);
   let pendingPreviewID = $state(initialLibraryState.fileID);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
@@ -80,6 +82,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
       setSubmittedSearch(nextLibraryState.query);
       activeFile = null;
       selection = emptySelection();
+      selectionAnchorID = '';
     };
     window.addEventListener('popstate', restoreRoute);
     return () => window.removeEventListener('popstate', restoreRoute);
@@ -111,6 +114,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
   function reset() {
     selection = emptySelection();
+    selectionAnchorID = '';
     activeFile = null;
     clearViewerPreloadCache();
   }
@@ -118,6 +122,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   function submitSearch() {
     setSubmittedSearch(get(searchDraft).trim());
     selection = emptySelection();
+    selectionAnchorID = '';
     route = 'library';
   }
 
@@ -142,6 +147,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     suggestionSearch.set(query);
     setSubmittedSearch(query);
     selection = emptySelection();
+    selectionAnchorID = '';
     route = 'library';
   }
 
@@ -154,6 +160,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   function setKind(kind: string) {
     activeKind = kind;
     selection = emptySelection();
+    selectionAnchorID = '';
   }
 
   function runTagSearch(query: string) {
@@ -162,6 +169,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     suggestionSearch.set(query);
     setSubmittedSearch(query);
     selection = emptySelection();
+    selectionAnchorID = '';
     activeFile = null;
     pendingPreviewID = '';
     route = 'library';
@@ -173,6 +181,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     suggestionSearch.set(query);
     setSubmittedSearch(query);
     selection = emptySelection();
+    selectionAnchorID = '';
     route = 'library';
   }
 
@@ -182,19 +191,36 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     suggestionSearch.set(next);
     setSubmittedSearch(next);
     selection = emptySelection();
+    selectionAnchorID = '';
     route = 'library';
   }
 
-  function toggleSelect(file: FileItem) {
+  function toggleSelect(file: FileItem, files: FileItem[] = [], range = false) {
+    const targetSelected = selectionHas(selection, file.id);
+    const anchorIndex = selectionAnchorID ? files.findIndex((candidate) => candidate.id === selectionAnchorID) : -1;
+    const targetIndex = files.findIndex((candidate) => candidate.id === file.id);
+    if (range && anchorIndex >= 0 && targetIndex >= 0) {
+      const start = Math.min(anchorIndex, targetIndex);
+      const end = Math.max(anchorIndex, targetIndex);
+      selection = setSelectionRange(selection, files.slice(start, end + 1).map((candidate) => candidate.id), !targetSelected);
+      if (!targetSelected) selectionAnchorID = file.id;
+      else if (!selectionHas(selection, selectionAnchorID)) selectionAnchorID = '';
+      return;
+    }
+
     selection = toggleSelection(selection, file.id);
+    if (!targetSelected) selectionAnchorID = file.id;
+    else if (selectionAnchorID === file.id) selectionAnchorID = '';
   }
 
   function selectAll() {
     selection = selectAllMatching(filterQuery());
+    selectionAnchorID = '';
   }
 
   function clearSelection() {
     selection = emptySelection();
+    selectionAnchorID = '';
   }
 
   function isSelected(fileID: string) {
@@ -256,6 +282,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
       activeFile = null;
       pendingPreviewID = '';
       selection = emptySelection();
+      selectionAnchorID = '';
     }
   }
 
