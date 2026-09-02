@@ -301,7 +301,7 @@
       <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>
     </div>
   {:else}
-    <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} onclick={restoreStageFocusAfterPointer} />
+    <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
   {/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
