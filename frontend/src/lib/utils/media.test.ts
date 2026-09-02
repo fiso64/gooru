@@ -3,7 +3,7 @@ import { canUseOriginalInViewer, preserveNativeViewerSize, viewerImageSource, ty
 
 function media(overrides: Partial<ViewerMedia> = {}): ViewerMedia {
   return {
-    media_kind: 'image',
+    media_kind: 'photo',
     media_type: 'image/jpeg',
     media_urls: {
       content: '/content/original',
@@ -18,12 +18,12 @@ describe('viewer media source policy', () => {
     expect(viewerImageSource(media(), false)).toBe('/preview/derived');
   });
 
-  it('uses original image content when requested', () => {
+  it('uses original image content when requested for generated photo kinds', () => {
     expect(viewerImageSource(media(), true)).toBe('/content/original');
   });
 
   it('always uses original GIF content so animation is preserved', () => {
-    const gif = media({ media_type: 'image/gif' });
+    const gif = media({ media_kind: 'gif', media_type: 'image/gif' });
     expect(viewerImageSource(gif, false)).toBe('/content/original');
     expect(preserveNativeViewerSize(gif)).toBe(true);
   });
@@ -35,7 +35,7 @@ describe('viewer media source policy', () => {
   });
 
   it('does not opt non-image fallback renderers into original content', () => {
-    const file = media({ media_kind: 'document', media_type: 'application/pdf' });
+    const file = media({ media_kind: 'other', media_type: 'application/pdf' });
     expect(canUseOriginalInViewer(file)).toBe(false);
     expect(viewerImageSource(file, true)).toBe('/preview/derived');
   });
