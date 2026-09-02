@@ -44,6 +44,7 @@ jobs:
           npm ci
           npm run generate:api
           cd ..
+          git restore temp/apply-managed-delete.py
           if ! git diff --quiet; then
             git config user.name autonomous-maintainer
             git config user.email 64778819+fiso64@users.noreply.github.com
