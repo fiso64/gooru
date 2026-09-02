@@ -1,0 +1,52 @@
+name: validate grid scroll
+
+on:
+  push:
+    branches: [perf/131-grid-scroll-window]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/131-grid-scroll-window
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply grid performance patch
+        run: python3 .github/tmp/patch_grid_perf.py
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Static check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Focused browser regression
+        working-directory: frontend
+        run: npx playwright test tests/grid-scroll-performance.spec.ts --project=chromium
+      - name: Commit validated implementation and remove temporary files
+        if: success()
+        run: |
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/state/ui.ts frontend/src/lib/state/ui.test.ts frontend/src/lib/components/MediaGrid.svelte frontend/tests/grid-scroll-performance.spec.ts
+          git commit -m "perf(grid): avoid redundant scroll invalidations"
+          git rm .github/workflows/validate-grid-scroll.yml .github/tmp/patch_grid_perf.py
+          git commit -m "chore: remove temporary grid validation"
+          git push origin HEAD:perf/131-grid-scroll-window
