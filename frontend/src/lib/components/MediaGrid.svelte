@@ -3,6 +3,7 @@
   import MediaCard from './MediaCard.svelte';
   import { errorMessage } from '$lib/utils/format';
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
+  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import type { Snippet } from 'svelte';
   import { virtualGrid } from '$lib/state/ui';
   import type { FileItem } from '$lib/api/types';
@@ -77,6 +78,19 @@
     paneScrollY = mainHost?.scrollTop ?? 0;
   }
 
+  function focusFirstGridItem(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.key !== 'ArrowDown' || hasCommandModifier(event)) return;
+    const target = event.target;
+    const fromLibrarySearch = target instanceof HTMLElement && target.classList.contains('searchbar-input');
+    if (isEditableShortcutTarget(target) && !fromLibrarySearch) return;
+    if (document.activeElement instanceof HTMLElement && document.activeElement.classList.contains('thumb-open')) return;
+    const first = gridHost?.querySelector<HTMLButtonElement>('.thumb-open');
+    if (!first) return;
+    event.preventDefault();
+    first.focus({ preventScroll: true });
+    first.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
   function handleGridKeydown(event: KeyboardEvent) {
     if (!isGridDirection(event.key) || !(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('thumb-open')) return;
     const buttons = Array.from(gridHost?.querySelectorAll<HTMLButtonElement>('.thumb-open') ?? []);
@@ -139,6 +153,8 @@
     if (virtual.needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();
   });
 </script>
+
+<svelte:window onkeydown={focusFirstGridItem} />
 
 <main bind:this={mainHost} class="main" onscroll={handleScroll}>
   {#if selectedCount > 0}
