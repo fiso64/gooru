@@ -45,6 +45,7 @@
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let cancelRequestedJobID = $state('');
   let jobsDrawerOpen = $state(false);
+  let nestedPreviewNavigation = $state(false);
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -133,6 +134,10 @@
     if (uploadJobQuery.isError) upload.applyJobError(uploadJobQuery.error);
   });
 
+  $effect(() => {
+    if (!library.activeFile) nestedPreviewNavigation = false;
+  });
+
   function savedSearchContext() {
     return {
       query: library.filterQuery(),
@@ -166,6 +171,7 @@
       }
     }
 
+    if (nestedPreviewNavigation && library.activeFile && (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'j' || event.key === 'k')) return;
     library.handleKeydown(event, loadedFiles);
   }
 
@@ -482,6 +488,7 @@
       onClose={library.closePreview}
       onPrev={() => library.movePreview(-1, files)}
       onNext={() => library.movePreview(1, files)}
+      onNestedNavigationChange={(active) => (nestedPreviewNavigation = active)}
       onTagInput={tagWorkflow.updateDraft}
       onMutateTags={(file, operation, value) => value == null
         ? tagWorkflow.mutateFile(file, operation, (variables) => tagMutation.mutateAsync(variables))
