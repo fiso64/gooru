@@ -81,9 +81,9 @@
 
 <style>
   :global(.thumb-open:focus-visible) {
-    outline: 3px solid var(--accent);
-    outline-offset: 3px;
-    box-shadow: 0 0 0 1px var(--panel), 0 0 0 6px var(--accent-soft);
+    outline: 2px dashed #fff;
+    outline-offset: -6px;
+    box-shadow: inset 0 0 0 7px rgba(0, 0, 0, 0.72), 0 0 0 2px #000;
   }
 
   .thumb-preview {
