@@ -170,26 +170,33 @@ export function createUploadWorkflow() {
     return { queued: queued > 0, changedFiles };
   }
 
-  async function cancel(mutate: CancelJob, jobID = Object.keys(trackedJobs)[0] ?? '') {
-    const index = trackedJobs[jobID];
-    if (!jobID || index === undefined || cancelBusy) return { changed: false };
+  async function cancel(mutate: CancelJob, _jobID = Object.keys(trackedJobs)[0] ?? '') {
+    const jobIDs = Object.keys(trackedJobs);
+    if (!jobIDs.length || cancelBusy) return { changed: false };
     cancelBusy = true;
+    let changed = false;
     try {
-      const job = await mutate(jobID);
-      items = itemFromJob(items, index, job);
-      if (isTerminalJob(job)) {
-        const nextTrackedJobs = { ...trackedJobs };
-        delete nextTrackedJobs[jobID];
-        trackedJobs = nextTrackedJobs;
+      for (const jobID of jobIDs) {
+        const index = trackedJobs[jobID];
+        if (index === undefined) continue;
+        try {
+          const job = await mutate(jobID);
+          items = itemFromJob(items, index, job);
+          if (isTerminalJob(job)) {
+            const nextTrackedJobs = { ...trackedJobs };
+            delete nextTrackedJobs[jobID];
+            trackedJobs = nextTrackedJobs;
+          }
+          changed = true;
+        } catch (error) {
+          const message = errorMessage(error);
+          items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: message } : item);
+          status = message;
+        }
       }
       if (!busy && !hasActiveJobs()) finishBatch();
       else status = uploadSummary(items);
-      return { changed: true };
-    } catch (error) {
-      const message = errorMessage(error);
-      items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: message } : item);
-      status = message;
-      return { changed: false };
+      return { changed };
     } finally {
       cancelBusy = false;
     }
