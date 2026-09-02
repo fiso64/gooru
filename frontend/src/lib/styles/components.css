@@ -853,7 +853,7 @@
 
 .upload-row {
   display: grid;
-  grid-template-columns: 40px 1fr 90px 140px 80px;
+  grid-template-columns: 40px minmax(0, 1fr) 90px 140px 80px;
   align-items: center;
   gap: 14px;
   padding: 10px 14px;
