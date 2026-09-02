@@ -1,0 +1,26 @@
+name: maintainer-129-v2
+on:
+  push:
+    branches:
+      - fix/129-stream-multipart-upload
+permissions:
+  contents: write
+jobs:
+  validate:
+    if: "${{ github.actor != 'github-actions[bot]' }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply and validate implementation
+        shell: bash
+        run: bash .github/maintainer-129-v2.sh
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name gooru-maintainer-bot
+          git config user.email maintainer@users.noreply.github.com
+          git add internal/serve/uploads.go internal/serve/upload_stream.go internal/serve/upload_stream_test.go
+          git commit -m 'fix(upload): stream multipart files into managed staging'
+          git push origin HEAD:fix/129-stream-multipart-upload
