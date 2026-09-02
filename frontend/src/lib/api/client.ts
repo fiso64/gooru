@@ -214,7 +214,7 @@ export class ApiClient {
 
   async clearJobs(status = 'completed'): Promise<{ removed: number }> {
     const clearStatus = (['completed', 'failed', 'canceled'].includes(status) ? status : 'completed') as ClearableJobStatus;
-    return this.unwrap(this.client.DELETE('/jobs', { params: { header: this.csrfHeaderParam('DELETE'), query: { status: clearStatus } }));
+    return this.unwrap(this.client.DELETE('/jobs', { params: { header: this.csrfHeaderParam('DELETE'), query: { status: clearStatus } } }));
   }
 
   private csrfHeaderParam(method: string): { 'X-Gooru-CSRF': string } {
