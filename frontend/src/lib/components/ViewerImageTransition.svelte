@@ -18,6 +18,7 @@
   let currentStyle = $state(style);
   let currentAlt = $state(alt);
   let outgoing = $state<{ source: string; style: string } | null>(null);
+  let releaseGeneration = 0;
 
   $effect(() => {
     const nextSource = source;
@@ -30,10 +31,10 @@
       return;
     }
 
-    // Keep the last fully presented image at its own frozen geometry while a
-    // new image enters the browser loading/progressive-decode pipeline. Rapid
-    // navigation keeps that stable backing layer instead of chaining partially
-    // loaded targets as new outgoing frames.
+    // Invalidate a pending outgoing-layer release from an older target. Rapid
+    // navigation should keep the last fully presented pixels until the newest
+    // incoming image has itself reached a painted frame.
+    releaseGeneration += 1;
     if (!outgoing && currentSource) outgoing = { source: currentSource, style: currentStyle };
     currentSource = nextSource;
     currentStyle = nextStyle;
@@ -41,8 +42,22 @@
   });
 
   function handleLoad(event: Event) {
-    outgoing = null;
+    const image = event.currentTarget;
+    const loadedSource = image instanceof HTMLImageElement ? image.getAttribute('src') : null;
     onload?.(event);
+
+    // `load` means the image data is available, but it can fire before the browser
+    // has presented those pixels. Removing the backing layer synchronously can
+    // therefore expose a blank frame. Keep it through one paint and release it on
+    // the following frame; stale callbacks are ignored if navigation moved again.
+    const generation = ++releaseGeneration;
+    requestAnimationFrame(() => {
+      if (generation !== releaseGeneration || loadedSource !== currentSource) return;
+      requestAnimationFrame(() => {
+        if (generation !== releaseGeneration || loadedSource !== currentSource) return;
+        outgoing = null;
+      });
+    });
   }
 </script>
 

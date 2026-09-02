@@ -103,7 +103,17 @@ test('old image keeps its geometry until a different-aspect target paints', asyn
   expect(Math.abs(stillDuring!.width - before!.width)).toBeLessThan(0.5);
   expect(Math.abs(stillDuring!.height - before!.height)).toBeLessThan(0.5);
 
+  await incoming.evaluate((node) => {
+    const state = window as typeof window & { __outgoingPresentAtFirstPaint?: boolean };
+    node.addEventListener('load', () => {
+      requestAnimationFrame(() => {
+        state.__outgoingPresentAtFirstPaint = Boolean(document.querySelector('.viewer-outgoing-media'));
+      });
+    }, { once: true });
+  });
+
   releaseTall();
+  await expect.poll(() => page.evaluate(() => (window as typeof window & { __outgoingPresentAtFirstPaint?: boolean }).__outgoingPresentAtFirstPaint)).toBe(true);
   await expect(outgoing).toHaveCount(0);
   await expect(incoming).toBeVisible();
   await expect.poll(async () => {
