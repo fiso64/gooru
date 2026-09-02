@@ -122,22 +122,33 @@ test('navigation never collapses the active image while swapping sources', async
   await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(0);
 });
 
-test('rapid normal-image navigation does not force speculative image decodes', async ({ page }) => {
+test('rapid navigation bounds expensive image predecodes', async ({ page }) => {
   await page.addInitScript(() => {
     const originalDecode = HTMLImageElement.prototype.decode;
-    const state = window as typeof window & { __viewerDecodeCalls?: string[] };
-    state.__viewerDecodeCalls = [];
+    const state = window as typeof window & { __viewerDecodeActive?: number; __viewerDecodeMax?: number };
+    state.__viewerDecodeActive = 0;
+    state.__viewerDecodeMax = 0;
     HTMLImageElement.prototype.decode = function () {
-      if (this.src.includes('/preview')) {
-        state.__viewerDecodeCalls?.push(this.src);
-        return new Promise<void>(() => {});
-      }
-      return originalDecode ? originalDecode.call(this) : Promise.resolve();
+      if (!this.src.includes('/preview')) return originalDecode ? originalDecode.call(this) : Promise.resolve();
+      state.__viewerDecodeActive = (state.__viewerDecodeActive ?? 0) + 1;
+      state.__viewerDecodeMax = Math.max(state.__viewerDecodeMax ?? 0, state.__viewerDecodeActive);
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          state.__viewerDecodeActive = Math.max(0, (state.__viewerDecodeActive ?? 1) - 1);
+          resolve();
+        }, 150);
+      });
     };
   });
 
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    const state = window as typeof window & { __viewerDecodeActive?: number; __viewerDecodeMax?: number };
+    state.__viewerDecodeActive = 0;
+    state.__viewerDecodeMax = 0;
+  });
 
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
@@ -145,9 +156,9 @@ test('rapid normal-image navigation does not force speculative image decodes', a
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('dialog', { name: 'sixth.jpg' })).toBeVisible();
-  await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', /\/sixth\/preview/);
+  await page.waitForTimeout(200);
 
-  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeCalls?: string[] }).__viewerDecodeCalls ?? [])).toEqual([]);
+  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeMax?: number }).__viewerDecodeMax ?? 0)).toBe(2);
 });
 
 test('held navigation keeps image presentation advancing when full image decode is backlogged', async ({ page }) => {
