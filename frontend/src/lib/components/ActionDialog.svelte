@@ -172,4 +172,9 @@
     background: var(--bg-2);
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
+
+  .dialog-tag-input :global(.tag-autocomplete-list) {
+    top: auto;
+    bottom: calc(100% + 6px);
+  }
 </style>
