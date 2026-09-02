@@ -1,5 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { ApiClient } from '$lib/api/client';
+  import Icon from './Icon.svelte';
+  import TagAutocompleteInput from './TagAutocompleteInput.svelte';
+  import { parseTags } from '$lib/utils/format';
+  import type { TagCandidate } from '$lib/utils/tagSuggestions';
 
   let {
     title,
@@ -30,9 +35,37 @@
   }>();
 
   let dialogRef: HTMLDivElement | undefined;
+  let tagCandidates = $state<TagCandidate[]>([]);
+  let tagDraft = $state('');
+  let committedTags = $state<string[]>([]);
+  const tagInput = $derived(input && label === 'Tags');
+
+  function syncTagValue(tags: string[]) {
+    committedTags = Array.from(new Set(tags));
+    onInput?.(committedTags.join(' '));
+  }
+
+  function commitTagInput(raw: string) {
+    syncTagValue([...committedTags, ...parseTags(raw)]);
+    tagDraft = '';
+  }
+
+  function removeTag(tag: string) {
+    syncTagValue(committedTags.filter((candidate) => candidate !== tag));
+  }
 
   onMount(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (tagInput) {
+      committedTags = parseTags(value ?? '');
+      void new ApiClient()
+        .listTags(true)
+        .then((response) => (tagCandidates = response.tags))
+        .catch(() => {
+          // Completion data is optional; manual tag entry must remain usable.
+          tagCandidates = [];
+        });
+    }
 
     queueMicrotask(() => {
       const first = dialogRef?.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])');
@@ -85,12 +118,40 @@
     {#if input}
       <label>
         <span>{label}</span>
-        <input
-          value={value ?? ''}
-          disabled={busy}
-          oninput={(event) => onInput?.(event.currentTarget.value)}
-          onkeydown={(event) => { if (event.key === 'Enter') onConfirm(); }}
-        />
+        {#if tagInput}
+          <div class="dialog-tag-input">
+            {#each committedTags as tag}
+              <span class="g-tag">
+                {#if tag.includes(':')}
+                  <span class="g-tag-ns">{tag.slice(0, tag.indexOf(':'))}:</span><span>{tag.slice(tag.indexOf(':') + 1)}</span>
+                {:else}
+                  <span>{tag}</span>
+                {/if}
+                <button class="g-tag-x" type="button" disabled={busy} aria-label={`Remove ${tag}`} onclick={() => removeTag(tag)}>
+                  <Icon name="close" size={11} />
+                </button>
+              </span>
+            {/each}
+            <TagAutocompleteInput
+              value={tagDraft}
+              tags={tagCandidates}
+              existing={committedTags}
+              placeholder="add tag"
+              readOnly={busy}
+              ariaLabel={label ?? 'Tags'}
+              onInput={(next) => (tagDraft = next)}
+              onCommit={commitTagInput}
+              onRemoveLast={removeTag}
+            />
+          </div>
+        {:else}
+          <input
+            value={value ?? ''}
+            disabled={busy}
+            oninput={(event) => onInput?.(event.currentTarget.value)}
+            onkeydown={(event) => { if (event.key === 'Enter') onConfirm(); }}
+          />
+        {/if}
       </label>
     {/if}
     {#if error}<div class="dialog-error">{error}</div>{/if}
@@ -100,3 +161,23 @@
     </div>
   </div>
 </div>
+
+<style>
+  .dialog-tag-input {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 6px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-3);
+    background: var(--surface);
+  }
+
+  .dialog-tag-input:focus-within {
+    border-color: var(--accent-line);
+    background: var(--bg-2);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+</style>
