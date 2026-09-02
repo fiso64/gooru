@@ -5,12 +5,6 @@
 Loading svelte-check in workspace: /home/runner/work/gooru/gooru/frontend
 Getting Svelte diagnostics...
 
-/home/runner/work/gooru/gooru/frontend/[32msrc/lib/api/client.ts[39m:217:136
-[31mError[39m: ',' expected. 
-[36m    const clearStatus = (['completed', 'failed', 'canceled'].includes(status) ? status : 'completed') as ClearableJobStatus;
-    return this.unwrap(this.client.DELETE('/jobs', { params: { header: this.csrfHeaderParam('DELETE'), query: { status: clearStatus } }[35m)[36m);
-  }[39m
-
 /home/runner/work/gooru/gooru/frontend/[32msrc/lib/components/SearchBar.svelte[39m:280:1
 [33mWarn[39m: Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
 https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
@@ -341,5 +335,5 @@ https://svelte.dev/e/a11y_no_static_element_interactions (svelte)
 </main>[39m
 
 ====================================
-[31msvelte-check found 1 error and 5 warnings in 6 files
+[33msvelte-check found 0 errors and 5 warnings in 5 files
 [39m
