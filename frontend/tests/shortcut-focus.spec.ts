@@ -111,35 +111,35 @@ async function viewerMediaState(page: Page) {
 }
 
 test('Delete and Shift+Delete remove a query-wide selection through confirmation dialogs', async ({ page }) => {
-	await mockApp(page);
-	const removals: unknown[] = [];
-	await page.route('**/api/v1/files', async (route) => {
-		if (route.request().method() !== 'DELETE') return route.fallback();
-		removals.push(route.request().postDataJSON());
-		await route.fulfill({
-			contentType: 'application/json',
-			body: JSON.stringify({ mode: (removals.at(-1) as { mode: string }).mode, selector: removals.at(-1), removed_locations: 3 })
-		});
-	});
+  await mockApp(page);
+  const removals: unknown[] = [];
+  await page.route('**/api/v1/files', async (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    removals.push(route.request().postDataJSON());
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ mode: (removals.at(-1) as { mode: string }).mode, selector: removals.at(-1), removed_locations: 3 })
+    });
+  });
 
-	const selectAll = page.getByLabel('Select all files in current view');
-	await selectAll.click();
-	await expect(page.getByRole('button', { name: 'Untrack…' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Delete…' })).toBeVisible();
+  const selectAll = page.getByLabel('Select all files in current view');
+  await selectAll.click();
+  await expect(page.getByRole('button', { name: 'Untrack', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
 
-	await page.keyboard.press('Delete');
-	await expect(page.getByRole('dialog', { name: 'Untrack selected files' })).toBeVisible();
-	await page.getByRole('button', { name: 'Untrack', exact: true }).click();
-	await expect.poll(() => removals.length).toBe(1);
-	expect(removals[0]).toEqual({ mode: 'untrack', query: '*' });
-	await expect(page.getByText('3 of 3 selected')).toHaveCount(0);
+  await page.keyboard.press('Delete');
+  await expect(page.getByRole('dialog', { name: 'Untrack selected files' })).toBeVisible();
+  await page.getByRole('button', { name: 'Untrack', exact: true }).click();
+  await expect.poll(() => removals.length).toBe(1);
+  expect(removals[0]).toEqual({ mode: 'untrack', query: '*' });
+  await expect(page.getByText('3 of 3 selected')).toHaveCount(0);
 
-	await selectAll.click();
-	await page.keyboard.press('Shift+Delete');
-	await expect(page.getByRole('dialog', { name: 'Delete selected files' })).toBeVisible();
-	await page.getByRole('button', { name: 'Delete files' }).click();
-	await expect.poll(() => removals.length).toBe(2);
-	expect(removals[1]).toEqual({ mode: 'delete', query: '*' });
+  await selectAll.click();
+  await page.keyboard.press('Shift+Delete');
+  await expect(page.getByRole('dialog', { name: 'Delete selected files' })).toBeVisible();
+  await page.getByRole('button', { name: 'Delete files' }).click();
+  await expect.poll(() => removals.length).toBe(2);
+  expect(removals[1]).toEqual({ mode: 'delete', query: '*' });
 });
 
 test('Escape clears selection even when the select-all checkbox owns focus', async ({ page }) => {
