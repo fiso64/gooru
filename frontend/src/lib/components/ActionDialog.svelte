@@ -55,12 +55,26 @@
     syncTagValue(committedTags.filter((candidate) => candidate !== tag));
   }
 
+  function isNativeEnterControl(target: EventTarget | null) {
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest('button, a[href], select, summary, [role="button"], [role="link"]'));
+  }
+
+  function isEditableTarget(target: EventTarget | null) {
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest('input, textarea, [contenteditable=""], [contenteditable="true"]'));
+  }
+
   onMount(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (tagInput) committedTags = parseTags(value ?? '');
 
     queueMicrotask(() => {
-      const first = dialogRef?.querySelector<HTMLElement>('input:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (!input) {
+        dialogRef?.focus();
+        return;
+      }
+      const first = dialogRef?.querySelector<HTMLElement>('input:not([disabled]), textarea:not([disabled]), [contenteditable="true"]');
       (first ?? dialogRef)?.focus();
     });
 
@@ -72,10 +86,19 @@
         if (!busy) onCancel();
         return;
       }
+      if (event.key === 'Enter') {
+        const modifiedSubmit = event.ctrlKey || event.metaKey;
+        if (modifiedSubmit || (!isEditableTarget(event.target) && !isNativeEnterControl(event.target))) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          if (!busy) onConfirm();
+        }
+        return;
+      }
       if (event.key !== 'Tab') return;
 
       const focusable = Array.from(
-        dialogRef.querySelectorAll<HTMLElement>('input:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')
+        dialogRef.querySelectorAll<HTMLElement>('input:not([disabled]), textarea:not([disabled]), button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')
       ).filter((element) => !element.hasAttribute('hidden'));
       if (!focusable.length) {
         event.preventDefault();
@@ -141,7 +164,6 @@
             value={value ?? ''}
             disabled={busy}
             oninput={(event) => onInput?.(event.currentTarget.value)}
-            onkeydown={(event) => { if (event.key === 'Enter') onConfirm(); }}
           />
         {/if}
       </label>
