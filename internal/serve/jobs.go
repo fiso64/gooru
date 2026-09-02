@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -137,11 +138,13 @@ func (m *JobManager) Reserve(ctx context.Context, typ string) (*JobReservation, 
 	if m.queued >= m.maxQueued {
 		m.mu.Unlock()
 		cancel()
+		slog.WarnContext(ctx, "job queue full", "job_type", typ, "max_queued", m.maxQueued)
 		return nil, ErrJobQueueFull
 	}
 	m.queued++
 	m.jobs[job.ID] = job
 	m.mu.Unlock()
+	slog.DebugContext(ctx, "job queued", "job_id", job.ID, "job_type", job.Type)
 	return &JobReservation{manager: m, job: job, ctx: jobCtx, cancel: cancel}, nil
 }
 
@@ -174,6 +177,7 @@ func (r *JobReservation) Submit(ctx context.Context, async bool, run JobFunc, cl
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		slog.WarnContext(ctx, "job queue full", "job_type", r.job.Type, "max_queued", r.manager.maxQueued)
 		return nil, ErrJobQueueFull
 	}
 
@@ -296,6 +300,7 @@ func (m *JobManager) cancelJob(job *Job) {
 	finished := time.Now().UTC()
 	var cancel context.CancelFunc
 	var expire bool
+	var canceledPending bool
 	m.mu.Lock()
 	switch job.Status {
 	case JobPending:
@@ -305,6 +310,7 @@ func (m *JobManager) cancelJob(job *Job) {
 		close(job.done)
 		cancel = job.cancel
 		expire = true
+		canceledPending = true
 	case JobRunning:
 		cancel = job.cancel
 	}
@@ -312,6 +318,9 @@ func (m *JobManager) cancelJob(job *Job) {
 
 	if cancel != nil {
 		cancel()
+	}
+	if canceledPending {
+		slog.Info("job finished", "job_id", job.ID, "job_type", job.Type, "status", JobCanceled, "duration", time.Duration(0))
 	}
 	if expire {
 		go m.expireCompleted(job.ID, finished, m.completedTTL)
@@ -345,6 +354,7 @@ func (m *JobManager) run(item queuedJob) {
 	item.job.StartedAt = &started
 	m.mu.Unlock()
 
+	slog.Info("job started", "job_id", item.job.ID, "job_type", item.job.Type)
 	result, err := item.run(item.ctx)
 
 	finished := time.Now().UTC()
@@ -353,7 +363,6 @@ func (m *JobManager) run(item queuedJob) {
 		resultTooLarge = approximateResultBytes(result) > m.maxResult
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			item.job.Status = JobCanceled
@@ -373,8 +382,23 @@ func (m *JobManager) run(item queuedJob) {
 		}
 	}
 	item.job.FinishedAt = &finished
+	status := item.job.Status
+	jobID := item.job.ID
+	jobType := item.job.Type
 	close(item.job.done)
 	go m.expireCompleted(item.job.ID, finished, m.completedTTL)
+	m.mu.Unlock()
+
+	level := slog.LevelInfo
+	if status == JobFailed {
+		level = slog.LevelWarn
+	}
+	slog.Log(context.Background(), level, "job finished",
+		"job_id", jobID,
+		"job_type", jobType,
+		"status", status,
+		"duration", finished.Sub(started),
+	)
 }
 
 func approximateResultBytes(value interface{}) int64 {
