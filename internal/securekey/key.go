@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -37,6 +38,16 @@ func Load(source Source) ([]byte, error) {
 		}
 		encoded = value
 	} else {
+		info, err := os.Stat(fileName)
+		if err != nil {
+			return nil, fmt.Errorf("stat encryption key file: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, errors.New("encryption key file must be a regular file")
+		}
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+			return nil, errors.New("encryption key file must not be readable or writable by group or others")
+		}
 		data, err := os.ReadFile(fileName)
 		if err != nil {
 			return nil, fmt.Errorf("read encryption key file: %w", err)
