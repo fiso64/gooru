@@ -22,13 +22,8 @@ jobs:
           if import_line not in text:
               raise SystemExit('page import not found')
           text = text.replace(import_line, '', 1)
-          old_sig = """  getOrder: () => SortOrder,
-            getAuthScope: () => number
-          ) {"""
-          new_sig = """  getOrder: () => SortOrder,
-            getAuthScope: () => number,
-            getEnabled: () => boolean
-          ) {"""
+          old_sig = "  getOrder: () => SortOrder,\n  getAuthScope: () => number\n) {"
+          new_sig = "  getOrder: () => SortOrder,\n  getAuthScope: () => number,\n  getEnabled: () => boolean\n) {"
           if old_sig not in text:
               raise SystemExit('createFilesQuery signature did not match expected source')
           text = text.replace(old_sig, new_sig, 1)
@@ -36,18 +31,12 @@ jobs:
           new_enabled = "    enabled: getAuthenticated() && getEnabled()\n"
           if old_enabled not in text:
               raise SystemExit('files query enabled expression did not match expected source')
-          text = text.replace(old_enabled, new_enabled, 1)
-          files.write_text(text)
+          files.write_text(text.replace(old_enabled, new_enabled, 1))
 
           app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
           app_text = app.read_text()
-          old_call = """    () => library.order,
-            () => authScope
-          );"""
-          new_call = """    () => library.order,
-            () => authScope,
-            () => library.route === 'library'
-          );"""
+          old_call = "    () => library.order,\n    () => authScope\n  );"
+          new_call = "    () => library.order,\n    () => authScope,\n    () => library.route === 'library'\n  );"
           if old_call not in app_text:
               raise SystemExit('AuthenticatedApp createFilesQuery call did not match expected source')
           app.write_text(app_text.replace(old_call, new_call, 1))
