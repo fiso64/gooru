@@ -2,6 +2,8 @@ name: Temporary route files-query validation
 on:
   push:
     branches: [fix/21-route-gate-files-query]
+  pull_request:
+    branches: [main]
 permissions:
   contents: write
 jobs:
