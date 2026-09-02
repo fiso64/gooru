@@ -40,6 +40,7 @@ type StagedUpload struct {
 	Size         int64
 	TargetID     string
 	Status       string
+	Error        string
 }
 
 const maxUploadFiles = 100
@@ -144,6 +145,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), uploadErrorDetails(err))
 		return
 	}
+	if len(saved) == 1 && saved[0].status == "error" && saved[0].error == errUploadTooLarge.Error() {
+		fileErr := uploadFileError{name: saved[0].name, err: errUploadTooLarge}
+		writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", fileErr.Error(), uploadErrorDetails(fileErr))
+		return
+	}
 	cleanup := func() {
 		removeSavedUploads(saved)
 	}
@@ -230,6 +236,7 @@ type savedUpload struct {
 	size            int64
 	targetID        string
 	status          string
+	error           string
 	replace         bool
 }
 
@@ -312,6 +319,10 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 		_ = src.Close()
 		if copyErr != nil || closeErr != nil {
 			_ = os.Remove(tmpPath)
+			if errors.Is(copyErr, errUploadTooLarge) {
+				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: copyErr.Error()})
+				continue
+			}
 			removeSavedUploads(saved)
 			if copyErr != nil {
 				return nil, uploadFileError{name: name, err: copyErr}
@@ -341,7 +352,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 
 func removeSavedUploads(files []savedUpload) {
 	for _, file := range files {
-		if file.status == "skipped" {
+		if file.status == "skipped" || file.status == "error" {
 			continue
 		}
 		_ = os.Remove(file.path)
@@ -555,7 +566,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error})
 	}
 	return out
 }
@@ -571,6 +582,12 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	analysisPathByDestination := make(map[string]string, len(files))
 	for _, file := range files {
 		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
+		if file.Status == "error" {
+			dto.Status = "error"
+			dto.Error = file.Error
+			response.Files = append(response.Files, dto)
+			continue
+		}
 		if file.Status == "skipped" {
 			dto.Status = "skipped"
 			response.Files = append(response.Files, dto)
