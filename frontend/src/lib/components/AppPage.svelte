@@ -21,21 +21,21 @@
         if (!response.ok) return { accent_color: '', load_full_media_by_default: false };
         return await response.json() as { accent_color?: string; load_full_media_by_default?: boolean };
       })
-      .catch(() => ({ accent_color: '', load_full_media_by_default: false }))
-      .then((config) => {
-        runtimeAccent = accentTheme(config.accent_color ?? '');
-        runtimeConfig.set({
-          accentColor: config.accent_color ?? '',
-          loadFullMediaByDefault: config.load_full_media_by_default ?? false
-        });
-      });
+      .catch(() => ({ accent_color: '', load_full_media_by_default: false }));
+    const sessionPromise = new ApiClient().me();
 
-    void configPromise.finally(() => {
-      new ApiClient()
-        .me()
-        .then((session) => authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true }))
-        .catch(() => authState.set({ user: null, csrfToken: '', checked: true }));
-    });
+    void Promise.all([configPromise, sessionPromise])
+      .then(([config, session]) => {
+        runtimeAccent = accentTheme(config.accent_color ?? '');
+        runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
+        authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true });
+      })
+      .catch(async () => {
+        const config = await configPromise;
+        runtimeAccent = accentTheme(config.accent_color ?? '');
+        runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
+        authState.set({ user: null, csrfToken: '', checked: true });
+      });
   });
 
   async function login() {
