@@ -28,6 +28,7 @@
   import { createTagWorkflow } from '$lib/state/tagWorkflow.svelte';
   import { createUploadWorkflow } from '$lib/state/uploadWorkflow.svelte';
   import { errorMessage } from '$lib/utils/format';
+  import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { Job, SavedSearchRequest } from '$lib/api/types';
 
@@ -143,18 +144,28 @@
     };
   }
 
-  function isTypingTarget(target: EventTarget | null) {
-    if (!(target instanceof HTMLElement)) return false;
-    return target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
-  }
-
   function handleKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented) return;
+    const editable = isEditableShortcutTarget(event.target);
+    const modified = hasCommandModifier(event);
     const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
-    if (shortcutsKey && !event.altKey && !event.ctrlKey && !event.metaKey && !isTypingTarget(event.target)) {
+    if (shortcutsKey && !modified && !editable) {
       event.preventDefault();
       setRoute('shortcuts');
       return;
     }
+
+    if (!modified && !editable && library.route === 'library' && !library.activeFile && actionDialog.kind === 'none') {
+      const action = libraryShortcutAction(event.key, selectedCount);
+      if (action) {
+        event.preventDefault();
+        if (action === 'select-all') library.selectAll();
+        else if (action === 'tag-selected') bulkTagSelected();
+        else bulkUntagSelected();
+        return;
+      }
+    }
+
     library.handleKeydown(event, loadedFiles);
   }
 
@@ -439,7 +450,7 @@
           <div class="library-head-actions">
             <label class="g-btn g-btn-sm" title="Select all files in the current view">
               <input type="checkbox" aria-label="Select all files in current view" checked={currentTotalCount > 0 && selectedCount === currentTotalCount} onchange={(event) => event.currentTarget.checked ? library.selectAll() : library.clearSelection()} />
-              Select all
+              Select <u>a</u>ll
             </label>
             <div class="seg" aria-label="Sort field">
               {#each [{ value: 'modified', label: 'Modified' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}

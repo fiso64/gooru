@@ -4,7 +4,7 @@
   import TagEditor from './TagEditor.svelte';
   import { formatBytes, groupTags, mediaDimensions, mediaDuration, parseTags } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
-  import { hasCommandModifier, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
+  import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { canUseOriginalInViewer, preserveNativeViewerSize, viewerImageSource } from '$lib/utils/media';
   import type { FileItem } from '$lib/api/types';
 
@@ -75,8 +75,17 @@
     else media.pause();
   }
 
-  function handlePlaybackKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasCommandModifier(event) || event.code !== 'Space') return;
+  function handleViewerKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented || hasCommandModifier(event)) return;
+
+    if (event.key.toLowerCase() === 't' && !isEditableShortcutTarget(event.target)) {
+      event.preventDefault();
+      event.stopPropagation();
+      focusTagInput();
+      return;
+    }
+
+    if (event.code !== 'Space') return;
 
     // A modal owns shortcuts even if focus accidentally remains on the control
     // that opened it. Only native controls *inside* this preview get to keep Space.
@@ -121,7 +130,7 @@
   }
 </script>
 
-<svelte:window onkeydown={handlePlaybackKeydown} />
+<svelte:window onkeydown={handleViewerKeydown} />
 
 <div
   bind:this={dialogElement}
