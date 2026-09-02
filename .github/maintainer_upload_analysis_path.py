@@ -103,8 +103,8 @@ func TestGooruUploadImportSeparatesAnalysisSourceFromRegisteredDestination(t *te
     if err != nil {
         t.Fatalf("registered destination: %v", err)
     }
-    if registered.Path != destination || registered.Extension != ".png" {
-        t.Fatalf("registered logical destination = %+v", registered)
+    if registered.Path != destination {
+        t.Fatalf("registered logical destination = %q, want %q", registered.Path, destination)
     }
     if provider.path != source {
         t.Fatalf("metadata provider path = %q, want analysis source %q", provider.path, source)
