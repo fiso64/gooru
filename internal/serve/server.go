@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -41,11 +42,11 @@ func (s *Server) SetAuthStore(store *AuthStore) {
 
 func (s *Server) HTTPServer() *http.Server {
 	return &http.Server{
-		Addr:         s.cfg.Server.Listen,
-		Handler:      s.Handler(),
-		ReadTimeout:  s.cfg.Server.ReadTimeout,
-		WriteTimeout: s.cfg.Server.WriteTimeout,
-		IdleTimeout:  s.cfg.Server.IdleTimeout,
+		Addr:              s.cfg.Server.Listen,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: s.cfg.Server.ReadTimeout,
+		WriteTimeout:      s.cfg.Server.WriteTimeout,
+		IdleTimeout:       s.cfg.Server.IdleTimeout,
 	}
 }
 
@@ -77,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	h = requestSizeMiddleware(s.cfg.Server.MaxRequestBodyBytes, h)
 	h = corsMiddleware(s.cfg.Server.CORSOrigins, h)
 	h = requestLoggingMiddleware(h)
+	h = requestReadTimeoutMiddleware(s.cfg.Server.ReadTimeout, h)
 	return h
 }
 
@@ -260,4 +262,44 @@ func writeJobSubmitError(w http.ResponseWriter, err error, fallback string) bool
 		writeError(w, http.StatusInternalServerError, "internal_error", fallback, nil)
 		return true
 	}
+}
+
+// requestReadTimeoutMiddleware treats ServerConfig.ReadTimeout as an inactivity
+// limit for request bodies. http.Server.ReadTimeout is an absolute deadline from
+// accept through the entire body, which makes healthy large uploads fail merely
+// because they take longer than the timeout. Header reads retain the same hard
+// limit through ReadHeaderTimeout; each body read refreshes the network deadline.
+func requestReadTimeoutMiddleware(timeout time.Duration, next http.Handler) http.Handler {
+	if timeout <= 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		controller := http.NewResponseController(w)
+		if r.Body == nil || r.Body == http.NoBody || controller.SetReadDeadline(time.Time{}) != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		body := r.Body
+		r.Body = &refreshingReadDeadlineBody{
+			ReadCloser: body,
+			refresh: func() error {
+				return controller.SetReadDeadline(time.Now().Add(timeout))
+			},
+		}
+		defer controller.SetReadDeadline(time.Time{})
+		next.ServeHTTP(w, r)
+	})
+}
+
+type refreshingReadDeadlineBody struct {
+	io.ReadCloser
+	refresh func() error
+}
+
+func (b *refreshingReadDeadlineBody) Read(p []byte) (int, error) {
+	if err := b.refresh(); err != nil {
+		return 0, err
+	}
+	return b.ReadCloser.Read(p)
 }
