@@ -1,0 +1,87 @@
+name: Maintainer patch 28 media
+
+on:
+  push:
+    branches:
+      - feat/28-protected-media-cache
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/28-protected-media-cache
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Apply protected media policy
+        id: patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('internal/serve/media.go')
+          text = path.read_text()
+          if 'serveProtectedDerivative' in text:
+              Path('/tmp/changed').write_text('false')
+              raise SystemExit(0)
+          replacements = [
+              ('import (\n\t"crypto/sha256"', 'import (\n\t"bytes"\n\t"crypto/sha256"'),
+              ('\tapplyOriginalContentPolicy(w, file)\n\thttp.ServeContent(w, r, filepath.Base(file.Path), info.ModTime(), f)', '\tapplyOriginalContentPolicy(w, file)\n\tm.applyProtectedMediaCachePolicy(w)\n\thttp.ServeContent(w, r, filepath.Base(file.Path), info.ModTime(), f)'),
+              ('\tformat := strings.ToLower(strings.TrimSpace(m.cfg.Media.ThumbnailFormat))\n\tif format == "" {\n\t\tformat = "jpeg"\n\t}\n\tcachePath, err := m.cachePath(file, kind, size, format)', '\tformat := strings.ToLower(strings.TrimSpace(m.cfg.Media.ThumbnailFormat))\n\tif format == "" {\n\t\tformat = "jpeg"\n\t}\n\tif m.cfg.Encryption.Enabled {\n\t\tm.serveProtectedDerivative(w, r, file, size, format)\n\t\treturn\n\t}\n\tcachePath, err := m.cachePath(file, kind, size, format)'),
+              ('\tif genErr != nil || closeErr != nil {\n\t\t_ = os.Remove(tmp)\n\t\tvar unsupported *UnsupportedMediaError\n\t\tif errors.As(genErr, &unsupported) {\n\t\t\twriteError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", unsupported.Details())\n\t\t\treturn\n\t\t}\n\t\tif errors.Is(genErr, ErrUnsupportedMedia) {\n\t\t\twriteError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", nil)\n\t\t\treturn\n\t\t}\n\t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to generate thumbnail", nil)\n\t\treturn\n\t}', '\tif genErr != nil || closeErr != nil {\n\t\t_ = os.Remove(tmp)\n\t\tif genErr == nil {\n\t\t\tgenErr = closeErr\n\t\t}\n\t\tm.writeThumbnailGenerationError(w, genErr)\n\t\treturn\n\t}'),
+              ('func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {', '''func (m *MediaService) applyProtectedMediaCachePolicy(w http.ResponseWriter) {\n\tif !m.cfg.Encryption.Enabled {\n\t\treturn\n\t}\n\tw.Header().Set("Cache-Control", "private, no-store")\n\tw.Header().Set("Pragma", "no-cache")\n\tw.Header().Set("Expires", "0")\n}\n\nfunc (m *MediaService) serveProtectedDerivative(w http.ResponseWriter, r *http.Request, file types.FileInfo, size int, format string) {\n\tvar out bytes.Buffer\n\tif err := m.generateThumbnail(file, &out, size, format); err != nil {\n\t\tm.writeThumbnailGenerationError(w, err)\n\t\treturn\n\t}\n\tm.applyProtectedMediaCachePolicy(w)\n\tw.Header().Set("X-Gooru-Cache", "bypass")\n\tw.Header().Set("Content-Type", mimeForDerivative(format))\n\thttp.ServeContent(w, r, "protected."+derivativeExtension(format), time.Time{}, bytes.NewReader(out.Bytes()))\n}\n\nfunc (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err error) {\n\tvar unsupported *UnsupportedMediaError\n\tif errors.As(err, &unsupported) {\n\t\twriteError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", unsupported.Details())\n\t\treturn\n\t}\n\tif errors.Is(err, ErrUnsupportedMedia) {\n\t\twriteError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", nil)\n\t\treturn\n\t}\n\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to generate thumbnail", nil)\n}\n\nfunc (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {'''),
+          ]
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected one media patch target, found {count}: {old[:90]!r}')
+              text = text.replace(old, new)
+          path.write_text(text)
+          Path('/tmp/changed').write_text('true')
+          PY
+          echo "changed=$(cat /tmp/changed)" >> "$GITHUB_OUTPUT"
+          if [ "$(cat /tmp/changed)" = true ]; then
+            gofmt -w internal/serve/media.go internal/serve/media_encryption_test.go
+          fi
+      - name: Go build
+        if: steps.patch.outputs.changed == 'true'
+        run: go build ./...
+      - name: Go tests
+        if: steps.patch.outputs.changed == 'true'
+        run: go test ./...
+      - uses: actions/setup-node@v4
+        if: steps.patch.outputs.changed == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend install
+        if: steps.patch.outputs.changed == 'true'
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend unit tests
+        if: steps.patch.outputs.changed == 'true'
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Frontend check
+        if: steps.patch.outputs.changed == 'true'
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend build
+        if: steps.patch.outputs.changed == 'true'
+        working-directory: frontend
+        run: npm run build
+      - name: Commit validated media policy
+        if: steps.patch.outputs.changed == 'true'
+        run: |
+          git config user.name 'Gooru Maintainer'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add internal/serve/media.go internal/serve/media_encryption_test.go
+          git diff --cached --check
+          git commit -m 'feat(encryption): suppress plaintext media caches'
+          git push origin HEAD:feat/28-protected-media-cache
