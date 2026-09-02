@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const session = {
   user: { id: 'usr_test', username: 'mac', role: 'admin' },
@@ -54,6 +54,18 @@ async function mockLibrary(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
+async function gapAfterShortcut(locator: Locator) {
+  return locator.evaluate((node) => {
+    const underline = node.querySelector('u');
+    const tail = underline?.nextSibling;
+    if (!(underline instanceof HTMLElement) || !(tail instanceof Text)) throw new Error('shortcut label is missing an inline trailing text node');
+    const tailRange = document.createRange();
+    tailRange.setStart(tail, 0);
+    tailRange.setEnd(tail, Math.min(1, tail.length));
+    return tailRange.getBoundingClientRect().left - underline.getBoundingClientRect().right;
+  });
+}
+
 test('select-all checkbox follows the configured accent', async ({ page }) => {
   await mockLibrary(page);
 
@@ -67,4 +79,20 @@ test('select-all checkbox follows the configured accent', async ({ page }) => {
   await selectAll.click();
   await expect(selectAll).toBeChecked();
   await expect(selectAll).toHaveCSS('accent-color', 'rgb(12, 34, 56)');
+});
+
+test('shortcut underlines do not create visual spaces inside button labels', async ({ page }) => {
+  await mockLibrary(page);
+
+  const selectAll = page.getByLabel('Select all files in current view');
+  const selectAllLabel = selectAll.locator('..');
+  expect(await gapAfterShortcut(selectAllLabel)).toBeLessThanOrEqual(1);
+
+  await selectAll.click();
+  await expect(page.getByText('1 of 1 selected')).toBeVisible();
+
+  const tag = page.getByRole('button', { name: 'Tag…' });
+  const untag = page.getByRole('button', { name: 'Untag…' });
+  expect(await gapAfterShortcut(tag)).toBeLessThanOrEqual(1);
+  expect(await gapAfterShortcut(untag)).toBeLessThanOrEqual(1);
 });
