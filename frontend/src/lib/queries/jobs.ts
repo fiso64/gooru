@@ -9,6 +9,14 @@ export const jobKeys = {
   detail: (scope: number, id: string) => ['job', scope, id] as const
 };
 
+function jobIsActive(job: Job) {
+  return job.status === 'pending' || job.status === 'running';
+}
+
+export function jobsRefetchInterval(jobs: Job[] | undefined) {
+  return jobs?.some(jobIsActive) ? 2000 : false;
+}
+
 export function createJobQuery(getCSRFToken: () => string, getJobID: () => string, getAuthScope: () => number) {
   return createQuery(() => {
     const jobID = getJobID();
@@ -26,7 +34,7 @@ export function createJobsQuery(getAuthenticated: () => boolean, getAuthScope: (
     queryKey: jobKeys.list(getAuthScope()),
     enabled: getAuthenticated(),
     queryFn: () => new ApiClient().listJobs(),
-    refetchInterval: 2000
+    refetchInterval: (query) => jobsRefetchInterval(query.state.data?.items)
   }));
 }
 
