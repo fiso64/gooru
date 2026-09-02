@@ -52,6 +52,7 @@ func TestJobLifecycleLogging(t *testing.T) {
 		t.Fatal("cancel job: job not found")
 	}
 	waitForLoggedJobStatus(t, manager, canceled.ID, JobCanceled)
+	waitForLogContains(t, &output, "job_type=export status=canceled")
 
 	logs := output.String()
 	for _, want := range []string{
@@ -88,4 +89,16 @@ func waitForLoggedJobStatus(t *testing.T, manager *JobManager, id string, want J
 		t.Fatalf("job %s disappeared before reaching %s", id, want)
 	}
 	t.Fatalf("job %s status = %s, want %s", id, job.Status, want)
+}
+
+func waitForLogContains(t *testing.T, output *bytes.Buffer, want string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(output.String(), want) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("log never contained %q: %s", want, output.String())
 }
