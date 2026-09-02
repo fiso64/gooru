@@ -16,6 +16,10 @@
   color: inherit;
 }
 
+.gooru-root input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
 .gooru-root ::selection {
   background: var(--accent);
   color: var(--accent-ink);
