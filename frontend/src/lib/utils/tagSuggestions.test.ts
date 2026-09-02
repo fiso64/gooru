@@ -30,6 +30,21 @@ describe('plainTagSuggestions', () => {
     expect(plainTagSuggestions('@rat', tags)).toEqual([]);
     expect(plainTagSuggestions('-artist', tags)).toEqual([]);
   });
+
+  it('ranks component-prefix matches before more-used substring-only matches', () => {
+    const candidates = [
+      { name: 'series:superhero', count: 100 },
+      { name: 'series:my_hero_academia', count: 3 },
+      { name: 'heroic', count: 7 },
+      { name: 'subject:hero', count: 5 }
+    ];
+    expect(plainTagSuggestions('hero', candidates).map((item) => item.name)).toEqual([
+      'heroic',
+      'subject:hero',
+      'series:my_hero_academia',
+      'series:superhero'
+    ]);
+  });
 });
 
 describe('isPlainTag', () => {
