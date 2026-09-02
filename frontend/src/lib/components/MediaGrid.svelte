@@ -164,16 +164,16 @@
         <span><b>{selectedCount}</b> of <span>{totalCount || files.length}</span> selected</span>
         {#if selectedCount < (totalCount || files.length)}
           <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>
-            Select <u>a</u>ll {(totalCount || files.length).toLocaleString()}
+            Select&nbsp;<u>a</u>ll {(totalCount || files.length).toLocaleString()}
           </button>
         {/if}
       </div>
       <div class="sb-actions">
-        <button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> <u>T</u>ag…</button>
         <button class="g-btn g-btn-sm" type="button" disabled title="Export bundles are not supported yet"><Icon name="download" size={13} /> Export</button>
-        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="trash" size={13} /> <u>U</u>ntag…</button>
-        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntrack}>Untrack…</button>
-        <button class="g-btn g-btn-sm" type="button" onclick={onBulkDelete}><Icon name="trash" size={13} /> Delete…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> <u>T</u>ag…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="tag_remove" size={13} /> <u>U</u>ntag…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntrack}><Icon name="untrack" size={13} /> Untrack</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkDelete}><Icon name="trash" size={13} /> Delete</button>
         <button class="g-btn g-btn-sm g-btn-icon" type="button" title="Clear" aria-label="Clear selection" onclick={onClearSelection}><Icon name="close" size={13} /></button>
       </div>
     </div>
