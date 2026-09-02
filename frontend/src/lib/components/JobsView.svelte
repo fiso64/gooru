@@ -38,13 +38,14 @@
 
 <style>
   .jobs-page {
-    width: min(100%, 760px);
-    margin-inline: auto;
+    width: min(100%, 600px);
+    margin-inline: 0;
   }
 
   .jobs-page-header {
     position: relative;
-    max-width: 62ch;
+    max-width: 56ch;
+    text-align: left;
   }
 
   .jobs-clear {
@@ -65,10 +66,11 @@
   .jobs-card {
     overflow: hidden;
     width: 100%;
+    text-align: left;
   }
 
   .jobs-empty {
-    padding: 36px 18px;
+    padding: 28px 16px;
     color: var(--text-3);
     text-align: left;
     font-family: var(--font-mono);
