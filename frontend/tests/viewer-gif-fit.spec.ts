@@ -69,7 +69,7 @@ test('GIF fit-to-screen scales like other media while actual size stays 1:1', as
   await expect(media).toBeVisible();
   await expect(media).toHaveAttribute('src', /\/tiny-gif\/content/);
 
-  const fittedWidth = await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(40);
+  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(40);
   await page.getByRole('button', { name: 'Actual size' }).click();
   await expect.poll(() => media.evaluate((node) => Math.round(node.getBoundingClientRect().width))).toBe(40);
   await page.getByRole('button', { name: 'Fit to screen' }).click();
