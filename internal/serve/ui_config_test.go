@@ -3,6 +3,8 @@ package serve
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,9 +25,25 @@ func TestConfigValidatesAccentColor(t *testing.T) {
 	}
 }
 
-func TestUIConfigIsPublicAndContainsAccent(t *testing.T) {
+func TestConfigLoadsFullMediaDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gooru.yaml")
+	if err := os.WriteFile(path, []byte("media:\n  load_full_by_default: true\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.Media.LoadFullByDefault {
+		t.Fatal("media.load_full_by_default was not loaded")
+	}
+}
+
+func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg := DefaultConfig(t.TempDir() + "/gooru.db")
 	cfg.UI.AccentColor = "#2f80ed"
+	cfg.Media.LoadFullByDefault = true
 	server := NewServer(cfg)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/ui-config", nil)
@@ -35,5 +53,8 @@ func TestUIConfigIsPublicAndContainsAccent(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"accent_color":"#2f80ed"`) {
 		t.Fatalf("response missing accent: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"load_full_media_by_default":true`) {
+		t.Fatalf("response missing full-media preference: %s", rec.Body.String())
 	}
 }

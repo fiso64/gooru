@@ -5,6 +5,7 @@
   import SessionLoading from './SessionLoading.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
+  import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
 
@@ -15,18 +16,26 @@
   let runtimeAccent = $state<AccentTheme | null>(null);
 
   onMount(() => {
-    fetch('/api/v1/ui-config', { credentials: 'same-origin' })
+    const configPromise = fetch('/api/v1/ui-config', { credentials: 'same-origin' })
       .then(async (response) => {
-        if (!response.ok) return null;
-        return await response.json() as { accent_color?: string };
+        if (!response.ok) return { accent_color: '', load_full_media_by_default: false };
+        return await response.json() as { accent_color?: string; load_full_media_by_default?: boolean };
       })
-      .then((config) => { runtimeAccent = accentTheme(config?.accent_color ?? ''); })
-      .catch(() => { runtimeAccent = null; });
+      .catch(() => ({ accent_color: '', load_full_media_by_default: false }));
+    const sessionPromise = new ApiClient().me();
 
-    new ApiClient()
-      .me()
-      .then((session) => authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true }))
-      .catch(() => authState.set({ user: null, csrfToken: '', checked: true }));
+    void Promise.all([configPromise, sessionPromise])
+      .then(([config, session]) => {
+        runtimeAccent = accentTheme(config.accent_color ?? '');
+        runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
+        authState.set({ user: session.user, csrfToken: session.csrf_token ?? '', checked: true });
+      })
+      .catch(async () => {
+        const config = await configPromise;
+        runtimeAccent = accentTheme(config.accent_color ?? '');
+        runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
+        authState.set({ user: null, csrfToken: '', checked: true });
+      });
   });
 
   async function login() {
