@@ -3,6 +3,7 @@ on:
   push:
     branches: [feat/22-cbz-kind]
 
+# Temporary branch-local validation; remove before merge.
 jobs:
   frontend:
     runs-on: ubuntu-latest
