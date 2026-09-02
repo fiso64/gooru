@@ -36,13 +36,15 @@ test('jobs view stays compact and left-aligns row content', async ({ page }) => 
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
 
+  const mainBox = await page.locator('main.main').boundingBox();
   const pageBox = await page.locator('.jobs-page').boundingBox();
   const cardBox = await page.locator('.jobs-card').boundingBox();
   const nameBox = await page.locator('.job-row .name').boundingBox();
+  expect(mainBox).not.toBeNull();
   expect(pageBox).not.toBeNull();
   expect(cardBox).not.toBeNull();
   expect(nameBox).not.toBeNull();
   expect(pageBox!.width).toBeLessThanOrEqual(600.5);
-  expect(pageBox!.x).toBeLessThan(100);
+  expect(pageBox!.x - mainBox!.x).toBeLessThan(48);
   expect(nameBox!.x - cardBox!.x).toBeLessThan(32);
 });
