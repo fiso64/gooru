@@ -544,6 +544,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/comics/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List naturally ordered image pages in a CBZ comic. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Comic page manifest. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ComicManifest"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                415: components["responses"]["UnsupportedMedia"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/comics/{id}/{page}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream one naturally ordered image page from a CBZ comic. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    page: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Requested comic page image. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/jpeg": string;
+                        "image/png": string;
+                        "image/gif": string;
+                        "image/webp": string;
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                415: components["responses"]["UnsupportedMedia"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files/tags": {
         parameters: {
             query?: never;
@@ -1183,6 +1270,14 @@ export interface components {
                 message: string;
                 details?: unknown;
             };
+        };
+        ComicPage: {
+            index: number;
+            name: string;
+            url: string;
+        };
+        ComicManifest: {
+            pages: components["schemas"]["ComicPage"][];
         };
         TagMutationRequest: {
             /** @description Opaque file IDs. Exactly one of file_ids or query must be provided. */

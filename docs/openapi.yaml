@@ -378,6 +378,75 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /comics/{id}:
+    get:
+      summary: List naturally ordered image pages in a CBZ comic.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Comic page manifest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComicManifest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+  /comics/{id}/{page}:
+    get:
+      summary: Stream one naturally ordered image page from a CBZ comic.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Requested comic page image.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/gif:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
   /files/tags:
     post:
       summary: Add tags to selected files.
@@ -942,6 +1011,25 @@ components:
             message:
               type: string
             details: {}
+    ComicPage:
+      type: object
+      required: [index, name, url]
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        name:
+          type: string
+        url:
+          type: string
+    ComicManifest:
+      type: object
+      required: [pages]
+      properties:
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ComicPage"
     TagMutationRequest:
       type: object
       required: [tags]

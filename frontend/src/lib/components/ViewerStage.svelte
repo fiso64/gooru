@@ -12,12 +12,18 @@
     file,
     imageSource,
     onPrev,
-    onNext
+    onNext,
+    onPrimaryAction,
+    keyboardNavigation = false,
+    navigationUnit = 'file'
   } = $props<{
     file: FileItem;
     imageSource: string;
     onPrev: () => void;
     onNext: () => void;
+    onPrimaryAction?: () => void;
+    keyboardNavigation?: boolean;
+    navigationUnit?: string;
   }>();
 
   let stageElement = $state<HTMLDivElement | undefined>();
@@ -115,6 +121,7 @@
 
   $effect(() => {
     renderedFile.id;
+    renderedImageSource;
     intrinsicWidth = 0;
     intrinsicHeight = 0;
     videoPaused = true;
@@ -169,6 +176,27 @@
       event.preventDefault();
       event.stopPropagation();
       void document.exitFullscreen();
+      return;
+    }
+
+    if (onPrimaryAction && (event.code === 'Space' || event.key === 'Enter')) {
+      if (isInteractiveShortcutTarget(target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onPrimaryAction();
+      return;
+    }
+
+    if (keyboardNavigation && (event.key === 'ArrowLeft' || event.key === 'k')) {
+      event.preventDefault();
+      event.stopPropagation();
+      onPrev();
+      return;
+    }
+    if (keyboardNavigation && (event.key === 'ArrowRight' || event.key === 'j')) {
+      event.preventDefault();
+      event.stopPropagation();
+      onNext();
       return;
     }
 
@@ -278,8 +306,8 @@
     <button type="button" class="viewer-mode-button" class:active={isFullscreen} aria-label="Toggle fullscreen" title="Fullscreen (F)" onclick={() => void toggleFullscreen()}>F</button>
   </div>
 
-  <button class="lightbox-nav-arrow prev" type="button" title="Previous (←)" aria-label="Previous file" onclick={onPrev}><Icon name="chev_left" size={20} /></button>
-  <button class="lightbox-nav-arrow next" type="button" title="Next (→)" aria-label="Next file" onclick={onNext}><Icon name="chev_right" size={20} /></button>
+  <button class="lightbox-nav-arrow prev" type="button" title={`Previous ${navigationUnit} (←)`} aria-label={`Previous ${navigationUnit}`} onclick={onPrev}><Icon name="chev_left" size={20} /></button>
+  <button class="lightbox-nav-arrow next" type="button" title={`Next ${navigationUnit} (→)`} aria-label={`Next ${navigationUnit}`} onclick={onNext}><Icon name="chev_right" size={20} /></button>
 </div>
 
 <style>
