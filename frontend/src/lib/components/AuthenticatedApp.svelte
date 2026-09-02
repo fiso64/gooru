@@ -309,7 +309,7 @@
   function actionDialogConfirmText() {
     switch (actionDialog.kind) {
       case 'save-delete': return 'Delete';
-      case 'bulk-selected':
+      case 'bulk-selected': return 'Add tags';
       case 'bulk-remove-selected': return 'Remove tags';
       case 'untrack-file': return 'Remove';
       case 'delete-file': return 'Delete file';
