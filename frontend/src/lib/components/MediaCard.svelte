@@ -98,10 +98,8 @@
     padding: 0;
     border: 1px solid rgba(255, 255, 255, 0.55);
     border-radius: 5px;
-    background: rgba(0, 0, 0, 0.62);
+    background: rgba(0, 0, 0, 0.78);
     color: #fff;
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
     cursor: pointer;
   }
 
