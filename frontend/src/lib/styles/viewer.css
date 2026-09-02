@@ -31,8 +31,8 @@
 
 .video-progress:hover::before,
 .video-progress:hover span,
-.video-progress:focus-visible::before,
-.video-progress:focus-visible span {
+.video-progress:focus::before,
+.video-progress:focus span {
   opacity: 1;
 }
 
