@@ -11,6 +11,9 @@
     onload?: (event: Event) => void;
   }>();
 
+  // These intentionally capture the initial props. Subsequent prop changes are
+  // reconciled by the effect below so source transitions can snapshot the last
+  // presented image before installing the next target.
   let currentSource = $state(source);
   let currentStyle = $state(style);
   let currentAlt = $state(alt);
@@ -45,7 +48,7 @@
 
 {#if outgoing}
   <img
-    class="viewer-visual-media viewer-outgoing-media"
+    class="viewer-outgoing-media"
     style={outgoing.style}
     src={outgoing.source}
     alt=""
@@ -66,7 +69,9 @@
 <style>
   :global(.viewer-stage .viewer-outgoing-media) {
     z-index: 0;
+    object-fit: contain;
     pointer-events: none;
+    transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
   }
 
   :global(.viewer-stage .viewer-incoming-media) {
