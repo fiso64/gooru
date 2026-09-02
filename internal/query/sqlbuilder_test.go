@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "gosqlite.org"
 )
 
 func TestBuildLocationsMediaType(t *testing.T) {
