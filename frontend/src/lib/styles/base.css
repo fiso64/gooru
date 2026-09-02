@@ -20,6 +20,17 @@
   accent-color: var(--accent);
 }
 
+/* Shortcut underlines split text into separate flex items. Collapse the button
+   gap for those labels, then restore spacing only between the leading control
+   or icon and the text. */
+.gooru-root .g-btn:has(> u) {
+  gap: 0;
+}
+
+.gooru-root .g-btn:has(> u) > :is(svg, input) {
+  margin-inline-end: 8px;
+}
+
 .gooru-root ::selection {
   background: var(--accent);
   color: var(--accent-ink);
