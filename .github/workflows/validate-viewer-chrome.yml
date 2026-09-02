@@ -1,8 +1,8 @@
 name: validate viewer chrome
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [fix/21-viewer-chrome-cleanup]
   workflow_dispatch:
 
 jobs:
