@@ -59,10 +59,8 @@ function preloadMedia(source: string, kind: 'video' | 'audio'): Promise<void> {
   });
 }
 
-export function preloadViewerMedia(file: PreloadableViewerMedia): Promise<void> {
-  if (typeof window === 'undefined') return Promise.resolve();
-  const source = viewerPreloadSource(file);
-  if (!source) return Promise.resolve();
+export function preloadViewerMediaSource(file: PreloadableViewerMedia, source: string): Promise<void> {
+  if (typeof window === 'undefined' || !source) return Promise.resolve();
   const key = `${file.id}|${source}`;
   const cached = preloadCache.get(key);
   if (cached) return cached;
@@ -75,6 +73,10 @@ export function preloadViewerMedia(file: PreloadableViewerMedia): Promise<void> 
     preloadCache.delete(key);
     throw error;
   }));
+}
+
+export function preloadViewerMedia(file: PreloadableViewerMedia): Promise<void> {
+  return preloadViewerMediaSource(file, viewerPreloadSource(file));
 }
 
 export function clearViewerPreloadCache(): void {
