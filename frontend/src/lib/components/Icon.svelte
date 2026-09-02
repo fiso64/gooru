@@ -36,7 +36,7 @@
     download: '<path d="M12 4v12"/><path d="m6 10 6 6 6-6"/><path d="M4 20h16"/>',
     external: '<path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/>',
     trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7 7 21h10l1-14"/><path d="M10 11v6M14 11v6"/>',
-    untrack: '<path d="M4 5h5v14H4z"/><path d="M11 5h5v14h-5z"/><path d="M18 9h4M20 7v4" transform="rotate(45 20 9)"/>',
+    untrack: '<path d="M3.5 5h5v14h-5z"/><path d="M10.5 5h5v14h-5z"/><path d="M17.5 12h4"/><path d="m19.5 10 2 2-2 2"/>',
     play: '<path d="m6 4 14 8-14 8z"/>',
     pause: '<path d="M7 4v16M17 4v16"/>',
     folder: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.4l2 2h8.6A1.5 1.5 0 0 1 21 8.5V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
