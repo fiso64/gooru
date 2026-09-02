@@ -30,13 +30,14 @@ export function viewerScale(
   intrinsic: ViewerSize,
   available: ViewerSize,
   rotation: number,
-  fitMode: ViewerFitMode
+  fitMode: ViewerFitMode,
+  maxScale = Number.POSITIVE_INFINITY
 ): number {
   if (fitMode === 'actual') return 1;
   if (intrinsic.width <= 0 || intrinsic.height <= 0 || available.width <= 0 || available.height <= 0) return 1;
 
   const rotated = rotatedViewerSize(intrinsic, rotation);
-  return Math.min(available.width / rotated.width, available.height / rotated.height);
+  return Math.min(available.width / rotated.width, available.height / rotated.height, maxScale);
 }
 
 export function viewerTransform(rotation: number, scale: number): string {
