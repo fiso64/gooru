@@ -21,7 +21,10 @@ import (
 	"gooru.local/types"
 )
 
-const maxComicPageBytes int64 = 96 << 20
+const (
+	maxComicPageBytes      int64 = 96 << 20
+	maxCachedComicArchives       = 4
+)
 
 var errNotComicArchive = errors.New("not a comic archive")
 
@@ -39,6 +42,14 @@ type comicArchive struct {
 	reader *zip.Reader
 	pages  []*zip.File
 	close  func() error
+}
+
+type cachedComicArchive struct {
+	key      string
+	path     string
+	archive  *comicArchive
+	refs     int
+	lastUsed uint64
 }
 
 func openComicArchive(path string) (*comicArchive, error) {
@@ -70,6 +81,118 @@ func (m *MediaService) openComicArchive(path string) (*comicArchive, error) {
 		return nil, err
 	}
 	return archive, nil
+}
+
+func comicArchiveCacheKey(path string, size, modTimeNano int64) string {
+	return path + "\x00" + strconv.FormatInt(size, 10) + "\x00" + strconv.FormatInt(modTimeNano, 10)
+}
+
+func (m *MediaService) acquireComicArchive(file types.FileInfo) (*comicArchive, func(), error) {
+	// Open the current source before consulting the cache. This makes cache
+	// invalidation follow the file actually being served rather than possibly
+	// stale database metadata, and avoids a stat/open race on cache misses.
+	source, err := m.openMediaSource(file.Path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open cbz: %w", err)
+	}
+	key := comicArchiveCacheKey(file.Path, source.size, source.modTime.UnixNano())
+
+	m.comicMu.Lock()
+	if entry := m.comicCache[key]; entry != nil {
+		m.comicTick++
+		entry.refs++
+		entry.lastUsed = m.comicTick
+		m.comicMu.Unlock()
+		_ = source.Close()
+		return entry.archive, func() { m.releaseComicArchive(entry) }, nil
+	}
+	m.comicMu.Unlock()
+
+	archive, err := openComicArchiveReader(file.Path, source, source.size, source.Close)
+	if err != nil {
+		_ = source.Close()
+		return nil, nil, err
+	}
+	entry := &cachedComicArchive{key: key, path: file.Path, archive: archive, refs: 1}
+
+	m.comicMu.Lock()
+	if m.comicCache == nil {
+		m.comicCache = make(map[string]*cachedComicArchive)
+	}
+	if existing := m.comicCache[key]; existing != nil {
+		m.comicTick++
+		existing.refs++
+		existing.lastUsed = m.comicTick
+		m.comicMu.Unlock()
+		_ = archive.Close()
+		return existing.archive, func() { m.releaseComicArchive(existing) }, nil
+	}
+	m.comicTick++
+	entry.lastUsed = m.comicTick
+	m.comicCache[key] = entry
+	stale := m.removeIdleComicArchivesForPathLocked(file.Path, key)
+	evicted := m.evictIdleComicArchivesLocked()
+	m.comicMu.Unlock()
+	closeComicArchives(append(stale, evicted...))
+
+	return archive, func() { m.releaseComicArchive(entry) }, nil
+}
+
+func (m *MediaService) releaseComicArchive(entry *cachedComicArchive) {
+	var closed []*comicArchive
+	m.comicMu.Lock()
+	if entry.refs > 0 {
+		entry.refs--
+	}
+	if entry.refs == 0 && m.comicCache[entry.key] == entry {
+		for _, other := range m.comicCache {
+			if other.path == entry.path && other.key != entry.key {
+				delete(m.comicCache, entry.key)
+				closed = append(closed, entry.archive)
+				break
+			}
+		}
+	}
+	closed = append(closed, m.evictIdleComicArchivesLocked()...)
+	m.comicMu.Unlock()
+	closeComicArchives(closed)
+}
+
+func (m *MediaService) removeIdleComicArchivesForPathLocked(path, keepKey string) []*comicArchive {
+	var removed []*comicArchive
+	for key, entry := range m.comicCache {
+		if key == keepKey || entry.path != path || entry.refs != 0 {
+			continue
+		}
+		delete(m.comicCache, key)
+		removed = append(removed, entry.archive)
+	}
+	return removed
+}
+
+func (m *MediaService) evictIdleComicArchivesLocked() []*comicArchive {
+	var removed []*comicArchive
+	for len(m.comicCache) > maxCachedComicArchives {
+		var oldest *cachedComicArchive
+		for _, entry := range m.comicCache {
+			if entry.refs != 0 || (oldest != nil && entry.lastUsed >= oldest.lastUsed) {
+				continue
+			}
+			oldest = entry
+		}
+		if oldest == nil {
+			break
+		}
+		delete(m.comicCache, oldest.key)
+		removed = append(removed, oldest.archive)
+	}
+	return removed
+}
+
+func closeComicArchives(archives []*comicArchive) {
+	for _, archive := range archives {
+		_ = archive.Close()
+	}
 }
 
 // openComicArchiveReader contains the archive logic independently of the
@@ -171,7 +294,7 @@ func numericPrefixLength(value string) int {
 }
 
 func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file types.FileInfo, publicID string) {
-	archive, err := m.openComicArchive(file.Path)
+	archive, release, err := m.acquireComicArchive(file)
 	if errors.Is(err, errNotComicArchive) || errors.Is(err, ErrUnsupportedMedia) {
 		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media", "file is not a readable CBZ archive", nil)
 		return
@@ -180,7 +303,7 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to open comic archive", nil)
 		return
 	}
-	defer archive.Close()
+	defer release()
 
 	rawPage := strings.TrimSpace(r.URL.Query().Get("page"))
 	if rawPage == "" {
