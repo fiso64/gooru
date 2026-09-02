@@ -164,7 +164,7 @@
         <span><b>{selectedCount}</b> of <span>{totalCount || files.length}</span> selected</span>
         {#if selectedCount < (totalCount || files.length)}
           <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}>
-            Select&nbsp;<u>a</u>ll {(totalCount || files.length).toLocaleString()}
+            <span>Select</span><span style="margin-left: 0.3em"><u>a</u>ll {(totalCount || files.length).toLocaleString()}</span>
           </button>
         {/if}
       </div>
