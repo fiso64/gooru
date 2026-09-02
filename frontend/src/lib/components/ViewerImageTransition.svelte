@@ -11,85 +11,66 @@
     onload?: (event: Event) => void;
   }>();
 
-  // These intentionally capture the initial props. Subsequent prop changes are
-  // reconciled by the effect below so source transitions can snapshot the last
-  // presented image before installing the next target.
+  // Keep one real image element mounted across navigation. Browsers can retain the
+  // already-painted bitmap while a replacement src loads; replacing that element
+  // with a newly-created "outgoing" clone loses that guarantee and can itself flash
+  // while the clone is decoded/presented.
   let currentSource = $state(source);
   let currentStyle = $state(style);
   let currentAlt = $state(alt);
-  let outgoing = $state<{ source: string; style: string } | null>(null);
-  let releaseGeneration = 0;
+  let pendingStyle = style;
+  let pendingAlt = alt;
+  let loadingTarget = false;
 
   $effect(() => {
     const nextSource = source;
     const nextStyle = style;
     const nextAlt = alt;
 
-    if (currentSource === nextSource) {
-      currentStyle = nextStyle;
-      currentAlt = nextAlt;
+    if (currentSource !== nextSource) {
+      // Start the next request immediately, but freeze the currently presented
+      // geometry until that same DOM node reports the replacement source loaded.
+      // This keeps old pixels at old dimensions without cloning the painted node.
+      currentSource = nextSource;
+      pendingStyle = nextStyle;
+      pendingAlt = nextAlt;
+      loadingTarget = true;
       return;
     }
 
-    // Invalidate a pending outgoing-layer release from an older target. Rapid
-    // navigation should keep the last fully presented pixels until the newest
-    // incoming image has itself reached a painted frame.
-    releaseGeneration += 1;
-    if (!outgoing && currentSource) outgoing = { source: currentSource, style: currentStyle };
-    currentSource = nextSource;
-    currentStyle = nextStyle;
-    currentAlt = nextAlt;
+    if (loadingTarget) {
+      pendingStyle = nextStyle;
+      pendingAlt = nextAlt;
+    } else {
+      currentStyle = nextStyle;
+      currentAlt = nextAlt;
+    }
   });
 
   function handleLoad(event: Event) {
     const image = event.currentTarget;
-    const loadedSource = image instanceof HTMLImageElement ? image.getAttribute('src') : null;
+    if (!(image instanceof HTMLImageElement)) return;
+    const loadedSource = image.getAttribute('src');
+    if (loadedSource !== currentSource) return;
+
     onload?.(event);
 
-    // `load` means the image data is available, but it can fire before the browser
-    // has presented those pixels. Removing the backing layer synchronously can
-    // therefore expose a blank frame. Keep it through one paint and release it on
-    // the following frame; stale callbacks are ignored if navigation moved again.
-    const generation = ++releaseGeneration;
-    requestAnimationFrame(() => {
-      if (generation !== releaseGeneration || loadedSource !== currentSource) return;
-      requestAnimationFrame(() => {
-        if (generation !== releaseGeneration || loadedSource !== currentSource) return;
-        outgoing = null;
-      });
+    // Parent geometry may reconcile from naturalWidth/naturalHeight in `onload`.
+    // Commit the latest target style in a microtask so those reactive updates can
+    // feed `pendingStyle` before the browser paints the newly loaded pixels.
+    queueMicrotask(() => {
+      if (image.getAttribute('src') !== currentSource) return;
+      loadingTarget = false;
+      currentStyle = pendingStyle;
+      currentAlt = pendingAlt;
     });
   }
 </script>
 
-{#if outgoing}
-  <img
-    class="viewer-outgoing-media"
-    style={outgoing.style}
-    src={outgoing.source}
-    alt=""
-    aria-hidden="true"
-  />
-{/if}
-
-{#key currentSource}
-  <img
-    class="viewer-visual-media viewer-incoming-media"
-    style={currentStyle}
-    src={currentSource}
-    alt={currentAlt}
-    onload={handleLoad}
-  />
-{/key}
-
-<style>
-  :global(.viewer-stage .viewer-outgoing-media) {
-    z-index: 0;
-    object-fit: contain;
-    pointer-events: none;
-    transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
-  }
-
-  :global(.viewer-stage .viewer-incoming-media) {
-    z-index: 1;
-  }
-</style>
+<img
+  class="viewer-visual-media viewer-incoming-media"
+  style={currentStyle}
+  src={currentSource}
+  alt={currentAlt}
+  onload={handleLoad}
+/>
