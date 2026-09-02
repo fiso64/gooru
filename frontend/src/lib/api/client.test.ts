@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError, setUnauthorizedHandler } from './client';
+
+const originalXMLHttpRequest = globalThis.XMLHttpRequest;
+
+afterEach(() => {
+  globalThis.XMLHttpRequest = originalXMLHttpRequest;
+});
 
 describe('ApiClient', () => {
   it('sends cookie-authenticated query parameters', async () => {
@@ -94,47 +100,47 @@ describe('ApiClient', () => {
     expect(JSON.parse(requests[0].body)).toEqual({ current_password: 'old-secret', new_password: 'new-secret' });
   });
 
-  it('uploads files with async preference', async () => {
-    const requests: Array<{ url: string; method?: string; headers: Headers; body?: BodyInit | null }> = [];
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = new Request(input, init);
-      requests.push({
-        url: relativeURL(request.url),
-        method: request.method === 'GET' ? undefined : request.method,
-        headers: request.headers,
-        body: request.body
-      });
-      return Response.json({ id: 'job-one', type: 'upload_import', status: 'pending' }, { status: 202 });
-    }) as typeof fetch;
-
+  it('uploads multipart files through progress-capable browser transport', async () => {
+    const xhr = installUploadXHR({
+      status: 202,
+      response: { id: 'job-one', type: 'upload_import', status: 'pending' },
+      progress: [[2, 10], [7, 10], [10, 10]]
+    });
+    const progress = vi.fn();
     const client = new ApiClient('secret-token');
     const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
-    await client.uploadFiles([file], ['reviewed']);
 
-    expect(requests).toHaveLength(1);
-    expect(requests[0].url).toBe('/api/v1/uploads');
-    expect(requests[0].method).toBe('POST');
-    expect(requests[0].headers.get('Authorization')).toBeNull();
-    expect(requests[0].headers.get('X-Gooru-CSRF')).toBe('secret-token');
-    expect(requests[0].headers.get('Prefer')).toBe('respond-async');
-    const formText = await bodyText(requests[0].body);
-    expect(formText).toContain('name="conflict_policy"');
-    expect(formText).toContain('rename');
+    const result = await client.uploadFiles([file], ['reviewed'], true, '', 'rename', progress);
+
+    expect(result).toMatchObject({ id: 'job-one', status: 'pending' });
+    expect(xhr.method).toBe('POST');
+    expect(relativeURL(xhr.url)).toBe('/api/v1/uploads');
+    expect(xhr.withCredentials).toBe(true);
+    expect(xhr.headers.get('X-Gooru-CSRF')).toBe('secret-token');
+    expect(xhr.headers.get('Prefer')).toBe('respond-async');
+    expect(xhr.body).toBeInstanceOf(FormData);
+    expect((xhr.body as FormData).get('conflict_policy')).toBe('rename');
+    expect((xhr.body as FormData).get('tags')).toBe('reviewed');
+    expect(((xhr.body as FormData).get('files') as File).name).toBe('hello.txt');
+    expect(progress.mock.calls.map(([value]) => value)).toEqual([20, 70, 100, 100]);
   });
 
-  it('does not reparse multipart uploads before fetch', async () => {
-    const formData = vi.spyOn(Request.prototype, 'formData').mockRejectedValue(new Error('multipart body was reparsed'));
-    globalThis.fetch = (async () => Response.json({ id: 'job-one', type: 'upload_import', status: 'pending' }, { status: 202 })) as typeof fetch;
+  it('maps upload API errors from XMLHttpRequest responses', async () => {
+    const unauthorized = vi.fn();
+    setUnauthorizedHandler(unauthorized);
+    installUploadXHR({
+      status: 401,
+      response: { error: { code: 'unauthorized', message: 'session expired' } }
+    });
 
-    try {
-      const client = new ApiClient('secret-token');
-      const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
-      await client.uploadFiles([file], ['reviewed']);
-
-      expect(formData).not.toHaveBeenCalled();
-    } finally {
-      formData.mockRestore();
-    }
+    const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
+    await expect(new ApiClient('expired-token').uploadFiles([file], [], true, '', 'rename', vi.fn())).rejects.toMatchObject({
+      status: 401,
+      code: 'unauthorized',
+      message: 'session expired'
+    });
+    expect(unauthorized).toHaveBeenCalledOnce();
+    setUnauthorizedHandler(undefined);
   });
 
   it('fetches jobs with cookies and cancels with CSRF', async () => {
@@ -164,6 +170,76 @@ describe('ApiClient', () => {
     expect(requests[1].headers.get('X-Gooru-CSRF')).toBe('secret-token');
   });
 });
+
+interface FakeXHRConfig {
+  status: number;
+  response: unknown;
+  progress?: Array<[number, number]>;
+}
+
+class FakeEventTarget {
+  private listeners = new Map<string, Array<(event: ProgressEvent<EventTarget>) => void>>();
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject | null) {
+    if (!listener) return;
+    const callback = typeof listener === 'function' ? listener : (event: Event) => listener.handleEvent(event);
+    const callbacks = this.listeners.get(type) ?? [];
+    callbacks.push(callback as (event: ProgressEvent<EventTarget>) => void);
+    this.listeners.set(type, callbacks);
+  }
+
+  emit(type: string, event: Partial<ProgressEvent<EventTarget>> = {}) {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event as ProgressEvent<EventTarget>);
+    }
+  }
+}
+
+class FakeXHR extends FakeEventTarget {
+  method = '';
+  url = '';
+  status = 0;
+  responseText = '';
+  withCredentials = false;
+  body: Document | XMLHttpRequestBodyInit | null = null;
+  headers = new Headers();
+  upload = new FakeEventTarget() as unknown as XMLHttpRequestUpload;
+  private readonly config: FakeXHRConfig;
+
+  constructor(config: FakeXHRConfig) {
+    super();
+    this.config = config;
+  }
+
+  open(method: string, url: string | URL) {
+    this.method = method;
+    this.url = String(url);
+  }
+
+  setRequestHeader(name: string, value: string) {
+    this.headers.set(name, value);
+  }
+
+  send(body?: Document | XMLHttpRequestBodyInit | null) {
+    this.body = body ?? null;
+    for (const [loaded, total] of this.config.progress ?? []) {
+      (this.upload as unknown as FakeEventTarget).emit('progress', { lengthComputable: true, loaded, total });
+    }
+    this.status = this.config.status;
+    this.responseText = JSON.stringify(this.config.response);
+    this.emit('load');
+  }
+}
+
+function installUploadXHR(config: FakeXHRConfig): FakeXHR {
+  const xhr = new FakeXHR(config);
+  globalThis.XMLHttpRequest = class {
+    constructor() {
+      return xhr as unknown as XMLHttpRequest;
+    }
+  } as unknown as typeof XMLHttpRequest;
+  return xhr;
+}
 
 async function bodyText(body: BodyInit | null | undefined) {
   if (!body) return '';

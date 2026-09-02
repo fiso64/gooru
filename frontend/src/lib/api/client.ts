@@ -179,21 +179,25 @@ export class ApiClient {
     return this.unwrap(this.client.GET('/upload-targets'));
   }
 
-  async uploadFiles(files: File[], tags: string[] = [], preferAsync = true, targetID = '', conflictPolicy = 'rename'): Promise<Job | UploadImportResponse> {
+  async uploadFiles(
+    files: File[],
+    tags: string[] = [],
+    preferAsync = true,
+    targetID = '',
+    conflictPolicy = 'rename',
+    onProgress?: (progress: number) => void
+  ): Promise<Job | UploadImportResponse> {
     const form = new FormData();
     for (const file of files) form.append('files', file, file.name);
     if (tags.length) form.append('tags', tags.join(' '));
     if (targetID) form.append('target_id', targetID);
     if (conflictPolicy) form.append('conflict_policy', conflictPolicy);
-    return this.unwrap(
-      this.client.POST('/uploads', {
-        params: { header: { ...this.csrfHeaderParam('POST'), ...(preferAsync ? { Prefer: 'respond-async' as const } : {}) } },
-        // openapi-fetch supports FormData, but the generated schema models multipart
-        // fields structurally. Keep the browser-native body so filenames and blobs
-        // are preserved exactly.
-        body: form as never
-      })
-    );
+
+    return uploadMultipart<Job | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
+      csrfToken: this.csrfToken,
+      preferAsync,
+      onProgress
+    });
   }
 
   async getJob(id: string): Promise<Job> {
@@ -230,6 +234,57 @@ export class ApiClient {
       throw apiError;
     }
     return data as T;
+  }
+}
+
+interface UploadMultipartOptions {
+  csrfToken: string;
+  preferAsync: boolean;
+  onProgress?: (progress: number) => void;
+}
+
+function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipartOptions): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.withCredentials = true;
+    if (options.csrfToken) xhr.setRequestHeader('X-Gooru-CSRF', options.csrfToken);
+    if (options.preferAsync) xhr.setRequestHeader('Prefer', 'respond-async');
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (!event.lengthComputable || event.total <= 0) return;
+      options.onProgress?.(Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100))));
+    });
+
+    xhr.addEventListener('load', () => {
+      const payload = parseXHRPayload(xhr.responseText);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        options.onProgress?.(100);
+        resolve(payload as T);
+        return;
+      }
+      const errorPayload = payload as ApiErrorResponse | undefined;
+      const apiError = new ApiError(
+        xhr.status,
+        errorPayload?.error?.code ?? 'http_error',
+        errorPayload?.error?.message ?? `Request failed with HTTP ${xhr.status}`
+      );
+      if (xhr.status === 401) unauthorizedHandler?.();
+      reject(apiError);
+    });
+
+    xhr.addEventListener('error', () => reject(new ApiError(0, 'network_error', 'Network error while uploading files')));
+    xhr.addEventListener('abort', () => reject(new ApiError(0, 'request_aborted', 'Upload was canceled')));
+    xhr.send(form);
+  });
+}
+
+function parseXHRPayload(text: string): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
   }
 }
 

@@ -1,5 +1,14 @@
 import { untrack } from 'svelte';
-import { itemsFromJob, itemsFromResult, queuedItems, stagedUploadItems, uploadingItems, uploadSummary, type UploadItem } from './uploadItems';
+import {
+  itemsFromJob,
+  itemsFromResult,
+  queuedItems,
+  stagedUploadItems,
+  uploadingItems,
+  uploadProgressItems,
+  uploadSummary,
+  type UploadItem
+} from './uploadItems';
 import { errorMessage, isTerminalJob, jobStatusText, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
 import type { UploadVariables } from '$lib/queries/library';
@@ -97,15 +106,25 @@ export function createUploadWorkflow() {
   async function submit(mutate: UploadMutate) {
     if (!files.length || busy || activeJobID) return { queued: false, changedFiles: false };
     busy = true;
-    status = 'Uploading';
+    status = 'Uploading 0%';
     items = uploadingItems(items.length ? items : stagedUploadItems(files, targetID));
     try {
-      const response = await mutate({ files, tags: parseTags(tags), preferAsync: true, targetID, conflictPolicy });
+      const response = await mutate({
+        files,
+        tags: parseTags(tags),
+        preferAsync: true,
+        targetID,
+        conflictPolicy,
+        onProgress: (progress) => {
+          items = uploadProgressItems(items, progress);
+          status = `Uploading ${Math.round(progress)}%`;
+        }
+      });
       if ('id' in response) {
         handledJobID = '';
         activeJobID = response.id;
         items = queuedItems(items);
-        status = 'Queued';
+        status = 'Upload complete · queued for import';
         return { queued: true, changedFiles: false };
       }
       items = itemsFromResult(response, items);
@@ -115,7 +134,7 @@ export function createUploadWorkflow() {
       return { queued: false, changedFiles: true };
     } catch (error) {
       status = errorMessage(error);
-      items = items.map((item) => ({ ...item, status: 'error', progress: 100, error: status }));
+      items = items.map((item) => ({ ...item, status: 'error', error: status }));
       return { queued: false, changedFiles: false };
     } finally {
       busy = false;

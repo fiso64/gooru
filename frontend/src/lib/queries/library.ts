@@ -85,12 +85,13 @@ export interface UploadVariables {
   preferAsync: boolean;
   targetID: string;
   conflictPolicy: string;
+  onProgress?: (progress: number) => void;
 }
 
 export function createUploadMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<Job | UploadImportResponse, Error, UploadVariables>(() => ({
-    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy }) =>
-      new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy),
+    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, onProgress }) =>
+      new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['files'] }),

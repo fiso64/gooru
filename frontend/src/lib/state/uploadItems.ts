@@ -43,15 +43,21 @@ export function stagedUploadItems(files: File[], targetID = ''): UploadItem[] {
 }
 
 export function uploadingItems(items: UploadItem[]): UploadItem[] {
-  return items.map((item) => ({ ...item, status: 'uploading', progress: Math.max(item.progress, 12), error: '' }));
+  return items.map((item) => ({ ...item, status: 'uploading', progress: 0, error: '' }));
+}
+
+export function uploadProgressItems(items: UploadItem[], progress: number): UploadItem[] {
+  const safeProgress = Math.max(0, Math.min(100, Math.round(progress)));
+  return items.map((item) => ({ ...item, status: 'uploading', progress: safeProgress }));
 }
 
 export function queuedItems(items: UploadItem[]): UploadItem[] {
-  return items.map((item) => ({ ...item, status: 'queued', progress: Math.max(item.progress, 20) }));
+  return items.map((item) => ({ ...item, status: 'queued', progress: 100 }));
 }
 
 export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
-  const progress = Math.round((job.progress ?? (isTerminalJob(job) ? 1 : 0.5)) * 100);
+  const terminal = isTerminalJob(job);
+  const reportedProgress = typeof job.progress === 'number' && job.progress > 0 ? Math.round(job.progress * 100) : 0;
   const status: UploadItemStatus =
     job.status === 'completed' ? 'imported' : job.status === 'canceled' ? 'canceled' : job.status === 'failed' ? 'error' : 'importing';
   if (job.status === 'completed' && isUploadImportResponse(job.result)) {
@@ -60,7 +66,7 @@ export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
   return items.map((item) => ({
     ...item,
     status,
-    progress,
+    progress: terminal ? 100 : reportedProgress > 0 ? reportedProgress : item.progress,
     error: job.status === 'failed' ? job.error ?? 'Import failed' : item.error
   }));
 }
