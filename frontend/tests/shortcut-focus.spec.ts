@@ -6,17 +6,19 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-function fileItem(id: string, name: string) {
+function fileItem(id: string, name: string, kind: 'photo' | 'video' = 'photo') {
   return {
     id,
     content_id: `hash-${id}`,
     name,
     safe_display_path: `library/${name}`,
-    size: 2048,
+    size: kind === 'video' ? 104857600 : 2048,
     modified_time: '2026-05-20T00:00:00Z',
-    media_type: 'image/jpeg',
-    media_kind: 'photo',
-    metadata: { image_width: 800, image_height: 600 },
+    media_type: kind === 'video' ? 'video/mp4' : 'image/jpeg',
+    media_kind: kind,
+    metadata: kind === 'video'
+      ? { video_width: 1920, video_height: 1080, video_duration: 8 }
+      : { image_width: 800, image_height: 600 },
     tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`,
@@ -27,9 +29,8 @@ function fileItem(id: string, name: string) {
   };
 }
 
-async function mockApp(page: Page) {
+async function mockApp(page: Page, files = [fileItem('one', 'one.jpg'), fileItem('two', 'two.jpg'), fileItem('three', 'three.jpg')]) {
   let loggedIn = false;
-  const files = [fileItem('one', 'one.jpg'), fileItem('two', 'two.jpg'), fileItem('three', 'three.jpg')];
 
   await page.route('**/api/v1/auth/me', async (route) => {
     await route.fulfill({
@@ -49,16 +50,52 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [{ value: 'photo', count: files.length }] } })
+    body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })
   }));
   await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32"/></svg>' }));
   await page.route('**/api/v1/files/*/preview', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64"/></svg>' }));
+  await page.route('**/api/v1/files/*/content', async (route) => route.fulfill({ status: 404, contentType: 'text/plain', body: 'media fixture intentionally unavailable' }));
 
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+}
+
+async function makeVideoControllable(page: Page) {
+  const video = page.locator('video');
+  await expect(video).toBeVisible();
+  await video.evaluate((element) => {
+    let paused = false;
+    let currentTime = 4;
+    let playCalls = 0;
+    let pauseCalls = 0;
+
+    Object.defineProperty(element, 'paused', { configurable: true, get: () => paused });
+    Object.defineProperty(element, 'duration', { configurable: true, get: () => 8 });
+    Object.defineProperty(element, 'currentTime', {
+      configurable: true,
+      get: () => currentTime,
+      set: (value) => { currentTime = Number(value); }
+    });
+    element.play = async () => {
+      playCalls += 1;
+      paused = false;
+      element.dispatchEvent(new Event('play'));
+    };
+    element.pause = () => {
+      pauseCalls += 1;
+      paused = true;
+      element.dispatchEvent(new Event('pause'));
+    };
+    (window as typeof window & { __viewerMediaState?: () => unknown }).__viewerMediaState = () => ({ paused, currentTime, playCalls, pauseCalls });
+    element.dispatchEvent(new Event('loadedmetadata'));
+  });
+}
+
+async function viewerMediaState(page: Page) {
+  return page.evaluate(() => (window as typeof window & { __viewerMediaState?: () => unknown }).__viewerMediaState?.());
 }
 
 test('Escape clears selection even when the select-all checkbox owns focus', async ({ page }) => {
@@ -90,4 +127,44 @@ test('pointer viewer controls return focus to the stage so shortcuts remain glob
   await expect(page.locator('.viewer-stage')).toBeFocused();
   await page.keyboard.press('r');
   await expect(page.locator('.viewer-visual-media')).toHaveAttribute('style', /rotate\(180deg\)/);
+});
+
+test('Space pauses the current video once and does not reactivate the seek control', async ({ page }) => {
+  await mockApp(page, [fileItem('video', 'clip.mp4', 'video')]);
+
+  await page.getByRole('button', { name: 'Preview clip.mp4' }).click();
+  await makeVideoControllable(page);
+  await page.locator('.viewer-stage').focus();
+
+  await page.keyboard.press('Space');
+  await expect.poll(() => viewerMediaState(page)).toEqual({ paused: true, currentTime: 4, playCalls: 0, pauseCalls: 1 });
+  await page.waitForTimeout(75);
+  expect(await viewerMediaState(page)).toEqual({ paused: true, currentTime: 4, playCalls: 0, pauseCalls: 1 });
+
+  await page.getByRole('button', { name: 'Play video' }).click();
+  await expect.poll(() => viewerMediaState(page)).toEqual({ paused: false, currentTime: 4, playCalls: 1, pauseCalls: 1 });
+
+  const seek = page.getByRole('button', { name: 'Seek video' });
+  await seek.click({ position: { x: 80, y: 8 } });
+  await expect(page.locator('.viewer-stage')).toBeFocused();
+  const afterSeek = await viewerMediaState(page) as { paused: boolean; currentTime: number; playCalls: number; pauseCalls: number };
+  expect(afterSeek.currentTime).toBeGreaterThan(0);
+
+  await page.keyboard.press('Space');
+  const afterSpace = await viewerMediaState(page) as { paused: boolean; currentTime: number; playCalls: number; pauseCalls: number };
+  expect(afterSpace).toMatchObject({ paused: true, playCalls: 1, pauseCalls: 2 });
+  expect(afterSpace.currentTime).toBe(afterSeek.currentTime);
+});
+
+test('Space after navigating to video controls the current item instead of the opener', async ({ page }) => {
+  await mockApp(page, [fileItem('photo', 'photo.jpg'), fileItem('video', 'clip.mp4', 'video')]);
+
+  await page.getByRole('button', { name: 'Preview photo.jpg' }).click();
+  await page.getByLabel('Next file').click();
+  await expect(page.getByRole('dialog', { name: 'clip.mp4' })).toBeVisible();
+  await makeVideoControllable(page);
+
+  await page.keyboard.press('Space');
+  await expect.poll(() => viewerMediaState(page)).toEqual({ paused: true, currentTime: 4, playCalls: 0, pauseCalls: 1 });
+  await expect(page.getByRole('dialog', { name: 'clip.mp4' })).toBeVisible();
 });
