@@ -1,4 +1,5 @@
 name: Temporary semantic select-all validation
+# Retry after aligning query mutation helpers with the repository transaction wrapper.
 on:
   push:
     branches:
