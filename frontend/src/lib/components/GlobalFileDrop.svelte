@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { hasDraggedFiles, pastedMediaFiles } from '$lib/utils/fileDrop';
+  import { clipboardMediaFiles, hasDraggedFiles } from '$lib/utils/fileDrop';
 
   let { onFiles } = $props<{ onFiles: (files: FileList | File[]) => void }>();
 
@@ -47,7 +47,7 @@
   }
 
   function handlePaste(event: ClipboardEvent) {
-    const files = pastedMediaFiles(event.clipboardData?.files);
+    const files = clipboardMediaFiles(event.clipboardData);
     if (!files.length) return;
 
     // Only consume the paste when the clipboard actually contains media files.
