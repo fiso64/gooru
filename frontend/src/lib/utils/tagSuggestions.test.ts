@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPlainTag, plainTagSuggestions, plainTagsFromInput } from './tagSuggestions';
+import { isPlainTag, plainTagInputContext, plainTagSuggestions, plainTagsFromInput, replacePlainTagInputDraft } from './tagSuggestions';
 
 const tags = [
   { name: 'artist:alice', count: 8 },
@@ -46,5 +46,19 @@ describe('isPlainTag', () => {
 describe('plainTagsFromInput', () => {
   it('preserves multi-tag entry while excluding search-only syntax and namespace prefixes', () => {
     expect(plainTagsFromInput('artist:alice landscape artist: @rating:5 -exclude landscape')).toEqual(['artist:alice', 'landscape']);
+  });
+});
+
+describe('plainTagInputContext', () => {
+  it('keeps completed tags separate from the active completion fragment', () => {
+    expect(plainTagInputContext('landscape artist:a')).toEqual({ committed: ['landscape'], draft: 'artist:a' });
+    expect(replacePlainTagInputDraft('landscape artist:a', 'artist:alice')).toBe('landscape artist:alice');
+  });
+
+  it('does not offer a completion fragment after trailing whitespace', () => {
+    expect(plainTagInputContext('landscape artist:alice ')).toEqual({
+      committed: ['landscape', 'artist:alice'],
+      draft: ''
+    });
   });
 });
