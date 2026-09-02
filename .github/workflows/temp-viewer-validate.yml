@@ -2,6 +2,8 @@ name: Temporary viewer validation
 on:
   push:
     branches: [feat/22-viewer-geometry]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
