@@ -12,6 +12,15 @@ import {
   type AppRoute
 } from '$lib/utils/appRoute';
 import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+import {
+  emptySelection,
+  selectAllMatching,
+  selectionActive,
+  selectionCount,
+  selectionHas,
+  toggleSelection,
+  type LibrarySelection
+} from '$lib/state/selection';
 
 export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRouteFromPath(window.location.pathname) : 'library') {
   const initialLibraryState = browser && initialRoute === 'library'
@@ -26,7 +35,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   let activeSavedSearch = $state('');
   let sort: FileSort = $state(initialLibraryState.sort);
   let order: SortOrder = $state(initialLibraryState.order);
-  let selectedIDs = $state(new Set<string>());
+  let selection: LibrarySelection = $state(emptySelection());
   let activeFile = $state<FileItem | null>(null);
   let pendingPreviewID = $state(initialLibraryState.fileID);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
@@ -68,7 +77,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
       suggestionSearch.set(nextLibraryState.query);
       setSubmittedSearch(nextLibraryState.query);
       activeFile = null;
-      selectedIDs = new Set();
+      selection = emptySelection();
     };
     window.addEventListener('popstate', restoreRoute);
     return () => window.removeEventListener('popstate', restoreRoute);
@@ -99,13 +108,13 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   });
 
   function reset() {
-    selectedIDs = new Set();
+    selection = emptySelection();
     activeFile = null;
   }
 
   function submitSearch() {
     setSubmittedSearch(get(searchDraft).trim());
-    selectedIDs = new Set();
+    selection = emptySelection();
     route = 'library';
   }
 
@@ -129,7 +138,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     searchDraft.set(query);
     suggestionSearch.set(query);
     setSubmittedSearch(query);
-    selectedIDs = new Set();
+    selection = emptySelection();
     route = 'library';
   }
 
@@ -141,7 +150,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
   function setKind(kind: string) {
     activeKind = kind;
-    selectedIDs = new Set();
+    selection = emptySelection();
   }
 
   function runTagSearch(query: string) {
@@ -149,7 +158,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     searchDraft.set(query);
     suggestionSearch.set(query);
     setSubmittedSearch(query);
-    selectedIDs = new Set();
+    selection = emptySelection();
     activeFile = null;
     pendingPreviewID = '';
     route = 'library';
@@ -160,6 +169,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     searchDraft.set(query);
     suggestionSearch.set(query);
     setSubmittedSearch(query);
+    selection = emptySelection();
     route = 'library';
   }
 
@@ -168,22 +178,28 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     searchDraft.set(next);
     suggestionSearch.set(next);
     setSubmittedSearch(next);
+    selection = emptySelection();
     route = 'library';
   }
 
   function toggleSelect(file: FileItem) {
-    const next = new Set(selectedIDs);
-    if (next.has(file.id)) next.delete(file.id);
-    else next.add(file.id);
-    selectedIDs = next;
+    selection = toggleSelection(selection, file.id);
   }
 
-  function selectFiles(files: FileItem[]) {
-    selectedIDs = new Set(files.map((file) => file.id));
+  function selectAll() {
+    selection = selectAllMatching(filterQuery());
   }
 
   function clearSelection() {
-    selectedIDs = new Set();
+    selection = emptySelection();
+  }
+
+  function isSelected(fileID: string) {
+    return selectionHas(selection, fileID);
+  }
+
+  function selectedCount(totalCount: number) {
+    return selectionCount(selection, totalCount);
   }
 
   function openPreview(file: FileItem) {
@@ -210,7 +226,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
     if (event.key === 'Escape') {
       if (activeFile) closePreview();
-      else if (selectedIDs.size) clearSelection();
+      else if (selectionActive(selection)) clearSelection();
       return;
     }
     if (activeFile && (event.key === 'ArrowLeft' || event.key === 'k')) {
@@ -229,6 +245,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     if (route !== 'library') {
       activeFile = null;
       pendingPreviewID = '';
+      selection = emptySelection();
     }
   }
 
@@ -244,8 +261,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     set sort(value: FileSort) { sort = value; },
     get order() { return order; },
     set order(value: SortOrder) { order = value; },
-    get selectedIDs() { return selectedIDs; },
-    set selectedIDs(value: Set<string>) { selectedIDs = value; },
+    get selection() { return selection; },
     get activeFile() { return activeFile; },
     get pendingPreviewID() { return pendingPreviewID; },
     reset,
@@ -259,8 +275,10 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     runSavedSearch,
     applySuggestion,
     toggleSelect,
-    selectFiles,
+    selectAll,
     clearSelection,
+    isSelected,
+    selectedCount,
     openPreview,
     closePreview,
     movePreview,
