@@ -17,7 +17,14 @@ async function mockApp(page: Page, onFilesRequest: () => void) {
   });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      tags: [],
+      library_count: 7,
+      facets: { kind: [{ value: 'photo', count: 4 }, { value: 'video', count: 2 }, { value: 'gif', count: 1 }] }
+    })
+  }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
 }
@@ -28,6 +35,10 @@ test('non-library route does not materialize the files grid and library still lo
 
   await page.goto('/tags');
   await expect(page.getByRole('heading', { name: 'Tags' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Library 7$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Photos 4$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Videos 2$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^GIFs 1$/ })).toBeVisible();
   await page.waitForTimeout(250);
   expect(filesRequests).toBe(0);
 

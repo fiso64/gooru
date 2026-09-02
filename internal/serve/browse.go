@@ -282,7 +282,9 @@ type FileListResponse struct {
 }
 
 type TagListResponse struct {
-	Tags []TagDTO `json:"tags"`
+	Tags         []TagDTO  `json:"tags"`
+	LibraryCount int       `json:"library_count"`
+	Facets       FacetsDTO `json:"facets,omitempty"`
 }
 
 type FacetsDTO struct {
@@ -470,7 +472,16 @@ func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load tags", nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, TagListResponse{Tags: tags})
+	response := TagListResponse{Tags: tags}
+	if search, ok := s.library.(SearchLibrary); ok {
+		if total, err := search.LibraryCount(r.Context()); err == nil {
+			response.LibraryCount = total
+		}
+		if kind, err := search.KindFacets(r.Context(), ""); err == nil {
+			response.Facets.Kind = kind
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request, publicID string) {
