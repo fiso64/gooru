@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { TagItem } from '$lib/api/types';
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
+  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   let {
     tags,
@@ -47,6 +48,16 @@
     }));
   });
 
+  function focusFirstTag(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.key !== 'ArrowDown' || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
+    if (document.activeElement instanceof HTMLElement && document.activeElement.classList.contains('tagscloud-item')) return;
+    const first = tagPage?.querySelector<HTMLButtonElement>('.tagscloud-item:not(.skeleton)');
+    if (!first) return;
+    event.preventDefault();
+    first.focus({ preventScroll: true });
+    first.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
   function handleGridKeydown(event: KeyboardEvent) {
     if (!isGridDirection(event.key) || !(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('tagscloud-item')) return;
     const buttons = Array.from(tagPage?.querySelectorAll<HTMLButtonElement>('.tagscloud-item:not(.skeleton)') ?? []);
@@ -59,6 +70,8 @@
     buttons[nextIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 </script>
+
+<svelte:window onkeydown={focusFirstTag} />
 
 <main class="main">
   <div bind:this={tagPage} class="page" onkeydown={handleGridKeydown}>
@@ -109,8 +122,8 @@
 
 <style>
   :global(.tagscloud-item:focus-visible) {
-    outline: 3px solid var(--accent);
+    outline: 2px dashed currentColor;
     outline-offset: 3px;
-    box-shadow: 0 0 0 1px var(--panel), 0 0 0 6px var(--accent-soft);
+    box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px currentColor;
   }
 </style>
