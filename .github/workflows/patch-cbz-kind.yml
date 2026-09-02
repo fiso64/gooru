@@ -1,0 +1,65 @@
+name: patch cbz kind
+on:
+  push:
+    branches: [feat/22-cbz-kind]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[cbz-kind-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Patch frontend
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          auth = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = auth.read_text()
+          old = "import { createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';"
+          new = "import { createFileCountQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';"
+          assert old in text
+          text = text.replace(old, new, 1)
+          marker = """  const filesQuery = createFilesQuery(\n    () => Boolean($authState.user),\n    () => $submittedSearch,\n    () => library.activeKind,\n    () => library.sort,\n    () => library.order,\n    () => authScope,\n    () => library.route === 'library'\n  );\n"""
+          assert marker in text
+          text = text.replace(marker, marker + "  const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => Boolean(filesQuery.data?.pages.length));\n", 1)
+          marker = "    kindCounts={page?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? []}\n"
+          assert marker in text
+          text = text.replace(marker, marker + "    comicCount={comicCountQuery.data?.total_count ?? 0}\n    comicActive={library.activeKind === '' && /(^|\\s)ext:cbz(?:\\s|$)/i.test($submittedSearch)}\n", 1)
+          auth.write_text(text)
+
+          shell = Path('frontend/src/lib/components/AppShell.svelte')
+          text = shell.read_text()
+          text = text.replace("    kindCounts,\n    savedSearches,", "    kindCounts,\n    comicCount,\n    comicActive,\n    savedSearches,", 1)
+          text = text.replace("    kindCounts: Array<{ value: string; count: number }>;\n    savedSearches:", "    kindCounts: Array<{ value: string; count: number }>;\n    comicCount: number;\n    comicActive: boolean;\n    savedSearches:", 1)
+          marker = """  function openLibrary() {\n    if (route === 'library' && !activeKind) onSearchCommit('');\n    onRoute('library');\n    onKind('');\n  }\n"""
+          assert marker in text
+          text = text.replace(marker, marker + """\n  function toggleComics() {\n    const terms = search.trim().split(/\\s+/).filter((term) => term && term.toLowerCase() !== 'ext:cbz');\n    if (!comicActive) terms.push('ext:cbz');\n    onRoute('library');\n    onKind('');\n    onSearchCommit(terms.join(' '));\n  }\n""", 1)
+          marker = """      {/each}\n    </div>\n\n    <div class=\"sidebar-section saved-searches-section\">"""
+          assert marker in text
+          comic = """      {/each}\n      {#if comicCount > 0}\n        <button class:active={route === 'library' && comicActive} class=\"sidebar-item\" type=\"button\" onclick={toggleComics}>\n          <Icon name=\"bookmark\" size={16} active={route === 'library' && comicActive} />\n          <span>Comics</span>\n          <span class=\"count\">{comicCount.toLocaleString()}</span>\n        </button>\n      {/if}\n    </div>\n\n    <div class=\"sidebar-section saved-searches-section\">"""
+          text = text.replace(marker, comic, 1)
+          shell.write_text(text)
+
+          test = Path('frontend/tests/shell.spec.ts')
+          text = test.read_text()
+          addition = r'''\n\ntest('shows the Comics kind only when CBZ files exist and filters with ext:cbz', async ({ page }) => {\n  await mockAuth(page);\n  await mockShellApis(page);\n  const queries: string[] = [];\n  await page.route('**/api/v1/files?**', async (route) => {\n    const url = new URL(route.request().url());\n    const query = url.searchParams.get('query') ?? '';\n    queries.push(query);\n    const isComicQuery = query === 'ext:cbz';\n    await route.fulfill({\n      contentType: 'application/json',\n      body: JSON.stringify({\n        files: isComicQuery ? [fileItem('comic', 'book.cbz', 'other')] : [fileItem('photo', 'sample.jpg')],\n        total_count: isComicQuery ? 1 : 2,\n        library_count: 2,\n        facets: url.searchParams.get('include_facets') === 'true' ? { kind: [{ value: 'photo', count: 1 }] } : undefined\n      })\n    });\n  });\n  await page.route('**/api/v1/files/*/thumbnail', async (route) => {\n    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />' });\n  });\n\n  await page.goto('/');\n  await signIn(page);\n  const comics = page.getByRole('button', { name: /Comics/ });\n  await expect(comics).toBeVisible();\n  await expect(comics).toContainText('1');\n\n  await comics.click();\n  await expect.poll(() => queries.filter((query) => query === 'ext:cbz').length).toBeGreaterThanOrEqual(2);\n  await expect(comics).toHaveClass(/active/);\n});\n\ntest('hides the Comics kind when no CBZ files exist', async ({ page }) => {\n  await mockAuth(page);\n  await mockShellApis(page);\n  await page.route('**/api/v1/files?**', async (route) => {\n    const url = new URL(route.request().url());\n    await route.fulfill({\n      contentType: 'application/json',\n      body: JSON.stringify({\n        files: [],\n        total_count: 0,\n        library_count: 0,\n        facets: url.searchParams.get('include_facets') === 'true' ? { kind: [] } : undefined\n      })\n    });\n  });\n\n  await page.goto('/');\n  await signIn(page);\n  await expect(page.getByRole('button', { name: /Comics/ })).toHaveCount(0);\n});\n'''
+          assert "shows the Comics kind only when CBZ files exist" not in text
+          test.write_text(text + addition)
+          PY
+      - name: Commit patch and remove workflow
+        run: |
+          rm .github/workflows/patch-cbz-kind.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add frontend .github/workflows/patch-cbz-kind.yml
+          git commit -m 'feat(sidebar): add conditional CBZ kind [cbz-kind-patched]'
+          git push origin HEAD:feat/22-cbz-kind
