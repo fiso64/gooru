@@ -3,6 +3,7 @@ import type { paths } from './openapi';
 import type {
   ApiErrorResponse,
   AuthMeResponse,
+  ComicManifest,
   FileItem,
   FileListResponse,
   Job,
@@ -105,6 +106,10 @@ export class ApiClient {
 
   async getFile(id: string, signal?: AbortSignal): Promise<FileItem> {
     return this.unwrap(this.client.GET('/files/{id}', { params: { path: { id } }, signal }));
+  }
+
+  async getComicManifest(id: string, signal?: AbortSignal): Promise<ComicManifest> {
+    return this.unwrap(this.client.GET('/comics/{id}', { params: { path: { id } }, signal }));
   }
 
   async searchSuggestions(q = '', limit?: number, existing = '', signal?: AbortSignal): Promise<SuggestionsResponse> {
