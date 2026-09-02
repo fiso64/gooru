@@ -1,4 +1,6 @@
 const hexColorPattern = /^#[0-9a-f]{6}$/i;
+const darkAccentInk = '#241f12';
+const lightAccentInk = '#fffdf6';
 
 export type AccentTheme = {
   accent: string;
@@ -9,15 +11,28 @@ export function accentTheme(accentColor: string): AccentTheme | null {
   const color = accentColor.trim();
   if (!hexColorPattern.test(color)) return null;
 
-  const red = Number.parseInt(color.slice(1, 3), 16);
-  const green = Number.parseInt(color.slice(3, 5), 16);
-  const blue = Number.parseInt(color.slice(5, 7), 16);
-  const luminance = relativeLuminance(red, green, blue);
+  const accentLuminance = hexLuminance(color);
+  const darkContrast = contrastRatio(accentLuminance, hexLuminance(darkAccentInk));
+  const lightContrast = contrastRatio(accentLuminance, hexLuminance(lightAccentInk));
 
   return {
     accent: color.toLowerCase(),
-    accentInk: luminance > 0.38 ? '#241f12' : '#fffdf6'
+    accentInk: darkContrast >= lightContrast ? darkAccentInk : lightAccentInk
   };
+}
+
+function hexLuminance(color: string): number {
+  return relativeLuminance(
+    Number.parseInt(color.slice(1, 3), 16),
+    Number.parseInt(color.slice(3, 5), 16),
+    Number.parseInt(color.slice(5, 7), 16)
+  );
+}
+
+function contrastRatio(first: number, second: number): number {
+  const lighter = Math.max(first, second);
+  const darker = Math.min(first, second);
+  return (lighter + 0.05) / (darker + 0.05);
 }
 
 function relativeLuminance(red: number, green: number, blue: number): number {
