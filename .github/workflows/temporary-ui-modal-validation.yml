@@ -22,15 +22,4 @@ jobs:
       - run: npm run test:unit
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - name: Validate Select all spacing
-        continue-on-error: true
-        run: npx playwright test tests/selection-ui-modal.spec.ts --project=chromium -g "real visible space"
-      - name: Validate toolbar labels and order
-        continue-on-error: true
-        run: npx playwright test tests/selection-ui-modal.spec.ts --project=chromium -g "action order and labels"
-      - name: Validate toolbar icon distinctions
-        continue-on-error: true
-        run: npx playwright test tests/selection-ui-modal.spec.ts --project=chromium -g "distinct icons"
-      - name: Validate modal Enter policy
-        continue-on-error: true
-        run: npx playwright test tests/selection-ui-modal.spec.ts --project=chromium -g "plain Enter"
+      - run: npx playwright test tests/selection-ui-modal.spec.ts tests/shortcut-focus.spec.ts --project=chromium
