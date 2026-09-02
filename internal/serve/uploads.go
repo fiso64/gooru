@@ -102,47 +102,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if limit := s.uploadRequestBodyLimit(); limit > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 	}
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
-			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", "upload request body is too large", nil)
-			return
-		}
-		writeError(w, http.StatusBadRequest, "invalid_request", "multipart upload body is required", nil)
-		return
-	}
-	target, err := s.uploadTarget(firstFormValue(r.MultipartForm.Value["target_id"]))
+	tags, saved, err := s.stageMultipartUpload(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_upload_target", err.Error(), nil)
+		writeMultipartUploadError(w, err)
 		return
 	}
-	tags := parseUploadTags(r.MultipartForm.Value["tags"])
 	if err := query.ValidateTags(tags); err != nil {
+		removeSavedUploads(saved)
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
-		return
-	}
-	files := uploadFileHeaders(r.MultipartForm.File)
-	if len(files) == 0 {
-		writeError(w, http.StatusBadRequest, "invalid_request", "at least one file is required", nil)
-		return
-	}
-	if len(files) > maxUploadFiles {
-		writeError(w, http.StatusBadRequest, "invalid_request", fmt.Sprintf("at most %d files are allowed per upload", maxUploadFiles), nil)
-		return
-	}
-
-	conflictPolicy, err := uploadConflictPolicy(firstFormValue(r.MultipartForm.Value["conflict_policy"]), s.cfg.Uploads.ConflictPolicy)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
-		return
-	}
-	saved, err := s.saveUploadedFiles(target, files, conflictPolicy)
-	if err != nil {
-		if errors.Is(err, errUploadTooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", err.Error(), uploadErrorDetails(err))
-			return
-		}
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), uploadErrorDetails(err))
 		return
 	}
 	if len(saved) == 1 && saved[0].status == "error" && saved[0].error == errUploadTooLarge.Error() {
