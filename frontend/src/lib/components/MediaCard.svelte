@@ -81,9 +81,18 @@
 
 <style>
   :global(.thumb-open:focus-visible) {
-    outline: 2px dashed #fff;
-    outline-offset: -6px;
-    box-shadow: inset 0 0 0 7px rgba(0, 0, 0, 0.72), 0 0 0 2px #000;
+    outline: none;
+  }
+
+  :global(.thumb-open:focus-visible::after) {
+    content: '';
+    position: absolute;
+    z-index: 5;
+    inset: 6px;
+    border: 2px dashed #fff;
+    border-radius: 2px;
+    box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000;
+    pointer-events: none;
   }
 
   .thumb-preview {
