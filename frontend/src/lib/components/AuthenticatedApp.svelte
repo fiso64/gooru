@@ -12,7 +12,7 @@
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
+  import { createFileCountQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
@@ -71,6 +71,7 @@
     () => authScope,
     () => library.route === 'library'
   );
+  const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => Boolean(filesQuery.data?.pages.length));
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
@@ -397,6 +398,8 @@
     jobs={jobsQuery.data?.items ?? []}
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={page?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? []}
+    comicCount={comicCountQuery.data?.total_count ?? 0}
+    comicActive={library.activeKind === '' && /(^|\s)ext:cbz(?:\s|$)/i.test($submittedSearch)}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     tags={tagsQuery.data?.tags ?? []}
