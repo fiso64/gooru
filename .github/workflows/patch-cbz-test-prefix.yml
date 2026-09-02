@@ -1,0 +1,35 @@
+name: patch cbz test prefix
+on:
+  push:
+    branches: [feat/22-cbz-kind]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[cbz-test-prefix-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove residual literal newline tokens
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/tests/shell.spec.ts')
+          text = path.read_text()
+          marker = "test('shows the Comics kind only when CBZ files exist and filters with ext:cbz'"
+          index = text.find(marker)
+          assert index >= 4
+          prefix = text[:index]
+          suffix = text[index:]
+          assert prefix.endswith('\\n\\n')
+          prefix = prefix[:-4] + '\n\n'
+          path.write_text(prefix + suffix)
+          PY
+          rm .github/workflows/patch-cbz-test-prefix.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add frontend/tests/shell.spec.ts .github/workflows/patch-cbz-test-prefix.yml
+          git commit -m 'test(sidebar): remove residual CBZ test escapes [cbz-test-prefix-patched]'
+          git push origin HEAD:feat/22-cbz-kind
