@@ -189,6 +189,40 @@ test('rapid navigation bounds expensive image predecodes', async ({ page }) => {
   expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeMax?: number }).__viewerDecodeMax ?? 0)).toBe(2);
 });
 
+test('held navigation keeps image presentation advancing when full image decode is backlogged', async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalDecode = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = function () {
+      if (!this.src.includes('/preview')) return originalDecode ? originalDecode.call(this) : Promise.resolve();
+      return new Promise<void>(() => {});
+    };
+  });
+
+  await mockApp(page);
+  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
+
+  const media = page.locator('.viewer-visual-media');
+  await expect(media).toBeVisible();
+  await expect(media).toHaveAttribute('src', /\/wide\/preview/);
+
+  await page.evaluate(() => {
+    const target = document.querySelector('.viewer-stage');
+    if (!(target instanceof HTMLElement)) throw new Error('viewer stage missing');
+    for (let i = 0; i < 5; i += 1) {
+      target.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'ArrowRight',
+        code: 'ArrowRight',
+        repeat: i > 0,
+        bubbles: true,
+        cancelable: true
+      }));
+    }
+  });
+
+  await expect(page.getByRole('dialog', { name: 'sixth.jpg' })).toBeVisible();
+  await expect(media).toHaveAttribute('src', /\/sixth\/preview/);
+});
+
 test('rotation keeps the requested direction when crossing the 0/360 boundary', async ({ page }) => {
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
