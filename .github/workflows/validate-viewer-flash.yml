@@ -1,0 +1,48 @@
+name: validate-viewer-flash
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/21-viewer-navigation-flash
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply focused patch
+        run: python3 .github/scripts/apply_viewer_flash_fix.py
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Viewer regression tests
+        working-directory: frontend
+        run: npx playwright test tests/viewer-animation.spec.ts --project=chromium
+      - name: Commit validated patch
+        run: |
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-animation.spec.ts
+          git commit -m 'fix(viewer): preserve image geometry during navigation [patch-applied]'
+          git push origin HEAD:fix/21-viewer-navigation-flash
