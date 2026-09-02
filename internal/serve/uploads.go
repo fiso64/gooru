@@ -34,11 +34,12 @@ type UploadedFileDTO struct {
 }
 
 type StagedUpload struct {
-	Name     string
-	Path     string
-	Size     int64
-	TargetID string
-	Status   string
+	Name         string
+	Path         string
+	AnalysisPath string
+	Size         int64
+	TargetID     string
+	Status       string
 }
 
 const maxUploadFiles = 100
@@ -552,7 +553,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, Size: file.size, TargetID: file.targetID, Status: file.status})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status})
 	}
 	return out
 }
@@ -565,6 +566,7 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	hashes := make(map[string]string, len(files))
 	importLocations := make([]types.LocationInfo, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
+	analysisPathByDestination := make(map[string]string, len(files))
 	for _, file := range files {
 		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
 		if file.Status == "skipped" {
@@ -572,7 +574,11 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 			response.Files = append(response.Files, dto)
 			continue
 		}
-		info, status, err := l.client.GetFileInfoForFile(file.Path, false)
+		analysisPath := file.AnalysisPath
+		if analysisPath == "" {
+			analysisPath = file.Path
+		}
+		info, status, err := l.client.GetFileInfoForFile(analysisPath, false)
 		if err != nil {
 			dto.Status = "error"
 			dto.Error = err.Error()
@@ -581,7 +587,7 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		}
 		if _, ok := hashes[info.Hash]; ok {
 			dto.Status = "duplicate_in_batch"
-			_ = os.Remove(file.Path)
+			removeRejectedStagedUpload(file)
 			response.Files = append(response.Files, dto)
 			continue
 		}
@@ -592,13 +598,14 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		}
 		if exists || status == types.StatusUntrackedContent || status == types.StatusOK {
 			dto.Status = "duplicate_existing"
-			_ = os.Remove(file.Path)
+			removeRejectedStagedUpload(file)
 			response.Files = append(response.Files, dto)
 			continue
 		}
 		dto.Status = "imported"
 		response.Files = append(response.Files, dto)
 		responseIndexByPath[file.Path] = len(response.Files) - 1
+		analysisPathByDestination[file.Path] = analysisPath
 		importLocations = append(importLocations, types.LocationInfo{
 			Path:      file.Path,
 			Hash:      info.Hash,
@@ -628,11 +635,18 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	}
 	response.AffectedCount = result.AffectedCount
 	response.Notifications = notificationDTOs(result.Notifications)
-	l.cacheImportedMediaMetadata(ctx, importLocations)
+	l.cacheImportedMediaMetadata(ctx, importLocations, analysisPathByDestination)
 	return response, nil
 }
 
-func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []types.LocationInfo) {
+func removeRejectedStagedUpload(file StagedUpload) {
+	_ = os.Remove(file.Path)
+	if file.AnalysisPath != "" && file.AnalysisPath != file.Path {
+		_ = os.Remove(file.AnalysisPath)
+	}
+}
+
+func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []types.LocationInfo, analysisPaths map[string]string) {
 	provider := l.metadata
 	if provider == nil {
 		provider = BasicMediaMetadataProvider{}
@@ -647,7 +661,11 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 		}
 		mediaType := mediaTypeForPath(file.Path)
 		mediaKind := mediaKindForType(mediaType)
-		metadata, err := provider.Metadata(ctx, file, mediaType, mediaKind)
+		analysisFile := file
+		if analysisPath := analysisPaths[file.Path]; analysisPath != "" {
+			analysisFile.Path = analysisPath
+		}
+		metadata, err := provider.Metadata(ctx, analysisFile, mediaType, mediaKind)
 		if err != nil {
 			continue
 		}
