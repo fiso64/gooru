@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"gooru.local/gooru"
-	"gooru.local/internal/database"
 	"gooru.local/internal/serve"
 )
 
@@ -60,7 +59,7 @@ var serveCmd = &cobra.Command{
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		client, err := gooru.New(cfg.Database.Path, verbose)
+		client, err := openConfiguredClient(cfg, verbose)
 		if err != nil {
 			if err == gooru.ErrDBUninitialized {
 				return fmt.Errorf("database not initialized. Please run 'gooru init' first")
@@ -70,7 +69,7 @@ var serveCmd = &cobra.Command{
 		defer client.Close()
 		server := serve.NewServerWithLibrary(cfg, serve.NewGooruLibrary(client, verbose))
 		if cfg.Auth.Enabled {
-			authStore, err := database.NewStore(cfg.Database.Path, verbose)
+			authStore, err := openConfiguredAuthStore(cfg, verbose)
 			if err != nil {
 				return fmt.Errorf("failed to initialize auth store: %w", err)
 			}
