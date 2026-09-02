@@ -76,6 +76,7 @@ jobs:
             await page.route('**/api/v1/auth/me', async (route) => {
               await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
             });
+            await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
             await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
             await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
             await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default' }] }) }));
@@ -113,7 +114,7 @@ jobs:
             for (let index = 0; index < 2; index += 1) {
               const filters = await selectedCheckboxes.nth(index).evaluate((node) => {
                 const style = getComputedStyle(node);
-                return { backdropFilter: style.backdropFilter, webkitBackdropFilter: (style as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter ?? 'none' };
+                return { backdropFilter: style.backdropFilter, webkitBackdropFilter: (style as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter || 'none' };
               });
               expect(filters.backdropFilter).toBe('none');
               expect(filters.webkitBackdropFilter).toBe('none');
@@ -122,7 +123,7 @@ jobs:
             const preview = secondCard.locator('.thumb-preview');
             await expect(preview).toBeVisible();
             expect(await preview.evaluate((node) => getComputedStyle(node).backdropFilter)).toBe('none');
-            expect(await secondCard.evaluate((node) => getComputedStyle(node).contain)).toContain('paint');
+            expect(await secondCard.evaluate((node) => getComputedStyle(node).contain)).toBe('content');
 
             await page.locator('.main').evaluate((node) => {
               node.scrollTop = 8000;
