@@ -138,11 +138,6 @@ func Open(path string, key []byte) (*File, error) {
 		_ = opened.Close()
 		return nil, ErrInvalidFormat
 	}
-	plaintextSize := int64(binary.LittleEndian.Uint64(core[16:24]))
-	if plaintextSize < 0 || plaintextSize > info.Size() {
-		_ = opened.Close()
-		return nil, ErrInvalidFormat
-	}
 	var prefix [noncePrefixSize]byte
 	copy(prefix[:], core[24:40])
 	if _, err := aead.Open(nil, nonce(prefix, math.MaxUint64), header[headerCoreSize:], core); err != nil {
@@ -150,6 +145,11 @@ func Open(path string, key []byte) (*File, error) {
 		return nil, ErrAuthentication
 	}
 
+	plaintextSize := int64(binary.LittleEndian.Uint64(core[16:24]))
+	if plaintextSize < 0 || plaintextSize > info.Size() {
+		_ = opened.Close()
+		return nil, ErrInvalidFormat
+	}
 	chunks := chunkCount(plaintextSize)
 	overhead := int64(chunks) * int64(aead.Overhead())
 	if overhead < 0 || plaintextSize > math.MaxInt64-int64(headerSize)-overhead {
