@@ -20,3 +20,5 @@ jobs:
       - run: npm run check
       - run: npm run test:unit
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test tests/upload-isolation.spec.ts --project=chromium
