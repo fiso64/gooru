@@ -13,7 +13,7 @@ This page documents every supported YAML field in the server configuration. Path
 | `server.cors_origins` | empty list | Origins allowed by the server's CORS policy. Leave empty for same-origin browser use. |
 | `server.expose_paths` | `false` | Include absolute filesystem paths in API file responses. Keep disabled unless clients genuinely need them. |
 | `server.frontend_dir` | `frontend/build` | Directory containing the built static frontend. |
-| `server.max_request_body_bytes` | `33554432` (32 MiB) | Maximum HTTP request body size. Must be greater than zero. This is an HTTP-level limit; upload-specific limits can be configured separately. |
+| `server.max_request_body_bytes` | `33554432` (32 MiB) | Maximum request body size for the regular API. Must be greater than zero. Browser/API uploads are governed separately by `uploads.max_file_size_bytes` so large media is not accidentally capped by this generic limit. |
 
 Server read/write/idle timeouts are internal defaults and are not YAML options.
 
@@ -46,7 +46,7 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | --- | --- | --- |
 | `uploads.enabled` | `false` | Enable browser/API uploads. Enabling uploads requires at least one valid target. |
 | `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, and `path`. |
-| `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific limit unset; the request is still bounded by `server.max_request_body_bytes`. |
+| `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
 | `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
 
 Each entry in `uploads.targets` supports:

@@ -187,14 +187,16 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) uploadRequestBodyLimit() int64 {
-	limit := s.cfg.Server.MaxRequestBodyBytes
-	if s.cfg.Uploads.MaxFileSizeBytes > 0 {
-		uploadLimit := s.cfg.Uploads.MaxFileSizeBytes*maxUploadFiles + (1 << 20)
-		if limit <= 0 || uploadLimit < limit {
-			limit = uploadLimit
-		}
+	maxFileSize := s.cfg.Uploads.MaxFileSizeBytes
+	if maxFileSize <= 0 {
+		return 0
 	}
-	return limit
+	const multipartOverhead int64 = 1 << 20
+	const safeLimit int64 = 1 << 62
+	if maxFileSize > (safeLimit-multipartOverhead)/maxUploadFiles {
+		return safeLimit
+	}
+	return maxFileSize*maxUploadFiles + multipartOverhead
 }
 
 func (s *Server) uploadTarget(id string) (UploadTarget, error) {
