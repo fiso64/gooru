@@ -94,9 +94,14 @@ export function createTagMutation(getCSRFToken: () => string, queryClient: Query
   }));
 }
 
-export function createUntrackFileMutation(getCSRFToken: () => string, queryClient: QueryClient) {
-  return createMutation<void, Error, string>(() => ({
-    mutationFn: (id) => new ApiClient(getCSRFToken()).untrackFile(id),
+export interface FileRemovalVariables {
+  id: string;
+  mode: 'untrack' | 'delete';
+}
+
+export function createFileRemovalMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<void, Error, FileRemovalVariables>(() => ({
+    mutationFn: ({ id, mode }) => new ApiClient(getCSRFToken()).removeFile(id, mode),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: fileKeys.all }),
