@@ -63,3 +63,32 @@
     </button>
   {/if}
 </article>
+
+<style>
+  .thumb-preview {
+    position: absolute;
+    z-index: 3;
+    right: 7px;
+    bottom: 7px;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    cursor: pointer;
+  }
+
+  .thumb-preview:hover,
+  .thumb-preview:focus-visible {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    outline: none;
+  }
+</style>
