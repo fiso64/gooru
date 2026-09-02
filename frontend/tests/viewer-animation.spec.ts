@@ -122,33 +122,22 @@ test('navigation never collapses the active image while swapping sources', async
   await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(0);
 });
 
-test('rapid navigation bounds expensive image predecodes', async ({ page }) => {
+test('rapid normal-image navigation does not force speculative image decodes', async ({ page }) => {
   await page.addInitScript(() => {
     const originalDecode = HTMLImageElement.prototype.decode;
-    const state = window as typeof window & { __viewerDecodeActive?: number; __viewerDecodeMax?: number };
-    state.__viewerDecodeActive = 0;
-    state.__viewerDecodeMax = 0;
+    const state = window as typeof window & { __viewerDecodeCalls?: string[] };
+    state.__viewerDecodeCalls = [];
     HTMLImageElement.prototype.decode = function () {
-      if (!this.src.includes('/preview')) return originalDecode ? originalDecode.call(this) : Promise.resolve();
-      state.__viewerDecodeActive = (state.__viewerDecodeActive ?? 0) + 1;
-      state.__viewerDecodeMax = Math.max(state.__viewerDecodeMax ?? 0, state.__viewerDecodeActive);
-      return new Promise<void>((resolve) => {
-        setTimeout(() => {
-          state.__viewerDecodeActive = Math.max(0, (state.__viewerDecodeActive ?? 1) - 1);
-          resolve();
-        }, 150);
-      });
+      if (this.src.includes('/preview')) {
+        state.__viewerDecodeCalls?.push(this.src);
+        return new Promise<void>(() => {});
+      }
+      return originalDecode ? originalDecode.call(this) : Promise.resolve();
     };
   });
 
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
-  await page.waitForTimeout(250);
-  await page.evaluate(() => {
-    const state = window as typeof window & { __viewerDecodeActive?: number; __viewerDecodeMax?: number };
-    state.__viewerDecodeActive = 0;
-    state.__viewerDecodeMax = 0;
-  });
 
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
@@ -156,9 +145,9 @@ test('rapid navigation bounds expensive image predecodes', async ({ page }) => {
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('dialog', { name: 'sixth.jpg' })).toBeVisible();
-  await page.waitForTimeout(200);
+  await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', /\/sixth\/preview/);
 
-  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeMax?: number }).__viewerDecodeMax ?? 0)).toBe(2);
+  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeCalls?: string[] }).__viewerDecodeCalls ?? [])).toEqual([]);
 });
 
 test('held navigation keeps image presentation advancing when full image decode is backlogged', async ({ page }) => {
