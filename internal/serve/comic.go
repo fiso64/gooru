@@ -15,8 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 
+	_ "golang.org/x/image/webp"
 	"gooru.local/types"
 )
 
@@ -91,24 +91,41 @@ func isComicImageName(name string) bool {
 func naturalLess(a, b string) bool {
 	a, b = strings.ToLower(a), strings.ToLower(b)
 	for len(a) > 0 && len(b) > 0 {
-		ra, rb := rune(a[0]), rune(b[0])
-		if unicode.IsDigit(ra) && unicode.IsDigit(rb) {
-			ai, bi := 0, 0
-			for ai < len(a) && a[ai] >= '0' && a[ai] <= '9' { ai++ }
-			for bi < len(b) && b[bi] >= '0' && b[bi] <= '9' { bi++ }
+		if isASCIIDigit(a[0]) && isASCIIDigit(b[0]) {
+			ai, bi := numericPrefixLength(a), numericPrefixLength(b)
 			an := strings.TrimLeft(a[:ai], "0")
 			bn := strings.TrimLeft(b[:bi], "0")
-			if an == "" { an = "0" }
-			if bn == "" { bn = "0" }
-			if len(an) != len(bn) { return len(an) < len(bn) }
-			if an != bn { return an < bn }
+			if an == "" {
+				an = "0"
+			}
+			if bn == "" {
+				bn = "0"
+			}
+			if len(an) != len(bn) {
+				return len(an) < len(bn)
+			}
+			if an != bn {
+				return an < bn
+			}
 			a, b = a[ai:], b[bi:]
 			continue
 		}
-		if a[0] != b[0] { return a[0] < b[0] }
+		if a[0] != b[0] {
+			return a[0] < b[0]
+		}
 		a, b = a[1:], b[1:]
 	}
 	return len(a) < len(b)
+}
+
+func isASCIIDigit(value byte) bool { return value >= '0' && value <= '9' }
+
+func numericPrefixLength(value string) int {
+	index := 0
+	for index < len(value) && isASCIIDigit(value[index]) {
+		index++
+	}
+	return index
 }
 
 func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file types.FileInfo, publicID string) {
@@ -127,12 +144,17 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 	if rawPage == "" {
 		pages := make([]comicPage, 0, len(archive.pages))
 		for index, page := range archive.pages {
-			pages = append(pages, comicPage{Index: index, Name: filepath.Base(page.Name), URL: "/api/v1/files/" + publicID + "/comic?page=" + strconv.Itoa(index)})
+			pages = append(pages, comicPage{
+				Index: index,
+				Name:  filepath.Base(page.Name),
+				URL:   "/api/v1/files/" + publicID + "/comic?page=" + strconv.Itoa(index),
+			})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(comicManifest{Pages: pages})
 		return
 	}
+
 	index, err := strconv.Atoi(rawPage)
 	if err != nil || index < 0 {
 		writeError(w, http.StatusBadRequest, "invalid_request", "page must be a non-negative integer", nil)
@@ -148,24 +170,35 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 		return
 	}
 	defer reader.Close()
+
 	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(page.Name)))
-	if semicolon := strings.IndexByte(contentType, ';'); semicolon >= 0 { contentType = contentType[:semicolon] }
-	if contentType == "" || !strings.HasPrefix(contentType, "image/") { contentType = "application/octet-stream" }
+	if semicolon := strings.IndexByte(contentType, ';'); semicolon >= 0 {
+		contentType = contentType[:semicolon]
+	}
+	if contentType == "" || !strings.HasPrefix(contentType, "image/") {
+		contentType = "application/octet-stream"
+	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=3600")
-	_, _ = io.Copy(w, io.LimitReader(reader, maxComicPageBytes+1))
+	_, _ = io.Copy(w, io.LimitReader(reader, maxComicPageBytes))
 }
 
 func thumbnailCBZFirstPage(src string, dst io.Writer, size int, format string) error {
 	archive, err := openComicArchive(src)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer archive.Close()
 	reader, _, err := archive.openPage(0)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer reader.Close()
-	img, _, err := image.Decode(io.LimitReader(reader, maxComicPageBytes+1))
-	if err != nil { return fmt.Errorf("%w: decode first comic page: %v", ErrUnsupportedMedia, err) }
+	img, _, err := image.Decode(io.LimitReader(reader, maxComicPageBytes))
+	if err != nil {
+		return fmt.Errorf("%w: decode first comic page: %v", ErrUnsupportedMedia, err)
+	}
 	resized := scaleImage(img, size)
 	switch format {
 	case "jpeg":
