@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -89,6 +90,7 @@ func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file
 		return
 	}
 	applyOriginalContentPolicy(w, file)
+	m.applyProtectedMediaCachePolicy(w)
 	http.ServeContent(w, r, filepath.Base(file.Path), info.ModTime(), f)
 }
 
@@ -150,6 +152,10 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	if format == "" {
 		format = "jpeg"
 	}
+	if m.cfg.Encryption.Enabled {
+		m.serveProtectedDerivative(w, r, file, size, format)
+		return
+	}
 	cachePath, err := m.cachePath(file, kind, size, format)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare media cache", nil)
@@ -181,16 +187,10 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	closeErr := out.Close()
 	if genErr != nil || closeErr != nil {
 		_ = os.Remove(tmp)
-		var unsupported *UnsupportedMediaError
-		if errors.As(genErr, &unsupported) {
-			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", unsupported.Details())
-			return
+		if genErr == nil {
+			genErr = closeErr
 		}
-		if errors.Is(genErr, ErrUnsupportedMedia) {
-			writeError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", nil)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to generate thumbnail", nil)
+		m.writeThumbnailGenerationError(w, genErr)
 		return
 	}
 	if err := os.Rename(tmp, cachePath); err != nil {
@@ -200,6 +200,40 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	}
 	w.Header().Set("X-Gooru-Cache", "miss")
 	m.serveCachedDerivative(w, r, cachePath, format)
+}
+
+func (m *MediaService) applyProtectedMediaCachePolicy(w http.ResponseWriter) {
+	if !m.cfg.Encryption.Enabled {
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+}
+
+func (m *MediaService) serveProtectedDerivative(w http.ResponseWriter, r *http.Request, file types.FileInfo, size int, format string) {
+	var out bytes.Buffer
+	if err := m.generateThumbnail(file, &out, size, format); err != nil {
+		m.writeThumbnailGenerationError(w, err)
+		return
+	}
+	m.applyProtectedMediaCachePolicy(w)
+	w.Header().Set("X-Gooru-Cache", "bypass")
+	w.Header().Set("Content-Type", mimeForDerivative(format))
+	http.ServeContent(w, r, "protected."+derivativeExtension(format), time.Time{}, bytes.NewReader(out.Bytes()))
+}
+
+func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err error) {
+	var unsupported *UnsupportedMediaError
+	if errors.As(err, &unsupported) {
+		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", unsupported.Details())
+		return
+	}
+	if errors.Is(err, ErrUnsupportedMedia) {
+		writeError(w, http.StatusUnsupportedMediaType, "unsupported_media", "thumbnail generation is unavailable for this file", nil)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, "internal_error", "failed to generate thumbnail", nil)
 }
 
 func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {
