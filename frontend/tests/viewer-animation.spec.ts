@@ -29,7 +29,14 @@ function fileItem(id: string, name: string) {
 
 async function mockApp(page: Page) {
   let loggedIn = false;
-  const files = [fileItem('wide', 'wide.jpg'), fileItem('tall', 'tall.jpg')];
+  const files = [
+    fileItem('wide', 'wide.jpg'),
+    fileItem('tall', 'tall.jpg'),
+    fileItem('third', 'third.jpg'),
+    fileItem('fourth', 'fourth.jpg'),
+    fileItem('fifth', 'fifth.jpg'),
+    fileItem('sixth', 'sixth.jpg')
+  ];
 
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -141,6 +148,45 @@ test('navigation never collapses the displayed image while swapping decoded sour
     const state = window as typeof window & { __viewerSizeObserver?: MutationObserver };
     state.__viewerSizeObserver?.disconnect();
   });
+});
+
+test('rapid navigation bounds expensive image predecodes', async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalDecode = HTMLImageElement.prototype.decode;
+    const state = window as typeof window & { __viewerDecodeActive?: number; __viewerDecodeMax?: number };
+    state.__viewerDecodeActive = 0;
+    state.__viewerDecodeMax = 0;
+    HTMLImageElement.prototype.decode = function () {
+      if (!this.src.includes('/preview')) return originalDecode ? originalDecode.call(this) : Promise.resolve();
+      state.__viewerDecodeActive = (state.__viewerDecodeActive ?? 0) + 1;
+      state.__viewerDecodeMax = Math.max(state.__viewerDecodeMax ?? 0, state.__viewerDecodeActive);
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          state.__viewerDecodeActive = Math.max(0, (state.__viewerDecodeActive ?? 1) - 1);
+          resolve();
+        }, 150);
+      });
+    };
+  });
+
+  await mockApp(page);
+  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    const state = window as typeof window & { __viewerDecodeActive?: number; __viewerDecodeMax?: number };
+    state.__viewerDecodeActive = 0;
+    state.__viewerDecodeMax = 0;
+  });
+
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('dialog', { name: 'sixth.jpg' })).toBeVisible();
+  await page.waitForTimeout(200);
+
+  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeMax?: number }).__viewerDecodeMax ?? 0)).toBe(2);
 });
 
 test('rotation keeps the requested direction when crossing the 0/360 boundary', async ({ page }) => {

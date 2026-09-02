@@ -12,14 +12,36 @@ type PreloadEntry = {
   dispose: () => void;
 };
 
+type SlotRelease = () => void;
+
 const preloadCache = new Map<string, PreloadEntry>();
 const maxCachedPreloads = 6;
+const maxConcurrentImageDecodes = 2;
+let activeImageDecodes = 0;
+const imageDecodeWaiters: Array<(release: SlotRelease) => void> = [];
 
 export function viewerPreloadSource(file: PreloadableViewerMedia): string {
   if (file.media_kind === 'video' || file.media_kind === 'audio' || file.media_type.startsWith('audio/')) {
     return file.media_urls.content;
   }
   return viewerImageSource(file, false);
+}
+
+function releaseImageDecodeSlot(): void {
+  const next = imageDecodeWaiters.shift();
+  if (next) {
+    next(releaseImageDecodeSlot);
+    return;
+  }
+  activeImageDecodes = Math.max(0, activeImageDecodes - 1);
+}
+
+function acquireImageDecodeSlot(): Promise<SlotRelease> {
+  if (activeImageDecodes < maxConcurrentImageDecodes) {
+    activeImageDecodes += 1;
+    return Promise.resolve(releaseImageDecodeSlot);
+  }
+  return new Promise((resolve) => imageDecodeWaiters.push(resolve));
 }
 
 function remember(key: string, entry: PreloadEntry): Promise<ViewerPreloadResult> {
@@ -35,24 +57,57 @@ function remember(key: string, entry: PreloadEntry): Promise<ViewerPreloadResult
 }
 
 function preloadImage(source: string): PreloadEntry {
-  const image = new Image();
+  let image: HTMLImageElement | undefined;
+  let cancelled = false;
+  let settled = false;
+  let releaseSlot: SlotRelease | undefined;
+  let rejectPromise: ((reason?: unknown) => void) | undefined;
+
+  const finish = (resolve?: (result: ViewerPreloadResult) => void, reject?: (reason?: unknown) => void, result?: ViewerPreloadResult, error?: unknown) => {
+    if (settled) return;
+    settled = true;
+    if (image) {
+      image.onload = null;
+      image.onerror = null;
+    }
+    const release = releaseSlot;
+    releaseSlot = undefined;
+    release?.();
+    if (error) reject?.(error);
+    else resolve?.(result ?? {});
+  };
+
   const promise = new Promise<ViewerPreloadResult>((resolve, reject) => {
-    image.onload = () => {
-      const decoded = typeof image.decode === 'function' ? image.decode() : Promise.resolve();
-      decoded.then(
-        () => resolve({ width: image.naturalWidth, height: image.naturalHeight }),
-        () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
-      );
-    };
-    image.onerror = () => reject(new Error(`Unable to preload image ${source}`));
-    image.src = source;
+    rejectPromise = reject;
+    void acquireImageDecodeSlot().then((release) => {
+      releaseSlot = release;
+      if (cancelled) {
+        finish(undefined, reject, undefined, new Error(`Cancelled image preload ${source}`));
+        return;
+      }
+
+      image = new Image();
+      image.onload = () => {
+        const decoded = typeof image!.decode === 'function' ? image!.decode() : Promise.resolve();
+        decoded.then(
+          () => finish(resolve, reject, { width: image!.naturalWidth, height: image!.naturalHeight }),
+          () => finish(resolve, reject, { width: image!.naturalWidth, height: image!.naturalHeight })
+        );
+      };
+      image.onerror = () => finish(undefined, reject, undefined, new Error(`Unable to preload image ${source}`));
+      image.src = source;
+    });
   });
+
   return {
     promise,
     dispose: () => {
+      cancelled = true;
+      if (!image || settled) return;
       image.onload = null;
       image.onerror = null;
       image.src = '';
+      finish(undefined, rejectPromise, undefined, new Error(`Cancelled image preload ${source}`));
     }
   };
 }
