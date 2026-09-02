@@ -24,7 +24,7 @@ var (
 // Encryption remains opt-in; plaintext migration only occurs when explicitly
 // requested by a caller that has already resolved protected-mode configuration.
 type DatabaseOpenOptions struct {
-	EncryptionKey   []byte
+	EncryptionKey    []byte
 	MigratePlaintext bool
 }
 
@@ -171,7 +171,7 @@ func resolvePath(filePath string) (string, error) {
 		return "", err
 	}
 
-	// NEW: Check if this is a virtual path and resolve it to a real one.
+	// NEW: Check if this is a virtual path and resolve it to a real path.
 	realPath, wasVirtual, err := resolveIfVirtual(absPath)
 	if err != nil {
 		// Propagate specific errors from the virtual resolution, like os.ErrNotExist.
