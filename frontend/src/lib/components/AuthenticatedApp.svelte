@@ -50,7 +50,7 @@
     facets?: { kind?: Array<{ value: string; count: number }> };
   } | null>(null);
   let actionDialog = $state<{
-    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-filtered' | 'untrack-file' | 'delete-file';
+    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'untrack-file' | 'delete-file';
     value: string;
     error: string;
     busy: boolean;
@@ -87,6 +87,8 @@
   const retainedStartIndex = $derived(pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
   const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.activeKind}|${library.sort}|${library.order}`);
+  const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);
+  const selectedCount = $derived(library.selectedCount(currentTotalCount));
 
   $effect(() => {
     const csrf = $authState.csrfToken;
@@ -209,9 +211,6 @@
     actionDialog = { kind: 'bulk-remove-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
   }
 
-  function bulkTagFiltered() {
-    actionDialog = { kind: 'bulk-filtered', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
-  }
 
   async function submitActionDialog() {
     if (actionDialog.busy || actionDialog.kind === 'none') return;
@@ -231,13 +230,11 @@
       } else if (actionDialog.kind === 'save-delete') {
         await ctx.remove(actionDialog.id);
       } else if (actionDialog.kind === 'bulk-selected') {
-        const changed = await tagWorkflow.bulkSelected(library.selectedIDs, value, 'add', (variables) => tagMutation.mutateAsync(variables));
+        const changed = await tagWorkflow.bulkSelected(library.selection, value, 'add', (variables) => tagMutation.mutateAsync(variables));
         if (changed) library.clearSelection();
       } else if (actionDialog.kind === 'bulk-remove-selected') {
-        const changed = await tagWorkflow.bulkSelected(library.selectedIDs, value, 'remove', (variables) => tagMutation.mutateAsync(variables));
+        const changed = await tagWorkflow.bulkSelected(library.selection, value, 'remove', (variables) => tagMutation.mutateAsync(variables));
         if (changed) library.clearSelection();
-      } else if (actionDialog.kind === 'bulk-filtered') {
-        await tagWorkflow.bulkFiltered(library.filterQuery(), value, (variables) => tagMutation.mutateAsync(variables));
       } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {
         await fileRemovalMutation.mutateAsync({ id: actionDialog.id, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });
         if (library.activeFile?.id === actionDialog.id) library.closePreview();
@@ -286,7 +283,6 @@
       case 'save-delete': return 'Delete saved search';
       case 'bulk-selected': return 'Tag selected files';
       case 'bulk-remove-selected': return 'Untag selected files';
-      case 'bulk-filtered': return 'Tag filtered results';
       case 'untrack-file': return 'Remove from library';
       case 'delete-file': return 'Delete file';
       default: return '';
@@ -298,9 +294,8 @@
       case 'save-create': return 'Name the current search so it stays available in the sidebar.';
       case 'save-update': return `Update "${actionDialog.name}" with the current search and sort.`;
       case 'save-delete': return `Delete "${actionDialog.name}" from saved searches.`;
-      case 'bulk-selected': return `Add tags to ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? '' : 's'}.`;
-      case 'bulk-remove-selected': return `Remove tags from ${library.selectedIDs.size} selected file${library.selectedIDs.size === 1 ? '' : 's'}.`;
-      case 'bulk-filtered': return 'Add tags to every file matching the current filter without materializing all results.';
+      case 'bulk-selected': return `Add tags to ${selectedCount} selected file${selectedCount === 1 ? '' : 's'}.`;
+      case 'bulk-remove-selected': return `Remove tags from ${selectedCount} selected file${selectedCount === 1 ? '' : 's'}.`;
       case 'untrack-file': return `Untrack \"${actionDialog.name}\" from the library. The file remains on disk.`;
       case 'delete-file': return `Permanently delete \"${actionDialog.name}\" from disk and remove it from the library.`;
       default: return '';
@@ -314,8 +309,7 @@
   function actionDialogConfirmText() {
     switch (actionDialog.kind) {
       case 'save-delete': return 'Delete';
-      case 'bulk-selected':
-      case 'bulk-filtered': return 'Add tags';
+      case 'bulk-selected': return 'Add tags';
       case 'bulk-remove-selected': return 'Remove tags';
       case 'untrack-file': return 'Remove';
       case 'delete-file': return 'Delete file';
@@ -425,7 +419,8 @@
         totalCount={page?.total_count ?? files.length}
         libraryCount={page?.library_count ?? files.length}
         searchActive={Boolean($submittedSearch || library.activeKind)}
-        selectedIDs={library.selectedIDs}
+        selectedCount={selectedCount}
+        isSelected={library.isSelected}
         hasNextPage={Boolean(filesQuery.hasNextPage)}
         isFetchingNextPage={Boolean(filesQuery.isFetchingNextPage)}
         hasPreviousPage={Boolean(filesQuery.hasPreviousPage)}
@@ -433,7 +428,7 @@
         bind:loadMoreSentinel
         onOpen={library.openPreview}
         onToggleSelect={library.toggleSelect}
-        onSelectAll={() => library.selectFiles(files)}
+        onSelectAll={library.selectAll}
         onClearSelection={library.clearSelection}
         onBulkTag={bulkTagSelected}
         onBulkUntag={bulkUntagSelected}
@@ -442,6 +437,10 @@
       >
         {#snippet actions()}
           <div class="library-head-actions">
+            <label class="g-btn g-btn-sm" title="Select all files in the current view">
+              <input type="checkbox" aria-label="Select all files in current view" checked={currentTotalCount > 0 && selectedCount === currentTotalCount} onchange={(event) => event.currentTarget.checked ? library.selectAll() : library.clearSelection()} />
+              Select all
+            </label>
             <div class="seg" aria-label="Sort field">
               {#each [{ value: 'modified', label: 'Modified' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
                 <button
@@ -456,11 +455,6 @@
             <button class="g-btn g-btn-sm" type="button" title="Sort direction" onclick={() => (library.order = library.order === 'desc' ? 'asc' : 'desc')}>
               <Icon name="sort" size={14} /> {library.order === 'desc' ? 'Newest' : 'Oldest'}
             </button>
-            {#if library.filterQuery()}
-              <button class="g-btn g-btn-sm" type="button" title="Tag every matching file without materializing all results" onclick={bulkTagFiltered}>
-                <Icon name="tag" size={14} /> Tag filtered
-              </button>
-            {/if}
           </div>
         {/snippet}
       </MediaGrid>

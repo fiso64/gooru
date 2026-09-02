@@ -954,6 +954,11 @@ components:
         query:
           type: string
           description: Query selector. Exactly one of file_ids or query must be provided.
+        exclude_file_ids:
+          type: array
+          items:
+            type: string
+          description: Opaque file IDs to exclude from a query selector. Only valid with query.
         tags:
           type: array
           items:
@@ -977,6 +982,10 @@ components:
                 type: string
             query:
               type: string
+            exclude_file_ids:
+              type: array
+              items:
+                type: string
         matched_files:
           type: integer
         affected_count:

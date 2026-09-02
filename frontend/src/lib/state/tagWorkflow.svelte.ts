@@ -2,6 +2,7 @@ import { errorMessage, parseTags } from '$lib/utils/format';
 import { applyTagOperation } from '$lib/utils/tags';
 import type { FileItem, TagMutationResponse } from '$lib/api/types';
 import type { TagMutationVariables } from '$lib/queries/files';
+import { selectionRequest, type LibrarySelection } from '$lib/state/selection';
 
 type MutateTags = (variables: TagMutationVariables) => Promise<TagMutationResponse>;
 
@@ -53,18 +54,11 @@ export function createTagWorkflow() {
     }
   }
 
-  async function bulkSelected(ids: Set<string>, tagInput: string, operation: 'add' | 'remove', mutateTags: MutateTags) {
+  async function bulkSelected(selection: LibrarySelection, tagInput: string, operation: 'add' | 'remove', mutateTags: MutateTags) {
     const tags = parseTags(tagInput);
-    if (!tags.length || !ids.size) return false;
-    await mutateTags({ operation, body: { file_ids: Array.from(ids), tags } });
-    return true;
-  }
-
-  async function bulkFiltered(query: string, tagInput: string, mutateTags: MutateTags) {
-    if (!query) return false;
-    const tags = parseTags(tagInput);
-    if (!tags.length) return false;
-    await mutateTags({ operation: 'add', body: { query, tags } });
+    const selector = selectionRequest(selection);
+    if (!tags.length || ('file_ids' in selector && !selector.file_ids.length)) return false;
+    await mutateTags({ operation, body: { ...selector, tags } });
     return true;
   }
 
@@ -77,7 +71,6 @@ export function createTagWorkflow() {
     mutateFile,
     mutateFileTags,
     removeTag,
-    bulkSelected,
-    bulkFiltered
+    bulkSelected
   };
 }
