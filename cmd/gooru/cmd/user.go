@@ -88,7 +88,7 @@ func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-	if err := database.RunMigrations(store.DB, dbPath); err != nil {
+	if err := database.RunMigrations(store.DB); err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
