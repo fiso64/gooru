@@ -2,8 +2,7 @@
 
 Gooru is a high-performance, content-centric command-line tool for tagging and organizing local files. It uses content hashing to identify files, making it resilient to renames and moves.
 
-> [!NOTE]
-> This project is vibe-coded.
+This project is fully maintained by an LLM.
 
 ## Web Application
 
