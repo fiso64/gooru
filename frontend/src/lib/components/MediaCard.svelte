@@ -14,12 +14,12 @@
     selected: boolean;
     selectionActive: boolean;
     onOpen: (file: FileItem) => void;
-    onToggleSelect: (file: FileItem) => void;
+    onToggleSelect: (file: FileItem, range: boolean) => void;
   }>();
 
   function openOrSelect(event: MouseEvent) {
     if (selectionActive || event.shiftKey || event.metaKey || event.ctrlKey) {
-      onToggleSelect(file);
+      onToggleSelect(file, event.shiftKey);
       return;
     }
     onOpen(file);
@@ -29,7 +29,7 @@
     if (event.code === 'Space') {
       event.preventDefault();
       event.stopPropagation();
-      onToggleSelect(file);
+      onToggleSelect(file, false);
       return;
     }
     if (event.key === 'Enter') {
@@ -68,7 +68,7 @@
     role="checkbox"
     aria-checked={selected}
     aria-label={`${selected ? 'Deselect' : 'Select'} ${file.name}`}
-    onclick={() => onToggleSelect(file)}
+    onclick={(event) => onToggleSelect(file, event.shiftKey)}
   >
     {#if selected}<Icon name="check" size={12} active />{/if}
   </button>
@@ -110,6 +110,14 @@
     background: rgba(0, 0, 0, 0.78);
     color: #fff;
     cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .12s, background .12s, border-color .12s;
+  }
+
+  :global(.thumb:hover) .thumb-preview {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .thumb-preview:hover,

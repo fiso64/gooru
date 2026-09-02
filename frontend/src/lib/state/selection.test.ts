@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptySelection, selectAllMatching, selectionActive, selectionCount, selectionHas, selectionRequest, toggleSelection } from './selection';
+import { emptySelection, selectAllMatching, selectionActive, selectionCount, selectionHas, selectionRequest, setSelectionRange, toggleSelection } from './selection';
 
 describe('library selection', () => {
   it('tracks explicit selections without changing unrelated files', () => {
@@ -25,5 +25,18 @@ describe('library selection', () => {
     expect(selectionHas(selection, 'keep-me')).toBe(true);
     expect(selectionCount(selection, 8)).toBe(7);
     expect(selectionRequest(selection)).toEqual({ query: 'type:video', exclude_file_ids: ['skip-me'] });
+  });
+
+  it('applies select and deselect ranges to explicit and query selections', () => {
+    let explicit = setSelectionRange(emptySelection(), ['a', 'b', 'c'], true);
+    expect(selectionRequest(explicit)).toEqual({ file_ids: ['a', 'b', 'c'] });
+    explicit = setSelectionRange(explicit, ['b', 'c'], false);
+    expect(selectionRequest(explicit)).toEqual({ file_ids: ['a'] });
+
+    let query = setSelectionRange(selectAllMatching('rating:safe'), ['b', 'c'], false);
+    expect(selectionHas(query, 'b')).toBe(false);
+    expect(selectionHas(query, 'c')).toBe(false);
+    query = setSelectionRange(query, ['c'], true);
+    expect(selectionRequest(query)).toEqual({ query: 'rating:safe', exclude_file_ids: ['b'] });
   });
 });
