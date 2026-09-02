@@ -50,7 +50,7 @@
     hasPreviousPage: boolean;
     isFetchingPreviousPage: boolean;
     loadMoreSentinel?: HTMLDivElement;
-    onOpen: (file: FileItem) => void;
+    onOpen: (file: FileItem, files: FileItem[]) => void;
     onToggleSelect: (file: FileItem) => void;
     onSelectAll: () => void;
     onClearSelection: () => void;
@@ -201,7 +201,7 @@
             {file}
             selected={isSelected(file.id)}
             selectionActive={selectedCount > 0}
-            onOpen={onOpen}
+            onOpen={(opened) => onOpen(opened, files)}
             onToggleSelect={onToggleSelect}
           />
         {/each}
