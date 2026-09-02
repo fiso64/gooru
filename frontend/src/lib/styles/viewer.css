@@ -24,3 +24,13 @@
   border-radius: 3px;
   background: var(--accent);
 }
+
+/* Viewer display controls remain keyboard-driven; keep chrome out of the media surface. */
+.viewer-mode-controls {
+  display: none !important;
+}
+
+/* Fullscreen is for unobstructed media; navigation remains available via keyboard shortcuts. */
+.viewer-stage:fullscreen .lightbox-nav-arrow {
+  display: none;
+}
