@@ -1,0 +1,59 @@
+name: Maintainer driver transition
+on:
+  push:
+    branches: [refactor/28-gosqlite-driver-v2]
+permissions:
+  contents: write
+jobs:
+  transition-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Replace SQLite driver
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          old = '_ "github.com/mattn/go-sqlite3"'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one mattn import, found {text.count(old)}')
+          path.write_text(text.replace(old, '_ "gosqlite.org"'))
+          PY
+          go mod edit -droprequire github.com/mattn/go-sqlite3
+          go get gosqlite.org@latest
+          go mod tidy
+          if grep -R --exclude-dir=.git -n 'github.com/mattn/go-sqlite3' -- '*.go' go.mod 2>/dev/null; then
+            echo 'mattn go-sqlite3 reference remains' >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/database/database.go go.mod go.sum
+          git commit -m 'refactor(database): switch to pure-Go gosqlite driver'
+          git push
+      - name: Go build
+        run: go build ./...
+      - name: Go tests
+        run: go test ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
