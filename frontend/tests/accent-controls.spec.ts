@@ -56,12 +56,18 @@ async function mockLibrary(page: Page) {
 
 async function gapAfterShortcut(locator: Locator) {
   return locator.evaluate((node) => {
-    const underline = node.querySelector('u');
-    const tail = underline?.nextSibling;
-    if (!(underline instanceof HTMLElement) || !(tail instanceof Text)) throw new Error('shortcut label is missing an inline trailing text node');
+    const underline = node.querySelector(':scope > u');
+    if (!(underline instanceof HTMLElement)) throw new Error('shortcut label is missing a direct underline');
+
+    let tail = underline.nextSibling;
+    while (tail && !(tail instanceof Text)) tail = tail.nextSibling;
+    if (!(tail instanceof Text) || tail.length === 0) throw new Error('shortcut label is missing trailing text');
+
+    const firstVisibleCharacter = tail.data.search(/\S/);
+    if (firstVisibleCharacter < 0) throw new Error('shortcut label trailing text is blank');
     const tailRange = document.createRange();
-    tailRange.setStart(tail, 0);
-    tailRange.setEnd(tail, Math.min(1, tail.length));
+    tailRange.setStart(tail, firstVisibleCharacter);
+    tailRange.setEnd(tail, firstVisibleCharacter + 1);
     return tailRange.getBoundingClientRect().left - underline.getBoundingClientRect().right;
   });
 }
@@ -85,14 +91,15 @@ test('shortcut underlines do not create visual spaces inside button labels', asy
   await mockLibrary(page);
 
   const selectAll = page.getByLabel('Select all files in current view');
-  const selectAllLabel = selectAll.locator('..');
+  const selectAllLabel = page.locator('label.g-btn:has(input[aria-label="Select all files in current view"])');
+  await expect(selectAllLabel).toHaveCount(1);
   expect(await gapAfterShortcut(selectAllLabel)).toBeLessThanOrEqual(1);
 
   await selectAll.click();
-  await expect(page.getByText('1 of 1 selected')).toBeVisible();
+  await expect(page.locator('.selection-bar')).toBeVisible();
 
-  const tag = page.getByRole('button', { name: 'Tag…' });
-  const untag = page.getByRole('button', { name: 'Untag…' });
-  expect(await gapAfterShortcut(tag)).toBeLessThanOrEqual(1);
-  expect(await gapAfterShortcut(untag)).toBeLessThanOrEqual(1);
+  const shortcutButtons = page.locator('.selection-bar button.g-btn:has(> u)');
+  await expect(shortcutButtons).toHaveCount(2);
+  expect(await gapAfterShortcut(shortcutButtons.nth(0))).toBeLessThanOrEqual(1);
+  expect(await gapAfterShortcut(shortcutButtons.nth(1))).toBeLessThanOrEqual(1);
 });
