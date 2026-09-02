@@ -1,0 +1,36 @@
+name: patch cbz tests
+on:
+  push:
+    branches: [feat/22-cbz-kind]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[cbz-tests-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair generated test newlines
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/tests/shell.spec.ts')
+          text = path.read_text()
+          marker = "test('shows the Comics kind only when CBZ files exist and filters with ext:cbz'"
+          index = text.find(marker)
+          assert index >= 0
+          prefix = text[:index]
+          suffix = text[index:]
+          # The temporary patch workflow accidentally wrote literal backslash-n tokens
+          # throughout the appended tests. Convert only that generated suffix.
+          suffix = suffix.replace('\\n', '\n')
+          path.write_text(prefix + suffix)
+          PY
+          rm .github/workflows/patch-cbz-tests.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add frontend/tests/shell.spec.ts .github/workflows/patch-cbz-tests.yml
+          git commit -m 'test(sidebar): repair CBZ browser test formatting [cbz-tests-patched]'
+          git push origin HEAD:feat/22-cbz-kind
