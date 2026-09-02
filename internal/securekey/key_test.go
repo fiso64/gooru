@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -67,5 +68,18 @@ func TestLoadRejectsMissingOrMalformedKey(t *testing.T) {
 	t.Setenv(short, base64.StdEncoding.EncodeToString([]byte("short")))
 	if _, err := Load(Source{Env: short}); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("expected ErrInvalidKey, got %v", err)
+	}
+}
+
+func TestLoadRejectsExposedKeyFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not authoritative on Windows")
+	}
+	path := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte(encodedKey(0x31)), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(Source{File: path}); err == nil {
+		t.Fatal("expected group/world-readable key file to fail")
 	}
 }
