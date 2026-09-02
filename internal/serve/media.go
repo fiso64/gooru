@@ -66,6 +66,9 @@ type MediaService struct {
 	thumbnailer Thumbnailer
 	cacheMu     sync.Mutex
 	cacheLocks  map[string]*cacheLock
+	comicMu     sync.Mutex
+	comicCache  map[string]*cachedComicArchive
+	comicTick   uint64
 }
 
 type cacheLock struct {

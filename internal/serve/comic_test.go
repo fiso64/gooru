@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -125,6 +126,87 @@ func TestServeComicManifestAndIndividualPage(t *testing.T) {
 	}
 	if !bytes.Equal(pageRecorder.Body.Bytes(), second) {
 		t.Fatal("served page bytes differ from selected archive entry")
+	}
+}
+
+func TestServeComicReusesArchiveIndexAcrossPageNavigation(t *testing.T) {
+	entries := make(map[string][]byte, 250)
+	page := tinyPNG(t, 2, 2, color.White)
+	for index := 0; index < 250; index++ {
+		entries[fmt.Sprintf("pages/%04d.png", index)] = page
+	}
+	path := writeComic(t, entries)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := types.FileInfo{Path: path, Hash: "comic-hash", Size: info.Size(), ModTime: info.ModTime().UnixNano()}
+	service := NewMediaService(DefaultConfig(filepath.Join(t.TempDir(), "gooru.db")))
+
+	serve := func(target string) {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		service.ServeComic(recorder, request, file, "file-id")
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d: %s", target, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	serve("/api/v1/comics/file-id")
+	key := comicArchiveCacheKey(file)
+	service.comicMu.Lock()
+	first := service.comicCache[key]
+	service.comicMu.Unlock()
+	if first == nil {
+		t.Fatal("expected manifest request to retain a cached comic archive index")
+	}
+
+	for _, pageIndex := range []int{0, 1, 2, 1, 0, 100, 101, 100} {
+		serve(fmt.Sprintf("/api/v1/comics/file-id/%d?page=%d", pageIndex, pageIndex))
+	}
+	service.comicMu.Lock()
+	after := service.comicCache[key]
+	cacheSize := len(service.comicCache)
+	service.comicMu.Unlock()
+	if after != first {
+		t.Fatal("page navigation rebuilt the comic archive index instead of reusing it")
+	}
+	if cacheSize != 1 {
+		t.Fatalf("comic cache size = %d, want 1", cacheSize)
+	}
+}
+
+func TestComicArchiveCacheInvalidatesWhenTrackedFileChanges(t *testing.T) {
+	page := tinyPNG(t, 2, 2, color.White)
+	path := writeComic(t, map[string][]byte{"1.png": page})
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewMediaService(DefaultConfig(filepath.Join(t.TempDir(), "gooru.db")))
+	firstFile := types.FileInfo{Path: path, Size: info.Size(), ModTime: info.ModTime().UnixNano()}
+	first, releaseFirst, err := service.acquireComicArchive(firstFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseFirst()
+
+	changedFile := firstFile
+	changedFile.ModTime++
+	second, releaseSecond, err := service.acquireComicArchive(changedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseSecond()
+	if first == second {
+		t.Fatal("changed tracked file metadata reused a stale comic archive")
+	}
+	service.comicMu.Lock()
+	cacheSize := len(service.comicCache)
+	service.comicMu.Unlock()
+	if cacheSize != 1 {
+		t.Fatalf("comic cache size after invalidation = %d, want 1", cacheSize)
 	}
 }
 
