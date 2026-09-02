@@ -57,6 +57,7 @@ describe('viewer preload source policy', () => {
       }
     }
 
+    vi.stubGlobal('window', {});
     vi.stubGlobal('Image', FakeImage);
 
     const first = preloadViewerMediaSource(media({ id: '1' }), '/image/1');
