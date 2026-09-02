@@ -93,6 +93,19 @@
 
   function handleViewerKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event)) return;
+    if (
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      && event.target instanceof HTMLInputElement
+      && event.target.id === `tags-${file.id}`
+      && event.target.value === ''
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.target.blur();
+      if (event.key === 'ArrowLeft') stagePrev();
+      else stageNext();
+      return;
+    }
     if (event.key.toLowerCase() !== 't' || isEditableShortcutTarget(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
