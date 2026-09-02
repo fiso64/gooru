@@ -354,9 +354,10 @@
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     tags={tagsQuery.data?.tags ?? []}
-    search={$searchDraft}
+    searchValue={$submittedSearch}
+    searchDraft={$searchDraft}
     onRoute={setRoute}
-    onKind={library.setKind}
+    onKind={(kind) => (library.activeKind = kind)}
     onSavedSearch={library.runSavedSearch}
     onCreateSavedSearch={createSavedSearch}
     onUpdateSavedSearch={updateSavedSearch}
@@ -491,6 +492,8 @@
       busy={actionDialog.busy}
       error={actionDialog.error}
       input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'untrack-file'}
+      tagInput={actionDialog.kind.startsWith('bulk-')}
+      tagCandidates={tagsQuery.data?.tags ?? []}
       onInput={(value) => (actionDialog = { ...actionDialog, value, error: '' })}
       onCancel={closeActionDialog}
       onConfirm={submitActionDialog}
