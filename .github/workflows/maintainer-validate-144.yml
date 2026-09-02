@@ -1,8 +1,8 @@
 name: maintainer-validate-144
 on:
-  push:
+  pull_request:
     branches:
-      - fix/102-job-lifecycle-logging
+      - main
 jobs:
   test:
     runs-on: ubuntu-latest
