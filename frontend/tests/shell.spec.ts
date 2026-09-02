@@ -1150,7 +1150,9 @@ test('matches exact Upload staging surface and releases local previews', async (
   await expect(stagedRow).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => (window as typeof window & { __gooruRevoked?: string[] }).__gooruRevoked ?? [])).toContain(previewURL!);
 });
-\n\ntest('shows the Comics kind only when CBZ files exist and filters with ext:cbz', async ({ page }) => {
+
+
+test('shows the Comics kind only when CBZ files exist and filters with ext:cbz', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
   const queries: string[] = [];
