@@ -30,6 +30,8 @@
     onClearSelection,
     onBulkTag,
     onBulkUntag,
+    onBulkUntrack,
+    onBulkDelete,
     onLoadMore,
     onLoadPrevious,
     actions
@@ -56,6 +58,8 @@
     onClearSelection: () => void;
     onBulkTag: () => void;
     onBulkUntag: () => void;
+    onBulkUntrack: () => void;
+    onBulkDelete: () => void;
     onLoadMore: () => void;
     onLoadPrevious: () => void;
     actions?: Snippet;
@@ -152,6 +156,8 @@
         <button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> <u>T</u>ag…</button>
         <button class="g-btn g-btn-sm" type="button" disabled title="Export bundles are not supported yet"><Icon name="download" size={13} /> Export</button>
         <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="trash" size={13} /> <u>U</u>ntag…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntrack}>Untrack…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkDelete}><Icon name="trash" size={13} /> Delete…</button>
         <button class="g-btn g-btn-sm g-btn-icon" type="button" title="Clear" aria-label="Clear selection" onclick={onClearSelection}><Icon name="close" size={13} /></button>
       </div>
     </div>

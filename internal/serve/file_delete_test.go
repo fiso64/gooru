@@ -3,7 +3,9 @@ package serve
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,44 @@ import (
 
 	"gooru.local/types"
 )
+
+func TestBulkUntrackQueryHonorsExclusions(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	page := listTestFiles(t, server, "kind:image", 10)
+	if len(page.Files) < 2 {
+		t.Fatalf("test fixture needs at least two images, got %d", len(page.Files))
+	}
+	body := []byte(fmt.Sprintf(`{"mode":"untrack","query":"kind:image","exclude_file_ids":[%q]}`, page.Files[0].ID))
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/files", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected bulk untrack 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response FileRemovalResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Mode != "untrack" || response.RemovedLocations != len(page.Files)-1 {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+
+	kept := httptest.NewRecorder()
+	server.Handler().ServeHTTP(kept, authedRequest(http.MethodGet, "/api/v1/files/"+page.Files[0].ID))
+	if kept.Code != http.StatusOK {
+		t.Fatalf("excluded file should remain tracked, got %d: %s", kept.Code, kept.Body.String())
+	}
+	for _, removed := range page.Files[1:] {
+		missing := httptest.NewRecorder()
+		server.Handler().ServeHTTP(missing, authedRequest(http.MethodGet, "/api/v1/files/"+removed.ID))
+		if missing.Code != http.StatusNotFound {
+			t.Fatalf("selected file %s should be untracked, got %d: %s", removed.ID, missing.Code, missing.Body.String())
+		}
+	}
+}
 
 func TestDeleteModeRemovesManagedUploadFileAndLocation(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)

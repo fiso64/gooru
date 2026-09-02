@@ -6,6 +6,8 @@ import type {
   ComicManifest,
   FileItem,
   FileListResponse,
+  FileRemovalRequest,
+  FileRemovalResponse,
   Job,
   JobListResponse,
   NamespacesResponse,
@@ -164,6 +166,12 @@ export class ApiClient {
         params: { header: this.csrfHeaderParam('DELETE'), path: { id } },
         body: { mode }
       })
+    );
+  }
+
+  async removeFiles(body: FileRemovalRequest): Promise<FileRemovalResponse> {
+    return this.unwrap<FileRemovalResponse>(
+      this.client.DELETE('/files', { params: { header: this.csrfHeaderParam('DELETE') }, body })
     );
   }
 

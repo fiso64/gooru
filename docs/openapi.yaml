@@ -150,6 +150,38 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+    delete:
+      summary: Untrack or physically delete a selected set of files.
+      description: Accepts the same explicit-ID or query-with-exclusions selector used by bulk UI actions. Physical deletion is accepted only when every selected file is inside configured upload targets.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileRemovalRequest"
+      responses:
+        "200":
+          description: Selected file locations were removed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileRemovalResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: Physical deletion was requested for a selection containing files outside configured upload targets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /files/{id}:
     get:
       summary: Get one tracked file by opaque file ID.
@@ -1030,6 +1062,40 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ComicPage"
+    FileRemovalSelector:
+      type: object
+      properties:
+        file_ids:
+          type: array
+          items:
+            type: string
+        query:
+          type: string
+        exclude_file_ids:
+          type: array
+          items:
+            type: string
+    FileRemovalRequest:
+      allOf:
+        - $ref: "#/components/schemas/FileRemovalSelector"
+        - type: object
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              enum: [untrack, delete]
+    FileRemovalResponse:
+      type: object
+      required: [mode, selector, removed_locations]
+      properties:
+        mode:
+          type: string
+          enum: [untrack, delete]
+        selector:
+          $ref: "#/components/schemas/FileRemovalSelector"
+        removed_locations:
+          type: integer
+          minimum: 0
     TagMutationRequest:
       type: object
       required: [tags]

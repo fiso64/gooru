@@ -244,7 +244,49 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Untrack or physically delete a selected set of files.
+         * @description Accepts the same explicit-ID or query-with-exclusions selector used by bulk UI actions. Physical deletion is accepted only when every selected file is inside configured upload targets.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FileRemovalRequest"];
+                };
+            };
+            responses: {
+                /** @description Selected file locations were removed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FileRemovalResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                /** @description Physical deletion was requested for a selection containing files outside configured upload targets. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -1278,6 +1320,21 @@ export interface components {
         };
         ComicManifest: {
             pages: components["schemas"]["ComicPage"][];
+        };
+        FileRemovalSelector: {
+            file_ids?: string[];
+            query?: string;
+            exclude_file_ids?: string[];
+        };
+        FileRemovalRequest: components["schemas"]["FileRemovalSelector"] & {
+            /** @enum {string} */
+            mode: "untrack" | "delete";
+        };
+        FileRemovalResponse: {
+            /** @enum {string} */
+            mode: "untrack" | "delete";
+            selector: components["schemas"]["FileRemovalSelector"];
+            removed_locations: number;
         };
         TagMutationRequest: {
             /** @description Opaque file IDs. Exactly one of file_ids or query must be provided. */
