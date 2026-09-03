@@ -25,6 +25,39 @@ Server read/write/idle timeouts are internal defaults and are not YAML options. 
 
 The default database path is normally `~/.config/gooru/gooru.db`. `gooru serve --config instance.yaml --database /absolute/path/instance.db` can therefore run against a separate database without changing global state.
 
+## `encryption`
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `encryption.enabled` | `false` | Enable protected storage for the SQLite database, managed uploads, and generated media derivatives. Requires exactly one process encryption-key source described below. |
+
+The encryption key is intentionally **not** stored in YAML. When `encryption.enabled: true`, provide exactly one of these process environment variables:
+
+| Environment variable | Value |
+| --- | --- |
+| `GOORU_ENCRYPTION_KEY` | Base64 encoding of exactly 32 random bytes (256 bits). |
+| `GOORU_ENCRYPTION_KEY_FILE` | Path to a regular file containing that same base64-encoded 32-byte key. On non-Windows systems the file must not be readable or writable by group or others. |
+
+For example, generate a key once and store it in an owner-only file:
+
+```bash
+umask 077
+openssl rand -base64 32 > /srv/gooru/encryption.key
+export GOORU_ENCRYPTION_KEY_FILE=/srv/gooru/encryption.key
+go run ./cmd/gooru serve --config serve.yaml
+```
+
+with:
+
+```yaml
+encryption:
+  enabled: true
+```
+
+Keep the key backed up separately from the encrypted data. Starting protected mode without a valid key fails closed; using a different key cannot decrypt data encrypted with the original key.
+
+When protected mode starts, Gooru migrates its database and files registered under configured `uploads.targets` to encrypted storage before serving requests. Indexed media outside those managed upload roots is deliberately left unchanged because Gooru does not rewrite arbitrary external library files. New managed uploads and generated derivatives are encrypted while protected mode is enabled. Media responses that contain decrypted protected content use no-store cache policy to reduce plaintext traces in client/proxy caches.
+
 ## `auth`
 
 | Option | Default | Description |
@@ -126,6 +159,9 @@ server:
 
 database:
   path: /srv/gooru/gooru.db
+
+encryption:
+  enabled: false
 
 auth:
   enabled: true
