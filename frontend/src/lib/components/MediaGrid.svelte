@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import MediaCard from './MediaCard.svelte';
   import { errorMessage } from '$lib/utils/format';
@@ -73,7 +74,12 @@
   let paneHeight = $state(900);
   let paneScrollY = $state(0);
   let gridTop = $state(0);
+  let pixelRatio = $state(1);
   const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, $runtimeConfig.gridSize));
+
+  onMount(() => {
+    pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+  });
 
   function handleScroll() {
     const nextScrollY = mainHost?.scrollTop ?? 0;
@@ -231,6 +237,8 @@
         {#each virtual.files as file (file.id)}
           <MediaCard
             {file}
+            cardWidth={virtual.cardWidth}
+            {pixelRatio}
             selected={isSelected(file.id)}
             selectionActive={selectedCount > 0}
             onOpen={(opened) => onOpen(opened, files)}
