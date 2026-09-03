@@ -86,6 +86,7 @@
       const rect = stage.getBoundingClientRect();
       stageWidth = rect.width;
       stageHeight = rect.height;
+      queueMicrotask(reconcileViewerTransform);
     };
     resize();
     const observer = new ResizeObserver(resize);
@@ -272,6 +273,14 @@
     };
   }
 
+  function reconcileViewerTransform() {
+    const nextZoom = Math.max(minimumZoom, zoom);
+    const clamped = clampViewerPan(panX, panY, nextZoom);
+    zoom = nextZoom;
+    panX = clamped.x;
+    panY = clamped.y;
+  }
+
   function resetViewerTransform() {
     zoom = 1;
     panX = 0;
@@ -330,6 +339,11 @@
     queueMicrotask(() => stageElement?.focus({ preventScroll: true }));
   }
 
+  function rotateViewerAndReconcile(direction: 'left' | 'right') {
+    rotation = rotateViewer(rotation, direction);
+    queueMicrotask(reconcileViewerTransform);
+  }
+
   function handleViewerKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
     const target = event.target;
@@ -383,13 +397,13 @@
     if (key === 'r') {
       event.preventDefault();
       event.stopPropagation();
-      rotation = rotateViewer(rotation, 'right');
+      rotateViewerAndReconcile('right');
       return;
     }
     if (key === 'l') {
       event.preventDefault();
       event.stopPropagation();
-      rotation = rotateViewer(rotation, 'left');
+      rotateViewerAndReconcile('left');
       return;
     }
     if (event.key === '1') {
@@ -505,8 +519,8 @@
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
     <button type="button" class="viewer-mode-button" class:active={fitMode === 'screen'} aria-label="Fit to screen" title="Fit to screen (1)" onclick={(event) => { setFitMode('screen'); restoreStageFocusAfterPointer(event); }}>1</button>
     <button type="button" class="viewer-mode-button" class:active={fitMode === 'actual'} aria-label="Actual size" title="Actual size (2)" onclick={(event) => { setFitMode('actual'); restoreStageFocusAfterPointer(event); }}>2</button>
-    <button type="button" class="viewer-mode-button" aria-label="Rotate left" title="Rotate left (L)" onclick={(event) => { rotation = rotateViewer(rotation, 'left'); restoreStageFocusAfterPointer(event); }}>↺</button>
-    <button type="button" class="viewer-mode-button" aria-label="Rotate right" title="Rotate right (R)" onclick={(event) => { rotation = rotateViewer(rotation, 'right'); restoreStageFocusAfterPointer(event); }}>↻</button>
+    <button type="button" class="viewer-mode-button" aria-label="Rotate left" title="Rotate left (L)" onclick={(event) => { rotateViewerAndReconcile('left'); restoreStageFocusAfterPointer(event); }}>↺</button>
+    <button type="button" class="viewer-mode-button" aria-label="Rotate right" title="Rotate right (R)" onclick={(event) => { rotateViewerAndReconcile('right'); restoreStageFocusAfterPointer(event); }}>↻</button>
     <button type="button" class="viewer-mode-button" class:active={isFullscreen} aria-label="Toggle fullscreen" title="Fullscreen (F)" onclick={(event) => { void toggleFullscreen(); restoreStageFocusAfterPointer(event); }}>F</button>
   </div>
 
