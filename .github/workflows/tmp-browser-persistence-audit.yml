@@ -12,12 +12,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== persistence APIs ==='
-          grep -RInE --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.svelte-kit \
-            'serviceWorker|navigator[.]serviceWorker|caches[.]|CacheStorage|indexedDB|localStorage|sessionStorage|createObjectURL|revokeObjectURL|FileReader|blob:' frontend || true
-          echo '=== service worker/cache-like filenames ==='
-          find frontend -type f \( -iname '*service*worker*' -o -iname '*cache*' -o -iname '*manifest*' \) \
-            -not -path '*/node_modules/*' -not -path '*/build/*' -not -path '*/.svelte-kit/*' -print
+          {
+            echo '=== persistence APIs ==='
+            grep -RInE --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.svelte-kit \
+              'serviceWorker|navigator[.]serviceWorker|caches[.]|CacheStorage|indexedDB|localStorage|sessionStorage|createObjectURL|revokeObjectURL|FileReader|blob:' frontend || true
+            echo '=== service worker/cache-like filenames ==='
+            find frontend -type f \( -iname '*service*worker*' -o -iname '*cache*' -o -iname '*manifest*' \) \
+              -not -path '*/node_modules/*' -not -path '*/build/*' -not -path '*/.svelte-kit/*' -print
+            echo '=== media URL / fetch surfaces ==='
+            grep -RInE --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.svelte-kit \
+              'mediaUrl|thumbnail|thumb|/media|/files|fetch\(|new Image|<img|<video|<audio|source src' frontend/src || true
+          } | tee /tmp/browser-persistence-audit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-persistence-audit
+          path: /tmp/browser-persistence-audit.txt
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
