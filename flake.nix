@@ -15,7 +15,7 @@
             pname = "gooru-frontend";
             version = "0-unstable";
             src = ./frontend;
-            npmDepsHash = "sha256-IwmulF0IrBA//GfuVagDZF4pZqFSOW9fHk0t0xmHWfU=";
+            npmDepsHash = "sha256-6dL0bcxE0C39LDBG4GKQNA6xJx98NP2uSB8ifS1pxRE=";
             npmBuildScript = "build";
             installPhase = ''
               runHook preInstall
@@ -35,11 +35,14 @@
             postInstall = ''
               mkdir -p $out/share/gooru/frontend
               cp -r ${frontend}/. $out/share/gooru/frontend/
+              mkdir -p $out/share/doc/gooru
+              cp LICENSE THIRD_PARTY_NOTICES.md $out/share/doc/gooru/
             '';
 
             meta = {
               description = "Content-centric tool for tagging and organizing local files";
               homepage = "https://github.com/fiso64/gooru";
+              license = pkgs.lib.licenses.agpl3Only;
               mainProgram = "gooru";
               platforms = supportedSystems;
             };
