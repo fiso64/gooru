@@ -1,0 +1,26 @@
+name: tmp-159-zoom-validation
+
+on:
+  push:
+    branches:
+      - fix/159-zoom-constraint-reconcile
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm run test:unit
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test tests/viewer-zoom-pan.spec.ts --project=chromium
