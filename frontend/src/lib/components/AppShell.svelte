@@ -95,7 +95,6 @@
   }
 
   function openCommonTag(tag: string) {
-    onRoute('library');
     onKind('');
     onSearchCommit(tag);
   }
