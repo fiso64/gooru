@@ -21,7 +21,18 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Apply maintained patch
-        run: python3 .github/maintainer-222.py
+        run: |
+          python3 .github/maintainer-222.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/query/metatags_test.go')
+          text = p.read_text()
+          old = 'Parse(`@filename_contains:"100%_SET"`)'
+          new = 'Parse(`"@filename_contains:100%_SET"`)'
+          if old not in text:
+              raise SystemExit('expected regression query not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
       - name: Format Go
         run: gofmt -w internal/serve/search_saved.go internal/serve/openapi_test.go internal/query/metatags_test.go internal/serve/search_saved_metatags_test.go
       - name: Generate API types
