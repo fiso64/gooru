@@ -16,7 +16,7 @@
 
 <svelte:window onkeydown={(event) => { if (event.key === 'Escape') onClose(); }} />
 
-<div id="jobs-drawer" class="jobs-drawer" role="dialog" aria-modal="false" aria-labelledby="jobs-drawer-title" tabindex="-1">
+<div class="jobs-drawer" role="dialog" aria-modal="false" aria-labelledby="jobs-drawer-title" tabindex="-1">
   <div class="jobs-drawer-head">
     <h3 id="jobs-drawer-title">Jobs</h3>
     <div class="jobs-drawer-actions">
@@ -38,6 +38,11 @@
 </div>
 
 <style>
+  /* AppShell keeps this host for aria-controls; it must not become an in-flow grid item. */
+  :global(#jobs-drawer) {
+    display: contents;
+  }
+
   .jobs-drawer {
     position: absolute;
     top: 56px;
