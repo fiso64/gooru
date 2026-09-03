@@ -1,0 +1,180 @@
+name: Temporary Common tags header validation v2
+
+on:
+  push:
+    branches:
+      - fix/113-common-tags-header-toggle
+    paths:
+      - .github/workflows/tmp-113-header-toggle-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/113-common-tags-header-toggle
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply whole-row toggle without changing header typography
+        shell: python
+        run: |
+          from pathlib import Path
+
+          app = Path('frontend/src/lib/components/AppShell.svelte')
+          text = app.read_text()
+          old = '''        <div class="sidebar-section-head">
+                    <span>Common tags</span>
+                    <button
+                      class="sidebar-head-action common-tags-toggle"
+                      type="button"
+                      title={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+                      aria-expanded={!commonTagsCollapsed}
+                      aria-controls="common-tags-list"
+                      aria-label={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+                      onclick={toggleCommonTags}
+                    >
+                      <span class:expanded={!commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={11} /></span>
+                    </button>
+                  </div>'''
+          new = '''        <button
+                    class="common-tags-toggle"
+                    type="button"
+                    title={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+                    aria-expanded={!commonTagsCollapsed}
+                    aria-controls="common-tags-list"
+                    aria-label={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+                    onclick={toggleCommonTags}
+                  >
+                    <span class="sidebar-section-head common-tags-toggle-content">
+                      <span>Common tags</span>
+                      <span aria-hidden="true" class:expanded={!commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={12} /></span>
+                    </span>
+                  </button>'''
+          if old not in text:
+              raise SystemExit('common tags header anchor changed')
+          text = text.replace(old, new, 1)
+          old_css = '''  .common-tags-toggle {
+              cursor: pointer;
+            }
+
+            .common-tags-chevron {
+              display: inline-flex;
+              transition: transform 0.1s ease;
+            }'''
+          new_css = '''  .common-tags-toggle {
+              width: 100%;
+              border: 0;
+              padding: 0;
+              background: transparent;
+              color: inherit;
+              cursor: pointer;
+              text-align: left;
+            }
+
+            .common-tags-toggle:focus-visible {
+              outline: 1px solid var(--accent-line);
+              outline-offset: -1px;
+              border-radius: var(--r-2);
+            }
+
+            .common-tags-toggle-content {
+              width: 100%;
+            }
+
+            .common-tags-chevron {
+              display: inline-flex;
+              flex: 0 0 auto;
+              color: var(--text-3);
+              transition: color 0.1s ease, transform 0.1s ease;
+            }
+
+            .common-tags-toggle:hover .common-tags-chevron {
+              color: var(--text-2);
+            }'''
+          if old_css not in text:
+              raise SystemExit('common tags CSS anchor changed')
+          app.write_text(text.replace(old_css, new_css, 1))
+
+          test = Path('frontend/tests/common-tags-sidebar.spec.ts')
+          text = test.read_text()
+          old_test = '''  const commonHeader = common.locator(':scope > .sidebar-section-head');
+            const savedHeader = page.locator('.saved-searches-section > .sidebar-section-head');
+            await expect(commonHeader).toHaveCount(1);
+            await expect(commonHeader).toHaveJSProperty('tagName', 'DIV');
+            await expect(commonHeader.locator('.common-tags-toggle')).toHaveClass(/sidebar-head-action/);
+            const commonHeaderStyle = await commonHeader.evaluate((node) => {
+              const style = getComputedStyle(node);
+              return [style.fontSize, style.fontWeight, style.letterSpacing, style.textTransform, style.color, style.paddingLeft, style.paddingRight];
+            });'''
+          new_test = '''  const commonToggle = common.locator(':scope > .common-tags-toggle');
+            const commonHeader = commonToggle.locator(':scope > .sidebar-section-head');
+            const savedHeader = page.locator('.saved-searches-section > .sidebar-section-head');
+            await expect(commonToggle).toHaveJSProperty('tagName', 'BUTTON');
+            await expect(commonToggle).toHaveAttribute('aria-expanded', 'true');
+            await expect(commonHeader).toHaveCount(1);
+            const indicator = commonHeader.locator('.common-tags-chevron');
+            await expect(indicator).toBeVisible();
+            expect(await indicator.evaluate((node) => {
+              const box = node.getBoundingClientRect();
+              const style = getComputedStyle(node);
+              return box.width > 0 && box.height > 0 && style.color !== 'rgba(0, 0, 0, 0)';
+            })).toBe(true);
+            const commonHeaderStyle = await commonHeader.evaluate((node) => {
+              const style = getComputedStyle(node);
+              return [style.fontSize, style.fontWeight, style.letterSpacing, style.textTransform, style.color, style.paddingLeft, style.paddingRight];
+            });'''
+          if old_test not in text:
+              raise SystemExit('header test anchor changed')
+          text = text.replace(old_test, new_test, 1)
+          old_click = '''  await common.getByRole('button', { name: 'Collapse Common tags' }).click();
+            await expect(common.locator('#common-tags-list')).not.toBeVisible();'''
+          new_click = '''  await common.getByText('Common tags', { exact: true }).click();
+            await expect(commonToggle).toHaveAttribute('aria-expanded', 'false');
+            await expect(common.locator('#common-tags-list')).not.toBeVisible();'''
+          if old_click not in text:
+              raise SystemExit('collapse test anchor changed')
+          text = text.replace(old_click, new_click, 1)
+          old_expand = '''  await common.getByRole('button', { name: 'Expand Common tags' }).click();
+            rows = common.locator('button.common-tag-item');'''
+          new_expand = '''  const reloadedToggle = common.getByRole('button', { name: 'Expand Common tags' });
+            await reloadedToggle.click();
+            await expect(reloadedToggle).toHaveAttribute('aria-expanded', 'true');
+            rows = common.locator('button.common-tag-item');'''
+          if old_expand not in text:
+              raise SystemExit('expand test anchor changed')
+          test.write_text(text.replace(old_expand, new_expand, 1))
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Static check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Browser regression
+        working-directory: frontend
+        run: npx playwright test tests/common-tags-sidebar.spec.ts --project=chromium
+      - name: Commit validated change and remove temporary workflows
+        shell: bash
+        run: |
+          rm .github/workflows/tmp-113-header-toggle.yml .github/workflows/tmp-113-header-toggle-v2.yml
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add frontend/src/lib/components/AppShell.svelte frontend/tests/common-tags-sidebar.spec.ts .github/workflows/tmp-113-header-toggle.yml .github/workflows/tmp-113-header-toggle-v2.yml
+          git commit -m 'fix(sidebar): make Common tags header fully clickable'
+          git push origin HEAD:fix/113-common-tags-header-toggle
