@@ -5,7 +5,7 @@ on:
 permissions:
   contents: write
 jobs:
-  patch:
+  validate:
     if: "${{ ! contains(github.event.head_commit.message, '[maintainer-222]') }}"
     runs-on: ubuntu-latest
     steps:
@@ -20,56 +20,24 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Patch contract and frontend wiring
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          def r(path, old, new):
-              p=Path(path); text=p.read_text()
-              if old not in text: raise SystemExit(f"missing in {path}: {old!r}")
-              p.write_text(text.replace(old,new,1))
-          r('internal/serve/search_saved.go','type SuggestionsResponse struct {\n\tItems []TagDTO `json:"items"`\n}\n','type MetaTagDTO struct {\n\tName string `json:"name"`\n\tSyntax string `json:"syntax"`\n\tHint string `json:"hint"`\n\tRequiresValue bool `json:"requires_value"`\n}\n\ntype SuggestionsResponse struct {\n\tItems []TagDTO `json:"items"`\n\tMetaTags []MetaTagDTO `json:"meta_tags"`\n}\n')
-          r('internal/serve/search_saved.go','func matchingMetaTagSuggestions(prefix string) []TagDTO {','func metaTagDTOs() []MetaTagDTO {\n\tdefinitions := query.MetaTags()\n\titems := make([]MetaTagDTO, 0, len(definitions))\n\tfor _, definition := range definitions {\n\t\titems = append(items, MetaTagDTO{Name: definition.Name, Syntax: definition.Syntax, Hint: definition.Hint, RequiresValue: definition.RequiresValue})\n\t}\n\treturn items\n}\n\nfunc matchingMetaTagSuggestions(prefix string) []TagDTO {')
-          r('internal/serve/search_saved.go','writeJSON(w, http.StatusOK, SuggestionsResponse{Items: items})','writeJSON(w, http.StatusOK, SuggestionsResponse{Items: items, MetaTags: metaTagDTOs()})')
-          r('frontend/src/lib/search/specialSuggestions.ts','metaTags: Array<{ name: string; value?: string }> = []','metaTags: Array<{ syntax: string; hint: string; requires_value: boolean }> = []')
-          r('frontend/src/lib/search/specialSuggestions.ts','const syntax = metaTag.name.trim();','const syntax = metaTag.syntax.trim();')
-          r('frontend/src/lib/search/specialSuggestions.ts','const requiresValue = syntax.endsWith(\':\');\n    if (requiresValue) {','if (metaTag.requires_value) {')
-          r('frontend/src/lib/search/specialSuggestions.ts',"hint: metaTag.value || 'query',","hint: metaTag.hint || 'query',")
-          r('frontend/src/lib/search/specialSuggestions.ts',"hint: metaTag.value || 'query'","hint: metaTag.hint || 'query'")
-          r('frontend/src/lib/components/SearchBar.svelte','type SuggestionLike = { name: string; value?: string; count?: number };','type SuggestionLike = { name: string; value?: string; count?: number };\n  type MetaTagLike = { syntax: string; hint: string; requires_value: boolean };')
-          r('frontend/src/lib/components/SearchBar.svelte','    suggestions,\n    tags,','    suggestions,\n    metaTags,\n    tags,')
-          r('frontend/src/lib/components/SearchBar.svelte','    suggestions: SuggestionLike[];\n    tags: TagLike[];','    suggestions: SuggestionLike[];\n    metaTags: MetaTagLike[];\n    tags: TagLike[];')
-          r('frontend/src/lib/components/SearchBar.svelte','  const tagItems = $derived(normalizeTags(tags, suggestions));\n  const metaTagItems = $derived(suggestions.filter((item) => item.name.startsWith(\'@\')));\n  const groups = $derived(computeSuggestions(draft, tokens, tagItems, metaTagItems));','  const tagItems = $derived(normalizeTags(tags, suggestions));\n  const groups = $derived(computeSuggestions(draft, tokens, tagItems, metaTags));')
-          r('frontend/src/lib/components/SearchBar.svelte','    metaTags: SuggestionLike[]','    metaTags: MetaTagLike[]')
-          r('frontend/src/lib/api/types.ts',"export type SuggestionsResponse = components['schemas']['SuggestionsResponse'];","export type MetaTagDefinition = components['schemas']['MetaTag'];\nexport type SuggestionsResponse = components['schemas']['SuggestionsResponse'];")
-          r('frontend/src/lib/components/AppShell.svelte',"import type { Job } from '$lib/api/types';","import type { Job, MetaTagDefinition } from '$lib/api/types';")
-          r('frontend/src/lib/components/AppShell.svelte','    suggestions,\n    tags,','    suggestions,\n    metaTags,\n    tags,')
-          r('frontend/src/lib/components/AppShell.svelte','    suggestions: Array<{ name: string; count?: number }>;\n    tags: TagLike[];','    suggestions: Array<{ name: string; count?: number }>;\n    metaTags: MetaTagDefinition[];\n    tags: TagLike[];')
-          r('frontend/src/lib/components/AppShell.svelte','          {suggestions}\n          {tags}','          {suggestions}\n          {metaTags}\n          {tags}')
-          r('frontend/src/lib/components/AuthenticatedApp.svelte','    suggestions={suggestionsQuery.data?.items ?? []}\n    tags={tagsQuery.data?.tags ?? []}','    suggestions={suggestionsQuery.data?.items ?? []}\n    metaTags={suggestionsQuery.data?.meta_tags ?? []}\n    tags={tagsQuery.data?.tags ?? []}')
-          p=Path('docs/openapi.yaml'); text=p.read_text(); start=text.index('    SuggestionsResponse:\n'); end=text.find('\n    ',start+5); block=text[start:end]
-          if 'meta_tags:' not in block:
-              block=block.replace('required: [items]','required: [items, meta_tags]')+'\n        meta_tags:\n          type: array\n          description: Complete backend-owned catalog of supported query metatags.\n          items:\n            $ref: "#/components/schemas/MetaTag"\n'; text=text[:start]+block+text[end:]
-          if '    MetaTag:\n' not in text:
-              pos=text.index('    SuggestionsResponse:\n'); meta='    MetaTag:\n      type: object\n      required: [name, syntax, hint, requires_value]\n      properties:\n        name:\n          type: string\n        syntax:\n          type: string\n        hint:\n          type: string\n        requires_value:\n          type: boolean\n'; text=text[:pos]+meta+text[pos:]
-          p.write_text(text)
-          r('internal/serve/openapi_test.go','\tassertResponseSchemaRef(t, spec, "/search/suggestions", "get", "200", "#/components/schemas/SuggestionsResponse")','\tassertResponseSchemaRef(t, spec, "/search/suggestions", "get", "200", "#/components/schemas/SuggestionsResponse")\n\tsuggestionSchema := schema(t, spec, "SuggestionsResponse")\n\tif !containsString(stringSlice(t, suggestionSchema["required"]), "meta_tags") { t.Fatal("SuggestionsResponse must require meta_tags") }\n\tmetaTagProps := stringMap(t, schema(t, spec, "MetaTag")["properties"])\n\tfor _, field := range []string{"name", "syntax", "hint", "requires_value"} { if _, ok := metaTagProps[field]; !ok { t.Fatalf("MetaTag schema missing %q", field) } }')
-          PY
-          gofmt -w internal/serve/search_saved.go internal/serve/openapi_test.go
+      - name: Apply maintained patch
+        run: python3 .github/maintainer-222.py
+      - name: Format Go
+        run: gofmt -w internal/serve/search_saved.go internal/serve/openapi_test.go internal/query/metatags_test.go internal/serve/search_saved_metatags_test.go
       - name: Generate API types
         working-directory: frontend
         run: |
           npm ci
           npm run generate:api
-      - name: Validate compile before commit
+      - name: Validate Go
+        run: go test ./internal/query ./internal/serve
+      - name: Validate frontend
+        working-directory: frontend
         run: |
-          go test ./internal/query ./internal/serve
-          cd frontend
           npm run test:unit
           npm run check
           npm run build
-      - name: Commit contract
+      - name: Commit validated implementation
         run: |
           git config user.name "chatgpt-codex-connector"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
