@@ -6,6 +6,7 @@
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import type { Snippet } from 'svelte';
   import { virtualGrid, virtualGridStartRow } from '$lib/state/ui';
+  import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -72,7 +73,7 @@
   let paneHeight = $state(900);
   let paneScrollY = $state(0);
   let gridTop = $state(0);
-  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex));
+  const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, $runtimeConfig.gridSize));
 
   function handleScroll() {
     const nextScrollY = mainHost?.scrollTop ?? 0;

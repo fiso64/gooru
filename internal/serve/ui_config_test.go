@@ -25,6 +25,36 @@ func TestConfigValidatesAccentColor(t *testing.T) {
 	}
 }
 
+func TestConfigValidatesGridSize(t *testing.T) {
+	cfg := DefaultConfig(t.TempDir() + "/gooru.db")
+	if cfg.UI.GridSize != DefaultGridSize {
+		t.Fatalf("default grid size = %d, want %d", cfg.UI.GridSize, DefaultGridSize)
+	}
+	cfg.UI.GridSize = 240
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid grid size rejected: %v", err)
+	}
+	cfg.UI.GridSize = MinGridSize - 1
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.grid_size") {
+		t.Fatalf("expected invalid grid size error, got %v", err)
+	}
+}
+
+func TestConfigLoadsGridSize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gooru.yaml")
+	if err := os.WriteFile(path, []byte("ui:\n  grid_size: 240\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UI.GridSize != 240 {
+		t.Fatalf("ui.grid_size = %d, want 240", cfg.UI.GridSize)
+	}
+}
+
 func TestConfigLoadsFullMediaDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gooru.yaml")
@@ -44,6 +74,7 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg := DefaultConfig(t.TempDir() + "/gooru.db")
 	cfg.UI.AccentColor = "#2f80ed"
 	cfg.Media.LoadFullByDefault = true
+	cfg.UI.GridSize = 240
 	server := NewServer(cfg)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/ui-config", nil)
@@ -56,5 +87,8 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"load_full_media_by_default":true`) {
 		t.Fatalf("response missing full-media preference: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"grid_size":240`) {
+		t.Fatalf("response missing grid size: %s", rec.Body.String())
 	}
 }
