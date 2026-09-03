@@ -23,6 +23,8 @@ jobs:
           cache: true
       - name: Integrate latest develop
         run: |
+          git config user.name "fiso64"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
           git fetch origin develop
           git merge --no-commit --no-ff origin/develop
           rm .github/workflows/maintainer-233-integrate.yml
@@ -33,8 +35,6 @@ jobs:
           go build ./...
       - name: Commit integrated tree
         run: |
-          git config user.name "fiso64"
-          git config user.email "64778819+fiso64@users.noreply.github.com"
           git add -A
           git commit -m "merge: integrate develop after #234 [maintainer-integrated]"
           git push origin HEAD:fix/233-job-failure-diagnostics
