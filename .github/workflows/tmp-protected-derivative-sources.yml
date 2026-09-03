@@ -1,0 +1,35 @@
+name: Validate protected derivative sources
+
+on:
+  push:
+    branches:
+      - "feat/28-protected-derivative-sources"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "feat/28-protected-derivative-sources"
+          fetch-depth: 0
+      - name: Apply patch
+        run: |
+          python3 .github/tmp-protected-derivative-patch.py
+          gofmt -w internal/serve/media.go internal/serve/media_thumbnailers.go internal/serve/media_source_encryption_test.go
+      - name: Test
+        run: |
+          go test ./internal/serve
+          go test ./...
+          go build ./...
+      - name: Commit
+        run: |
+          rm .github/tmp-protected-derivative-patch.py .github/workflows/tmp-protected-derivative-sources.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(encryption): stream protected media derivatives"
+          git push origin HEAD:feat/28-protected-derivative-sources
