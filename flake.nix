@@ -50,6 +50,7 @@
         let
           cfg = config.services.gooru;
           yaml = pkgs.formats.yaml { };
+          hostSystem = pkgs.stdenv.hostPlatform.system;
           effectiveSettings = lib.recursiveUpdate {
             server = {
               listen = "127.0.0.1:5678";
@@ -65,8 +66,8 @@
 
             package = lib.mkOption {
               type = lib.types.package;
-              default = self.packages.${pkgs.system}.default;
-              defaultText = lib.literalExpression "self.packages.${pkgs.system}.default";
+              default = self.packages.${hostSystem}.default;
+              defaultText = lib.literalExpression "self.packages.${pkgs.stdenv.hostPlatform.system}.default";
               description = "Gooru package to run.";
             };
 
