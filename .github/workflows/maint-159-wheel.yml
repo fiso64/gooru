@@ -46,8 +46,9 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('frontend/src/lib/components/ViewerStage.svelte')
-          text = path.read_text()
+
+          stage = Path('frontend/src/lib/components/ViewerStage.svelte')
+          text = stage.read_text()
           old_zoom = "const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.002)));"
           new_zoom = "const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.005)));"
           old_visual = "  :global(.viewer-stage .viewer-visual-media) {\n    object-fit: contain;\n    transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;\n  }"
@@ -56,7 +57,15 @@ jobs:
               raise SystemExit(f'zoom expression occurrences: {text.count(old_zoom)}')
           if text.count(old_visual) != 1:
               raise SystemExit(f'visual media block occurrences: {text.count(old_visual)}')
-          path.write_text(text.replace(old_zoom, new_zoom).replace(old_visual, new_visual))
+          stage.write_text(text.replace(old_zoom, new_zoom).replace(old_visual, new_visual))
+
+          viewer_css = Path('frontend/src/lib/styles/viewer.css')
+          css = viewer_css.read_text()
+          old_property = '  transition-property: transform, filter, opacity !important;'
+          new_property = '  transition-property: filter, opacity !important;'
+          if css.count(old_property) != 1:
+              raise SystemExit(f'forced transition occurrences: {css.count(old_property)}')
+          viewer_css.write_text(css.replace(old_property, new_property))
           PY
       - name: Check
         working-directory: frontend
@@ -78,6 +87,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/maint-159-wheel.yml
-          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-zoom-pan.spec.ts
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/src/lib/styles/viewer.css frontend/tests/viewer-zoom-pan.spec.ts
           git commit -m "fix(viewer): remove wheel transform latency"
           git push
