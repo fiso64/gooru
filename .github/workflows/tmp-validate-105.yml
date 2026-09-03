@@ -4,7 +4,7 @@ on:
     branches:
       - fix/105-comic-render-boundary
 jobs:
-  validate:
+  frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -26,3 +26,11 @@ jobs:
       - name: Run focused comic-font regression
         working-directory: frontend
         run: npx playwright test tests/font-style.spec.ts --project=chromium
+  nix-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: Build packaged application
+        run: nix build .#default --print-build-logs
