@@ -51,16 +51,31 @@ func TestDisabledGlobalRequestBodyLimitDoesNotCapBody(t *testing.T) {
 	}
 }
 
-func TestMetadataJSONRoutesRejectOversizedBodiesWithDefaultConfig(t *testing.T) {
+func TestBufferedMetadataRoutesRejectOversizedBodiesWithDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Enabled = false
 	server := NewServer(cfg)
-	payload := `{"username":"` + strings.Repeat("x", int(metadataRequestBodyLimit)) + `","password":"x"}`
+	payload := strings.Repeat("x", int(metadataRequestBodyLimit)+1)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(payload))
-	server.Handler().ServeHTTP(rec, req)
-
-	assertAPIError(t, rec, http.StatusRequestEntityTooLarge, "request_too_large")
+	for _, test := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/v1/auth/login"},
+		{http.MethodPost, "/api/v1/auth/change-password"},
+		{http.MethodPost, "/api/v1/files/tags"},
+		{http.MethodDelete, "/api/v1/files"},
+		{http.MethodDelete, "/api/v1/files/example"},
+		{http.MethodPost, "/api/v1/saved-searches"},
+		{http.MethodPut, "/api/v1/saved-searches/example"},
+	} {
+		t.Run(test.method+" "+test.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(test.method, test.path, strings.NewReader(payload))
+			server.Handler().ServeHTTP(rec, req)
+			assertAPIError(t, rec, http.StatusRequestEntityTooLarge, "request_too_large")
+		})
+	}
 }
 
 func TestConfiguredGlobalRequestBodyLimitRemainsOuterGuard(t *testing.T) {
