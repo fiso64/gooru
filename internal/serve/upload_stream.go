@@ -195,7 +195,7 @@ func (s *Server) streamUploadPart(target UploadTarget, originalName string, src 
 		return streamedUpload{}, uploadFileError{name: name, err: errors.New("failed to create upload staging file")}
 	}
 	path := dst.Name()
-	size, copyErr := copyUpload(dst, src, s.cfg.Uploads.MaxFileSizeBytes)
+	size, copyErr := s.persistUploadedFile(dst, src)
 	closeErr := dst.Close()
 	if copyErr != nil || closeErr != nil {
 		_ = os.Remove(path)

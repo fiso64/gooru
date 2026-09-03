@@ -297,7 +297,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			saved = append(saved, savedUpload{name: name, path: path, destinationPath: path, size: header.Size, targetID: target.ID, status: "skipped"})
 			continue
 		}
-		size, copyErr := copyUpload(dst, src, s.cfg.Uploads.MaxFileSizeBytes)
+		size, copyErr := s.persistUploadedFile(dst, src)
 		closeErr := dst.Close()
 		_ = src.Close()
 		if copyErr != nil || closeErr != nil {
@@ -584,7 +584,7 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		if analysisPath == "" {
 			analysisPath = file.Path
 		}
-		analysisSource, analysisSize, analysisModTime, err := openUploadAnalysisSource(analysisPath)
+		analysisSource, analysisSize, analysisModTime, err := l.openUploadAnalysisSource(analysisPath)
 		if err != nil {
 			dto.Status = "error"
 			dto.Error = err.Error()
@@ -678,7 +678,7 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 		}
 		mediaType := mediaTypeForPath(file.Path)
 		mediaKind := mediaKindForType(mediaType)
-		metadata, err := importedMediaMetadata(ctx, provider, file, analysisPaths[file.Path], mediaType, mediaKind)
+		metadata, err := l.importedMediaMetadata(ctx, provider, file, analysisPaths[file.Path], mediaType, mediaKind)
 		if err != nil {
 			continue
 		}

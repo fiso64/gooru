@@ -48,9 +48,10 @@ type FileCountLibrary interface {
 }
 
 type GooruLibrary struct {
-	client   *core.Client
-	verbose  bool
-	metadata MediaMetadataProvider
+	client     *core.Client
+	verbose    bool
+	metadata   MediaMetadataProvider
+	encryption EncryptionConfig
 }
 
 func NewGooruLibrary(client *core.Client, verbose bool) *GooruLibrary {
