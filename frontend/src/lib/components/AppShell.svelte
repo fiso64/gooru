@@ -6,6 +6,8 @@
   import SearchBar from './SearchBar.svelte';
   import type { Job } from '$lib/api/types';
 
+  type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
+
   let {
     username,
     route,
@@ -48,7 +50,7 @@
     comicActive: boolean;
     savedSearches: Array<{ id: string; name: string; query: string }>;
     suggestions: Array<{ name: string; count?: number }>;
-    tags: Array<{ name?: string; tag?: string; namespace?: string; value?: string; count?: number }>;
+    tags: TagLike[];
     search: string;
     onRoute: (route: string) => void;
     onKind: (kind: string) => void;
@@ -70,14 +72,32 @@
     { key: 'gif', label: 'GIFs', icon: 'gif' }
   ];
 
+  const commonTags = $derived(normalizeCommonTags(tags).slice(0, 20));
+
   function kindCount(kind: string) {
     return kindCounts.find((item: { value: string; count: number }) => item.value === kind)?.count ?? 0;
+  }
+
+  function normalizeCommonTags(items: TagLike[]) {
+    return items
+      .map((item) => ({
+        tag: item.name ?? item.tag ?? (item.namespace ? `${item.namespace}:${item.value ?? ''}` : (item.value ?? '')),
+        count: item.count ?? 0
+      }))
+      .filter((item) => item.tag)
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }
 
   function openLibrary() {
     if (route === 'library' && !activeKind) onSearchCommit('');
     onRoute('library');
     onKind('');
+  }
+
+  function openCommonTag(tag: string) {
+    onRoute('library');
+    onKind('');
+    onSearchCommit(tag);
   }
 
   function toggleComics() {
@@ -196,6 +216,19 @@
         <div class="sidebar-note">No saved searches yet</div>
       {/each}
     </div>
+
+    {#if commonTags.length}
+      <div class="sidebar-section common-tags-section">
+        <div class="sidebar-section-head">Common tags</div>
+        {#each commonTags as item}
+          <button class="sidebar-item" type="button" onclick={() => openCommonTag(item.tag)}>
+            <Icon name="tags" size={14} />
+            <span class="truncate">{item.tag}</span>
+            <span class="count">{item.count.toLocaleString()}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
 
     <div class="sidebar-section bottom">
       <button class:active={route === 'settings'} class="sidebar-item" type="button" onclick={() => onRoute('settings')}>
