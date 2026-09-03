@@ -71,6 +71,7 @@ async function wheelWithModifier(page: Page, key: 'Control' | 'Alt', deltaY: num
 test('touchpad-sized zoom and pan input applies immediately without transform easing', async ({ page }) => {
   const image = await mockViewer(page);
   const stage = page.locator('.viewer-stage');
+  const panViewport = page.locator('.viewer-pan-viewport');
   const stageBox = await stage.boundingBox();
   const before = await image.boundingBox();
   expect(stageBox).not.toBeNull();
@@ -83,7 +84,7 @@ test('touchpad-sized zoom and pan input applies immediately without transform ea
   await wheelWithModifier(page, 'Control', -24);
   const touchpadZoomed = await image.boundingBox();
   expect(touchpadZoomed).not.toBeNull();
-  expect(touchpadZoomed!.width).toBeGreaterThan(before!.width * 1.1);
+  expect(touchpadZoomed!.width).toBeGreaterThan(before!.width * 1.15);
 
   // Establish enough vertical overflow to exercise panning. The small pan delta below is
   // still touchpad-sized; without overflow the viewer correctly clamps it to zero.
@@ -93,6 +94,7 @@ test('touchpad-sized zoom and pan input applies immediately without transform ea
   expect(zoomedForPan!.height).toBeGreaterThan(stageBox!.height + 40);
 
   await page.mouse.wheel(0, 24);
+  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(15);
   const panned = await image.boundingBox();
   expect(panned).not.toBeNull();
   expect(panned!.y).toBeLessThan(zoomedForPan!.y - 15);
@@ -101,6 +103,7 @@ test('touchpad-sized zoom and pan input applies immediately without transform ea
 test('ctrl-wheel zooms toward the pointer and wheel/alt-wheel pan while zoomed', async ({ page }) => {
   const image = await mockViewer(page);
   const stage = page.locator('.viewer-stage');
+  const panViewport = page.locator('.viewer-pan-viewport');
   const stageBox = await stage.boundingBox();
   const before = await image.boundingBox();
   expect(stageBox).not.toBeNull();
@@ -120,12 +123,15 @@ test('ctrl-wheel zooms toward the pointer and wheel/alt-wheel pan while zoomed',
   expect(Math.abs((zoomed!.y + beforeV * zoomed!.height) - cursorY)).toBeLessThan(3);
 
   await page.mouse.wheel(0, 120);
-  await page.waitForTimeout(160);
+  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(80);
+  await page.waitForTimeout(40);
   const verticallyPanned = await image.boundingBox();
   expect(verticallyPanned!.y).toBeLessThan(zoomed!.y - 20);
 
+  const beforeHorizontalScroll = await panViewport.evaluate((node) => node.scrollLeft);
   await wheelWithModifier(page, 'Alt', 120);
-  await page.waitForTimeout(160);
+  await expect.poll(() => panViewport.evaluate((node) => node.scrollLeft)).toBeGreaterThan(beforeHorizontalScroll + 80);
+  await page.waitForTimeout(40);
   const horizontallyPanned = await image.boundingBox();
   expect(horizontallyPanned!.x).toBeLessThan(verticallyPanned!.x - 20);
 });
