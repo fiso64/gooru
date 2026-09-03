@@ -1,0 +1,88 @@
+name: Temporary encryption key_file full validation
+
+on:
+  push:
+    branches: [feat/28-encryption-key-file-config]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/28-encryption-key-file-config
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Clarify mutually exclusive configuration examples
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('docs/CONFIG.md')
+          text = p.read_text()
+          old = '''For example, generate a key once and store it in an owner-only file:
+
+```bash
+umask 077
+openssl rand -base64 32 > /srv/gooru/encryption.key
+export GOORU_ENCRYPTION_KEY_FILE=/srv/gooru/encryption.key
+go run ./cmd/gooru serve --config serve.yaml
+```
+
+with either the environment variable above, or directly with the key-file path in YAML:
+
+```yaml
+encryption:
+  enabled: true
+  key_file: /srv/gooru/encryption.key
+```
+'''
+          new = '''For example, generate a key once and store it in an owner-only file:
+
+```bash
+umask 077
+openssl rand -base64 32 > /srv/gooru/encryption.key
+```
+
+Then choose one configuration source. To use the environment-variable path source:
+
+```bash
+export GOORU_ENCRYPTION_KEY_FILE=/srv/gooru/encryption.key
+go run ./cmd/gooru serve --config serve.yaml
+```
+
+with:
+
+```yaml
+encryption:
+  enabled: true
+```
+
+Alternatively, do not set either encryption-key environment variable and put only the key-file path in YAML:
+
+```yaml
+encryption:
+  enabled: true
+  key_file: /srv/gooru/encryption.key
+```
+'''
+          assert old in text
+          p.write_text(text.replace(old, new, 1))
+          PY
+      - name: Run full Go suite
+        run: go test ./...
+      - name: Build all Go packages
+        run: go build ./...
+      - name: Commit validated refinement and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/tmp-28-full-validation.yml
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git add docs/CONFIG.md .github/workflows/tmp-28-full-validation.yml
+          git commit -m "docs(config): clarify encryption key source alternatives"
+          git push origin HEAD:feat/28-encryption-key-file-config
