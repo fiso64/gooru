@@ -35,6 +35,41 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	}
 }
 
+func TestLoadConfigEncryptionKeyFile(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "encryption.key")
+	if err := os.WriteFile(keyPath, []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"), 0600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, "encryption:\n  enabled: true\n  key_file: "+keyPath)
+
+	cfg, err := LoadConfig(path, filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatalf("LoadConfig with encryption.key_file failed: %v", err)
+	}
+	if cfg.Encryption.KeyFile != keyPath {
+		t.Fatalf("unexpected encryption key file %q", cfg.Encryption.KeyFile)
+	}
+	if len(cfg.Encryption.Key) != 32 {
+		t.Fatalf("expected resolved 32-byte key, got %d bytes", len(cfg.Encryption.Key))
+	}
+}
+
+func TestLoadConfigEncryptionKeyFileRejectsEnvironmentConflict(t *testing.T) {
+	t.Setenv("GOORU_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	keyPath := filepath.Join(t.TempDir(), "encryption.key")
+	if err := os.WriteFile(keyPath, []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"), 0600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, "encryption:\n  enabled: true\n  key_file: "+keyPath)
+
+	_, err := LoadConfig(path, filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "configure exactly one encryption key source") {
+		t.Fatalf("expected encryption key source conflict, got %v", err)
+	}
+}
+
 func TestLoadConfigRejectsTokenFromEnvironment(t *testing.T) {
 	t.Setenv("GOORU_TEST_TOKEN", " secret-token ")
 	path := filepath.Join(t.TempDir(), "serve.yaml")

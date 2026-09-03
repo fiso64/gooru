@@ -29,9 +29,10 @@ The default database path is normally `~/.config/gooru/gooru.db`. `gooru serve -
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `encryption.enabled` | `false` | Enable protected storage for the SQLite database, managed uploads, and generated media derivatives. Requires exactly one process encryption-key source described below. |
+| `encryption.enabled` | `false` | Enable protected storage for the SQLite database, managed uploads, and generated media derivatives. Requires exactly one encryption-key source described below. |
+| `encryption.key_file` | empty | Path to a regular file containing a base64-encoded 256-bit key. On non-Windows systems the file must not be readable or writable by group or others. Mutually exclusive with the environment key sources below. |
 
-The encryption key is intentionally **not** stored in YAML. When `encryption.enabled: true`, provide exactly one of these process environment variables:
+Encryption key **material** is never stored directly in YAML. When `encryption.enabled: true`, configure exactly one source: `encryption.key_file`, `GOORU_ENCRYPTION_KEY`, or `GOORU_ENCRYPTION_KEY_FILE`.
 
 | Environment variable | Value |
 | --- | --- |
@@ -43,6 +44,11 @@ For example, generate a key once and store it in an owner-only file:
 ```bash
 umask 077
 openssl rand -base64 32 > /srv/gooru/encryption.key
+```
+
+Then choose one configuration source. To use the environment-variable path source:
+
+```bash
 export GOORU_ENCRYPTION_KEY_FILE=/srv/gooru/encryption.key
 go run ./cmd/gooru serve --config serve.yaml
 ```
@@ -52,6 +58,23 @@ with:
 ```yaml
 encryption:
   enabled: true
+```
+
+Alternatively, do not set either encryption-key environment variable and put only the key-file path in YAML:
+
+```yaml
+encryption:
+  enabled: true
+  key_file: /srv/gooru/encryption.key
+```
+
+This also composes directly with declarative secret managers. For example, a NixOS module configuration using agenix can pass the generated secret path without copying key material into the Nix store:
+
+```nix
+services.gooru.settings.encryption = {
+  enabled = true;
+  key_file = config.age.secrets."gooru-encryption-key".path;
+};
 ```
 
 Keep the key backed up separately from the encrypted data. Starting protected mode without a valid key fails closed; using a different key cannot decrypt data encrypted with the original key.
@@ -162,6 +185,7 @@ database:
 
 encryption:
   enabled: false
+  key_file: ""
 
 auth:
   enabled: true
