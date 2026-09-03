@@ -409,12 +409,16 @@ func (m *JobManager) run(item queuedJob) {
 	if status == JobFailed {
 		level = slog.LevelWarn
 	}
-	slog.Log(context.Background(), level, "job finished",
+	attrs := []any{
 		"job_id", jobID,
 		"job_type", jobType,
 		"status", status,
 		"duration", finished.Sub(started),
-	)
+	}
+	if status == JobFailed {
+		attrs = append(attrs, jobFailureLogAttrs(err)...)
+	}
+	slog.Log(context.Background(), level, "job finished", attrs...)
 }
 
 func approximateResultBytes(value interface{}) int64 {
