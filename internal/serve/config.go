@@ -16,7 +16,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DefaultListenAddress = "127.0.0.1:5678"
+const (
+	DefaultListenAddress = "127.0.0.1:5678"
+	DefaultGridSize      = 180
+	MinGridSize          = 64
+	MaxGridSize          = 1024
+)
 
 type Config struct {
 	Server     ServerConfig     `yaml:"server"`
@@ -104,6 +109,7 @@ type LoggingConfig struct {
 type UIConfig struct {
 	AccentColor string `yaml:"accent_color"`
 	FontStyle   string `yaml:"font_style"`
+	GridSize    int    `yaml:"grid_size"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
@@ -160,7 +166,7 @@ func DefaultConfig(dbPath string) Config {
 		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
-		UI:      UIConfig{FontStyle: "editorial"},
+		UI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize},
 	}
 }
 
@@ -404,6 +410,9 @@ func (cfg *Config) Validate() error {
 	case "editorial", "modern", "comic":
 	default:
 		errs = append(errs, errors.New("ui.font_style must be one of: editorial, modern, comic"))
+	}
+	if cfg.UI.GridSize < MinGridSize || cfg.UI.GridSize > MaxGridSize {
+		errs = append(errs, fmt.Errorf("ui.grid_size must be between %d and %d pixels", MinGridSize, MaxGridSize))
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"

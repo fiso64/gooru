@@ -1,4 +1,5 @@
 import type { FileItem } from '$lib/api/types';
+import { defaultGridSize } from '$lib/stores/runtimeConfig';
 
 export interface VirtualGrid {
   files: FileItem[];
@@ -12,16 +13,15 @@ export interface VirtualGrid {
 
 const gridPadding = 16 * 2;
 const gridGap = 5;
-const minCardWidth = 180;
 const overscanRows = 4;
 const virtualWindowStrideRows = 3;
 
-export function gridColumns(containerWidth: number) {
+export function gridColumns(containerWidth: number, minCardWidth = defaultGridSize) {
   const innerWidth = Math.max(0, containerWidth - gridPadding);
   return Math.max(1, Math.floor((innerWidth + gridGap) / (minCardWidth + gridGap)));
 }
 
-export function gridRowHeight(containerWidth: number, columns = gridColumns(containerWidth)) {
+export function gridRowHeight(containerWidth: number, minCardWidth = defaultGridSize, columns = gridColumns(containerWidth, minCardWidth)) {
   const innerWidth = Math.max(0, containerWidth - gridPadding);
   const cardWidth = columns > 0 ? (innerWidth - gridGap * (columns - 1)) / columns : minCardWidth;
   return Math.max(minCardWidth, cardWidth) + gridGap;
@@ -41,10 +41,11 @@ export function virtualGrid(
   scrollY: number,
   gridTop: number,
   totalItems = files.length,
-  retainedStartIndex = 0
+  retainedStartIndex = 0,
+  minCardWidth = defaultGridSize
 ): VirtualGrid {
-  const columns = gridColumns(containerWidth);
-  const rowHeight = gridRowHeight(containerWidth, columns);
+  const columns = gridColumns(containerWidth, minCardWidth);
+  const rowHeight = gridRowHeight(containerWidth, minCardWidth, columns);
   const totalRows = Math.ceil(Math.max(totalItems, retainedStartIndex + files.length) / columns);
   const startRow = virtualGridStartRow(scrollY, gridTop, rowHeight);
   // Keep enough trailing rows for the window to stay mounted while its

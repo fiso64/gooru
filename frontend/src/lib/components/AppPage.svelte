@@ -5,12 +5,12 @@
   import SessionLoading from './SessionLoading.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
 
   type FontStyle = 'editorial' | 'modern' | 'comic';
-  type UIConfig = { accent_color?: string; font_style?: FontStyle; load_full_media_by_default?: boolean };
+  type UIConfig = { accent_color?: string; font_style?: FontStyle; load_full_media_by_default?: boolean; grid_size?: number };
 
   let loginUsername = $state('');
   let loginPassword = $state('');
@@ -18,12 +18,14 @@
   let loginError = $state('');
   let runtimeAccent = $state<AccentTheme | null>(null);
   let runtimeFontStyle = $state<FontStyle>('editorial');
+  let runtimeGridSize = $state(defaultGridSize);
   let faviconHref = $state('/favicon.svg');
 
   async function applyRuntimeConfig(config: UIConfig) {
     runtimeAccent = accentTheme(config.accent_color ?? '');
     runtimeFontStyle = config.font_style ?? 'editorial';
-    runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
+    runtimeGridSize = config.grid_size ?? defaultGridSize;
+    runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false, gridSize: runtimeGridSize });
     faviconHref = '/favicon.svg';
     if (!runtimeAccent) return;
 
@@ -87,7 +89,7 @@
 
 <div
   class={`gooru-root gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
-  style={runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : undefined}
+  style={`--grid-cell:${runtimeGridSize}px;${runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
 >
   {#if !$authState.checked}
     <SessionLoading />
