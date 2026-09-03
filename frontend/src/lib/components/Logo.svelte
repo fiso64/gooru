@@ -66,7 +66,7 @@
   .gooru-logo-comic-letter {
     fill: var(--text);
     font-family: var(--font-display);
-    font-size: 226px;
+    font-size: 280px;
     font-weight: var(--font-display-weight);
   }
 
