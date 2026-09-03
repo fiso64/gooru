@@ -1,0 +1,221 @@
+name: Temporary encryption key_file implementation
+
+on:
+  push:
+    branches: [feat/28-encryption-key-file-config]
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/28-encryption-key-file-config
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Apply implementation and regression coverage
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          config = Path('internal/serve/config.go')
+          text = config.read_text()
+          old = '''type EncryptionConfig struct {
+          \tEnabled bool   `yaml:"enabled"`
+          \tKey     []byte `yaml:"-"`
+          }
+          '''
+          new = '''type EncryptionConfig struct {
+          \tEnabled bool   `yaml:"enabled"`
+          \tKeyFile string `yaml:"key_file"`
+          \tKey     []byte `yaml:"-"`
+          }
+          '''
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = '''func (cfg *Config) ResolveSecrets() error {
+          \tif !cfg.Encryption.Enabled {
+          \t\tcfg.Encryption.Key = nil
+          \t\treturn nil
+          \t}
+          \tkey, configured, err := securekey.LoadProcess()
+          \tif err != nil {
+          \t\treturn fmt.Errorf("resolve encryption key: %w", err)
+          \t}
+          \tif !configured {
+          \t\treturn fmt.Errorf("encryption.enabled requires an encryption key via %s or %s", securekey.EnvKey, securekey.EnvKeyFile)
+          \t}
+          \tcfg.Encryption.Key = key
+          \treturn nil
+          }
+          '''
+          new = '''func (cfg *Config) ResolveSecrets() error {
+          \tcfg.Encryption.KeyFile = strings.TrimSpace(cfg.Encryption.KeyFile)
+          \tif !cfg.Encryption.Enabled {
+          \t\tcfg.Encryption.Key = nil
+          \t\treturn nil
+          \t}
+
+          \tif cfg.Encryption.KeyFile != "" {
+          \t\t_, hasEnvKey := os.LookupEnv(securekey.EnvKey)
+          \t\thasEnvKeyFile := strings.TrimSpace(os.Getenv(securekey.EnvKeyFile)) != ""
+          \t\tif hasEnvKey || hasEnvKeyFile {
+          \t\t\treturn fmt.Errorf("resolve encryption key: configure exactly one encryption key source: encryption.key_file, %s, or %s", securekey.EnvKey, securekey.EnvKeyFile)
+          \t\t}
+          \t\tkey, err := securekey.Load(securekey.Source{File: cfg.Encryption.KeyFile})
+          \t\tif err != nil {
+          \t\t\treturn fmt.Errorf("resolve encryption key: %w", err)
+          \t\t}
+          \t\tcfg.Encryption.Key = key
+          \t\treturn nil
+          \t}
+
+          \tkey, configured, err := securekey.LoadProcess()
+          \tif err != nil {
+          \t\treturn fmt.Errorf("resolve encryption key: %w", err)
+          \t}
+          \tif !configured {
+          \t\treturn fmt.Errorf("encryption.enabled requires an encryption key via encryption.key_file, %s, or %s", securekey.EnvKey, securekey.EnvKeyFile)
+          \t}
+          \tcfg.Encryption.Key = key
+          \treturn nil
+          }
+          '''
+          assert old in text
+          config.write_text(text.replace(old, new, 1))
+
+          tests = Path('internal/serve/config_test.go')
+          text = tests.read_text()
+          marker = '''func TestLoadConfigRejectsTokenFromEnvironment(t *testing.T) {'''
+          addition = r'''func TestLoadConfigEncryptionKeyFile(t *testing.T) {
+          	keyPath := filepath.Join(t.TempDir(), "encryption.key")
+          	if err := os.WriteFile(keyPath, []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"), 0600); err != nil {
+          		t.Fatalf("write encryption key: %v", err)
+          	}
+          	path := filepath.Join(t.TempDir(), "serve.yaml")
+          	writeConfig(t, path, "encryption:\n  enabled: true\n  key_file: "+keyPath)
+
+          	cfg, err := LoadConfig(path, filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
+          	if err != nil {
+          		t.Fatalf("LoadConfig with encryption.key_file failed: %v", err)
+          	}
+          	if cfg.Encryption.KeyFile != keyPath {
+          		t.Fatalf("unexpected encryption key file %q", cfg.Encryption.KeyFile)
+          	}
+          	if len(cfg.Encryption.Key) != 32 {
+          		t.Fatalf("expected resolved 32-byte key, got %d bytes", len(cfg.Encryption.Key))
+          	}
+          }
+
+          func TestLoadConfigEncryptionKeyFileRejectsEnvironmentConflict(t *testing.T) {
+          	t.Setenv("GOORU_ENCRYPTION_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+          	keyPath := filepath.Join(t.TempDir(), "encryption.key")
+          	if err := os.WriteFile(keyPath, []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"), 0600); err != nil {
+          		t.Fatalf("write encryption key: %v", err)
+          	}
+          	path := filepath.Join(t.TempDir(), "serve.yaml")
+          	writeConfig(t, path, "encryption:\n  enabled: true\n  key_file: "+keyPath)
+
+          	_, err := LoadConfig(path, filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
+          	if err == nil || !strings.Contains(err.Error(), "configure exactly one encryption key source") {
+          		t.Fatalf("expected encryption key source conflict, got %v", err)
+          	}
+          }
+
+          '''
+          assert marker in text
+          tests.write_text(text.replace(marker, addition + marker, 1))
+
+          docs_test = Path('internal/serve/config_docs_test.go')
+          text = docs_test.read_text()
+          old = '''\t\t"`encryption.enabled`",
+          \t\tsecurekey.EnvKey,
+          '''
+          new = '''\t\t"`encryption.enabled`",
+          \t\t"`encryption.key_file`",
+          \t\tsecurekey.EnvKey,
+          '''
+          assert old in text
+          docs_test.write_text(text.replace(old, new, 1))
+
+          docs = Path('docs/CONFIG.md')
+          text = docs.read_text()
+          old = '''| `encryption.enabled` | `false` | Enable protected storage for the SQLite database, managed uploads, and generated media derivatives. Requires exactly one process encryption-key source described below. |
+
+          The encryption key is intentionally **not** stored in YAML. When `encryption.enabled: true`, provide exactly one of these process environment variables:
+
+          | Environment variable | Value |
+          | --- | --- |
+          | `GOORU_ENCRYPTION_KEY` | Base64 encoding of exactly 32 random bytes (256 bits). |
+          | `GOORU_ENCRYPTION_KEY_FILE` | Path to a regular file containing that same base64-encoded 32-byte key. On non-Windows systems the file must not be readable or writable by group or others. |
+          '''
+          new = '''| `encryption.enabled` | `false` | Enable protected storage for the SQLite database, managed uploads, and generated media derivatives. Requires exactly one encryption-key source described below. |
+          | `encryption.key_file` | empty | Path to a regular file containing a base64-encoded 256-bit key. On non-Windows systems the file must not be readable or writable by group or others. Mutually exclusive with the environment key sources below. |
+
+          Encryption key **material** is never stored directly in YAML. When `encryption.enabled: true`, configure exactly one source: `encryption.key_file`, `GOORU_ENCRYPTION_KEY`, or `GOORU_ENCRYPTION_KEY_FILE`.
+
+          | Environment variable | Value |
+          | --- | --- |
+          | `GOORU_ENCRYPTION_KEY` | Base64 encoding of exactly 32 random bytes (256 bits). |
+          | `GOORU_ENCRYPTION_KEY_FILE` | Path to a regular file containing that same base64-encoded 32-byte key. On non-Windows systems the file must not be readable or writable by group or others. |
+          '''
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = '''with:
+
+          ```yaml
+          encryption:
+            enabled: true
+          ```
+
+          Keep the key backed up separately from the encrypted data.'''
+          new = '''with either the environment variable above, or directly with the key-file path in YAML:
+
+          ```yaml
+          encryption:
+            enabled: true
+            key_file: /srv/gooru/encryption.key
+          ```
+
+          This also composes directly with declarative secret managers. For example, a NixOS module configuration using agenix can pass the generated secret path without copying key material into the Nix store:
+
+          ```nix
+          services.gooru.settings.encryption = {
+            enabled = true;
+            key_file = config.age.secrets."gooru-encryption-key".path;
+          };
+          ```
+
+          Keep the key backed up separately from the encrypted data.'''
+          assert old in text
+          text = text.replace(old, new, 1)
+
+          old = '''encryption:
+            enabled: false
+          '''
+          new = '''encryption:
+            enabled: false
+            key_file: ""
+          '''
+          assert old in text
+          docs.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/serve/config.go internal/serve/config_test.go internal/serve/config_docs_test.go
+      - name: Validate focused packages
+        run: go test ./internal/serve ./internal/securekey ./cmd/gooru/cmd
+      - name: Commit validated change and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/tmp-28-encryption-key-file.yml
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git add internal/serve/config.go internal/serve/config_test.go internal/serve/config_docs_test.go docs/CONFIG.md .github/workflows/tmp-28-encryption-key-file.yml
+          git commit -m "feat(config): support encryption key_file"
+          git push origin HEAD:feat/28-encryption-key-file-config
