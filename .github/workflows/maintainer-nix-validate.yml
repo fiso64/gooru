@@ -1,0 +1,15 @@
+name: maintainer-nix-validate
+
+on:
+  push:
+    branches:
+      - feat/31-nixos
+
+jobs:
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v19
+      - name: Check flake
+        run: nix flake check --no-write-lock-file --print-build-logs
