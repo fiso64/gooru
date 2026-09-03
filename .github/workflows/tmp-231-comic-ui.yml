@@ -27,3 +27,5 @@ jobs:
       - run: npm run test:unit
       - run: npm run build
       - run: npx playwright test tests/comic-ui.spec.ts tests/viewer-shortcuts.spec.ts --project=chromium
+
+# Temporary branch-local validation; remove after the focused run completes.
