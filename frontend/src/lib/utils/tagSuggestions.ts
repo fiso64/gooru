@@ -1,4 +1,4 @@
-import { compareCompletionRank } from './completionRanking';
+import { rankCompletionCandidates } from './completionRanking';
 
 export type TagCandidate = {
   name?: string;
@@ -57,26 +57,26 @@ export function plainTagSuggestions(
   const namespace = colon >= 0 ? query.slice(0, colon) : '';
   const value = colon >= 0 ? query.slice(colon + 1) : query;
 
-  const tags = [...seenTags.values()]
-    .filter(({ name }) => {
-      const lower = name.toLowerCase();
-      const nameColon = lower.indexOf(':');
-      if (colon >= 0) {
-        if (nameColon < 0 || lower.slice(0, nameColon) !== namespace) return false;
-        return !value || lower.slice(nameColon + 1).includes(value);
-      }
-      const candidateValue = nameColon >= 0 ? lower.slice(nameColon + 1) : lower;
-      return lower.includes(query) || candidateValue.includes(query);
-    })
-    .sort((a, b) => compareCompletionRank(a.name, b.name, value, a.count, b.count));
+  const tags = [...seenTags.values()].filter(({ name }) => {
+    const lower = name.toLowerCase();
+    const nameColon = lower.indexOf(':');
+    if (colon >= 0) {
+      if (nameColon < 0 || lower.slice(0, nameColon) !== namespace) return false;
+      return !value || lower.slice(nameColon + 1).includes(value);
+    }
+    const candidateValue = nameColon >= 0 ? lower.slice(nameColon + 1) : lower;
+    return lower.includes(query) || candidateValue.includes(query);
+  });
 
-  const namespaces = colon >= 0
-    ? []
-    : [...seenNamespaces.values()]
-        .filter(({ name }) => name.toLowerCase().includes(query))
-        .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  if (colon >= 0) {
+    return rankCompletionCandidates(tags, value).slice(0, limit);
+  }
 
-  return [...namespaces, ...tags].slice(0, limit);
+  const namespaces = [...seenNamespaces.values()].filter(({ name }) => name.toLowerCase().includes(query));
+
+  // Rank all visible completion kinds together. Category-specific pre-sorting or
+  // prepending lets surfaces drift even when they share the same comparator.
+  return rankCompletionCandidates([...namespaces, ...tags], query).slice(0, limit);
 }
 
 export function isPlainTag(value: string): boolean {
