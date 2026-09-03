@@ -115,8 +115,8 @@ textarea {
 }
 
 .gooru-root.gooru-type-comic {
-  --font-display: 'Comic Sans MS', 'Comic Sans', 'Comic Neue', cursive;
-  --font-ui: 'Comic Sans MS', 'Comic Sans', 'Comic Neue', cursive;
+  --font-display: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
+  --font-ui: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
 }
 
 .gooru-root .login-v2-spirals path {

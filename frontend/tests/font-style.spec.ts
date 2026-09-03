@@ -10,7 +10,7 @@ async function mockLoggedOutSession(page: import('@playwright/test').Page) {
   });
 }
 
-test('comic font preset reaches the rendered shell and logo', async ({ page }) => {
+test('comic font preset loads and renders the bundled comic face', async ({ page }) => {
   await mockLoggedOutSession(page);
   await page.route('**/api/v1/ui-config', async (route) => {
     await route.fulfill({
@@ -24,8 +24,20 @@ test('comic font preset reaches the rendered shell and logo', async ({ page }) =
   const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-type-comic/);
   await expect(page.getByLabel('Username')).toBeVisible();
-  const fontFamily = await root.evaluate((element) => getComputedStyle(element).fontFamily);
-  expect(fontFamily).toContain('Comic Sans');
+  const typography = await root.evaluate(async (element) => {
+    const faces = await document.fonts.load('14px "Comic Neue"', 'gooru');
+    const style = getComputedStyle(element);
+    return {
+      loadedFaces: faces.length,
+      family: style.fontFamily,
+      display: style.getPropertyValue('--font-display'),
+      ui: style.getPropertyValue('--font-ui')
+    };
+  });
+  expect(typography.loadedFaces).toBeGreaterThan(0);
+  expect(typography.family).toContain('Comic Neue');
+  expect(typography.display).toContain('Comic Neue');
+  expect(typography.ui).toContain('Comic Neue');
   await expect(page.locator('.gooru-logo-comic')).toBeVisible();
   await expect(page.locator('.gooru-logo img')).toBeHidden();
 });

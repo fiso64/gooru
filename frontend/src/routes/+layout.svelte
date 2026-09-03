@@ -1,4 +1,6 @@
 <script lang="ts">
+  import '@fontsource/comic-neue/400.css';
+  import '@fontsource/comic-neue/700.css';
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import { onMount } from 'svelte';
   import { setUnauthorizedHandler } from '$lib/api/client';
