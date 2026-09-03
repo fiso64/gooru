@@ -35,31 +35,39 @@ func (cfg Config) validateUploadTargetProtection(target UploadTarget) error {
 		if candidatePath == "" {
 			continue
 		}
-		if pathsOverlapForConfig(targetPath, candidatePath) {
+		overlaps, err := pathsOverlapForConfig(targetPath, candidatePath)
+		if err != nil {
+			return fmt.Errorf("uploads target %q cannot be safely compared with protected %s path: %w", target.ID, candidate.name, err)
+		}
+		if overlaps {
 			return fmt.Errorf("uploads target %q path overlaps protected %s path", target.ID, candidate.name)
 		}
 	}
 	return nil
 }
 
-func pathsOverlapForConfig(left, right string) bool {
-	leftAbs, err := filepath.Abs(strings.TrimSpace(left))
+func pathsOverlapForConfig(left, right string) (bool, error) {
+	leftResolved, err := resolvedConfigContainmentPath(left)
 	if err != nil {
-		return false
+		return false, err
 	}
-	rightAbs, err := filepath.Abs(strings.TrimSpace(right))
+	rightResolved, err := resolvedConfigContainmentPath(right)
 	if err != nil {
-		return false
+		return false, err
 	}
-	leftResolved, ok := resolvedContainmentPath(leftAbs)
+	return pathContainsOrEquals(leftResolved, rightResolved) || pathContainsOrEquals(rightResolved, leftResolved), nil
+}
+
+func resolvedConfigContainmentPath(path string) (string, error) {
+	absolute, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return "", fmt.Errorf("make path absolute: %w", err)
+	}
+	resolved, ok := resolvedContainmentPath(absolute)
 	if !ok {
-		return false
+		return "", fmt.Errorf("cannot safely resolve filesystem path")
 	}
-	rightResolved, ok := resolvedContainmentPath(rightAbs)
-	if !ok {
-		return false
-	}
-	return pathContainsOrEquals(leftResolved, rightResolved) || pathContainsOrEquals(rightResolved, leftResolved)
+	return resolved, nil
 }
 
 func pathContainsOrEquals(root, path string) bool {
