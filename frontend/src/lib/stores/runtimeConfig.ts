@@ -1,9 +1,13 @@
 import { writable } from 'svelte/store';
 
+export const defaultGridSize = 180;
+
 export type RuntimeConfig = {
   loadFullMediaByDefault: boolean;
+  gridSize: number;
 };
 
 export const runtimeConfig = writable<RuntimeConfig>({
-  loadFullMediaByDefault: false
+  loadFullMediaByDefault: false,
+  gridSize: defaultGridSize
 });
