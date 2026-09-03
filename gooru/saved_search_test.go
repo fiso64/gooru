@@ -1,0 +1,83 @@
+package gooru
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"gooru.local/types"
+)
+
+func TestSavedSearchForUsernamePersistsAndExecutesQuery(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+
+	if _, err := client.store.Exec(`INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)`, "usr_test", "Alice", "unused-test-hash", "admin"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	catPath := filepath.Join(dir, "cat.jpg")
+	dogPath := filepath.Join(dir, "dog.jpg")
+	if err := os.WriteFile(catPath, []byte("cat bytes"), 0600); err != nil {
+		t.Fatalf("write cat: %v", err)
+	}
+	if err := os.WriteFile(dogPath, []byte("dog bytes"), 0600); err != nil {
+		t.Fatalf("write dog: %v", err)
+	}
+	if _, err := client.TagFiles([]string{catPath}, []string{"animal:cat"}, nil, false); err != nil {
+		t.Fatalf("tag cat: %v", err)
+	}
+	if _, err := client.TagFiles([]string{dogPath}, []string{"animal:dog"}, nil, false); err != nil {
+		t.Fatalf("tag dog: %v", err)
+	}
+
+	created, err := client.CreateSavedSearchForUsername("alice", "Cats", "animal:cat", "name", "asc")
+	if err != nil {
+		t.Fatalf("create saved search: %v", err)
+	}
+	if created.UserID != "usr_test" || created.Query != "animal:cat" || created.Sort != "name" || created.Order != "asc" {
+		t.Fatalf("unexpected saved search: %+v", created)
+	}
+
+	files, err := client.SearchSavedSearchForUsername("ALICE", "cats", false)
+	if err != nil {
+		t.Fatalf("execute saved search: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != catPath {
+		t.Fatalf("expected only %q, got %+v", catPath, files)
+	}
+}
+
+func TestCreateSavedSearchNormalizesSortAndRejectsInvalidQuery(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := Init(dbPath, types.StrategyPartial, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+	if _, err := client.store.Exec(`INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)`, "usr_test", "alice", "unused-test-hash", "admin"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	item, err := client.CreateSavedSearchForUsername("alice", "Everything", "", "nonsense", "nonsense")
+	if err != nil {
+		t.Fatalf("create normalized search: %v", err)
+	}
+	if item.Sort != "name" || item.Order != "asc" {
+		t.Fatalf("expected normalized name/asc, got %s/%s", item.Sort, item.Order)
+	}
+	if _, err := client.CreateSavedSearchForUsername("alice", "Broken", "(", "name", "asc"); err == nil {
+		t.Fatal("expected invalid query to be rejected")
+	}
+}
