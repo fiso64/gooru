@@ -8,7 +8,8 @@
   aria-label="gooru"
   style={`height: ${size}px; --gooru-logo-size: ${size}px;`}
 >
-  <img src="/gooru-logo.svg" alt="" aria-hidden="true" />
+  <img class="gooru-logo-default" src="/gooru-logo.svg" alt="" aria-hidden="true" />
+  <img class="gooru-logo-comic" src="/gooru-logo-comic.svg" alt="" aria-hidden="true" />
   <svg class="gooru-logo-accent" viewBox="7.57 -187.22 944.03 247.49" aria-hidden="true">
     <defs>
       <mask id="gooru-logo-spiral-mask" style="mask-type: alpha;">
@@ -25,7 +26,6 @@
       mask="url(#gooru-logo-spiral-mask)"
     />
   </svg>
-  <span class="gooru-logo-comic" aria-hidden="true">gooru</span>
 </span>
 
 <style>
@@ -40,37 +40,33 @@
   .gooru-logo-accent {
     position: absolute;
     inset: 0;
-    display: block;
     width: 100%;
     height: 100%;
+  }
+
+  .gooru-logo-default,
+  .gooru-logo-accent {
+    display: block;
   }
 
   .gooru-logo img {
     object-fit: contain;
   }
 
-  .gooru-logo-accent-fill {
-    fill: var(--accent);
-  }
-
   .gooru-logo-comic {
     display: none;
   }
 
-  :global(.gooru-type-comic) .gooru-logo img,
+  .gooru-logo-accent-fill {
+    fill: var(--accent);
+  }
+
+  :global(.gooru-type-comic) .gooru-logo-default,
   :global(.gooru-type-comic) .gooru-logo-accent {
     display: none;
   }
 
   :global(.gooru-type-comic) .gooru-logo-comic {
-    display: flex;
-    height: 100%;
-    align-items: center;
-    color: var(--text);
-    font-family: var(--font-display);
-    font-size: calc(var(--gooru-logo-size) * 0.92);
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: -0.04em;
+    display: block;
   }
 </style>

@@ -1,0 +1,5 @@
+.library-head h1,
+.page-header h1,
+.empty-state h2 {
+  font-weight: var(--font-display-weight);
+}

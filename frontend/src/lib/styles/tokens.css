@@ -74,6 +74,7 @@ textarea {
 
 .gooru-root {
   --font-display: 'Instrument Serif', Georgia, serif;
+  --font-display-weight: 400;
   --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   --bg: oklch(0.155 0.005 70);
@@ -112,10 +113,12 @@ textarea {
 
 .gooru-root.gooru-type-modern {
   --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-display-weight: 600;
 }
 
 .gooru-root.gooru-type-comic {
   --font-display: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
+  --font-display-weight: 700;
   --font-ui: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
 }
 
