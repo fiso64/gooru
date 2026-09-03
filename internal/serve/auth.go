@@ -1,8 +1,10 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -154,6 +156,9 @@ func authHTTPStatus(err error) (int, string) {
 }
 
 func requestSizeMiddleware(limit int64, next http.Handler) http.Handler {
+	if limit <= 0 {
+		return next
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Uploads have their own per-file limit and stream large bodies to disk.
 		// Applying the generic API-body cap here makes large media impossible
@@ -161,6 +166,33 @@ func requestSizeMiddleware(limit int64, next http.Handler) http.Handler {
 		if r.URL.Path != "/api/v1/uploads" {
 			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func requestBodyLimitMiddleware(limit int64, next http.Handler) http.Handler {
+	if limit <= 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isMutatingMethod(r.Method) || r.Body == nil || r.Body == http.NoBody {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		body := http.MaxBytesReader(w, r.Body, limit)
+		data, err := io.ReadAll(body)
+		_ = r.Body.Close()
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				writeError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body is too large", nil)
+				return
+			}
+			writeError(w, http.StatusBadRequest, "invalid_request", "failed to read request body", nil)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(data))
 		next.ServeHTTP(w, r)
 	})
 }

@@ -130,7 +130,7 @@ func DefaultConfig(dbPath string) Config {
 		Server: ServerConfig{
 			Listen:              DefaultListenAddress,
 			FrontendDir:         "frontend/build",
-			MaxRequestBodyBytes: 32 << 20,
+			MaxRequestBodyBytes: 0,
 			ReadTimeout:         15 * time.Second,
 			WriteTimeout:        30 * time.Second,
 			IdleTimeout:         2 * time.Minute,
@@ -260,8 +260,8 @@ func (cfg *Config) Validate() error {
 	if cfg.Encryption.Enabled && len(cfg.Encryption.Key) != securekey.Size {
 		errs = append(errs, errors.New("encryption.enabled requires a resolved 256-bit encryption key"))
 	}
-	if cfg.Server.MaxRequestBodyBytes <= 0 {
-		errs = append(errs, errors.New("server.max_request_body_bytes must be greater than zero"))
+	if cfg.Server.MaxRequestBodyBytes < 0 {
+		errs = append(errs, errors.New("server.max_request_body_bytes must be zero or greater"))
 	}
 	if cfg.Media.CacheDir != "" {
 		if !filepath.IsAbs(cfg.Media.CacheDir) {
