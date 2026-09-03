@@ -68,17 +68,18 @@ async function mockApp(page: Page) {
   const video = page.locator('video.viewer-visual-media');
   await expect(video).toBeVisible();
   await video.evaluate((node) => {
+    const media = node as HTMLVideoElement;
     const state = { time: 30, paused: true };
-    Object.defineProperty(node, 'duration', { configurable: true, get: () => 120 });
-    Object.defineProperty(node, 'currentTime', {
+    Object.defineProperty(media, 'duration', { configurable: true, get: () => 120 });
+    Object.defineProperty(media, 'currentTime', {
       configurable: true,
       get: () => state.time,
       set: (value) => { state.time = value; }
     });
-    Object.defineProperty(node, 'paused', { configurable: true, get: () => state.paused });
-    node.play = async () => { state.paused = false; node.dispatchEvent(new Event('play')); };
-    node.pause = () => { state.paused = true; node.dispatchEvent(new Event('pause')); };
-    node.dispatchEvent(new Event('loadedmetadata'));
+    Object.defineProperty(media, 'paused', { configurable: true, get: () => state.paused });
+    media.play = async () => { state.paused = false; media.dispatchEvent(new Event('play')); };
+    media.pause = () => { state.paused = true; media.dispatchEvent(new Event('pause')); };
+    media.dispatchEvent(new Event('loadedmetadata'));
   });
   return video;
 }
@@ -95,11 +96,11 @@ test('keyboard playback shortcuts stay chrome-free and pointer proximity reveals
 
   await stage.focus();
   await page.keyboard.press('Shift+ArrowRight');
-  await expect.poll(() => video.evaluate((node) => node.currentTime)).toBe(35);
+  await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBe(35);
   await expect.poll(() => controlsOpacity(page)).toBe(0);
 
   await page.keyboard.press('Space');
-  await expect.poll(() => video.evaluate((node) => node.paused)).toBe(false);
+  await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).paused)).toBe(false);
   await expect.poll(() => controlsOpacity(page)).toBe(0);
 
   const box = await stage.boundingBox();
@@ -120,9 +121,9 @@ test('seekbar drags live and clamps outside both ends', async ({ page }) => {
   await page.mouse.move(box!.x + box!.width * 0.25, box!.y + box!.height / 2);
   await page.mouse.down();
   await page.mouse.move(box!.x + box!.width + 80, box!.y + box!.height / 2, { steps: 4 });
-  await expect.poll(() => video.evaluate((node) => node.currentTime)).toBe(120);
+  await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBe(120);
   await page.mouse.move(box!.x - 80, box!.y + box!.height / 2, { steps: 4 });
-  await expect.poll(() => video.evaluate((node) => node.currentTime)).toBe(0);
+  await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBe(0);
   await page.mouse.up();
 });
 
