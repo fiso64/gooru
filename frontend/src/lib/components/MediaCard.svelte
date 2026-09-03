@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
@@ -7,21 +6,21 @@
 
   let {
     file,
+    cardWidth,
+    pixelRatio,
     selected,
     selectionActive,
     onOpen,
     onToggleSelect
   } = $props<{
     file: FileItem;
+    cardWidth: number;
+    pixelRatio: number;
     selected: boolean;
     selectionActive: boolean;
     onOpen: (file: FileItem) => void;
     onToggleSelect: (file: FileItem, range: boolean) => void;
   }>();
-
-  let cardElement = $state<HTMLElement | undefined>();
-  let cardWidth = $state(0);
-  let pixelRatio = $state(1);
 
   const extensionLabel = $derived(fileExtension(file.name));
   const mediaWidth = $derived(file.metadata.image_width ?? file.metadata.video_width ?? 0);
@@ -44,8 +43,6 @@
 
   function thumbnailURL(base: string, sizes: number[], cssWidth: number, dpr: number, mediaWidth: number, mediaHeight: number) {
     if (!sizes.length) return base;
-    const sorted = [...sizes].filter((size) => Number.isFinite(size) && size > 0).sort((a, b) => a - b);
-    if (!sorted.length) return base;
 
     // Thumbnail sizes cap the derivative's longest source edge, while cards are
     // square and use object-fit: cover. A non-square derivative must therefore
@@ -54,22 +51,10 @@
     const validDimensions = mediaWidth > 0 && mediaHeight > 0 && Number.isFinite(mediaWidth) && Number.isFinite(mediaHeight);
     const aspectScale = validDimensions ? Math.max(mediaWidth, mediaHeight) / Math.min(mediaWidth, mediaHeight) : 1;
     const requiredMaxEdge = requiredShortEdge * aspectScale;
-    const selectedSize = sorted.find((size) => size >= requiredMaxEdge) ?? sorted[sorted.length - 1];
+    const selectedSize = sizes.find((size) => size >= requiredMaxEdge) ?? sizes[sizes.length - 1];
     const separator = base.includes('?') ? '&' : '?';
     return `${base}${separator}size=${selectedSize}`;
   }
-
-  onMount(() => {
-    pixelRatio = Math.max(1, window.devicePixelRatio || 1);
-    if (!cardElement) return;
-    const updateWidth = () => {
-      cardWidth = cardElement?.getBoundingClientRect().width ?? 0;
-    };
-    updateWidth();
-    const observer = new ResizeObserver(updateWidth);
-    observer.observe(cardElement);
-    return () => observer.disconnect();
-  });
 
   function openOrSelect(event: MouseEvent) {
     if (selectionActive || event.shiftKey || event.metaKey || event.ctrlKey) {
@@ -94,7 +79,7 @@
   }
 </script>
 
-<article bind:this={cardElement} class={`thumb${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`}>
+<article class={`thumb${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`}>
   <button
     class="thumb-open"
     type="button"
