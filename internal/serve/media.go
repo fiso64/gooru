@@ -34,19 +34,30 @@ type Thumbnailer interface {
 	BackendVersion() string
 }
 
+type SourceThumbnailer interface {
+	ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error
+}
+
 type GoImageThumbnailer struct{}
 
 func (GoImageThumbnailer) BackendVersion() string {
 	return "go-image-v3"
 }
 
-func (GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
+func (t GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
 	file, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	img, _, err := image.Decode(file)
+	return t.ThumbnailSource(src, file, dst, size, format)
+}
+
+func (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writer, size int, format string) error {
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	img, _, err := image.Decode(src)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnsupportedMedia, err)
 	}
@@ -237,6 +248,18 @@ func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err 
 func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
 		return m.thumbnailCBZFirstPage(file.Path, dst, size, format)
+	}
+	if m.cfg.Encryption.Enabled {
+		source, err := m.openMediaSource(file.Path)
+		if err != nil {
+			return err
+		}
+		defer source.Close()
+		sourceThumbnailer, ok := m.thumbnailer.(SourceThumbnailer)
+		if !ok {
+			return &UnsupportedMediaError{Backend: "media", Reason: "thumbnail backend cannot read protected media sources", Err: ErrUnsupportedMedia}
+		}
+		return sourceThumbnailer.ThumbnailSource(file.Path, source, dst, size, format)
 	}
 	return m.thumbnailer.Thumbnail(file.Path, dst, size, format)
 }

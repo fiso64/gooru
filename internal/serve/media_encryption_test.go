@@ -47,6 +47,7 @@ func TestProtectedContentDisablesBrowserCaching(t *testing.T) {
 func TestProtectedThumbnailBypassesPersistentCache(t *testing.T) {
 	imagePath := writePNGImage(t)
 	server := protectedMediaTestServer(t, types.FileInfo{ID: 92, Path: imagePath, Hash: "protected-thumbnail", Size: 100})
+	encryptMediaFixture(t, imagePath, server.cfg.Encryption.Key)
 	cacheDir := server.cfg.Media.CacheDir
 
 	for i := 0; i < 2; i++ {

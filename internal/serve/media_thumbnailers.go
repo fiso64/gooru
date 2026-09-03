@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -96,11 +97,30 @@ func (t *MediaThumbnailer) Thumbnail(src string, dst io.Writer, size int, format
 	}
 }
 
+func (t *MediaThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error {
+	kind := mediaKindForType(mediaTypeForPath(name))
+	switch kind {
+	case "photo", "gif":
+		if sourceThumbnailer, ok := t.imageFallback.(SourceThumbnailer); ok {
+			return sourceThumbnailer.ThumbnailSource(name, src, dst, size, format)
+		}
+		return &UnsupportedMediaError{Backend: "image", Reason: "image backend cannot read protected media sources", Err: ErrUnsupportedMedia}
+	case "video":
+		if sourceThumbnailer, ok := t.video.(SourceThumbnailer); ok {
+			return sourceThumbnailer.ThumbnailSource(name, src, dst, size, format)
+		}
+		return &UnsupportedMediaError{Backend: "ffmpeg", Reason: "video backend cannot read protected media sources", Err: ErrUnsupportedMedia}
+	default:
+		return &UnsupportedMediaError{Backend: "media", Reason: "media kind " + kind + " is not thumbnailable", Err: ErrUnsupportedMedia}
+	}
+}
+
 type commandThumbnailer struct {
-	backend string
-	path    string
-	version string
-	run     func(ctx context.Context, path string, src string, dst string, size int, format string) error
+	backend   string
+	path      string
+	version   string
+	run       func(ctx context.Context, path string, src string, dst string, size int, format string) error
+	sourceRun func(ctx context.Context, path string, src io.ReadSeeker, dst io.Writer, size int, format string) error
 }
 
 func newCommandThumbnailer(backend string, path string, versionArgs []string, run func(context.Context, string, string, string, int, string) error) commandThumbnailer {
@@ -157,6 +177,21 @@ func (t commandThumbnailer) Thumbnail(src string, dst io.Writer, size int, forma
 	return err
 }
 
+func (t commandThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writer, size int, format string) error {
+	if t.path == "" || t.sourceRun == nil {
+		return &UnsupportedMediaError{Backend: t.backend, Reason: "backend cannot read protected media sources", Err: ErrUnsupportedMedia}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	if err := t.sourceRun(ctx, t.path, src, dst, size, format); err != nil {
+		if errors.Is(err, ErrUnsupportedMedia) {
+			return err
+		}
+		return &UnsupportedMediaError{Backend: t.backend, Reason: "backend failed to generate derivative", Err: err}
+	}
+	return nil
+}
+
 func NewFFmpegVideoThumbnailer(ffmpegPath string, ffprobePath string) Thumbnailer {
 	ffprobePath = resolveCommandPath(ffprobePath)
 	ffmpeg := newCommandThumbnailer("ffmpeg", ffmpegPath, []string{"-version"}, func(ctx context.Context, exe string, src string, dst string, size int, format string) error {
@@ -169,6 +204,14 @@ func NewFFmpegVideoThumbnailer(ffmpegPath string, ffprobePath string) Thumbnaile
 		fallback := time.Duration(0)
 		return runFFmpegThumbnail(ctx, exe, ffmpegThumbnailArgs(src, dst, size, format, &fallback), dst)
 	})
+	ffmpeg.sourceRun = func(ctx context.Context, exe string, src io.ReadSeeker, dst io.Writer, size int, format string) error {
+		offset, _ := videoThumbnailOffsetFromSource(ctx, ffprobePath, src)
+		if err := runFFmpegThumbnailFromSource(ctx, exe, src, dst, size, format, &offset); err == nil {
+			return nil
+		}
+		fallback := time.Duration(0)
+		return runFFmpegThumbnailFromSource(ctx, exe, src, dst, size, format, &fallback)
+	}
 	ffprobeVersion := commandThumbnailer{backend: "ffprobe", path: strings.TrimSpace(ffprobePath), version: "ffprobe:missing"}
 	if ffprobeVersion.path != "" {
 		if resolved, err := exec.LookPath(ffprobeVersion.path); err == nil {
@@ -192,6 +235,65 @@ func runFFmpegThumbnail(ctx context.Context, exe string, args []string, dst stri
 		return errors.New("ffmpeg produced an empty thumbnail")
 	}
 	return nil
+}
+
+func videoThumbnailOffsetFromSource(ctx context.Context, ffprobePath string, src io.ReadSeeker) (time.Duration, bool) {
+	if strings.TrimSpace(ffprobePath) == "" {
+		return 3 * time.Second, true
+	}
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return 0, false
+	}
+	cmd := exec.CommandContext(ctx, ffprobePath,
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		"pipe:0",
+	)
+	cmd.Stdin = src
+	out, err := cmd.Output()
+	_, seekErr := src.Seek(0, io.SeekStart)
+	if err != nil || seekErr != nil {
+		return 3 * time.Second, true
+	}
+	return videoOffsetFromDurationOutput(out)
+}
+
+func runFFmpegThumbnailFromSource(ctx context.Context, exe string, src io.ReadSeeker, dst io.Writer, size int, format string, offset *time.Duration) error {
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, exe, ffmpegThumbnailSourceArgs(size, format, offset)...)
+	cmd.Stdin = src
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	if err := commandError(cmd.Run()); err != nil {
+		return err
+	}
+	if output.Len() == 0 {
+		return errors.New("ffmpeg produced an empty thumbnail")
+	}
+	_, err := io.Copy(dst, &output)
+	return err
+}
+
+func ffmpegThumbnailSourceArgs(size int, format string, offset *time.Duration) []string {
+	vcodec := "mjpeg"
+	if format == "png" {
+		vcodec = "png"
+	}
+	scale := fmt.Sprintf("scale=if(gte(iw\\,ih)\\,min(%d\\,iw)\\,-2):if(gte(ih\\,iw)\\,min(%d\\,ih)\\,-2)", size, size)
+	args := []string{"-v", "error", "-i", "pipe:0"}
+	if offset != nil && *offset > 0 {
+		args = append(args, "-ss", formatSeconds(*offset))
+	}
+	return append(args,
+		"-frames:v", "1",
+		"-vf", scale,
+		"-f", "image2pipe",
+		"-vcodec", vcodec,
+		"pipe:1",
+	)
 }
 
 func resolveCommandPath(path string) string {
@@ -219,6 +321,10 @@ func videoThumbnailOffset(ctx context.Context, ffprobePath string, src string) (
 	if err != nil {
 		return 3 * time.Second, true
 	}
+	return videoOffsetFromDurationOutput(out)
+}
+
+func videoOffsetFromDurationOutput(out []byte) (time.Duration, bool) {
 	seconds, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
 	if err != nil || seconds <= 0 {
 		return 3 * time.Second, true

@@ -2,10 +2,12 @@ package serve
 
 import (
 	"bytes"
+	"image"
 	"image/color"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -99,5 +101,74 @@ func TestProtectedComicReadsEncryptedArchiveWithoutPlaintextMaterialization(t *t
 	}
 	if _, err := os.Stat(cfg.Media.CacheDir); !os.IsNotExist(err) {
 		t.Fatalf("protected comic thumbnail must not create plaintext cache, stat error = %v", err)
+	}
+}
+
+func TestProtectedImageThumbnailReadsEncryptedOriginal(t *testing.T) {
+	plaintext := tinyPNG(t, 32, 24, color.RGBA{R: 200, G: 40, B: 90, A: 255})
+	path := writeNamedMediaFile(t, "secret.png", plaintext)
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Encryption.Enabled = true
+	cfg.Encryption.Key = bytes.Repeat([]byte{0x35}, securekey.Size)
+	cfg.Media.CacheDir = filepath.Join(t.TempDir(), "cache")
+	cfg.Media.ThumbnailSizes = []int{16}
+	cfg.Media.ThumbnailFormat = "png"
+	encryptMediaFixture(t, path, cfg.Encryption.Key)
+
+	service := NewMediaService(cfg)
+	recorder := httptest.NewRecorder()
+	service.ServeDerivative(recorder, httptest.NewRequest(http.MethodGet, "/thumbnail?size=16", nil), types.FileInfo{Path: path, Hash: "protected-image"}, "thumbnail")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("protected image thumbnail status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(recorder.Body.Bytes()))
+	if err != nil {
+		t.Fatalf("decode protected image thumbnail: %v", err)
+	}
+	if got := decoded.Bounds().Dx(); got != 16 {
+		t.Fatalf("thumbnail width = %d, want 16", got)
+	}
+	if got := recorder.Header().Get("X-Gooru-Cache"); got != "bypass" {
+		t.Fatalf("protected image thumbnail cache = %q, want bypass", got)
+	}
+	if _, err := os.Stat(cfg.Media.CacheDir); !os.IsNotExist(err) {
+		t.Fatalf("protected image thumbnail must not create plaintext cache, stat error = %v", err)
+	}
+}
+
+func TestProtectedVideoThumbnailStreamsDecryptedSource(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	ffprobe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe unavailable")
+	}
+	path := writeTestVideo(t, ffmpeg, 32, 24)
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Encryption.Enabled = true
+	cfg.Encryption.Key = bytes.Repeat([]byte{0x61}, securekey.Size)
+	cfg.Tools.FFmpegPath = ffmpeg
+	cfg.Tools.FFprobePath = ffprobe
+	cfg.Media.CacheDir = filepath.Join(t.TempDir(), "cache")
+	cfg.Media.ThumbnailSizes = []int{16}
+	cfg.Media.ThumbnailFormat = "png"
+	encryptMediaFixture(t, path, cfg.Encryption.Key)
+
+	service := NewMediaService(cfg)
+	recorder := httptest.NewRecorder()
+	service.ServeDerivative(recorder, httptest.NewRequest(http.MethodGet, "/thumbnail?size=16", nil), types.FileInfo{Path: path, Hash: "protected-video"}, "thumbnail")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("protected video thumbnail status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if _, _, err := image.Decode(bytes.NewReader(recorder.Body.Bytes())); err != nil {
+		t.Fatalf("decode protected video thumbnail: %v", err)
+	}
+	if got := recorder.Header().Get("X-Gooru-Cache"); got != "bypass" {
+		t.Fatalf("protected video thumbnail cache = %q, want bypass", got)
+	}
+	if _, err := os.Stat(cfg.Media.CacheDir); !os.IsNotExist(err) {
+		t.Fatalf("protected video thumbnail must not create plaintext cache, stat error = %v", err)
 	}
 }
