@@ -103,6 +103,7 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | Option | Default | Description |
 | --- | --- | --- |
 | `ui.accent_color` | empty | Optional runtime UI accent in six-digit hex form such as `#2f80ed`. When empty, the built-in yellow accent is used. The UI derives readable foreground and translucent accent tokens from this color. |
+| `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
 
 ## `logging`
 
@@ -165,6 +166,7 @@ logging:
 
 ui:
   accent_color: "#2f80ed"
+  font_style: editorial
 ```
 
 For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default remains the quickest way to verify defaults for the exact binary being run:
