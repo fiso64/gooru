@@ -35,22 +35,40 @@
 
 .comic-read-button {
   position: absolute;
-  z-index: 4;
+  z-index: 8;
   top: 48px;
   right: 48px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.58);
+  gap: 9px;
+  height: 42px;
+  padding: 0 15px 0 13px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(16, 16, 14, 0.78);
   color: #fff;
-  font: 11.5px/1 var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  backdrop-filter: blur(20px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(10px);
   cursor: pointer;
+  font: 600 12px/1 var(--font-ui);
+  letter-spacing: 0.01em;
+  text-transform: none;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 180ms cubic-bezier(.2, .78, .22, 1),
+    box-shadow 180ms ease;
+}
+
+.comic-read-button:hover,
+.comic-read-button:focus-visible {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  transform: translateY(-2px) scale(1.015);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.44);
+  outline: none;
 }
 
 .comic-read-button:disabled {
@@ -58,33 +76,108 @@
   cursor: wait;
 }
 
+/* The concept's exact book and enter-arrow SVG paths, retained without replacing ViewerStage markup. */
 .comic-read-arrow {
-  display: inline-block;
-  color: var(--accent);
-  font-size: 14px;
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  color: transparent;
+  font-size: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 16px 16px;
 }
 
 .comic-read-arrow-left {
-  animation: comic-read-arrow-left 1.15s cubic-bezier(.2,.7,.3,1) infinite;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='white' stroke-width='1.55'%3E%3Cpath d='M4.2 3.8h7.1a2 2 0 0 1 2 2v10.4H6.2a2 2 0 0 1-2-2V3.8Z'/%3E%3Cpath d='M13.3 5.8h2.5v10.4h-7a2.6 2.6 0 0 0-2.6 0'/%3E%3C/svg%3E");
 }
 
 .comic-read-arrow-right {
-  animation: comic-read-arrow-right 1.15s cubic-bezier(.2,.7,.3,1) infinite;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='white' stroke-width='1.55'%3E%3Cpath d='M4 10h11M11 6l4 4-4 4'/%3E%3C/svg%3E");
+  transition: transform 180ms cubic-bezier(.2, .78, .22, 1);
 }
 
-@keyframes comic-read-arrow-left {
-  0%, 100% { transform: translateX(-3px); opacity: .55; }
-  50% { transform: translateX(2px); opacity: 1; }
+.comic-read-button:hover .comic-read-arrow-right,
+.comic-read-button:focus-visible .comic-read-arrow-right {
+  transform: translateX(3px);
 }
 
-@keyframes comic-read-arrow-right {
-  0%, 100% { transform: translateX(3px); opacity: .55; }
-  50% { transform: translateX(-2px); opacity: 1; }
+/* Exact directional accent geometry/keyframes from the supplied concept. */
+.viewer-stage::after {
+  content: '';
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  top: 50%;
+  width: 138px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(246, 222, 119, 0.82), transparent);
+  transform: translate(-50%, -50%) scaleX(.05);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.viewer-stage::before {
+  content: '';
+  position: absolute;
+  z-index: 8;
+  left: calc(50% + 43px);
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-top: 1.5px solid var(--accent);
+  border-right: 1.5px solid var(--accent);
+  transform: translateY(-50%) rotate(45deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.viewer-stage.comic-reading::after {
+  animation: arrow-through 460ms cubic-bezier(.2, .78, .22, 1);
+}
+
+.viewer-stage.comic-reading::before {
+  animation: arrow-head-through 460ms cubic-bezier(.2, .78, .22, 1);
+}
+
+.viewer-stage:not(.comic-reading):has(.comic-read-button)::after {
+  animation: arrow-back 400ms cubic-bezier(.2, .78, .22, 1);
+}
+
+.viewer-stage:not(.comic-reading):has(.comic-read-button)::before {
+  transform: translateY(-50%) rotate(225deg);
+  animation: arrow-head-back 400ms cubic-bezier(.2, .78, .22, 1);
+}
+
+@keyframes arrow-through {
+  0% { opacity: 0; transform: translate(-50%, -50%) scaleX(.05); }
+  24% { opacity: .95; }
+  65% { opacity: .8; transform: translate(-50%, -50%) scaleX(1); }
+  100% { opacity: 0; transform: translate(18%, -50%) scaleX(.45); }
+}
+
+@keyframes arrow-back {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(180deg) scaleX(.08); }
+  28% { opacity: .9; }
+  72% { opacity: .72; transform: translate(-50%, -50%) rotate(180deg) scaleX(1); }
+  100% { opacity: 0; transform: translate(-118%, -50%) rotate(180deg) scaleX(.4); }
+}
+
+@keyframes arrow-head-through {
+  0%, 100% { opacity: 0; }
+  24%, 65% { opacity: 1; }
+}
+
+@keyframes arrow-head-back {
+  0%, 100% { opacity: 0; }
+  28%, 72% { opacity: 1; }
 }
 
 .comic-error-overlay {
   position: absolute;
-  z-index: 4;
+  z-index: 8;
   top: 88px;
   right: 48px;
   max-width: min(360px, calc(100% - 96px));
@@ -96,7 +189,7 @@
 }
 
 .lightbox-video-controls.comic-controls {
-  animation: comic-controls-enter 220ms cubic-bezier(.2,.7,.3,1);
+  animation: comic-controls-enter 220ms cubic-bezier(.2, .78, .22, 1);
 }
 
 .comic-exit {
@@ -111,34 +204,19 @@
   letter-spacing: .08em;
 }
 
-.viewer-stage.comic-reading .lightbox-nav-arrow.prev {
-  animation: comic-prev-arrow-enter 260ms cubic-bezier(.2,.7,.3,1) both;
-}
-
-.viewer-stage.comic-reading .lightbox-nav-arrow.next {
-  animation: comic-next-arrow-enter 260ms cubic-bezier(.2,.7,.3,1) both;
-}
-
 @keyframes comic-controls-enter {
   from { opacity: 0; transform: translate(-50%, 8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-@keyframes comic-prev-arrow-enter {
-  from { opacity: 0; transform: translate(-14px, -50%); }
-  to { opacity: 1; transform: translate(0, -50%); }
-}
-
-@keyframes comic-next-arrow-enter {
-  from { opacity: 0; transform: translate(14px, -50%); }
-  to { opacity: 1; transform: translate(0, -50%); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .comic-read-arrow,
+  .comic-read-button,
+  .comic-read-arrow-right,
   .lightbox-video-controls.comic-controls,
-  .viewer-stage.comic-reading .lightbox-nav-arrow {
-    animation: none;
+  .viewer-stage::before,
+  .viewer-stage::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
   }
 }
 
