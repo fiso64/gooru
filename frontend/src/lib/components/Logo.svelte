@@ -40,9 +40,13 @@
   .gooru-logo-accent {
     position: absolute;
     inset: 0;
-    display: block;
     width: 100%;
     height: 100%;
+  }
+
+  .gooru-logo-default,
+  .gooru-logo-accent {
+    display: block;
   }
 
   .gooru-logo img {
