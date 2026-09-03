@@ -3,10 +3,14 @@ on:
   push:
     branches:
       - fix/105-comic-render-boundary
+    paths-ignore:
+      - 'tmp-validation/**'
+permissions:
+  contents: write
 jobs:
-  frontend:
+  diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,14 +27,27 @@ jobs:
       - name: Check frontend
         working-directory: frontend
         run: npm run check
-      - name: Run focused comic-font regression
-        working-directory: frontend
-        run: npx playwright test tests/font-style.spec.ts --project=chromium
-  nix-package:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
+      - name: Capture focused browser result
+        shell: bash
+        run: |
+          mkdir -p tmp-validation
+          set +e
+          (cd frontend && npx playwright test tests/font-style.spec.ts --project=chromium) > tmp-validation/font-test.txt 2>&1
+          echo $? > tmp-validation/font-status.txt
+          set -e
       - uses: DeterminateSystems/nix-installer-action@main
-      - name: Build packaged application
-        run: nix build .#default --print-build-logs
+      - name: Capture packaged application build result
+        shell: bash
+        run: |
+          set +e
+          nix build .#default --print-build-logs > tmp-validation/nix-build.txt 2>&1
+          echo $? > tmp-validation/nix-status.txt
+          set -e
+      - name: Persist diagnostics on the temporary branch
+        shell: bash
+        run: |
+          git config user.name 'gooru-maintainer-validation'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add tmp-validation
+          git commit -m 'ci: capture issue 105 validation diagnostics'
+          git push
