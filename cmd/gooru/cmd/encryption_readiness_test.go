@@ -88,6 +88,51 @@ func TestEnsureStorageEncryptionReadyMigratesOnlyManagedUploads(t *testing.T) {
 	}
 }
 
+func TestEnsureStorageEncryptionReadyDoesNotFollowNestedSymlinkOutsideUploadRoot(t *testing.T) {
+	dir := t.TempDir()
+	uploadRoot := filepath.Join(dir, "uploads")
+	externalRoot := filepath.Join(dir, "external")
+	if err := os.MkdirAll(uploadRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(externalRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkedDir := filepath.Join(uploadRoot, "linked")
+	if err := os.Symlink(externalRoot, linkedDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	externalPath := filepath.Join(externalRoot, "outside.bin")
+	registeredPath := filepath.Join(linkedDir, "outside.bin")
+	plaintext := []byte("must remain outside gooru managed storage")
+	if err := os.WriteFile(externalPath, plaintext, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := serve.DefaultConfig(filepath.Join(dir, "gooru.db"))
+	cfg.Encryption.Enabled = true
+	cfg.Encryption.Key = bytes.Repeat([]byte{0x42}, 32)
+	cfg.Uploads.Targets = []serve.UploadTarget{{ID: "managed", Name: "Managed", Path: uploadRoot}}
+	if err := ensureStorageEncryptionReady(cfg, fakeRegisteredFiles{files: []types.FileInfo{{Path: registeredPath}}}); err != nil {
+		t.Fatalf("protected storage preflight: %v", err)
+	}
+
+	after, err := os.ReadFile(externalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, plaintext) {
+		t.Fatal("protected startup rewrote a file reached through a nested symlink outside the upload root")
+	}
+	encrypted, err := encryptedfile.IsEncryptedFile(externalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encrypted {
+		t.Fatal("external file reached through upload-root symlink was encrypted")
+	}
+}
+
 func TestEnsureStorageEncryptionReadyFailsClosedForWrongManagedUploadKey(t *testing.T) {
 	dir := t.TempDir()
 	uploadRoot := filepath.Join(dir, "uploads")
