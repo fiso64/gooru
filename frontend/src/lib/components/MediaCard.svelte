@@ -24,11 +24,15 @@
   let pixelRatio = $state(1);
 
   const extensionLabel = $derived(fileExtension(file.name));
+  const mediaWidth = $derived(file.metadata.image_width ?? file.metadata.video_width ?? 0);
+  const mediaHeight = $derived(file.metadata.image_height ?? file.metadata.video_height ?? 0);
   const thumbnailSource = $derived(thumbnailURL(
     file.media_urls.thumbnail,
     $runtimeConfig.thumbnailSizes,
     cardWidth || $runtimeConfig.gridSize,
-    pixelRatio
+    pixelRatio,
+    mediaWidth,
+    mediaHeight
   ));
 
   function fileExtension(name: string) {
@@ -38,12 +42,19 @@
     return baseName.slice(dot + 1).toUpperCase();
   }
 
-  function thumbnailURL(base: string, sizes: number[], cssWidth: number, dpr: number) {
+  function thumbnailURL(base: string, sizes: number[], cssWidth: number, dpr: number, mediaWidth: number, mediaHeight: number) {
     if (!sizes.length) return base;
     const sorted = [...sizes].filter((size) => Number.isFinite(size) && size > 0).sort((a, b) => a - b);
     if (!sorted.length) return base;
-    const required = Math.max(1, cssWidth) * Math.max(1, dpr);
-    const selectedSize = sorted.find((size) => size >= required) ?? sorted[sorted.length - 1];
+
+    // Thumbnail sizes cap the derivative's longest source edge, while cards are
+    // square and use object-fit: cover. A non-square derivative must therefore
+    // have enough pixels on its shorter edge to cover the rendered card.
+    const requiredShortEdge = Math.max(1, cssWidth) * Math.max(1, dpr);
+    const validDimensions = mediaWidth > 0 && mediaHeight > 0 && Number.isFinite(mediaWidth) && Number.isFinite(mediaHeight);
+    const aspectScale = validDimensions ? Math.max(mediaWidth, mediaHeight) / Math.min(mediaWidth, mediaHeight) : 1;
+    const requiredMaxEdge = requiredShortEdge * aspectScale;
+    const selectedSize = sorted.find((size) => size >= requiredMaxEdge) ?? sorted[sorted.length - 1];
     const separator = base.includes('?') ? '&' : '?';
     return `${base}${separator}size=${selectedSize}`;
   }
