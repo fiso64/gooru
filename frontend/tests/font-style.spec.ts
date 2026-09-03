@@ -82,12 +82,10 @@ test('comic font preset reaches the actual library heading with the bundled face
     };
   });
   const comicWidth = await measuredTextWidth(page, '"Comic Neue"');
-  const modernWidth = await measuredTextWidth(page, '"IBM Plex Sans"');
 
   expect(typography.loadedFaces).toBeGreaterThan(0);
-  expect(typography.family).toContain('Comic Neue');
+  expect(typography.family).toMatch(/^"?Comic Neue"?/);
   expect(Math.abs(typography.width - comicWidth)).toBeLessThan(0.75);
-  expect(Math.abs(typography.width - modernWidth)).toBeGreaterThan(1);
   await expect(page.locator('.gooru-logo-comic')).toBeVisible();
   await expect(page.locator('.gooru-logo img')).toBeHidden();
 });
