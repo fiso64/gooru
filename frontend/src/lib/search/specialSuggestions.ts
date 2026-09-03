@@ -8,7 +8,11 @@ export type SpecialSearchSuggestion = {
 
 const mediaKinds = ['photo', 'video', 'gif', 'audio', 'other'] as const;
 
-export function specialSearchSuggestions(draft: string, existingTokens: string[] = []): SpecialSearchSuggestion[] {
+export function specialSearchSuggestions(
+  draft: string,
+  existingTokens: string[] = [],
+  metaTags: Array<{ syntax: string; hint: string; requires_value: boolean }> = []
+): SpecialSearchSuggestion[] {
   let working = draft.trim();
   if (!working) return [];
 
@@ -35,10 +39,30 @@ export function specialSearchSuggestions(draft: string, existingTokens: string[]
   }
 
   const result: SpecialSearchSuggestion[] = [];
-  if ('@tagged'.startsWith(lower)) {
-    const commit = `${negPrefix}@tagged`;
-    if (!existing.has(commit)) result.push({ commit, ns: '', val: '@tagged', hint: 'has tags' });
+  for (const metaTag of metaTags) {
+    const syntax = metaTag.syntax.trim();
+    if (!syntax.startsWith('@')) continue;
+    const syntaxLower = syntax.toLowerCase();
+    if (metaTag.requires_value) {
+      if (syntaxLower.startsWith(lower)) {
+        result.push({
+          commit: `${negPrefix}${syntax}`,
+          ns: syntax.slice(0, -1),
+          val: '',
+          hint: metaTag.hint || 'query',
+          partial: true
+        });
+      }
+      continue;
+    }
+    if (syntaxLower.startsWith(lower)) {
+      const commit = `${negPrefix}${syntax}`;
+      if (!existing.has(commit)) {
+        result.push({ commit, ns: '', val: syntax, hint: metaTag.hint || 'query' });
+      }
+    }
   }
+
   if ('type:'.startsWith(lower)) {
     const commit = `${negPrefix}type:`;
     result.push({ commit, ns: 'type', val: '', hint: 'media type', partial: true });

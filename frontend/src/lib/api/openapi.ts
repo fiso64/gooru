@@ -1485,8 +1485,16 @@ export interface components {
             mode: "untrack" | "delete";
             removed_locations: number;
         };
+        MetaTag: {
+            name: string;
+            syntax: string;
+            hint: string;
+            requires_value: boolean;
+        };
         SuggestionsResponse: {
             items: components["schemas"]["Tag"][];
+            /** @description Complete backend-owned catalog of supported query metatags. */
+            meta_tags: components["schemas"]["MetaTag"][];
         };
         NamespacesResponse: {
             items: string[];

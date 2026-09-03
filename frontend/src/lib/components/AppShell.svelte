@@ -5,7 +5,7 @@
   import JobsDrawer from './JobsDrawer.svelte';
   import Logo from './Logo.svelte';
   import SearchBar from './SearchBar.svelte';
-  import type { Job } from '$lib/api/types';
+  import type { Job, MetaTagDefinition } from '$lib/api/types';
   import { readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { replaceSidebarKind, sidebarKindActive, sidebarKindFilters } from '$lib/utils/sidebarKinds';
 
@@ -26,6 +26,7 @@
     comicCount,
     savedSearches,
     suggestions,
+    metaTags,
     tags,
     search,
     onRoute,
@@ -51,6 +52,7 @@
     comicCount: number;
     savedSearches: Array<{ id: string; name: string; query: string }>;
     suggestions: Array<{ name: string; count?: number }>;
+    metaTags: MetaTagDefinition[];
     tags: TagLike[];
     search: string;
     onRoute: (route: string) => void;
@@ -124,6 +126,7 @@
         <SearchBar
           value={search}
           {suggestions}
+          {metaTags}
           {tags}
           onDraftInput={onSearchDraft}
           onCommit={onSearchCommit}

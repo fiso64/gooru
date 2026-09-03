@@ -40,20 +40,19 @@ type Factor struct {
 var (
 	queryLexer = lexer.MustSimple([]lexer.SimpleRule{
 		{Name: "QuotedString", Pattern: `"(\\"|[^"])*"`},
-	// A tag can start with '@' for meta-tags. The value part of a regular tag can be '*'.
-	// It cannot start with a hyphen to avoid ambiguity with the NOT operator.
-	{Name: "Tag", Pattern: `(@[a-zA-Z0-9_]+)|([a-zA-Z0-9_./\\][a-zA-Z0-9_./\\:*-]*)`},
-	{Name: "Operator", Pattern: `[|()&!-]`},
-	{Name: "Whitespace", Pattern: `\s+`},
-})
+		// Meta-tags may carry one colon-delimited value. Values containing spaces
+		// remain available through QuotedString (for example
+		// "@filename_contains:summer trip"). Regular tag values may use '*'.
+		// A tag cannot start with a hyphen to avoid ambiguity with NOT.
+		{Name: "Tag", Pattern: `(@[a-zA-Z0-9_]+(?::[a-zA-Z0-9_./\\:*-]+)?)|([a-zA-Z0-9_./\\][a-zA-Z0-9_./\\:*-]*)`},
+		{Name: "Operator", Pattern: `[|()&!-]`},
+		{Name: "Whitespace", Pattern: `\s+`},
+	})
 
 	parser = participle.MustBuild[Expression](
 		participle.Lexer(queryLexer),
 		participle.Unquote("QuotedString"),
 		participle.Elide("Whitespace"),
-		// Use an explicit "&" token in the grammar if you want to support it,
-		// but implicit AND (a sequence of terms) is often sufficient and cleaner.
-		// The current grammar `@@+` handles implicit AND.
 	)
 
 	// Regex for normalizing user-friendly query syntax to parser-friendly syntax.
@@ -77,7 +76,7 @@ func expandVirtualTypeTags(expression string) string {
 	return reType.ReplaceAllStringFunc(expression, func(match string) string {
 		parts := strings.SplitN(match, ":", 2)
 		if len(parts) < 2 {
-			return match // Should not happen with this regex
+			return match
 		}
 		typeName := parts[1]
 		if extensions, ok := virtualTypeTags[typeName]; ok {
@@ -93,27 +92,11 @@ func expandVirtualTypeTags(expression string) string {
 
 // Parse takes a query expression string and returns the parsed AST.
 func Parse(expression string) (*Expression, error) {
-	// Pre-process the expression to normalize operators to what the grammar expects.
-	// This is simpler than a complex grammar and handles user-friendly syntax.
-	// The target syntax for the parser is:
-	// AND: space
-	// OR:  |
-	// NOT: -
-
-	// 1. Expand virtual type tags like `type:img` into `(ext:jpg | ext:png ...)`.
 	s := expandVirtualTypeTags(expression)
-
-	// 2. Normalize user-friendly operators.
-	// Normalize OR
 	s = reOr.ReplaceAllString(s, " | ")
-
-	// Normalize AND
 	s = reAnd.ReplaceAllString(s, " ")
 	s = strings.ReplaceAll(s, "&", " ")
-
-	// Normalize NOT
 	s = reNot.ReplaceAllString(s, "-")
 	s = strings.ReplaceAll(s, "!", "-")
-
 	return parser.ParseString("", s)
 }

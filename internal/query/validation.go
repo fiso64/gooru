@@ -17,12 +17,9 @@ func validateTagSyntax(tag string) error {
 		return fmt.Errorf("tag cannot be empty")
 	}
 
-	// Handle special meta-tags like @tagged
 	if strings.HasPrefix(tag, "@") {
-		if tag == "@tagged" {
-			return nil // This is a valid meta-tag for queries.
-		}
-		return fmt.Errorf("invalid meta-tag '%s'; only @tagged is supported", tag)
+		_, err := ParseMetaTag(tag)
+		return err
 	}
 
 	for _, r := range tag {
@@ -33,12 +30,10 @@ func validateTagSyntax(tag string) error {
 		}
 	}
 
-	// This function validates a single part (key or value).
 	validatePart := func(part string, isKey bool) error {
 		if isKey && part == "" {
 			return fmt.Errorf("tag '%s' has an empty key part", tag)
 		}
-		// The wildcard '*' is only allowed as the entire value, not as part of it.
 		if !isKey && part != "*" && strings.Contains(part, "*") {
 			return fmt.Errorf("the '*' wildcard must be the only character in a tag's value (e.g., 'key:*')")
 		}
@@ -53,32 +48,24 @@ func validateTagSyntax(tag string) error {
 
 	parts := strings.SplitN(tag, ":", 2)
 	if len(parts) == 1 {
-		// Simple tag, treated as a key.
 		return validatePart(parts[0], true)
 	}
 
-	// Key:Value tag.
 	key, value := parts[0], parts[1]
 	if err := validatePart(key, true); err != nil {
 		return err
 	}
-	if err := validatePart(value, false); err != nil { // Value can be empty, so isKey=false
+	if err := validatePart(value, false); err != nil {
 		return err
 	}
-
 	return nil
 }
 
 // ValidateTag checks if a tag is valid for a user to apply to a file.
-// It checks syntax, for reserved keywords, and for special query characters.
 func ValidateTag(tag string) error {
-	// First, run the query syntax validator to check for fundamental structural issues.
-	// We must temporarily replace '*' as it's a valid query char but not a valid tagging char.
 	if err := validateTagSyntax(strings.ReplaceAll(tag, "*", "_")); err != nil {
 		return err
 	}
-
-	// Now, perform checks specific to creating tags.
 	if strings.HasPrefix(tag, "@") {
 		return fmt.Errorf("tags cannot start with the special character '@'")
 	}
@@ -90,11 +77,9 @@ func ValidateTag(tag string) error {
 	if _, isReserved := reservedTagKeys[strings.ToLower(parsed.Key)]; isReserved {
 		return fmt.Errorf("tag key '%s' is a reserved keyword for special queries and cannot be used for tagging", parsed.Key)
 	}
-
 	return nil
 }
 
-// ValidateTags applies ValidateTag to a slice of tags.
 func ValidateTags(tags []string) error {
 	for _, tag := range tags {
 		if err := ValidateTag(tag); err != nil {
@@ -104,8 +89,6 @@ func ValidateTags(tags []string) error {
 	return nil
 }
 
-// ValidateAST recursively traverses a query AST and validates the syntax of all tag strings.
-// It allows reserved keywords since they are valid in a query context.
 func ValidateAST(expr *Expression) error {
 	if expr == nil {
 		return nil
@@ -145,7 +128,6 @@ func validateFactor(factor *Factor) error {
 		return ValidateAST(factor.SubExpr)
 	}
 	if factor.Tag != nil {
-		// Use the syntax-only validator for query expressions.
 		return validateTagSyntax(*factor.Tag)
 	}
 	return nil

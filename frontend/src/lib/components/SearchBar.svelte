@@ -7,7 +7,8 @@
   import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
-  type SuggestionLike = { name: string; count?: number };
+  type SuggestionLike = { name: string; value?: string; count?: number };
+  type MetaTagLike = { syntax: string; hint: string; requires_value: boolean };
   type SuggestionItem = {
     kind: 'namespace' | 'tag' | 'valueless' | 'value' | 'special';
     commit: string;
@@ -22,12 +23,14 @@
   let {
     value,
     suggestions,
+    metaTags,
     tags,
     onDraftInput,
     onCommit
   } = $props<{
     value: string;
     suggestions: SuggestionLike[];
+    metaTags: MetaTagLike[];
     tags: TagLike[];
     onDraftInput: (value: string) => void;
     onCommit: (value: string) => void;
@@ -42,7 +45,7 @@
   let lastSyncedValue = $state('');
 
   const tagItems = $derived(normalizeTags(tags, suggestions));
-  const groups = $derived(computeSuggestions(draft, tokens, tagItems));
+  const groups = $derived(computeSuggestions(draft, tokens, tagItems, metaTags));
   const flat = $derived(groups.flatMap((group) => group.items.map((item) => ({ ...item, group: group.head }))));
 
   $effect(() => {
@@ -81,11 +84,11 @@
     const seen = new Map<string, { tag: string; count: number }>();
     for (const tag of tags) {
       const name = tag.name ?? tag.tag ?? (tag.namespace ? `${tag.namespace}:${tag.value ?? ''}` : (tag.value ?? ''));
-      if (!name) continue;
+      if (!name || name.startsWith('@')) continue;
       seen.set(name, { tag: name, count: tag.count ?? seen.get(name)?.count ?? 0 });
     }
     for (const suggestion of suggestions) {
-      if (!suggestion.name) continue;
+      if (!suggestion.name || suggestion.name.startsWith('@')) continue;
       seen.set(suggestion.name, { tag: suggestion.name, count: suggestion.count ?? seen.get(suggestion.name)?.count ?? 0 });
     }
     return [...seen.values()].sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
@@ -100,7 +103,8 @@
   function computeSuggestions(
     draftValue: string,
     currentTokens: SearchToken[],
-    items: Array<{ tag: string; count: number }>
+    items: Array<{ tag: string; count: number }>,
+    metaTags: MetaTagLike[]
   ): SuggestionGroup[] {
     const tokenStrings = new Set(currentTokens.map(searchTokenToString));
     const takenPositiveTags = new Set(
@@ -108,7 +112,7 @@
         .filter((token) => !token.neg)
         .map((token) => (token.ns ? `${token.ns}:${token.val}` : token.val))
     );
-    const specialItems: SuggestionItem[] = specialSearchSuggestions(draftValue, [...tokenStrings]).map((item) => ({
+    const specialItems: SuggestionItem[] = specialSearchSuggestions(draftValue, [...tokenStrings], metaTags).map((item) => ({
       kind: 'special',
       ...item
     }));
@@ -160,7 +164,7 @@
     const valFrag = working.slice(colon + 1).toLowerCase();
     const valueCandidates = items
       .filter(({ tag }) => {
-        if (tag.startsWith('@') || takenPositiveTags.has(tag)) return false;
+        if (takenPositiveTags.has(tag)) return false;
         const parsed = parseTag(tag);
         if (parsed.ns.toLowerCase() !== ns) return false;
         return !valFrag || parsed.value.toLowerCase().includes(valFrag);
