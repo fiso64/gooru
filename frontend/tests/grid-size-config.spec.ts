@@ -93,6 +93,7 @@ test('thumbnail sizing covers the square card short edge for portrait media', as
   const box = await card.boundingBox();
   expect(box?.width).toBeGreaterThan(170);
   expect(box?.width).toBeLessThan(256);
+  expect((box?.width ?? 0) * 1.5).toBeGreaterThan(256);
 
   // A 256 max-edge derivative of a 2:3 portrait is only ~171px wide and
   // would be upscaled by object-fit: cover. The 512 derivative covers it.
