@@ -160,9 +160,9 @@
 
 @keyframes arrow-back {
   0% { opacity: 0; transform: translate(-50%, -50%) rotate(180deg) scaleX(.08); }
-  28% { opacity: .9; }
-  72% { opacity: .72; transform: translate(-50%, -50%) rotate(180deg) scaleX(1); }
-  100% { opacity: 0; transform: translate(-118%, -50%) rotate(180deg) scaleX(.4); }
+  30% { opacity: .9; }
+  72% { opacity: .65; transform: translate(-50%, -50%) rotate(180deg) scaleX(.92); }
+  100% { opacity: 0; transform: translate(-115%, -50%) rotate(180deg) scaleX(.38); }
 }
 
 @keyframes arrow-head-through {
@@ -172,7 +172,7 @@
 
 @keyframes arrow-head-back {
   0%, 100% { opacity: 0; }
-  28%, 72% { opacity: 1; }
+  30%, 72% { opacity: 1; }
 }
 
 .comic-error-overlay {
