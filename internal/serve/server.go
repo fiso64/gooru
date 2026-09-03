@@ -64,7 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/upload-targets", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleUploadTargets)))
 	mux.Handle("/api/v1/uploads", s.adminProtected(http.HandlerFunc(s.handleUpload)))
 	mux.Handle("/api/v1/files/tags", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleMutateTags))))
-	mux.Handle("/api/v1/files/", s.protected(http.HandlerFunc(s.handleFile)))
+	mux.Handle("/api/v1/files/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFile))))
 	mux.Handle("/api/v1/files", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFiles))))
 	mux.Handle("/api/v1/comics/", s.protected(http.HandlerFunc(s.handleComic)))
 	mux.Handle("/api/v1/search/suggestions", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleSearchSuggestions)))
