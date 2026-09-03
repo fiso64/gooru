@@ -11,6 +11,7 @@
       name: 'Navigation',
       items: [
         { keys: ['1–9'], description: 'Open the matching visible sidebar item' },
+        { keys: ['b'], description: 'Save current search' },
         { keys: ['?'], description: 'Show shortcuts' }
       ]
     },
@@ -113,7 +114,7 @@
   .shortcut-head h2 {
     margin: 5px 0 5px;
     font-family: var(--font-display);
-    font-size: clamp(30px, 4vw, 44px);
+    font-size: 22px;
     font-weight: 400;
   }
 
