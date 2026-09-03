@@ -48,9 +48,6 @@ var serveCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := ensureStorageEncryptionReady(cfg); err != nil {
-			return err
-		}
 
 		logger := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: cfg.Logging.SlogLevel()}))
 		previousLogger := slog.Default()
@@ -67,6 +64,9 @@ var serveCmd = &cobra.Command{
 			return fmt.Errorf("failed to initialize gooru client: %w", err)
 		}
 		defer client.Close()
+		if err := ensureStorageEncryptionReady(cfg, client); err != nil {
+			return err
+		}
 		server := serve.NewServerWithLibrary(cfg, serve.NewGooruLibrary(client, verbose))
 		if cfg.Auth.Enabled {
 			authStore, err := openConfiguredAuthStore(cfg, verbose)
@@ -85,6 +85,7 @@ var serveCmd = &cobra.Command{
 			"url", startupURL(cfg),
 			"auth_enabled", cfg.Auth.Enabled,
 			"uploads_enabled", cfg.Uploads.Enabled,
+			"encryption_enabled", cfg.Encryption.Enabled,
 		)
 		logger.Debug("server runtime configuration",
 			"logging_level", cfg.Logging.Level,
