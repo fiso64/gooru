@@ -100,7 +100,7 @@ test('ctrl-wheel zooms toward the pointer and wheel/alt-wheel pan while zoomed',
   expect(horizontallyPanned!.x).toBeLessThan(verticallyPanned!.x - 20);
 });
 
-test('zoom minima respect fit and actual-size modes in normal and fullscreen viewer', async ({ page }) => {
+test('zoom minima respect fit and actual-size modes across normal and fullscreen geometry', async ({ page }) => {
   const image = await mockViewer(page);
   const stage = page.locator('.viewer-stage');
   const fit = await image.boundingBox();
@@ -124,6 +124,16 @@ test('zoom minima respect fit and actual-size modes in normal and fullscreen vie
   expect(actualMinimum!.width).toBeGreaterThanOrEqual(fit!.width - 2);
   expect(actualMinimum!.width).toBeLessThan(actual!.width);
 
+  // Entering fullscreen increases the fit scale for this image. The carried actual-size
+  // transform must be raised to the new fullscreen minimum instead of staying undersized.
+  await page.keyboard.press('f');
+  await expect.poll(() => stage.evaluate((node) => document.fullscreenElement === node)).toBe(true);
+  const fullscreenStageFromActual = await stage.boundingBox();
+  const expectedFullscreenFitWidth = Math.min(fullscreenStageFromActual!.width, fullscreenStageFromActual!.height * 1.5);
+  await expect.poll(async () => (await image.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(expectedFullscreenFitWidth - 2);
+
+  await page.keyboard.press('f');
+  await expect.poll(() => stage.evaluate((node) => document.fullscreenElement === node)).toBe(false);
   await page.keyboard.press('1');
   await page.keyboard.press('f');
   await expect.poll(() => stage.evaluate((node) => document.fullscreenElement === node)).toBe(true);
