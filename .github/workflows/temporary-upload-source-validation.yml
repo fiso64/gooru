@@ -1,0 +1,49 @@
+name: temporary upload source validation
+on:
+  push:
+    branches:
+      - refactor/28-upload-source-analysis
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Apply upload source integration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('internal/serve/uploads.go')
+          text = path.read_text()
+          old_hash = '''\t\tinfo, status, err := l.client.GetFileInfoForFile(analysisPath, false)\n\t\tif err != nil {\n\t\t\tdto.Status = "error"\n\t\t\tdto.Error = err.Error()\n\t\t\tresponse.Files = append(response.Files, dto)\n\t\t\tcontinue\n\t\t}\n'''
+          new_hash = '''\t\tanalysisSource, analysisSize, analysisModTime, err := openUploadAnalysisSource(analysisPath)\n\t\tif err != nil {\n\t\t\tdto.Status = "error"\n\t\t\tdto.Error = err.Error()\n\t\t\tresponse.Files = append(response.Files, dto)\n\t\t\tcontinue\n\t\t}\n\t\tinfo, status, err := l.client.GetFileInfoForSource(file.Path, analysisSource, analysisSize, analysisModTime)\n\t\tcloseErr := analysisSource.Close()\n\t\tif err == nil && closeErr != nil {\n\t\t\terr = closeErr\n\t\t}\n\t\tif err != nil {\n\t\t\tdto.Status = "error"\n\t\t\tdto.Error = err.Error()\n\t\t\tresponse.Files = append(response.Files, dto)\n\t\t\tcontinue\n\t\t}\n'''
+          old_meta = '''\t\tanalysisFile := file\n\t\tif analysisPath := analysisPaths[file.Path]; analysisPath != "" {\n\t\t\tanalysisFile.Path = analysisPath\n\t\t}\n\t\tmetadata, err := provider.Metadata(ctx, analysisFile, mediaType, mediaKind)\n'''
+          new_meta = '''\t\tmetadata, err := importedMediaMetadata(ctx, provider, file, analysisPaths[file.Path], mediaType, mediaKind)\n'''
+          for old, new, label in ((old_hash, new_hash, 'hash source'), (old_meta, new_meta, 'metadata source')):
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one {label} block, found {text.count(old)}')
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+          gofmt -w internal/serve/uploads.go internal/serve/upload_analysis_source.go internal/serve/upload_analysis_path_test.go
+          git diff --check
+      - name: Focused upload source tests
+        run: go test ./internal/serve -run 'TestGooruUploadImportSeparatesAnalysisSourceFromRegisteredDestination|TestRejectedStagedUploadRemovesDistinctAnalysisSource|Test(Image|Video)Metadata'
+      - name: Full Go tests
+        run: go test ./...
+      - name: Build
+        run: go build ./...
+      - name: Commit integrated source path
+        run: |
+          if git diff --quiet -- internal/serve/uploads.go; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/serve/uploads.go internal/serve/upload_analysis_source.go internal/serve/upload_analysis_path_test.go
+          git commit -m 'refactor(upload): analyze random-access sources [source-analysis-applied]'
+          git push
