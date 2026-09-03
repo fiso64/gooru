@@ -128,8 +128,14 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await expect(shortcuts.getByText('Play media or enter / exit comic')).toHaveCount(0);
   await expect(shortcuts.getByText('Clear selection')).toHaveCount(0);
+  await expect(shortcuts.getByText('Save current search')).toBeVisible();
+  await expect(shortcuts.getByRole('heading', { name: 'Shortcuts' })).toHaveCSS('font-size', '22px');
   await page.keyboard.press('Escape');
   await expect(shortcuts).toHaveCount(0);
+
+  await page.keyboard.press('b');
+  await expect(page.getByRole('dialog', { name: 'Save search' })).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await page.keyboard.press('2');
   await expect(page.getByRole('heading', { name: '3 tags across 1 files' })).toBeVisible();
