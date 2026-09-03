@@ -7,7 +7,7 @@ import (
 	sqlite "gosqlite.org"
 )
 
-const sqliteBusyTimeoutMilliseconds = 5000
+const sqliteBusyTimeoutPragma = "PRAGMA busy_timeout = 5000"
 
 func init() {
 	// NewStore historically configures WAL and foreign keys through its DSN, but
@@ -19,7 +19,7 @@ func init() {
 	sqlite.DefaultDriver().RegisterConnectionHook(func(conn sqlite.ExecQuerierContext, _ string) error {
 		_, err := conn.ExecContext(
 			context.Background(),
-			"PRAGMA busy_timeout = 5000",
+			sqliteBusyTimeoutPragma,
 			[]driver.NamedValue{},
 		)
 		return err
