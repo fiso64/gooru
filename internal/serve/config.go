@@ -130,7 +130,7 @@ func DefaultConfig(dbPath string) Config {
 		Server: ServerConfig{
 			Listen:              DefaultListenAddress,
 			FrontendDir:         "frontend/build",
-			MaxRequestBodyBytes: 32 << 20,
+			MaxRequestBodyBytes: 0,
 			ReadTimeout:         15 * time.Second,
 			WriteTimeout:        30 * time.Second,
 			IdleTimeout:         2 * time.Minute,
@@ -260,8 +260,8 @@ func (cfg *Config) Validate() error {
 	if cfg.Encryption.Enabled && len(cfg.Encryption.Key) != securekey.Size {
 		errs = append(errs, errors.New("encryption.enabled requires a resolved 256-bit encryption key"))
 	}
-	if cfg.Server.MaxRequestBodyBytes <= 0 {
-		errs = append(errs, errors.New("server.max_request_body_bytes must be greater than zero"))
+	if cfg.Server.MaxRequestBodyBytes < 0 {
+		errs = append(errs, errors.New("server.max_request_body_bytes must be zero or greater"))
 	}
 	if cfg.Media.CacheDir != "" {
 		if !filepath.IsAbs(cfg.Media.CacheDir) {
@@ -371,7 +371,7 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("auth.cookie_same_site must be one of: lax, strict, none"))
 	}
 	if !cfg.Auth.Enabled && !cfg.Auth.AllowUnsafeNoAuthNonLoopback && !isLoopbackListen(cfg.Server.Listen) {
-		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_non_loopback for trusted development"))
+		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_nonloopback for trusted development"))
 	}
 	cfg.UI.AccentColor = strings.TrimSpace(cfg.UI.AccentColor)
 	if cfg.UI.AccentColor != "" && !accentColorPattern.MatchString(cfg.UI.AccentColor) {
