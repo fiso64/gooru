@@ -124,7 +124,7 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   await expect(shortcuts).toHaveCount(0);
 
   await page.keyboard.press('2');
-  await expect(page.getByRole('heading', { name: 'Tags' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '3 tags across 1 files' })).toBeVisible();
 
   await page.keyboard.press('1');
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
