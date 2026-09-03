@@ -45,11 +45,19 @@ test('common tags rank visually, persist collapse state, and run a tag search', 
   let common = page.locator('.common-tags-section');
   await expect(common.getByText('Common tags')).toBeVisible();
   await expect(page.locator('.saved-searches-section + .common-tags-section')).toHaveCount(1);
-  const commonHeader = common.locator(':scope > .sidebar-section-head');
+  const commonToggle = common.locator(':scope > .common-tags-toggle');
+  const commonHeader = commonToggle.locator(':scope > .sidebar-section-head');
   const savedHeader = page.locator('.saved-searches-section > .sidebar-section-head');
+  await expect(commonToggle).toHaveJSProperty('tagName', 'BUTTON');
+  await expect(commonToggle).toHaveAttribute('aria-expanded', 'true');
   await expect(commonHeader).toHaveCount(1);
-  await expect(commonHeader).toHaveJSProperty('tagName', 'DIV');
-  await expect(commonHeader.locator('.common-tags-toggle')).toHaveClass(/sidebar-head-action/);
+  const indicator = commonHeader.locator('.common-tags-chevron');
+  await expect(indicator).toBeVisible();
+  expect(await indicator.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    return box.width > 0 && box.height > 0 && style.color !== 'rgba(0, 0, 0, 0)';
+  })).toBe(true);
   const commonHeaderStyle = await commonHeader.evaluate((node) => {
     const style = getComputedStyle(node);
     return [style.fontSize, style.fontWeight, style.letterSpacing, style.textTransform, style.color, style.paddingLeft, style.paddingRight];
@@ -74,7 +82,8 @@ test('common tags rank visually, persist collapse state, and run a tag search', 
   const lastColor = await rows.last().evaluate((node) => getComputedStyle(node).color);
   expect(firstColor).not.toBe(lastColor);
 
-  await common.getByRole('button', { name: 'Collapse Common tags' }).click();
+  await common.getByText('Common tags', { exact: true }).click();
+  await expect(commonToggle).toHaveAttribute('aria-expanded', 'false');
   await expect(common.locator('#common-tags-list')).not.toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('gooru.preference.v1.common-tags.collapsed'))).toBe('true');
 
@@ -84,6 +93,7 @@ test('common tags rank visually, persist collapse state, and run a tag search', 
   await expect(common.locator('#common-tags-list')).not.toBeVisible();
 
   await common.getByRole('button', { name: 'Expand Common tags' }).click();
+  await expect(common.getByRole('button', { name: 'Collapse Common tags' })).toHaveAttribute('aria-expanded', 'true');
   rows = common.locator('button.common-tag-item');
   await expect(rows).toHaveCount(20);
   await expect(rows.first()).toBeVisible();
