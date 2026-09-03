@@ -1,0 +1,121 @@
+name: tmp-170-atomic-handoff
+
+on:
+  push:
+    branches: [fix/22-image-geometry-hold]
+    paths:
+      - .github/workflows/tmp-170-atomic-handoff.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/22-image-geometry-hold
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply presentation handoff change
+        shell: python
+        run: |
+          from pathlib import Path
+
+          viewer = Path('frontend/src/lib/components/ViewerStage.svelte')
+          text = viewer.read_text()
+          old = '''        <img bind:this={imageElement} class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />'''
+          new = '''        <img
+          bind:this={imageElement}
+          class="viewer-visual-media"
+          class:viewer-image-concealed={freezeVisible}
+          style={visualStyle}
+          src={renderedImageSource}
+          alt={renderedFile.name}
+          onload={syncImage}
+        />'''
+          if text.count(old) != 1:
+              raise SystemExit('expected viewer image markup exactly once')
+          text = text.replace(old, new)
+
+          old = '''    // `load` can run before the new pixels have reached a composited frame. Keep the exact frozen
+    // old pixels through two paints, then uncover the already correctly-sized foreground image.'''
+          new = '''    // `load` can run before the new pixels have reached a composited frame. Keep the exact frozen
+    // old pixels through two paints while the correctly-sized target remains visually concealed,
+    // then atomically exchange the two presentations so old and new pixels are never exposed together.'''
+          if text.count(old) != 1:
+              raise SystemExit('expected syncImage handoff comment exactly once')
+          text = text.replace(old, new)
+
+          old = '''  .viewer-image-freeze.visible {
+    display: block;
+  }
+'''
+          new = '''  .viewer-image-freeze.visible {
+    display: block;
+  }
+
+  :global(.viewer-stage .viewer-visual-media.viewer-image-concealed) {
+    visibility: hidden;
+  }
+'''
+          if text.count(old) != 1:
+              raise SystemExit('expected freeze css exactly once')
+          text = text.replace(old, new)
+          viewer.write_text(text)
+
+          spec = Path('frontend/tests/viewer-image-geometry-hold.spec.ts')
+          text = spec.read_text()
+          old = '''  await expect(freeze).toBeVisible();
+  const frozen = await freeze.boundingBox();'''
+          new = '''  await expect(freeze).toBeVisible();
+  await expect(media).toHaveCSS('visibility', 'hidden');
+  const frozen = await freeze.boundingBox();'''
+          if text.count(old) != 1:
+              raise SystemExit('expected pre-release assertion point exactly once')
+          text = text.replace(old, new)
+
+          old = '''  releaseLandscape();
+  await expect(freeze).toBeHidden();
+  await expect.poll(async () => {'''
+          new = '''  releaseLandscape();
+  await expect(freeze).toBeHidden();
+  await expect(media).toHaveCSS('visibility', 'visible');
+  await expect.poll(async () => {'''
+          if text.count(old) != 1:
+              raise SystemExit('expected post-release assertion point exactly once')
+          text = text.replace(old, new)
+          spec.write_text(text)
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Static check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Focused viewer regression
+        working-directory: frontend
+        run: npx playwright test tests/viewer-image-geometry-hold.spec.ts tests/viewer-animation.spec.ts tests/viewer-zoom-pan.spec.ts --project=chromium
+      - name: Commit validated attempt and remove temporary workflow
+        if: success()
+        shell: bash
+        run: |
+          rm .github/workflows/tmp-170-atomic-handoff.yml
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-image-geometry-hold.spec.ts .github/workflows/tmp-170-atomic-handoff.yml
+          git commit -m "fix(viewer): make image handoff visually atomic"
+          git push origin HEAD:fix/22-image-geometry-hold
