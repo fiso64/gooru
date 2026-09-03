@@ -44,7 +44,7 @@ func csrfMiddleware(cfg Config, store *AuthStore, next http.Handler) http.Handle
 			return
 		}
 		auth, ok := currentAuth(r.Context())
-		if !ok || store == nil || !store.VerifyCSRF(auth, r.Header.Get("X-Gooru-CSRF")) {
+		if !ok || store == nil || !store.VerifyCSRFToken(auth, r.Header.Get("X-Gooru-CSRF")) {
 			writeError(w, http.StatusForbidden, "csrf_required", "valid CSRF token required", nil)
 			return
 		}
