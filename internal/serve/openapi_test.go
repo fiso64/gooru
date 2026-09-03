@@ -72,6 +72,16 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 	assertResponseRef(t, spec, "/uploads", "post", "503", "#/components/responses/ServiceUnavailable")
 	assertResponseSchemaRef(t, spec, "/upload-targets", "get", "200", "#/components/schemas/UploadTargetsResponse")
 	assertResponseSchemaRef(t, spec, "/search/suggestions", "get", "200", "#/components/schemas/SuggestionsResponse")
+	suggestionRequired := stringSlice(t, schema(t, spec, "SuggestionsResponse")["required"])
+	if !containsString(suggestionRequired, "meta_tags") {
+		t.Fatalf("SuggestionsResponse must require meta_tags, got %+v", suggestionRequired)
+	}
+	metaTagProps := stringMap(t, schema(t, spec, "MetaTag")["properties"])
+	for _, field := range []string{"name", "syntax", "hint", "requires_value"} {
+		if _, ok := metaTagProps[field]; !ok {
+			t.Fatalf("MetaTag schema missing %q", field)
+		}
+	}
 	assertResponseSchemaRef(t, spec, "/tags/namespaces", "get", "200", "#/components/schemas/NamespacesResponse")
 	assertResponseSchemaRef(t, spec, "/saved-searches", "get", "200", "#/components/schemas/SavedSearchesResponse")
 	assertResponseSchemaRef(t, spec, "/saved-searches", "post", "201", "#/components/schemas/SavedSearch")

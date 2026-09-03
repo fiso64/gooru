@@ -9,6 +9,7 @@ export type FileRemovalResponse = components['schemas']['FileRemovalResponse'];
 export type ComicPage = components['schemas']['ComicPage'];
 export type ComicManifest = components['schemas']['ComicManifest'];
 export type TagItem = components['schemas']['Tag'];
+export type MetaTagDefinition = components['schemas']['MetaTag'];
 export type SuggestionsResponse = components['schemas']['SuggestionsResponse'];
 export type TagListResponse = components['schemas']['TagListResponse'];
 export type NamespacesResponse = components['schemas']['NamespacesResponse'];

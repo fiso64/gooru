@@ -403,6 +403,7 @@
     comicCount={comicCountQuery.data?.total_count ?? 0}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
+    metaTags={suggestionsQuery.data?.meta_tags ?? []}
     tags={tagsQuery.data?.tags ?? []}
     search={$searchDraft}
     onRoute={setRoute}

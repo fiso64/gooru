@@ -8,6 +8,7 @@
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
   type SuggestionLike = { name: string; value?: string; count?: number };
+  type MetaTagLike = { syntax: string; hint: string; requires_value: boolean };
   type SuggestionItem = {
     kind: 'namespace' | 'tag' | 'valueless' | 'value' | 'special';
     commit: string;
@@ -22,12 +23,14 @@
   let {
     value,
     suggestions,
+    metaTags,
     tags,
     onDraftInput,
     onCommit
   } = $props<{
     value: string;
     suggestions: SuggestionLike[];
+    metaTags: MetaTagLike[];
     tags: TagLike[];
     onDraftInput: (value: string) => void;
     onCommit: (value: string) => void;
@@ -42,8 +45,7 @@
   let lastSyncedValue = $state('');
 
   const tagItems = $derived(normalizeTags(tags, suggestions));
-  const metaTagItems = $derived(suggestions.filter((item) => item.name.startsWith('@')));
-  const groups = $derived(computeSuggestions(draft, tokens, tagItems, metaTagItems));
+  const groups = $derived(computeSuggestions(draft, tokens, tagItems, metaTags));
   const flat = $derived(groups.flatMap((group) => group.items.map((item) => ({ ...item, group: group.head }))));
 
   $effect(() => {
@@ -102,7 +104,7 @@
     draftValue: string,
     currentTokens: SearchToken[],
     items: Array<{ tag: string; count: number }>,
-    metaTags: SuggestionLike[]
+    metaTags: MetaTagLike[]
   ): SuggestionGroup[] {
     const tokenStrings = new Set(currentTokens.map(searchTokenToString));
     const takenPositiveTags = new Set(

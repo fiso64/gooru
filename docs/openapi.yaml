@@ -1408,14 +1408,31 @@ components:
           enum: [untrack, delete]
         removed_locations:
           type: integer
+    MetaTag:
+      type: object
+      required: [name, syntax, hint, requires_value]
+      properties:
+        name:
+          type: string
+        syntax:
+          type: string
+        hint:
+          type: string
+        requires_value:
+          type: boolean
     SuggestionsResponse:
       type: object
-      required: [items]
+      required: [items, meta_tags]
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/Tag"
+        meta_tags:
+          type: array
+          description: Complete backend-owned catalog of supported query metatags.
+          items:
+            $ref: "#/components/schemas/MetaTag"
     NamespacesResponse:
       type: object
       required: [items]
