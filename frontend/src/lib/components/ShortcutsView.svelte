@@ -10,7 +10,6 @@
     {
       name: 'Navigation',
       items: [
-        { keys: ['/'], description: 'Focus search' },
         { keys: ['1–9'], description: 'Open the matching visible sidebar item' },
         { keys: ['?'], description: 'Show shortcuts' }
       ]
