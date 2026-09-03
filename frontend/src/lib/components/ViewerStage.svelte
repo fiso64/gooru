@@ -176,7 +176,7 @@
     const nextFile = renderedFile;
     renderedImageSource;
     const rendersImage = nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
-    // Image geometry stays at the last painted dimensions until the target image loads.
+    // Image transitions install target metadata geometry while the presentation shield preserves old pixels separately.
     // Non-image media waits for its own metadata path and starts with no image geometry.
     if (!rendersImage) {
       intrinsicWidth = 0;
