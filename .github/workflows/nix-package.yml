@@ -1,0 +1,30 @@
+name: Nix package
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/nix-package.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/nix-package.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Build packaged application
+        run: nix build .#packages.x86_64-linux.default --print-build-logs
