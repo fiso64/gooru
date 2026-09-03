@@ -1,0 +1,55 @@
+name: Maintainer 233 database patch
+
+on:
+  push:
+    branches:
+      - fix/233-sqlite-upload-jobs
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[maintainer-db-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/233-sqlite-upload-jobs
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Scope busy timeout to Gooru store connections
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          old_comments = '''\t// Add `_journal=WAL` for better concurrency, though it's less critical for a CLI tool.\n\t// Add `_foreign_keys=on` to enforce foreign key constraints.\n'''
+          new_comments = '''\t// Add `_journal=WAL` for better concurrency.\n\t// Add `_busy_timeout=5000` so transient writer contention waits instead of failing immediately.\n\t// Add `_foreign_keys=on` to enforce foreign key constraints.\n'''
+          old_open = 'sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL", dataSourceName))'
+          new_open = 'sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL&_busy_timeout=5000", dataSourceName))'
+          if text.count(old_comments) != 1 or text.count(old_open) != 1:
+              raise SystemExit('expected NewStore source pattern not found exactly once')
+          text = text.replace(old_comments, new_comments).replace(old_open, new_open)
+          path.write_text(text)
+          PY
+          rm internal/database/sqlite_concurrency.go
+          rm .github/workflows/maintainer-233-db-patch.yml
+          gofmt -w internal/database/database.go internal/database/sqlite_concurrency_test.go
+      - name: Validate Go
+        run: |
+          go test ./internal/database
+          go test ./...
+          go build ./...
+      - name: Commit validated patch
+        run: |
+          git config user.name "fiso64"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(database): scope busy timeout to store connections [maintainer-db-patched]"
+          git push origin HEAD:fix/233-sqlite-upload-jobs
