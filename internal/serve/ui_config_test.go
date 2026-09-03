@@ -74,6 +74,7 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg := DefaultConfig(t.TempDir() + "/gooru.db")
 	cfg.UI.AccentColor = "#2f80ed"
 	cfg.Media.LoadFullByDefault = true
+	cfg.Media.ThumbnailSizes = []int{128, 384, 768}
 	cfg.UI.GridSize = 240
 	server := NewServer(cfg)
 	rec := httptest.NewRecorder()
@@ -90,5 +91,8 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"grid_size":240`) {
 		t.Fatalf("response missing grid size: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"thumbnail_sizes":[128,384,768]`) {
+		t.Fatalf("response missing thumbnail sizes: %s", rec.Body.String())
 	}
 }

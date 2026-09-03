@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { mediaDimensions, mediaDuration } from '$lib/utils/format';
+  import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -17,7 +19,17 @@
     onToggleSelect: (file: FileItem, range: boolean) => void;
   }>();
 
+  let cardElement = $state<HTMLElement | undefined>();
+  let cardWidth = $state(0);
+  let pixelRatio = $state(1);
+
   const extensionLabel = $derived(fileExtension(file.name));
+  const thumbnailSource = $derived(thumbnailURL(
+    file.media_urls.thumbnail,
+    $runtimeConfig.thumbnailSizes,
+    cardWidth || $runtimeConfig.gridSize,
+    pixelRatio
+  ));
 
   function fileExtension(name: string) {
     const baseName = name.split(/[\\/]/).pop() ?? name;
@@ -25,6 +37,28 @@
     if (dot <= 0 || dot === baseName.length - 1) return '';
     return baseName.slice(dot + 1).toUpperCase();
   }
+
+  function thumbnailURL(base: string, sizes: number[], cssWidth: number, dpr: number) {
+    if (!sizes.length) return base;
+    const sorted = [...sizes].filter((size) => Number.isFinite(size) && size > 0).sort((a, b) => a - b);
+    if (!sorted.length) return base;
+    const required = Math.max(1, cssWidth) * Math.max(1, dpr);
+    const selectedSize = sorted.find((size) => size >= required) ?? sorted[sorted.length - 1];
+    const separator = base.includes('?') ? '&' : '?';
+    return `${base}${separator}size=${selectedSize}`;
+  }
+
+  onMount(() => {
+    pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+    if (!cardElement) return;
+    const updateWidth = () => {
+      cardWidth = cardElement?.getBoundingClientRect().width ?? 0;
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(cardElement);
+    return () => observer.disconnect();
+  });
 
   function openOrSelect(event: MouseEvent) {
     if (selectionActive || event.shiftKey || event.metaKey || event.ctrlKey) {
@@ -49,7 +83,7 @@
   }
 </script>
 
-<article class={`thumb${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`}>
+<article bind:this={cardElement} class={`thumb${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`}>
   <button
     class="thumb-open"
     type="button"
@@ -57,7 +91,7 @@
     onclick={openOrSelect}
     onkeydown={handleKeyboardAction}
   >
-    <img src={file.media_urls.thumbnail} alt={file.name} loading="lazy" decoding="async" draggable="false" />
+    <img src={thumbnailSource} alt={file.name} loading="lazy" decoding="async" draggable="false" />
     <span class="thumb-overlay"></span>
     <span class="thumb-badges">
       {#if file.media_kind === 'video'}

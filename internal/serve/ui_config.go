@@ -7,6 +7,7 @@ type UIConfigResponse struct {
 	FontStyle              string `json:"font_style"`
 	LoadFullMediaByDefault bool   `json:"load_full_media_by_default"`
 	GridSize               int    `json:"grid_size"`
+	ThumbnailSizes         []int  `json:"thumbnail_sizes"`
 }
 
 func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
@@ -15,5 +16,6 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		FontStyle:              s.cfg.UI.FontStyle,
 		LoadFullMediaByDefault: s.cfg.Media.LoadFullByDefault,
 		GridSize:               s.cfg.UI.GridSize,
+		ThumbnailSizes:         s.cfg.Media.ThumbnailSizes,
 	})
 }

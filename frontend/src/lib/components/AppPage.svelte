@@ -10,7 +10,13 @@
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
 
   type FontStyle = 'editorial' | 'modern' | 'comic';
-  type UIConfig = { accent_color?: string; font_style?: FontStyle; load_full_media_by_default?: boolean; grid_size?: number };
+  type UIConfig = {
+    accent_color?: string;
+    font_style?: FontStyle;
+    load_full_media_by_default?: boolean;
+    grid_size?: number;
+    thumbnail_sizes?: number[];
+  };
 
   let loginUsername = $state('');
   let loginPassword = $state('');
@@ -25,7 +31,11 @@
     runtimeAccent = accentTheme(config.accent_color ?? '');
     runtimeFontStyle = config.font_style ?? 'editorial';
     runtimeGridSize = config.grid_size ?? defaultGridSize;
-    runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false, gridSize: runtimeGridSize });
+    runtimeConfig.set({
+      loadFullMediaByDefault: config.load_full_media_by_default ?? false,
+      gridSize: runtimeGridSize,
+      thumbnailSizes: config.thumbnail_sizes ?? []
+    });
     faviconHref = '/favicon.svg';
     if (!runtimeAccent) return;
 
