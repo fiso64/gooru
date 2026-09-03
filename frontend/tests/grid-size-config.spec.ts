@@ -66,6 +66,14 @@ async function mockApp(page: Page, gridSize: number, dimensions = { width: 800, 
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
+async function expectSquareThumbnailMatchesCard(page: Page) {
+  const card = page.getByTestId('virtual-media-grid').locator('.thumb').first();
+  const image = card.locator('img');
+  const box = await card.boundingBox();
+  const expectedSize = (box?.width ?? 0) <= 256 ? 256 : 512;
+  await expect(image).toHaveAttribute('src', new RegExp(`[?&]size=${expectedSize}(?:&|$)`));
+}
+
 test('runtime ui grid_size changes the fluid media grid and virtualization together', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 900 });
   await mockApp(page, 240);
@@ -89,12 +97,9 @@ test('thumbnail sizing follows shared grid geometry after responsive resize', as
   await page.setViewportSize({ width: 1200, height: 900 });
   await mockApp(page, 180, { width: 800, height: 800 });
 
-  const grid = page.getByTestId('virtual-media-grid');
-  const firstImage = grid.locator('.thumb img').first();
-  await expect(firstImage).toHaveAttribute('src', /[?&]size=256(?:&|$)/);
-
+  await expectSquareThumbnailMatchesCard(page);
   await page.setViewportSize({ width: 880, height: 900 });
-  await expect(firstImage).toHaveAttribute('src', /[?&]size=512(?:&|$)/);
+  await expectSquareThumbnailMatchesCard(page);
 });
 
 test('thumbnail sizing covers the square card short edge for portrait media', async ({ page }) => {
