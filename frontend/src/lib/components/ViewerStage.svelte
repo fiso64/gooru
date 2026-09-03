@@ -327,7 +327,7 @@
 
     if (event.ctrlKey) {
       event.preventDefault();
-      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.007)));
+      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.0075)));
       if (Math.abs(nextZoom - zoom) < 0.0001) return;
       const rect = stage.getBoundingClientRect();
       const pointerX = event.clientX - (rect.left + rect.width / 2);
