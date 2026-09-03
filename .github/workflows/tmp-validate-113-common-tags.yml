@@ -28,6 +28,6 @@ jobs:
       - name: Install Chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
-      - name: Common tags browser regression
+      - name: Common tags browser regressions
         working-directory: frontend
-        run: npx playwright test tests/common-tags-sidebar.spec.ts --project=chromium
+        run: npx playwright test tests/common-tags-sidebar.spec.ts tests/common-tags-long-label.spec.ts --project=chromium
