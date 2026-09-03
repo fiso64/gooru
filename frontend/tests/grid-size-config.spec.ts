@@ -6,7 +6,7 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-async function mockApp(page: Page, gridSize: number) {
+async function mockApp(page: Page, gridSize: number, dimensions = { width: 800, height: 600 }) {
   const files = Array.from({ length: 8 }, (_, index) => ({
     id: `file-${index}`,
     content_id: `hash-${index}`,
@@ -16,7 +16,7 @@ async function mockApp(page: Page, gridSize: number) {
     modified_time: '2026-05-20T00:00:00Z',
     media_type: 'image/jpeg',
     media_kind: 'photo',
-    metadata: { image_width: 800, image_height: 600 },
+    metadata: { image_width: dimensions.width, image_height: dimensions.height },
     tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/file-${index}/thumbnail`,
@@ -83,4 +83,18 @@ test('runtime ui grid_size changes the fluid media grid and virtualization toget
   expect(firstBox?.width).toBeGreaterThanOrEqual(240);
 
   await expect(cards.first().locator('img')).toHaveAttribute('src', /[?&]size=512(?:&|$)/);
+});
+
+test('thumbnail sizing covers the square card short edge for portrait media', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await mockApp(page, 180, { width: 600, height: 900 });
+
+  const card = page.getByTestId('virtual-media-grid').locator('.thumb').first();
+  const box = await card.boundingBox();
+  expect(box?.width).toBeGreaterThan(170);
+  expect(box?.width).toBeLessThan(256);
+
+  // A 256 max-edge derivative of a 2:3 portrait is only ~171px wide and
+  // would be upscaled by object-fit: cover. The 512 derivative covers it.
+  await expect(card.locator('img')).toHaveAttribute('src', /[?&]size=512(?:&|$)/);
 });
