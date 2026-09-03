@@ -1,12 +1,17 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
   import JobsDrawer from './JobsDrawer.svelte';
   import Logo from './Logo.svelte';
   import SearchBar from './SearchBar.svelte';
   import type { Job } from '$lib/api/types';
+  import { readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
+
+  const commonTagsCollapsedKey = 'common-tags.collapsed';
+  const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
 
   let {
     username,
@@ -72,7 +77,12 @@
     { key: 'gif', label: 'GIFs', icon: 'gif' }
   ];
 
+  let commonTagsCollapsed = $state(false);
   const commonTags = $derived(normalizeCommonTags(tags).slice(0, 20));
+
+  onMount(() => {
+    commonTagsCollapsed = readBrowserPreference(commonTagsCollapsedKey, false, isBoolean);
+  });
 
   function kindCount(kind: string) {
     return kindCounts.find((item: { value: string; count: number }) => item.value === kind)?.count ?? 0;
@@ -86,6 +96,16 @@
       }))
       .filter((item) => item.tag)
       .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }
+
+  function commonTagRankPercent(index: number) {
+    if (commonTags.length <= 1) return 100;
+    return Math.round((1 - index / (commonTags.length - 1)) * 100);
+  }
+
+  function toggleCommonTags() {
+    commonTagsCollapsed = !commonTagsCollapsed;
+    writeBrowserPreference(commonTagsCollapsedKey, commonTagsCollapsed);
   }
 
   function openLibrary() {
@@ -218,14 +238,31 @@
 
     {#if commonTags.length}
       <div class="sidebar-section common-tags-section">
-        <div class="sidebar-section-head">Common tags</div>
-        {#each commonTags as item}
-          <button class="sidebar-item" type="button" onclick={() => openCommonTag(item.tag)}>
-            <Icon name="tags" size={14} />
-            <span class="truncate">{item.tag}</span>
-            <span class="count">{item.count.toLocaleString()}</span>
-          </button>
-        {/each}
+        <button
+          class="sidebar-section-head common-tags-toggle"
+          type="button"
+          aria-expanded={!commonTagsCollapsed}
+          aria-controls="common-tags-list"
+          aria-label={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+          onclick={toggleCommonTags}
+        >
+          <span>Common tags</span>
+          <span class:expanded={!commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={11} /></span>
+        </button>
+        <div id="common-tags-list" class:collapsed={commonTagsCollapsed} class="common-tags-list">
+          {#each commonTags as item, index}
+            <button
+              class="sidebar-item common-tag-item"
+              style={`--common-tag-rank: ${commonTagRankPercent(index)}%`}
+              type="button"
+              onclick={() => openCommonTag(item.tag)}
+            >
+              <Icon name="tags" size={14} />
+              <span class="truncate">{item.tag}</span>
+              <span class="count">{item.count.toLocaleString()}</span>
+            </button>
+          {/each}
+        </div>
       </div>
     {/if}
 
@@ -243,3 +280,40 @@
 
   {@render children()}
 </div>
+
+<style>
+  .common-tags-toggle {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .common-tags-chevron {
+    display: inline-flex;
+    transition: transform 0.1s ease;
+  }
+
+  .common-tags-chevron.expanded {
+    transform: rotate(90deg);
+  }
+
+  .common-tags-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .common-tags-list.collapsed {
+    display: none;
+  }
+
+  .common-tag-item {
+    color: color-mix(in srgb, var(--text-2) var(--common-tag-rank), var(--text-4));
+  }
+
+  .common-tag-item:hover {
+    color: var(--text);
+  }
+</style>
