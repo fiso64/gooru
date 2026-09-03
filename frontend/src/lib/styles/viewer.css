@@ -35,7 +35,7 @@
 
 /* Keep rotation/fade transitions, but do not tween media dimensions between files. */
 .viewer-stage .viewer-visual-media {
-  transition-property: transform, filter, opacity !important;
+  transition-property: filter, opacity !important;
 }
 
 /* Viewer display controls remain keyboard-driven; keep chrome out of the media surface. */

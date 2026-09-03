@@ -299,7 +299,7 @@
 
     if (event.ctrlKey) {
       event.preventDefault();
-      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.002)));
+      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.005)));
       if (Math.abs(nextZoom - zoom) < 0.0001) return;
       const rect = stage.getBoundingClientRect();
       const pointerX = event.clientX - (rect.left + rect.width / 2);
@@ -546,7 +546,7 @@
 
   :global(.viewer-stage .viewer-visual-media) {
     object-fit: contain;
-    transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
+    transition: filter 120ms ease, opacity 120ms ease;
   }
 
   :global(.viewer-stage .viewer-audio-stage) {
