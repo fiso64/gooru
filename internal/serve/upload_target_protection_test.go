@@ -99,6 +99,21 @@ func TestValidateRejectsFuturePathOverlapBelowSymlinkedParent(t *testing.T) {
 	}
 }
 
+func TestValidateFailsClosedWhenProtectedPathCannotBeResolved(t *testing.T) {
+	dir := t.TempDir()
+	loop := filepath.Join(dir, "loop")
+	if err := os.Symlink(loop, loop); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	cfg := validConfigWithUploadTarget(t, filepath.Join(dir, "uploads"))
+	cfg.Database.Path = filepath.Join(loop, "gooru.db")
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "cannot safely resolve filesystem path") {
+		t.Fatalf("expected unresolved protected path to fail closed, got %v", err)
+	}
+}
+
 func TestValidateAllowsSeparatedApplicationAndUploadPaths(t *testing.T) {
 	dir := t.TempDir()
 	cfg := validConfigWithUploadTarget(t, filepath.Join(dir, "uploads"))
