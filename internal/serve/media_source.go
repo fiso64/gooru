@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,15 +25,24 @@ type openedMediaSource struct {
 
 func (m *MediaService) openMediaSource(path string) (*openedMediaSource, error) {
 	if m.cfg.Encryption.Enabled {
-		file, err := encryptedfile.Open(path, m.cfg.Encryption.Key)
+		encrypted, err := encryptedfile.IsEncryptedFile(path)
 		if err != nil {
 			return nil, err
 		}
-		return &openedMediaSource{
-			mediaReadSource: file,
-			size:            file.Size(),
-			modTime:         file.ModTime(),
-		}, nil
+		if encrypted {
+			file, err := encryptedfile.Open(path, m.cfg.Encryption.Key)
+			if err != nil {
+				return nil, err
+			}
+			return &openedMediaSource{
+				mediaReadSource: file,
+				size:            file.Size(),
+				modTime:         file.ModTime(),
+			}, nil
+		}
+		if IsManagedUploadPath(m.cfg.Uploads.Targets, path) {
+			return nil, fmt.Errorf("protected upload is not encrypted: %w", encryptedfile.ErrInvalidFormat)
+		}
 	}
 
 	file, err := os.Open(path)
@@ -47,6 +57,10 @@ func (m *MediaService) openMediaSource(path string) (*openedMediaSource, error) 
 	if info.IsDir() {
 		_ = file.Close()
 		return nil, fmt.Errorf("media source is a directory")
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, errors.New("media source is not a regular file")
 	}
 	return &openedMediaSource{
 		mediaReadSource: file,
