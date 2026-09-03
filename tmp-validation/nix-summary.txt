@@ -1,0 +1,12 @@
+  /nix/store/q0j737gl3w4rr6jg2cxfqq6fka525v2p-gooru-frontend-0-unstable-npm-deps.drv
+  /nix/store/7z6hgj0cmzhydz4z32m13ivpsw3mzjxm-prefetch-npm-deps-0.1.0
+copying path '/nix/store/7z6hgj0cmzhydz4z32m13ivpsw3mzjxm-prefetch-npm-deps-0.1.0' from 'https://cache.nixos.org'...
+building '/nix/store/q0j737gl3w4rr6jg2cxfqq6fka525v2p-gooru-frontend-0-unstable-npm-deps.drv'...
+gooru-frontend> shrinking RPATHs of ELF executables and libraries in /nix/store/y9fbkwylbdkk81ym86gsgfs5x1zc1afg-gooru-frontend-0-unstable-npm-deps
+gooru-frontend> checking for references to /build/ in /nix/store/y9fbkwylbdkk81ym86gsgfs5x1zc1afg-gooru-frontend-0-unstable-npm-deps...
+gooru-frontend> patching script interpreter paths in /nix/store/y9fbkwylbdkk81ym86gsgfs5x1zc1afg-gooru-frontend-0-unstable-npm-deps
+error: hash mismatch in fixed-output derivation '/nix/store/q0j737gl3w4rr6jg2cxfqq6fka525v2p-gooru-frontend-0-unstable-npm-deps.drv':
+         specified: sha256-k3d4Md1NQZfYO/dq1xzv5U8B5NRNhsAFPAv5BNkNVXM=
+            got:    sha256-IwmulF0IrBA//GfuVagDZF4pZqFSOW9fHk0t0xmHWfU=
+error: Cannot build '/nix/store/ppbd5jvbr218nzd9figh8hvw3i9v0ljc-gooru-frontend-0-unstable.drv'.
+error: Cannot build '/nix/store/p70x0ddywv4lrjs7nxpr73ri4zg8y2i0-gooru-0-unstable.drv'.
