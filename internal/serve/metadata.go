@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"image"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -31,6 +32,15 @@ type MediaMetadataProvider interface {
 	Metadata(ctx context.Context, file types.FileInfo, mediaType string, mediaKind string) (MediaMetadata, error)
 }
 
+// MediaMetadataSourceProvider extends MediaMetadataProvider for callers that
+// already have authenticated plaintext bytes but intentionally do not have a
+// plaintext filesystem path. The logical file metadata is still passed
+// separately so classification and storage identity remain path-based.
+type MediaMetadataSourceProvider interface {
+	MediaMetadataProvider
+	MetadataFromSource(ctx context.Context, file types.FileInfo, source io.ReaderAt, size int64, mediaType string, mediaKind string) (MediaMetadata, error)
+}
+
 type BasicMediaMetadataProvider struct {
 	FFprobePath string
 }
@@ -48,6 +58,30 @@ func (p BasicMediaMetadataProvider) Metadata(ctx context.Context, file types.Fil
 		return p.imageMetadata(ctx, file)
 	case "video":
 		return p.videoMetadata(ctx, file)
+	default:
+		return MediaMetadata{}, nil
+	}
+}
+
+func (p BasicMediaMetadataProvider) MetadataFromSource(ctx context.Context, file types.FileInfo, source io.ReaderAt, size int64, mediaType string, mediaKind string) (MediaMetadata, error) {
+	if err := ctx.Err(); err != nil {
+		return MediaMetadata{}, err
+	}
+	if source == nil || size < 0 {
+		return MediaMetadata{}, nil
+	}
+	reader := io.NewSectionReader(source, 0, size)
+	switch mediaKind {
+	case "photo", "gif":
+		cfg, _, err := image.DecodeConfig(reader)
+		if err != nil {
+			return MediaMetadata{}, err
+		}
+		width := cfg.Width
+		height := cfg.Height
+		return MediaMetadata{ImageWidth: &width, ImageHeight: &height}, nil
+	case "video":
+		return p.videoMetadataFromReader(ctx, reader)
 	default:
 		return MediaMetadata{}, nil
 	}
@@ -75,15 +109,28 @@ func (p BasicMediaMetadataProvider) videoMetadata(ctx context.Context, file type
 	if strings.TrimSpace(p.FFprobePath) == "" {
 		return MediaMetadata{}, nil
 	}
+	return p.runFFprobe(ctx, file.Path, nil)
+}
+
+func (p BasicMediaMetadataProvider) videoMetadataFromReader(ctx context.Context, source io.Reader) (MediaMetadata, error) {
+	if strings.TrimSpace(p.FFprobePath) == "" {
+		return MediaMetadata{}, nil
+	}
+	return p.runFFprobe(ctx, "pipe:0", source)
+}
+
+func (p BasicMediaMetadataProvider) runFFprobe(ctx context.Context, input string, stdin io.Reader) (MediaMetadata, error) {
 	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(probeCtx, p.FFprobePath,
+	cmd := exec.CommandContext(probeCtx, p.FFprobePath,
 		"-v", "error",
 		"-select_streams", "v:0",
 		"-show_entries", "stream=width,height,duration,nb_frames:format=duration",
 		"-of", "json",
-		file.Path,
-	).Output()
+		input,
+	)
+	cmd.Stdin = stdin
+	out, err := cmd.Output()
 	if err := ctx.Err(); err != nil {
 		return MediaMetadata{}, err
 	}
