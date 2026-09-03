@@ -48,7 +48,7 @@ jobs:
           s = s.replace(old, new, 1)
 
           old = """  function syncImage(event: Event) {\n    const image = event.currentTarget;\n    if (!(image instanceof HTMLImageElement)) return;\n    intrinsicWidth = image.naturalWidth;\n    intrinsicHeight = image.naturalHeight;\n\n    // `load` can run before"""
-          new = """  function syncImage(event: Event) {\n    const image = event.currentTarget;\n    if (!(image instanceof HTMLImageElement)) return;\n    intrinsicWidth = image.naturalWidth;\n    intrinsicHeight = image.naturalHeight;\n    const generation = transitionGeneration;\n    traceViewerFrames('image-load', generation);\n    if (viewerDebugEnabled()) {\n      void image.decode().then(\n        () => traceViewerFrames('image-decode', generation, 6),\n        () => traceViewerFrames('image-decode-error', generation, 2)\n      );\n    }\n\n    // `load` can run before"""
+          new = """  function syncImage(event: Event) {\n    const image = event.currentTarget;\n    if (!(image instanceof HTMLImageElement)) return;\n    intrinsicWidth = image.naturalWidth;\n    intrinsicHeight = image.naturalHeight;\n    const transitionAtLoad = transitionGeneration;\n    traceViewerFrames('image-load', transitionAtLoad);\n    if (viewerDebugEnabled()) {\n      void image.decode().then(\n        () => traceViewerFrames('image-decode', transitionAtLoad, 6),\n        () => traceViewerFrames('image-decode-error', transitionAtLoad, 2)\n      );\n    }\n\n    // `load` can run before"""
           if old not in s:
               raise SystemExit('syncImage anchor not found')
           s = s.replace(old, new, 1)
