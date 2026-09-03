@@ -2,4 +2,5 @@
 @import './lib/styles/base.css';
 @import './lib/styles/layout.css';
 @import './lib/styles/components.css';
+@import './lib/styles/common-tags.css';
 @import './lib/styles/viewer.css';

@@ -37,21 +37,44 @@ async function mockApp(page: Page, fileQueries: string[]) {
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
 }
 
-test('shows the 20 most common tags after saved searches and runs a tag search', async ({ page }) => {
+test('common tags rank visually, persist collapse state, and run a tag search', async ({ page }) => {
   const fileQueries: string[] = [];
   await mockApp(page, fileQueries);
   await page.goto('/');
 
-  const common = page.locator('.common-tags-section');
+  let common = page.locator('.common-tags-section');
   await expect(common.getByText('Common tags')).toBeVisible();
   await expect(page.locator('.saved-searches-section + .common-tags-section')).toHaveCount(1);
-  await expect(common.locator('button.sidebar-item')).toHaveCount(20);
-  await expect(common.locator('button.sidebar-item').first()).toContainText('artist:alice');
-  await expect(common.locator('button.sidebar-item').first()).toContainText('99');
+
+  let rows = common.locator('button.common-tag-item');
+  await expect(rows).toHaveCount(20);
+  await expect(rows.first()).toContainText('artist:alice');
+  await expect(rows.first()).toContainText('99');
   await expect(common.getByRole('button', { name: /tag-24 24/ })).toBeVisible();
   await expect(common.getByRole('button', { name: /tag-06 6/ })).toBeVisible();
   await expect(common.getByText('tag-05', { exact: true })).toHaveCount(0);
 
-  await common.locator('button.sidebar-item').first().click();
+  await expect(rows.first()).toHaveAttribute('style', /--common-tag-rank: 100%/);
+  await expect(rows.last()).toHaveAttribute('style', /--common-tag-rank: 0%/);
+  const firstColor = await rows.first().evaluate((node) => getComputedStyle(node).color);
+  const lastColor = await rows.last().evaluate((node) => getComputedStyle(node).color);
+  expect(firstColor).not.toBe(lastColor);
+
+  await common.getByRole('button', { name: 'Collapse Common tags' }).click();
+  await expect(common.locator('#common-tags-list')).not.toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('gooru.preference.v1.common-tags.collapsed'))).toBe('true');
+
+  await page.reload();
+  common = page.locator('.common-tags-section');
+  await expect(common.getByRole('button', { name: 'Expand Common tags' })).toBeVisible();
+  await expect(common.locator('#common-tags-list')).not.toBeVisible();
+
+  await common.getByRole('button', { name: 'Expand Common tags' }).click();
+  rows = common.locator('button.common-tag-item');
+  await expect(rows).toHaveCount(20);
+  await expect(rows.first()).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('gooru.preference.v1.common-tags.collapsed'))).toBe('false');
+
+  await rows.first().click();
   await expect.poll(() => fileQueries.includes('artist:alice')).toBe(true);
 });
