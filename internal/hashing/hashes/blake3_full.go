@@ -21,8 +21,8 @@ func HashSourceFull(source io.ReaderAt, size int64) (string, error) {
 		return "", fmt.Errorf("hash source size must be non-negative")
 	}
 	hasher := blake3.New()
-	if _, err := io.Copy(hasher, io.NewSectionReader(source, 0, size)); err != nil {
-		return "", err
+	if _, err := io.CopyN(hasher, io.NewSectionReader(source, 0, size), size); err != nil {
+		return "", fmt.Errorf("failed to read %d bytes from hash source: %w", size, err)
 	}
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
