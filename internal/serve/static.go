@@ -124,5 +124,18 @@ func safeJoin(root string, assetPath string) (string, bool) {
 	if fileAbs != rootAbs && !strings.HasPrefix(fileAbs, rootAbs+string(filepath.Separator)) {
 		return "", false
 	}
-	return fileAbs, true
+
+	rootResolved, err := filepath.EvalSymlinks(filepath.Clean(rootAbs))
+	if err != nil {
+		return "", false
+	}
+	fileResolved, err := filepath.EvalSymlinks(filepath.Clean(fileAbs))
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(rootResolved, fileResolved)
+	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return fileResolved, true
 }
