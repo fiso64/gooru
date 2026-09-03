@@ -289,7 +289,8 @@
     }
 
     // `load` can run before the new pixels have reached a composited frame. Keep the exact frozen
-    // old pixels through two paints, then uncover the already correctly-sized foreground image.
+    // old pixels through two paints while the correctly-sized target remains visually concealed,
+    // then atomically exchange the two presentations so old and new pixels are never exposed together.
     const generation = freezeGeneration;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       if (generation === freezeGeneration) freezeVisible = false;
@@ -637,7 +638,15 @@
           style={frozenStyle}
           aria-hidden="true"
         ></canvas>
-        <img bind:this={imageElement} class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
+        <img
+          bind:this={imageElement}
+          class="viewer-visual-media"
+          class:viewer-image-concealed={freezeVisible}
+          style={visualStyle}
+          src={renderedImageSource}
+          alt={renderedFile.name}
+          onload={syncImage}
+        />
       {/if}
     </div>
   </div>
@@ -712,6 +721,10 @@
 
   .viewer-image-freeze.visible {
     display: block;
+  }
+
+  :global(.viewer-stage .viewer-visual-media.viewer-image-concealed) {
+    visibility: hidden;
   }
 
   :global(.viewer-stage .viewer-audio-stage) {

@@ -94,6 +94,7 @@ test('different-aspect source handoff is covered by exact old pixels until targe
     return box ? box.width / box.height : 0;
   }).toBeGreaterThan(1.3);
   await expect(freeze).toBeVisible();
+  await expect(media).toHaveCSS('visibility', 'hidden');
   const frozen = await freeze.boundingBox();
   expect(frozen).not.toBeNull();
   expect(Math.abs(frozen!.width - before!.width)).toBeLessThan(0.5);
@@ -111,6 +112,7 @@ test('different-aspect source handoff is covered by exact old pixels until targe
 
   releaseLandscape();
   await expect(freeze).toBeHidden();
+  await expect(media).toHaveCSS('visibility', 'visible');
   await expect.poll(async () => {
     const box = await media.boundingBox();
     return box ? box.width / box.height : 0;
