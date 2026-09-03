@@ -11,5 +11,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v19
-      - name: Check flake
-        run: nix flake check --no-write-lock-file --print-build-logs
+      - name: Check package and module
+        run: |
+          nix flake lock
+          cat flake.lock
+          nix flake check --print-build-logs
+          nix eval --raw --impure --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              system = flake.inputs.nixpkgs.lib.nixosSystem {
+                system = builtins.currentSystem;
+                modules = [
+                  flake.nixosModules.default
+                  ({ ... }: {
+                    system.stateVersion = "26.05";
+                    services.gooru.enable = true;
+                  })
+                ];
+              };
+            in system.config.systemd.services.gooru.serviceConfig.ExecStart
+          '
