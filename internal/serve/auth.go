@@ -175,7 +175,7 @@ func requestBodyLimitMiddleware(limit int64, next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Body == nil || r.Body == http.NoBody {
+		if !isMutatingMethod(r.Method) || r.Body == nil || r.Body == http.NoBody {
 			next.ServeHTTP(w, r)
 			return
 		}
