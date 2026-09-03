@@ -86,7 +86,7 @@ func TestEncryptStreamProducesStandardEncryptedFile(t *testing.T) {
 			if int64(len(stored)) != wantStoredSize {
 				t.Fatalf("stored size = %d, want %d", len(stored), wantStoredSize)
 			}
-			if len(plaintext) >= 64 && bytes.Contains(stored, plaintext[len(plaintext)/2:len(plaintext)/2+64]) {
+			if len(plaintext) >= 64 && bytes.Contains(stored, plaintext[:64]) {
 				t.Fatal("streamed ciphertext contains a distinctive plaintext segment")
 			}
 		})
