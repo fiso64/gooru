@@ -82,11 +82,10 @@ type UploadTarget struct {
 }
 
 type MediaConfig struct {
-	CacheDir          string `yaml:"cache_dir"`
-	ThumbnailSizes    []int  `yaml:"thumbnail_sizes"`
-	ThumbnailFormat   string `yaml:"thumbnail_format"`
-	PreviewSize       int    `yaml:"preview_size"`
-	LoadFullByDefault bool   `yaml:"load_full_by_default"`
+	CacheDir        string `yaml:"cache_dir"`
+	ThumbnailSizes  []int  `yaml:"thumbnail_sizes"`
+	ThumbnailFormat string `yaml:"thumbnail_format"`
+	PreviewSize     int    `yaml:"preview_size"`
 }
 
 type JobsConfig struct {
@@ -107,9 +106,10 @@ type LoggingConfig struct {
 }
 
 type UIConfig struct {
-	AccentColor string `yaml:"accent_color"`
-	FontStyle   string `yaml:"font_style"`
-	GridSize    int    `yaml:"grid_size"`
+	AccentColor            string `yaml:"accent_color"`
+	FontStyle              string `yaml:"font_style"`
+	GridSize               int    `yaml:"grid_size"`
+	LoadFullMediaByDefault bool   `yaml:"load_full_media_by_default"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
