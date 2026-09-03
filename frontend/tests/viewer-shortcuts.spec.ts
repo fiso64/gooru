@@ -87,6 +87,14 @@ test('viewer shortcuts switch tag modes and dispatch file actions', async ({ pag
   const preview = page.getByRole('dialog', { name: 'one.jpg' });
   await expect(preview).toBeVisible();
 
+  await page.keyboard.press('?');
+  const shortcuts = page.getByRole('dialog', { name: 'Shortcuts' });
+  await expect(shortcuts).toBeVisible();
+  await expect(preview).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(shortcuts).toHaveCount(0);
+  await expect(preview).toBeVisible();
+
   await page.keyboard.press('u');
   const untagInput = page.getByRole('textbox', { name: 'Remove tags from one.jpg' });
   await expect(untagInput).toBeFocused();
