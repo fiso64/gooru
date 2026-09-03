@@ -1,0 +1,305 @@
+name: Temporary #170 presentation shield validation
+
+on:
+  push:
+    branches:
+      - fix/22-image-geometry-hold
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/22-image-geometry-hold
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply materially different presentation experiment
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/lib/components/ViewerStage.svelte')
+          text = path.read_text()
+          text = text.replace(
+          "  let panViewportElement = $state<HTMLDivElement | undefined>();\n  let videoElement = $state<HTMLVideoElement | undefined>();",
+          "  let panViewportElement = $state<HTMLDivElement | undefined>();\n  let imageElement = $state<HTMLImageElement | undefined>();\n  let freezeCanvasElement = $state<HTMLCanvasElement | undefined>();\n  let freezeVisible = $state(false);\n  let frozenStyle = $state('');\n  let freezeGeneration = 0;\n  let videoElement = $state<HTMLVideoElement | undefined>();"
+          )
+          old = """    if (rendersImage) {
+      // Foreground images should enter the browser's native loading/decoding pipeline immediately.
+      // Keep the currently painted image geometry until the target's load event updates natural
+      // dimensions. Applying target metadata before those pixels are ready visibly resizes the old
+      // bitmap during the network/decode gap when aspect ratios differ.
+      displayedFile = targetFile;
+      displayedImageSource = targetImageSource;
+      return;
+    }
+"""
+          new = """    if (rendersImage) {
+      // A single <img> cannot preserve both sides of an aspect-ratio handoff: keeping old geometry
+      // makes the first target pixels letterbox inside the old box, while applying target geometry
+      // can resize pixels the browser is still retaining from the old source. Freeze the already
+      // painted frame into a canvas before changing either property, then let the real foreground
+      // image enter the browser's native loading/presentation path immediately with target geometry.
+      freezePresentedImage();
+      const metadataWidth = targetFile.metadata?.image_width ?? 0;
+      const metadataHeight = targetFile.metadata?.image_height ?? 0;
+      if (metadataWidth > 0 && metadataHeight > 0) {
+        intrinsicWidth = metadataWidth;
+        intrinsicHeight = metadataHeight;
+      }
+      displayedFile = targetFile;
+      displayedImageSource = targetImageSource;
+      return;
+    }
+"""
+          if old not in text:
+              raise SystemExit('image transition snippet not found')
+          text = text.replace(old, new)
+
+          old = """  function syncImage(event: Event) {
+    const image = event.currentTarget;
+    if (!(image instanceof HTMLImageElement)) return;
+    intrinsicWidth = image.naturalWidth;
+    intrinsicHeight = image.naturalHeight;
+  }
+"""
+          new = """  function freezePresentedImage() {
+    const image = imageElement;
+    const canvas = freezeCanvasElement;
+    if (!image || !canvas || image.naturalWidth <= 0 || image.naturalHeight <= 0 || geometry.width <= 0 || geometry.height <= 0) return;
+
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    canvas.width = Math.max(1, Math.round(geometry.width * dpr));
+    canvas.height = Math.max(1, Math.round(geometry.height * dpr));
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    try {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    } catch {
+      return;
+    }
+
+    frozenStyle = visualStyle;
+    freezeGeneration += 1;
+    freezeVisible = true;
+  }
+
+  function syncImage(event: Event) {
+    const image = event.currentTarget;
+    if (!(image instanceof HTMLImageElement)) return;
+    intrinsicWidth = image.naturalWidth;
+    intrinsicHeight = image.naturalHeight;
+
+    // `load` can run before the new pixels have reached a composited frame. Keep the exact frozen
+    // old pixels through two paints, then uncover the already correctly-sized foreground image.
+    const generation = freezeGeneration;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (generation === freezeGeneration) freezeVisible = false;
+    }));
+  }
+"""
+          if old not in text:
+              raise SystemExit('syncImage snippet not found')
+          text = text.replace(old, new)
+
+          old = """      {:else}
+        <img class=\"viewer-visual-media\" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
+      {/if}
+"""
+          new = """      {:else}
+        <canvas
+          bind:this={freezeCanvasElement}
+          class=\"viewer-image-freeze\"
+          class:visible={freezeVisible}
+          style={frozenStyle}
+          aria-hidden=\"true\"
+        ></canvas>
+        <img bind:this={imageElement} class=\"viewer-visual-media\" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
+      {/if}
+"""
+          if old not in text:
+              raise SystemExit('image markup snippet not found')
+          text = text.replace(old, new)
+
+          old = """  :global(.viewer-stage .viewer-visual-media) {
+    object-fit: contain;
+    transition: filter 120ms ease, opacity 120ms ease;
+  }
+"""
+          new = """  :global(.viewer-stage .viewer-visual-media) {
+    object-fit: contain;
+    transition: filter 120ms ease, opacity 120ms ease;
+  }
+
+  .viewer-image-freeze {
+    display: none;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .viewer-image-freeze.visible {
+    display: block;
+  }
+"""
+          if old not in text:
+              raise SystemExit('media css snippet not found')
+          path.write_text(text.replace(old, new))
+
+          test = Path('frontend/tests/viewer-image-geometry-hold.spec.ts')
+          test.write_text(r'''import { expect, test, type Page } from '@playwright/test';
+
+const session = {
+  user: { id: 'usr_test', username: 'mac', role: 'admin' },
+  capabilities: { upload: true, tag: true, delete: true, admin: true },
+  csrf_token: 'csrf-one'
+};
+
+function fileItem(id: 'portrait' | 'landscape') {
+  const portrait = id === 'portrait';
+  return {
+    id,
+    content_id: `hash-${id}`,
+    name: `${id}.jpg`,
+    safe_display_path: `library/${id}.jpg`,
+    size: 2048,
+    modified_time: '2026-05-20T00:00:00Z',
+    media_type: 'image/jpeg',
+    media_kind: 'photo',
+    metadata: { image_width: portrait ? 1273 : 2546, image_height: 1800 },
+    tags: [],
+    media_urls: {
+      thumbnail: `/api/v1/files/${id}/thumbnail`,
+      preview: `/api/v1/files/${id}/preview`,
+      content: `/api/v1/files/${id}/content`,
+      download: `/api/v1/files/${id}/download`
+    }
+  };
+}
+
+async function mockApp(page: Page) {
+  const files = [fileItem('portrait'), fileItem('landscape')];
+  let loggedIn = false;
+  let releaseLandscape!: () => void;
+  const landscapeGate = new Promise<void>((resolve) => { releaseLandscape = resolve; });
+
+  await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
+    status: loggedIn ? 200 : 401,
+    contentType: 'application/json',
+    body: JSON.stringify(loggedIn ? session : { error: { code: 'unauthorized', message: 'login required' } })
+  }));
+  await page.route('**/api/v1/auth/login', async (route) => {
+    loggedIn = true;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
+  });
+  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } }) }));
+  await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32"/></svg>' }));
+  await page.route('**/api/v1/files/*/preview', async (route) => {
+    const landscape = route.request().url().includes('/landscape/');
+    if (landscape) await landscapeGate;
+    const width = landscape ? 2546 : 1273;
+    const height = 1800;
+    const fill = landscape ? '#0055ff' : '#ff3300';
+    await route.fulfill({
+      contentType: 'image/svg+xml',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="${fill}"/></svg>`
+    });
+  });
+  await page.route('**/api/v1/files/*/content', async (route) => route.fulfill({ status: 404, body: '' }));
+
+  await page.goto('/');
+  await page.getByLabel('Username').fill('mac');
+  await page.getByLabel('Password').fill('correct horse');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  return { releaseLandscape };
+}
+
+test('different-aspect source handoff is covered by exact old pixels until target paint', async ({ page }) => {
+  const { releaseLandscape } = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview portrait.jpg' }).click();
+
+  const media = page.locator('.viewer-visual-media');
+  const freeze = page.locator('.viewer-image-freeze');
+  await expect(media).toBeVisible();
+  await expect.poll(async () => {
+    const box = await media.boundingBox();
+    return box ? box.width / box.height : 0;
+  }).toBeLessThan(1);
+  const before = await media.boundingBox();
+  expect(before).not.toBeNull();
+
+  await page.getByLabel('Next file').click();
+  await expect(page.getByRole('dialog', { name: 'landscape.jpg' })).toBeVisible();
+
+  // The real target keeps the native immediate-source path from the held-navigation fix, but its
+  // box already has target metadata geometry. The frozen canvas is the only visible old frame.
+  await expect(media).toHaveAttribute('src', /\/landscape\/preview/);
+  await expect.poll(async () => {
+    const box = await media.boundingBox();
+    return box ? box.width / box.height : 0;
+  }).toBeGreaterThan(1.3);
+  await expect(freeze).toBeVisible();
+  const frozen = await freeze.boundingBox();
+  expect(frozen).not.toBeNull();
+  expect(Math.abs(frozen!.width - before!.width)).toBeLessThan(0.5);
+  expect(Math.abs(frozen!.height - before!.height)).toBeLessThan(0.5);
+
+  const frozenPixel = await freeze.evaluate((node) => {
+    const canvas = node as HTMLCanvasElement;
+    return Array.from(canvas.getContext('2d')!.getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data);
+  });
+  expect(frozenPixel[0]).toBeGreaterThan(200);
+  expect(frozenPixel[2]).toBeLessThan(80);
+
+  await page.waitForTimeout(125);
+  await expect(freeze).toBeVisible();
+
+  releaseLandscape();
+  await expect(freeze).toBeHidden();
+  await expect.poll(async () => {
+    const box = await media.boundingBox();
+    return box ? box.width / box.height : 0;
+  }).toBeGreaterThan(1.3);
+});
+''')
+          PY
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Static check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Focused browser validation
+        working-directory: frontend
+        run: npx playwright test tests/viewer-image-geometry-hold.spec.ts tests/viewer-animation.spec.ts tests/viewer-zoom-pan.spec.ts --project=chromium
+      - name: Remove temporary workflow and commit validated experiment
+        run: |
+          rm .github/workflows/tmp-170-presentation-shield.yml
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-image-geometry-hold.spec.ts .github/workflows/tmp-170-presentation-shield.yml
+          git commit -m "fix(viewer): shield aspect-ratio source handoff"
+          git push origin HEAD:fix/22-image-geometry-hold
