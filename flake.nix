@@ -29,7 +29,7 @@
             pname = "gooru";
             version = "0-unstable";
             src = ./.;
-            vendorHash = pkgs.lib.fakeHash;
+            vendorHash = "sha256-VSaacPDyCakTmzkMrBODQeXU6jwtFw7Rln3oQC80CwE=";
             subPackages = [ "cmd/gooru" ];
 
             postInstall = ''
@@ -40,7 +40,6 @@
             meta = {
               description = "Content-centric tool for tagging and organizing local files";
               homepage = "https://github.com/fiso64/gooru";
-              license = nixpkgs.lib.licenses.mit;
               mainProgram = "gooru";
               platforms = supportedSystems;
             };
@@ -106,22 +105,24 @@
             };
             users.groups = lib.mkIf (cfg.group == "gooru") { gooru = { }; };
 
+            environment.systemPackages = [ cfg.package ];
+            environment.etc."gooru/serve.yaml".source = configFile;
+
             systemd.services.gooru = {
               description = "Gooru web application";
               wantedBy = [ "multi-user.target" ];
               after = [ "network.target" ];
+              path = [ pkgs.ffmpeg ];
               serviceConfig = {
                 User = cfg.user;
                 Group = cfg.group;
-                ExecStart = "${cfg.package}/bin/gooru serve --config ${configFile}";
+                ExecStart = "${cfg.package}/bin/gooru serve --config /etc/gooru/serve.yaml";
                 Restart = "on-failure";
                 StateDirectory = "gooru";
                 CacheDirectory = "gooru";
                 WorkingDirectory = "/var/lib/gooru";
                 NoNewPrivileges = true;
                 PrivateTmp = true;
-                ProtectSystem = "strict";
-                ProtectHome = "read-only";
               };
             };
 
