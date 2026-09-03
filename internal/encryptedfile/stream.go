@@ -2,6 +2,7 @@ package encryptedfile
 
 import (
 	"bytes"
+	"crypto/cipher"
 	"crypto/rand"
 	"fmt"
 	"io"
@@ -69,11 +70,7 @@ func EncryptStream(dst io.ReadWriteSeeker, src io.Reader, key []byte) (int64, er
 	}
 }
 
-func finalizeStream(dst io.ReadWriteSeeker, aead interface {
-	Seal(dst, nonce, plaintext, additionalData []byte) []byte
-	Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)
-	Overhead() int
-}, provisionalCore []byte, provisionalPrefix [noncePrefixSize]byte, plaintextSize int64) (int64, error) {
+func finalizeStream(dst io.ReadWriteSeeker, aead cipher.AEAD, provisionalCore []byte, provisionalPrefix [noncePrefixSize]byte, plaintextSize int64) (int64, error) {
 	finalCore, finalPrefix, err := newHeaderCore(plaintextSize)
 	if err != nil {
 		return 0, err
