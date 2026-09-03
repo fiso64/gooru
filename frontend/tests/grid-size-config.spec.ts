@@ -29,7 +29,12 @@ async function mockApp(page: Page, gridSize: number) {
 
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ font_style: 'editorial', load_full_media_by_default: false, grid_size: gridSize })
+    body: JSON.stringify({
+      font_style: 'editorial',
+      load_full_media_by_default: false,
+      grid_size: gridSize,
+      thumbnail_sizes: [256, 512]
+    })
   }));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -49,7 +54,7 @@ async function mockApp(page: Page, gridSize: number) {
     contentType: 'application/json',
     body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })
   }));
-  await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({
+  await page.route('**/api/v1/files/*/thumbnail*', async (route) => route.fulfill({
     contentType: 'image/svg+xml',
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#fff"/></svg>'
   }));
@@ -76,4 +81,6 @@ test('runtime ui grid_size changes the fluid media grid and virtualization toget
   await expect(cards).toHaveCount(8);
   const firstBox = await cards.first().boundingBox();
   expect(firstBox?.width).toBeGreaterThanOrEqual(240);
+
+  await expect(cards.first().locator('img')).toHaveAttribute('src', /[?&]size=512(?:&|$)/);
 });
