@@ -6,7 +6,7 @@
   class="gooru-logo"
   role="img"
   aria-label="gooru"
-  style={`height: ${size}px;`}
+  style={`height: ${size}px; --gooru-logo-size: ${size}px;`}
 >
   <img src="/gooru-logo.svg" alt="" aria-hidden="true" />
   <svg class="gooru-logo-accent" viewBox="7.57 -187.22 944.03 247.49" aria-hidden="true">
@@ -25,6 +25,7 @@
       mask="url(#gooru-logo-spiral-mask)"
     />
   </svg>
+  <span class="gooru-logo-comic" aria-hidden="true">gooru</span>
 </span>
 
 <style>
@@ -50,5 +51,26 @@
 
   .gooru-logo-accent-fill {
     fill: var(--accent);
+  }
+
+  .gooru-logo-comic {
+    display: none;
+  }
+
+  :global(.gooru-type-comic) .gooru-logo img,
+  :global(.gooru-type-comic) .gooru-logo-accent {
+    display: none;
+  }
+
+  :global(.gooru-type-comic) .gooru-logo-comic {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: calc(var(--gooru-logo-size) * 0.92);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.04em;
   }
 </style>

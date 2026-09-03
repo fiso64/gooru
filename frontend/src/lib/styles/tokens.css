@@ -110,6 +110,15 @@ textarea {
   text-rendering: optimizeLegibility;
 }
 
+.gooru-root.gooru-type-modern {
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+}
+
+.gooru-root.gooru-type-comic {
+  --font-display: 'Comic Sans MS', 'Comic Sans', 'Comic Neue', cursive;
+  --font-ui: 'Comic Sans MS', 'Comic Sans', 'Comic Neue', cursive;
+}
+
 .gooru-root .login-v2-spirals path {
   stroke: var(--accent);
 }

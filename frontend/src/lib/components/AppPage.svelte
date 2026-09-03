@@ -9,15 +9,20 @@
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
 
+  type FontStyle = 'editorial' | 'modern' | 'comic';
+  type UIConfig = { accent_color?: string; font_style?: FontStyle; load_full_media_by_default?: boolean };
+
   let loginUsername = $state('');
   let loginPassword = $state('');
   let loginBusy = $state(false);
   let loginError = $state('');
   let runtimeAccent = $state<AccentTheme | null>(null);
+  let runtimeFontStyle = $state<FontStyle>('editorial');
   let faviconHref = $state('/favicon.svg');
 
-  async function applyRuntimeConfig(config: { accent_color?: string; load_full_media_by_default?: boolean }) {
+  async function applyRuntimeConfig(config: UIConfig) {
     runtimeAccent = accentTheme(config.accent_color ?? '');
+    runtimeFontStyle = config.font_style ?? 'editorial';
     runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });
     faviconHref = '/favicon.svg';
     if (!runtimeAccent) return;
@@ -35,10 +40,10 @@
   onMount(() => {
     const configPromise = fetch('/api/v1/ui-config', { credentials: 'same-origin' })
       .then(async (response) => {
-        if (!response.ok) return { accent_color: '', load_full_media_by_default: false };
-        return await response.json() as { accent_color?: string; load_full_media_by_default?: boolean };
+        if (!response.ok) return { accent_color: '', font_style: 'editorial', load_full_media_by_default: false } satisfies UIConfig;
+        return await response.json() as UIConfig;
       })
-      .catch(() => ({ accent_color: '', load_full_media_by_default: false }));
+      .catch(() => ({ accent_color: '', font_style: 'editorial', load_full_media_by_default: false }) satisfies UIConfig);
     const sessionPromise = new ApiClient().me();
 
     void Promise.all([configPromise, sessionPromise])
@@ -81,7 +86,7 @@
 </svelte:head>
 
 <div
-  class="gooru-root gooru-accent-sodium gooru-type-editorial"
+  class={`gooru-root gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
   style={runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : undefined}
 >
   {#if !$authState.checked}
