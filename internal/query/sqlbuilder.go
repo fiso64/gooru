@@ -253,20 +253,8 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 		b.buildMediaTypeQuery(parsed.Value)
 	// Add other virtual tags like 'size', 'path', etc. here in the future.
 	default:
-		if parsed.Value == "" && !strings.HasSuffix(tagStr, ":") {
-			// A bare term acts as both a key-only tag search and filename/path
-			// free-text search for browser search boxes. Use LEFT JOIN so
-			// filename matches include untagged tracked files.
-			if b.target == "id" {
-				b.query.WriteString(`SELECT DISTINCT l.id as id FROM locations l LEFT JOIN content_tags ct ON l.content_hash = ct.content_hash LEFT JOIN tags t ON ct.tag_id = t.id WHERE (t.key = ? OR lower(l.path) LIKE lower(?))`)
-			} else {
-				b.query.WriteString(`SELECT DISTINCT l.content_hash as hash FROM locations l LEFT JOIN content_tags ct ON l.content_hash = ct.content_hash LEFT JOIN tags t ON ct.tag_id = t.id WHERE (t.key = ? OR lower(l.path) LIKE lower(?))`)
-			}
-			b.args = append(b.args, parsed.Key, "%"+parsed.Key+"%")
-			return
-		}
-		// Default behavior for user-defined tags.
-		// The common prefix ensures we only consider content that has a location.
+		// Default behavior for user-defined tags. Bare terms are tag-key queries;
+		// filename/path matching is intentionally reserved for an explicit metatag.
 		queryPrefix := `SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
 		if b.target == "id" {
 			queryPrefix = `SELECT DISTINCT l.id as id FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
@@ -281,9 +269,13 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 			// Query for a specific key:value pair (e.g., "location:home").
 			b.query.WriteString(`t.key = ? AND t.value = ?`)
 			b.args = append(b.args, parsed.Key, parsed.Value)
-		} else {
+		} else if strings.HasSuffix(tagStr, ":") {
 			// The user explicitly typed the colon, so they want an empty value (e.g., "location:").
 			b.query.WriteString(`t.key = ? AND t.value = ''`)
+			b.args = append(b.args, parsed.Key)
+		} else {
+			// A bare term matches the user-defined tag key regardless of its value.
+			b.query.WriteString(`t.key = ?`)
 			b.args = append(b.args, parsed.Key)
 		}
 	}
