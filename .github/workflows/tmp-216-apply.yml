@@ -1,0 +1,88 @@
+name: Temporary #216 apply and validate
+
+on:
+  push:
+    branches:
+      - fix/216-job-result-retention
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Apply job retention semantics and tests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('internal/serve/jobs.go')
+          s = p.read_text()
+          old = '''\tResult      interface{} `json:"result,omitempty"`\n\tError       string      `json:"error,omitempty"`\n'''
+          new = '''\tResult        interface{} `json:"result,omitempty"`\n\tResultOmitted bool        `json:"result_omitted,omitempty"`\n\tError         string      `json:"error,omitempty"`\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''type queuedJob struct {\n\tjob     *Job\n\tctx     context.Context\n\trun     JobFunc\n\tcleanup func()\n}\n'''
+          new = '''type queuedJob struct {\n\tjob     *Job\n\tctx     context.Context\n\trun     JobFunc\n\tcleanup func()\n\tasync   bool\n}\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\tcase r.manager.queue <- queuedJob{job: r.job, ctx: r.ctx, run: run, cleanup: cleanup}:\n'''
+          new = '''\tcase r.manager.queue <- queuedJob{job: r.job, ctx: r.ctx, run: run, cleanup: cleanup, async: async}:\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\tcase <-r.job.done:\n\t\tsnapshot := r.manager.clone(r.job.ID)\n\t\tif snapshot.Status == JobFailed {\n\t\t\treturn snapshot, errors.New(snapshot.Error)\n\t\t}\n\t\tif snapshot.Status == JobCanceled {\n\t\t\treturn snapshot, context.Canceled\n\t\t}\n\t\treturn snapshot, nil\n'''
+          new = '''\tcase <-r.job.done:\n\t\tsnapshot := r.manager.clone(r.job.ID)\n\t\tif snapshot.Status == JobFailed {\n\t\t\treturn snapshot, errors.New(snapshot.Error)\n\t\t}\n\t\tif snapshot.Status == JobCanceled {\n\t\t\treturn snapshot, context.Canceled\n\t\t}\n\t\tr.manager.releaseOversizedSyncResult(r.job.ID, snapshot.Result)\n\t\treturn snapshot, nil\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\t} else {\n\t\titem.job.Status = JobCompleted\n\t\tif resultTooLarge {\n\t\t\titem.job.Status = JobFailed\n\t\t\titem.job.Error = ErrJobResultTooLarge.Error()\n\t\t} else {\n\t\t\titem.job.Result = result\n\t\t\titem.job.Progress = 1\n\t\t}\n\t}\n'''
+          new = '''\t} else {\n\t\titem.job.Status = JobCompleted\n\t\titem.job.Progress = 1\n\t\tif resultTooLarge && item.async {\n\t\t\titem.job.ResultOmitted = true\n\t\t} else {\n\t\t\titem.job.Result = result\n\t\t}\n\t}\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          anchor = '''func (m *JobManager) clone(id string) *Job {\n\tm.mu.RLock()\n\tdefer m.mu.RUnlock()\n\treturn cloneJob(m.jobs[id])\n}\n'''
+          addition = anchor + '''\nfunc (m *JobManager) releaseOversizedSyncResult(id string, result interface{}) {\n\tif m.maxResult <= 0 || approximateResultBytes(result) <= m.maxResult {\n\t\treturn\n\t}\n\tm.mu.Lock()\n\tdefer m.mu.Unlock()\n\tjob, ok := m.jobs[id]\n\tif !ok || job.Status != JobCompleted {\n\t\treturn\n\t}\n\tjob.Result = nil\n\tjob.ResultOmitted = true\n}\n'''
+          assert anchor in s
+          s = s.replace(anchor, addition, 1)
+          p.write_text(s)
+
+          p = Path('internal/serve/server_test.go')
+          s = p.read_text()
+          old = '''func TestOversizedJobResultsAreNotRetained(t *testing.T) {\n\tmgr := NewJobManagerWithLimits(2, 1, 8, time.Hour)\n\tjob, err := mgr.Submit(context.Background(), "large", true, func(ctx context.Context) (interface{}, error) {\n\t\treturn strings.Repeat("x", 64), nil\n\t})\n\tif err != nil {\n\t\tt.Fatalf("submit job: %v", err)\n\t}\n\twaitForStatus(t, mgr, job.ID, JobFailed)\n\tgot, ok := mgr.Get(job.ID)\n\tif !ok {\n\t\tt.Fatal("job disappeared")\n\t}\n\tif got.Result != nil || !strings.Contains(got.Error, ErrJobResultTooLarge.Error()) {\n\t\tt.Fatalf("expected oversized result failure without retained result, got %+v", got)\n\t}\n}\n'''
+          new = '''func TestOversizedAsyncJobResultIsOmittedWithoutChangingSuccess(t *testing.T) {\n\tmgr := NewJobManagerWithLimits(2, 1, 8, time.Hour)\n\tjob, err := mgr.Submit(context.Background(), "large", true, func(ctx context.Context) (interface{}, error) {\n\t\treturn strings.Repeat("x", 64), nil\n\t})\n\tif err != nil {\n\t\tt.Fatalf("submit job: %v", err)\n\t}\n\twaitForStatus(t, mgr, job.ID, JobCompleted)\n\tgot, ok := mgr.Get(job.ID)\n\tif !ok {\n\t\tt.Fatal("job disappeared")\n\t}\n\tif got.Result != nil || !got.ResultOmitted || got.Error != "" {\n\t\tt.Fatalf("expected completed job with omitted oversized result, got %+v", got)\n\t}\n}\n\nfunc TestOversizedSyncJobReturnsResultButDoesNotRetainIt(t *testing.T) {\n\tmgr := NewJobManagerWithLimits(2, 1, 8, time.Hour)\n\twant := strings.Repeat("x", 64)\n\tjob, err := mgr.Submit(context.Background(), "large-sync", false, func(ctx context.Context) (interface{}, error) {\n\t\treturn want, nil\n\t})\n\tif err != nil {\n\t\tt.Fatalf("submit sync job: %v", err)\n\t}\n\tif job.Status != JobCompleted || job.Result != want {\n\t\tt.Fatalf("sync caller must receive successful result, got %+v", job)\n\t}\n\tretained, ok := mgr.Get(job.ID)\n\tif !ok {\n\t\tt.Fatal("job disappeared")\n\t}\n\tif retained.Status != JobCompleted || retained.Result != nil || !retained.ResultOmitted || retained.Error != "" {\n\t\tt.Fatalf("expected completed retained job with result omitted, got %+v", retained)\n\t}\n}\n'''
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('docs/CONFIG.md')
+          s = p.read_text()
+          old = '| `jobs.max_result_bytes` | `10485760` (10 MiB) | Maximum result payload retained for a completed in-memory job. Must be positive. |'
+          new = '| `jobs.max_result_bytes` | `10485760` (10 MiB) | Maximum result payload retained for a completed in-memory job. Oversized results are omitted from retained job state without changing a successful job to failed; synchronous API calls still receive their immediate result. Must be positive. |'
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+          PY
+          gofmt -w internal/serve/jobs.go internal/serve/server_test.go
+      - name: Validate
+        run: |
+          go test ./internal/serve
+          go test ./...
+          go build ./...
+      - name: Commit validated change and remove temporary workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/tmp-216-apply.yml
+          git add internal/serve/jobs.go internal/serve/server_test.go docs/CONFIG.md
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git commit -m "fix(jobs): separate result retention from outcome"
+          git push origin HEAD:fix/216-job-result-retention
