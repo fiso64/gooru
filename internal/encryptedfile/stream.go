@@ -3,7 +3,6 @@ package encryptedfile
 import (
 	"bytes"
 	"crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -63,7 +62,7 @@ func EncryptStream(dst io.ReadWriteSeeker, src io.Reader, key []byte) (int64, er
 		case nil:
 			continue
 		case io.EOF, io.ErrUnexpectedEOF:
-			return finalizeStream(dst, aead, provisionalCore, provisionalPrefix, plaintextSize, key)
+			return finalizeStream(dst, aead, provisionalCore, provisionalPrefix, plaintextSize)
 		default:
 			return 0, readErr
 		}
@@ -74,7 +73,7 @@ func finalizeStream(dst io.ReadWriteSeeker, aead interface {
 	Seal(dst, nonce, plaintext, additionalData []byte) []byte
 	Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error)
 	Overhead() int
-}, provisionalCore []byte, provisionalPrefix [noncePrefixSize]byte, plaintextSize int64, key []byte) (int64, error) {
+}, provisionalCore []byte, provisionalPrefix [noncePrefixSize]byte, plaintextSize int64) (int64, error) {
 	finalCore, finalPrefix, err := newHeaderCore(plaintextSize)
 	if err != nil {
 		return 0, err
@@ -85,7 +84,6 @@ func finalizeStream(dst io.ReadWriteSeeker, aead interface {
 		}
 		copy(finalCore[24:40], finalPrefix[:])
 	}
-	binary.LittleEndian.PutUint64(finalCore[16:24], uint64(plaintextSize))
 
 	chunks := chunkCount(plaintextSize)
 	for chunkIndex := uint64(0); chunkIndex < chunks; chunkIndex++ {
