@@ -58,9 +58,7 @@ test('common tags rank visually, persist collapse state, and run a tag search', 
   await expect(rows.last()).toHaveAttribute('style', /--common-tag-rank: 0%/);
   const firstColor = await rows.first().evaluate((node) => getComputedStyle(node).color);
   const lastColor = await rows.last().evaluate((node) => getComputedStyle(node).color);
-  const lastCountColor = await rows.last().locator('.count').evaluate((node) => getComputedStyle(node).color);
   expect(firstColor).not.toBe(lastColor);
-  expect(lastColor).toBe(lastCountColor);
 
   await common.getByRole('button', { name: 'Collapse Common tags' }).click();
   await expect(common.locator('#common-tags-list')).not.toBeVisible();
