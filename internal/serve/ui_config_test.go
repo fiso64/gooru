@@ -58,22 +58,34 @@ func TestConfigLoadsGridSize(t *testing.T) {
 func TestConfigLoadsFullMediaDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gooru.yaml")
-	if err := os.WriteFile(path, []byte("media:\n  load_full_by_default: true\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("ui:\n  load_full_media_by_default: true\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	cfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if !cfg.Media.LoadFullByDefault {
-		t.Fatal("media.load_full_by_default was not loaded")
+	if !cfg.UI.LoadFullMediaByDefault {
+		t.Fatal("ui.load_full_media_by_default was not loaded")
+	}
+}
+
+func TestConfigRejectsOldMediaFullDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gooru.yaml")
+	if err := os.WriteFile(path, []byte("media:\n  load_full_by_default: true\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	_, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "load_full_by_default") {
+		t.Fatalf("expected old media.load_full_by_default to be rejected, got %v", err)
 	}
 }
 
 func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg := DefaultConfig(t.TempDir() + "/gooru.db")
 	cfg.UI.AccentColor = "#2f80ed"
-	cfg.Media.LoadFullByDefault = true
+	cfg.UI.LoadFullMediaByDefault = true
 	cfg.Media.ThumbnailSizes = []int{128, 384, 768}
 	cfg.UI.GridSize = 240
 	server := NewServer(cfg)

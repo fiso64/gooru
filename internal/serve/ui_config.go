@@ -14,7 +14,7 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, UIConfigResponse{
 		AccentColor:            s.cfg.UI.AccentColor,
 		FontStyle:              s.cfg.UI.FontStyle,
-		LoadFullMediaByDefault: s.cfg.Media.LoadFullByDefault,
+		LoadFullMediaByDefault: s.cfg.UI.LoadFullMediaByDefault,
 		GridSize:               s.cfg.UI.GridSize,
 		ThumbnailSizes:         s.cfg.Media.ThumbnailSizes,
 	})
