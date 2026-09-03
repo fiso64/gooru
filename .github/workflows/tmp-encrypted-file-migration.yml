@@ -1,5 +1,8 @@
 name: tmp encrypted file migration validation
 on:
+  pull_request:
+    branches:
+      - develop
   push:
     branches:
       - refactor/28-encrypted-file-migration
