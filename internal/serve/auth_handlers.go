@@ -133,7 +133,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON request body", nil)
 		return
 	}
-	if err := s.auth.ChangePassword(r.Context(), auth.User.ID, req.CurrentPassword, req.NewPassword); err != nil {
+	if err := s.auth.ChangePasswordAndRevokeOtherSessions(r.Context(), auth.User.ID, auth.Session.ID, req.CurrentPassword, req.NewPassword); err != nil {
 		status, message := authHTTPStatus(err)
 		if status == http.StatusUnauthorized {
 			slog.InfoContext(r.Context(), "password change rejected")
