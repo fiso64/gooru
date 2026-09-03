@@ -145,7 +145,7 @@ uploads:
 | `jobs.completed_ttl` | `1h` | How long completed/failed/canceled in-memory jobs are retained. Go duration; must be positive. |
 | `jobs.max_queued` | `100` | Maximum number of pending jobs. Must be positive. |
 | `jobs.max_running` | `2` | Maximum number of concurrently running jobs. Must be positive. |
-| `jobs.max_result_bytes` | `10485760` (10 MiB) | Maximum result payload retained for a completed in-memory job. Must be positive. |
+| `jobs.max_result_bytes` | `10485760` (10 MiB) | Maximum result payload retained for a completed in-memory job. Oversized results are omitted from retained job state without changing a successful job to failed; synchronous API calls still receive their immediate result. Must be positive. |
 
 ## `tools`
 

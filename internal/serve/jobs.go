@@ -29,15 +29,16 @@ const (
 )
 
 type Job struct {
-	ID          string      `json:"id"`
-	Type        string      `json:"type"`
-	Status      JobStatus   `json:"status"`
-	Progress    float64     `json:"progress,omitempty"`
-	SubmittedAt time.Time   `json:"submitted_at"`
-	StartedAt   *time.Time  `json:"started_at,omitempty"`
-	FinishedAt  *time.Time  `json:"finished_at,omitempty"`
-	Result      interface{} `json:"result,omitempty"`
-	Error       string      `json:"error,omitempty"`
+	ID            string      `json:"id"`
+	Type          string      `json:"type"`
+	Status        JobStatus   `json:"status"`
+	Progress      float64     `json:"progress,omitempty"`
+	SubmittedAt   time.Time   `json:"submitted_at"`
+	StartedAt     *time.Time  `json:"started_at,omitempty"`
+	FinishedAt    *time.Time  `json:"finished_at,omitempty"`
+	Result        interface{} `json:"result,omitempty"`
+	ResultOmitted bool        `json:"result_omitted,omitempty"`
+	Error         string      `json:"error,omitempty"`
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -60,6 +61,7 @@ type queuedJob struct {
 	ctx     context.Context
 	run     JobFunc
 	cleanup func()
+	async   bool
 }
 
 type JobReservation struct {
@@ -168,7 +170,7 @@ func (r *JobReservation) Submit(ctx context.Context, async bool, run JobFunc, cl
 	}
 
 	select {
-	case r.manager.queue <- queuedJob{job: r.job, ctx: r.ctx, run: run, cleanup: cleanup}:
+	case r.manager.queue <- queuedJob{job: r.job, ctx: r.ctx, run: run, cleanup: cleanup, async: async}:
 	default:
 		r.release()
 		if cleanup != nil {
@@ -194,6 +196,7 @@ func (r *JobReservation) Submit(ctx context.Context, async bool, run JobFunc, cl
 		if snapshot.Status == JobCanceled {
 			return snapshot, context.Canceled
 		}
+		r.manager.releaseOversizedSyncResult(r.job.ID, snapshot.Result)
 		return snapshot, nil
 	case <-ctx.Done():
 		r.manager.cancelJob(r.job)
@@ -333,6 +336,20 @@ func (m *JobManager) clone(id string) *Job {
 	return cloneJob(m.jobs[id])
 }
 
+func (m *JobManager) releaseOversizedSyncResult(id string, result interface{}) {
+	if m.maxResult <= 0 || approximateResultBytes(result) <= m.maxResult {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	job, ok := m.jobs[id]
+	if !ok || job.Status != JobCompleted {
+		return
+	}
+	job.Result = nil
+	job.ResultOmitted = true
+}
+
 func (m *JobManager) worker() {
 	for item := range m.queue {
 		m.releaseQueuedSlot()
@@ -373,12 +390,11 @@ func (m *JobManager) run(item queuedJob) {
 		}
 	} else {
 		item.job.Status = JobCompleted
-		if resultTooLarge {
-			item.job.Status = JobFailed
-			item.job.Error = ErrJobResultTooLarge.Error()
+		item.job.Progress = 1
+		if resultTooLarge && item.async {
+			item.job.ResultOmitted = true
 		} else {
 			item.job.Result = result
-			item.job.Progress = 1
 		}
 	}
 	item.job.FinishedAt = &finished

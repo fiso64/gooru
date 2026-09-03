@@ -232,7 +232,7 @@ func TestJobQueueFullReturnsStableError(t *testing.T) {
 	close(release)
 }
 
-func TestOversizedJobResultsAreNotRetained(t *testing.T) {
+func TestOversizedAsyncJobResultIsOmittedWithoutChangingSuccess(t *testing.T) {
 	mgr := NewJobManagerWithLimits(2, 1, 8, time.Hour)
 	job, err := mgr.Submit(context.Background(), "large", true, func(ctx context.Context) (interface{}, error) {
 		return strings.Repeat("x", 64), nil
@@ -240,13 +240,34 @@ func TestOversizedJobResultsAreNotRetained(t *testing.T) {
 	if err != nil {
 		t.Fatalf("submit job: %v", err)
 	}
-	waitForStatus(t, mgr, job.ID, JobFailed)
+	waitForStatus(t, mgr, job.ID, JobCompleted)
 	got, ok := mgr.Get(job.ID)
 	if !ok {
 		t.Fatal("job disappeared")
 	}
-	if got.Result != nil || !strings.Contains(got.Error, ErrJobResultTooLarge.Error()) {
-		t.Fatalf("expected oversized result failure without retained result, got %+v", got)
+	if got.Result != nil || !got.ResultOmitted || got.Error != "" {
+		t.Fatalf("expected completed job with omitted oversized result, got %+v", got)
+	}
+}
+
+func TestOversizedSyncJobReturnsResultButDoesNotRetainIt(t *testing.T) {
+	mgr := NewJobManagerWithLimits(2, 1, 8, time.Hour)
+	want := strings.Repeat("x", 64)
+	job, err := mgr.Submit(context.Background(), "large-sync", false, func(ctx context.Context) (interface{}, error) {
+		return want, nil
+	})
+	if err != nil {
+		t.Fatalf("submit sync job: %v", err)
+	}
+	if job.Status != JobCompleted || job.Result != want {
+		t.Fatalf("sync caller must receive successful result, got %+v", job)
+	}
+	retained, ok := mgr.Get(job.ID)
+	if !ok {
+		t.Fatal("job disappeared")
+	}
+	if retained.Status != JobCompleted || retained.Result != nil || !retained.ResultOmitted || retained.Error != "" {
+		t.Fatalf("expected completed retained job with result omitted, got %+v", retained)
 	}
 }
 
