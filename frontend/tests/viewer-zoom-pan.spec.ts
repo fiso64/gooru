@@ -96,11 +96,12 @@ test('touchpad-sized zoom and pan input applies immediately without transform ea
   expect(zoomedForPan).not.toBeNull();
   expect(zoomedForPan!.height).toBeGreaterThan(stageBox!.height + 40);
 
+  const beforeVerticalScroll = await panViewport.evaluate((node) => node.scrollTop);
   await page.mouse.wheel(0, 24);
-  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(15);
+  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(beforeVerticalScroll + 15);
   const panned = await image.boundingBox();
   expect(panned).not.toBeNull();
-  expect(panned!.y).toBeLessThanOrEqual(zoomedForPan!.y - 15);
+  expect(panned!.y).toBeLessThan(zoomedForPan!.y - 15);
 });
 
 test('ctrl-wheel zooms toward the pointer and wheel/alt-wheel pan while zoomed', async ({ page }) => {
@@ -118,8 +119,9 @@ test('ctrl-wheel zooms toward the pointer and wheel/alt-wheel pan while zoomed',
   expect(zoomed).not.toBeNull();
   expect(zoomed!.width).toBeGreaterThan(before!.width);
 
+  const beforeVerticalScroll = await panViewport.evaluate((node) => node.scrollTop);
   await page.mouse.wheel(0, 120);
-  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(80);
+  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(beforeVerticalScroll + 80);
   await page.waitForTimeout(40);
   const verticallyPanned = await image.boundingBox();
   expect(verticallyPanned).not.toBeNull();
