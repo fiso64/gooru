@@ -6,18 +6,19 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-function fileItem(id: 'portrait' | 'landscape') {
+function fileItem(id: 'portrait' | 'landscape' | 'text') {
   const portrait = id === 'portrait';
+  const text = id === 'text';
   return {
     id,
     content_id: `hash-${id}`,
-    name: `${id}.jpg`,
+    name: `${id}.${text ? 'txt' : 'jpg'}`,
     safe_display_path: `library/${id}.jpg`,
     size: 2048,
     modified_time: '2026-05-20T00:00:00Z',
-    media_type: 'image/jpeg',
-    media_kind: 'photo',
-    metadata: { image_width: portrait ? 1273 : 2546, image_height: 1800 },
+    media_type: text ? 'text/plain' : 'image/jpeg',
+    media_kind: text ? 'document' : 'photo',
+    metadata: text ? {} : { image_width: portrait ? 1273 : 2546, image_height: 1800 },
     tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`,
@@ -29,7 +30,7 @@ function fileItem(id: 'portrait' | 'landscape') {
 }
 
 async function mockApp(page: Page) {
-  const files = [fileItem('portrait'), fileItem('landscape')];
+  const files = [fileItem('portrait'), fileItem('landscape'), fileItem('text')];
   let loggedIn = false;
   let releaseLandscape!: () => void;
   const landscapeGate = new Promise<void>((resolve) => { releaseLandscape = resolve; });
@@ -51,6 +52,10 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } }) }));
   await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32"/></svg>' }));
   await page.route('**/api/v1/files/*/preview', async (route) => {
+    if (route.request().url().includes('/text/')) {
+      await route.fulfill({ status: 404, body: '' });
+      return;
+    }
     const landscape = route.request().url().includes('/landscape/');
     if (landscape) await landscapeGate;
     const width = landscape ? 2546 : 1273;
@@ -117,4 +122,26 @@ test('different-aspect source handoff is covered by exact old pixels until targe
     const box = await media.boundingBox();
     return box ? box.width / box.height : 0;
   }).toBeGreaterThan(1.3);
+});
+
+
+test('failed non-image preview releases the frozen previous presentation', async ({ page }) => {
+  const { releaseLandscape } = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview portrait.jpg' }).click();
+
+  const media = page.locator('.viewer-visual-media');
+  const freeze = page.locator('.viewer-image-freeze');
+  await expect(media).toBeVisible();
+
+  await page.getByLabel('Next file').click();
+  releaseLandscape();
+  await expect(page.getByRole('dialog', { name: 'landscape.jpg' })).toBeVisible();
+  await expect(freeze).toBeHidden();
+  await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(2546);
+
+  await page.getByLabel('Next file').click();
+  await expect(page.getByRole('dialog', { name: 'text.txt' })).toBeVisible();
+  await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(0);
+  await expect(freeze).toBeHidden();
+  await expect(media).toHaveCSS('visibility', 'visible');
 });

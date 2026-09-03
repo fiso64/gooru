@@ -232,6 +232,15 @@
     });
   }
 
+  function syncImageError() {
+    // A failed/unsupported target has no paint event that can release the frozen frame.
+    // End this handoff explicitly so stale pixels never stand in for the current file.
+    freezeGeneration += 1;
+    freezeVisible = false;
+    intrinsicWidth = 0;
+    intrinsicHeight = 0;
+  }
+
   function syncVideo() {
     const video = videoElement;
     if (!video) return;
@@ -581,6 +590,7 @@
           src={renderedImageSource}
           alt={renderedFile.name}
           onload={syncImage}
+          onerror={syncImageError}
         />
       {/if}
     </div>
