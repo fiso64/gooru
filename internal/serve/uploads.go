@@ -584,7 +584,18 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		if analysisPath == "" {
 			analysisPath = file.Path
 		}
-		info, status, err := l.client.GetFileInfoForFile(analysisPath, false)
+		analysisSource, analysisSize, analysisModTime, err := openUploadAnalysisSource(analysisPath)
+		if err != nil {
+			dto.Status = "error"
+			dto.Error = err.Error()
+			response.Files = append(response.Files, dto)
+			continue
+		}
+		info, status, err := l.client.GetFileInfoForSource(file.Path, analysisSource, analysisSize, analysisModTime)
+		closeErr := analysisSource.Close()
+		if err == nil && closeErr != nil {
+			err = closeErr
+		}
 		if err != nil {
 			dto.Status = "error"
 			dto.Error = err.Error()
@@ -667,11 +678,7 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 		}
 		mediaType := mediaTypeForPath(file.Path)
 		mediaKind := mediaKindForType(mediaType)
-		analysisFile := file
-		if analysisPath := analysisPaths[file.Path]; analysisPath != "" {
-			analysisFile.Path = analysisPath
-		}
-		metadata, err := provider.Metadata(ctx, analysisFile, mediaType, mediaKind)
+		metadata, err := importedMediaMetadata(ctx, provider, file, analysisPaths[file.Path], mediaType, mediaKind)
 		if err != nil {
 			continue
 		}

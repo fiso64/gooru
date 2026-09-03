@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,15 +12,31 @@ import (
 )
 
 type recordingImportMetadataProvider struct {
-	path      string
-	mediaType string
-	mediaKind string
+	path       string
+	mediaType  string
+	mediaKind  string
+	sourceUsed bool
+	sourceSize int64
 }
 
 func (p *recordingImportMetadataProvider) Metadata(_ context.Context, file types.FileInfo, mediaType string, mediaKind string) (MediaMetadata, error) {
 	p.path = file.Path
 	p.mediaType = mediaType
 	p.mediaKind = mediaKind
+	width, height := 7, 5
+	return MediaMetadata{ImageWidth: &width, ImageHeight: &height}, nil
+}
+
+func (p *recordingImportMetadataProvider) MetadataFromSource(_ context.Context, file types.FileInfo, source io.ReaderAt, size int64, mediaType string, mediaKind string) (MediaMetadata, error) {
+	p.path = file.Path
+	p.mediaType = mediaType
+	p.mediaKind = mediaKind
+	p.sourceUsed = true
+	p.sourceSize = size
+	probe := make([]byte, 1)
+	if _, err := source.ReadAt(probe, 0); err != nil {
+		return MediaMetadata{}, err
+	}
 	width, height := 7, 5
 	return MediaMetadata{ImageWidth: &width, ImageHeight: &height}, nil
 }
@@ -37,7 +54,8 @@ func TestGooruUploadImportSeparatesAnalysisSourceFromRegisteredDestination(t *te
 	defer client.Close()
 
 	source := filepath.Join(dir, "plaintext-staging.tmp")
-	if err := os.WriteFile(source, mustReadFile(t, writePNGImage(t)), 0600); err != nil {
+	data := mustReadFile(t, writePNGImage(t))
+	if err := os.WriteFile(source, data, 0600); err != nil {
 		t.Fatalf("write analysis source: %v", err)
 	}
 	destination := filepath.Join(dir, "library", "image.png")
@@ -49,7 +67,7 @@ func TestGooruUploadImportSeparatesAnalysisSourceFromRegisteredDestination(t *te
 		Name:         "image.png",
 		Path:         destination,
 		AnalysisPath: source,
-		Size:         int64(len(mustReadFile(t, source))),
+		Size:         int64(len(data)),
 		TargetID:     "default",
 	}}, []string{"uploaded"})
 	if err != nil {
@@ -66,8 +84,14 @@ func TestGooruUploadImportSeparatesAnalysisSourceFromRegisteredDestination(t *te
 	if registered.Path != destination {
 		t.Fatalf("registered logical destination = %q, want %q", registered.Path, destination)
 	}
-	if provider.path != source {
-		t.Fatalf("metadata provider path = %q, want analysis source %q", provider.path, source)
+	if !provider.sourceUsed {
+		t.Fatal("metadata provider did not receive the random-access analysis source")
+	}
+	if provider.path != destination {
+		t.Fatalf("metadata provider logical path = %q, want destination %q", provider.path, destination)
+	}
+	if provider.sourceSize != int64(len(data)) {
+		t.Fatalf("metadata source size = %d, want %d", provider.sourceSize, len(data))
 	}
 	if provider.mediaType != "image/png" || provider.mediaKind != "photo" {
 		t.Fatalf("metadata classification = %q/%q, want image/png/photo", provider.mediaType, provider.mediaKind)
