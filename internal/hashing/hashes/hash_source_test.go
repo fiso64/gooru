@@ -55,3 +55,14 @@ func TestHashSourceRejectsInvalidSize(t *testing.T) {
 		t.Fatal("full source hash should reject negative size")
 	}
 }
+
+func TestHashSourceRejectsTruncatedContent(t *testing.T) {
+	data := []byte("short source")
+	declaredSize := int64(len(data) + 1)
+	if _, err := HashSourceFull(bytes.NewReader(data), declaredSize); err == nil {
+		t.Fatal("full source hash should reject a source shorter than its declared size")
+	}
+	if _, err := HashSource(bytes.NewReader(data), declaredSize); err == nil {
+		t.Fatal("partial source hash should reject a small source shorter than its declared size")
+	}
+}
