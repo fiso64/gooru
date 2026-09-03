@@ -48,7 +48,9 @@
   }>();
 
   let dialogElement = $state<HTMLDivElement | undefined>();
+  let downloadLink = $state<HTMLAnchorElement | undefined>();
   let preferOriginal = $state($runtimeConfig.loadFullMediaByDefault);
+  let tagMode = $state<'add' | 'remove'>('add');
   let comicManifest = $state<ComicManifest | null>(null);
   let comicPageIndex = $state(0);
   let comicEntered = $state(false);
@@ -76,6 +78,7 @@
       comicEntered = false;
       comicLoading = false;
       comicError = '';
+      tagMode = 'add';
       onNestedNavigationChange(false);
     });
   });
@@ -88,7 +91,8 @@
     }
   });
 
-  function focusTagInput() {
+  function focusTagInput(mode: 'add' | 'remove' = 'add') {
+    tagMode = mode;
     document.getElementById(`tags-${file.id}`)?.focus();
   }
 
@@ -107,10 +111,30 @@
       else stageNext();
       return;
     }
-    if (event.key.toLowerCase() !== 't' || isEditableShortcutTarget(event.target)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    focusTagInput();
+
+    if (isEditableShortcutTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    if (key === 't' || key === 'u') {
+      event.preventDefault();
+      event.stopPropagation();
+      focusTagInput(key === 'u' ? 'remove' : 'add');
+      return;
+    }
+    if (key === 'd') {
+      event.preventDefault();
+      event.stopPropagation();
+      downloadLink?.click();
+      return;
+    }
+    if (event.key === 'Delete') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.shiftKey) {
+        if (file.can_delete) onDelete(file);
+      } else {
+        onUntrack(file);
+      }
+    }
   }
 
   async function toggleComic() {
@@ -262,8 +286,9 @@
         error={tagError}
         {tags}
         existingTags={file.tags}
+        mode={tagMode}
         onInput={(value) => onTagInput(file.id, value)}
-        onCommit={(value) => onMutateTags(file, 'add', value)}
+        onCommit={(value) => onMutateTags(file, tagMode, value)}
       />
     </div>
   </aside>
@@ -279,7 +304,7 @@
   />
 
   <aside class="lightbox-rail">
-    <button class="g-btn g-btn-ghost" type="button" title="Add tag" aria-label="Add tag" onclick={focusTagInput}><Icon name="tag" size={16} /></button>
+    <button class="g-btn g-btn-ghost" type="button" title="Add tag" aria-label="Add tag" onclick={() => focusTagInput('add')}><Icon name="tag" size={16} /></button>
     {#if originalAvailable}
       <button
         class="g-btn g-btn-ghost"
@@ -292,7 +317,7 @@
         <Icon name="photo" size={16} active={preferOriginal} />
       </button>
     {/if}
-    <a class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original" aria-label={`Download ${file.name}`}>
+    <a bind:this={downloadLink} class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original" aria-label={`Download ${file.name}`}>
       <Icon name="download" size={16} />
     </a>
     <a class="g-btn g-btn-ghost" href={file.media_urls.content} target="_blank" rel="noreferrer" title="Open original in new tab" aria-label={`Open original ${file.name}`}>
