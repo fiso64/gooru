@@ -355,6 +355,8 @@ func (cfg *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("uploads target %q path is required", id))
 		} else if !filepath.IsAbs(path) {
 			errs = append(errs, fmt.Errorf("uploads target %q path must be absolute", id))
+		} else if err := cfg.validateUploadTargetProtection(cfg.Uploads.Targets[i]); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	if cfg.Auth.SessionTTLRaw == "" {

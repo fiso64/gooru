@@ -113,6 +113,8 @@ Each entry in `uploads.targets` supports:
 | `name` | Human-readable target name. Required. |
 | `path` | Absolute destination directory. Required. The path itself is not returned by the upload-target API. |
 
+Upload targets must not overlap Gooru-owned application paths. Startup rejects a target that contains, is contained by, or resolves through symlinks onto the configured database, encryption key file, media cache, frontend directory, or an explicitly configured absolute ffmpeg/ffprobe executable path. Keep application state and executables outside directories that Gooru is allowed to upload into, replace within, or delete from.
+
 Example:
 
 ```yaml
