@@ -5,8 +5,10 @@
   import JobsDrawer from './JobsDrawer.svelte';
   import Logo from './Logo.svelte';
   import SearchBar from './SearchBar.svelte';
+  import ShortcutsView from './ShortcutsView.svelte';
   import type { Job, MetaTagDefinition } from '$lib/api/types';
   import { readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
+  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { replaceSidebarKind, sidebarKindActive, sidebarKindFilters } from '$lib/utils/sidebarKinds';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
@@ -71,10 +73,21 @@
   const kinds = sidebarKindFilters;
 
   let commonTagsCollapsed = $state(false);
+  let shortcutsOpen = $state(false);
+  let shortcutsReturnRoute = $state('library');
   const commonTags = $derived(normalizeCommonTags(tags).slice(0, 20));
 
   onMount(() => {
     commonTagsCollapsed = readBrowserPreference(commonTagsCollapsedKey, false, isBoolean);
+  });
+
+  $effect(() => {
+    if (route !== 'shortcuts') {
+      shortcutsReturnRoute = route;
+      return;
+    }
+    shortcutsOpen = true;
+    queueMicrotask(() => onRoute(shortcutsReturnRoute));
   });
 
   function kindCount(kind: string) {
@@ -114,7 +127,51 @@
     onRoute('library');
     onSearchCommit(replaceSidebarKind(search, filter));
   }
+
+  function openShortcuts() {
+    shortcutsOpen = true;
+  }
+
+  function closeShortcuts() {
+    shortcutsOpen = false;
+  }
+
+  function handleShellKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
+    const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
+    if (shortcutsKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      openShortcuts();
+      return;
+    }
+    if (shortcutsOpen) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeShortcuts();
+      }
+      return;
+    }
+    if (event.key.toLowerCase() === 'b' && route === 'library' && !document.querySelector('[role="dialog"]')) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCreateSavedSearch();
+      return;
+    }
+    if (!/^[1-9]$/.test(event.key) || document.querySelector('.lightbox[role="dialog"]')) return;
+
+    const index = Number(event.key) - 1;
+    const items = Array.from(document.querySelectorAll<HTMLButtonElement>('.sidebar [data-sidebar-shortcut]'))
+      .filter((button) => !button.disabled && button.getClientRects().length > 0);
+    const target = items[index];
+    if (!target) return;
+    event.preventDefault();
+    target.click();
+  }
 </script>
+
+<svelte:window onkeydowncapture={handleShellKeydown} />
 
 <div class="app-shell">
   <header class="topbar">
@@ -159,21 +216,21 @@
 
   <aside class="sidebar">
     <div class="sidebar-section">
-      <button class:active={route === 'library'} class="sidebar-item" type="button" onclick={openLibrary}>
+      <button data-sidebar-shortcut class:active={route === 'library'} class="sidebar-item" type="button" onclick={openLibrary}>
         <Icon name="library" size={16} active={route === 'library'} />
         <span>Library</span>
         <span class="count">{libraryCount.toLocaleString()}</span>
       </button>
-      <button class:active={route === 'tags'} class="sidebar-item" type="button" onclick={() => onRoute('tags')}>
+      <button data-sidebar-shortcut class:active={route === 'tags'} class="sidebar-item" type="button" onclick={() => onRoute('tags')}>
         <Icon name="tags" size={16} active={route === 'tags'} />
         <span>Tags</span>
         <span class="count">{tagCount.toLocaleString()}</span>
       </button>
-      <button class:active={route === 'upload'} class="sidebar-item" type="button" onclick={() => onRoute('upload')}>
+      <button data-sidebar-shortcut class:active={route === 'upload'} class="sidebar-item" type="button" onclick={() => onRoute('upload')}>
         <Icon name="upload" size={16} active={route === 'upload'} />
         <span>Upload</span>
       </button>
-      <button class:active={route === 'jobs'} class="sidebar-item" type="button" onclick={() => onRoute('jobs')}>
+      <button data-sidebar-shortcut class:active={route === 'jobs'} class="sidebar-item" type="button" onclick={() => onRoute('jobs')}>
         <Icon name="jobs" size={16} active={route === 'jobs'} />
         <span>Jobs</span>
         {#if jobsActiveCount}<span class="count">{jobsActiveCount}</span>{/if}
@@ -183,14 +240,14 @@
     <div class="sidebar-section">
       <div class="sidebar-section-head">Kinds</div>
       {#each kinds as kind}
-        <button class:active={route === 'library' && sidebarKindActive(search, kind.query)} class="sidebar-item" type="button" onclick={() => toggleKind(kind.query)}>
+        <button data-sidebar-shortcut class:active={route === 'library' && sidebarKindActive(search, kind.query)} class="sidebar-item" type="button" onclick={() => toggleKind(kind.query)}>
           <Icon name={kind.icon} size={16} active={route === 'library' && sidebarKindActive(search, kind.query)} />
           <span>{kind.label}</span>
           <span class="count">{kindCount(kind.key).toLocaleString()}</span>
         </button>
       {/each}
       {#if comicCount > 0}
-        <button class:active={route === 'library' && sidebarKindActive(search, 'ext:cbz')} class="sidebar-item" type="button" onclick={() => toggleKind('ext:cbz')}>
+        <button data-sidebar-shortcut class:active={route === 'library' && sidebarKindActive(search, 'ext:cbz')} class="sidebar-item" type="button" onclick={() => toggleKind('ext:cbz')}>
           <Icon name="bookmark" size={16} active={route === 'library' && sidebarKindActive(search, 'ext:cbz')} />
           <span>Comics</span>
           <span class="count">{comicCount.toLocaleString()}</span>
@@ -259,11 +316,11 @@
     {/if}
 
     <div class="sidebar-section bottom">
-      <button class:active={route === 'settings'} class="sidebar-item" type="button" onclick={() => onRoute('settings')}>
+      <button data-sidebar-shortcut class:active={route === 'settings'} class="sidebar-item" type="button" onclick={() => onRoute('settings')}>
         <Icon name="settings" size={16} />
         <span>Settings</span>
       </button>
-      <button class:active={route === 'shortcuts'} class="sidebar-item" type="button" onclick={() => onRoute('shortcuts')}>
+      <button class="sidebar-item" type="button" onclick={openShortcuts}>
         <Icon name="keyboard" size={16} />
         <span>Shortcuts</span>
       </button>
@@ -272,6 +329,10 @@
 
   {@render children()}
 </div>
+
+{#if shortcutsOpen}
+  <ShortcutsView onClose={closeShortcuts} />
+{/if}
 
 <style>
   .common-tags-toggle {

@@ -48,7 +48,9 @@
   }>();
 
   let dialogElement = $state<HTMLDivElement | undefined>();
+  let downloadLink = $state<HTMLAnchorElement | undefined>();
   let preferOriginal = $state($runtimeConfig.loadFullMediaByDefault);
+  let tagMode = $state<'add' | 'remove'>('add');
   let comicManifest = $state<ComicManifest | null>(null);
   let comicPageIndex = $state(0);
   let comicEntered = $state(false);
@@ -76,6 +78,7 @@
       comicEntered = false;
       comicLoading = false;
       comicError = '';
+      tagMode = 'add';
       onNestedNavigationChange(false);
     });
   });
@@ -88,7 +91,8 @@
     }
   });
 
-  function focusTagInput() {
+  function focusTagInput(mode: 'add' | 'remove' = 'add') {
+    tagMode = mode;
     document.getElementById(`tags-${file.id}`)?.focus();
   }
 
@@ -107,10 +111,30 @@
       else stageNext();
       return;
     }
-    if (event.key.toLowerCase() !== 't' || isEditableShortcutTarget(event.target)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    focusTagInput();
+
+    if (isEditableShortcutTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    if (key === 't' || key === 'u') {
+      event.preventDefault();
+      event.stopPropagation();
+      focusTagInput(key === 'u' ? 'remove' : 'add');
+      return;
+    }
+    if (key === 'd') {
+      event.preventDefault();
+      event.stopPropagation();
+      downloadLink?.click();
+      return;
+    }
+    if (event.key === 'Delete') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.shiftKey) {
+        if (file.can_delete) onDelete(file);
+      } else {
+        onUntrack(file);
+      }
+    }
   }
 
   async function toggleComic() {
@@ -199,10 +223,25 @@
       <dt>Path</dt><dd class="path">{file.safe_display_path}</dd>
       <dt>Size</dt><dd>{mediaDimensions(file) || file.media_type} · {formatBytes(file.size)}</dd>
       {#if mediaDuration(file)}<dt>Length</dt><dd>{mediaDuration(file)}</dd>{/if}
+      {#if comicManifest}<dt>Pages</dt><dd>{comicManifest.pages.length}</dd>{/if}
       <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>
       <dt>Mime</dt><dd>{file.media_type}</dd>
       <dt>Hash</dt><dd class="hash">{file.content_id}</dd>
     </dl>
+
+    {#if comicAvailable}
+      <div class="comic-session">
+        <button class="g-btn g-btn-sm" type="button" disabled={comicLoading} onclick={() => void toggleComic()}>
+          {comicLoading ? 'Loading comic…' : comicEntered ? 'Exit comic' : 'Read comic'}
+        </button>
+        {#if comicEntered && comicManifest}
+          <span class="comic-page-status">Page {comicPageIndex + 1} / {comicManifest.pages.length}</span>
+        {:else}
+          <span class="comic-page-status">Space / Enter</span>
+        {/if}
+        {#if comicError}<div class="comic-error" role="alert">{comicError}</div>{/if}
+      </div>
+    {/if}
 
     <hr class="g-divider" />
 
@@ -247,8 +286,9 @@
         error={tagError}
         {tags}
         existingTags={file.tags}
+        mode={tagMode}
         onInput={(value) => onTagInput(file.id, value)}
-        onCommit={(value) => onMutateTags(file, 'add', value)}
+        onCommit={(value) => onMutateTags(file, tagMode, value)}
       />
     </div>
   </aside>
@@ -261,18 +301,10 @@
     onPrimaryAction={comicAvailable ? () => void toggleComic() : undefined}
     keyboardNavigation={comicEntered}
     navigationUnit={comicEntered ? 'page' : 'file'}
-    {comicAvailable}
-    {comicEntered}
-    {comicLoading}
-    comicPage={comicPageIndex}
-    comicPages={comicManifest?.pages.length ?? 0}
-    {comicError}
-    onToggleComic={() => void toggleComic()}
-    onComicPageSelect={(index) => { comicPageIndex = index; }}
   />
 
   <aside class="lightbox-rail">
-    <button class="g-btn g-btn-ghost" type="button" title="Add tag" aria-label="Add tag" onclick={focusTagInput}><Icon name="tag" size={16} /></button>
+    <button class="g-btn g-btn-ghost" type="button" title="Add tag" aria-label="Add tag" onclick={() => focusTagInput('add')}><Icon name="tag" size={16} /></button>
     {#if originalAvailable}
       <button
         class="g-btn g-btn-ghost"
@@ -285,7 +317,7 @@
         <Icon name="photo" size={16} active={preferOriginal} />
       </button>
     {/if}
-    <a class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original" aria-label={`Download ${file.name}`}>
+    <a bind:this={downloadLink} class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original" aria-label={`Download ${file.name}`}>
       <Icon name="download" size={16} />
     </a>
     <a class="g-btn g-btn-ghost" href={file.media_urls.content} target="_blank" rel="noreferrer" title="Open original in new tab" aria-label={`Open original ${file.name}`}>
@@ -324,4 +356,22 @@
     border-color: var(--accent-line);
   }
 
+  .comic-session {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .comic-page-status {
+    color: var(--text-muted);
+    font: 11px/1.3 var(--font-mono);
+  }
+
+  .comic-error {
+    grid-column: 1 / -1;
+    color: var(--danger);
+    font-size: 12px;
+  }
 </style>
