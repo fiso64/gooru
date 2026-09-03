@@ -1,0 +1,25 @@
+name: tmp validate 195 jobs layout
+on:
+  push:
+    branches:
+      - fix/195-jobs-drawer-overlay
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run jobs layout regression
+        working-directory: frontend
+        run: npx playwright test tests/jobs-layout.spec.ts --project=chromium
