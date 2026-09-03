@@ -1,0 +1,186 @@
+name: maintainer-222-v3
+on:
+  push:
+    branches: [feat/222-filename-contains-metatag]
+permissions:
+  contents: write
+jobs:
+  finish:
+    if: "${{ ! contains(github.event.head_commit.message, '[maintainer-222]') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply contract patch
+        shell: bash
+        run: |
+          sed -n "/python3 - <<'PY'/,/^          PY$/p" .github/workflows/maintainer-222-v2.yml | sed '1d;$d;s/^          //' > /tmp/patch.py
+          python3 /tmp/patch.py
+          git checkout HEAD -- docs/openapi.yaml
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+          old = '''    SuggestionsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+'''
+          new = '''    MetaTag:
+      type: object
+      required: [name, syntax, hint, requires_value]
+      properties:
+        name:
+          type: string
+        syntax:
+          type: string
+        hint:
+          type: string
+        requires_value:
+          type: boolean
+    SuggestionsResponse:
+      type: object
+      required: [items, meta_tags]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+        meta_tags:
+          type: array
+          description: Complete backend-owned catalog of supported query metatags.
+          items:
+            $ref: "#/components/schemas/MetaTag"
+'''
+          if old not in text:
+              raise SystemExit('SuggestionsResponse schema block not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/serve/search_saved.go internal/serve/openapi_test.go
+      - name: Add regression coverage
+        shell: bash
+        run: |
+          cat > internal/query/metatags_test.go <<'EOF'
+          package query
+
+          import (
+            "reflect"
+            "testing"
+          )
+
+          func TestMetaTagCatalogAndParser(t *testing.T) {
+            definitions := MetaTags()
+            if len(definitions) != 2 { t.Fatalf("got %d metatags, want 2", len(definitions)) }
+            if definitions[0].Name != MetaTagTagged || definitions[1].Name != MetaTagFilenameContains { t.Fatalf("unexpected catalog: %+v", definitions) }
+            parsed, err := ParseMetaTag(`@filename_contains:Summer 100%_Set`)
+            if err != nil { t.Fatalf("parse filename metatag: %v", err) }
+            if parsed.Value != `Summer 100%_Set` || !parsed.Definition.RequiresValue { t.Fatalf("unexpected parsed metatag: %+v", parsed) }
+            if _, err := ParseMetaTag(`@filename_contains:`); err == nil { t.Fatal("expected empty filename_contains value to fail") }
+          }
+
+          func TestFilenameContainsBuildLocationsTargetsBasenameCaseInsensitivelyAndEscapesWildcards(t *testing.T) {
+            expr, err := Parse(`@filename_contains:"100%_SET"`)
+            if err != nil { t.Fatal(err) }
+            if err := ValidateAST(expr); err != nil { t.Fatal(err) }
+            queryText, args := BuildLocations(expr, nil)
+            if len(args) != 1 { t.Fatalf("got args %v", args) }
+            if want := `%100\%\_SET%`; args[0] != want { t.Fatalf("got LIKE arg %q, want %q", args[0], want) }
+            for _, fragment := range []string{"WITH RECURSIVE path_parts", "replace(path, char(92), '/')", "p.rest = ''", "lower(p.part) LIKE lower(?) ESCAPE '\\'"} {
+              if !contains(queryText, fragment) { t.Fatalf("query missing %q: %s", fragment, queryText) }
+            }
+            if reflect.ValueOf(args[0]).Kind() != reflect.String { t.Fatalf("LIKE arg must be string: %#v", args[0]) }
+          }
+
+          func contains(text, fragment string) bool {
+            if len(fragment) > len(text) { return false }
+            for i := 0; i+len(fragment) <= len(text); i++ { if text[i:i+len(fragment)] == fragment { return true } }
+            return false
+          }
+          EOF
+          cat > internal/serve/search_saved_metatags_test.go <<'EOF'
+          package serve
+
+          import "testing"
+
+          func TestMetaTagDTOsExposeCompleteQueryCatalog(t *testing.T) {
+            items := metaTagDTOs()
+            if len(items) != 2 { t.Fatalf("got %d metatags, want 2", len(items)) }
+            if items[0].Syntax != "@tagged" || items[0].RequiresValue { t.Fatalf("unexpected tagged metadata: %+v", items[0]) }
+            if items[1].Syntax != "@filename_contains:" || !items[1].RequiresValue { t.Fatalf("unexpected filename metadata: %+v", items[1]) }
+          }
+          EOF
+          cat > frontend/src/lib/search/specialSuggestions.test.ts <<'EOF'
+          import { describe, expect, it } from 'vitest';
+          import { specialSearchSuggestions } from './specialSuggestions';
+
+          const metaTags = [
+            { syntax: '@tagged', hint: 'has tags', requires_value: false },
+            { syntax: '@filename_contains:', hint: 'filename contains', requires_value: true }
+          ];
+
+          describe('specialSearchSuggestions', () => {
+            it('uses the backend catalog for metatags and hides them on unrelated input', () => {
+              expect(specialSearchSuggestions('@t', [], metaTags)).toEqual([
+                { commit: '@tagged', ns: '', val: '@tagged', hint: 'has tags' }
+              ]);
+              expect(specialSearchSuggestions('@f', [], metaTags)).toEqual([
+                { commit: '@filename_contains:', ns: '@filename_contains', val: '', hint: 'filename contains', partial: true }
+              ]);
+              expect(specialSearchSuggestions('artist', [], metaTags)).toEqual([]);
+            });
+
+            it('does not invent metatags when the backend catalog is empty', () => {
+              expect(specialSearchSuggestions('@t')).toEqual([]);
+              expect(specialSearchSuggestions('@f')).toEqual([]);
+            });
+
+            it('completes supported media kinds after type:', () => {
+              expect(specialSearchSuggestions('type:v', [], metaTags)).toEqual([
+                { commit: 'type:video', ns: 'type', val: 'video', hint: 'media type' }
+              ]);
+              expect(specialSearchSuggestions('type:', [], metaTags)).toHaveLength(5);
+            });
+
+            it('supports negation and excludes already committed exact expressions', () => {
+              expect(specialSearchSuggestions('-@t', [], metaTags)).toEqual([
+                { commit: '-@tagged', ns: '', val: '@tagged', hint: 'has tags' }
+              ]);
+              expect(specialSearchSuggestions('@t', ['@tagged'], metaTags)).toEqual([]);
+              expect(specialSearchSuggestions('type:v', ['type:video'], metaTags)).toEqual([]);
+            });
+          });
+          EOF
+          gofmt -w internal/query/metatags_test.go internal/serve/search_saved_metatags_test.go
+      - name: Generate API types
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run generate:api
+      - name: Validate
+        run: |
+          go test ./internal/query ./internal/serve
+          cd frontend
+          npm run test:unit
+          npm run check
+          npm run build
+      - name: Commit validated implementation
+        shell: bash
+        run: |
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal frontend docs
+          git commit -m "feat(query): finish backend-owned metatag contract [maintainer-222]"
+          git push
