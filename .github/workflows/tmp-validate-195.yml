@@ -17,6 +17,15 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
       - name: Install Chromium
         working-directory: frontend
         run: npx playwright install --with-deps chromium
