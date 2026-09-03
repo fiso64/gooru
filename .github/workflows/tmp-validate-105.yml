@@ -1,34 +1,31 @@
-name: tmp validate 105 nix package
+name: tmp validate 105 comic package
 on:
   push:
     branches:
       - fix/105-comic-render-boundary
-    paths-ignore:
-      - 'tmp-validation/**'
-permissions:
-  contents: write
 jobs:
-  diagnose-nix:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Check frontend
+        working-directory: frontend
+        run: npm run check
+      - name: Run focused comic-font regression
+        working-directory: frontend
+        run: npx playwright test tests/font-style.spec.ts --project=chromium
       - uses: DeterminateSystems/nix-installer-action@main
-      - name: Capture packaged application build result
-        shell: bash
-        run: |
-          mkdir -p tmp-validation
-          set +e
-          nix build .#default --print-build-logs > tmp-validation/nix-build.txt 2>&1
-          status=$?
-          echo "$status" > tmp-validation/nix-status.txt
-          grep -E 'hash mismatch|specified:|got:|error:|npm-deps|vendorHash|npmDepsHash' tmp-validation/nix-build.txt | tail -40 > tmp-validation/nix-summary.txt || true
-          set -e
-      - name: Persist diagnostics on the temporary branch
-        shell: bash
-        run: |
-          git config user.name 'gooru-maintainer-validation'
-          git config user.email '64778819+fiso64@users.noreply.github.com'
-          git add tmp-validation
-          git commit -m 'ci: summarize issue 105 nix failure'
-          git push
+      - name: Build packaged application
+        run: nix build .#default --print-build-logs
