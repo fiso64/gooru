@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -264,26 +265,16 @@ func runFFmpegThumbnailFromSource(ctx context.Context, exe string, src io.ReadSe
 	}
 	cmd := exec.CommandContext(ctx, exe, ffmpegThumbnailSourceArgs(size, format, offset)...)
 	cmd.Stdin = src
-	counter := &countingWriter{Writer: dst}
-	cmd.Stdout = counter
+	var output bytes.Buffer
+	cmd.Stdout = &output
 	if err := commandError(cmd.Run()); err != nil {
 		return err
 	}
-	if counter.n == 0 {
+	if output.Len() == 0 {
 		return errors.New("ffmpeg produced an empty thumbnail")
 	}
-	return nil
-}
-
-type countingWriter struct {
-	io.Writer
-	n int64
-}
-
-func (w *countingWriter) Write(p []byte) (int, error) {
-	n, err := w.Writer.Write(p)
-	w.n += int64(n)
-	return n, err
+	_, err := io.Copy(dst, &output)
+	return err
 }
 
 func ffmpegThumbnailSourceArgs(size int, format string, offset *time.Duration) []string {
