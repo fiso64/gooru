@@ -84,6 +84,10 @@ nix build .#
 nix run .# -- --help
 ```
 
+## License
+
+Gooru is licensed under the **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`). See [LICENSE](LICENSE) for the complete license text and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and assets distributed under their own compatible terms.
+
 ## TODO
 
 - Priority #1: Extensive tests to ensure correctness of all operations.
