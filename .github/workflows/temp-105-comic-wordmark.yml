@@ -79,8 +79,18 @@ jobs:
         run: npx playwright install --with-deps chromium firefox
       - working-directory: frontend
         run: npx playwright test tests/font-style.spec.ts --project=chromium
-      - working-directory: frontend
-        run: npx playwright test tests/font-style.spec.ts --project=firefox
+      - name: Run font-style regression in Firefox
+        working-directory: frontend
+        run: |
+          cp playwright.config.ts playwright.firefox.config.ts
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('playwright.firefox.config.ts')
+          s = p.read_text().replace("name: 'chromium'", "name: 'firefox'").replace("devices['Desktop Chrome']", "devices['Desktop Firefox']")
+          p.write_text(s)
+          PY
+          npx playwright test tests/font-style.spec.ts --config=playwright.firefox.config.ts --project=firefox
+          rm playwright.firefox.config.ts
       - name: Commit validated change and remove workflow
         run: |
           rm .github/workflows/temp-105-comic-wordmark.yml
