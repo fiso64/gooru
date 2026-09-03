@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,38 +30,59 @@ func TestJobFailureLoggingAddsSanitizedDiagnostics(t *testing.T) {
 	waitForLogContains(t, &output, "error_class=internal_error")
 	waitForLogContains(t, &output, "error_types=*errors.errorString")
 
-	db, err := sql.Open("sqlite3", ":memory:")
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(`CREATE TABLE diagnostic_constraint (value TEXT UNIQUE)`); err != nil {
-		t.Fatalf("create constraint table: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO diagnostic_constraint(value) VALUES ('duplicate')`); err != nil {
-		t.Fatalf("seed constraint table: %v", err)
-	}
-	_, constraintErr := db.Exec(`INSERT INTO diagnostic_constraint(value) VALUES ('duplicate')`)
-	if constraintErr == nil {
-		t.Fatal("expected sqlite constraint error")
-	}
-
+	busyErr := sqliteBusyError(t)
 	sqliteFailure, err := manager.Submit(context.Background(), "upload_import", true, func(context.Context) (interface{}, error) {
-		return nil, constraintErr
+		return nil, busyErr
 	})
 	if err != nil {
 		t.Fatalf("submit sqlite failure: %v", err)
 	}
 	waitForLoggedJobStatus(t, manager, sqliteFailure.ID, JobFailed)
 	waitForLogContains(t, &output, "job_type=upload_import status=failed")
-	waitForLogContains(t, &output, "error_class=sqlite_constraint")
-	waitForLogContains(t, &output, "sqlite_code=19")
+	waitForLogContains(t, &output, "error_class=sqlite_busy")
+	waitForLogContains(t, &output, "sqlite_code=5")
 
 	logs := output.String()
-	for _, private := range []string{"private-filename.jpg", "failed analysis", "duplicate"} {
+	for _, private := range []string{"private-filename.jpg", "failed analysis"} {
 		if strings.Contains(logs, private) {
 			t.Fatalf("job failure diagnostics leaked %q: %s", private, logs)
 		}
 	}
+}
+
+func sqliteBusyError(t *testing.T) error {
+	t.Helper()
+
+	dbPath := filepath.Join(t.TempDir(), "busy.db")
+	dsn := dbPath + "?_journal=WAL&_busy_timeout=0"
+	writer, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatalf("open sqlite writer: %v", err)
+	}
+	defer writer.Close()
+	contender, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		t.Fatalf("open sqlite contender: %v", err)
+	}
+	defer contender.Close()
+	writer.SetMaxOpenConns(1)
+	contender.SetMaxOpenConns(1)
+
+	if _, err := writer.Exec(`CREATE TABLE contention (value TEXT)`); err != nil {
+		t.Fatalf("create contention table: %v", err)
+	}
+	tx, err := writer.Begin()
+	if err != nil {
+		t.Fatalf("begin writer transaction: %v", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO contention(value) VALUES ('held')`); err != nil {
+		t.Fatalf("acquire writer lock: %v", err)
+	}
+
+	_, busyErr := contender.Exec(`INSERT INTO contention(value) VALUES ('blocked')`)
+	if busyErr == nil {
+		t.Fatal("expected SQLITE_BUSY from concurrent writer")
+	}
+	return busyErr
 }
