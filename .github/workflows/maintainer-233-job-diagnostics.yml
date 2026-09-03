@@ -1,0 +1,51 @@
+name: Maintainer 233 job diagnostics patch
+
+on:
+  push:
+    branches:
+      - fix/233-job-failure-diagnostics
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[maintainer-job-patched]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/233-job-failure-diagnostics
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Add centralized failure fields to job completion logs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/serve/jobs.go')
+          text = path.read_text()
+          old = '''\tslog.Log(context.Background(), level, "job finished",\n\t\t"job_id", jobID,\n\t\t"job_type", jobType,\n\t\t"status", status,\n\t\t"duration", finished.Sub(started),\n\t)\n'''
+          new = '''\tattrs := []any{\n\t\t"job_id", jobID,\n\t\t"job_type", jobType,\n\t\t"status", status,\n\t\t"duration", finished.Sub(started),\n\t}\n\tif status == JobFailed {\n\t\tattrs = append(attrs, jobFailureLogAttrs(err)...)\n\t}\n\tslog.Log(context.Background(), level, "job finished", attrs...)\n'''
+          if text.count(old) != 1:
+              raise SystemExit('expected job-finished source pattern not found exactly once')
+          path.write_text(text.replace(old, new))
+          PY
+          rm .github/workflows/maintainer-233-job-diagnostics.yml
+          gofmt -w internal/serve/jobs.go internal/serve/job_failure_diagnostics.go internal/serve/job_failure_diagnostics_test.go
+      - name: Validate Go
+        run: |
+          go test ./internal/serve
+          go test ./...
+          go build ./...
+      - name: Commit validated patch
+        run: |
+          git config user.name "fiso64"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(jobs): emit sanitized failure diagnostics [maintainer-job-patched]"
+          git push origin HEAD:fix/233-job-failure-diagnostics
