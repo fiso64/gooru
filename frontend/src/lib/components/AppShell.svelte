@@ -7,6 +7,7 @@
   import SearchBar from './SearchBar.svelte';
   import type { Job } from '$lib/api/types';
   import { readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
+  import { replaceSidebarKind, sidebarKindActive, sidebarKindFilters } from '$lib/utils/sidebarKinds';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
 
@@ -16,7 +17,6 @@
   let {
     username,
     route,
-    activeKind,
     libraryCount,
     tagCount,
     jobsActiveCount,
@@ -24,13 +24,11 @@
     jobsDrawerOpen,
     kindCounts,
     comicCount,
-    comicActive,
     savedSearches,
     suggestions,
     tags,
     search,
     onRoute,
-    onKind,
     onSavedSearch,
     onCreateSavedSearch,
     onUpdateSavedSearch,
@@ -44,7 +42,6 @@
   } = $props<{
     username: string;
     route: string;
-    activeKind: string;
     libraryCount: number;
     tagCount: number;
     jobsActiveCount: number;
@@ -52,13 +49,11 @@
     jobsDrawerOpen: boolean;
     kindCounts: Array<{ value: string; count: number }>;
     comicCount: number;
-    comicActive: boolean;
     savedSearches: Array<{ id: string; name: string; query: string }>;
     suggestions: Array<{ name: string; count?: number }>;
     tags: TagLike[];
     search: string;
     onRoute: (route: string) => void;
-    onKind: (kind: string) => void;
     onSavedSearch: (query: string, name: string) => void;
     onCreateSavedSearch: () => void;
     onUpdateSavedSearch: (id: string, name: string, query: string) => void;
@@ -71,11 +66,7 @@
     children: Snippet;
   }>();
 
-  const kinds = [
-    { key: 'photo', label: 'Photos', icon: 'photo' },
-    { key: 'video', label: 'Videos', icon: 'video' },
-    { key: 'gif', label: 'GIFs', icon: 'gif' }
-  ];
+  const kinds = sidebarKindFilters;
 
   let commonTagsCollapsed = $state(false);
   const commonTags = $derived(normalizeCommonTags(tags).slice(0, 20));
@@ -109,22 +100,17 @@
   }
 
   function openLibrary() {
-    if (route === 'library' && !activeKind) onSearchCommit('');
+    if (route === 'library') onSearchCommit('');
     onRoute('library');
-    onKind('');
   }
 
   function openCommonTag(tag: string) {
-    onKind('');
     onSearchCommit(tag);
   }
 
-  function toggleComics() {
-    const terms = search.trim().split(/\s+/).filter((term: string) => term && term.toLowerCase() !== 'ext:cbz');
-    if (!comicActive) terms.push('ext:cbz');
+  function toggleKind(filter: string) {
     onRoute('library');
-    onKind('');
-    onSearchCommit(terms.join(' '));
+    onSearchCommit(replaceSidebarKind(search, filter));
   }
 </script>
 
@@ -170,8 +156,8 @@
 
   <aside class="sidebar">
     <div class="sidebar-section">
-      <button class:active={route === 'library' && !activeKind} class="sidebar-item" type="button" onclick={openLibrary}>
-        <Icon name="library" size={16} active={route === 'library' && !activeKind} />
+      <button class:active={route === 'library'} class="sidebar-item" type="button" onclick={openLibrary}>
+        <Icon name="library" size={16} active={route === 'library'} />
         <span>Library</span>
         <span class="count">{libraryCount.toLocaleString()}</span>
       </button>
@@ -194,15 +180,15 @@
     <div class="sidebar-section">
       <div class="sidebar-section-head">Kinds</div>
       {#each kinds as kind}
-        <button class:active={route === 'library' && activeKind === kind.key} class="sidebar-item" type="button" onclick={() => { onRoute('library'); onKind(activeKind === kind.key ? '' : kind.key); }}>
-          <Icon name={kind.icon} size={16} active={route === 'library' && activeKind === kind.key} />
+        <button class:active={route === 'library' && sidebarKindActive(search, kind.query)} class="sidebar-item" type="button" onclick={() => toggleKind(kind.query)}>
+          <Icon name={kind.icon} size={16} active={route === 'library' && sidebarKindActive(search, kind.query)} />
           <span>{kind.label}</span>
           <span class="count">{kindCount(kind.key).toLocaleString()}</span>
         </button>
       {/each}
       {#if comicCount > 0}
-        <button class:active={route === 'library' && comicActive} class="sidebar-item" type="button" onclick={toggleComics}>
-          <Icon name="bookmark" size={16} active={route === 'library' && comicActive} />
+        <button class:active={route === 'library' && sidebarKindActive(search, 'ext:cbz')} class="sidebar-item" type="button" onclick={() => toggleKind('ext:cbz')}>
+          <Icon name="bookmark" size={16} active={route === 'library' && sidebarKindActive(search, 'ext:cbz')} />
           <span>Comics</span>
           <span class="count">{comicCount.toLocaleString()}</span>
         </button>

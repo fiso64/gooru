@@ -1206,3 +1206,77 @@ test('hides the Comics kind when no CBZ files exist', async ({ page }) => {
   await signIn(page);
   await expect(page.getByRole('button', { name: /Comics/ })).toHaveCount(0);
 });
+
+test('sidebar kind filters stay visible, mutually exclusive, and keep counts stable', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  const fileQueries: string[] = [];
+  await page.route('**/api/v1/files?**', async (route) => {
+    const url = new URL(route.request().url());
+    const query = url.searchParams.get('query') ?? '';
+    fileQueries.push(query);
+    const baseFacets = { kind: [
+      { value: 'photo', count: 7 },
+      { value: 'video', count: 2 },
+      { value: 'gif', count: 1 }
+    ] };
+    const total = query.includes('ext:cbz') ? 3
+      : query.includes('type:photo') ? 7
+      : query.includes('type:video') ? 2
+      : query.includes('type:gif') ? 1
+      : 10;
+    const filteredKind = query.match(/type:(photo|video|gif)/)?.[1];
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        files: [],
+        total_count: total,
+        library_count: 10,
+        facets: filteredKind
+          ? { kind: [{ value: filteredKind, count: total }] }
+          : baseFacets
+      })
+    });
+  });
+
+  await page.goto('/');
+  await signIn(page);
+  const search = page.getByLabel('Search library');
+  await search.fill('technology');
+  await search.press('Enter');
+
+  const photos = page.getByRole('button', { name: /Photos/ });
+  const videos = page.getByRole('button', { name: /Videos/ });
+  const gifs = page.getByRole('button', { name: /GIFs/ });
+  await expect(photos.getByText('7')).toBeVisible();
+  await expect(videos.getByText('2')).toBeVisible();
+  await expect(gifs.getByText('1')).toBeVisible();
+
+  await videos.click();
+  await expect(page.locator('.searchbar-pill')).toHaveText(['technology', 'type:video']);
+  await expect(photos.getByText('7')).toBeVisible();
+  await expect(videos.getByText('2')).toBeVisible();
+  await expect(gifs.getByText('1')).toBeVisible();
+
+  await photos.click();
+  await expect(page.locator('.searchbar-pill')).toHaveText(['technology', 'type:photo']);
+  await expect(page.locator('.searchbar-pill')).not.toContainText(['type:video']);
+
+  await gifs.click();
+  await expect(page.locator('.searchbar-pill')).toHaveText(['technology', 'type:gif']);
+  await expect(page.locator('.searchbar-pill')).not.toContainText(['type:photo']);
+
+  const comics = page.getByRole('button', { name: /Comics/ });
+  await expect(comics).toBeVisible();
+  await comics.click();
+  await expect(page.locator('.searchbar-pill')).toHaveText(['technology', 'ext:cbz']);
+  await expect(page.locator('.searchbar-pill')).not.toContainText(['type:gif']);
+
+  await page.getByRole('button', { name: 'Safe blue', exact: true }).click();
+  await expect(page.locator('.searchbar-pill')).toHaveText(['rating:safe', 'blue']);
+
+  await page.getByRole('button', { name: /^blue\s+2$/ }).click();
+  await expect(page.locator('.searchbar-pill')).toHaveText(['blue']);
+  expect(fileQueries).toContain('technology type:video');
+  expect(fileQueries).toContain('technology');
+});

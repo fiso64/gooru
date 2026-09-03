@@ -12,6 +12,7 @@ import {
   type AppRoute
 } from '$lib/utils/appRoute';
 import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+import { replaceSidebarKind } from '$lib/utils/sidebarKinds';
 import { previewNeighbor } from '$lib/utils/viewerNavigation';
 import { clearViewerPreloadCache, preloadViewerMedia } from '$lib/utils/viewerPreload';
 import {
@@ -29,12 +30,15 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   const initialLibraryState = browser && initialRoute === 'library'
     ? libraryURLStateFromSearch(window.location.search)
     : defaultLibraryURLState;
-  const searchDraft = writable(initialLibraryState.query);
-  const submittedSearch = writable(initialLibraryState.query);
-  const suggestionSearch = writable(initialLibraryState.query);
-  let submittedQuery = $state(initialLibraryState.query);
+  const initialQuery = initialLibraryState.kind
+    ? replaceSidebarKind(initialLibraryState.query, `type:${initialLibraryState.kind}`)
+    : initialLibraryState.query;
+  const searchDraft = writable(initialQuery);
+  const submittedSearch = writable(initialQuery);
+  const suggestionSearch = writable(initialQuery);
+  let submittedQuery = $state(initialQuery);
   let route: AppRoute = $state(initialRoute);
-  let activeKind = $state(initialLibraryState.kind);
+  let activeKind = $state('');
   let activeSavedSearch = $state('');
   let sort: FileSort = $state(initialLibraryState.sort);
   let order: SortOrder = $state(initialLibraryState.order);
@@ -57,7 +61,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     if (!browser) return;
     const pathname = pathForAppRoute(route);
     const search = route === 'library'
-      ? searchForLibraryURLState({ query: submittedQuery, kind: activeKind, sort, order, fileID: pendingPreviewID })
+      ? searchForLibraryURLState({ query: submittedQuery, kind: '', sort, order, fileID: pendingPreviewID })
       : '';
     const nextURL = `${pathname}${search}`;
     const currentURL = `${window.location.pathname}${window.location.search}`;
@@ -72,14 +76,17 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
         ? libraryURLStateFromSearch(window.location.search)
         : defaultLibraryURLState;
       route = nextRoute;
-      activeKind = nextLibraryState.kind;
+      const restoredQuery = nextLibraryState.kind
+        ? replaceSidebarKind(nextLibraryState.query, `type:${nextLibraryState.kind}`)
+        : nextLibraryState.query;
+      activeKind = '';
       activeSavedSearch = '';
       sort = nextLibraryState.sort;
       order = nextLibraryState.order;
       pendingPreviewID = nextLibraryState.fileID;
-      searchDraft.set(nextLibraryState.query);
-      suggestionSearch.set(nextLibraryState.query);
-      setSubmittedSearch(nextLibraryState.query);
+      searchDraft.set(restoredQuery);
+      suggestionSearch.set(restoredQuery);
+      setSubmittedSearch(restoredQuery);
       activeFile = null;
       selection = emptySelection();
       selectionAnchorID = '';
@@ -143,6 +150,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     if (searchDebounce) clearTimeout(searchDebounce);
     if (suggestionDebounce) clearTimeout(suggestionDebounce);
     const query = value.trim();
+    activeKind = '';
     searchDraft.set(query);
     suggestionSearch.set(query);
     setSubmittedSearch(query);
@@ -152,15 +160,12 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   }
 
   function filterQuery() {
-    const parts = [submittedQuery.trim()];
-    if (activeKind) parts.push(`type:${activeKind}`);
-    return parts.filter(Boolean).join(' ');
+    return submittedQuery.trim();
   }
 
   function setKind(kind: string) {
-    activeKind = kind;
-    selection = emptySelection();
-    selectionAnchorID = '';
+    activeKind = '';
+    commitSearch(kind ? replaceSidebarKind(get(searchDraft), `type:${kind}`) : get(searchDraft));
   }
 
   function runTagSearch(query: string) {
@@ -176,6 +181,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   }
 
   function runSavedSearch(query: string, name: string) {
+    activeKind = '';
     activeSavedSearch = name;
     searchDraft.set(query);
     suggestionSearch.set(query);

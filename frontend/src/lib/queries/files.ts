@@ -15,6 +15,7 @@ export const fileKeys = {
   pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder) =>
     ['files', 'pages', scope, query, kind, sort, order] as const,
   count: (scope: number, query: string) => ['files', 'count', scope, query] as const,
+  facets: (scope: number, query: string) => ['files', 'facets', scope, query] as const,
   suggestions: (scope: number, q: string, existing: string) => ['files', 'suggestions', scope, q, existing] as const
 };
 
@@ -48,6 +49,26 @@ export function createFilesQuery(
   return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() => ({
     ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope),
     enabled: getAuthenticated() && getEnabled()
+  }));
+}
+
+export function createFileFacetsQuery(
+  getAuthenticated: () => boolean,
+  getQuery: () => string,
+  getAuthScope: () => number,
+  getEnabled: () => boolean = () => true
+) {
+  return createQuery(() => ({
+    queryKey: fileKeys.facets(getAuthScope(), getQuery()),
+    enabled: getAuthenticated() && getEnabled(),
+    queryFn: ({ signal }) => new ApiClient().listFiles({
+      query: getQuery(),
+      limit: 1,
+      sort: 'modified',
+      order: 'desc',
+      includeFacets: true,
+      signal
+    })
   }));
 }
 
