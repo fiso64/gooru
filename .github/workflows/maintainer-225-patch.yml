@@ -1,0 +1,83 @@
+name: Maintainer 225 patch
+
+on:
+  push:
+    branches:
+      - feat/225-grid-size-config
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Patch source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          def repl(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing expected text in {path}: {old!r}')
+              p.write_text(text.replace(old, new, 1))
+          repl('internal/serve/config.go', 'const DefaultListenAddress = "127.0.0.1:5678"', 'const (\n\tDefaultListenAddress = "127.0.0.1:5678"\n\tDefaultGridSize      = 180\n\tMinGridSize          = 64\n\tMaxGridSize          = 1024\n)')
+          repl('internal/serve/config.go', 'type UIConfig struct {\n\tAccentColor string `yaml:"accent_color"`\n\tFontStyle   string `yaml:"font_style"`\n}', 'type UIConfig struct {\n\tAccentColor string `yaml:"accent_color"`\n\tFontStyle   string `yaml:"font_style"`\n\tGridSize    int    `yaml:"grid_size"`\n}')
+          repl('internal/serve/config.go', '\t\tUI:      UIConfig{FontStyle: "editorial"},', '\t\tUI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize},')
+          repl('internal/serve/config.go', '\tswitch cfg.UI.FontStyle {\n\tcase "editorial", "modern", "comic":\n\tdefault:\n\t\terrs = append(errs, errors.New("ui.font_style must be one of: editorial, modern, comic"))\n\t}\n', '\tswitch cfg.UI.FontStyle {\n\tcase "editorial", "modern", "comic":\n\tdefault:\n\t\terrs = append(errs, errors.New("ui.font_style must be one of: editorial, modern, comic"))\n\t}\n\tif cfg.UI.GridSize < MinGridSize || cfg.UI.GridSize > MaxGridSize {\n\t\terrs = append(errs, fmt.Errorf("ui.grid_size must be between %d and %d pixels", MinGridSize, MaxGridSize))\n\t}\n')
+          repl('internal/serve/ui_config.go', '\tLoadFullMediaByDefault bool   `json:"load_full_media_by_default"`\n}', '\tLoadFullMediaByDefault bool   `json:"load_full_media_by_default"`\n\tGridSize               int    `json:"grid_size"`\n}')
+          repl('internal/serve/ui_config.go', '\t\tLoadFullMediaByDefault: s.cfg.Media.LoadFullByDefault,\n', '\t\tLoadFullMediaByDefault: s.cfg.Media.LoadFullByDefault,\n\t\tGridSize:               s.cfg.UI.GridSize,\n')
+          grid_tests = 'func TestConfigValidatesGridSize(t *testing.T) {\n\tcfg := DefaultConfig(t.TempDir() + "/gooru.db")\n\tif cfg.UI.GridSize != DefaultGridSize {\n\t\tt.Fatalf("default grid size = %d, want %d", cfg.UI.GridSize, DefaultGridSize)\n\t}\n\tcfg.UI.GridSize = 240\n\tif err := cfg.Validate(); err != nil {\n\t\tt.Fatalf("valid grid size rejected: %v", err)\n\t}\n\tcfg.UI.GridSize = MinGridSize - 1\n\tif err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.grid_size") {\n\t\tt.Fatalf("expected invalid grid size error, got %v", err)\n\t}\n}\n\nfunc TestConfigLoadsGridSize(t *testing.T) {\n\tdir := t.TempDir()\n\tpath := filepath.Join(dir, "gooru.yaml")\n\tif err := os.WriteFile(path, []byte("ui:\\n  grid_size: 240\\n"), 0o600); err != nil {\n\t\tt.Fatalf("write config: %v", err)\n\t}\n\tcfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})\n\tif err != nil {\n\t\tt.Fatalf("load config: %v", err)\n\t}\n\tif cfg.UI.GridSize != 240 {\n\t\tt.Fatalf("ui.grid_size = %d, want 240", cfg.UI.GridSize)\n\t}\n}\n\n'
+          repl('internal/serve/ui_config_test.go', 'func TestConfigLoadsFullMediaDefault(t *testing.T) {', grid_tests + 'func TestConfigLoadsFullMediaDefault(t *testing.T) {')
+          repl('internal/serve/ui_config_test.go', '\tcfg.Media.LoadFullByDefault = true\n', '\tcfg.Media.LoadFullByDefault = true\n\tcfg.UI.GridSize = 240\n')
+          repl('internal/serve/ui_config_test.go', '\tif !strings.Contains(rec.Body.String(), `"load_full_media_by_default":true`) {\n\t\tt.Fatalf("response missing full-media preference: %s", rec.Body.String())\n\t}\n', '\tif !strings.Contains(rec.Body.String(), `"load_full_media_by_default":true`) {\n\t\tt.Fatalf("response missing full-media preference: %s", rec.Body.String())\n\t}\n\tif !strings.Contains(rec.Body.String(), `"grid_size":240`) {\n\t\tt.Fatalf("response missing grid size: %s", rec.Body.String())\n\t}\n')
+          repl('frontend/src/lib/components/AppPage.svelte', "import { runtimeConfig } from '$lib/stores/runtimeConfig';", "import { defaultGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';")
+          repl('frontend/src/lib/components/AppPage.svelte', "type UIConfig = { accent_color?: string; font_style?: FontStyle; load_full_media_by_default?: boolean };", "type UIConfig = { accent_color?: string; font_style?: FontStyle; load_full_media_by_default?: boolean; grid_size?: number };")
+          repl('frontend/src/lib/components/AppPage.svelte', "let runtimeFontStyle = $state<FontStyle>('editorial');\n  let faviconHref", "let runtimeFontStyle = $state<FontStyle>('editorial');\n  let runtimeGridSize = $state(defaultGridSize);\n  let faviconHref")
+          repl('frontend/src/lib/components/AppPage.svelte', "runtimeFontStyle = config.font_style ?? 'editorial';\n    runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false });", "runtimeFontStyle = config.font_style ?? 'editorial';\n    runtimeGridSize = config.grid_size ?? defaultGridSize;\n    runtimeConfig.set({ loadFullMediaByDefault: config.load_full_media_by_default ?? false, gridSize: runtimeGridSize });")
+          repl('frontend/src/lib/components/AppPage.svelte', "style={runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : undefined}", "style={`--grid-cell:${runtimeGridSize}px;${runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}")
+          repl('frontend/src/lib/components/MediaGrid.svelte', "import { virtualGrid, virtualGridStartRow } from '$lib/state/ui';", "import { virtualGrid, virtualGridStartRow } from '$lib/state/ui';\n  import { runtimeConfig } from '$lib/stores/runtimeConfig';")
+          repl('frontend/src/lib/components/MediaGrid.svelte', 'const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex));', 'const virtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, $runtimeConfig.gridSize));')
+          repl('docs/CONFIG.md', '| `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |', '| `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |\n| `ui.grid_size` | `180` | Minimum media-grid cell width in pixels. Must be between `64` and `1024`. The grid remains fluid: cells expand to fill each row rather than becoming fixed-width. |')
+          repl('docs/CONFIG.md', 'ui:\n  accent_color: "#2f80ed"\n  font_style: editorial', 'ui:\n  accent_color: "#2f80ed"\n  font_style: editorial\n  grid_size: 180')
+          PY
+          gofmt -w internal/serve/config.go internal/serve/ui_config.go internal/serve/ui_config_test.go
+      - name: Backend tests
+        run: go test ./internal/serve
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Grid-size browser regression
+        working-directory: frontend
+        run: npx playwright test tests/grid-size-config.spec.ts --project=chromium
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/serve/config.go internal/serve/ui_config.go internal/serve/ui_config_test.go docs/CONFIG.md frontend/src/lib/components/AppPage.svelte frontend/src/lib/components/MediaGrid.svelte
+          git commit -m 'feat(ui): configure fluid media grid size'
+          git push
