@@ -1,0 +1,23 @@
+name: tmp browser persistence audit
+on:
+  pull_request:
+    branches:
+      - develop
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inventory frontend persistence and media-loading surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== persistence APIs ==='
+          grep -RInE --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.svelte-kit \
+            'serviceWorker|navigator[.]serviceWorker|caches[.]|CacheStorage|indexedDB|localStorage|sessionStorage|createObjectURL|revokeObjectURL|FileReader|blob:' frontend || true
+          echo '=== media/content URL construction ==='
+          grep -RInE --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.svelte-kit \
+            '/api/v1/files|thumbnail|preview|contentUrl|mediaUrl|preload' frontend/src || true
+          echo '=== service worker/cache-like filenames ==='
+          find frontend -type f \( -iname '*service*worker*' -o -iname '*cache*' -o -iname '*manifest*' \) \
+            -not -path '*/node_modules/*' -not -path '*/build/*' -not -path '*/.svelte-kit/*' -print
