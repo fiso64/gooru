@@ -39,6 +39,7 @@ async function mockApp(page: Page) {
     loggedIn = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
@@ -66,10 +67,12 @@ async function mockApp(page: Page) {
   await page.getByRole('button', { name: 'Preview clip.mp4' }).click();
 
   const video = page.locator('video.viewer-visual-media');
-  await expect(video).toBeVisible();
+  await expect(video).toBeAttached();
   await video.evaluate((node) => {
     const media = node as HTMLVideoElement;
     const state = { time: 30, paused: true };
+    Object.defineProperty(media, 'videoWidth', { configurable: true, get: () => 1280 });
+    Object.defineProperty(media, 'videoHeight', { configurable: true, get: () => 720 });
     Object.defineProperty(media, 'duration', { configurable: true, get: () => 120 });
     Object.defineProperty(media, 'currentTime', {
       configurable: true,
@@ -81,6 +84,7 @@ async function mockApp(page: Page) {
     media.pause = () => { state.paused = true; media.dispatchEvent(new Event('pause')); };
     media.dispatchEvent(new Event('loadedmetadata'));
   });
+  await expect(video).toBeVisible();
   return video;
 }
 
