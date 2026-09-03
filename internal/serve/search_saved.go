@@ -51,6 +51,22 @@ type SavedSearchLibrary interface {
 	DeleteSavedSearch(ctx context.Context, userID string, id string) (bool, error)
 }
 
+func matchingMetaTagSuggestions(prefix string) []TagDTO {
+	candidate := strings.ToLower(strings.TrimSpace(prefix))
+	candidate = strings.TrimPrefix(candidate, "-")
+	if !strings.HasPrefix(candidate, "@") {
+		return nil
+	}
+	items := make([]TagDTO, 0, len(query.MetaTags()))
+	for _, definition := range query.MetaTags() {
+		syntax := strings.ToLower(definition.Syntax)
+		if strings.HasPrefix(syntax, candidate) || (definition.RequiresValue && strings.HasPrefix(candidate, syntax)) {
+			items = append(items, TagDTO{Name: definition.Syntax, Value: definition.Hint})
+		}
+	}
+	return items
+}
+
 func (s *Server) handleSearchSuggestions(w http.ResponseWriter, r *http.Request) {
 	search, ok := s.library.(SearchLibrary)
 	if !ok {
@@ -58,10 +74,15 @@ func (s *Server) handleSearchSuggestions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	limit, _ := strconvAtoiDefault(r.URL.Query().Get("limit"), 20)
-	items, err := search.TagSuggestions(r.Context(), strings.TrimSpace(r.URL.Query().Get("q")), strings.TrimSpace(r.URL.Query().Get("existing")), limit)
+	prefix := strings.TrimSpace(r.URL.Query().Get("q"))
+	items, err := search.TagSuggestions(r.Context(), prefix, strings.TrimSpace(r.URL.Query().Get("existing")), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load suggestions", nil)
 		return
+	}
+	items = append(matchingMetaTagSuggestions(prefix), items...)
+	if len(items) > limit {
+		items = items[:limit]
 	}
 	writeJSON(w, http.StatusOK, SuggestionsResponse{Items: items})
 }
