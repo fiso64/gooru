@@ -35,8 +35,8 @@ async function mockAuthenticatedLibrary(page: Page) {
   }));
 }
 
-async function measuredTextWidth(page: Page, family: string) {
-  return await page.evaluate((fontFamily) => {
+async function measuredTextWidth(page: Page, family: string, weight: string) {
+  return await page.evaluate(({ fontFamily, fontWeight }) => {
     const span = document.createElement('span');
     span.textContent = 'Library';
     Object.assign(span.style, {
@@ -45,17 +45,17 @@ async function measuredTextWidth(page: Page, family: string) {
       whiteSpace: 'nowrap',
       fontFamily,
       fontSize: '32px',
-      fontWeight: '400',
+      fontWeight,
       letterSpacing: '-0.32px'
     });
     document.body.appendChild(span);
     const width = span.getBoundingClientRect().width;
     span.remove();
     return width;
-  }, family);
+  }, { fontFamily: family, fontWeight: weight });
 }
 
-test('comic font preset reaches the actual library heading with the bundled face', async ({ page }) => {
+test('comic font preset uses a bold bundled heading and the alternate comic logo', async ({ page }) => {
   await mockAuthenticatedLibrary(page);
   await page.route('**/api/v1/ui-config', async (route) => {
     await route.fulfill({
@@ -78,20 +78,25 @@ test('comic font preset reaches the actual library heading with the bundled face
     return {
       loadedFaces: faces.length,
       family: style.fontFamily,
+      weight: style.fontWeight,
       width: element.getBoundingClientRect().width
     };
   });
-  const comicWidth = await measuredTextWidth(page, '"Comic Neue"');
+  const comicWidth = await measuredTextWidth(page, '"Comic Neue"', '700');
 
   expect(typography.loadedFaces).toBeGreaterThan(0);
   expect(typography.family).toMatch(/^"?Comic Neue"?/);
+  expect(typography.weight).toBe('700');
   expect(Math.abs(typography.width - comicWidth)).toBeLessThan(0.75);
-  await expect(page.locator('.gooru-logo-comic')).toBeVisible();
-  await expect(page.locator('.gooru-logo img')).toBeHidden();
+
+  const comicLogo = page.locator('.gooru-logo-comic');
+  await expect(comicLogo).toBeVisible();
+  await expect(comicLogo).toHaveAttribute('src', '/gooru-logo-comic.svg');
+  await expect(page.locator('.gooru-logo-default')).toBeHidden();
 });
 
-test('modern preset replaces the editorial display face without changing the UI face', async ({ page }) => {
-  await mockLoggedOutSession(page);
+test('modern preset uses a semibold sans display face without changing the UI face', async ({ page }) => {
+  await mockAuthenticatedLibrary(page);
   await page.route('**/api/v1/ui-config', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
@@ -102,15 +107,37 @@ test('modern preset replaces the editorial display face without changing the UI 
   await page.goto('/');
 
   const root = page.locator('.gooru-root');
+  const heading = page.locator('.library-head h1');
   await expect(root).toHaveClass(/gooru-type-modern/);
   const variables = await root.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
       display: style.getPropertyValue('--font-display'),
+      displayWeight: style.getPropertyValue('--font-display-weight'),
       ui: style.getPropertyValue('--font-ui')
     };
   });
   expect(variables.display).toContain('IBM Plex Sans');
+  expect(variables.displayWeight.trim()).toBe('600');
   expect(variables.ui).toContain('IBM Plex Sans');
-  await expect(page.locator('.gooru-logo img')).toBeVisible();
+  await expect(heading).toHaveCSS('font-weight', '600');
+  await expect(page.locator('.gooru-logo-default')).toBeVisible();
+  await expect(page.locator('.gooru-logo-comic')).toBeHidden();
+});
+
+test('editorial preset keeps the regular serif heading weight', async ({ page }) => {
+  await mockAuthenticatedLibrary(page);
+  await page.route('**/api/v1/ui-config', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ font_style: 'editorial', load_full_media_by_default: false })
+    });
+  });
+
+  await page.goto('/');
+
+  const heading = page.locator('.library-head h1');
+  await expect(heading).toHaveCSS('font-weight', '400');
+  await expect(page.locator('.gooru-logo-default')).toBeVisible();
+  await expect(page.locator('.gooru-logo-comic')).toBeHidden();
 });
