@@ -10,7 +10,7 @@ vi.mock('svelte', async () => {
   return { ...actual, untrack: untrackSpy };
 });
 
-import { createUploadWorkflow } from './uploadWorkflow.svelte';
+import { browserUploadConcurrency, createUploadWorkflow } from './uploadWorkflow.svelte';
 
 function uploadFile(name: string): File {
   return { name, size: 10, type: 'image/jpeg', lastModified: 0 } as File;
@@ -49,14 +49,8 @@ describe('createUploadWorkflow', () => {
       const name = variables.files[0].name;
       calls.push(name);
       expect(variables.files).toHaveLength(1);
-      if (name === 'first.jpg') {
-        variables.onProgress?.(37);
-        expect(workflow.items.map((item) => item.progress)).toEqual([37, 0]);
-        return pendingJob('job-first');
-      }
-      variables.onProgress?.(64);
-      expect(workflow.items.map((item) => item.progress)).toEqual([100, 64]);
-      return pendingJob('job-second');
+      variables.onProgress?.(name === 'first.jpg' ? 37 : 64);
+      return pendingJob(`job-${name}`);
     });
 
     expect(calls).toEqual(['first.jpg', 'second.jpg']);
@@ -64,7 +58,55 @@ describe('createUploadWorkflow', () => {
       ['queued', 100],
       ['queued', 100]
     ]);
-    expect(workflow.activeJobIDs).toEqual(['job-first', 'job-second']);
+    expect(workflow.activeJobIDs).toEqual(['job-first.jpg', 'job-second.jpg']);
+  });
+
+  it('runs at most four browser transfers and starts queued siblings as slots free', async () => {
+    const workflow = createUploadWorkflow();
+    const names = Array.from({ length: 7 }, (_, index) => `file-${index + 1}.jpg`);
+    workflow.select(names.map(uploadFile));
+
+    let active = 0;
+    let maxActive = 0;
+    const started: string[] = [];
+    const release = new Map<string, () => void>();
+
+    const submission = workflow.submit(async (variables) => {
+      const name = variables.files[0].name;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      started.push(name);
+      await new Promise<void>((resolve) => release.set(name, resolve));
+      active -= 1;
+      return pendingJob(`job-${name}`);
+    });
+
+    await vi.waitFor(() => expect(started).toHaveLength(browserUploadConcurrency));
+    expect(started).toEqual(names.slice(0, browserUploadConcurrency));
+    expect(active).toBe(browserUploadConcurrency);
+    expect(maxActive).toBe(browserUploadConcurrency);
+
+    release.get('file-2.jpg')?.();
+    await vi.waitFor(() => expect(started).toHaveLength(5));
+    expect(started[4]).toBe('file-5.jpg');
+    expect(active).toBe(browserUploadConcurrency);
+
+    release.get('file-1.jpg')?.();
+    await vi.waitFor(() => expect(started).toHaveLength(6));
+    expect(started[5]).toBe('file-6.jpg');
+    expect(active).toBe(browserUploadConcurrency);
+
+    release.get('file-4.jpg')?.();
+    await vi.waitFor(() => expect(started).toHaveLength(7));
+    expect(started[6]).toBe('file-7.jpg');
+    expect(active).toBe(browserUploadConcurrency);
+
+    for (const name of names.slice(2)) release.get(name)?.();
+    await submission;
+
+    expect(maxActive).toBe(browserUploadConcurrency);
+    expect(workflow.items.every((item) => item.status === 'queued')).toBe(true);
+    expect(workflow.activeJobIDs).toHaveLength(names.length);
   });
 
   it('continues with sibling files after a transport failure', async () => {
