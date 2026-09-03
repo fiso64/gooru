@@ -63,9 +63,14 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "unauthorized", message, nil)
 		return
 	}
+	csrfToken, err := s.auth.StableCSRF(r.Context(), auth)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to issue CSRF token", nil)
+		return
+	}
 	slog.InfoContext(r.Context(), "authentication succeeded")
 	s.setSessionCookie(w, r, auth.Token, auth.Session.ExpiresAt)
-	writeJSON(w, http.StatusOK, s.authResponse(auth, auth.CSRFToken))
+	writeJSON(w, http.StatusOK, s.authResponse(auth, csrfToken))
 }
 
 func (s *Server) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +110,7 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "authentication store is not configured", nil)
 		return
 	}
-	csrfToken, err := s.auth.RotateCSRF(r.Context(), auth.Session.ID)
+	csrfToken, err := s.auth.StableCSRF(r.Context(), auth)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to issue CSRF token", nil)
 		return
