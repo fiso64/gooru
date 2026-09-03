@@ -55,7 +55,7 @@ async function measuredTextWidth(page: Page, family: string, weight: string) {
   }, { fontFamily: family, fontWeight: weight });
 }
 
-test('comic font preset uses a bold bundled heading and the alternate comic logo', async ({ page }) => {
+test('comic font preset uses the bundled face for headings and wordmark letters while preserving the regular spiral Os', async ({ page }) => {
   await mockAuthenticatedLibrary(page);
   await page.route('**/api/v1/ui-config', async (route) => {
     await route.fulfill({
@@ -90,9 +90,21 @@ test('comic font preset uses a bold bundled heading and the alternate comic logo
   expect(Math.abs(typography.width - comicWidth)).toBeLessThan(0.75);
 
   const comicLogo = page.locator('.gooru-logo-comic');
+  const comicLetters = comicLogo.locator('.gooru-logo-comic-letter');
   await expect(comicLogo).toBeVisible();
-  await expect(comicLogo).toHaveAttribute('src', '/gooru-logo-comic.svg');
+  await expect(comicLetters).toHaveCount(3);
   await expect(page.locator('.gooru-logo-default')).toBeHidden();
+  await expect(page.locator('.gooru-logo-accent')).toBeVisible();
+  await expect(page.locator('.gooru-logo-accent image[href="/favicon.svg"]')).toHaveCount(2);
+
+  const logoTypography = await comicLetters.first().evaluate(async (element) => {
+    const style = getComputedStyle(element);
+    const faces = await document.fonts.load(`${style.fontWeight} ${style.fontSize} "Comic Neue"`, element.textContent ?? 'g');
+    return { family: style.fontFamily, weight: style.fontWeight, loadedFaces: faces.length };
+  });
+  expect(logoTypography.family).toMatch(/^"?Comic Neue"?/);
+  expect(logoTypography.weight).toBe('700');
+  expect(logoTypography.loadedFaces).toBeGreaterThan(0);
 });
 
 test('modern preset uses a semibold sans display face without changing the UI face', async ({ page }) => {
@@ -123,6 +135,7 @@ test('modern preset uses a semibold sans display face without changing the UI fa
   await expect(heading).toHaveCSS('font-weight', '600');
   await expect(page.locator('.gooru-logo-default')).toBeVisible();
   await expect(page.locator('.gooru-logo-comic')).toBeHidden();
+  await expect(page.locator('.gooru-logo-accent')).toBeVisible();
 });
 
 test('editorial preset keeps the regular serif heading weight', async ({ page }) => {
@@ -140,4 +153,5 @@ test('editorial preset keeps the regular serif heading weight', async ({ page })
   await expect(heading).toHaveCSS('font-weight', '400');
   await expect(page.locator('.gooru-logo-default')).toBeVisible();
   await expect(page.locator('.gooru-logo-comic')).toBeHidden();
+  await expect(page.locator('.gooru-logo-accent')).toBeVisible();
 });
