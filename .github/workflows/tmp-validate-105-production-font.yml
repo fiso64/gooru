@@ -1,0 +1,74 @@
+name: tmp validate 105 production font
+on:
+  push:
+    branches: [fix/105-production-font-boundary]
+permissions:
+  contents: read
+jobs:
+  production-font:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Inspect emitted font assets
+        run: |
+          set -euxo pipefail
+          find frontend/build/_app/immutable -type f | sort | grep -E 'Comic|comic|woff2' || true
+          grep -R -n 'Comic Neue' frontend/build/_app/immutable | head -20
+      - name: Install Firefox
+        working-directory: frontend
+        run: npx playwright install --with-deps firefox
+      - name: Start production Go static server
+        run: |
+          cat > tmp_font_server.go <<'EOF'
+          package main
+          import (
+            "context"
+            "log"
+            "path/filepath"
+            "gooru.local/internal/serve"
+          )
+          func main() {
+            cfg := serve.DefaultConfig(filepath.Join("/tmp", "gooru-font-test.db"))
+            cfg.Server.Listen = "127.0.0.1:5678"
+            cfg.Server.FrontendDir = "frontend/build"
+            cfg.Auth.Enabled = false
+            if err := serve.NewServer(cfg).ListenAndServe(context.Background()); err != nil { log.Fatal(err) }
+          }
+          EOF
+          go run ./tmp_font_server.go > /tmp/gooru-font-server.log 2>&1 &
+          echo $! > /tmp/gooru-font-server.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5678/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/gooru-font-server.log
+          exit 1
+      - name: Run real Library font regression in Firefox through gooru serve
+        working-directory: frontend
+        run: |
+          cat > playwright.production-font.config.ts <<'EOF'
+          import { defineConfig, devices } from '@playwright/test';
+          export default defineConfig({
+            testDir: './tests',
+            timeout: 30_000,
+            use: { baseURL: 'http://127.0.0.1:5678', trace: 'on-first-retry' },
+            projects: [{ name: 'firefox', use: { ...devices['Desktop Firefox'] } }]
+          });
+          EOF
+          npx playwright test tests/font-style.spec.ts --config playwright.production-font.config.ts --project firefox
+      - name: Server log
+        if: always()
+        run: cat /tmp/gooru-font-server.log || true
