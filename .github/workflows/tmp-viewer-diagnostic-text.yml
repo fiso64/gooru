@@ -27,56 +27,14 @@ jobs:
           from pathlib import Path
           path = Path('frontend/src/lib/components/ViewerStage.svelte')
           text = path.read_text()
-          old = """    console.info('[gooru viewer frame]', {
-              t: Math.round(performance.now() * 10) / 10,
-              phase,
-              frame,
-              generation,
-              fitMode,
-              rotation,
-              zoom,
-              intrinsic: { width: intrinsicWidth, height: intrinsicHeight },
-              geometry: { width: geometry.width, height: geometry.height, scale: geometry.scale },
-              stage: viewerDebugRect(stageElement),
-              image: image ? {
-                complete: image.complete,
-                naturalWidth: image.naturalWidth,
-                naturalHeight: image.naturalHeight,
-                rect: viewerDebugRect(image),
-                cssWidth: computed?.width,
-                cssHeight: computed?.height,
-                transform: computed?.transform
-              } : null,
-              shield: canvas ? { visible: freezeVisible, rect: viewerDebugRect(canvas) } : null
-            });"""
-          old = '\n'.join(line[12:] if line.startswith('            ') else line for line in old.splitlines())
-          new = """    const payload = {
-              t: Math.round(performance.now() * 10) / 10,
-              phase,
-              frame,
-              generation,
-              fitMode,
-              rotation,
-              zoom,
-              intrinsic: { width: intrinsicWidth, height: intrinsicHeight },
-              geometry: { width: geometry.width, height: geometry.height, scale: geometry.scale },
-              stage: viewerDebugRect(stageElement),
-              image: image ? {
-                complete: image.complete,
-                naturalWidth: image.naturalWidth,
-                naturalHeight: image.naturalHeight,
-                rect: viewerDebugRect(image),
-                cssWidth: computed?.width,
-                cssHeight: computed?.height,
-                transform: computed?.transform
-              } : null,
-              shield: canvas ? { visible: freezeVisible, rect: viewerDebugRect(canvas) } : null
-            };
-            console.info(`[gooru viewer frame] ${JSON.stringify(payload)}`);"""
-          new = '\n'.join(line[12:] if line.startswith('            ') else line for line in new.splitlines())
-          if old not in text:
-              raise SystemExit('expected viewer diagnostic block not found')
-          path.write_text(text.replace(old, new, 1))
+          start_marker = "    console.info('[gooru viewer frame]', {"
+          start = text.index(start_marker)
+          end_marker = "\n    });"
+          end = text.index(end_marker, start) + len(end_marker)
+          block = text[start:end]
+          block = block.replace(start_marker, "    const payload = {", 1)
+          block = block[:-len(end_marker)] + "\n    };\n    console.info(`[gooru viewer frame] ${JSON.stringify(payload)}`);"
+          path.write_text(text[:start] + block + text[end:])
           PY
           grep -F 'console.info(`[gooru viewer frame] ${JSON.stringify(payload)}`);' frontend/src/lib/components/ViewerStage.svelte
       - name: Install frontend dependencies
