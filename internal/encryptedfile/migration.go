@@ -27,24 +27,31 @@ func EncryptFileInPlace(path string, key []byte) error {
 	if err != nil {
 		return err
 	}
+	sourceClosed := false
+	defer func() {
+		if !sourceClosed {
+			_ = source.Close()
+		}
+	}()
+
 	info, err := source.Stat()
 	if err != nil {
-		_ = source.Close()
 		return err
 	}
 	if !info.Mode().IsRegular() {
-		_ = source.Close()
 		return fmt.Errorf("%w: path is not a regular file", ErrInvalidFormat)
 	}
 
 	prefix := make([]byte, len(magic))
 	n, readErr := io.ReadFull(source, prefix)
 	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
-		_ = source.Close()
 		return fmt.Errorf("inspect source prefix: %w", readErr)
 	}
 	if n == len(prefix) && bytes.Equal(prefix, []byte(magic)) {
-		_ = source.Close()
+		if err := source.Close(); err != nil {
+			return err
+		}
+		sourceClosed = true
 		opened, err := Open(path, key)
 		if err != nil {
 			return fmt.Errorf("authenticate existing encrypted file: %w", err)
@@ -55,10 +62,8 @@ func EncryptFileInPlace(path string, key []byte) error {
 		return ErrAlreadyEncrypted
 	}
 	if _, err := source.Seek(0, io.SeekStart); err != nil {
-		_ = source.Close()
 		return err
 	}
-	defer source.Close()
 
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
@@ -80,6 +85,10 @@ func EncryptFileInPlace(path string, key []byte) error {
 	if err := Encrypt(tmp, source, info.Size(), key); err != nil {
 		return fmt.Errorf("encrypt source: %w", err)
 	}
+	if err := source.Close(); err != nil {
+		return fmt.Errorf("close plaintext source before replacement: %w", err)
+	}
+	sourceClosed = true
 	if err := tmp.Sync(); err != nil {
 		return fmt.Errorf("sync encrypted sibling: %w", err)
 	}
