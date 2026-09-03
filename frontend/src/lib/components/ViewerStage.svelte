@@ -58,6 +58,59 @@
   let panX = $state(0);
   let panY = $state(0);
 
+  type ViewerDebugWindow = Window & { __gooruViewerDebug?: boolean };
+
+  function viewerDebugEnabled() {
+    return typeof window !== 'undefined' && Boolean((window as ViewerDebugWindow).__gooruViewerDebug);
+  }
+
+  function viewerDebugRect(element: Element | undefined) {
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  }
+
+  function logViewerFrame(phase: string, frame: number, generation: number) {
+    if (!viewerDebugEnabled() || generation !== transitionGeneration) return;
+    const image = imageElement;
+    const canvas = freezeCanvasElement;
+    const computed = image ? getComputedStyle(image) : undefined;
+    console.info('[gooru viewer frame]', {
+      t: Math.round(performance.now() * 10) / 10,
+      phase,
+      frame,
+      generation,
+      fitMode,
+      rotation,
+      zoom,
+      intrinsic: { width: intrinsicWidth, height: intrinsicHeight },
+      geometry: { width: geometry.width, height: geometry.height, scale: geometry.scale },
+      stage: viewerDebugRect(stageElement),
+      image: image ? {
+        complete: image.complete,
+        naturalWidth: image.naturalWidth,
+        naturalHeight: image.naturalHeight,
+        rect: viewerDebugRect(image),
+        cssWidth: computed?.width,
+        cssHeight: computed?.height,
+        transform: computed?.transform
+      } : null,
+      shield: canvas ? { visible: freezeVisible, rect: viewerDebugRect(canvas) } : null
+    });
+  }
+
+  function traceViewerFrames(phase: string, generation: number, count = 12) {
+    if (!viewerDebugEnabled()) return;
+    let frame = 0;
+    const capture = () => {
+      logViewerFrame(phase, frame, generation);
+      frame += 1;
+      if (frame < count && generation === transitionGeneration) requestAnimationFrame(capture);
+    };
+    logViewerFrame(`${phase}:sync`, -1, generation);
+    requestAnimationFrame(capture);
+  }
+
   const renderedFile = $derived(displayedFile ?? file);
   const renderedImageSource = $derived(displayedFile ? displayedImageSource : imageSource);
   const videoProgress = $derived(videoLength > 0 ? Math.min(100, Math.max(0, (videoTime / videoLength) * 100)) : 0);
@@ -134,6 +187,7 @@
 
     const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
+      traceViewerFrames('handoff-before', generation);
       // A single <img> cannot preserve both sides of an aspect-ratio handoff: keeping old geometry
       // makes the first target pixels letterbox inside the old box, while applying target geometry
       // can resize pixels the browser is still retaining from the old source. Freeze the already
@@ -148,6 +202,7 @@
       }
       displayedFile = targetFile;
       displayedImageSource = targetImageSource;
+      queueMicrotask(() => traceViewerFrames('handoff-after', generation));
       return;
     }
 
@@ -223,6 +278,14 @@
     if (!(image instanceof HTMLImageElement)) return;
     intrinsicWidth = image.naturalWidth;
     intrinsicHeight = image.naturalHeight;
+    const transitionAtLoad = transitionGeneration;
+    traceViewerFrames('image-load', transitionAtLoad);
+    if (viewerDebugEnabled()) {
+      void image.decode().then(
+        () => traceViewerFrames('image-decode', transitionAtLoad, 6),
+        () => traceViewerFrames('image-decode-error', transitionAtLoad, 2)
+      );
+    }
 
     // `load` can run before the new pixels have reached a composited frame. Keep the exact frozen
     // old pixels through two paints, then uncover the already correctly-sized foreground image.
