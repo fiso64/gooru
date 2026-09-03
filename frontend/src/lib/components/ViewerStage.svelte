@@ -28,6 +28,11 @@
 
   let stageElement = $state<HTMLDivElement | undefined>();
   let panViewportElement = $state<HTMLDivElement | undefined>();
+  let imageElement = $state<HTMLImageElement | undefined>();
+  let freezeCanvasElement = $state<HTMLCanvasElement | undefined>();
+  let freezeVisible = $state(false);
+  let frozenStyle = $state('');
+  let freezeGeneration = 0;
   let videoElement = $state<HTMLVideoElement | undefined>();
   let audioElement = $state<HTMLAudioElement | undefined>();
   let displayedFile = $state<FileItem | undefined>();
@@ -129,10 +134,18 @@
 
     const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
-      // Foreground images should enter the browser's native loading/decoding pipeline immediately.
-      // Keep the currently painted image geometry until the target's load event updates natural
-      // dimensions. Applying target metadata before those pixels are ready visibly resizes the old
-      // bitmap during the network/decode gap when aspect ratios differ.
+      // A single <img> cannot preserve both sides of an aspect-ratio handoff: keeping old geometry
+      // makes the first target pixels letterbox inside the old box, while applying target geometry
+      // can resize pixels the browser is still retaining from the old source. Freeze the already
+      // painted frame into a canvas before changing either property, then let the real foreground
+      // image enter the browser's native loading/presentation path immediately with target geometry.
+      freezePresentedImage();
+      const metadataWidth = targetFile.metadata?.image_width ?? 0;
+      const metadataHeight = targetFile.metadata?.image_height ?? 0;
+      if (metadataWidth > 0 && metadataHeight > 0) {
+        intrinsicWidth = metadataWidth;
+        intrinsicHeight = metadataHeight;
+      }
       displayedFile = targetFile;
       displayedImageSource = targetImageSource;
       return;
@@ -183,11 +196,40 @@
     }
   });
 
+  function freezePresentedImage() {
+    const image = imageElement;
+    const canvas = freezeCanvasElement;
+    if (!image || !canvas || image.naturalWidth <= 0 || image.naturalHeight <= 0 || geometry.width <= 0 || geometry.height <= 0) return;
+
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    canvas.width = Math.max(1, Math.round(geometry.width * dpr));
+    canvas.height = Math.max(1, Math.round(geometry.height * dpr));
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    try {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    } catch {
+      return;
+    }
+
+    frozenStyle = visualStyle;
+    freezeGeneration += 1;
+    freezeVisible = true;
+  }
+
   function syncImage(event: Event) {
     const image = event.currentTarget;
     if (!(image instanceof HTMLImageElement)) return;
     intrinsicWidth = image.naturalWidth;
     intrinsicHeight = image.naturalHeight;
+
+    // `load` can run before the new pixels have reached a composited frame. Keep the exact frozen
+    // old pixels through two paints, then uncover the already correctly-sized foreground image.
+    const generation = freezeGeneration;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (generation === freezeGeneration) freezeVisible = false;
+    }));
   }
 
   function syncVideo() {
@@ -524,7 +566,14 @@
           <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>
         </div>
       {:else}
-        <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
+        <canvas
+          bind:this={freezeCanvasElement}
+          class="viewer-image-freeze"
+          class:visible={freezeVisible}
+          style={frozenStyle}
+          aria-hidden="true"
+        ></canvas>
+        <img bind:this={imageElement} class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
       {/if}
     </div>
   </div>
@@ -589,6 +638,16 @@
   :global(.viewer-stage .viewer-visual-media) {
     object-fit: contain;
     transition: filter 120ms ease, opacity 120ms ease;
+  }
+
+  .viewer-image-freeze {
+    display: none;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .viewer-image-freeze.visible {
+    display: block;
   }
 
   :global(.viewer-stage .viewer-audio-stage) {
