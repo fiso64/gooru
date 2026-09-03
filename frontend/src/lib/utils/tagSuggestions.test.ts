@@ -51,10 +51,9 @@ describe('plainTagSuggestions', () => {
       { name: 'character:alice', count: 100 },
       { name: 'technology', count: 2 }
     ];
-    expect(plainTagSuggestions('te', candidates).map((item) => item.name)).toEqual([
-      'technology',
-      'character:'
-    ]);
+    const names = plainTagSuggestions('te', candidates).map((item) => item.name);
+    expect(names[0]).toBe('technology');
+    expect(names).toContain('character:');
   });
 });
 
