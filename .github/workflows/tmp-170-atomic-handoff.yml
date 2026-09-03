@@ -23,76 +23,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Apply presentation handoff change
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          viewer = Path('frontend/src/lib/components/ViewerStage.svelte')
-          text = viewer.read_text()
-          old = '''        <img bind:this={imageElement} class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />'''
-          new = '''        <img
-          bind:this={imageElement}
-          class="viewer-visual-media"
-          class:viewer-image-concealed={freezeVisible}
-          style={visualStyle}
-          src={renderedImageSource}
-          alt={renderedFile.name}
-          onload={syncImage}
-        />'''
-          if text.count(old) != 1:
-              raise SystemExit('expected viewer image markup exactly once')
-          text = text.replace(old, new)
-
-          old = '''    // `load` can run before the new pixels have reached a composited frame. Keep the exact frozen
-    // old pixels through two paints, then uncover the already correctly-sized foreground image.'''
-          new = '''    // `load` can run before the new pixels have reached a composited frame. Keep the exact frozen
-    // old pixels through two paints while the correctly-sized target remains visually concealed,
-    // then atomically exchange the two presentations so old and new pixels are never exposed together.'''
-          if text.count(old) != 1:
-              raise SystemExit('expected syncImage handoff comment exactly once')
-          text = text.replace(old, new)
-
-          old = '''  .viewer-image-freeze.visible {
-    display: block;
-  }
-'''
-          new = '''  .viewer-image-freeze.visible {
-    display: block;
-  }
-
-  :global(.viewer-stage .viewer-visual-media.viewer-image-concealed) {
-    visibility: hidden;
-  }
-'''
-          if text.count(old) != 1:
-              raise SystemExit('expected freeze css exactly once')
-          text = text.replace(old, new)
-          viewer.write_text(text)
-
-          spec = Path('frontend/tests/viewer-image-geometry-hold.spec.ts')
-          text = spec.read_text()
-          old = '''  await expect(freeze).toBeVisible();
-  const frozen = await freeze.boundingBox();'''
-          new = '''  await expect(freeze).toBeVisible();
-  await expect(media).toHaveCSS('visibility', 'hidden');
-  const frozen = await freeze.boundingBox();'''
-          if text.count(old) != 1:
-              raise SystemExit('expected pre-release assertion point exactly once')
-          text = text.replace(old, new)
-
-          old = '''  releaseLandscape();
-  await expect(freeze).toBeHidden();
-  await expect.poll(async () => {'''
-          new = '''  releaseLandscape();
-  await expect(freeze).toBeHidden();
-  await expect(media).toHaveCSS('visibility', 'visible');
-  await expect.poll(async () => {'''
-          if text.count(old) != 1:
-              raise SystemExit('expected post-release assertion point exactly once')
-          text = text.replace(old, new)
-          spec.write_text(text)
-          PY
+        run: echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgp2aWV3ZXIgPSBQYXRoKCdmcm9udGVuZC9zcmMvbGliL2NvbXBvbmVudHMvVmlld2VyU3RhZ2Uuc3ZlbHRlJykKdGV4dCA9IHZpZXdlci5yZWFkX3RleHQoKQoKb2xkID0gJyAgICAgICAgPGltZyBiaW5kOnRoaXM9e2ltYWdlRWxlbWVudH0gY2xhc3M9InZpZXdlci12aXN1YWwtbWVkaWEiIHN0eWxlPXt2aXN1YWxTdHlsZX0gc3JjPXtyZW5kZXJlZEltYWdlU291cmNlfSBhbHQ9e3JlbmRlcmVkRmlsZS5uYW1lfSBvbmxvYWQ9e3N5bmNJbWFnZX0gLz4nCm5ldyA9ICcnJyAgICAgICAgPGltZwogICAgICAgICAgYmluZDp0aGlzPXtpbWFnZUVsZW1lbnR9CiAgICAgICAgICBjbGFzcz0idmlld2VyLXZpc3VhbC1tZWRpYSIKICAgICAgICAgIGNsYXNzOnZpZXdlci1pbWFnZS1jb25jZWFsZWQ9e2ZyZWV6ZVZpc2libGV9CiAgICAgICAgICBzdHlsZT17dmlzdWFsU3R5bGV9CiAgICAgICAgICBzcmM9e3JlbmRlcmVkSW1hZ2VTb3VyY2V9CiAgICAgICAgICBhbHQ9e3JlbmRlcmVkRmlsZS5uYW1lfQogICAgICAgICAgb25sb2FkPXtzeW5jSW1hZ2V9CiAgICAgICAgLz4nJycKaWYgdGV4dC5jb3VudChvbGQpICE9IDE6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCdleHBlY3RlZCB2aWV3ZXIgaW1hZ2UgbWFya3VwIGV4YWN0bHkgb25jZScpCnRleHQgPSB0ZXh0LnJlcGxhY2Uob2xkLCBuZXcpCgpvbGQgPSAnJycgICAgLy8gYGxvYWRgIGNhbiBydW4gYmVmb3JlIHRoZSBuZXcgcGl4ZWxzIGhhdmUgcmVhY2hlZCBhIGNvbXBvc2l0ZWQgZnJhbWUuIEtlZXAgdGhlIGV4YWN0IGZyb3plbgogICAgLy8gb2xkIHBpeGVscyB0aHJvdWdoIHR3byBwYWludHMsIHRoZW4gdW5jb3ZlciB0aGUgYWxyZWFkeSBjb3JyZWN0bHktc2l6ZWQgZm9yZWdyb3VuZCBpbWFnZS4nJycKbmV3ID0gJycnICAgIC8vIGBsb2FkYCBjYW4gcnVuIGJlZm9yZSB0aGUgbmV3IHBpeGVscyBoYXZlIHJlYWNoZWQgYSBjb21wb3NpdGVkIGZyYW1lLiBLZWVwIHRoZSBleGFjdCBmcm96ZW4KICAgIC8vIG9sZCBwaXhlbHMgdGhyb3VnaCB0d28gcGFpbnRzIHdoaWxlIHRoZSBjb3JyZWN0bHktc2l6ZWQgdGFyZ2V0IHJlbWFpbnMgdmlzdWFsbHkgY29uY2VhbGVkLAogICAgLy8gdGhlbiBhdG9taWNhbGx5IGV4Y2hhbmdlIHRoZSB0d28gcHJlc2VudGF0aW9ucyBzbyBvbGQgYW5kIG5ldyBwaXhlbHMgYXJlIG5ldmVyIGV4cG9zZWQgdG9nZXRoZXIuJycnCmlmIHRleHQuY291bnQob2xkKSAhPSAxOgogICAgcmFpc2UgU3lzdGVtRXhpdCgnZXhwZWN0ZWQgc3luY0ltYWdlIGhhbmRvZmYgY29tbWVudCBleGFjdGx5IG9uY2UnKQp0ZXh0ID0gdGV4dC5yZXBsYWNlKG9sZCwgbmV3KQoKb2xkID0gJycnICAudmlld2VyLWltYWdlLWZyZWV6ZS52aXNpYmxlIHsKICAgIGRpc3BsYXk6IGJsb2NrOwogIH0KJycnCm5ldyA9ICcnJyAgLnZpZXdlci1pbWFnZS1mcmVlemUudmlzaWJsZSB7CiAgICBkaXNwbGF5OiBibG9jazsKICB9CgogIDpnbG9iYWwoLnZpZXdlci1zdGFnZSAudmlld2VyLXZpc3VhbC1tZWRpYS52aWV3ZXItaW1hZ2UtY29uY2VhbGVkKSB7CiAgICB2aXNpYmlsaXR5OiBoaWRkZW47CiAgfQonJycKaWYgdGV4dC5jb3VudChvbGQpICE9IDE6CiAgICByYWlzZSBTeXN0ZW1FeGl0KCdleHBlY3RlZCBmcmVlemUgY3NzIGV4YWN0bHkgb25jZScpCnRleHQgPSB0ZXh0LnJlcGxhY2Uob2xkLCBuZXcpCnZpZXdlci53cml0ZV90ZXh0KHRleHQpCgpzcGVjID0gUGF0aCgnZnJvbnRlbmQvdGVzdHMvdmlld2VyLWltYWdlLWdlb21ldHJ5LWhvbGQuc3BlYy50cycpCnRleHQgPSBzcGVjLnJlYWRfdGV4dCgpCm9sZCA9ICcnJyAgYXdhaXQgZXhwZWN0KGZyZWV6ZSkudG9CZVZpc2libGUoKTsKICBjb25zdCBmcm96ZW4gPSBhd2FpdCBmcmVlemUuYm91bmRpbmdCb3goKTsnJycKbmV3ID0gJycnICBhd2FpdCBleHBlY3QoZnJlZXplKS50b0JlVmlzaWJsZSgpOwogIGF3YWl0IGV4cGVjdChtZWRpYSkudG9IYXZlQ1NTKCd2aXNpYmlsaXR5JywgJ2hpZGRlbicpOwogIGNvbnN0IGZyb3plbiA9IGF3YWl0IGZyZWV6ZS5ib3VuZGluZ0JveCgpOycnJwppZiB0ZXh0LmNvdW50KG9sZCkgIT0gMToKICAgIHJhaXNlIFN5c3RlbUV4aXQoJ2V4cGVjdGVkIHByZS1yZWxlYXNlIGFzc2VydGlvbiBwb2ludCBleGFjdGx5IG9uY2UnKQp0ZXh0ID0gdGV4dC5yZXBsYWNlKG9sZCwgbmV3KQoKb2xkID0gJycnICByZWxlYXNlTGFuZHNjYXBlKCk7CiAgYXdhaXQgZXhwZWN0KGZyZWV6ZSkudG9CZUhpZGRlbigpOwogIGF3YWl0IGV4cGVjdC5wb2xsKGFzeW5jICgpID0+IHsnJycKbmV3ID0gJycnICByZWxlYXNlTGFuZHNjYXBlKCk7CiAgYXdhaXQgZXhwZWN0KGZyZWV6ZSkudG9CZUhpZGRlbigpOwogIGF3YWl0IGV4cGVjdChtZWRpYSkudG9IYXZlQ1NTKCd2aXNpYmlsaXR5JywgJ3Zpc2libGUnKTsKICBhd2FpdCBleHBlY3QucG9sbChhc3luYyAoKSA9PiB7JycnCmlmIHRleHQuY291bnQob2xkKSAhPSAxOgogICAgcmFpc2UgU3lzdGVtRXhpdCgnZXhwZWN0ZWQgcG9zdC1yZWxlYXNlIGFzc2VydGlvbiBwb2ludCBleGFjdGx5IG9uY2UnKQp0ZXh0ID0gdGV4dC5yZXBsYWNlKG9sZCwgbmV3KQpzcGVjLndyaXRlX3RleHQodGV4dCkK' | base64 -d | python3
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -113,7 +44,6 @@ jobs:
         run: npx playwright test tests/viewer-image-geometry-hold.spec.ts tests/viewer-animation.spec.ts tests/viewer-zoom-pan.spec.ts --project=chromium
       - name: Commit validated attempt and remove temporary workflow
         if: success()
-        shell: bash
         run: |
           rm .github/workflows/tmp-170-atomic-handoff.yml
           git config user.name "chatgpt-codex-connector[bot]"
