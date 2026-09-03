@@ -238,20 +238,20 @@
 
     {#if commonTags.length}
       <div class="sidebar-section common-tags-section">
-        <div class="sidebar-section-head">
-          <span>Common tags</span>
-          <button
-            class="sidebar-head-action common-tags-toggle"
-            type="button"
-            title={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
-            aria-expanded={!commonTagsCollapsed}
-            aria-controls="common-tags-list"
-            aria-label={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
-            onclick={toggleCommonTags}
-          >
-            <span class:expanded={!commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={11} /></span>
-          </button>
-        </div>
+        <button
+          class="common-tags-toggle"
+          type="button"
+          title={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+          aria-expanded={!commonTagsCollapsed}
+          aria-controls="common-tags-list"
+          aria-label={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+          onclick={toggleCommonTags}
+        >
+          <span class="sidebar-section-head common-tags-toggle-content">
+            <span>Common tags</span>
+            <span aria-hidden="true" class:expanded={!commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={12} /></span>
+          </span>
+        </button>
         <div id="common-tags-list" class:collapsed={commonTagsCollapsed} class="common-tags-list">
           {#each commonTags as item, index}
             <button
@@ -286,12 +286,34 @@
 
 <style>
   .common-tags-toggle {
+    width: 100%;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
     cursor: pointer;
+    text-align: left;
+  }
+
+  .common-tags-toggle:focus-visible {
+    outline: 1px solid var(--accent-line);
+    outline-offset: -1px;
+    border-radius: var(--r-2);
+  }
+
+  .common-tags-toggle-content {
+    width: 100%;
   }
 
   .common-tags-chevron {
     display: inline-flex;
-    transition: transform 0.1s ease;
+    flex: 0 0 auto;
+    color: var(--text-3);
+    transition: color 0.1s ease, transform 0.1s ease;
+  }
+
+  .common-tags-toggle:hover .common-tags-chevron {
+    color: var(--text-2);
   }
 
   .common-tags-chevron.expanded {
