@@ -75,7 +75,7 @@
     const image = imageElement;
     const canvas = freezeCanvasElement;
     const computed = image ? getComputedStyle(image) : undefined;
-    console.info('[gooru viewer frame]', {
+    const payload = {
       t: Math.round(performance.now() * 10) / 10,
       phase,
       frame,
@@ -96,7 +96,8 @@
         transform: computed?.transform
       } : null,
       shield: canvas ? { visible: freezeVisible, rect: viewerDebugRect(canvas) } : null
-    });
+    };
+    console.info(`[gooru viewer frame] ${JSON.stringify(payload)}`);
   }
 
   function traceViewerFrames(phase: string, generation: number, count = 12) {
