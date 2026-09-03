@@ -13,7 +13,7 @@ This page documents every supported YAML field in the server configuration. Path
 | `server.cors_origins` | empty list | Origins allowed by the server's CORS policy. Leave empty for same-origin browser use. |
 | `server.expose_paths` | `false` | Include absolute filesystem paths in API file responses. Keep disabled unless clients genuinely need them. |
 | `server.frontend_dir` | `frontend/build` | Directory containing the built static frontend. |
-| `server.max_request_body_bytes` | `33554432` (32 MiB) | Maximum request body size for the regular API. Must be greater than zero. Browser/API uploads are governed separately by `uploads.max_file_size_bytes` so large media is not accidentally capped by this generic limit. |
+| `server.max_request_body_bytes` | `0` | Optional deployment-wide request body guard. `0` disables the global guard; negative values are invalid. Metadata JSON endpoints enforce their own bounded request sizes, while uploads are governed separately by `uploads.max_file_size_bytes`. |
 
 Server read/write/idle timeouts are internal defaults and are not YAML options. The request read timeout is enforced as an inactivity limit after headers are accepted, so a steadily progressing large upload is not rejected merely for taking longer than the default timeout.
 
@@ -122,7 +122,7 @@ server:
   cors_origins: []
   expose_paths: false
   frontend_dir: frontend/build
-  max_request_body_bytes: 33554432
+  max_request_body_bytes: 0
 
 database:
   path: /srv/gooru/gooru.db
