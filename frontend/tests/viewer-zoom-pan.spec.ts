@@ -68,6 +68,36 @@ async function wheelWithModifier(page: Page, key: 'Control' | 'Alt', deltaY: num
   await page.keyboard.up(key);
 }
 
+test('touchpad-sized zoom and pan input applies immediately without transform easing', async ({ page }) => {
+  const image = await mockViewer(page);
+  const stage = page.locator('.viewer-stage');
+  const stageBox = await stage.boundingBox();
+  const before = await image.boundingBox();
+  expect(stageBox).not.toBeNull();
+  expect(before).not.toBeNull();
+
+  const transitionProperties = await image.evaluate((element) => getComputedStyle(element).transitionProperty.split(',').map((value) => value.trim()));
+  expect(transitionProperties).not.toContain('transform');
+
+  await page.mouse.move(stageBox!.x + stageBox!.width / 2, stageBox!.y + stageBox!.height / 2);
+  await wheelWithModifier(page, 'Control', -24);
+  const touchpadZoomed = await image.boundingBox();
+  expect(touchpadZoomed).not.toBeNull();
+  expect(touchpadZoomed!.width).toBeGreaterThan(before!.width * 1.1);
+
+  // Establish enough vertical overflow to exercise panning. The small pan delta below is
+  // still touchpad-sized; without overflow the viewer correctly clamps it to zero.
+  await wheelWithModifier(page, 'Control', -160);
+  const zoomedForPan = await image.boundingBox();
+  expect(zoomedForPan).not.toBeNull();
+  expect(zoomedForPan!.height).toBeGreaterThan(stageBox!.height + 40);
+
+  await page.mouse.wheel(0, 24);
+  const panned = await image.boundingBox();
+  expect(panned).not.toBeNull();
+  expect(panned!.y).toBeLessThan(zoomedForPan!.y - 15);
+});
+
 test('ctrl-wheel zooms toward the pointer and wheel/alt-wheel pan while zoomed', async ({ page }) => {
   const image = await mockViewer(page);
   const stage = page.locator('.viewer-stage');
