@@ -48,6 +48,9 @@
   let videoSeekPointerId: number | undefined;
   let cursorIdle = $state(false);
   let cursorIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  let zoom = $state(1);
+  let panX = $state(0);
+  let panY = $state(0);
 
   const renderedFile = $derived(displayedFile ?? file);
   const renderedImageSource = $derived(displayedFile ? displayedImageSource : imageSource);
@@ -62,7 +65,18 @@
     inset: isFullscreen ? 0 : 36,
     maxScale: preserveNativeViewerSize(renderedFile) ? 1 : Number.POSITIVE_INFINITY
   }));
-  const visualStyle = $derived(viewerMediaStyle(geometry));
+  const fitGeometry = $derived(viewerGeometry({
+    intrinsicWidth,
+    intrinsicHeight,
+    viewportWidth: stageWidth,
+    viewportHeight: stageHeight,
+    rotation,
+    fitMode: 'screen',
+    inset: isFullscreen ? 0 : 36,
+    maxScale: preserveNativeViewerSize(renderedFile) ? 1 : Number.POSITIVE_INFINITY
+  }));
+  const minimumZoom = $derived(fitMode === 'screen' ? 1 : Math.min(1, fitGeometry.scale));
+  const visualStyle = $derived(viewerMediaStyle(geometry, { zoom, panX, panY }));
 
   onMount(() => {
     const stage = stageElement;
@@ -157,6 +171,9 @@
       intrinsicWidth = 0;
       intrinsicHeight = 0;
     }
+    zoom = 1;
+    panX = 0;
+    panY = 0;
     videoPaused = true;
     videoTime = 0;
     videoLength = 0;
@@ -237,6 +254,64 @@
     media.currentTime = Math.max(0, Math.min(media.duration, media.currentTime + deltaSeconds));
     if (media === videoElement) syncVideo();
     return true;
+  }
+
+  function clampViewerPan(nextX: number, nextY: number, nextZoom: number) {
+    const normalizedRotation = ((rotation % 360) + 360) % 360;
+    const quarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
+    const renderedWidth = (quarterTurn ? geometry.height : geometry.width) * nextZoom;
+    const renderedHeight = (quarterTurn ? geometry.width : geometry.height) * nextZoom;
+    const inset = isFullscreen ? 0 : 36;
+    const viewportWidth = Math.max(0, stageWidth - inset * 2);
+    const viewportHeight = Math.max(0, stageHeight - inset * 2);
+    const limitX = Math.max(0, (renderedWidth - viewportWidth) / 2);
+    const limitY = Math.max(0, (renderedHeight - viewportHeight) / 2);
+    return {
+      x: Math.max(-limitX, Math.min(limitX, nextX)),
+      y: Math.max(-limitY, Math.min(limitY, nextY))
+    };
+  }
+
+  function resetViewerTransform() {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+  }
+
+  function setFitMode(mode: ViewerFitMode) {
+    fitMode = mode;
+    resetViewerTransform();
+  }
+
+  function handleViewerWheel(event: WheelEvent) {
+    if (renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')) return;
+    const stage = stageElement;
+    if (!stage) return;
+
+    if (event.ctrlKey) {
+      event.preventDefault();
+      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.002)));
+      if (Math.abs(nextZoom - zoom) < 0.0001) return;
+      const rect = stage.getBoundingClientRect();
+      const pointerX = event.clientX - (rect.left + rect.width / 2);
+      const pointerY = event.clientY - (rect.top + rect.height / 2);
+      const ratio = nextZoom / zoom;
+      const anchoredX = pointerX - (pointerX - panX) * ratio;
+      const anchoredY = pointerY - (pointerY - panY) * ratio;
+      const clamped = clampViewerPan(anchoredX, anchoredY, nextZoom);
+      zoom = nextZoom;
+      panX = clamped.x;
+      panY = clamped.y;
+      return;
+    }
+
+    if (zoom <= minimumZoom + 0.0001) return;
+    event.preventDefault();
+    const horizontalDelta = event.altKey ? event.deltaY + event.deltaX : event.deltaX;
+    const verticalDelta = event.altKey ? 0 : event.deltaY;
+    const clamped = clampViewerPan(panX - horizontalDelta, panY - verticalDelta, zoom);
+    panX = clamped.x;
+    panY = clamped.y;
   }
 
   async function toggleFullscreen() {
@@ -320,13 +395,13 @@
     if (event.key === '1') {
       event.preventDefault();
       event.stopPropagation();
-      fitMode = 'screen';
+      setFitMode('screen');
       return;
     }
     if (event.key === '2') {
       event.preventDefault();
       event.stopPropagation();
-      fitMode = 'actual';
+      setFitMode('actual');
       return;
     }
     if (event.code === 'Space') {
@@ -388,7 +463,7 @@
 
 <svelte:window onkeydown={handleViewerKeydown} />
 
-<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
+<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove} onwheel={handleViewerWheel}>
   {#if renderedFile.media_kind === 'video'}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
@@ -428,8 +503,8 @@
   {/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
-    <button type="button" class="viewer-mode-button" class:active={fitMode === 'screen'} aria-label="Fit to screen" title="Fit to screen (1)" onclick={(event) => { fitMode = 'screen'; restoreStageFocusAfterPointer(event); }}>1</button>
-    <button type="button" class="viewer-mode-button" class:active={fitMode === 'actual'} aria-label="Actual size" title="Actual size (2)" onclick={(event) => { fitMode = 'actual'; restoreStageFocusAfterPointer(event); }}>2</button>
+    <button type="button" class="viewer-mode-button" class:active={fitMode === 'screen'} aria-label="Fit to screen" title="Fit to screen (1)" onclick={(event) => { setFitMode('screen'); restoreStageFocusAfterPointer(event); }}>1</button>
+    <button type="button" class="viewer-mode-button" class:active={fitMode === 'actual'} aria-label="Actual size" title="Actual size (2)" onclick={(event) => { setFitMode('actual'); restoreStageFocusAfterPointer(event); }}>2</button>
     <button type="button" class="viewer-mode-button" aria-label="Rotate left" title="Rotate left (L)" onclick={(event) => { rotation = rotateViewer(rotation, 'left'); restoreStageFocusAfterPointer(event); }}>↺</button>
     <button type="button" class="viewer-mode-button" aria-label="Rotate right" title="Rotate right (R)" onclick={(event) => { rotation = rotateViewer(rotation, 'right'); restoreStageFocusAfterPointer(event); }}>↻</button>
     <button type="button" class="viewer-mode-button" class:active={isFullscreen} aria-label="Toggle fullscreen" title="Fullscreen (F)" onclick={(event) => { void toggleFullscreen(); restoreStageFocusAfterPointer(event); }}>F</button>

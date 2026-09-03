@@ -58,7 +58,16 @@ export function viewerGeometry(input: ViewerGeometryInput): ViewerGeometry {
   };
 }
 
-export function viewerMediaStyle(geometry: ViewerGeometry): string {
+export type ViewerMediaTransform = {
+  zoom?: number;
+  panX?: number;
+  panY?: number;
+};
+
+export function viewerMediaStyle(geometry: ViewerGeometry, transform: ViewerMediaTransform = {}): string {
+  const zoom = Math.max(0, transform.zoom ?? 1);
+  const panX = Number.isFinite(transform.panX) ? (transform.panX ?? 0) : 0;
+  const panY = Number.isFinite(transform.panY) ? (transform.panY ?? 0) : 0;
   return [
     'position:absolute',
     'left:50%',
@@ -67,7 +76,7 @@ export function viewerMediaStyle(geometry: ViewerGeometry): string {
     `height:${geometry.height}px`,
     'max-width:none',
     'max-height:none',
-    `transform:translate(-50%, -50%) rotate(${geometry.rotation}deg)`,
+    `transform:translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px)) rotate(${geometry.rotation}deg) scale(${zoom})`,
     'transform-origin:center center'
   ].join(';');
 }
