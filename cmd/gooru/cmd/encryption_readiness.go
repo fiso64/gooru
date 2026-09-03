@@ -5,17 +5,21 @@ import (
 	"fmt"
 	"os"
 
-	"gooru.local/gooru"
 	"gooru.local/internal/encryptedfile"
 	"gooru.local/internal/serve"
+	"gooru.local/types"
 )
+
+type registeredFileLister interface {
+	GetAllFilesInfo() ([]types.FileInfo, error)
+}
 
 // ensureStorageEncryptionReady migrates registered files owned by configured
 // upload targets before protected mode starts serving requests. Arbitrary
 // indexed media outside those roots is intentionally left untouched: Gooru
 // owns encryption-at-rest for its database and managed uploads, not a user's
 // external library trees.
-func ensureStorageEncryptionReady(cfg serve.Config, client *gooru.Client) error {
+func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister) error {
 	if !cfg.Encryption.Enabled {
 		return nil
 	}
