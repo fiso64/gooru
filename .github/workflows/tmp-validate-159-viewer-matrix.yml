@@ -22,10 +22,13 @@ jobs:
           from pathlib import Path
           p = Path('frontend/tests/playable-media-seek.spec.ts')
           s = p.read_text()
-          old = "  await page.mouse.move(box.x + 30, box.y + 30);\n  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');"
-          new = "  // Player chrome is proximity-triggered: movement near the lower control zone reveals it.\n  await page.mouse.move(box.x + 30, box.y + box.height - 30);\n  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');"
-          assert old in s
-          p.write_text(s.replace(old, new))
+          old_pointer = "  await page.mouse.move(box.x + 30, box.y + 30);\n  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');"
+          new_pointer = "  // Player chrome is proximity-triggered: movement near the lower control zone reveals it.\n  await page.mouse.move(box.x + 30, box.y + box.height - 30);\n  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');"
+          old_keyboard = "  await page.keyboard.press('Shift+ArrowRight');\n  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');\n});"
+          new_keyboard = "  await page.keyboard.press('Shift+ArrowRight');\n  // Keyboard seek intentionally stays chrome-free; #184 made player chrome proximity/focus driven.\n  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('0');\n});"
+          assert old_pointer in s
+          assert old_keyboard in s
+          p.write_text(s.replace(old_pointer, new_pointer).replace(old_keyboard, new_keyboard))
           PY
       - name: Install dependencies
         working-directory: frontend
