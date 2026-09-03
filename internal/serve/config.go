@@ -102,6 +102,7 @@ type LoggingConfig struct {
 
 type UIConfig struct {
 	AccentColor string `yaml:"accent_color"`
+	FontStyle   string `yaml:"font_style"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
@@ -158,6 +159,7 @@ func DefaultConfig(dbPath string) Config {
 		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
+		UI:      UIConfig{FontStyle: "editorial"},
 	}
 }
 
@@ -374,6 +376,15 @@ func (cfg *Config) Validate() error {
 	cfg.UI.AccentColor = strings.TrimSpace(cfg.UI.AccentColor)
 	if cfg.UI.AccentColor != "" && !accentColorPattern.MatchString(cfg.UI.AccentColor) {
 		errs = append(errs, errors.New("ui.accent_color must be a six-digit hex color such as #2f80ed"))
+	}
+	cfg.UI.FontStyle = strings.ToLower(strings.TrimSpace(cfg.UI.FontStyle))
+	if cfg.UI.FontStyle == "" {
+		cfg.UI.FontStyle = "editorial"
+	}
+	switch cfg.UI.FontStyle {
+	case "editorial", "modern", "comic":
+	default:
+		errs = append(errs, errors.New("ui.font_style must be one of: editorial, modern, comic"))
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"
