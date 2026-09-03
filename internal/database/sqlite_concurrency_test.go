@@ -2,12 +2,13 @@ package database
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestNewStoreWaitsForConcurrentWriter(t *testing.T) {
-	store, err := NewStore(t.TempDir()+"/gooru.db", false)
+	store, err := NewStore(filepath.Join(t.TempDir(), "gooru.db"), false)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
