@@ -1,0 +1,65 @@
+name: Temporary Common tags header validation v3
+
+on:
+  push:
+    branches:
+      - fix/113-common-tags-header-toggle
+    paths:
+      - .github/workflows/tmp-113-header-toggle-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/113-common-tags-header-toggle
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Reuse validated patch and correct state-changing locator assertion
+        shell: python
+        run: |
+          from pathlib import Path
+          workflow = Path('.github/workflows/tmp-113-header-toggle-v2.yml').read_text()
+          marker = '      - name: Apply whole-row toggle without changing header typography\n        shell: python\n        run: |\n'
+          block = workflow.split(marker, 1)[1].split('\n      - name: Install frontend dependencies', 1)[0]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in block.splitlines())
+          exec(compile(script, '<reused-v2-patch>', 'exec'))
+
+          test = Path('frontend/tests/common-tags-sidebar.spec.ts')
+          text = test.read_text()
+          old = """  const reloadedToggle = common.getByRole('button', { name: 'Expand Common tags' });
+            await reloadedToggle.click();
+            await expect(reloadedToggle).toHaveAttribute('aria-expanded', 'true');
+            rows = common.locator('button.common-tag-item');"""
+          new = """  await common.getByRole('button', { name: 'Expand Common tags' }).click();
+            await expect(common.getByRole('button', { name: 'Collapse Common tags' })).toHaveAttribute('aria-expanded', 'true');
+            rows = common.locator('button.common-tag-item');"""
+          if old not in text:
+              raise SystemExit('state-changing locator assertion anchor changed')
+          test.write_text(text.replace(old, new, 1))
+      - name: Validate frontend and focused browser boundary
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run check
+          npm run test:unit
+          npm run build
+          npx playwright install --with-deps chromium
+          npx playwright test tests/common-tags-sidebar.spec.ts --project=chromium
+      - name: Commit validated change and remove temporary workflows
+        shell: bash
+        run: |
+          rm .github/workflows/tmp-113-header-toggle.yml .github/workflows/tmp-113-header-toggle-v2.yml .github/workflows/tmp-113-header-toggle-v3.yml
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add frontend/src/lib/components/AppShell.svelte frontend/tests/common-tags-sidebar.spec.ts .github/workflows/tmp-113-header-toggle.yml .github/workflows/tmp-113-header-toggle-v2.yml .github/workflows/tmp-113-header-toggle-v3.yml
+          git commit -m 'fix(sidebar): make Common tags header fully clickable'
+          git push origin HEAD:fix/113-common-tags-header-toggle
