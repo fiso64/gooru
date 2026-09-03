@@ -1,0 +1,19 @@
+name: temporary stream encryption validation
+on:
+  push:
+    branches:
+      - feature/28-stream-encryption
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Focused encryption tests
+        run: go test ./internal/encryptedfile
+      - name: Full Go tests
+        run: go test ./...
+      - name: Build
+        run: go build ./...
