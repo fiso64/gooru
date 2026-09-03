@@ -45,6 +45,9 @@
   let videoLength = $state(0);
   let playbackControlsIdle = $state(false);
   let playbackControlsTimer: ReturnType<typeof setTimeout> | undefined;
+  let videoSeekPointerId: number | undefined;
+  let cursorIdle = $state(false);
+  let cursorIdleTimer: ReturnType<typeof setTimeout> | undefined;
 
   const renderedFile = $derived(displayedFile ?? file);
   const renderedImageSource = $derived(displayedFile ? displayedImageSource : imageSource);
@@ -77,12 +80,19 @@
     const syncFullscreen = () => {
       isFullscreen = document.fullscreenElement === stage;
       resize();
+      if (isFullscreen) scheduleCursorIdle();
+      else {
+        cursorIdle = false;
+        if (cursorIdleTimer) clearTimeout(cursorIdleTimer);
+        cursorIdleTimer = undefined;
+      }
     };
     document.addEventListener('fullscreenchange', syncFullscreen);
     return () => {
       observer.disconnect();
       document.removeEventListener('fullscreenchange', syncFullscreen);
       if (playbackControlsTimer) clearTimeout(playbackControlsTimer);
+      if (cursorIdleTimer) clearTimeout(cursorIdleTimer);
     };
   });
 
@@ -190,9 +200,35 @@
   async function togglePlayback() {
     const media = videoElement ?? audioElement;
     if (!media) return;
-    showPlaybackControls();
     if (media.paused) await media.play();
     else media.pause();
+  }
+
+  function scheduleCursorIdle(event?: PointerEvent) {
+    cursorIdle = false;
+    if (cursorIdleTimer) clearTimeout(cursorIdleTimer);
+    cursorIdleTimer = undefined;
+    if (!isFullscreen) return;
+    const target = event?.target;
+    if (target instanceof Element && target.closest('.lightbox-video-controls')) return;
+    cursorIdleTimer = setTimeout(() => {
+      cursorIdle = true;
+      cursorIdleTimer = undefined;
+    }, 1000);
+  }
+
+  function handleStagePointerMove(event: PointerEvent) {
+    scheduleCursorIdle(event);
+    if (renderedFile.media_kind !== 'video') return;
+    const rect = stageElement?.getBoundingClientRect();
+    if (!rect) return;
+    const revealDistance = Math.min(160, Math.max(80, rect.height * 0.22));
+    if (event.clientY >= rect.bottom - revealDistance) showPlaybackControls();
+  }
+
+  function handleControlsPointerEnter(event: PointerEvent) {
+    showPlaybackControls();
+    scheduleCursorIdle(event);
   }
 
   function seekPlayback(deltaSeconds: number) {
@@ -221,7 +257,6 @@
 
   function handleViewerKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
-    showPlaybackControls();
     const target = event.target;
     const targetInsideStage = target instanceof Node && Boolean(stageElement?.contains(target));
     if (targetInsideStage && isInteractiveShortcutTarget(target)) return;
@@ -302,16 +337,46 @@
     }
   }
 
-  function seekVideo(event: MouseEvent) {
-    restoreStageFocusAfterPointer(event);
+  function seekVideoAt(clientX: number, control: HTMLElement) {
     const video = videoElement;
     if (!video || !videoLength) return;
-    const button = event.currentTarget;
-    if (!(button instanceof HTMLElement)) return;
-    const rect = button.getBoundingClientRect();
+    const rect = control.getBoundingClientRect();
     if (!rect.width) return;
-    video.currentTime = Math.max(0, Math.min(videoLength, ((event.clientX - rect.left) / rect.width) * videoLength));
+    video.currentTime = Math.max(0, Math.min(videoLength, ((clientX - rect.left) / rect.width) * videoLength));
     syncVideo();
+  }
+
+  function seekVideo(event: MouseEvent) {
+    restoreStageFocusAfterPointer(event);
+    const control = event.currentTarget;
+    if (control instanceof HTMLElement) seekVideoAt(event.clientX, control);
+  }
+
+  function beginVideoSeek(event: PointerEvent) {
+    if (event.button !== 0) return;
+    const control = event.currentTarget;
+    if (!(control instanceof HTMLElement)) return;
+    event.preventDefault();
+    restoreStageFocusAfterPointer(event);
+    videoSeekPointerId = event.pointerId;
+    control.setPointerCapture(event.pointerId);
+    seekVideoAt(event.clientX, control);
+  }
+
+  function dragVideoSeek(event: PointerEvent) {
+    if (videoSeekPointerId !== event.pointerId) return;
+    const control = event.currentTarget;
+    if (control instanceof HTMLElement) seekVideoAt(event.clientX, control);
+  }
+
+  function endVideoSeek(event: PointerEvent) {
+    if (videoSeekPointerId !== event.pointerId) return;
+    const control = event.currentTarget;
+    if (control instanceof HTMLElement) {
+      seekVideoAt(event.clientX, control);
+      if (control.hasPointerCapture(event.pointerId)) control.releasePointerCapture(event.pointerId);
+    }
+    videoSeekPointerId = undefined;
   }
 
   function clock(seconds: number) {
@@ -323,7 +388,7 @@
 
 <svelte:window onkeydown={handleViewerKeydown} />
 
-<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={showPlaybackControls}>
+<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
   {#if renderedFile.media_kind === 'video'}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
@@ -343,12 +408,12 @@
       onended={syncVideo}
     ></video>
 
-    <div class="lightbox-video-controls" class:is-idle={playbackControlsIdle} onpointerenter={showPlaybackControls} onfocusin={showPlaybackControls}>
+    <div class="lightbox-video-controls" class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
       <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}>
         <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
       </button>
       <span class="video-time">{clock(videoTime)}</span>
-      <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo}>
+      <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo} onpointerdown={beginVideoSeek} onpointermove={dragVideoSeek} onpointerup={endVideoSeek} onpointercancel={endVideoSeek}>
         <span style={`width: ${videoProgress}%`}></span>
       </button>
       <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(renderedFile) || '0:00')}</span>
@@ -384,6 +449,10 @@
     width: 100vw;
     height: 100vh;
     background: #000;
+  }
+
+  :global(.viewer-stage:fullscreen.cursor-idle) {
+    cursor: none;
   }
 
   :global(.viewer-stage .viewer-visual-media) {
