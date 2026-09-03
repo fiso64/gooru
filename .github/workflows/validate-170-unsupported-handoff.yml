@@ -1,0 +1,91 @@
+name: Validate unsupported viewer handoff
+
+on:
+  push:
+    branches: [fix/22-image-geometry-hold]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/22-image-geometry-hold
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Repair failed-target handoff and add browser regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          viewer = Path('frontend/src/lib/components/ViewerStage.svelte')
+          s = viewer.read_text()
+          needle = '''  function syncVideo() {\n'''
+          insert = '''  function syncImageError() {\n    // A failed/unsupported target has no paint event that can release the frozen frame.\n    // End this handoff explicitly so stale pixels never stand in for the current file.\n    freezeGeneration += 1;\n    freezeVisible = false;\n    intrinsicWidth = 0;\n    intrinsicHeight = 0;\n  }\n\n'''
+          if needle not in s or 'function syncImageError()' in s:
+              raise SystemExit('unexpected ViewerStage syncImageError state')
+          s = s.replace(needle, insert + needle, 1)
+          old = '''          alt={renderedFile.name}\n          onload={syncImage}\n'''
+          new = '''          alt={renderedFile.name}\n          onload={syncImage}\n          onerror={syncImageError}\n'''
+          if old not in s:
+              raise SystemExit('image handler insertion point not found')
+          s = s.replace(old, new, 1)
+          viewer.write_text(s)
+
+          test = Path('frontend/tests/viewer-image-geometry-hold.spec.ts')
+          t = test.read_text()
+          t = t.replace("function fileItem(id: 'portrait' | 'landscape') {\n  const portrait = id === 'portrait';", "function fileItem(id: 'portrait' | 'landscape' | 'text') {\n  const portrait = id === 'portrait';\n  const text = id === 'text';")
+          t = t.replace("    name: `${id}.jpg`,", "    name: `${id}.${text ? 'txt' : 'jpg'}`,", 1)
+          t = t.replace("    media_type: 'image/jpeg',\n    media_kind: 'photo',\n    metadata: { image_width: portrait ? 1273 : 2546, image_height: 1800 },", "    media_type: text ? 'text/plain' : 'image/jpeg',\n    media_kind: text ? 'document' : 'photo',\n    metadata: text ? {} : { image_width: portrait ? 1273 : 2546, image_height: 1800 },", 1)
+          t = t.replace("  const files = [fileItem('portrait'), fileItem('landscape')];", "  const files = [fileItem('portrait'), fileItem('landscape'), fileItem('text')];", 1)
+          old_route = '''  await page.route('**/api/v1/files/*/preview', async (route) => {\n    const landscape = route.request().url().includes('/landscape/');\n'''
+          new_route = '''  await page.route('**/api/v1/files/*/preview', async (route) => {\n    if (route.request().url().includes('/text/')) {\n      await route.fulfill({ status: 404, body: '' });\n      return;\n    }\n    const landscape = route.request().url().includes('/landscape/');\n'''
+          if old_route not in t:
+              raise SystemExit('preview route insertion point not found')
+          t = t.replace(old_route, new_route, 1)
+          extra = '''\n\ntest('failed non-image preview releases the frozen previous presentation', async ({ page }) => {\n  const { releaseLandscape } = await mockApp(page);\n  await page.getByRole('button', { name: 'Preview portrait.jpg' }).click();\n\n  const media = page.locator('.viewer-visual-media');\n  const freeze = page.locator('.viewer-image-freeze');\n  await expect(media).toBeVisible();\n\n  await page.getByLabel('Next file').click();\n  releaseLandscape();\n  await expect(page.getByRole('dialog', { name: 'landscape.jpg' })).toBeVisible();\n  await expect(freeze).toBeHidden();\n  await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(2546);\n\n  await page.getByLabel('Next file').click();\n  await expect(page.getByRole('dialog', { name: 'text.txt' })).toBeVisible();\n  await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(0);\n  await expect(freeze).toBeHidden();\n  await expect(media).toHaveCSS('visibility', 'visible');\n});\n'''
+          if "failed non-image preview releases" in t:
+              raise SystemExit('regression test already present')
+          t += extra
+          test.write_text(t)
+          PY
+          git diff --check
+          git diff -- frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-image-geometry-hold.spec.ts
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Static check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Focused Chromium viewer coverage
+        working-directory: frontend
+        run: |
+          mapfile -t specs < <(find tests -maxdepth 1 -type f \( -name 'viewer-image-geometry-hold.spec.ts' -o -name '*viewer*animation*.spec.ts' -o -name '*viewer*zoom*.spec.ts' -o -name '*viewer*navigation*.spec.ts' \) -print)
+          printf 'Running %s\n' "${specs[@]}"
+          test ${#specs[@]} -gt 0
+          npx playwright test --project=chromium "${specs[@]}"
+      - name: Commit validated repair and remove workflow
+        if: success()
+        run: |
+          rm .github/workflows/validate-170-unsupported-handoff.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-image-geometry-hold.spec.ts .github/workflows/validate-170-unsupported-handoff.yml
+          git commit -m 'fix(viewer): release stale frame on unsupported target'
+          git push origin HEAD:fix/22-image-geometry-hold
