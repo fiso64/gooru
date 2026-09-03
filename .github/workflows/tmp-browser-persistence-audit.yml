@@ -15,9 +15,24 @@ jobs:
           echo '=== persistence APIs ==='
           grep -RInE --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.svelte-kit \
             'serviceWorker|navigator[.]serviceWorker|caches[.]|CacheStorage|indexedDB|localStorage|sessionStorage|createObjectURL|revokeObjectURL|FileReader|blob:' frontend || true
-          echo '=== media/content URL construction ==='
-          grep -RInE --exclude-dir=node_modules --exclude-dir=build --exclude-dir=.svelte-kit \
-            '/api/v1/files|thumbnail|preview|contentUrl|mediaUrl|preload' frontend/src || true
           echo '=== service worker/cache-like filenames ==='
           find frontend -type f \( -iname '*service*worker*' -o -iname '*cache*' -o -iname '*manifest*' \) \
             -not -path '*/node_modules/*' -not -path '*/build/*' -not -path '*/.svelte-kit/*' -print
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - run: go build ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run test:unit
+        working-directory: frontend
+      - run: npm run check
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
