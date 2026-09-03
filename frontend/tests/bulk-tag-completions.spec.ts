@@ -50,7 +50,9 @@ async function mockApp(page: Page) {
     contentType: 'application/json',
     body: JSON.stringify({ tags: [
       { name: 'rating:safe', namespace: 'rating', value: 'safe', count: 3 },
-      { name: 'blue', count: 2 }
+      { name: 'blue', count: 2 },
+      { name: 'character:alice', namespace: 'character', value: 'alice', count: 100 },
+      { name: 'technology', count: 2 }
     ] })
   }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
@@ -83,6 +85,17 @@ test('Tag selected exposes existing tag completions without covering dialog acti
   await expect(suggestions.getByRole('option', { name: /rating:safe/ })).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden();
+});
+
+test('Tag selected uses the same prefix-first ordering as main search', async ({ page }) => {
+  await openSelectedLibrary(page);
+
+  await page.getByRole('button', { name: 'Tag…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
+  await dialog.getByLabel('Tags').fill('te');
+  const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
+  await expect(suggestions).toBeVisible();
+  await expect(suggestions.getByRole('option').first()).toContainText('technology');
 });
 
 test('Untag selected exposes existing tag completions', async ({ page }) => {

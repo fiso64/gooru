@@ -2,7 +2,8 @@
   import Icon from './Icon.svelte';
   import { specialSearchSuggestions } from '$lib/search/specialSuggestions';
   import { parseSearchQuery, parseSearchToken, searchTokensToQuery, searchTokenToString, type SearchToken } from '$lib/search/tokens';
-  import { compareCompletionRank } from '$lib/utils/completionRanking';
+  import { rankCompletionCandidates } from '$lib/utils/completionRanking';
+  import { plainTagSuggestions } from '$lib/utils/tagSuggestions';
   import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
@@ -41,8 +42,7 @@
   let lastSyncedValue = $state('');
 
   const tagItems = $derived(normalizeTags(tags, suggestions));
-  const namespaceItems = $derived(buildNamespaceCounts(tagItems));
-  const groups = $derived(computeSuggestions(draft, tokens, tagItems, namespaceItems));
+  const groups = $derived(computeSuggestions(draft, tokens, tagItems));
   const flat = $derived(groups.flatMap((group) => group.items.map((item) => ({ ...item, group: group.head }))));
 
   $effect(() => {
@@ -97,26 +97,17 @@
     return { ns: tag.slice(0, colon), value: tag.slice(colon + 1) };
   }
 
-  function buildNamespaceCounts(items: Array<{ tag: string; count: number }>) {
-    const counts = new Map<string, number>();
-    for (const item of items) {
-      const parsed = parseTag(item.tag);
-      if (!parsed.ns || item.tag.startsWith('@')) continue;
-      counts.set(parsed.ns, (counts.get(parsed.ns) ?? 0) + item.count);
-    }
-    return [...counts.entries()]
-      .map(([ns, count]) => ({ ns, count }))
-      .sort((a, b) => b.count - a.count || a.ns.localeCompare(b.ns));
-  }
-
   function computeSuggestions(
     draftValue: string,
     currentTokens: SearchToken[],
-    items: Array<{ tag: string; count: number }>,
-    namespaces: Array<{ ns: string; count: number }>
+    items: Array<{ tag: string; count: number }>
   ): SuggestionGroup[] {
     const tokenStrings = new Set(currentTokens.map(searchTokenToString));
-    const takenPositiveTags = new Set(currentTokens.filter((token) => !token.neg).map((token) => `${token.ns}:${token.val}`));
+    const takenPositiveTags = new Set(
+      currentTokens
+        .filter((token) => !token.neg)
+        .map((token) => (token.ns ? `${token.ns}:${token.val}` : token.val))
+    );
     const specialItems: SuggestionItem[] = specialSearchSuggestions(draftValue, [...tokenStrings]).map((item) => ({
       kind: 'special',
       ...item
@@ -129,33 +120,37 @@
     }
 
     if (!working.includes(':')) {
-      const term = working.toLowerCase();
       const result: SuggestionGroup[] = [];
-      const nsItems = namespaces
-        .filter(({ ns }) => !term || ns.toLowerCase().startsWith(term))
-        .slice(0, 6)
-        .map(({ ns, count }) => ({ kind: 'namespace' as const, commit: `${negPrefix}${ns}:`, ns, val: '', count, hint: 'namespace', partial: true }));
-      if (nsItems.length) result.push({ head: 'Namespaces', items: nsItems });
-
-      const matchingTags = items
-        .filter(({ tag }) => {
-          if (takenPositiveTags.has(tag) || tokenStrings.has(`${negPrefix}${tag}`)) return false;
-          const parsed = parseTag(tag);
-          return term ? parsed.value.toLowerCase().includes(term) : !parsed.ns;
-        })
-        .sort((a, b) => compareCompletionRank(parseTag(a.tag).value, parseTag(b.tag).value, term, a.count, b.count))
-        .slice(0, term ? 8 : 5)
-        .map(({ tag, count }) => {
-          const parsed = parseTag(tag);
+      const completionItems = plainTagSuggestions(
+        working,
+        items.map(({ tag, count }) => ({ name: tag, count })),
+        [],
+        14
+      )
+        .filter(({ name, kind }) => kind === 'namespace' || (!takenPositiveTags.has(name) && !tokenStrings.has(`${negPrefix}${name}`)))
+        .map(({ name, count, kind }) => {
+          if (kind === 'namespace') {
+            const ns = name.slice(0, -1);
+            return {
+              kind: 'namespace' as const,
+              commit: `${negPrefix}${name}`,
+              ns,
+              val: '',
+              count,
+              hint: 'namespace',
+              partial: true
+            };
+          }
+          const parsed = parseTag(name);
           return {
             kind: parsed.ns ? ('tag' as const) : ('valueless' as const),
-            commit: `${negPrefix}${tag}`,
+            commit: `${negPrefix}${name}`,
             ns: parsed.ns,
             val: parsed.value,
             count
           };
         });
-      if (matchingTags.length) result.push({ head: term ? 'Tags' : 'Valueless', items: matchingTags });
+      if (completionItems.length) result.push({ head: 'Suggestions', items: completionItems });
       if (specialItems.length) result.push({ head: 'Query', items: specialItems });
       return result;
     }
@@ -163,14 +158,15 @@
     const colon = working.indexOf(':');
     const ns = working.slice(0, colon).toLowerCase();
     const valFrag = working.slice(colon + 1).toLowerCase();
-    const values = items
+    const valueCandidates = items
       .filter(({ tag }) => {
         if (tag.startsWith('@') || takenPositiveTags.has(tag)) return false;
         const parsed = parseTag(tag);
         if (parsed.ns.toLowerCase() !== ns) return false;
         return !valFrag || parsed.value.toLowerCase().includes(valFrag);
       })
-      .sort((a, b) => compareCompletionRank(parseTag(a.tag).value, parseTag(b.tag).value, valFrag, a.count, b.count))
+      .map(({ tag, count }) => ({ name: parseTag(tag).value, tag, count }));
+    const values = rankCompletionCandidates(valueCandidates, valFrag)
       .slice(0, 12)
       .map(({ tag, count }) => {
         const parsed = parseTag(tag);

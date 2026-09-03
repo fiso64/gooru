@@ -10,7 +10,9 @@ const completionTags = [
   { name: 'series:superhero', namespace: 'series', value: 'superhero', count: 100 },
   { name: 'series:my_hero_academia', namespace: 'series', value: 'my_hero_academia', count: 3 },
   { name: 'heroic', count: 7 },
-  { name: 'subject:hero', namespace: 'subject', value: 'hero', count: 5 }
+  { name: 'subject:hero', namespace: 'subject', value: 'hero', count: 5 },
+  { name: 'character:alice', namespace: 'character', value: 'alice', count: 100 },
+  { name: 'technology', count: 2 }
 ];
 
 async function mockApp(page: Page) {
@@ -69,4 +71,13 @@ test('namespace value completions use the same component-prefix ranking', async 
     'series:my_hero_academia',
     'series:superhero'
   ]);
+});
+
+test('bare search uses the shared policy across tag and namespace candidates', async ({ page }) => {
+  await mockApp(page);
+  const search = page.getByLabel('Search library');
+
+  await search.pressSequentially('te', { delay: 10 });
+  await expect(page.getByRole('listbox', { name: 'Search suggestions' })).toBeVisible();
+  await expect(page.locator('#searchbar-suggestions [role="option"]').first()).toContainText('technology');
 });
