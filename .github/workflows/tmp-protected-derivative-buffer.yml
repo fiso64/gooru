@@ -1,0 +1,48 @@
+name: Validate protected derivative buffering
+
+on:
+  push:
+    branches:
+      - "feat/28-protected-derivative-sources"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "feat/28-protected-derivative-sources"
+          fetch-depth: 0
+      - name: Patch transactional output
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/serve/media_thumbnailers.go')
+          text = p.read_text()
+          old_import = 'import (\n\t"context"'
+          if old_import not in text:
+              raise SystemExit('import block not found')
+          text = text.replace(old_import, 'import (\n\t"bytes"\n\t"context"', 1)
+          old = '''\tcmd.Stdin = src\n\tcounter := &countingWriter{Writer: dst}\n\tcmd.Stdout = counter\n\tif err := commandError(cmd.Run()); err != nil {\n\t\treturn err\n\t}\n\tif counter.n == 0 {\n\t\treturn errors.New("ffmpeg produced an empty thumbnail")\n\t}\n\treturn nil\n}\n\ntype countingWriter struct {\n\tio.Writer\n\tn int64\n}\n\nfunc (w *countingWriter) Write(p []byte) (int, error) {\n\tn, err := w.Writer.Write(p)\n\tw.n += int64(n)\n\treturn n, err\n}\n'''
+          new = '''\tcmd.Stdin = src\n\tvar output bytes.Buffer\n\tcmd.Stdout = &output\n\tif err := commandError(cmd.Run()); err != nil {\n\t\treturn err\n\t}\n\tif output.Len() == 0 {\n\t\treturn errors.New("ffmpeg produced an empty thumbnail")\n\t}\n\t_, err := io.Copy(dst, &output)\n\treturn err\n}\n'''
+          if old not in text:
+              raise SystemExit('source output block not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/serve/media_thumbnailers.go
+      - name: Test
+        run: |
+          go test ./internal/serve
+          go test ./...
+          go build ./...
+      - name: Commit
+        run: |
+          rm .github/workflows/tmp-protected-derivative-buffer.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(encryption): buffer protected video derivative attempts"
+          git push origin HEAD:feat/28-protected-derivative-sources
