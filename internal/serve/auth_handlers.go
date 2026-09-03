@@ -63,7 +63,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, "unauthorized", message, nil)
 		return
 	}
-	csrfToken, err := s.auth.StableCSRF(r.Context(), auth)
+	csrfToken, err := s.auth.StableCSRF(auth)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to issue CSRF token", nil)
 		return
@@ -110,7 +110,7 @@ func (s *Server) handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "auth_unavailable", "authentication store is not configured", nil)
 		return
 	}
-	csrfToken, err := s.auth.StableCSRF(r.Context(), auth)
+	csrfToken, err := s.auth.StableCSRF(auth)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to issue CSRF token", nil)
 		return
