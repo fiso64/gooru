@@ -130,15 +130,9 @@
     const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
       // Foreground images should enter the browser's native loading/decoding pipeline immediately.
-      // Blocking the visible source swap on Image.decode() starves progressive presentation when
-      // key-repeat advances targets faster than full decodes can finish. Metadata preserves atomic
-      // geometry where available; the real image load reconciles natural dimensions afterward.
-      const metadataWidth = targetFile.metadata?.image_width ?? 0;
-      const metadataHeight = targetFile.metadata?.image_height ?? 0;
-      if (metadataWidth > 0 && metadataHeight > 0) {
-        intrinsicWidth = metadataWidth;
-        intrinsicHeight = metadataHeight;
-      }
+      // Keep the currently painted image geometry until the target's load event updates natural
+      // dimensions. Applying target metadata before those pixels are ready visibly resizes the old
+      // bitmap during the network/decode gap when aspect ratios differ.
       displayedFile = targetFile;
       displayedImageSource = targetImageSource;
       return;
@@ -169,8 +163,8 @@
     const nextFile = renderedFile;
     renderedImageSource;
     const rendersImage = nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
-    // Image transitions install metadata dimensions before swapping sources, then the
-    // rendered image reconciles natural dimensions on load. Non-image media waits for metadata.
+    // Image geometry stays at the last painted dimensions until the target image loads.
+    // Non-image media waits for its own metadata path and starts with no image geometry.
     if (!rendersImage) {
       intrinsicWidth = 0;
       intrinsicHeight = 0;
