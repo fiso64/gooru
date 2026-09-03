@@ -1,29 +1,22 @@
-name: maintainer-port-28
+name: maintainer-validate-28-source-hashing
 
 on:
   push:
     branches:
       - refactor/28-source-hashing-current
 
-permissions:
-  contents: write
-
 jobs:
-  port:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
         with:
-          fetch-depth: 0
-      - name: Replay preserved refactor
-        run: |
-          if git log --format=%s | grep -Fxq 'refactor(hashing): support random-access content sources'; then
-            echo 'Preserved commits already replayed.'
-            exit 0
-          fi
-          git config user.name 'Gooru autonomous maintainer'
-          git config user.email '64778819+fiso64@users.noreply.github.com'
-          git fetch origin refactor/28-source-hashing
-          commits=$(git rev-list --reverse 583e5472d2ee753583acaddec1ec33339e73593f..6e9fffec6eb47ac98c17f76c074953894fb80876)
-          git cherry-pick $commits
-          git push origin HEAD:refactor/28-source-hashing-current
+          go-version-file: go.mod
+          cache: true
+      - name: Focused source hashing tests
+        run: go test ./internal/hashing/hashes ./internal/hashing ./gooru
+      - name: Full Go test suite
+        run: go test ./...
+      - name: Build all Go packages
+        run: go build ./...
