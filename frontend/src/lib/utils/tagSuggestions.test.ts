@@ -45,6 +45,17 @@ describe('plainTagSuggestions', () => {
       'series:superhero'
     ]);
   });
+
+  it('does not let a substring-only namespace outrank a prefix tag', () => {
+    const candidates = [
+      { name: 'character:alice', count: 100 },
+      { name: 'technology', count: 2 }
+    ];
+    expect(plainTagSuggestions('te', candidates).map((item) => item.name)).toEqual([
+      'technology',
+      'character:'
+    ]);
+  });
 });
 
 describe('isPlainTag', () => {
