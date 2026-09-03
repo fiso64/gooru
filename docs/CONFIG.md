@@ -44,11 +44,23 @@ For example, generate a key once and store it in an owner-only file:
 ```bash
 umask 077
 openssl rand -base64 32 > /srv/gooru/encryption.key
+```
+
+Then choose one configuration source. To use the environment-variable path source:
+
+```bash
 export GOORU_ENCRYPTION_KEY_FILE=/srv/gooru/encryption.key
 go run ./cmd/gooru serve --config serve.yaml
 ```
 
-with either the environment variable above, or directly with the key-file path in YAML:
+with:
+
+```yaml
+encryption:
+  enabled: true
+```
+
+Alternatively, do not set either encryption-key environment variable and put only the key-file path in YAML:
 
 ```yaml
 encryption:
