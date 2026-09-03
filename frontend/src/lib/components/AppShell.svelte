@@ -153,7 +153,7 @@
       }
       return;
     }
-    if (event.key.toLowerCase() === 'b' && route === 'library' && !document.querySelector('.lightbox[role="dialog"]')) {
+    if (event.key.toLowerCase() === 'b' && route === 'library' && !document.querySelector('[role="dialog"]')) {
       event.preventDefault();
       event.stopPropagation();
       onCreateSavedSearch();
