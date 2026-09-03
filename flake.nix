@@ -15,7 +15,7 @@
             pname = "gooru-frontend";
             version = "0-unstable";
             src = ./frontend;
-            npmDepsHash = "sha256-k3d4Md1NQZfYO/dq1xzv5U8B5NRNhsAFPAv5BNkNVXM=";
+            npmDepsHash = "sha256-IwmulF0IrBA//GfuVagDZF4pZqFSOW9fHk0t0xmHWfU=";
             npmBuildScript = "build";
             installPhase = ''
               runHook preInstall
