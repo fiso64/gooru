@@ -40,7 +40,7 @@ async function mockApp(page: Page) {
   await page.getByRole('button', { name: 'Preview issue.cbz' }).click();
 }
 
-test('comic reader uses stage entry and shared playback controls', async ({ page }) => {
+test('comic reader uses concept entry treatment and shared playback controls', async ({ page }) => {
   await mockApp(page);
   const dialog = page.getByRole('dialog', { name: 'issue.cbz' });
   const stage = dialog.locator('.viewer-stage');
@@ -49,6 +49,11 @@ test('comic reader uses stage entry and shared playback controls', async ({ page
   await expect(readComic).toBeVisible();
   await expect(dialog.locator('.lightbox-aside').getByText('Pages')).toHaveCount(0);
   await expect(dialog.locator('.comic-session')).toHaveCount(0);
+
+  await expect(readComic).toHaveCSS('height', '42px');
+  await expect(readComic).toHaveCSS('border-radius', '8px');
+  await expect(readComic.locator('.comic-read-arrow-left')).toHaveCSS('background-image', /svg/);
+  await expect(readComic.locator('.comic-read-arrow-right')).toHaveCSS('background-image', /svg/);
 
   const previewImage = stage.locator('img.viewer-visual-media');
   await expect(previewImage).toBeVisible();
@@ -59,6 +64,8 @@ test('comic reader uses stage entry and shared playback controls', async ({ page
   expect(Math.abs((readBox.x + readBox.width) - (imageBox.x + imageBox.width - 12))).toBeLessThanOrEqual(2);
 
   await readComic.click();
+  await expect(stage).toHaveClass(/comic-reading/);
+  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationName)).toBe('arrow-through');
   const controls = dialog.locator('.lightbox-video-controls.comic-controls');
   await expect(controls).toBeVisible();
   await expect(controls.getByRole('button', { name: 'Exit comic (Space)' })).toBeVisible();
@@ -85,4 +92,5 @@ test('comic reader uses stage entry and shared playback controls', async ({ page
   await stage.focus();
   await page.keyboard.press('Space');
   await expect(dialog.getByRole('button', { name: 'Read comic' })).toBeVisible();
+  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationName)).toBe('arrow-back');
 });
