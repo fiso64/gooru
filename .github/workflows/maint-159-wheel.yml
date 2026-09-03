@@ -1,0 +1,68 @@
+name: maint-159-wheel
+on:
+  push:
+    branches: [fix/159-native-feel-wheel]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Reproduce touchpad responsiveness regression
+        working-directory: frontend
+        run: |
+          if npx playwright test tests/viewer-zoom-pan.spec.ts --project=chromium --grep "touchpad-sized"; then
+            echo "Expected the new responsiveness regression to fail before the production fix"
+            exit 1
+          fi
+      - name: Apply minimal production fix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/lib/components/ViewerStage.svelte')
+          text = path.read_text()
+          old_zoom = "const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.002)));"
+          new_zoom = "const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.005)));"
+          old_transition = "transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;"
+          new_transition = "transition: filter 120ms ease, opacity 120ms ease;"
+          if text.count(old_zoom) != 1:
+              raise SystemExit(f'zoom expression occurrences: {text.count(old_zoom)}')
+          if text.count(old_transition) != 1:
+              raise SystemExit(f'visual transform transition occurrences: {text.count(old_transition)}')
+          text = text.replace(old_zoom, new_zoom).replace(old_transition, new_transition)
+          path.write_text(text)
+          PY
+      - name: Check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Viewer wheel regression suite
+        working-directory: frontend
+        run: npx playwright test tests/viewer-zoom-pan.spec.ts --project=chromium
+      - name: Commit validated production fix and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/maint-159-wheel.yml
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-zoom-pan.spec.ts
+          git commit -m "fix(viewer): remove wheel transform latency"
+          git push
