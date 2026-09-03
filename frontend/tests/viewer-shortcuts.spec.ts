@@ -26,9 +26,11 @@ const file = {
   }
 };
 
+type TagRequest = { operation: string; body: { file_ids?: string[]; tags?: string[] } };
+
 async function mockApp(page: Page) {
   let loggedIn = false;
-  const tagRequests: Array<{ operation?: string; body?: unknown }> = [];
+  const tagRequests: TagRequest[] = [];
 
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
@@ -60,8 +62,12 @@ async function mockApp(page: Page) {
     body: JSON.stringify({ files: [file], total_count: 1, library_count: 1, facets: { kind: [{ value: 'photo', count: 1 }] } })
   }));
   await page.route('**/api/v1/files/tags', async (route) => {
-    if (route.request().method() !== 'POST') return route.fallback();
-    tagRequests.push(route.request().postDataJSON());
+    const method = route.request().method();
+    if (!['POST', 'PUT', 'DELETE'].includes(method)) return route.fallback();
+    tagRequests.push({
+      operation: method === 'POST' ? 'add' : method === 'PUT' ? 'set' : 'remove',
+      body: route.request().postDataJSON()
+    });
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
   });
   await page.route('**/api/v1/files/one/thumbnail**', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" />' }));
