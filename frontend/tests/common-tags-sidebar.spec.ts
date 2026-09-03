@@ -49,8 +49,8 @@ test('shows the 20 most common tags after saved searches and runs a tag search',
   await expect(common.locator('button.sidebar-item').first()).toContainText('artist:alice');
   await expect(common.locator('button.sidebar-item').first()).toContainText('99');
   await expect(common.getByRole('button', { name: /tag-24 24/ })).toBeVisible();
-  await expect(common.getByRole('button', { name: /tag-05 5/ })).toBeVisible();
-  await expect(common.getByText('tag-04', { exact: true })).toHaveCount(0);
+  await expect(common.getByRole('button', { name: /tag-06 6/ })).toBeVisible();
+  await expect(common.getByText('tag-05', { exact: true })).toHaveCount(0);
 
   await common.locator('button.sidebar-item').first().click();
   await expect.poll(() => fileQueries.includes('artist:alice')).toBe(true);
