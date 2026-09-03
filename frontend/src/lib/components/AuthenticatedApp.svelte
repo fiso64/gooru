@@ -12,7 +12,7 @@
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { createFileCountQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
+  import { createFileCountQuery, createFileFacetsQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
@@ -30,6 +30,7 @@
   import { createUploadWorkflow } from '$lib/state/uploadWorkflow.svelte';
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
+  import { appendSidebarKind, queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { Job, SavedSearchRequest } from '$lib/api/types';
 
@@ -65,13 +66,15 @@
   const filesQuery = createFilesQuery(
     () => Boolean($authState.user),
     () => $submittedSearch,
-    () => library.activeKind,
+    () => '',
     () => library.sort,
     () => library.order,
     () => authScope,
     () => library.route === 'library'
   );
-  const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => Boolean(filesQuery.data?.pages.length));
+  const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
+  const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
+  const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
@@ -92,7 +95,7 @@
   const loadedFiles = $derived(filesQuery.data?.pages.flatMap((page) => page.files) ?? []);
   const retainedStartIndex = $derived(pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
-  const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.activeKind}|${library.sort}|${library.order}`);
+  const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.sort}|${library.order}`);
   const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);
   const selectedCount = $derived(library.selectedCount(currentTotalCount));
 
@@ -391,21 +394,18 @@
   <AppShell
     username={$authState.user.username}
     route={library.route}
-    activeKind={library.activeKind}
     libraryCount={page?.library_count ?? tagsQuery.data?.library_count ?? files.length}
     tagCount={tagsQuery.data?.tags.length ?? 0}
     jobsActiveCount={activeJobs.length}
     jobs={jobsQuery.data?.items ?? []}
     jobsDrawerOpen={jobsDrawerOpen}
-    kindCounts={page?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? []}
+    kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
     comicCount={comicCountQuery.data?.total_count ?? 0}
-    comicActive={library.activeKind === '' && /(^|\s)ext:cbz(?:\s|$)/i.test($submittedSearch)}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     tags={tagsQuery.data?.tags ?? []}
     search={$searchDraft}
     onRoute={setRoute}
-    onKind={library.setKind}
     onSavedSearch={library.runSavedSearch}
     onCreateSavedSearch={createSavedSearch}
     onUpdateSavedSearch={updateSavedSearch}
@@ -466,7 +466,7 @@
         retainedStartIndex={retainedStartIndex}
         totalCount={page?.total_count ?? files.length}
         libraryCount={page?.library_count ?? files.length}
-        searchActive={Boolean($submittedSearch || library.activeKind)}
+        searchActive={Boolean($submittedSearch)}
         selectedCount={selectedCount}
         isSelected={library.isSelected}
         hasNextPage={Boolean(filesQuery.hasNextPage)}
