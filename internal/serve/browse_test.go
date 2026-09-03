@@ -126,10 +126,6 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if page.Files[0].MediaKind != "photo" {
 		t.Fatalf("expected photo media kind, got %q", page.Files[0].MediaKind)
 	}
-	freeTextPage := listTestFiles(t, server, "notes", 1)
-	if freeTextPage.Files[0].Name != "notes.txt" {
-		t.Fatalf("expected filename free-text search to find notes.txt, got %+v", freeTextPage.Files)
-	}
 
 	nextReq := authedRequest(http.MethodGet, "/api/v1/files?query=kind:image&limit=1&page_token="+page.NextPageToken)
 	nextRec := httptest.NewRecorder()
@@ -280,7 +276,7 @@ func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {
 	}
 }
 
-func TestBrowseFilenameSearchStaysLocationScopedForDuplicateContent(t *testing.T) {
+func TestBrowseBareQueryDoesNotSearchFilename(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)
 	defer cleanup()
 
@@ -291,14 +287,18 @@ func TestBrowseFilenameSearchStaysLocationScopedForDuplicateContent(t *testing.T
 		t.Fatalf("tag duplicate files: %v", err)
 	}
 
-	page := listTestFiles(t, server, "needle-file", 10)
-	for _, file := range page.Files {
-		if file.Name == "other-file.jpg" {
-			t.Fatalf("filename query expanded through shared content hash: %+v", page.Files)
-		}
+	rec := httptest.NewRecorder()
+	target := "/api/v1/files?query=" + url.QueryEscape("needle-file") + "&limit=10"
+	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, target))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(page.Files) != 1 || page.Files[0].Name != "needle-file.jpg" {
-		t.Fatalf("expected only location filename match, got %+v", page.Files)
+	var page FileListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode list response: %v", err)
+	}
+	if len(page.Files) != 0 {
+		t.Fatalf("bare query should not match filenames, got %+v", page.Files)
 	}
 }
 
