@@ -55,11 +55,12 @@ jobs:
             "await expect(search).toHaveValue('technology ext:cbz');": "await expect(page.locator('.searchbar-pill')).toHaveText(['technology', 'ext:cbz']);",
             "await expect(search).not.toHaveValue(/type:gif/);": "await expect(page.locator('.searchbar-pill')).not.toContainText(['type:gif']);",
             "await expect(search).toHaveValue('rating:safe blue');": "await expect(page.locator('.searchbar-pill')).toHaveText(['rating:safe', 'blue']);",
-            "await expect(search).toHaveValue('blue');": "await expect(page.locator('.searchbar-pill')).toHaveText(['blue']);"
+            "await expect(search).toHaveValue('blue');": "await expect(page.locator('.searchbar-pill')).toHaveText(['blue']);",
+            "page.getByRole('button', { name: 'Safe blue' })": "page.getByRole('button', { name: 'Safe blue', exact: true })"
           }
           for old, new in replacements.items():
               if old not in text:
-                  raise SystemExit(f'missing browser assertion: {old}')
+                  raise SystemExit(f'missing browser assertion/locator: {old}')
               text = text.replace(old, new, 1)
           test.write_text(text)
 
