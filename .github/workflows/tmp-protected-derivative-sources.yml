@@ -19,7 +19,17 @@ jobs:
       - name: Apply patch
         run: |
           python3 .github/tmp-protected-derivative-patch.py
-          gofmt -w internal/serve/media.go internal/serve/media_thumbnailers.go internal/serve/media_source_encryption_test.go
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/serve/media_encryption_test.go')
+          text = p.read_text()
+          old = '''\tserver := protectedMediaTestServer(t, types.FileInfo{ID: 92, Path: imagePath, Hash: "protected-thumbnail", Size: 100})\n\tcacheDir := server.cfg.Media.CacheDir\n'''
+          new = '''\tserver := protectedMediaTestServer(t, types.FileInfo{ID: 92, Path: imagePath, Hash: "protected-thumbnail", Size: 100})\n\tencryptMediaFixture(t, imagePath, server.cfg.Encryption.Key)\n\tcacheDir := server.cfg.Media.CacheDir\n'''
+          if old not in text:
+              raise SystemExit('protected thumbnail fixture block not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/serve/media.go internal/serve/media_thumbnailers.go internal/serve/media_source_encryption_test.go internal/serve/media_encryption_test.go
       - name: Test
         run: |
           go test ./internal/serve
