@@ -1,0 +1,76 @@
+name: tmp validate 159 native scroll
+on:
+  push:
+    branches: [fix/159-native-scroll-pan]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/159-native-scroll-pan
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply native scroll experiment
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/lib/components/ViewerStage.svelte')
+          s = p.read_text()
+          s = s.replace("  let stageElement = $state<HTMLDivElement | undefined>();\n", "  let stageElement = $state<HTMLDivElement | undefined>();\n  let panViewportElement = $state<HTMLDivElement | undefined>();\n")
+          s = s.replace("  const minimumZoom = $derived(fitMode === 'screen' ? 1 : Math.min(1, fitGeometry.scale));\n  const visualStyle = $derived(viewerMediaStyle(geometry, { zoom, panX, panY }));\n", "  const minimumZoom = $derived(fitMode === 'screen' ? 1 : Math.min(1, fitGeometry.scale));\n  const panLimits = $derived(viewerPanLimits(zoom));\n  const panSurfaceStyle = $derived(`width:${stageWidth + panLimits.x * 2}px;height:${stageHeight + panLimits.y * 2}px`);\n  const visualStyle = $derived(viewerMediaStyle(geometry, { zoom }));\n")
+          old = '''  function clampViewerPan(nextX: number, nextY: number, nextZoom: number) {\n    const normalizedRotation = ((rotation % 360) + 360) % 360;\n    const quarterTurn = normalizedRotation === 90 || normalizedRotation === 270;\n    const renderedWidth = (quarterTurn ? geometry.height : geometry.width) * nextZoom;\n    const renderedHeight = (quarterTurn ? geometry.width : geometry.height) * nextZoom;\n    const inset = isFullscreen ? 0 : 36;\n    const viewportWidth = Math.max(0, stageWidth - inset * 2);\n    const viewportHeight = Math.max(0, stageHeight - inset * 2);\n    const limitX = Math.max(0, (renderedWidth - viewportWidth) / 2);\n    const limitY = Math.max(0, (renderedHeight - viewportHeight) / 2);\n    return {\n      x: Math.max(-limitX, Math.min(limitX, nextX)),\n      y: Math.max(-limitY, Math.min(limitY, nextY))\n    };\n  }\n\n  function reconcileViewerTransform() {\n    const nextZoom = Math.max(minimumZoom, zoom);\n    const clamped = clampViewerPan(panX, panY, nextZoom);\n    zoom = nextZoom;\n    panX = clamped.x;\n    panY = clamped.y;\n  }\n\n  function resetViewerTransform() {\n    zoom = 1;\n    panX = 0;\n    panY = 0;\n  }\n'''
+          new = '''  function viewerPanLimits(nextZoom: number) {\n    const normalizedRotation = ((rotation % 360) + 360) % 360;\n    const quarterTurn = normalizedRotation === 90 || normalizedRotation === 270;\n    const renderedWidth = (quarterTurn ? geometry.height : geometry.width) * nextZoom;\n    const renderedHeight = (quarterTurn ? geometry.width : geometry.height) * nextZoom;\n    const inset = isFullscreen ? 0 : 36;\n    const viewportWidth = Math.max(0, stageWidth - inset * 2);\n    const viewportHeight = Math.max(0, stageHeight - inset * 2);\n    return {\n      x: Math.max(0, (renderedWidth - viewportWidth) / 2),\n      y: Math.max(0, (renderedHeight - viewportHeight) / 2)\n    };\n  }\n\n  function clampViewerPan(nextX: number, nextY: number, nextZoom: number) {\n    const limits = viewerPanLimits(nextZoom);\n    return {\n      x: Math.max(-limits.x, Math.min(limits.x, nextX)),\n      y: Math.max(-limits.y, Math.min(limits.y, nextY))\n    };\n  }\n\n  function syncNativePan() {\n    const viewport = panViewportElement;\n    if (!viewport) return;\n    const limits = viewerPanLimits(zoom);\n    viewport.scrollLeft = limits.x - panX;\n    viewport.scrollTop = limits.y - panY;\n  }\n\n  function syncPanFromNativeScroll() {\n    const viewport = panViewportElement;\n    if (!viewport) return;\n    const limits = viewerPanLimits(zoom);\n    panX = limits.x - viewport.scrollLeft;\n    panY = limits.y - viewport.scrollTop;\n  }\n\n  function reconcileViewerTransform() {\n    const nextZoom = Math.max(minimumZoom, zoom);\n    const clamped = clampViewerPan(panX, panY, nextZoom);\n    zoom = nextZoom;\n    panX = clamped.x;\n    panY = clamped.y;\n    queueMicrotask(syncNativePan);\n  }\n\n  function resetViewerTransform() {\n    zoom = 1;\n    panX = 0;\n    panY = 0;\n    queueMicrotask(syncNativePan);\n  }\n'''
+          assert old in s
+          s = s.replace(old, new)
+          old = '''  function handleViewerWheel(event: WheelEvent) {\n    if (renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')) return;\n    const stage = stageElement;\n    if (!stage) return;\n\n    if (event.ctrlKey) {\n      event.preventDefault();\n      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.005)));\n      if (Math.abs(nextZoom - zoom) < 0.0001) return;\n      const rect = stage.getBoundingClientRect();\n      const pointerX = event.clientX - (rect.left + rect.width / 2);\n      const pointerY = event.clientY - (rect.top + rect.height / 2);\n      const ratio = nextZoom / zoom;\n      const anchoredX = pointerX - (pointerX - panX) * ratio;\n      const anchoredY = pointerY - (pointerY - panY) * ratio;\n      const clamped = clampViewerPan(anchoredX, anchoredY, nextZoom);\n      zoom = nextZoom;\n      panX = clamped.x;\n      panY = clamped.y;\n      return;\n    }\n\n    if (zoom <= minimumZoom + 0.0001) return;\n    event.preventDefault();\n    const horizontalDelta = event.altKey ? event.deltaY + event.deltaX : event.deltaX;\n    const verticalDelta = event.altKey ? 0 : event.deltaY;\n    const clamped = clampViewerPan(panX - horizontalDelta, panY - verticalDelta, zoom);\n    panX = clamped.x;\n    panY = clamped.y;\n  }\n'''
+          new = '''  function handleViewerWheel(event: WheelEvent) {\n    if (renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')) return;\n    const stage = stageElement;\n    const viewport = panViewportElement;\n    if (!stage || !viewport) return;\n\n    if (event.ctrlKey) {\n      event.preventDefault();\n      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.007)));\n      if (Math.abs(nextZoom - zoom) < 0.0001) return;\n      const rect = stage.getBoundingClientRect();\n      const pointerX = event.clientX - (rect.left + rect.width / 2);\n      const pointerY = event.clientY - (rect.top + rect.height / 2);\n      const ratio = nextZoom / zoom;\n      const anchoredX = pointerX - (pointerX - panX) * ratio;\n      const anchoredY = pointerY - (pointerY - panY) * ratio;\n      const clamped = clampViewerPan(anchoredX, anchoredY, nextZoom);\n      zoom = nextZoom;\n      panX = clamped.x;\n      panY = clamped.y;\n      queueMicrotask(syncNativePan);\n      return;\n    }\n\n    if (zoom <= minimumZoom + 0.0001) return;\n    if (!event.altKey) return;\n    event.preventDefault();\n    viewport.scrollBy({ left: event.deltaY + event.deltaX, top: 0, behavior: 'auto' });\n  }\n'''
+          assert old in s
+          s = s.replace(old, new)
+          start = s.index('<div bind:this={stageElement}')
+          controls = s.index('  <div class="viewer-mode-controls"', start)
+          prefix = s[:start]
+          suffix = s[controls:]
+          media = '''<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>\n  <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>\n    <div class="viewer-pan-surface" style={panSurfaceStyle}>\n      {#if renderedFile.media_kind === 'video'}\n        <!-- svelte-ignore a11y_media_has_caption -->\n        <video\n          bind:this={videoElement}\n          class="viewer-visual-media"\n          style={visualStyle}\n          src={renderedFile.media_urls.content}\n          poster={renderedFile.media_urls.preview}\n          preload="auto"\n          autoplay\n          loop\n          onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}\n          onloadedmetadata={syncVideo}\n          ontimeupdate={syncVideo}\n          onplay={syncVideo}\n          onpause={syncVideo}\n          onended={syncVideo}\n        ></video>\n      {:else if renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')}\n        <div class="audio-stage viewer-audio-stage" style={`transform: rotate(${rotation}deg);`}>\n          <div class="audio-art"><Icon name="audio" size={42} /></div>\n          <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>\n        </div>\n      {:else}\n        <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />\n      {/if}\n    </div>\n  </div>\n\n  {#if renderedFile.media_kind === 'video'}\n    <div class="lightbox-video-controls" class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>\n      <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}>\n        <Icon name={videoPaused ? 'play' : 'pause'} size={14} />\n      </button>\n      <span class="video-time">{clock(videoTime)}</span>\n      <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo} onpointerdown={beginVideoSeek} onpointermove={dragVideoSeek} onpointerup={endVideoSeek} onpointercancel={endVideoSeek}>\n        <span style={`width: ${videoProgress}%`}></span>\n      </button>\n      <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(renderedFile) || '0:00')}</span>\n    </div>\n  {/if}\n\n'''
+          s = prefix + media + suffix
+          s = s.replace("  :global(.viewer-stage) {\n    position: relative;\n    overflow: hidden;\n  }\n", "  :global(.viewer-stage) {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .viewer-pan-viewport {\n    position: absolute;\n    inset: 0;\n    overflow: auto;\n    scrollbar-width: none;\n    overscroll-behavior: contain;\n  }\n\n  .viewer-pan-viewport::-webkit-scrollbar { display: none; }\n\n  .viewer-pan-surface {\n    position: relative;\n    min-width: 100%;\n    min-height: 100%;\n  }\n")
+          p.write_text(s)
+
+          p = Path('frontend/tests/viewer-zoom-pan.spec.ts')
+          s = p.read_text()
+          s = s.replace("  const stage = page.locator('.viewer-stage');\n  const stageBox", "  const stage = page.locator('.viewer-stage');\n  const panViewport = page.locator('.viewer-pan-viewport');\n  const stageBox", 1)
+          s = s.replace("  expect(touchpadZoomed!.width).toBeGreaterThan(before!.width * 1.1);", "  expect(touchpadZoomed!.width).toBeGreaterThan(before!.width * 1.15);")
+          s = s.replace("  await page.mouse.wheel(0, 24);\n  const panned = await image.boundingBox();", "  await page.mouse.wheel(0, 24);\n  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(15);\n  const panned = await image.boundingBox();")
+          s = s.replace("  const stage = page.locator('.viewer-stage');\n  const stageBox", "  const stage = page.locator('.viewer-stage');\n  const panViewport = page.locator('.viewer-pan-viewport');\n  const stageBox", 1)
+          s = s.replace("  await page.mouse.wheel(0, 120);\n  await page.waitForTimeout(160);", "  await page.mouse.wheel(0, 120);\n  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeGreaterThan(80);\n  await page.waitForTimeout(40);", 1)
+          s = s.replace("  await wheelWithModifier(page, 'Alt', 120);\n  await page.waitForTimeout(160);", "  const beforeHorizontalScroll = await panViewport.evaluate((node) => node.scrollLeft);\n  await wheelWithModifier(page, 'Alt', 120);\n  await expect.poll(() => panViewport.evaluate((node) => node.scrollLeft)).toBeGreaterThan(beforeHorizontalScroll + 80);\n  await page.waitForTimeout(40);")
+          p.write_text(s)
+          PY
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Check and unit tests
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit
+          npm run build
+      - name: Focused browser regression
+        working-directory: frontend
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test tests/viewer-zoom-pan.spec.ts --project=chromium
+      - name: Commit validated experiment and remove temporary workflow
+        if: success()
+        run: |
+          git rm .github/workflows/tmp-validate-159-native-scroll.yml
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/viewer-zoom-pan.spec.ts
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email 'chatgpt-codex-connector@users.noreply.github.com'
+          git commit -m 'fix(viewer): use native scrolling for touchpad pan'
+          git push origin HEAD:fix/159-native-scroll-pan
