@@ -17,6 +17,15 @@
     onToggleSelect: (file: FileItem, range: boolean) => void;
   }>();
 
+  const extensionLabel = $derived(fileExtension(file.name));
+
+  function fileExtension(name: string) {
+    const baseName = name.split(/[\\/]/).pop() ?? name;
+    const dot = baseName.lastIndexOf('.');
+    if (dot <= 0 || dot === baseName.length - 1) return '';
+    return baseName.slice(dot + 1).toUpperCase();
+  }
+
   function openOrSelect(event: MouseEvent) {
     if (selectionActive || event.shiftKey || event.metaKey || event.ctrlKey) {
       onToggleSelect(file, event.shiftKey);
@@ -54,7 +63,9 @@
       {#if file.media_kind === 'video'}
         <span class="thumb-badge"><Icon name="play" size={9} /> {mediaDuration(file) || 'video'}</span>
       {:else if file.media_kind === 'gif'}
-        <span class="thumb-badge thumb-badge-gif">GIF{mediaDuration(file) ? ` · ${mediaDuration(file)}` : ''}</span>
+        <span class="thumb-badge">GIF{mediaDuration(file) ? ` · ${mediaDuration(file)}` : ''}</span>
+      {:else if file.media_kind !== 'photo' && extensionLabel}
+        <span class="thumb-badge thumb-badge-extension">{extensionLabel}</span>
       {/if}
     </span>
     <span class="thumb-meta">
@@ -93,6 +104,11 @@
     border-radius: 2px;
     box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000;
     pointer-events: none;
+  }
+
+  .thumb-badge-extension {
+    background: var(--accent);
+    color: var(--accent-ink);
   }
 
   .thumb-preview {
