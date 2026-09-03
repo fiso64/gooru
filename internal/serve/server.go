@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const metadataRequestBodyLimit int64 = 1 << 20
+
 type Server struct {
 	cfg     Config
 	jobs    *JobManager
@@ -55,19 +57,19 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", methodHandler(http.MethodGet, s.handleHealth))
 	mux.HandleFunc("/api/v1/ui-config", methodHandler(http.MethodGet, s.handleUIConfig))
-	mux.HandleFunc("/api/v1/auth/login", s.handleAuthLogin)
+	mux.Handle("/api/v1/auth/login", requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleAuthLogin)))
 	mux.Handle("/api/v1/auth/logout", s.protected(http.HandlerFunc(s.handleAuthLogout)))
 	mux.Handle("/api/v1/auth/me", authMiddleware(s.cfg, s.auth, http.HandlerFunc(s.handleAuthMe)))
-	mux.Handle("/api/v1/auth/change-password", s.protected(http.HandlerFunc(s.handleChangePassword)))
+	mux.Handle("/api/v1/auth/change-password", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleChangePassword))))
 	mux.Handle("/api/v1/upload-targets", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleUploadTargets)))
 	mux.Handle("/api/v1/uploads", s.adminProtected(http.HandlerFunc(s.handleUpload)))
-	mux.Handle("/api/v1/files/tags", s.adminProtected(http.HandlerFunc(s.handleMutateTags)))
+	mux.Handle("/api/v1/files/tags", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleMutateTags))))
 	mux.Handle("/api/v1/files/", s.protected(http.HandlerFunc(s.handleFile)))
-	mux.Handle("/api/v1/files", s.protected(http.HandlerFunc(s.handleFiles)))
+	mux.Handle("/api/v1/files", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFiles))))
 	mux.Handle("/api/v1/comics/", s.protected(http.HandlerFunc(s.handleComic)))
 	mux.Handle("/api/v1/search/suggestions", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleSearchSuggestions)))
-	mux.Handle("/api/v1/saved-searches/", s.protected(http.HandlerFunc(s.handleSavedSearch)))
-	mux.Handle("/api/v1/saved-searches", s.protected(http.HandlerFunc(s.handleSavedSearches)))
+	mux.Handle("/api/v1/saved-searches/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleSavedSearch))))
+	mux.Handle("/api/v1/saved-searches", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleSavedSearches))))
 	mux.Handle("/api/v1/tags/namespaces", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleTagNamespaces)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
 	mux.Handle("/api/v1/jobs", s.adminProtected(http.HandlerFunc(s.handleJobs)))
