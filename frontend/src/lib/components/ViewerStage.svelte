@@ -27,6 +27,7 @@
   }>();
 
   let stageElement = $state<HTMLDivElement | undefined>();
+  let panViewportElement = $state<HTMLDivElement | undefined>();
   let videoElement = $state<HTMLVideoElement | undefined>();
   let audioElement = $state<HTMLAudioElement | undefined>();
   let displayedFile = $state<FileItem | undefined>();
@@ -76,7 +77,9 @@
     maxScale: preserveNativeViewerSize(renderedFile) ? 1 : Number.POSITIVE_INFINITY
   }));
   const minimumZoom = $derived(fitMode === 'screen' ? 1 : Math.min(1, fitGeometry.scale));
-  const visualStyle = $derived(viewerMediaStyle(geometry, { zoom, panX, panY }));
+  const panLimits = $derived(viewerPanLimits(zoom));
+  const panSurfaceStyle = $derived(`width:${stageWidth + panLimits.x * 2}px;height:${stageHeight + panLimits.y * 2}px`);
+  const visualStyle = $derived(viewerMediaStyle(geometry, { zoom }));
 
   onMount(() => {
     const stage = stageElement;
@@ -257,7 +260,7 @@
     return true;
   }
 
-  function clampViewerPan(nextX: number, nextY: number, nextZoom: number) {
+  function viewerPanLimits(nextZoom: number) {
     const normalizedRotation = ((rotation % 360) + 360) % 360;
     const quarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
     const renderedWidth = (quarterTurn ? geometry.height : geometry.width) * nextZoom;
@@ -265,12 +268,34 @@
     const inset = isFullscreen ? 0 : 36;
     const viewportWidth = Math.max(0, stageWidth - inset * 2);
     const viewportHeight = Math.max(0, stageHeight - inset * 2);
-    const limitX = Math.max(0, (renderedWidth - viewportWidth) / 2);
-    const limitY = Math.max(0, (renderedHeight - viewportHeight) / 2);
     return {
-      x: Math.max(-limitX, Math.min(limitX, nextX)),
-      y: Math.max(-limitY, Math.min(limitY, nextY))
+      x: Math.max(0, (renderedWidth - viewportWidth) / 2),
+      y: Math.max(0, (renderedHeight - viewportHeight) / 2)
     };
+  }
+
+  function clampViewerPan(nextX: number, nextY: number, nextZoom: number) {
+    const limits = viewerPanLimits(nextZoom);
+    return {
+      x: Math.max(-limits.x, Math.min(limits.x, nextX)),
+      y: Math.max(-limits.y, Math.min(limits.y, nextY))
+    };
+  }
+
+  function syncNativePan() {
+    const viewport = panViewportElement;
+    if (!viewport) return;
+    const limits = viewerPanLimits(zoom);
+    viewport.scrollLeft = limits.x - panX;
+    viewport.scrollTop = limits.y - panY;
+  }
+
+  function syncPanFromNativeScroll() {
+    const viewport = panViewportElement;
+    if (!viewport) return;
+    const limits = viewerPanLimits(zoom);
+    panX = limits.x - viewport.scrollLeft;
+    panY = limits.y - viewport.scrollTop;
   }
 
   function reconcileViewerTransform() {
@@ -279,12 +304,14 @@
     zoom = nextZoom;
     panX = clamped.x;
     panY = clamped.y;
+    queueMicrotask(syncNativePan);
   }
 
   function resetViewerTransform() {
     zoom = 1;
     panX = 0;
     panY = 0;
+    queueMicrotask(syncNativePan);
   }
 
   function setFitMode(mode: ViewerFitMode) {
@@ -295,11 +322,12 @@
   function handleViewerWheel(event: WheelEvent) {
     if (renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')) return;
     const stage = stageElement;
-    if (!stage) return;
+    const viewport = panViewportElement;
+    if (!stage || !viewport) return;
 
     if (event.ctrlKey) {
       event.preventDefault();
-      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.005)));
+      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.0075)));
       if (Math.abs(nextZoom - zoom) < 0.0001) return;
       const rect = stage.getBoundingClientRect();
       const pointerX = event.clientX - (rect.left + rect.width / 2);
@@ -311,16 +339,14 @@
       zoom = nextZoom;
       panX = clamped.x;
       panY = clamped.y;
+      queueMicrotask(syncNativePan);
       return;
     }
 
     if (zoom <= minimumZoom + 0.0001) return;
+    if (!event.altKey) return;
     event.preventDefault();
-    const horizontalDelta = event.altKey ? event.deltaY + event.deltaX : event.deltaX;
-    const verticalDelta = event.altKey ? 0 : event.deltaY;
-    const clamped = clampViewerPan(panX - horizontalDelta, panY - verticalDelta, zoom);
-    panX = clamped.x;
-    panY = clamped.y;
+    viewport.scrollBy({ left: event.deltaY + event.deltaX, top: 0, behavior: 'auto' });
   }
 
   async function toggleFullscreen() {
@@ -477,26 +503,39 @@
 
 <svelte:window onkeydown={handleViewerKeydown} />
 
-<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove} onwheel={handleViewerWheel}>
-  {#if renderedFile.media_kind === 'video'}
-    <!-- svelte-ignore a11y_media_has_caption -->
-    <video
-      bind:this={videoElement}
-      class="viewer-visual-media"
-      style={visualStyle}
-      src={renderedFile.media_urls.content}
-      poster={renderedFile.media_urls.preview}
-      preload="auto"
-      autoplay
-      loop
-      onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}
-      onloadedmetadata={syncVideo}
-      ontimeupdate={syncVideo}
-      onplay={syncVideo}
-      onpause={syncVideo}
-      onended={syncVideo}
-    ></video>
+<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
+  <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
+    <div class="viewer-pan-surface" style={panSurfaceStyle}>
+      {#if renderedFile.media_kind === 'video'}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          bind:this={videoElement}
+          class="viewer-visual-media"
+          style={visualStyle}
+          src={renderedFile.media_urls.content}
+          poster={renderedFile.media_urls.preview}
+          preload="auto"
+          autoplay
+          loop
+          onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}
+          onloadedmetadata={syncVideo}
+          ontimeupdate={syncVideo}
+          onplay={syncVideo}
+          onpause={syncVideo}
+          onended={syncVideo}
+        ></video>
+      {:else if renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')}
+        <div class="audio-stage viewer-audio-stage" style={`transform: rotate(${rotation}deg);`}>
+          <div class="audio-art"><Icon name="audio" size={42} /></div>
+          <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>
+        </div>
+      {:else}
+        <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
+      {/if}
+    </div>
+  </div>
 
+  {#if renderedFile.media_kind === 'video'}
     <div class="lightbox-video-controls" class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
       <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}>
         <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
@@ -507,13 +546,6 @@
       </button>
       <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(renderedFile) || '0:00')}</span>
     </div>
-  {:else if renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')}
-    <div class="audio-stage viewer-audio-stage" style={`transform: rotate(${rotation}deg);`}>
-      <div class="audio-art"><Icon name="audio" size={42} /></div>
-      <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>
-    </div>
-  {:else}
-    <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
   {/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
@@ -532,6 +564,22 @@
   :global(.viewer-stage) {
     position: relative;
     overflow: hidden;
+  }
+
+  .viewer-pan-viewport {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    scrollbar-width: none;
+    overscroll-behavior: contain;
+  }
+
+  .viewer-pan-viewport::-webkit-scrollbar { display: none; }
+
+  .viewer-pan-surface {
+    position: relative;
+    min-width: 100%;
+    min-height: 100%;
   }
 
   :global(.viewer-stage:fullscreen) {
