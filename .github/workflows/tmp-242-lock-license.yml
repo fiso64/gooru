@@ -1,0 +1,37 @@
+name: Temporary lockfile license sync
+
+on:
+  push:
+    branches: [feat/242-agpl-3-license]
+    paths:
+      - .github/workflows/tmp-242-lock-license.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/242-agpl-3-license
+      - name: Synchronize root package license metadata
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('frontend/package-lock.json')
+          data = json.loads(path.read_text())
+          data['packages']['']['license'] = 'AGPL-3.0-only'
+          path.write_text(json.dumps(data, indent=2) + '\n')
+          PY
+      - name: Commit metadata and remove temporary workflow
+        run: |
+          set -euo pipefail
+          rm .github/workflows/tmp-242-lock-license.yml
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add frontend/package-lock.json .github/workflows/tmp-242-lock-license.yml
+          git commit -m 'chore(frontend): sync lockfile license metadata'
+          git push origin HEAD:feat/242-agpl-3-license
