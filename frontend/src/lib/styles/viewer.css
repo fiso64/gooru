@@ -33,6 +33,115 @@
   opacity: 0;
 }
 
+.comic-read-button {
+  position: absolute;
+  z-index: 4;
+  top: 48px;
+  right: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.58);
+  color: #fff;
+  font: 11.5px/1 var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  backdrop-filter: blur(20px);
+  cursor: pointer;
+}
+
+.comic-read-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.comic-read-arrow {
+  display: inline-block;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.comic-read-arrow-left {
+  animation: comic-read-arrow-left 1.15s cubic-bezier(.2,.7,.3,1) infinite;
+}
+
+.comic-read-arrow-right {
+  animation: comic-read-arrow-right 1.15s cubic-bezier(.2,.7,.3,1) infinite;
+}
+
+@keyframes comic-read-arrow-left {
+  0%, 100% { transform: translateX(-3px); opacity: .55; }
+  50% { transform: translateX(2px); opacity: 1; }
+}
+
+@keyframes comic-read-arrow-right {
+  0%, 100% { transform: translateX(3px); opacity: .55; }
+  50% { transform: translateX(-2px); opacity: 1; }
+}
+
+.comic-error-overlay {
+  position: absolute;
+  z-index: 4;
+  top: 88px;
+  right: 48px;
+  max-width: min(360px, calc(100% - 96px));
+  padding: 7px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.lightbox-video-controls.comic-controls {
+  animation: comic-controls-enter 220ms cubic-bezier(.2,.7,.3,1);
+}
+
+.comic-exit {
+  gap: 5px;
+  min-width: max-content;
+}
+
+.comic-exit span {
+  font-size: 9px;
+  opacity: .72;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.viewer-stage.comic-reading .lightbox-nav-arrow.prev {
+  animation: comic-prev-arrow-enter 260ms cubic-bezier(.2,.7,.3,1) both;
+}
+
+.viewer-stage.comic-reading .lightbox-nav-arrow.next {
+  animation: comic-next-arrow-enter 260ms cubic-bezier(.2,.7,.3,1) both;
+}
+
+@keyframes comic-controls-enter {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes comic-prev-arrow-enter {
+  from { opacity: 0; transform: translate(-14px, -50%); }
+  to { opacity: 1; transform: translate(0, -50%); }
+}
+
+@keyframes comic-next-arrow-enter {
+  from { opacity: 0; transform: translate(14px, -50%); }
+  to { opacity: 1; transform: translate(0, -50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comic-read-arrow,
+  .lightbox-video-controls.comic-controls,
+  .viewer-stage.comic-reading .lightbox-nav-arrow {
+    animation: none;
+  }
+}
+
 /* Keep rotation/fade transitions, but do not tween media dimensions between files. */
 .viewer-stage .viewer-visual-media {
   transition-property: filter, opacity !important;

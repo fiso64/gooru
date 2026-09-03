@@ -15,7 +15,15 @@
     onNext,
     onPrimaryAction,
     keyboardNavigation = false,
-    navigationUnit = 'file'
+    navigationUnit = 'file',
+    comicAvailable = false,
+    comicEntered = false,
+    comicLoading = false,
+    comicPage = 0,
+    comicPages = 0,
+    comicError = '',
+    onToggleComic,
+    onComicPageSelect
   } = $props<{
     file: FileItem;
     imageSource: string;
@@ -24,6 +32,14 @@
     onPrimaryAction?: () => void;
     keyboardNavigation?: boolean;
     navigationUnit?: string;
+    comicAvailable?: boolean;
+    comicEntered?: boolean;
+    comicLoading?: boolean;
+    comicPage?: number;
+    comicPages?: number;
+    comicError?: string;
+    onToggleComic?: () => void;
+    onComicPageSelect?: (index: number) => void;
   }>();
 
   let stageElement = $state<HTMLDivElement | undefined>();
@@ -61,6 +77,8 @@
   const renderedFile = $derived(displayedFile ?? file);
   const renderedImageSource = $derived(displayedFile ? displayedImageSource : imageSource);
   const videoProgress = $derived(videoLength > 0 ? Math.min(100, Math.max(0, (videoTime / videoLength) * 100)) : 0);
+  const comicProgress = $derived(comicPages > 0 ? Math.min(100, Math.max(0, ((comicPage + 1) / comicPages) * 100)) : 0);
+  const playbackControlsActive = $derived(renderedFile.media_kind === 'video' || comicEntered);
   const geometry = $derived(viewerGeometry({
     intrinsicWidth,
     intrinsicHeight,
@@ -71,6 +89,11 @@
     inset: isFullscreen ? 0 : 36,
     maxScale: preserveNativeViewerSize(renderedFile) ? 1 : Number.POSITIVE_INFINITY
   }));
+  const comicVisualWidth = $derived(((((geometry.rotation % 360) + 360) % 360 === 90 || ((geometry.rotation % 360) + 360) % 360 === 270) ? geometry.height : geometry.width) * zoom);
+  const comicVisualHeight = $derived(((((geometry.rotation % 360) + 360) % 360 === 90 || ((geometry.rotation % 360) + 360) % 360 === 270) ? geometry.width : geometry.height) * zoom);
+  const comicReadStyle = $derived(comicVisualWidth > 0 && comicVisualHeight > 0
+    ? `top:${Math.max(12, (stageHeight - comicVisualHeight) / 2 + 12)}px;right:${Math.max(12, (stageWidth - comicVisualWidth) / 2 + 12)}px`
+    : '');
   const fitGeometry = $derived(viewerGeometry({
     intrinsicWidth,
     intrinsicHeight,
@@ -188,7 +211,7 @@
     videoPaused = true;
     videoTime = 0;
     videoLength = 0;
-    if (nextFile.media_kind === 'video') showPlaybackControls();
+    if (nextFile.media_kind === 'video' || comicEntered) showPlaybackControls();
     else if (playbackControlsTimer) {
       clearTimeout(playbackControlsTimer);
       playbackControlsTimer = undefined;
@@ -254,13 +277,32 @@
   }
 
   function showPlaybackControls() {
-    if (renderedFile.media_kind !== 'video') return;
+    if (!playbackControlsActive) return;
     playbackControlsIdle = false;
     if (playbackControlsTimer) clearTimeout(playbackControlsTimer);
     playbackControlsTimer = setTimeout(() => {
       playbackControlsIdle = true;
       playbackControlsTimer = undefined;
     }, 2000);
+  }
+
+  $effect(() => {
+    if (comicEntered) showPlaybackControls();
+  });
+
+  function seekComicAt(clientX: number, control: HTMLElement) {
+    if (!comicEntered || comicPages <= 0 || !onComicPageSelect) return;
+    const rect = control.getBoundingClientRect();
+    if (!rect.width) return;
+    const ratio = Math.max(0, Math.min(0.999999, (clientX - rect.left) / rect.width));
+    onComicPageSelect(Math.min(comicPages - 1, Math.floor(ratio * comicPages)));
+    showPlaybackControls();
+  }
+
+  function seekComic(event: MouseEvent) {
+    restoreStageFocusAfterPointer(event);
+    const control = event.currentTarget;
+    if (control instanceof HTMLElement) seekComicAt(event.clientX, control);
   }
 
   async function togglePlayback() {
@@ -285,7 +327,7 @@
 
   function handleStagePointerMove(event: PointerEvent) {
     scheduleCursorIdle(event);
-    if (renderedFile.media_kind !== 'video') return;
+    if (!playbackControlsActive) return;
     const rect = stageElement?.getBoundingClientRect();
     if (!rect) return;
     const revealDistance = Math.min(160, Math.max(80, rect.height * 0.22));
@@ -548,7 +590,7 @@
 
 <svelte:window onkeydown={handleViewerKeydown} />
 
-<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
+<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
   <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
     <div class="viewer-pan-surface" style={panSurfaceStyle}>
       {#if renderedFile.media_kind === 'video'}
@@ -596,16 +638,36 @@
     </div>
   </div>
 
-  {#if renderedFile.media_kind === 'video'}
-    <div class="lightbox-video-controls" class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
-      <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}>
-        <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
-      </button>
-      <span class="video-time">{clock(videoTime)}</span>
-      <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo} onpointerdown={beginVideoSeek} onpointermove={dragVideoSeek} onpointerup={endVideoSeek} onpointercancel={endVideoSeek}>
-        <span style={`width: ${videoProgress}%`}></span>
-      </button>
-      <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(renderedFile) || '0:00')}</span>
+  {#if comicAvailable && !comicEntered}
+    <button class="comic-read-button" type="button" style={comicReadStyle} disabled={comicLoading} aria-label="Read comic" onclick={(event) => { onToggleComic?.(); restoreStageFocusAfterPointer(event); }}>
+      <span class="comic-read-arrow comic-read-arrow-left" aria-hidden="true">→</span>
+      <span>{comicLoading ? 'Loading comic…' : 'Read comic'}</span>
+      <span class="comic-read-arrow comic-read-arrow-right" aria-hidden="true">←</span>
+    </button>
+    {#if comicError}<div class="comic-error-overlay" role="alert">{comicError}</div>{/if}
+  {/if}
+
+  {#if renderedFile.media_kind === 'video' || comicEntered}
+    <div class="lightbox-video-controls" class:comic-controls={comicEntered} class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
+      {#if comicEntered}
+        <button class="video-play comic-exit" type="button" aria-label="Exit comic (Space)" onclick={(event) => { onToggleComic?.(); restoreStageFocusAfterPointer(event); }}>
+          <Icon name="close" size={13} /><span>Space</span>
+        </button>
+        <span class="video-time">{comicPage + 1}</span>
+        <button class="video-progress" type="button" aria-label="Seek comic page" onclick={seekComic}>
+          <span style={`width: ${comicProgress}%`}></span>
+        </button>
+        <span class="video-time">{comicPages}</span>
+      {:else}
+        <button class="video-play" type="button" aria-label={videoPaused ? 'Play video' : 'Pause video'} onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}>
+          <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
+        </button>
+        <span class="video-time">{clock(videoTime)}</span>
+        <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo} onpointerdown={beginVideoSeek} onpointermove={dragVideoSeek} onpointerup={endVideoSeek} onpointercancel={endVideoSeek}>
+          <span style={`width: ${videoProgress}%`}></span>
+        </button>
+        <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(renderedFile) || '0:00')}</span>
+      {/if}
     </div>
   {/if}
 
