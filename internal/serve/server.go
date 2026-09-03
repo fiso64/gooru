@@ -26,6 +26,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	metadata := NewMediaMetadataProvider(cfg)
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
 		gooruLibrary.metadata = metadata
+		gooruLibrary.encryption = cfg.Encryption
 	}
 	return &Server{
 		cfg:     cfg,
