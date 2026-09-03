@@ -19,7 +19,16 @@ jobs:
       - name: Apply patch
         run: |
           python3 .github/tmp-encrypted-upload-patch.py
-          gofmt -w internal/serve/browse.go internal/serve/server.go internal/serve/uploads.go internal/serve/upload_analysis_source.go internal/serve/upload_encryption.go internal/serve/upload_encryption_e2e_test.go
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/serve/upload_stream.go')
+          text = p.read_text()
+          old = 'size, copyErr := copyUpload(dst, src, s.cfg.Uploads.MaxFileSizeBytes)'
+          if old not in text:
+              raise SystemExit('streaming upload persistence call not found')
+          p.write_text(text.replace(old, 'size, copyErr := s.persistUploadedFile(dst, src)', 1))
+          PY
+          gofmt -w internal/serve/browse.go internal/serve/server.go internal/serve/uploads.go internal/serve/upload_stream.go internal/serve/upload_analysis_source.go internal/serve/upload_encryption.go internal/serve/upload_encryption_e2e_test.go
       - name: Test
         run: |
           go test ./internal/encryptedfile ./internal/serve
