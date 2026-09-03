@@ -17,6 +17,7 @@ func TestConfigReferenceDocumentsEncryptionEnablement(t *testing.T) {
 	for _, want := range []string{
 		"## `encryption`",
 		"`encryption.enabled`",
+		"`encryption.key_file`",
 		securekey.EnvKey,
 		securekey.EnvKeyFile,
 		"encryption:\n  enabled: false",

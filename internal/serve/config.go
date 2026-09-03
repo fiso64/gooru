@@ -49,6 +49,7 @@ type DatabaseConfig struct {
 
 type EncryptionConfig struct {
 	Enabled bool   `yaml:"enabled"`
+	KeyFile string `yaml:"key_file"`
 	Key     []byte `yaml:"-"`
 }
 
@@ -208,16 +209,32 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 }
 
 func (cfg *Config) ResolveSecrets() error {
+	cfg.Encryption.KeyFile = strings.TrimSpace(cfg.Encryption.KeyFile)
 	if !cfg.Encryption.Enabled {
 		cfg.Encryption.Key = nil
 		return nil
 	}
+
+	if cfg.Encryption.KeyFile != "" {
+		_, hasEnvKey := os.LookupEnv(securekey.EnvKey)
+		hasEnvKeyFile := strings.TrimSpace(os.Getenv(securekey.EnvKeyFile)) != ""
+		if hasEnvKey || hasEnvKeyFile {
+			return fmt.Errorf("resolve encryption key: configure exactly one encryption key source: encryption.key_file, %s, or %s", securekey.EnvKey, securekey.EnvKeyFile)
+		}
+		key, err := securekey.Load(securekey.Source{File: cfg.Encryption.KeyFile})
+		if err != nil {
+			return fmt.Errorf("resolve encryption key: %w", err)
+		}
+		cfg.Encryption.Key = key
+		return nil
+	}
+
 	key, configured, err := securekey.LoadProcess()
 	if err != nil {
 		return fmt.Errorf("resolve encryption key: %w", err)
 	}
 	if !configured {
-		return fmt.Errorf("encryption.enabled requires an encryption key via %s or %s", securekey.EnvKey, securekey.EnvKeyFile)
+		return fmt.Errorf("encryption.enabled requires an encryption key via encryption.key_file, %s, or %s", securekey.EnvKey, securekey.EnvKeyFile)
 	}
 	cfg.Encryption.Key = key
 	return nil
