@@ -70,7 +70,7 @@ func TestAuthCSRFRemainsStableAcrossSessionRefreshes(t *testing.T) {
 	assertAPIError(t, changeRec, http.StatusUnauthorized, "unauthorized")
 }
 
-func TestStableCSRFMigratesExistingSessionHashOnce(t *testing.T) {
+func TestStableCSRFPreservesLegacyTokenDuringUpgrade(t *testing.T) {
 	store := newAuthTestStore(t)
 	if _, err := store.CreateAdmin(context.Background(), "mac", "correct horse"); err != nil {
 		t.Fatalf("create admin: %v", err)
@@ -81,23 +81,28 @@ func TestStableCSRFMigratesExistingSessionHashOnce(t *testing.T) {
 	}
 	legacyHash := auth.Session.CSRFHash
 
-	stable, err := store.StableCSRF(context.Background(), auth)
+	stable, err := store.StableCSRF(auth)
 	if err != nil {
 		t.Fatalf("stable csrf: %v", err)
 	}
 	if stable == "" || stable == auth.CSRFToken {
 		t.Fatalf("expected stable derived token distinct from legacy random token")
 	}
-	var migratedHash string
-	if err := store.db.QueryRow(`SELECT csrf_token_hash FROM sessions WHERE id = ?`, auth.Session.ID).Scan(&migratedHash); err != nil {
-		t.Fatalf("read migrated csrf hash: %v", err)
+	if !store.VerifyCSRFToken(auth, stable) {
+		t.Fatal("stable token should verify")
 	}
-	if migratedHash == legacyHash || migratedHash != hashToken(stable) {
-		t.Fatalf("expected stored CSRF hash to migrate to stable token")
+	if !store.VerifyCSRFToken(auth, auth.CSRFToken) {
+		t.Fatal("legacy token should remain valid during transition")
+	}
+	var storedHash string
+	if err := store.db.QueryRow(`SELECT csrf_token_hash FROM sessions WHERE id = ?`, auth.Session.ID).Scan(&storedHash); err != nil {
+		t.Fatalf("read stored csrf hash: %v", err)
+	}
+	if storedHash != legacyHash {
+		t.Fatalf("issuing stable token should not mutate stored legacy hash")
 	}
 
-	auth.Session.CSRFHash = migratedHash
-	again, err := store.StableCSRF(context.Background(), auth)
+	again, err := store.StableCSRF(auth)
 	if err != nil {
 		t.Fatalf("stable csrf again: %v", err)
 	}
