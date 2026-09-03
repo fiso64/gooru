@@ -1,0 +1,387 @@
+name: maintainer-222
+
+on:
+  push:
+    branches:
+      - feat/222-filename-contains-metatag
+
+permissions:
+  contents: write
+
+jobs:
+  finish-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[maintainer-222]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Finish backend-owned metatag contract
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected text not found in {path}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace(
+              'internal/serve/search_saved.go',
+              'type SuggestionsResponse struct {\n\tItems []TagDTO `json:"items"`\n}\n',
+              '''type MetaTagDTO struct {
+\tName          string `json:"name"`
+\tSyntax        string `json:"syntax"`
+\tHint          string `json:"hint"`
+\tRequiresValue bool   `json:"requires_value"`
+}
+
+type SuggestionsResponse struct {
+\tItems    []TagDTO     `json:"items"`
+\tMetaTags []MetaTagDTO `json:"meta_tags"`
+}
+''')
+          replace(
+              'internal/serve/search_saved.go',
+              '''func matchingMetaTagSuggestions(prefix string) []TagDTO {
+''',
+              '''func metaTagDTOs() []MetaTagDTO {
+\tdefinitions := query.MetaTags()
+\titems := make([]MetaTagDTO, 0, len(definitions))
+\tfor _, definition := range definitions {
+\t\titems = append(items, MetaTagDTO{
+\t\t\tName: definition.Name, Syntax: definition.Syntax, Hint: definition.Hint, RequiresValue: definition.RequiresValue,
+\t\t})
+\t}
+\treturn items
+}
+
+func matchingMetaTagSuggestions(prefix string) []TagDTO {
+''')
+          replace(
+              'internal/serve/search_saved.go',
+              'writeJSON(w, http.StatusOK, SuggestionsResponse{Items: items})',
+              'writeJSON(w, http.StatusOK, SuggestionsResponse{Items: items, MetaTags: metaTagDTOs()})')
+
+          replace(
+              'frontend/src/lib/search/specialSuggestions.ts',
+              'metaTags: Array<{ name: string; value?: string }> = []',
+              'metaTags: Array<{ syntax: string; hint: string; requires_value: boolean }> = []')
+          replace(
+              'frontend/src/lib/search/specialSuggestions.ts',
+              '''    const syntax = metaTag.name.trim();
+    if (!syntax.startsWith('@')) continue;
+    const syntaxLower = syntax.toLowerCase();
+    const requiresValue = syntax.endsWith(':');
+    if (requiresValue) {''',
+              '''    const syntax = metaTag.syntax.trim();
+    if (!syntax.startsWith('@')) continue;
+    const syntaxLower = syntax.toLowerCase();
+    if (metaTag.requires_value) {''')
+          replace('frontend/src/lib/search/specialSuggestions.ts', "hint: metaTag.value || 'query',", 'hint: metaTag.hint || \'query\',')
+          replace('frontend/src/lib/search/specialSuggestions.ts', "hint: metaTag.value || 'query'", 'hint: metaTag.hint || \'query\'')
+
+          replace(
+              'frontend/src/lib/components/SearchBar.svelte',
+              '''  type SuggestionLike = { name: string; value?: string; count?: number };
+''',
+              '''  type SuggestionLike = { name: string; value?: string; count?: number };
+  type MetaTagLike = { syntax: string; hint: string; requires_value: boolean };
+''')
+          replace(
+              'frontend/src/lib/components/SearchBar.svelte',
+              '''    suggestions,
+    tags,
+''',
+              '''    suggestions,
+    metaTags,
+    tags,
+''')
+          replace(
+              'frontend/src/lib/components/SearchBar.svelte',
+              '''    suggestions: SuggestionLike[];
+    tags: TagLike[];
+''',
+              '''    suggestions: SuggestionLike[];
+    metaTags: MetaTagLike[];
+    tags: TagLike[];
+''')
+          replace(
+              'frontend/src/lib/components/SearchBar.svelte',
+              '''  const tagItems = $derived(normalizeTags(tags, suggestions));
+  const metaTagItems = $derived(suggestions.filter((item) => item.name.startsWith('@')));
+  const groups = $derived(computeSuggestions(draft, tokens, tagItems, metaTagItems));
+''',
+              '''  const tagItems = $derived(normalizeTags(tags, suggestions));
+  const groups = $derived(computeSuggestions(draft, tokens, tagItems, metaTags));
+''')
+          replace(
+              'frontend/src/lib/components/SearchBar.svelte',
+              '''    metaTags: SuggestionLike[]
+''',
+              '''    metaTags: MetaTagLike[]
+''')
+
+          replace(
+              'frontend/src/lib/api/types.ts',
+              "export type SuggestionsResponse = components['schemas']['SuggestionsResponse'];\n",
+              "export type MetaTagDefinition = components['schemas']['MetaTag'];\nexport type SuggestionsResponse = components['schemas']['SuggestionsResponse'];\n")
+
+          replace(
+              'frontend/src/lib/components/AppShell.svelte',
+              "  import type { Job } from '$lib/api/types';",
+              "  import type { Job, MetaTagDefinition } from '$lib/api/types';")
+          replace(
+              'frontend/src/lib/components/AppShell.svelte',
+              '''    suggestions,
+    tags,
+''',
+              '''    suggestions,
+    metaTags,
+    tags,
+''')
+          replace(
+              'frontend/src/lib/components/AppShell.svelte',
+              '''    suggestions: Array<{ name: string; count?: number }>;
+    tags: TagLike[];
+''',
+              '''    suggestions: Array<{ name: string; count?: number }>;
+    metaTags: MetaTagDefinition[];
+    tags: TagLike[];
+''')
+          replace(
+              'frontend/src/lib/components/AppShell.svelte',
+              '''          {suggestions}
+          {tags}
+''',
+              '''          {suggestions}
+          {metaTags}
+          {tags}
+''')
+
+          replace(
+              'frontend/src/lib/components/AuthenticatedApp.svelte',
+              '''    suggestions={suggestionsQuery.data?.items ?? []}
+    tags={tagsQuery.data?.tags ?? []}
+''',
+              '''    suggestions={suggestionsQuery.data?.items ?? []}
+    metaTags={suggestionsQuery.data?.meta_tags ?? []}
+    tags={tagsQuery.data?.tags ?? []}
+''')
+
+          # Extend the existing response contract instead of inventing a second endpoint:
+          # every suggestions response contains the complete backend-owned metatag catalog.
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+          start = text.index('    SuggestionsResponse:\n')
+          next_schema = text.find('\n    ', start + len('    SuggestionsResponse:\n'))
+          if next_schema < 0:
+              raise SystemExit('could not locate end of SuggestionsResponse schema')
+          block = text[start:next_schema]
+          if 'meta_tags:' not in block:
+              block = block.replace('required: [items]', 'required: [items, meta_tags]')
+              block += '''
+        meta_tags:
+          type: array
+          description: Complete backend-owned catalog of supported query metatags.
+          items:
+            $ref: "#/components/schemas/MetaTag"
+'''
+              text = text[:start] + block + text[next_schema:]
+          if '    MetaTag:\n' not in text:
+              meta = '''    MetaTag:
+      type: object
+      required: [name, syntax, hint, requires_value]
+      properties:
+        name:
+          type: string
+        syntax:
+          type: string
+        hint:
+          type: string
+        requires_value:
+          type: boolean
+'''
+              pos = text.index('    SuggestionsResponse:\n')
+              text = text[:pos] + meta + text[pos:]
+          p.write_text(text)
+
+          replace(
+              'internal/serve/openapi_test.go',
+              '''\tassertResponseSchemaRef(t, spec, "/search/suggestions", "get", "200", "#/components/schemas/SuggestionsResponse")
+''',
+              '''\tassertResponseSchemaRef(t, spec, "/search/suggestions", "get", "200", "#/components/schemas/SuggestionsResponse")
+\tsuggestionSchema := schema(t, spec, "SuggestionsResponse")
+\tif !containsString(stringSlice(t, suggestionSchema["required"]), "meta_tags") {
+\t\tt.Fatal("SuggestionsResponse must require the backend-owned meta_tags catalog")
+\t}
+\tmetaTagProps := stringMap(t, schema(t, spec, "MetaTag")["properties"])
+\tfor _, field := range []string{"name", "syntax", "hint", "requires_value"} {
+\t\tif _, ok := metaTagProps[field]; !ok {
+\t\t\tt.Fatalf("MetaTag schema missing %q", field)
+\t\t}
+\t}
+''')
+
+          Path('internal/query/metatags_test.go').write_text(r'''package query
+
+import (
+    "database/sql"
+    "reflect"
+    "testing"
+
+    _ "gosqlite.org"
+)
+
+func TestMetaTagCatalogAndParser(t *testing.T) {
+    definitions := MetaTags()
+    if len(definitions) != 2 {
+        t.Fatalf("got %d metatags, want 2", len(definitions))
+    }
+    if definitions[0].Name != MetaTagTagged || definitions[1].Name != MetaTagFilenameContains {
+        t.Fatalf("unexpected catalog: %+v", definitions)
+    }
+    parsed, err := ParseMetaTag(`@filename_contains:Summer 100%_Set`)
+    if err != nil {
+        t.Fatalf("parse filename metatag: %v", err)
+    }
+    if parsed.Value != `Summer 100%_Set` || !parsed.Definition.RequiresValue {
+        t.Fatalf("unexpected parsed metatag: %+v", parsed)
+    }
+    if _, err := ParseMetaTag(`@filename_contains:`); err == nil {
+        t.Fatal("expected empty filename_contains value to fail")
+    }
+}
+
+func TestBuildLocationsFilenameContainsMatchesFilenameLiterallyCaseInsensitive(t *testing.T) {
+    db, err := sql.Open("sqlite3", ":memory:")
+    if err != nil { t.Fatal(err) }
+    defer db.Close()
+    for _, statement := range []string{
+        `CREATE TABLE locations (id INTEGER PRIMARY KEY, content_hash TEXT NOT NULL, path TEXT NOT NULL, extension TEXT NOT NULL DEFAULT '')`,
+        `CREATE TABLE content_tags (content_hash TEXT, tag_id INTEGER)`,
+        `CREATE TABLE tags (id INTEGER, key TEXT, value TEXT)`,
+        `INSERT INTO locations (id, content_hash, path) VALUES
+            (1, 'a', '/Summer/Foo 100%_Set.JPG'),
+            (2, 'b', '/summer 100%_set/other.jpg'),
+            (3, 'c', 'C:\\Library\\foo 100%_set.jpg'),
+            (4, 'd', '/x/foo 100XXset.jpg')`,
+    } {
+        if _, err := db.Exec(statement); err != nil { t.Fatalf("exec %q: %v", statement, err) }
+    }
+    expr, err := Parse(`@filename_contains:"100%_SET"`)
+    if err != nil { t.Fatal(err) }
+    if err := ValidateAST(expr); err != nil { t.Fatal(err) }
+    queryText, args := BuildLocations(expr, nil)
+    rows, err := db.Query(queryText, args...)
+    if err != nil { t.Fatalf("query %q args %v: %v", queryText, args, err) }
+    defer rows.Close()
+    var got []int64
+    for rows.Next() {
+        var id int64
+        if err := rows.Scan(&id); err != nil { t.Fatal(err) }
+        got = append(got, id)
+    }
+    if err := rows.Err(); err != nil { t.Fatal(err) }
+    if want := []int64{1, 3}; !reflect.DeepEqual(got, want) {
+        t.Fatalf("got ids %v, want %v", got, want)
+    }
+}
+''')
+
+          Path('internal/serve/search_saved_metatags_test.go').write_text(r'''package serve
+
+import "testing"
+
+func TestMetaTagDTOsExposeCompleteQueryCatalog(t *testing.T) {
+    items := metaTagDTOs()
+    if len(items) != 2 {
+        t.Fatalf("got %d metatags, want 2", len(items))
+    }
+    if items[0].Syntax != "@tagged" || items[0].RequiresValue {
+        t.Fatalf("unexpected tagged metadata: %+v", items[0])
+    }
+    if items[1].Syntax != "@filename_contains:" || !items[1].RequiresValue {
+        t.Fatalf("unexpected filename metadata: %+v", items[1])
+    }
+}
+''')
+
+          Path('frontend/src/lib/search/specialSuggestions.test.ts').write_text(r'''import { describe, expect, it } from 'vitest';
+import { specialSearchSuggestions } from './specialSuggestions';
+
+const metaTags = [
+  { name: 'tagged', syntax: '@tagged', hint: 'has tags', requires_value: false },
+  { name: 'filename_contains', syntax: '@filename_contains:', hint: 'filename contains', requires_value: true }
+];
+
+describe('specialSearchSuggestions', () => {
+  it('uses the backend catalog for metatags and hides them on unrelated input', () => {
+    expect(specialSearchSuggestions('@t', [], metaTags)).toEqual([
+      { commit: '@tagged', ns: '', val: '@tagged', hint: 'has tags' }
+    ]);
+    expect(specialSearchSuggestions('@f', [], metaTags)).toEqual([
+      { commit: '@filename_contains:', ns: '@filename_contains', val: '', hint: 'filename contains', partial: true }
+    ]);
+    expect(specialSearchSuggestions('artist', [], metaTags)).toEqual([]);
+  });
+
+  it('does not invent metatags when the backend catalog is empty', () => {
+    expect(specialSearchSuggestions('@t')).toEqual([]);
+    expect(specialSearchSuggestions('@f')).toEqual([]);
+  });
+
+  it('completes supported media kinds after type:', () => {
+    expect(specialSearchSuggestions('type:v', [], metaTags)).toEqual([
+      { commit: 'type:video', ns: 'type', val: 'video', hint: 'media type' }
+    ]);
+    expect(specialSearchSuggestions('type:', [], metaTags)).toHaveLength(5);
+  });
+
+  it('supports negation and excludes already committed exact expressions', () => {
+    expect(specialSearchSuggestions('-@t', [], metaTags)).toEqual([
+      { commit: '-@tagged', ns: '', val: '@tagged', hint: 'has tags' }
+    ]);
+    expect(specialSearchSuggestions('@t', ['@tagged'], metaTags)).toEqual([]);
+    expect(specialSearchSuggestions('type:v', ['type:video'], metaTags)).toEqual([]);
+  });
+});
+''')
+          PY
+          gofmt -w internal/query/metatags_test.go internal/serve/search_saved_metatags_test.go internal/serve/search_saved.go internal/serve/openapi_test.go
+      - name: Generate API types
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run generate:api
+      - name: Validate Go
+        run: go test ./internal/query ./internal/serve
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm run test:unit
+          npm run check
+          npm run build
+      - name: Commit finished contract
+        shell: bash
+        run: |
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal frontend docs
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit"
+            exit 0
+          fi
+          git commit -m "feat(query): finish backend-owned metatag contract [maintainer-222]"
+          git push
