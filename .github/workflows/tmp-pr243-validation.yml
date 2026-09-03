@@ -1,6 +1,9 @@
 name: Temporary PR 243 validation
 
 on:
+  pull_request:
+    branches:
+      - develop
   push:
     branches:
       - fix/240-thumbnail-size-selection
