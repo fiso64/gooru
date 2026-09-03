@@ -345,7 +345,11 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "private, max-age=3600")
+	if m.cfg.Encryption.Enabled {
+		m.applyProtectedMediaCachePolicy(w)
+	} else {
+		w.Header().Set("Cache-Control", "private, max-age=3600")
+	}
 	_, _ = io.Copy(w, io.LimitReader(reader, maxComicPageBytes))
 }
 
