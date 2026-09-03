@@ -1,0 +1,107 @@
+name: Temporary viewer diagnostic text validation
+
+on:
+  push:
+    branches:
+      - fix/22-image-geometry-hold
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/22-image-geometry-hold
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Convert viewer diagnostics to copyable text
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/lib/components/ViewerStage.svelte')
+          text = path.read_text()
+          old = """    console.info('[gooru viewer frame]', {
+              t: Math.round(performance.now() * 10) / 10,
+              phase,
+              frame,
+              generation,
+              fitMode,
+              rotation,
+              zoom,
+              intrinsic: { width: intrinsicWidth, height: intrinsicHeight },
+              geometry: { width: geometry.width, height: geometry.height, scale: geometry.scale },
+              stage: viewerDebugRect(stageElement),
+              image: image ? {
+                complete: image.complete,
+                naturalWidth: image.naturalWidth,
+                naturalHeight: image.naturalHeight,
+                rect: viewerDebugRect(image),
+                cssWidth: computed?.width,
+                cssHeight: computed?.height,
+                transform: computed?.transform
+              } : null,
+              shield: canvas ? { visible: freezeVisible, rect: viewerDebugRect(canvas) } : null
+            });"""
+          old = '\n'.join(line[12:] if line.startswith('            ') else line for line in old.splitlines())
+          new = """    const payload = {
+              t: Math.round(performance.now() * 10) / 10,
+              phase,
+              frame,
+              generation,
+              fitMode,
+              rotation,
+              zoom,
+              intrinsic: { width: intrinsicWidth, height: intrinsicHeight },
+              geometry: { width: geometry.width, height: geometry.height, scale: geometry.scale },
+              stage: viewerDebugRect(stageElement),
+              image: image ? {
+                complete: image.complete,
+                naturalWidth: image.naturalWidth,
+                naturalHeight: image.naturalHeight,
+                rect: viewerDebugRect(image),
+                cssWidth: computed?.width,
+                cssHeight: computed?.height,
+                transform: computed?.transform
+              } : null,
+              shield: canvas ? { visible: freezeVisible, rect: viewerDebugRect(canvas) } : null
+            };
+            console.info(`[gooru viewer frame] ${JSON.stringify(payload)}`);"""
+          new = '\n'.join(line[12:] if line.startswith('            ') else line for line in new.splitlines())
+          if old not in text:
+              raise SystemExit('expected viewer diagnostic block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          grep -F 'console.info(`[gooru viewer frame] ${JSON.stringify(payload)}`);' frontend/src/lib/components/ViewerStage.svelte
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Static check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Focused viewer regression
+        working-directory: frontend
+        run: npx playwright test tests/viewer-image-geometry-hold.spec.ts --project=chromium
+      - name: Commit validated diagnostic change and remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-viewer-diagnostic-text.yml
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add frontend/src/lib/components/ViewerStage.svelte .github/workflows/tmp-viewer-diagnostic-text.yml
+          git commit -m 'chore(viewer): emit copyable frame diagnostics'
+          git push origin HEAD:fix/22-image-geometry-hold
