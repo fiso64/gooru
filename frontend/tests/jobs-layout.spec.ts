@@ -27,12 +27,16 @@ async function mockApp(page: Page) {
   }));
 }
 
-test('jobs view stays compact and left-aligns row content', async ({ page }) => {
+async function login(page: Page) {
   await mockApp(page);
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
+}
+
+test('jobs view stays compact and left-aligns row content', async ({ page }) => {
+  await login(page);
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
 
@@ -47,4 +51,30 @@ test('jobs view stays compact and left-aligns row content', async ({ page }) => 
   expect(pageBox!.width).toBeLessThanOrEqual(600.5);
   expect(pageBox!.x - mainBox!.x).toBeLessThan(48);
   expect(nameBox!.x - cardBox!.x).toBeLessThan(32);
+});
+
+test('jobs drawer overlays the library without changing page geometry', async ({ page }) => {
+  await login(page);
+
+  const main = page.locator('main.main');
+  const jobsButton = page.locator('.topbar-right').getByRole('button', { name: 'Jobs' });
+  const before = await main.boundingBox();
+  const viewportWidth = await page.evaluate(() => window.innerWidth);
+  const scrollWidthBefore = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(before).not.toBeNull();
+
+  await jobsButton.click();
+  const drawer = page.locator('#jobs-drawer .jobs-drawer');
+  await expect(drawer).toBeVisible();
+
+  const after = await main.boundingBox();
+  const drawerBox = await drawer.boundingBox();
+  const scrollWidthAfter = await page.evaluate(() => document.documentElement.scrollWidth);
+  expect(after).not.toBeNull();
+  expect(drawerBox).not.toBeNull();
+  expect(Math.abs(after!.x - before!.x)).toBeLessThan(0.5);
+  expect(Math.abs(after!.width - before!.width)).toBeLessThan(0.5);
+  expect(scrollWidthAfter).toBe(scrollWidthBefore);
+  expect(scrollWidthAfter).toBeLessThanOrEqual(viewportWidth);
+  expect(drawerBox!.x).toBeLessThan(after!.x + after!.width);
 });

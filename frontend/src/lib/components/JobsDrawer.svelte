@@ -38,6 +38,11 @@
 </div>
 
 <style>
+  /* AppShell keeps this host for aria-controls; it must not become an in-flow grid item. */
+  :global(#jobs-drawer) {
+    display: contents;
+  }
+
   .jobs-drawer {
     position: absolute;
     top: 56px;
