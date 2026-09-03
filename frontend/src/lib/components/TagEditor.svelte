@@ -27,7 +27,7 @@
     onCommit: (value: string) => void;
   }>();
 
-  const candidates = $derived(mode === 'remove' ? existingTags.map((name) => ({ name })) : tags);
+  const candidates = $derived(mode === 'remove' ? existingTags.map((name: string) => ({ name })) : tags);
   const excluded = $derived(mode === 'remove' ? [] : existingTags);
 </script>
 
