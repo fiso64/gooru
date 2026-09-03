@@ -45,6 +45,20 @@ test('common tags rank visually, persist collapse state, and run a tag search', 
   let common = page.locator('.common-tags-section');
   await expect(common.getByText('Common tags')).toBeVisible();
   await expect(page.locator('.saved-searches-section + .common-tags-section')).toHaveCount(1);
+  const commonHeader = common.locator(':scope > .sidebar-section-head');
+  const savedHeader = page.locator('.saved-searches-section > .sidebar-section-head');
+  await expect(commonHeader).toHaveCount(1);
+  await expect(commonHeader).toHaveJSProperty('tagName', 'DIV');
+  await expect(commonHeader.locator('.common-tags-toggle')).toHaveClass(/sidebar-head-action/);
+  const commonHeaderStyle = await commonHeader.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return [style.fontSize, style.fontWeight, style.letterSpacing, style.textTransform, style.color, style.paddingLeft, style.paddingRight];
+  });
+  const savedHeaderStyle = await savedHeader.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return [style.fontSize, style.fontWeight, style.letterSpacing, style.textTransform, style.color, style.paddingLeft, style.paddingRight];
+  });
+  expect(commonHeaderStyle).toEqual(savedHeaderStyle);
 
   let rows = common.locator('button.common-tag-item');
   await expect(rows).toHaveCount(20);

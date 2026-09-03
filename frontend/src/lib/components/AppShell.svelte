@@ -238,17 +238,20 @@
 
     {#if commonTags.length}
       <div class="sidebar-section common-tags-section">
-        <button
-          class="sidebar-section-head common-tags-toggle"
-          type="button"
-          aria-expanded={!commonTagsCollapsed}
-          aria-controls="common-tags-list"
-          aria-label={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
-          onclick={toggleCommonTags}
-        >
+        <div class="sidebar-section-head">
           <span>Common tags</span>
-          <span class:expanded={!commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={11} /></span>
-        </button>
+          <button
+            class="sidebar-head-action common-tags-toggle"
+            type="button"
+            title={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+            aria-expanded={!commonTagsCollapsed}
+            aria-controls="common-tags-list"
+            aria-label={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+            onclick={toggleCommonTags}
+          >
+            <span class:expanded={!commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={11} /></span>
+          </button>
+        </div>
         <div id="common-tags-list" class:collapsed={commonTagsCollapsed} class="common-tags-list">
           {#each commonTags as item, index}
             <button
@@ -283,11 +286,7 @@
 
 <style>
   .common-tags-toggle {
-    width: 100%;
-    border: 0;
-    background: transparent;
     cursor: pointer;
-    text-align: left;
   }
 
   .common-tags-chevron {
