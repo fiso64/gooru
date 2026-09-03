@@ -28,6 +28,11 @@
 
   let stageElement = $state<HTMLDivElement | undefined>();
   let panViewportElement = $state<HTMLDivElement | undefined>();
+  let imageElement = $state<HTMLImageElement | undefined>();
+  let freezeCanvasElement = $state<HTMLCanvasElement | undefined>();
+  let freezeVisible = $state(false);
+  let frozenStyle = $state('');
+  let freezeGeneration = 0;
   let videoElement = $state<HTMLVideoElement | undefined>();
   let audioElement = $state<HTMLAudioElement | undefined>();
   let displayedFile = $state<FileItem | undefined>();
@@ -129,10 +134,12 @@
 
     const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
-      // Foreground images should enter the browser's native loading/decoding pipeline immediately.
-      // Blocking the visible source swap on Image.decode() starves progressive presentation when
-      // key-repeat advances targets faster than full decodes can finish. Metadata preserves atomic
-      // geometry where available; the real image load reconciles natural dimensions afterward.
+      // A single <img> cannot preserve both sides of an aspect-ratio handoff: keeping old geometry
+      // makes the first target pixels letterbox inside the old box, while applying target geometry
+      // can resize pixels the browser is still retaining from the old source. Freeze the already
+      // painted frame into a canvas before changing either property, then let the real foreground
+      // image enter the browser's native loading/presentation path immediately with target geometry.
+      freezePresentedImage();
       const metadataWidth = targetFile.metadata?.image_width ?? 0;
       const metadataHeight = targetFile.metadata?.image_height ?? 0;
       if (metadataWidth > 0 && metadataHeight > 0) {
@@ -169,8 +176,8 @@
     const nextFile = renderedFile;
     renderedImageSource;
     const rendersImage = nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
-    // Image transitions install metadata dimensions before swapping sources, then the
-    // rendered image reconciles natural dimensions on load. Non-image media waits for metadata.
+    // Image transitions install target metadata geometry while the presentation shield preserves old pixels separately.
+    // Non-image media waits for its own metadata path and starts with no image geometry.
     if (!rendersImage) {
       intrinsicWidth = 0;
       intrinsicHeight = 0;
@@ -189,11 +196,49 @@
     }
   });
 
+  function freezePresentedImage() {
+    const image = imageElement;
+    const canvas = freezeCanvasElement;
+    if (!image || !canvas || image.naturalWidth <= 0 || image.naturalHeight <= 0 || geometry.width <= 0 || geometry.height <= 0) return;
+
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    canvas.width = Math.max(1, Math.round(geometry.width * dpr));
+    canvas.height = Math.max(1, Math.round(geometry.height * dpr));
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    try {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    } catch {
+      return;
+    }
+
+    frozenStyle = visualStyle;
+    freezeGeneration += 1;
+    freezeVisible = true;
+  }
+
   function syncImage(event: Event) {
     const image = event.currentTarget;
     if (!(image instanceof HTMLImageElement)) return;
     intrinsicWidth = image.naturalWidth;
     intrinsicHeight = image.naturalHeight;
+    // Keep the frozen old pixels until the next paint after target load. The target is already
+    // laid out at final geometry underneath, so changing both visibility states in the same
+    // animation-frame callback presents only one image while avoiding an extra frame of latency.
+    const generation = freezeGeneration;
+    requestAnimationFrame(() => {
+      if (generation === freezeGeneration) freezeVisible = false;
+    });
+  }
+
+  function syncImageError() {
+    // A failed/unsupported target has no paint event that can release the frozen frame.
+    // End this handoff explicitly so stale pixels never stand in for the current file.
+    freezeGeneration += 1;
+    freezeVisible = false;
+    intrinsicWidth = 0;
+    intrinsicHeight = 0;
   }
 
   function syncVideo() {
@@ -530,7 +575,23 @@
           <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>
         </div>
       {:else}
-        <img class="viewer-visual-media" style={visualStyle} src={renderedImageSource} alt={renderedFile.name} onload={syncImage} />
+        <canvas
+          bind:this={freezeCanvasElement}
+          class="viewer-image-freeze"
+          class:visible={freezeVisible}
+          style={frozenStyle}
+          aria-hidden="true"
+        ></canvas>
+        <img
+          bind:this={imageElement}
+          class="viewer-visual-media"
+          class:viewer-image-concealed={freezeVisible}
+          style={visualStyle}
+          src={renderedImageSource}
+          alt={renderedFile.name}
+          onload={syncImage}
+          onerror={syncImageError}
+        />
       {/if}
     </div>
   </div>
@@ -595,6 +656,20 @@
   :global(.viewer-stage .viewer-visual-media) {
     object-fit: contain;
     transition: filter 120ms ease, opacity 120ms ease;
+  }
+
+  .viewer-image-freeze {
+    display: none;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .viewer-image-freeze.visible {
+    display: block;
+  }
+
+  :global(.viewer-stage .viewer-visual-media.viewer-image-concealed) {
+    visibility: hidden;
   }
 
   :global(.viewer-stage .viewer-audio-stage) {

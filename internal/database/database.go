@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "gosqlite.org"
 	"gooru.local/types"
+	_ "gosqlite.org"
 )
 
 // splitTags is a helper to safely split the space-delimited tags_cache string.
@@ -50,9 +50,10 @@ func CreateEmptyDB(dataSourceName string) error {
 
 // NewStore opens an existing database connection. It does not perform initialization.
 func NewStore(dataSourceName string, verbose bool) (*Store, error) {
-	// Add `_journal=WAL` for better concurrency, though it's less critical for a CLI tool.
+	// Add `_journal=WAL` for better concurrency.
+	// Add `_busy_timeout=5000` so transient writer contention waits instead of failing immediately.
 	// Add `_foreign_keys=on` to enforce foreign key constraints.
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL", dataSourceName))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL&_busy_timeout=5000", dataSourceName))
 	if err != nil {
 		return nil, err
 	}
