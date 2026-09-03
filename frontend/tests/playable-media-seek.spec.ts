@@ -120,7 +120,8 @@ test('complete video control panel fades after idle and returns on interaction',
 
   const box = await stage.boundingBox();
   if (!box) throw new Error('viewer stage has no bounding box');
-  await page.mouse.move(box.x + 30, box.y + 30);
+  // Player chrome is proximity-triggered: movement near the lower control zone reveals it.
+  await page.mouse.move(box.x + 30, box.y + box.height - 30);
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
 
   await seekbar.focus();
@@ -131,5 +132,6 @@ test('complete video control panel fades after idle and returns on interaction',
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity), { timeout: 3500 }).toBe('0');
 
   await page.keyboard.press('Shift+ArrowRight');
-  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+  // Keyboard seek intentionally stays chrome-free; #184 made player chrome proximity/focus driven.
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity)).toBe('0');
 });
