@@ -40,10 +40,11 @@ async function mockApp(page: Page) {
   await page.getByRole('button', { name: 'Preview issue.cbz' }).click();
 }
 
-test('comic reader uses concept entry treatment and shared playback controls', async ({ page }) => {
+test('comic reader matches supplied entry treatment and shared playback controls', async ({ page }) => {
   await mockApp(page);
   const dialog = page.getByRole('dialog', { name: 'issue.cbz' });
   const stage = dialog.locator('.viewer-stage');
+  const surface = stage.locator('.viewer-pan-surface');
   const readComic = dialog.getByRole('button', { name: 'Read comic' });
   await expect(dialog).toBeVisible();
   await expect(readComic).toBeVisible();
@@ -52,6 +53,8 @@ test('comic reader uses concept entry treatment and shared playback controls', a
 
   await expect(readComic).toHaveCSS('height', '42px');
   await expect(readComic).toHaveCSS('border-radius', '8px');
+  await expect(readComic.locator('.comic-read-arrow-left')).toHaveCSS('width', '20px');
+  await expect(readComic.locator('.comic-read-arrow-right')).toHaveCSS('width', '18px');
   await expect(readComic.locator('.comic-read-arrow-left')).toHaveCSS('background-image', /svg/);
   await expect(readComic.locator('.comic-read-arrow-right')).toHaveCSS('background-image', /svg/);
 
@@ -65,7 +68,8 @@ test('comic reader uses concept entry treatment and shared playback controls', a
 
   await readComic.click();
   await expect(stage).toHaveClass(/comic-reading/);
-  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationName)).toBe('arrow-through');
+  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationName)).toBe('arrowIn');
+  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('enterReader');
   const controls = dialog.locator('.lightbox-video-controls.comic-controls');
   await expect(controls).toBeVisible();
   await expect(controls.getByRole('button', { name: 'Exit comic (Space)' })).toBeVisible();
@@ -92,5 +96,16 @@ test('comic reader uses concept entry treatment and shared playback controls', a
   await stage.focus();
   await page.keyboard.press('Space');
   await expect(dialog.getByRole('button', { name: 'Read comic' })).toBeVisible();
-  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationName)).toBe('arrow-back');
+  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationName)).toBe('arrowOut');
+  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('exitReader');
+});
+
+test('comic transitions respect reduced-motion preference', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await mockApp(page);
+  const dialog = page.getByRole('dialog', { name: 'issue.cbz' });
+  const stage = dialog.locator('.viewer-stage');
+  await dialog.getByRole('button', { name: 'Read comic' }).click();
+  await expect(stage).toHaveClass(/comic-reading/);
+  await expect(stage.locator('.viewer-pan-surface')).toHaveCSS('animation-duration', '0.000001s');
 });
