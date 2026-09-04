@@ -367,7 +367,7 @@
     margin-left: auto;
     margin-right: 5px;
     flex: 0 0 auto;
-    color: var(--text-4);
+    color: var(--text-3);
     font-size: 9px;
     pointer-events: none;
   }
