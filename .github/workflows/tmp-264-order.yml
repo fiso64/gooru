@@ -1,0 +1,49 @@
+name: tmp-264-saved-search-order
+on:
+  push:
+    branches: [feat/264-saved-search-order]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply product patch
+        run: python .github/tmp-264-order.py
+      - name: Format Go
+        run: gofmt -w types/types.go internal/database/database.go gooru/saved_search.go internal/serve/saved_search_library.go internal/serve/search_saved.go internal/serve/server.go
+      - name: Generate API types
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run generate:api
+      - name: Backend validation
+        run: go test ./...
+      - name: Frontend validation
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit
+          npm run build
+      - name: Diff check
+        run: git diff --check
+      - name: Commit product patch
+        run: |
+          git config user.name chatgpt-codex-connector
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add types internal gooru docs frontend
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat(saved-search): persist sidebar ordering'
+            git fetch origin feat/264-saved-search-order
+            git rebase origin/feat/264-saved-search-order
+            git push origin HEAD:feat/264-saved-search-order
+          fi
