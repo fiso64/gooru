@@ -68,7 +68,7 @@ Prefer fixed event names, route patterns, opaque IDs when correlation is necessa
 ### FUSE virtual filesystem
 
 ```bash
-go build -tags fuse -o ./bin/gooru ./cmd/gooru
+go build -tags fuse -o gooru ./cmd/gooru
 ```
 
 Requires the platform's FUSE development/runtime support.
@@ -76,7 +76,7 @@ Requires the platform's FUSE development/runtime support.
 ### libvips thumbnails
 
 ```bash
-go build -tags govips -o ./bin/gooru ./cmd/gooru
+go build -tags govips -o gooru ./cmd/gooru
 ```
 
 Requires libvips development files at build time and the shared library at runtime.

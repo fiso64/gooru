@@ -4,6 +4,7 @@ export const defaultGridSize = 180;
 
 export type RuntimeConfig = {
   loadFullMediaByDefault: boolean;
+  fullscreenMediaByDefault: boolean;
   gridSize: number;
   thumbnailSizes: number[];
 };
@@ -14,6 +15,7 @@ export function normalizeThumbnailSizes(sizes: number[]) {
 
 export const runtimeConfig = writable<RuntimeConfig>({
   loadFullMediaByDefault: false,
+  fullscreenMediaByDefault: false,
   gridSize: defaultGridSize,
   thumbnailSizes: []
 });

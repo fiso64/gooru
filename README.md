@@ -2,7 +2,7 @@
 
 Gooru is a media library for browsing, tagging, uploading, and viewing files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server.
 
-Files are identified by content rather than only by path. This allows Gooru to recognize the same content after a rename or move, or even function as an archive capable of checking file integrity when using [full hashing](HASHING.md).
+Files are identified by content rather than only by path. This allows Gooru to recognize the same content after a rename or move, or even function as an archive capable of checking file integrity when using [full hashing](docs/HASHING.md).
 
 Gooru is intended primarily for personal and private multi-user libraries rather than public imageboard-style communities.
 
@@ -15,7 +15,7 @@ This project is fully maintained by an LLM.
 - Uploads and imports with background job tracking.
 - Content-based file identity that survives renames and moves.
 - Optional encryption for the database, managed uploads, and generated media.
-- HTTP API, CLI, and Go packages for automation and integration.
+- HTTP API, CLI, and Go packages for automation and integration. 
 
 ## Getting started
 

@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // SQLBuilder transforms a query AST into a SQL query string and arguments.
@@ -168,9 +169,8 @@ func (b *SQLBuilder) buildMediaTypeQuery(value string) {
 	b.args = append(b.args, value)
 }
 
-func escapeLikeContains(value string) string {
-	escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
-	return "%" + escaped + "%"
+func quoteFTS5Phrase(value string) string {
+	return "\"" + strings.ReplaceAll(value, "\"", "\"\"") + "\""
 }
 
 func (b *SQLBuilder) buildFilenameContainsQuery(value string) {
@@ -178,16 +178,18 @@ func (b *SQLBuilder) buildFilenameContainsQuery(value string) {
 	if b.target == "id" {
 		selectColumn = `l.id as id`
 	}
-	// Split normalized paths recursively so matching is against the final path
-	// component only. This keeps the predicate location-scoped and avoids a
-	// directory name accidentally satisfying a filename query.
-	b.query.WriteString(`WITH RECURSIVE path_parts(id, content_hash, rest, part) AS (
-		SELECT id, content_hash, replace(path, char(92), '/') || '/', '' FROM locations
-		UNION ALL
-		SELECT id, content_hash, substr(rest, instr(rest, '/') + 1), substr(rest, 1, instr(rest, '/') - 1)
-		FROM path_parts WHERE rest <> ''
-	) SELECT ` + selectColumn + ` FROM locations l JOIN path_parts p ON p.id = l.id WHERE p.rest = '' AND lower(p.part) LIKE lower(?) ESCAPE '\'`)
-	b.args = append(b.args, escapeLikeContains(value))
+
+	b.query.WriteString(`SELECT ` + selectColumn + ` FROM location_filenames lf JOIN locations l ON l.id = lf.rowid WHERE `)
+	if utf8.RuneCountInString(value) >= 3 {
+		// Use the trigram FTS index to narrow candidates, then retain an exact
+		// literal substring guard so punctuation keeps filename_contains semantics.
+		b.query.WriteString(`lf.filename MATCH ? AND `)
+		b.args = append(b.args, quoteFTS5Phrase(value))
+	}
+	// Trigram tokenization cannot accelerate terms shorter than three runes. In
+	// that case scan the compact basename index, not recursively split full paths.
+	b.query.WriteString(`instr(lower(lf.filename), lower(?)) > 0`)
+	b.args = append(b.args, value)
 }
 
 // buildTagQuery generates the base, simple SELECT statement for a single tag,

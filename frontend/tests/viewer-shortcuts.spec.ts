@@ -110,6 +110,18 @@ test('viewer shortcuts switch tag modes and dispatch file actions', async ({ pag
   await expect(page.getByRole('textbox', { name: 'Tags for one.jpg' })).toBeFocused();
 
   await preview.focus();
+  const originalToggle = preview.getByRole('button', { name: 'Use original media' });
+  await expect(originalToggle).toHaveAttribute('title', 'Use original media (Q)');
+  await page.keyboard.press('q');
+  const previewToggle = preview.getByRole('button', { name: 'Use derived preview' });
+  await expect(previewToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(previewToggle).toHaveAttribute('title', 'Use derived preview (Q)');
+  await expect(preview.getByTitle('Add tag (T)')).toBeVisible();
+  await expect(preview.getByTitle('Download original (D)')).toBeVisible();
+  await expect(preview.getByTitle('Delete file from disk (Shift+Delete)')).toBeVisible();
+  await expect(preview.getByTitle('Remove from library without deleting the file (Delete)')).toBeVisible();
+
+  await preview.focus();
   await page.keyboard.press('Delete');
   await expect(page.getByRole('dialog', { name: 'Remove from library' })).toBeVisible();
   await page.keyboard.press('Escape');
@@ -131,6 +143,7 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   await expect(shortcuts.getByText('Keys are ignored while you are typing unless the shortcut belongs to that input')).toHaveCount(0);
   await expect(shortcuts.getByText('Focus search')).toBeVisible();
   await expect(shortcuts.getByText('Save current search')).toBeVisible();
+  await expect(shortcuts.getByText('Toggle original / preview media')).toBeVisible();
   await expect(shortcuts.getByRole('heading', { name: 'Shortcuts' })).toHaveCSS('font-size', '22px');
   await page.keyboard.press('Escape');
   await expect(shortcuts).toHaveCount(0);

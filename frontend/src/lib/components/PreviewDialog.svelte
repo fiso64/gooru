@@ -5,6 +5,7 @@
   import ViewerStage from './ViewerStage.svelte';
   import { ApiClient } from '$lib/api/client';
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { readViewerSessionPreferences, updateViewerSessionPreferences } from '$lib/state/viewerSessionPreferences';
   import { adjacentComicPages, comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
   import { errorMessage, formatBytes, groupTags, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
@@ -47,9 +48,15 @@
     onNestedNavigationChange?: (active: boolean) => void;
   }>();
 
+  const initialViewerPreferences = readViewerSessionPreferences({
+    preferOriginal: $runtimeConfig.loadFullMediaByDefault,
+    rotation: 0,
+    fitMode: 'screen'
+  });
+
   let dialogElement = $state<HTMLDivElement | undefined>();
   let downloadLink = $state<HTMLAnchorElement | undefined>();
-  let preferOriginal = $state($runtimeConfig.loadFullMediaByDefault);
+  let preferOriginal = $state(initialViewerPreferences.preferOriginal);
   let tagMode = $state<'add' | 'remove'>('add');
   let comicManifest = $state<ComicManifest | null>(null);
   let comicPageIndex = $state(0);
@@ -65,6 +72,10 @@
 
   onMount(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    if ($runtimeConfig.fullscreenMediaByDefault) {
+      const stage = dialogElement?.querySelector<HTMLElement>('.viewer-stage');
+      if (stage) void stage.requestFullscreen().catch(() => undefined);
+    }
     return claimFocus(dialogElement, previous);
   });
 
@@ -96,6 +107,12 @@
     document.getElementById(`tags-${file.id}`)?.focus();
   }
 
+  function toggleOriginalMedia() {
+    if (!originalAvailable) return;
+    preferOriginal = !preferOriginal;
+    updateViewerSessionPreferences({ preferOriginal });
+  }
+
   function handleViewerKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event)) return;
     if (
@@ -118,6 +135,12 @@
       event.preventDefault();
       event.stopPropagation();
       focusTagInput(key === 'u' ? 'remove' : 'add');
+      return;
+    }
+    if (key === 'q' && originalAvailable) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleOriginalMedia();
       return;
     }
     if (key === 'd') {
@@ -298,20 +321,20 @@
   />
 
   <aside class="lightbox-rail">
-    <button class="g-btn g-btn-ghost" type="button" title="Add tag" aria-label="Add tag" onclick={() => focusTagInput('add')}><Icon name="tag" size={16} /></button>
+    <button class="g-btn g-btn-ghost" type="button" title="Add tag (T)" aria-label="Add tag" onclick={() => focusTagInput('add')}><Icon name="tag" size={16} /></button>
     {#if originalAvailable}
       <button
         class="g-btn g-btn-ghost"
         type="button"
         aria-label={preferOriginal ? 'Use derived preview' : 'Use original media'}
         aria-pressed={preferOriginal}
-        title={preferOriginal ? 'Using original media; click to use preview' : 'Load original media'}
-        onclick={() => { preferOriginal = !preferOriginal; }}
+        title={preferOriginal ? 'Use derived preview (Q)' : 'Use original media (Q)'}
+        onclick={toggleOriginalMedia}
       >
         <Icon name="photo" size={16} active={preferOriginal} />
       </button>
     {/if}
-    <a bind:this={downloadLink} class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original" aria-label={`Download ${file.name}`}>
+    <a bind:this={downloadLink} class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original (D)" aria-label={`Download ${file.name}`}>
       <Icon name="download" size={16} />
     </a>
     <a class="g-btn g-btn-ghost" href={file.media_urls.content} target="_blank" rel="noreferrer" title="Open original in new tab" aria-label={`Open original ${file.name}`}>
@@ -320,9 +343,9 @@
     <div class="rail-spacer"></div>
     <button class="g-btn g-btn-ghost" type="button" disabled title="Additional info coming soon" aria-label="Info"><Icon name="info" size={16} /></button>
     {#if file.can_delete}
-      <button class="g-btn g-btn-ghost" type="button" title="Delete file from disk" aria-label={`Delete ${file.name} from disk`} onclick={() => onDelete(file)}><Icon name="trash" size={16} /></button>
+      <button class="g-btn g-btn-ghost" type="button" title="Delete file from disk (Shift+Delete)" aria-label={`Delete ${file.name} from disk`} onclick={() => onDelete(file)}><Icon name="trash" size={16} /></button>
     {/if}
-    <button class="g-btn g-btn-ghost" type="button" title="Remove from library without deleting the file" aria-label={`Untrack ${file.name} from library`} onclick={() => onUntrack(file)}><Icon name="close" size={16} /></button>
+    <button class="g-btn g-btn-ghost" type="button" title="Remove from library without deleting the file (Delete)" aria-label={`Untrack ${file.name} from library`} onclick={() => onUntrack(file)}><Icon name="close" size={16} /></button>
   </aside>
 </div>
 

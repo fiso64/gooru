@@ -22,13 +22,13 @@ The generated static site is written to `frontend/build`. Node is not required a
 ### 2. Build the Go binary
 
 ```bash
-go build -o ./bin/gooru ./cmd/gooru
+go build -o gooru ./cmd/gooru
 ```
 
 ### 3. Initialize the database if needed
 
 ```bash
-./bin/gooru init
+gooru init
 ```
 
 If you use a non-default database, pass the same `--database` path when initializing it or set `database.path` in the server config.
@@ -36,7 +36,7 @@ If you use a non-default database, pass the same `--database` path when initiali
 ### 4. Generate a config
 
 ```bash
-./bin/gooru serve --print-default-config > serve.yaml
+gooru serve --print-default-config > serve.yaml
 ```
 
 For local use, the most important defaults are already conservative:
@@ -49,7 +49,7 @@ For local use, the most important defaults are already conservative:
 ### 5. Create the first admin
 
 ```bash
-./bin/gooru user create-admin --username alice --config serve.yaml
+gooru user create-admin --username alice --config serve.yaml
 ```
 
 For non-interactive provisioning, supply the password through `GOORU_ADMIN_PASSWORD`; do not put normal usernames or passwords in YAML and avoid command-line password arguments.
@@ -57,7 +57,7 @@ For non-interactive provisioning, supply the password through `GOORU_ADMIN_PASSW
 ### 6. Start the server
 
 ```bash
-./bin/gooru serve --config serve.yaml
+gooru serve --config serve.yaml
 ```
 
 Open `http://127.0.0.1:5678` unless you changed `server.listen` or `server.public_url`.
@@ -148,7 +148,7 @@ A default build includes a pure-Go image thumbnail path. Video thumbnails requir
 To build with libvips as the primary image thumbnail backend:
 
 ```bash
-go build -tags govips -o ./bin/gooru ./cmd/gooru
+go build -tags govips -o gooru ./cmd/gooru
 ```
 
 That build requires libvips development files at build time and the shared library at runtime.
@@ -160,8 +160,8 @@ If an optional media tool is missing, core browse/tag/upload/original-media func
 Build and run a specific binary so you do not accidentally execute an older `gooru` from `PATH`:
 
 ```bash
-go build -o ./bin/gooru ./cmd/gooru
-./bin/gooru serve --config serve.yaml
+go build -o gooru ./cmd/gooru
+gooru serve --config serve.yaml
 ```
 
 When packaging outside the source tree, ship the built frontend directory too and point `server.frontend_dir` at it.
