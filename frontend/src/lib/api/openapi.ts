@@ -836,6 +836,8 @@ export interface paths {
                 content: {
                     "multipart/form-data": {
                         files: string[];
+                        /** @description Source modification timestamps in Unix milliseconds, in the same order as `files`. Invalid or missing entries are treated as unavailable. */
+                        source_modtime_ms?: number[];
                         /** @description Configured upload target ID. Defaults to the first configured target. */
                         target_id?: string;
                         /**

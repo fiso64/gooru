@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 )
 
 const maxUploadFieldBytes = 1 << 20
@@ -46,11 +49,12 @@ func writeMultipartUploadError(w http.ResponseWriter, err error) {
 }
 
 type streamedUpload struct {
-	name   string
-	path   string
-	size   int64
-	status string
-	error  string
+	name          string
+	path          string
+	size          int64
+	status        string
+	error         string
+	sourceModTime time.Time
 }
 
 func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []savedUpload, retErr error) {
@@ -69,6 +73,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 	var targetID, conflictRequested string
 	var targetSeen, conflictSeen bool
 	tagValues := make([]string, 0)
+	sourceModTimeValues := make([]string, 0)
 	streamed := make([]streamedUpload, 0)
 	fileCount := 0
 	defer func() {
@@ -106,6 +111,8 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 				}
 			case "tags":
 				tagValues = append(tagValues, value)
+			case "source_modtime_ms":
+				sourceModTimeValues = append(sourceModTimeValues, value)
 			}
 			continue
 		}
@@ -130,6 +137,12 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 	if fileCount == 0 {
 		return nil, saved, multipartUploadError{message: "at least one file is required", err: errors.New("missing upload file")}
 	}
+	for i := range streamed {
+		if i >= len(sourceModTimeValues) {
+			break
+		}
+		streamed[i].sourceModTime = parseUploadSourceModTime(sourceModTimeValues[i])
+	}
 	target, err := s.uploadTarget(targetID)
 	if err != nil {
 		return nil, saved, multipartUploadError{code: "invalid_upload_target", message: err.Error(), err: err}
@@ -148,7 +161,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 			saved = append(saved, savedUpload{name: file.name, size: file.size, targetID: target.ID, status: "error", error: file.error})
 			continue
 		}
-		finalized, finalErr := finalizeStreamedUpload(target, *file, conflictPolicy)
+		finalized, finalErr := finalizeStreamedUpload(target, *file, conflictPolicy, s.cfg.Uploads.PreserveModTime)
 		if finalErr == nil {
 			file.path = ""
 			saved = append(saved, finalized)
@@ -210,27 +223,53 @@ func (s *Server) streamUploadPart(target UploadTarget, originalName string, src 
 	return streamedUpload{name: name, path: path, size: size}, nil
 }
 
-func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPolicy string) (savedUpload, error) {
+func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPolicy string, preserveModTime bool) (savedUpload, error) {
 	path, skipped, replace, err := chooseUploadDestination(target.Path, file.name, conflictPolicy)
 	if err != nil {
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
 	if skipped {
 		_ = os.Remove(file.path)
-		return savedUpload{name: file.name, path: path, destinationPath: path, size: file.size, targetID: target.ID, status: "skipped"}, nil
+		return savedUpload{name: file.name, path: path, destinationPath: path, size: file.size, targetID: target.ID, status: "skipped", sourceModTime: file.sourceModTime}, nil
 	}
 	stagedPath, err := moveStreamedUploadIntoDir(file.path, target.Path, file.name)
 	if err != nil {
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
 	if replace {
-		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true}, nil
+		if err := applyUploadedSourceModTime(stagedPath, file.sourceModTime, preserveModTime); err != nil {
+			_ = os.Remove(stagedPath)
+			return savedUpload{}, uploadFileError{name: file.name, err: err}
+		}
+		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true, sourceModTime: file.sourceModTime}, nil
 	}
 	if err := commitUploadDestination(stagedPath, path); err != nil {
 		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
-	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID}, nil
+	if err := applyUploadedSourceModTime(path, file.sourceModTime, preserveModTime); err != nil {
+		_ = os.Remove(path)
+		return savedUpload{}, uploadFileError{name: file.name, err: err}
+	}
+	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime}, nil
+}
+
+func parseUploadSourceModTime(value string) time.Time {
+	millis, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil || millis <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(millis).UTC()
+}
+
+func applyUploadedSourceModTime(path string, sourceModTime time.Time, preserve bool) error {
+	if !preserve || sourceModTime.IsZero() {
+		return nil
+	}
+	if err := os.Chtimes(path, sourceModTime, sourceModTime); err != nil {
+		return errors.New("failed to preserve uploaded file modification time")
+	}
+	return nil
 }
 
 func chooseUploadDestination(dir, name, conflictPolicy string) (path string, skipped bool, replace bool, err error) {
