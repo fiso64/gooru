@@ -11,6 +11,7 @@
       name: 'Navigation',
       items: [
         { keys: ['1–9'], description: 'Open the matching visible sidebar item' },
+        { keys: ['/'], description: 'Focus search' },
         { keys: ['b'], description: 'Save current search' },
         { keys: ['?'], description: 'Show shortcuts' }
       ]
@@ -52,7 +53,6 @@
       <div>
         <div class="g-eyebrow g-eyebrow-accent">Keyboard</div>
         <h2 id="shortcut-title">Shortcuts</h2>
-        <p>Keys are ignored while you are typing unless the shortcut belongs to that input.</p>
       </div>
       <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" aria-label="Close shortcuts" onclick={onClose}>
         <Icon name="close" size={15} />
@@ -116,12 +116,6 @@
     font-family: var(--font-display);
     font-size: 22px;
     font-weight: 400;
-  }
-
-  .shortcut-head p {
-    margin: 0;
-    color: var(--text-3);
-    font-size: 12px;
   }
 
   .shortcut-grid {

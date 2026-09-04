@@ -128,10 +128,25 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
   await expect(shortcuts.getByText('Play media or enter / exit comic')).toHaveCount(0);
   await expect(shortcuts.getByText('Clear selection')).toHaveCount(0);
+  await expect(shortcuts.getByText('Keys are ignored while you are typing unless the shortcut belongs to that input')).toHaveCount(0);
+  await expect(shortcuts.getByText('Focus search')).toBeVisible();
   await expect(shortcuts.getByText('Save current search')).toBeVisible();
   await expect(shortcuts.getByRole('heading', { name: 'Shortcuts' })).toHaveCSS('font-size', '22px');
   await page.keyboard.press('Escape');
   await expect(shortcuts).toHaveCount(0);
+
+  const search = page.getByRole('textbox', { name: 'Search library' });
+  const searchShortcut = page.locator('.searchbar-shortcut');
+  await expect(searchShortcut).toHaveText('/');
+  await expect(page.getByRole('button', { name: 'Clear search' })).toHaveCount(0);
+  await page.keyboard.press('/');
+  await expect(search).toBeFocused();
+  await search.fill('a');
+  await expect(searchShortcut).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Clear search' })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear search' }).click();
+  await expect(searchShortcut).toHaveText('/');
+  await search.press('Escape');
 
   await page.keyboard.press('b');
   await expect(page.getByRole('dialog', { name: 'Save search' })).toBeVisible();
