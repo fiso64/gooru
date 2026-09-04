@@ -155,8 +155,9 @@
 
   function previewSavedSearchDrag(event: DragEvent, targetID: string) {
     const sourceID = draggedSavedSearchID || event.dataTransfer?.getData('text/plain') || '';
-    if (!sourceID || sourceID === targetID || savedSearchReorderBusy) return;
+    if (!sourceID || savedSearchReorderBusy) return;
     event.preventDefault();
+    if (sourceID === targetID) return;
 
     const current = orderedSavedSearches.map((item) => item.id);
     const from = current.indexOf(sourceID);
