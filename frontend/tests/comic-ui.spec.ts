@@ -54,10 +54,13 @@ test('comic reader matches supplied entry treatment and shared playback controls
   // These values and glyph dimensions are copied from the supplied concept's read-cover-button.
   await expect(readComic).toHaveCSS('height', '42px');
   await expect(readComic).toHaveCSS('border-radius', '8px');
-  await expect(readComic.locator('.comic-read-arrow-left')).toHaveCSS('width', '16px');
-  await expect(readComic.locator('.comic-read-arrow-right')).toHaveCSS('width', '16px');
-  await expect(readComic.locator('.comic-read-arrow-left')).toHaveCSS('background-image', /svg/);
-  await expect(readComic.locator('.comic-read-arrow-right')).toHaveCSS('background-image', /svg/);
+  const bookIcon = readComic.locator('svg.icon').first();
+  const enterIcon = readComic.locator('svg.enter-arrow');
+  await expect(bookIcon).toHaveAttribute('stroke', 'currentColor');
+  await expect(bookIcon).toHaveAttribute('stroke-width', '1.55');
+  await expect(bookIcon.locator('path').first()).toHaveAttribute('d', 'M4.2 3.8h7.1a2 2 0 0 1 2 2v10.4H6.2a2 2 0 0 1-2-2V3.8Z');
+  await expect(enterIcon).toHaveAttribute('stroke', 'currentColor');
+  await expect(enterIcon.locator('path')).toHaveAttribute('d', 'M4 10h11M11 6l4 4-4 4');
 
   const previewImage = stage.locator('img.viewer-visual-media');
   await expect(previewImage).toBeVisible();
@@ -69,8 +72,12 @@ test('comic reader matches supplied entry treatment and shared playback controls
 
   await readComic.click();
   await expect(stage).toHaveClass(/comic-reading/);
-  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationName)).toBe('arrow-through');
-  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationDuration)).toBe('0.46s');
+  const transitionArrow = stage.locator('.transition-arrow');
+  await expect(stage).toHaveClass(/entering/);
+  await expect(transitionArrow).toHaveCount(1);
+  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element).animationName)).toBe('arrow-through');
+  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.46s');
+  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element, '::after').content)).toBe('""');
   await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('comic-frame-enter');
   await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.42s');
   const controls = dialog.locator('.lightbox-video-controls.comic-controls');
@@ -99,8 +106,9 @@ test('comic reader matches supplied entry treatment and shared playback controls
   await stage.focus();
   await page.keyboard.press('Space');
   await expect(dialog.getByRole('button', { name: 'Read comic' })).toBeVisible();
-  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationName)).toBe('arrow-back');
-  await expect.poll(() => stage.evaluate((element) => getComputedStyle(element, '::after').animationDuration)).toBe('0.4s');
+  await expect(stage).toHaveClass(/exiting/);
+  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element).animationName)).toBe('arrow-back');
+  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.4s');
   await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('comic-frame-exit');
 });
 
@@ -112,4 +120,5 @@ test('comic transitions respect reduced-motion preference', async ({ page }) => 
   await dialog.getByRole('button', { name: 'Read comic' }).click();
   await expect(stage).toHaveClass(/comic-reading/);
   await expect(stage.locator('.viewer-pan-surface')).toHaveCSS('animation-duration', '0.001s');
+  await expect(stage.locator('.transition-arrow')).toHaveCSS('animation-duration', '0.001s');
 });

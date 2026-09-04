@@ -43,6 +43,8 @@
   }>();
 
   let stageElement = $state<HTMLDivElement | undefined>();
+  let comicTransition = $state<'' | 'entering' | 'exiting'>('');
+  let previousComicEntered = comicEntered;
   let panViewportElement = $state<HTMLDivElement | undefined>();
   let imageElement = $state<HTMLImageElement | undefined>();
   let freezeCanvasElement = $state<HTMLCanvasElement | undefined>();
@@ -288,6 +290,15 @@
 
   $effect(() => {
     if (comicEntered) showPlaybackControls();
+  });
+
+  $effect(() => {
+    const nextComicEntered = comicEntered;
+    if (nextComicEntered === previousComicEntered) return;
+    previousComicEntered = nextComicEntered;
+    comicTransition = nextComicEntered ? 'entering' : 'exiting';
+    const timer = setTimeout(() => { comicTransition = ''; }, nextComicEntered ? 520 : 460);
+    return () => clearTimeout(timer);
   });
 
   function seekComicAt(clientX: number, control: HTMLElement) {
@@ -590,7 +601,7 @@
 
 <svelte:window onkeydown={handleViewerKeydown} />
 
-<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
+<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
   <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
     <div class="viewer-pan-surface" style={panSurfaceStyle}>
       {#if renderedFile.media_kind === 'video'}
@@ -640,12 +651,19 @@
 
   {#if comicAvailable && !comicEntered}
     <button class="comic-read-button" type="button" style={comicReadStyle} disabled={comicLoading} aria-label="Read comic" onclick={(event) => { onToggleComic?.(); restoreStageFocusAfterPointer(event); }}>
-      <span class="comic-read-arrow comic-read-arrow-left" aria-hidden="true">→</span>
+      <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.55" aria-hidden="true">
+        <path d="M4.2 3.8h7.1a2 2 0 0 1 2 2v10.4H6.2a2 2 0 0 1-2-2V3.8Z"/>
+        <path d="M13.3 5.8h2.5v10.4h-7a2.6 2.6 0 0 0-2.6 0"/>
+      </svg>
       <span>{comicLoading ? 'Loading comic…' : 'Read comic'}</span>
-      <span class="comic-read-arrow comic-read-arrow-right" aria-hidden="true">←</span>
+      <svg class="icon enter-arrow" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.55" aria-hidden="true">
+        <path d="M4 10h11M11 6l4 4-4 4"/>
+      </svg>
     </button>
     {#if comicError}<div class="comic-error-overlay" role="alert">{comicError}</div>{/if}
   {/if}
+
+  <div class="transition-arrow" aria-hidden="true"></div>
 
   {#if renderedFile.media_kind === 'video' || comicEntered}
     <div class="lightbox-video-controls" class:comic-controls={comicEntered} class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
