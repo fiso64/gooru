@@ -108,10 +108,11 @@ type LoggingConfig struct {
 }
 
 type UIConfig struct {
-	AccentColor            string `yaml:"accent_color"`
-	FontStyle              string `yaml:"font_style"`
-	GridSize               int    `yaml:"grid_size"`
-	LoadFullMediaByDefault bool   `yaml:"load_full_media_by_default"`
+	AccentColor                   string `yaml:"accent_color"`
+	FontStyle                     string `yaml:"font_style"`
+	GridSize                      int    `yaml:"grid_size"`
+	LoadFullMediaByDefault        bool   `yaml:"load_full_media_by_default"`
+	FullscreenMediaByDefault      bool   `yaml:"fullscreen_media_by_default"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
