@@ -31,7 +31,12 @@ async function mockApp(page: Page) {
   ] }) }));
   await page.route('**/api/v1/files/comic-1/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" />' }));
   await page.route('**/api/v1/files/comic-1/preview', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" />' }));
-  await page.route('**/api/v1/comics/comic-1/*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" />' }));
+  await page.route('**/api/v1/comics/comic-1/*', async (route) => {
+    // Make the second page handoff last long enough to exercise the transient freeze canvas.
+    // This reproduces the owner's 20–100 ms visual disappearance instead of checking only settled state.
+    if (route.request().url().endsWith('/1')) await new Promise((resolve) => setTimeout(resolve, 80));
+    await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" />' });
+  });
 
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
@@ -88,12 +93,22 @@ test('comic reader matches supplied entry treatment and shared playback controls
   await expect(dialog.getByRole('button', { name: 'Previous page' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Next page' })).toBeVisible();
 
-  // Once the reader-entry state has ended, changing pages must update the visible controls in place
-  // without reapplying their enter animation or dropping opacity.
+  // Page navigation switches the image source immediately. During that handoff the old page is
+  // preserved in a z-indexed freeze canvas; the controls must remain in a higher paint layer for
+  // the entire load, not merely have opacity 1 again once the next image settles.
   await dialog.getByRole('button', { name: 'Next page' }).click();
+  const freeze = stage.locator('.viewer-image-freeze');
+  await expect(freeze).toHaveClass(/visible/);
+  const paintLayers = await Promise.all([
+    controls.evaluate((element) => getComputedStyle(element).zIndex),
+    freeze.evaluate((element) => getComputedStyle(element).zIndex)
+  ]);
+  expect(Number.parseInt(paintLayers[0], 10)).toBeGreaterThan(Number.parseInt(paintLayers[1], 10));
+  await expect(controls).toBeVisible();
+  await expect(controls).toHaveCSS('opacity', '1');
   await expect(controls.locator('.video-time').first()).toHaveText('2');
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
-  await expect(controls).toHaveCSS('opacity', '1');
+  await expect.poll(() => freeze.evaluate((element) => !element.classList.contains('visible'))).toBe(true);
 
   const seek = controls.getByRole('button', { name: 'Seek comic page' });
   await seek.click({ position: { x: 2, y: 2 } });
