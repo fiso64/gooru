@@ -196,6 +196,8 @@ export class ApiClient {
     if (conflictPolicy) form.append('conflict_policy', conflictPolicy);
     if (ordering.addedAtStrategy) form.append('added_at_strategy', ordering.addedAtStrategy);
     for (const value of ordering.queueTimeMs ?? []) if (Number.isFinite(value) && value > 0) form.append('queue_time_ms', String(Math.trunc(value)));
+    if (Number.isFinite(ordering.queueFirstTimeMs) && (ordering.queueFirstTimeMs ?? 0) > 0) form.append('queue_first_time_ms', String(Math.trunc(ordering.queueFirstTimeMs!)));
+    if (Number.isFinite(ordering.queueLastTimeMs) && (ordering.queueLastTimeMs ?? 0) > 0) form.append('queue_last_time_ms', String(Math.trunc(ordering.queueLastTimeMs!)));
     for (const value of ordering.queueIndex ?? []) if (Number.isInteger(value) && value >= 0) form.append('queue_index', String(value));
     for (const value of ordering.queueTotal ?? []) if (Number.isInteger(value) && value > 0) form.append('queue_total', String(value));
 
@@ -246,6 +248,8 @@ export class ApiClient {
 export interface UploadOrderingMetadata {
   addedAtStrategy?: 'queue' | 'reverse_queue' | 'modtime';
   queueTimeMs?: number[];
+  queueFirstTimeMs?: number;
+  queueLastTimeMs?: number;
   queueIndex?: number[];
   queueTotal?: number[];
 }

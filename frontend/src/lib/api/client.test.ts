@@ -127,6 +127,8 @@ describe('ApiClient', () => {
     const result = await client.uploadFiles([file], ['reviewed'], true, '', 'rename', progress, {
       addedAtStrategy: 'reverse_queue',
       queueTimeMs: [1_700_000_000_000],
+      queueFirstTimeMs: 1_699_999_990_000,
+      queueLastTimeMs: 1_700_000_010_000,
       queueIndex: [2],
       queueTotal: [4]
     });
@@ -144,6 +146,8 @@ describe('ApiClient', () => {
     expect((xhr.body as FormData).get('source_modtime_ms')).toBe(String(sourceModTime));
     expect((xhr.body as FormData).get('added_at_strategy')).toBe('reverse_queue');
     expect((xhr.body as FormData).get('queue_time_ms')).toBe('1700000000000');
+    expect((xhr.body as FormData).get('queue_first_time_ms')).toBe('1699999990000');
+    expect((xhr.body as FormData).get('queue_last_time_ms')).toBe('1700000010000');
     expect((xhr.body as FormData).get('queue_index')).toBe('2');
     expect((xhr.body as FormData).get('queue_total')).toBe('4');
     expect(progress.mock.calls.map(([value]) => value)).toEqual([20, 70, 100, 100]);

@@ -72,7 +72,8 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 	}
 
 	var targetID, conflictRequested, addedAtStrategyRequested string
-	var targetSeen, conflictSeen, addedAtStrategySeen bool
+	var queueFirstTimeValue, queueLastTimeValue string
+	var targetSeen, conflictSeen, addedAtStrategySeen, queueFirstTimeSeen, queueLastTimeSeen bool
 	tagValues := make([]string, 0)
 	sourceModTimeValues := make([]string, 0)
 	queueTimeValues := make([]string, 0)
@@ -123,6 +124,14 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 				}
 			case "queue_time_ms":
 				queueTimeValues = append(queueTimeValues, value)
+			case "queue_first_time_ms":
+				if !queueFirstTimeSeen {
+					queueFirstTimeValue, queueFirstTimeSeen = value, true
+				}
+			case "queue_last_time_ms":
+				if !queueLastTimeSeen {
+					queueLastTimeValue, queueLastTimeSeen = value, true
+				}
 			case "queue_index":
 				queueIndexValues = append(queueIndexValues, value)
 			case "queue_total":
@@ -166,6 +175,8 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		return nil, saved, multipartUploadError{message: err.Error(), err: err}
 	}
 	queueFallback := time.Now().UTC()
+	queueFirstTime := parseUploadSourceModTime(queueFirstTimeValue)
+	queueLastTime := parseUploadSourceModTime(queueLastTimeValue)
 	for i := range streamed {
 		queueTime := queueFallback
 		if i < len(queueTimeValues) {
@@ -176,7 +187,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		queueIndex := parseUploadOrdinal(queueIndexValues, i, i)
 		queueTotal := parseUploadOrdinal(queueTotalValues, i, len(streamed))
 		// The resolved value is copied into saved/staged state before async job submission.
-		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueIndex, queueTotal)
+		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)
 	}
 	conflictPolicy, err := uploadConflictPolicy(conflictRequested, s.cfg.Uploads.ConflictPolicy)
 	if err != nil {
@@ -296,7 +307,7 @@ func parseUploadOrdinal(values []string, index int, fallback int) int {
 	return fallback
 }
 
-func resolveUploadAddedAt(strategy string, sourceModTime, queueTime time.Time, queueIndex, queueTotal int) time.Time {
+func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstTime, queueLastTime time.Time, queueIndex, queueTotal int) time.Time {
 	if queueTime.IsZero() {
 		queueTime = time.Now().UTC()
 	}
@@ -310,11 +321,18 @@ func resolveUploadAddedAt(strategy string, sourceModTime, queueTime time.Time, q
 		queueIndex = queueTotal - 1
 	}
 	queueOffset := queueIndex
-	if strategy == "reverse_queue" {
-		queueOffset = queueTotal - 1 - queueIndex
-	}
 	if strategy == "modtime" && !sourceModTime.IsZero() {
 		return sourceModTime.UTC()
+	}
+	if strategy == "reverse_queue" {
+		queueOffset = queueTotal - 1 - queueIndex
+		if !queueFirstTime.IsZero() && !queueLastTime.IsZero() && !queueLastTime.Before(queueFirstTime) && !queueTime.Before(queueFirstTime) && !queueTime.After(queueLastTime) {
+			// Reflect each item's real queue-entry time across the batch envelope, then
+			// use the reversed ordinal as the second-granularity tie breaker. This
+			// keeps one-file async worker requests globally reversed even when files
+			// were appended to the UI queue in separate selections.
+			queueTime = queueFirstTime.Add(queueLastTime.Sub(queueTime))
+		}
 	}
 	// locations.added_at is second-granularity; offset equal-time batch items by one
 	// second so async worker completion order cannot affect stable queue ordering.

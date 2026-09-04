@@ -843,6 +843,16 @@ export interface paths {
                         added_at_strategy?: "queue" | "reverse_queue" | "modtime";
                         /** @description Client-captured queue timestamps in Unix milliseconds, one per file. */
                         queue_time_ms?: number[];
+                        /**
+                         * Format: int64
+                         * @description Earliest client-captured queue timestamp in this submission; used with `queue_last_time_ms` to reverse queues consistently across one-file async worker requests.
+                         */
+                        queue_first_time_ms?: number;
+                        /**
+                         * Format: int64
+                         * @description Latest client-captured queue timestamp in this submission; used with `queue_first_time_ms` to reverse queues consistently across one-file async worker requests.
+                         */
+                        queue_last_time_ms?: number;
                         /** @description Stable queue indexes, one per file. */
                         queue_index?: number[];
                         /** @description Queue batch size, one per file. */

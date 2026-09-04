@@ -608,6 +608,14 @@ paths:
                   type: array
                   items: { type: integer, format: int64 }
                   description: Client-captured queue timestamps in Unix milliseconds, one per file.
+                queue_first_time_ms:
+                  type: integer
+                  format: int64
+                  description: Earliest client-captured queue timestamp in this submission; used with `queue_last_time_ms` to reverse queues consistently across one-file async worker requests.
+                queue_last_time_ms:
+                  type: integer
+                  format: int64
+                  description: Latest client-captured queue timestamp in this submission; used with `queue_first_time_ms` to reverse queues consistently across one-file async worker requests.
                 queue_index:
                   type: array
                   items: { type: integer, minimum: 0 }

@@ -145,6 +145,8 @@ export function createUploadWorkflow() {
     const batchAddedAtStrategy = addedAtStrategy;
     const fallbackQueueTimeMs = Date.now();
     const batchQueueTimes = items.map((item) => item.queueTimeMs ?? fallbackQueueTimeMs);
+    const batchQueueFirstTimeMs = Math.min(...batchQueueTimes);
+    const batchQueueLastTimeMs = Math.max(...batchQueueTimes);
     const batchQueueTotal = batchFiles.length;
     let queued = 0;
     let changedFiles = false;
@@ -166,6 +168,8 @@ export function createUploadWorkflow() {
             conflictPolicy: batchConflictPolicy,
             addedAtStrategy: batchAddedAtStrategy,
             queueTimeMs: batchQueueTimes[index],
+            queueFirstTimeMs: batchQueueFirstTimeMs,
+            queueLastTimeMs: batchQueueLastTimeMs,
             queueIndex: index,
             queueTotal: batchQueueTotal,
             onProgress: (progress) => {

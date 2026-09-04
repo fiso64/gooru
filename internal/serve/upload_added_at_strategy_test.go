@@ -38,9 +38,33 @@ func TestUploadAddedAtStrategyUsesTargetDefaultAndRequestOverride(t *testing.T) 
 	}
 }
 
+func TestUploadReverseQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.T) {
+	first := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	last := first.Add(10 * time.Second)
+	results := make([]time.Time, 2)
+	for index, queueTime := range []time.Time{first, last} {
+		dir := t.TempDir()
+		library := &recordingUploadLibrary{}
+		server := newUploadTestServer(t, dir, true, library)
+		rec := httptest.NewRecorder()
+		req := uploadAddedAtRequestWithBounds(t, queueTime, time.Time{}, first, last, index, 2, "reverse_queue")
+		server.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("worker %d status=%d body=%s", index, rec.Code, rec.Body.String())
+		}
+		if len(library.files) != 1 {
+			t.Fatalf("worker %d imported %d files", index, len(library.files))
+		}
+		results[index] = library.files[0].AddedAt
+	}
+	if !results[0].After(results[1]) {
+		t.Fatalf("reverse queue did not invert distinct queue times: first=%v last=%v", results[0], results[1])
+	}
+}
+
 func TestUploadAddedAtStrategyModtimeFallsBackToQueue(t *testing.T) {
 	base := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
-	got := resolveUploadAddedAt("modtime", time.Time{}, base, 1, 3)
+	got := resolveUploadAddedAt("modtime", time.Time{}, base, time.Time{}, time.Time{}, 1, 3)
 	if want := base.Add(time.Second); !got.Equal(want) {
 		t.Fatalf("got=%v want=%v", got, want)
 	}
@@ -59,6 +83,11 @@ func TestUploadAddedAtStrategyRejectsInvalidOverride(t *testing.T) {
 
 func uploadAddedAtRequest(t *testing.T, queue, source time.Time, index, total int, strategy string) *http.Request {
 	t.Helper()
+	return uploadAddedAtRequestWithBounds(t, queue, source, time.Time{}, time.Time{}, index, total, strategy)
+}
+
+func uploadAddedAtRequestWithBounds(t *testing.T, queue, source, first, last time.Time, index, total int, strategy string) *http.Request {
+	t.Helper()
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	part, err := w.CreateFormFile("files", "a.txt")
@@ -70,6 +99,12 @@ func uploadAddedAtRequest(t *testing.T, queue, source time.Time, index, total in
 		_ = w.WriteField("source_modtime_ms", strconv.FormatInt(source.UnixMilli(), 10))
 	}
 	_ = w.WriteField("queue_time_ms", strconv.FormatInt(queue.UnixMilli(), 10))
+	if !first.IsZero() {
+		_ = w.WriteField("queue_first_time_ms", strconv.FormatInt(first.UnixMilli(), 10))
+	}
+	if !last.IsZero() {
+		_ = w.WriteField("queue_last_time_ms", strconv.FormatInt(last.UnixMilli(), 10))
+	}
 	_ = w.WriteField("queue_index", strconv.Itoa(index))
 	_ = w.WriteField("queue_total", strconv.Itoa(total))
 	if strategy != "" {
