@@ -1,0 +1,46 @@
+name: Diagnose Go tests
+
+on:
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Capture Go test failure
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          go test ./... > go-test.log 2>&1
+          status=$?
+          cat go-test.log
+          if [ "$status" -ne 0 ]; then
+            {
+              echo '### Go test failure'
+              echo '```text'
+              tail -n 200 go-test.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            while IFS= read -r line; do
+              printf '::error::%s\n' "${line//'%'/'%25'}"
+            done < <(tail -n 80 go-test.log)
+          fi
+          exit "$status"
+      - name: Upload Go test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-log
+          path: go-test.log
+          if-no-files-found: error
