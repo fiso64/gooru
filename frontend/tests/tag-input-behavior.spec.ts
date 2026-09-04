@@ -124,7 +124,7 @@ test('tag modal keeps open on first Escape and Space commits the literal prefix'
   await page.getByRole('button', { name: 'Tag…' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
-  const input = dialog.getByLabel('Tags');
+  const input = dialog.getByRole('textbox', { name: 'Tags' });
   await input.fill('tech');
   const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
   await expect(suggestions).toBeVisible();
