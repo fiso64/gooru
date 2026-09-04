@@ -319,7 +319,7 @@
 
     <div class="sidebar-section bottom">
       <button data-sidebar-shortcut class:active={route === 'settings'} class="sidebar-item" type="button" onclick={() => onRoute('settings')}>
-        <Icon name="settings" size={16} active={route === 'settings'} />
+        <Icon name="settings" size={16} />
         <span>Settings</span>
       </button>
       <button class="sidebar-item" type="button" onclick={openShortcuts}>
@@ -329,9 +329,7 @@
     </div>
   </aside>
 
-  <main class="main">
-    {@render children()}
-  </main>
+  {@render children()}
 </div>
 
 {#if shortcutsOpen}
