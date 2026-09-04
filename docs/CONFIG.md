@@ -176,6 +176,7 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
 | `ui.grid_size` | `180` | Minimum media-grid cell width in pixels. Must be between `64` and `1024`. The grid remains fluid: cells expand to fill each row rather than becoming fixed-width. |
 | `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |
+| `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |
 
 ## `logging`
 
@@ -246,6 +247,7 @@ ui:
   font_style: editorial
   grid_size: 180
   load_full_media_by_default: false
+  fullscreen_media_by_default: false
 ```
 
 For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default remains the quickest way to verify defaults for the exact binary being run:
