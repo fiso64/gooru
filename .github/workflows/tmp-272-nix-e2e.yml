@@ -57,7 +57,7 @@ jobs:
 
           export default defineConfig({
             testDir: './tests',
-            timeout: 30_000,
+            timeout: 45_000,
             use: {
               baseURL: 'http://127.0.0.1:4173',
               trace: 'on-first-retry'
@@ -73,7 +73,10 @@ jobs:
                 name: 'chromium',
                 use: {
                   ...devices['Desktop Chrome'],
-                  launchOptions: { executablePath: process.env.CHROMIUM_BIN }
+                  launchOptions: {
+                    executablePath: process.env.CHROMIUM_BIN,
+                    args: ['--disable-gpu', '--disable-software-rasterizer', '--no-zygote', '--single-process', '--disable-dev-shm-usage']
+                  }
                 }
               }
             ]
