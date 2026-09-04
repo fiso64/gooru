@@ -365,7 +365,10 @@
 <style>
   .searchbar-shortcut {
     margin-left: auto;
+    margin-right: 5px;
     flex: 0 0 auto;
+    color: var(--text-4);
+    font-size: 9px;
     pointer-events: none;
   }
 </style>
