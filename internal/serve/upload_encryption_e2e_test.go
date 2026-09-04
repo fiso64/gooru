@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	core "gooru.local/gooru"
 	"gooru.local/internal/encryptedfile"
@@ -38,8 +39,9 @@ func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
 
 	plaintext := tinyPNG(t, 7, 5, color.RGBA{R: 31, G: 101, B: 211, A: 255})
+	sourceModTime := time.Date(2021, time.March, 4, 5, 6, 7, 0, time.UTC)
 	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"secret.png": plaintext}, []string{"private"}))
+	server.Handler().ServeHTTP(rec, uploadBinaryRequestWithSourceModTime(t, "secret.png", plaintext, sourceModTime))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -48,6 +50,13 @@ func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 	stored, err := os.ReadFile(storedPath)
 	if err != nil {
 		t.Fatalf("read stored upload: %v", err)
+	}
+	storedInfo, err := os.Stat(storedPath)
+	if err != nil {
+		t.Fatalf("stat stored upload: %v", err)
+	}
+	if !storedInfo.ModTime().Equal(sourceModTime) {
+		t.Fatalf("encrypted stored modtime=%v want source=%v", storedInfo.ModTime(), sourceModTime)
 	}
 	if bytes.Equal(stored, plaintext) || bytes.Contains(stored, plaintext) {
 		t.Fatal("encrypted upload persisted plaintext bytes")
@@ -74,6 +83,9 @@ func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 	}
 	if file.Size != int64(len(plaintext)) {
 		t.Fatalf("registered plaintext size = %d, want %d", file.Size, len(plaintext))
+	}
+	if file.ModTime != sourceModTime.Unix() {
+		t.Fatalf("registered modtime=%d want source=%d", file.ModTime, sourceModTime.Unix())
 	}
 	metadata, err := client.GetMediaMetadata(file.ID)
 	if err != nil {

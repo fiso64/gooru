@@ -73,6 +73,7 @@ type UploadsConfig struct {
 	Targets          []UploadTarget `yaml:"targets"`
 	MaxFileSizeBytes int64          `yaml:"max_file_size_bytes"`
 	ConflictPolicy   string         `yaml:"conflict_policy"`
+	PreserveModTime  bool           `yaml:"preserve_modtime"`
 }
 
 type UploadTarget struct {
@@ -151,7 +152,7 @@ func DefaultConfig(dbPath string) Config {
 			CookieSecure:   "auto",
 			CookieSameSite: "lax",
 		},
-		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename"},
+		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename", PreserveModTime: true},
 		Media: MediaConfig{
 			ThumbnailSizes:  []int{256, 512},
 			ThumbnailFormat: "jpeg",
