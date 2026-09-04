@@ -82,12 +82,6 @@ jobs:
           )
 
           replace(
-              'frontend/src/lib/api/openapi.ts',
-              '            size: number;\n            /** Format: date-time */\n            modified_time: string;',
-              '            size: number;\n            /** Format: date-time */\n            added_at: string;\n            /** Format: date-time */\n            modified_time: string;',
-              1,
-          )
-          replace(
               'frontend/src/lib/components/PreviewDialog.svelte',
               '      <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>',
               '      <dt>Added</dt><dd>{modifiedLabel(file.added_at)}</dd>\n      <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>',
@@ -117,14 +111,14 @@ jobs:
           git diff --check
       - name: Validate Go read surface
         run: go test ./internal/database ./internal/serve
-      - name: Validate generated API contract
+      - name: Generate and validate frontend API contract
         working-directory: frontend
         run: |
           npm ci
           npm run generate:api
-          git diff --exit-code -- src/lib/api/openapi.ts
           npm run check
           npm run test:unit
+          git diff --check
       - name: Commit implementation
         run: |
           git config user.name 'chatgpt-codex-connector'
