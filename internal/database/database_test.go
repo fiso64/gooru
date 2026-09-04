@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gooru.local/types"
 )
 
 func TestNewStoreSecuresSQLiteFiles(t *testing.T) {
@@ -80,5 +82,44 @@ func TestLocationPublicIDsArePersistedAndResolved(t *testing.T) {
 	}
 	if got != file.PublicID {
 		t.Fatalf("public id lookup = %q, want %q", got, file.PublicID)
+	}
+}
+
+func TestBatchUpsertLocationsPersistsExplicitAddedAtWithoutRewritingExistingValue(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	if err := CreateEmptyDB(dbPath); err != nil {
+		t.Fatalf("CreateEmptyDB: %v", err)
+	}
+	store, err := NewStore(dbPath, false)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+	if err := RunMigrations(store.DB); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+	if err := store.BatchInsertContents(store.DB, []string{"hash-one", "hash-two"}); err != nil {
+		t.Fatalf("BatchInsertContents: %v", err)
+	}
+	path := "/library/ordered.jpg"
+	if err := store.BatchUpsertLocations(store.DB, map[string]types.LocationInfo{path: {Path: path, Hash: "hash-one", Size: 1, ModTime: 10, AddedAt: 1234, Extension: ".jpg"}}); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	file, err := store.GetFileInfoByPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.AddedAt != 1234 {
+		t.Fatalf("added_at=%d want 1234", file.AddedAt)
+	}
+	if err := store.BatchUpsertLocations(store.DB, map[string]types.LocationInfo{path: {Path: path, Hash: "hash-two", Size: 2, ModTime: 20, AddedAt: 9999, Extension: ".jpg"}}); err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	file, err = store.GetFileInfoByPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.AddedAt != 1234 {
+		t.Fatalf("existing added_at changed to %d, want stable 1234", file.AddedAt)
 	}
 }

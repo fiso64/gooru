@@ -175,7 +175,6 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		}
 		queueIndex := parseUploadOrdinal(queueIndexValues, i, i)
 		queueTotal := parseUploadOrdinal(queueTotalValues, i, len(streamed))
-		streamed[i].sourceModTime = firstNonZeroTime(streamed[i].sourceModTime, time.Time{})
 		// The resolved value is copied into saved/staged state before async job submission.
 		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueIndex, queueTotal)
 	}
@@ -295,13 +294,6 @@ func parseUploadOrdinal(values []string, index int, fallback int) int {
 		}
 	}
 	return fallback
-}
-
-func firstNonZeroTime(value time.Time, fallback time.Time) time.Time {
-	if value.IsZero() {
-		return fallback
-	}
-	return value
 }
 
 func resolveUploadAddedAt(strategy string, sourceModTime, queueTime time.Time, queueIndex, queueTotal int) time.Time {

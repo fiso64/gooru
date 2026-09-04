@@ -1236,12 +1236,16 @@ components:
           type: array
           items:
             type: object
-            required: [id, name]
+            required: [id, name, added_at_strategy]
             properties:
               id:
                 type: string
               name:
                 type: string
+              added_at_strategy:
+                type: string
+                enum: [queue, reverse_queue, modtime]
+                description: Default added-at strategy configured for this upload target.
     Job:
       type: object
       required: [id, type, status, submitted_at]
