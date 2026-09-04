@@ -72,7 +72,7 @@ jobs:
           fi
       - name: Focused grid and CBZ browser regression
         working-directory: frontend
-        run: npx playwright test tests/grid-layout.spec.ts --project=chromium
+        run: npx playwright test tests/grid-layout-config.spec.ts --project=chromium
       - name: Commit integration
         shell: bash
         run: |
