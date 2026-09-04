@@ -297,7 +297,7 @@
     if (nextComicEntered === previousComicEntered) return;
     previousComicEntered = nextComicEntered;
     comicTransition = nextComicEntered ? 'entering' : 'exiting';
-    const timer = setTimeout(() => { comicTransition = ''; }, nextComicEntered ? 520 : 460);
+    const timer = setTimeout(() => { comicTransition = ''; }, 520);
     return () => clearTimeout(timer);
   });
 
