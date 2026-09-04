@@ -2,7 +2,7 @@
 
 `gooru serve` runs the HTTP API, authenticated media endpoints, uploads, background jobs, and the static SvelteKit frontend in one Go process.
 
-For every YAML field and default, see [CONFIG.md](CONFIG.md). For endpoint-level integration, see [API.md](API.md) and [openapi.yaml](openapi.yaml).
+For every YAML field and default, see [CONFIG.md](CONFIG.md). For endpoint-level integration, see [openapi.yaml](openapi.yaml).
 
 ## From a source checkout
 

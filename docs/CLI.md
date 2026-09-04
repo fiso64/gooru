@@ -120,7 +120,7 @@ gooru delete -e 'temporary'
 
 The CLI `delete` command removes Gooru's location records; it does **not** delete the underlying filesystem file. If the removed location was the last location for that content, the associated content record and tags are also removed from the database.
 
-The web API has a separate physical-delete mode for files inside managed upload roots; see [API.md](API.md).
+The web API has a separate physical-delete mode for files inside managed upload roots.
 
 ## Rename a tag
 
