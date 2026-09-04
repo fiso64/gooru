@@ -23,6 +23,7 @@
         { keys: ['k', '←'], description: 'Previous file or comic page' },
         { keys: ['t'], description: 'Focus tag input in tag mode' },
         { keys: ['u'], description: 'Focus tag input in untag mode' },
+        { keys: ['q'], description: 'Toggle original / preview media' },
         { keys: ['d'], description: 'Download original' },
         { keys: ['Del'], description: 'Remove from library' },
         { keys: ['⇧', 'Del'], description: 'Delete file from disk' },
