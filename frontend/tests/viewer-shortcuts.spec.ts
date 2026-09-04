@@ -138,6 +138,17 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   const search = page.getByRole('textbox', { name: 'Search library' });
   const searchShortcut = page.locator('.searchbar-shortcut');
   await expect(searchShortcut).toHaveText('/');
+  await expect(searchShortcut).toHaveCSS('font-size', '9px');
+  await expect(searchShortcut).toHaveCSS('margin-right', '5px');
+  const [shortcutColor, subduedColor] = await searchShortcut.evaluate((element) => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--text-4)';
+    document.body.appendChild(probe);
+    const colors = [getComputedStyle(element).color, getComputedStyle(probe).color];
+    probe.remove();
+    return colors;
+  });
+  expect(shortcutColor).toBe(subduedColor);
   await expect(page.getByRole('button', { name: 'Clear search' })).toHaveCount(0);
   await page.keyboard.press('/');
   await expect(search).toBeFocused();
