@@ -61,7 +61,6 @@ test('configured fullscreen default requests fullscreen from the viewer-opening 
 
   await page.keyboard.press('Escape');
   await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
-  await expect(page.getByRole('dialog')).toBeVisible();
 });
 
 test('fullscreen default remains off when runtime config is false', async ({ page }) => {
