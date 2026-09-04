@@ -17,6 +17,8 @@
     onPrimaryAction,
     keyboardNavigation = false,
     navigationUnit = 'file',
+    closeOnFullscreenExit = false,
+    onFullscreenExit,
     comicAvailable = false,
     comicEntered = false,
     comicLoading = false,
@@ -33,6 +35,8 @@
     onPrimaryAction?: () => void;
     keyboardNavigation?: boolean;
     navigationUnit?: string;
+    closeOnFullscreenExit?: boolean;
+    onFullscreenExit?: () => void;
     comicAvailable?: boolean;
     comicEntered?: boolean;
     comicLoading?: boolean;
@@ -67,6 +71,7 @@
   let rotation = $state<number>(initialViewerPreferences.rotation);
   let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);
   let isFullscreen = $state(false);
+  let keepViewerAfterFullscreenExit = false;
   let stageWidth = $state(0);
   let stageHeight = $state(0);
   let intrinsicWidth = $state(0);
@@ -133,13 +138,19 @@
     observer.observe(stage);
 
     const syncFullscreen = () => {
-      isFullscreen = document.fullscreenElement === stage;
+      const wasFullscreen = isFullscreen;
+      const nextFullscreen = document.fullscreenElement === stage;
+      isFullscreen = nextFullscreen;
       resize();
       if (isFullscreen) scheduleCursorIdle();
       else {
         cursorIdle = false;
         if (cursorIdleTimer) clearTimeout(cursorIdleTimer);
         cursorIdleTimer = undefined;
+      }
+      if (wasFullscreen && !nextFullscreen && closeOnFullscreenExit) {
+        if (keepViewerAfterFullscreenExit) keepViewerAfterFullscreenExit = false;
+        else onFullscreenExit?.();
       }
     };
     document.addEventListener('fullscreenchange', syncFullscreen);
@@ -459,10 +470,13 @@
   async function toggleFullscreen() {
     const stage = stageElement;
     if (!stage) return;
+    const exiting = document.fullscreenElement === stage;
+    if (exiting && closeOnFullscreenExit) keepViewerAfterFullscreenExit = true;
     try {
-      if (document.fullscreenElement === stage) await document.exitFullscreen();
+      if (exiting) await document.exitFullscreen();
       else await stage.requestFullscreen();
     } catch {
+      if (exiting) keepViewerAfterFullscreenExit = false;
       // Browsers may deny fullscreen without a user gesture; keyboard/button use normally qualifies.
     }
   }
