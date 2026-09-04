@@ -1,0 +1,29 @@
+name: Integrate develop into 239
+
+on:
+  push:
+    branches:
+      - feat/231-comic-ui
+
+permissions:
+  contents: write
+
+concurrency:
+  group: integrate-239-develop
+  cancel-in-progress: true
+
+jobs:
+  merge-develop:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/231-comic-ui
+          fetch-depth: 0
+      - name: Merge current develop
+        run: |
+          git config user.name "gooru-maintainer"
+          git config user.email "maintainer@users.noreply.github.com"
+          git fetch origin develop
+          git merge --no-edit origin/develop
+          git push origin HEAD:feat/231-comic-ui
