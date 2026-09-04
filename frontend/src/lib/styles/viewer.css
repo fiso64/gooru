@@ -33,6 +33,8 @@
   opacity: 0;
 }
 
+/* Copy the supplied concept's read-cover-button treatment verbatim; only its
+   placement differs, per the issue's explicit top-right-of-image correction. */
 .comic-read-button {
   position: absolute;
   z-index: 8;
@@ -84,19 +86,21 @@
   font-size: 0;
   background-repeat: no-repeat;
   background-position: center;
-  background-size: contain;
+  background-size: 20px 20px;
 }
 
+/* Exact book glyph from the owner-supplied concept HTML. */
 .comic-read-arrow-left {
-  width: 20px;
-  height: 20px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M4 5.5c4.6 0 6.9 1 8 2.1v11.1c-1.1-1-3.4-2-8-2V5.5Z' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M20 5.5c-4.6 0-6.9 1-8 2.1v11.1c1.1-1 3.4-2 8-2V5.5Z' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3Cpath d='M12 7.6v11.1' stroke='white' stroke-width='1.5'/%3E%3C/svg%3E");
+  width: 16px;
+  height: 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none' stroke='currentColor' stroke-width='1.55'%3E%3Cpath d='M4.2 3.8h7.1a2 2 0 0 1 2 2v10.4H6.2a2 2 0 0 1-2-2V3.8Z' stroke='white'/%3E%3Cpath d='M13.3 5.8h2.5v10.4h-7a2.6 2.6 0 0 0-2.6 0' stroke='white'/%3E%3C/svg%3E");
 }
 
+/* Exact enter-arrow glyph and hover motion from the concept. */
 .comic-read-arrow-right {
-  width: 18px;
-  height: 18px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M6 12h10' stroke='white' stroke-width='1.8' stroke-linecap='round'/%3E%3Cpath d='m13 8 4 4-4 4' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  width: 16px;
+  height: 16px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none' stroke='currentColor' stroke-width='1.55'%3E%3Cpath d='M4 10h11M11 6l4 4-4 4' stroke='white'/%3E%3C/svg%3E");
   transition: transform 180ms cubic-bezier(.2, .78, .22, 1);
 }
 
@@ -105,7 +109,9 @@
   transform: translateX(3px);
 }
 
-/* The transition line and arrowhead mirror the owner-supplied concept. */
+/* Directional transition accent copied from the supplied concept. The viewer
+   already owns the stage pseudo-elements, so the line and its arrowhead are
+   represented separately but use the concept's exact dimensions/timing. */
 .viewer-stage::after {
   content: '';
   position: absolute;
@@ -135,64 +141,75 @@
   pointer-events: none;
 }
 
+/* The concept changes frame width from min(52%, 520px) to min(61%, 600px).
+   Gooru's real viewer derives dimensions from the actual image aspect ratio, so
+   preserve that geometry and reproduce the same 420ms easing with the equivalent
+   61/52 scale delta rather than imposing the concept's fake fixed aspect ratio. */
 .viewer-stage.comic-reading .viewer-pan-surface {
-  animation: enterReader 520ms cubic-bezier(.2, .78, .22, 1) both;
-}
-
-.viewer-stage.comic-reading::after {
-  animation: arrowIn 480ms cubic-bezier(.2, .78, .22, 1) both;
-}
-
-.viewer-stage.comic-reading::before {
-  animation: arrowHeadIn 480ms cubic-bezier(.2, .78, .22, 1) both;
+  animation: comic-frame-enter 420ms cubic-bezier(.2, .78, .22, 1) both;
 }
 
 .viewer-stage:not(.comic-reading):has(.comic-read-button) .viewer-pan-surface {
-  animation: exitReader 460ms cubic-bezier(.2, .78, .22, 1) both;
+  animation: comic-frame-exit 420ms cubic-bezier(.2, .78, .22, 1) both;
+}
+
+.viewer-stage.comic-reading::after {
+  animation: arrow-through 460ms cubic-bezier(.2, .78, .22, 1);
+}
+
+.viewer-stage.comic-reading::before {
+  animation: arrow-head-through 460ms cubic-bezier(.2, .78, .22, 1);
 }
 
 .viewer-stage:not(.comic-reading):has(.comic-read-button)::after {
-  animation: arrowOut 440ms cubic-bezier(.2, .78, .22, 1) both;
+  transform: translate(-50%, -50%) rotate(180deg);
+  animation: arrow-back 400ms cubic-bezier(.2, .78, .22, 1);
 }
 
 .viewer-stage:not(.comic-reading):has(.comic-read-button)::before {
   left: calc(50% - 51px);
   transform: translateY(-50%) rotate(225deg);
-  animation: arrowHeadOut 440ms cubic-bezier(.2, .78, .22, 1) both;
+  animation: arrow-head-back 400ms cubic-bezier(.2, .78, .22, 1);
 }
 
-@keyframes enterReader {
-  0% { transform: translateX(0) scale(1); filter: saturate(.94) contrast(1); }
-  47% { transform: translateX(-18px) scale(1.025); filter: saturate(.9) contrast(1.02); }
-  100% { transform: translateX(0) scale(1.045); filter: saturate(.92) contrast(1.03); }
+@keyframes comic-frame-enter {
+  from { transform: scale(1); }
+  to { transform: scale(1.1730769231); }
 }
 
-@keyframes exitReader {
-  0% { transform: translateX(0) scale(1.045); filter: saturate(.92) contrast(1.03); }
-  48% { transform: translateX(18px) scale(1.02); filter: saturate(.9) contrast(1.02); }
-  100% { transform: translateX(0) scale(1); filter: saturate(.96) contrast(1); }
+@keyframes comic-frame-exit {
+  from { transform: scale(1.1730769231); }
+  to { transform: scale(1); }
 }
 
-@keyframes arrowIn {
-  0% { opacity: 0; transform: translate(-58%, -50%) scaleX(.05); }
-  45% { opacity: .72; }
-  100% { opacity: 0; transform: translate(-42%, -50%) scaleX(1); }
+@keyframes arrow-through {
+  0% { opacity: 0; transform: translate(-50%, -50%) scaleX(.05); }
+  24% { opacity: .95; }
+  65% { opacity: .8; transform: translate(-50%, -50%) scaleX(1); }
+  100% { opacity: 0; transform: translate(18%, -50%) scaleX(.45); }
 }
 
-@keyframes arrowOut {
-  0% { opacity: 0; transform: translate(-42%, -50%) scaleX(.05); }
-  45% { opacity: .6; }
-  100% { opacity: 0; transform: translate(-58%, -50%) scaleX(1); }
+@keyframes arrow-back {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(180deg) scaleX(.08); }
+  30% { opacity: .9; }
+  72% { opacity: .65; transform: translate(-50%, -50%) rotate(180deg) scaleX(.92); }
+  100% { opacity: 0; transform: translate(-115%, -50%) rotate(180deg) scaleX(.38); }
 }
 
-@keyframes arrowHeadIn {
-  0%, 100% { opacity: 0; }
-  45% { opacity: 1; }
+/* Keep the arrowhead locked to the same directional sweep as the concept's
+   .transition-arrow::after child while using the stage's second pseudo-element. */
+@keyframes arrow-head-through {
+  0% { opacity: 0; transform: translate(-62px, -50%) rotate(45deg); }
+  24% { opacity: .95; }
+  65% { opacity: .8; transform: translate(0, -50%) rotate(45deg); }
+  100% { opacity: 0; transform: translate(47px, -50%) rotate(45deg); }
 }
 
-@keyframes arrowHeadOut {
-  0%, 100% { opacity: 0; }
-  45% { opacity: 1; }
+@keyframes arrow-head-back {
+  0% { opacity: 0; transform: translate(62px, -50%) rotate(225deg); }
+  30% { opacity: .9; }
+  72% { opacity: .65; transform: translate(0, -50%) rotate(225deg); }
+  100% { opacity: 0; transform: translate(-90px, -50%) rotate(225deg); }
 }
 
 .comic-error-overlay {
@@ -236,9 +253,9 @@
   .viewer-stage .viewer-pan-surface,
   .viewer-stage::before,
   .viewer-stage::after {
-    animation-duration: .001ms !important;
+    animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
+    transition-duration: 1ms !important;
   }
 }
 
