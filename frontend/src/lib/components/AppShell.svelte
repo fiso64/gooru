@@ -333,18 +333,14 @@
           ondrop={(event) => void dropSavedSearch(event, saved.id)}
         >
           <button
-            class="sidebar-mini saved-search-drag"
+            class="sidebar-item saved-search-drag"
             type="button"
-            title={`Drag ${saved.name}`}
-            aria-label={`Drag ${saved.name}`}
             draggable={!savedSearchReorderBusy}
             disabled={savedSearchReorderBusy}
             ondragstart={(event) => startSavedSearchDrag(event, saved.id)}
             ondragend={() => (draggedSavedSearchID = '')}
+            onclick={() => onSavedSearch(saved.query, saved.name)}
           >
-            <span aria-hidden="true">⋮⋮</span>
-          </button>
-          <button class="sidebar-item" type="button" onclick={() => onSavedSearch(saved.query, saved.name)}>
             <Icon name="bookmark" size={14} />
             <span class="truncate">{saved.name}</span>
           </button>
@@ -420,7 +416,6 @@
 <style>
   .saved-search-drag {
     cursor: grab;
-    flex: 0 0 auto;
   }
 
   .saved-search-drag:active {

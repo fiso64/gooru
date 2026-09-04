@@ -64,7 +64,10 @@ test('persists saved-search drag order across reload', async ({ page }) => {
   const rows = page.locator('.sidebar-saved-row');
   await expect(rows.locator('.truncate')).toHaveText(['First', 'Second', 'Third']);
 
-  await page.getByRole('button', { name: 'Drag First' }).dragTo(rows.nth(2));
+  await expect(page.getByRole('button', { name: 'Drag First' })).toHaveCount(0);
+  const firstEntry = rows.nth(0).locator('.sidebar-item');
+  await expect(firstEntry).toHaveAttribute('draggable', 'true');
+  await firstEntry.dragTo(rows.nth(2));
 
   await expect.poll(() => reorderRequests).toEqual([{ ids: ['s2', 's3', 's1'], csrf: 'csrf-one' }]);
   await expect(rows.locator('.truncate')).toHaveText(['Second', 'Third', 'First']);
