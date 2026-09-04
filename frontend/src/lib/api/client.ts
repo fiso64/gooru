@@ -146,30 +146,9 @@ export class ApiClient {
   }
 
   async reorderSavedSearches(ids: string[]): Promise<void> {
-    const response = await generatedFetch(`${absoluteBaseURL(this.baseURL)}/saved-searches/reorder`, {
-      method: 'PUT',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        ...this.csrfHeaderParam('PUT')
-      },
-      body: JSON.stringify({ ids })
-    });
-    if (!response.ok) {
-      let payload: ApiErrorResponse | undefined;
-      try {
-        payload = (await response.json()) as ApiErrorResponse;
-      } catch {
-        payload = undefined;
-      }
-      const apiError = new ApiError(
-        response.status,
-        payload?.error.code ?? 'http_error',
-        payload?.error.message ?? `Request failed with HTTP ${response.status}`
-      );
-      if (response.status === 401) unauthorizedHandler?.();
-      throw apiError;
-    }
+    await this.unwrap(
+      this.client.PUT('/saved-searches/reorder', { params: { header: this.csrfHeaderParam('PUT') }, body: { ids } })
+    );
   }
 
   async deleteSavedSearch(id: string): Promise<void> {
