@@ -4,13 +4,14 @@ on:
   push:
     branches:
       - feat/254-added-at-sorting
+    paths:
+      - .github/workflows/maintainer-254-added-sort.yml
 
 permissions:
   contents: write
 
 jobs:
   apply-and-validate:
-    if: ${{ !contains(github.event.head_commit.message, '[maintainer-254-sorting-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
