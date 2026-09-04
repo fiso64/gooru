@@ -19,30 +19,27 @@ jobs:
       - name: Apply focused source edits
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          node <<'NODE'
+          const fs = require('node:fs');
 
-          p = Path('frontend/src/lib/components/PreviewDialog.svelte')
-          s = p.read_text()
-          old = """  onMount(() => {\n    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;\n    return claimFocus(dialogElement, previous);\n  });"""
-          new = """  onMount(() => {\n    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;\n    if ($runtimeConfig.fullscreenMediaByDefault) {\n      const stage = dialogElement?.querySelector<HTMLElement>('.viewer-stage');\n      if (stage) void stage.requestFullscreen().catch(() => undefined);\n    }\n    return claimFocus(dialogElement, previous);\n  });"""
-          if old not in s:
-              raise SystemExit('PreviewDialog mount block not found')
-          p.write_text(s.replace(old, new, 1))
+          let path = 'frontend/src/lib/components/PreviewDialog.svelte';
+          let source = fs.readFileSync(path, 'utf8');
+          const mountOld = `  onMount(() => {\n    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;\n    return claimFocus(dialogElement, previous);\n  });`;
+          const mountNew = `  onMount(() => {\n    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;\n    if ($runtimeConfig.fullscreenMediaByDefault) {\n      const stage = dialogElement?.querySelector<HTMLElement>('.viewer-stage');\n      if (stage) void stage.requestFullscreen().catch(() => undefined);\n    }\n    return claimFocus(dialogElement, previous);\n  });`;
+          if (!source.includes(mountOld)) throw new Error('PreviewDialog mount block not found');
+          fs.writeFileSync(path, source.replace(mountOld, mountNew));
 
-          p = Path('docs/CONFIG.md')
-          s = p.read_text()
-          row = '| `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |'
-          added = row + '\n| `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |'
-          if row not in s:
-              raise SystemExit('CONFIG ui row not found')
-          s = s.replace(row, added, 1)
-          example = '  load_full_media_by_default: false\n'
-          if example not in s:
-              raise SystemExit('CONFIG example option not found')
-          s = s.replace(example, example + '  fullscreen_media_by_default: false\n', 1)
-          p.write_text(s)
-          PY
+          path = 'docs/CONFIG.md';
+          source = fs.readFileSync(path, 'utf8');
+          const row = '| `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |';
+          const added = row + '\n| `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |';
+          if (!source.includes(row)) throw new Error('CONFIG ui row not found');
+          source = source.replace(row, added);
+          const example = '  load_full_media_by_default: false\n';
+          if (!source.includes(example)) throw new Error('CONFIG example option not found');
+          source = source.replace(example, example + '  fullscreen_media_by_default: false\n');
+          fs.writeFileSync(path, source);
+          NODE
       - name: Commit source edits
         shell: bash
         run: |
