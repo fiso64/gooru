@@ -103,4 +103,4 @@ p = Path("internal/serve/browse_test.go")
 text = p.read_text()
 if text.count(marker) != 1:
     raise SystemExit("browse_test.go: insertion marker mismatch")
-p.write_text(text.replace(marker, test + marker))
+p.write_text(text.replace(marker, test.replace("\\t", "\t") + marker))
