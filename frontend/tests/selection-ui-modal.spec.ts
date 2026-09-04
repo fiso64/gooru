@@ -62,9 +62,9 @@ async function mockApp(page: Page) {
 }
 
 async function selectFirstFile(page: Page) {
-  await page.getByLabel('Select all files in current view').click();
+  await page.keyboard.press('a');
   await expect(page.getByText('3 of 3 selected')).toBeVisible();
-  await page.locator('.thumb-open[aria-label="Deselect one.jpg"]').click();
+  await page.getByRole('checkbox', { name: 'Deselect one.jpg' }).click();
   await expect(page.getByText('2 of 3 selected')).toBeVisible();
 }
 
