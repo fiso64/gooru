@@ -672,8 +672,6 @@
     {#if comicError}<div class="comic-error-overlay" role="alert">{comicError}</div>{/if}
   {/if}
 
-  <div class="transition-arrow" aria-hidden="true"></div>
-
   {#if renderedFile.media_kind === 'video' || comicEntered}
     <div class="lightbox-video-controls" class:comic-controls={comicEntered} class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
       {#if comicEntered}

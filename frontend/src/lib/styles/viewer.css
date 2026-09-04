@@ -94,73 +94,50 @@
 }
 .comic-read-button:hover .enter-arrow { transform: translateX(3px); }
 
-/* Directional transition accent copied structurally and numerically from the
-   supplied concept. The arrowhead is the element's own ::after child so it
-   inherits the exact parent transform/keyframes. */
-.transition-arrow {
-  position: absolute;
-  z-index: 7;
-  left: 50%;
-  top: 50%;
-  width: 138px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(246,222,119,.82), transparent);
-  transform: translate(-50%,-50%) scaleX(.05);
-  opacity: 0;
-  pointer-events: none;
-}
-.transition-arrow::after {
-  content: "";
-  position: absolute;
-  right: 18px;
-  top: 50%;
-  width: 8px;
-  height: 8px;
-  border-top: 1.5px solid var(--accent);
-  border-right: 1.5px solid var(--accent);
-  transform: translateY(-50%) rotate(45deg);
-}
-
-/* Gooru derives the real image geometry rather than imposing the concept's
-   synthetic fixed frame, but preserves its 61/52 growth and 420ms easing. */
+/* Comic mode is communicated with a short settle animation only. The media
+   always returns to its normal viewer geometry; reader mode must not leave a
+   persistent zoom or directional decoration behind. */
 .viewer-stage.entering .viewer-pan-surface {
-  animation: comic-frame-enter 420ms cubic-bezier(.2,.78,.22,1) both;
+  animation: comic-reader-enter 480ms cubic-bezier(.16,.84,.24,1) both;
 }
 .viewer-stage.exiting .viewer-pan-surface {
-  animation: comic-frame-exit 420ms cubic-bezier(.2,.78,.22,1) both;
-}
-.viewer-stage.comic-reading:not(.entering) .viewer-pan-surface {
-  transform: scale(1.1730769231);
+  animation: comic-reader-exit 420ms cubic-bezier(.32,.02,.24,1) both;
 }
 
-.viewer-stage.entering .transition-arrow {
-  animation: arrow-through 460ms cubic-bezier(.2,.78,.22,1);
-}
-@keyframes arrow-through {
-  0% { opacity: 0; transform: translate(-50%,-50%) scaleX(.05); }
-  24% { opacity: .95; }
-  65% { opacity: .8; transform: translate(-50%,-50%) scaleX(1); }
-  100% { opacity: 0; transform: translate(18%,-50%) scaleX(.45); }
-}
-
-.viewer-stage.exiting .transition-arrow {
-  transform: translate(-50%,-50%) rotate(180deg);
-  animation: arrow-back 400ms cubic-bezier(.2,.78,.22,1);
-}
-@keyframes arrow-back {
-  0% { opacity: 0; transform: translate(-50%,-50%) rotate(180deg) scaleX(.08); }
-  30% { opacity: .9; }
-  72% { opacity: .65; transform: translate(-50%,-50%) rotate(180deg) scaleX(.92); }
-  100% { opacity: 0; transform: translate(-115%,-50%) rotate(180deg) scaleX(.38); }
+@keyframes comic-reader-enter {
+  0% {
+    transform: scale(.965);
+    filter: brightness(.84) saturate(.82);
+    opacity: .82;
+  }
+  58% {
+    transform: scale(1.018);
+    filter: brightness(1.06) saturate(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    filter: none;
+    opacity: 1;
+  }
 }
 
-@keyframes comic-frame-enter {
-  from { transform: scale(1); }
-  to { transform: scale(1.1730769231); }
-}
-@keyframes comic-frame-exit {
-  from { transform: scale(1.1730769231); }
-  to { transform: scale(1); }
+@keyframes comic-reader-exit {
+  0% {
+    transform: scale(1);
+    filter: none;
+    opacity: 1;
+  }
+  44% {
+    transform: scale(.982);
+    filter: brightness(.9) saturate(.88);
+    opacity: .88;
+  }
+  100% {
+    transform: scale(1);
+    filter: none;
+    opacity: 1;
+  }
 }
 
 .comic-error-overlay {
@@ -195,8 +172,7 @@
   .comic-read-button,
   .comic-read-button .enter-arrow,
   .lightbox-video-controls.comic-controls,
-  .viewer-stage .viewer-pan-surface,
-  .transition-arrow {
+  .viewer-stage .viewer-pan-surface {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;

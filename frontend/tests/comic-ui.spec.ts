@@ -72,14 +72,12 @@ test('comic reader matches supplied entry treatment and shared playback controls
 
   await readComic.click();
   await expect(stage).toHaveClass(/comic-reading/);
-  const transitionArrow = stage.locator('.transition-arrow');
   await expect(stage).toHaveClass(/entering/);
-  await expect(transitionArrow).toHaveCount(1);
-  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element).animationName)).toBe('arrow-through');
-  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.46s');
-  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element, '::after').content)).toBe('""');
-  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('comic-frame-enter');
-  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.42s');
+  await expect(stage.locator('.transition-arrow')).toHaveCount(0);
+  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('comic-reader-enter');
+  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.48s');
+  await expect.poll(() => stage.evaluate((element) => !element.classList.contains('entering'))).toBe(true);
+  await expect(surface).toHaveCSS('transform', 'none');
   const controls = dialog.locator('.lightbox-video-controls.comic-controls');
   await expect(controls).toBeVisible();
   await expect(controls.getByRole('button', { name: 'Exit comic (Space)' })).toBeVisible();
@@ -107,9 +105,10 @@ test('comic reader matches supplied entry treatment and shared playback controls
   await page.keyboard.press('Space');
   await expect(dialog.getByRole('button', { name: 'Read comic' })).toBeVisible();
   await expect(stage).toHaveClass(/exiting/);
-  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element).animationName)).toBe('arrow-back');
-  await expect.poll(() => transitionArrow.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.4s');
-  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('comic-frame-exit');
+  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('comic-reader-exit');
+  await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.42s');
+  await expect.poll(() => stage.evaluate((element) => !element.classList.contains('exiting'))).toBe(true);
+  await expect(surface).toHaveCSS('transform', 'none');
 });
 
 test('comic transitions respect reduced-motion preference', async ({ page }) => {
@@ -120,5 +119,5 @@ test('comic transitions respect reduced-motion preference', async ({ page }) => 
   await dialog.getByRole('button', { name: 'Read comic' }).click();
   await expect(stage).toHaveClass(/comic-reading/);
   await expect(stage.locator('.viewer-pan-surface')).toHaveCSS('animation-duration', '0.001s');
-  await expect(stage.locator('.transition-arrow')).toHaveCSS('animation-duration', '0.001s');
+  await expect(stage.locator('.transition-arrow')).toHaveCount(0);
 });
