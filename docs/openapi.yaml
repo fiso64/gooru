@@ -1288,7 +1288,7 @@ components:
                 type: array
                 items:
                   type: string
-                description: Visible editable tag/-tag directives prefilled for this upload target.
+                description: Visible editable ordinary tags prefilled for this upload target.
     Job:
       type: object
       required: [id, type, status, submitted_at]
