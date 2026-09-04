@@ -8,17 +8,17 @@ on:
       - .github/workflows/maintainer-292-integration.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  diagnose:
+  integrate-and-validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/278-grid-layout-types
           fetch-depth: 0
-      - name: Diagnose develop integration
+      - name: Integrate current develop
         shell: bash
         run: |
           git fetch origin develop
@@ -27,10 +27,57 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 0 ]; then
-            echo '::error::Conflicting files:'
-            git diff --name-only --diff-filter=U | sed 's/^/::error file=/'
-            echo '--- conflict diff ---'
-            git diff --cc
-            exit "$status"
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            test "$conflicts" = "internal/serve/config.go" || { echo "::error::unexpected conflicts: $conflicts"; exit 1; }
+            python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/serve/config.go')
+          text = p.read_text()
+          old = '''<<<<<<< HEAD\n\tGridType                 string `yaml:"grid_type"`\n=======\n>>>>>>> origin/develop\n'''
+          if old not in text:
+              raise SystemExit('expected UIConfig conflict block not found')
+          p.write_text(text.replace(old, '\tGridType                 string `yaml:"grid_type"`\n', 1))
+          PY
+            git add internal/serve/config.go
           fi
-          echo 'develop merges cleanly'
+          test -z "$(git diff --name-only --diff-filter=U)"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Go regression
+        run: go test ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend check and unit tests
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit
+      - name: Select Chromium
+        shell: bash
+        run: |
+          chrome="$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)"
+          if [ -n "$chrome" ]; then
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chrome" >> "$GITHUB_ENV"
+          else
+            cd frontend
+            npx playwright install chromium
+          fi
+      - name: Focused grid and CBZ browser regression
+        working-directory: frontend
+        run: npx playwright test tests/grid-layout.spec.ts --project=chromium
+      - name: Commit integration
+        shell: bash
+        run: |
+          git config user.name maintainer
+          git config user.email maintainer@localhost
+          git add -A
+          git commit -m 'merge: reconcile grid layouts with upload defaults'
+          git push origin HEAD:feat/278-grid-layout-types
