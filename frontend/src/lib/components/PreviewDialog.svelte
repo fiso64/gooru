@@ -252,20 +252,6 @@
       <dt>Hash</dt><dd class="hash">{file.content_id}</dd>
     </dl>
 
-    {#if comicAvailable}
-      <div class="comic-session">
-        <button class="g-btn g-btn-sm" type="button" disabled={comicLoading} onclick={() => void toggleComic()}>
-          {comicLoading ? 'Loading comic…' : comicEntered ? 'Exit comic' : 'Read comic'}
-        </button>
-        {#if comicEntered && comicManifest}
-          <span class="comic-page-status">Page {comicPageIndex + 1} / {comicManifest.pages.length}</span>
-        {:else}
-          <span class="comic-page-status">Space / Enter</span>
-        {/if}
-        {#if comicError}<div class="comic-error" role="alert">{comicError}</div>{/if}
-      </div>
-    {/if}
-
     <hr class="g-divider" />
 
     <div class="lightbox-tags">
@@ -326,6 +312,14 @@
     navigationUnit={comicEntered ? 'page' : 'file'}
     closeOnFullscreenExit={$runtimeConfig.fullscreenMediaByDefault}
     onFullscreenExit={onClose}
+    {comicAvailable}
+    {comicEntered}
+    {comicLoading}
+    comicPage={comicPageIndex}
+    comicPages={comicManifest?.pages.length ?? 0}
+    {comicError}
+    onToggleComic={() => void toggleComic()}
+    onComicPageSelect={(index) => { comicPageIndex = index; }}
   />
 
   <aside class="lightbox-rail">
@@ -379,24 +373,5 @@
     color: var(--accent);
     background: var(--accent-soft);
     border-color: var(--accent-line);
-  }
-
-  .comic-session {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    gap: 8px;
-    margin-top: 12px;
-  }
-
-  .comic-page-status {
-    color: var(--text-muted);
-    font: 11px/1.3 var(--font-mono);
-  }
-
-  .comic-error {
-    grid-column: 1 / -1;
-    color: var(--danger);
-    font-size: 12px;
   }
 </style>

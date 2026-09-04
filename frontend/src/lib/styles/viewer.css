@@ -26,11 +26,161 @@
 }
 
 .lightbox-video-controls {
+  /* The image handoff canvas is intentionally z-index: 2 while the next image
+     loads. Viewer chrome must stay in a higher paint layer so source changes
+     cannot briefly cover an otherwise-stable controls component. */
+  z-index: 3;
   transition: opacity 160ms ease;
 }
 
 .lightbox-video-controls.is-idle:not(:hover):not(:focus-within) {
   opacity: 0;
+}
+
+/* The supplied concept's read-cover-button treatment; placement is the issue's
+   explicit top-right-of-rendered-image deviation. */
+.comic-read-button {
+  position: absolute;
+  z-index: 8;
+  top: 48px;
+  right: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 42px;
+  padding: 0 15px 0 13px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.24);
+  background: rgba(16,16,14,.78);
+  color: #fff;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 34px rgba(0,0,0,.34);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .005em;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 180ms cubic-bezier(.2,.78,.22,1),
+    box-shadow 180ms ease;
+}
+
+.comic-read-button:hover,
+.comic-read-button:focus-visible {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  transform: translateY(-2px) scale(1.015);
+  box-shadow: 0 14px 38px rgba(0,0,0,.44);
+  outline: none;
+}
+
+.comic-read-button:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+.comic-read-button .icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.comic-read-button .icon path {
+  vector-effect: non-scaling-stroke;
+}
+
+.comic-read-button .enter-arrow {
+  transition: transform 180ms cubic-bezier(.2,.78,.22,1);
+}
+.comic-read-button:hover .enter-arrow { transform: translateX(3px); }
+
+/* Comic mode is communicated with a short settle animation only. The media
+   always returns to its normal viewer geometry; reader mode must not leave a
+   persistent zoom or directional decoration behind. */
+.viewer-stage.entering .viewer-pan-surface {
+  animation: comic-reader-enter 480ms cubic-bezier(.16,.84,.24,1) both;
+}
+.viewer-stage.exiting .viewer-pan-surface {
+  animation: comic-reader-exit 420ms cubic-bezier(.32,.02,.24,1) both;
+}
+
+@keyframes comic-reader-enter {
+  0% {
+    transform: scale(.965);
+    filter: brightness(.84) saturate(.82);
+    opacity: .82;
+  }
+  58% {
+    transform: scale(1.018);
+    filter: brightness(1.06) saturate(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    filter: none;
+    opacity: 1;
+  }
+}
+
+@keyframes comic-reader-exit {
+  0% {
+    transform: scale(1);
+    filter: none;
+    opacity: 1;
+  }
+  44% {
+    transform: scale(.982);
+    filter: brightness(.9) saturate(.88);
+    opacity: .88;
+  }
+  100% {
+    transform: scale(1);
+    filter: none;
+    opacity: 1;
+  }
+}
+
+.comic-error-overlay {
+  position: absolute;
+  z-index: 8;
+  top: 88px;
+  right: 48px;
+  max-width: min(360px, calc(100% - 96px));
+  padding: 7px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .72);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.viewer-stage.entering .lightbox-video-controls.comic-controls {
+  animation: comic-controls-enter 220ms cubic-bezier(.2,.78,.22,1);
+}
+.comic-exit { gap: 5px; min-width: max-content; }
+.comic-exit span {
+  font-size: 9px;
+  opacity: .72;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+@keyframes comic-controls-enter {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .comic-read-button,
+  .comic-read-button .enter-arrow,
+  .lightbox-video-controls.comic-controls,
+  .viewer-stage .viewer-pan-surface {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }
 
 /* Keep rotation/fade transitions, but do not tween media dimensions between files. */
