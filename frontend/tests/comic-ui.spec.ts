@@ -76,22 +76,30 @@ test('comic reader matches supplied entry treatment and shared playback controls
   await expect(stage.locator('.transition-arrow')).toHaveCount(0);
   await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationName)).toBe('comic-reader-enter');
   await expect.poll(() => surface.evaluate((element) => getComputedStyle(element).animationDuration)).toBe('0.48s');
-  await expect.poll(() => stage.evaluate((element) => !element.classList.contains('entering'))).toBe(true);
-  await expect(surface).toHaveCSS('transform', 'none');
   const controls = dialog.locator('.lightbox-video-controls.comic-controls');
   await expect(controls).toBeVisible();
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).animationName)).toBe('comic-controls-enter');
+  await expect.poll(() => stage.evaluate((element) => !element.classList.contains('entering'))).toBe(true);
+  await expect(surface).toHaveCSS('transform', 'none');
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
   await expect(controls.getByRole('button', { name: 'Exit comic (Space)' })).toBeVisible();
   await expect(controls.locator('.video-time').first()).toHaveText('1');
   await expect(controls.locator('.video-time').last()).toHaveText('3');
   await expect(dialog.getByRole('button', { name: 'Previous page' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Next page' })).toBeVisible();
 
+  // Once the reader-entry state has ended, changing pages must update the visible controls in place
+  // without reapplying their enter animation or dropping opacity.
   await dialog.getByRole('button', { name: 'Next page' }).click();
   await expect(controls.locator('.video-time').first()).toHaveText('2');
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
+  await expect(controls).toHaveCSS('opacity', '1');
 
   const seek = controls.getByRole('button', { name: 'Seek comic page' });
   await seek.click({ position: { x: 2, y: 2 } });
   await expect(controls.locator('.video-time').first()).toHaveText('1');
+  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
+  await expect(controls).toHaveCSS('opacity', '1');
 
   await stage.focus();
   await page.mouse.move(0, 0);
