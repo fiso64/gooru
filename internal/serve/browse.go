@@ -340,6 +340,7 @@ type FileDTO struct {
 	Path            string        `json:"path,omitempty"`
 	SafeDisplayPath string        `json:"safe_display_path"`
 	Size            int64         `json:"size"`
+	AddedAt         time.Time     `json:"added_at"`
 	ModifiedTime    time.Time     `json:"modified_time"`
 	MediaType       string        `json:"media_type"`
 	MediaKind       string        `json:"media_kind"`
@@ -598,6 +599,7 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 		Name:            filepath.Base(file.Path),
 		SafeDisplayPath: safeDisplayPath(file.Path),
 		Size:            file.Size,
+		AddedAt:         time.Unix(file.AddedAt, 0).UTC(),
 		ModifiedTime:    time.Unix(file.ModTime, 0).UTC(),
 		MediaType:       mediaType,
 		MediaKind:       mediaKind,

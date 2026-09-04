@@ -223,6 +223,7 @@
       <dt>Path</dt><dd class="path">{file.safe_display_path}</dd>
       <dt>Size</dt><dd>{file.metadata.page_count ? `${file.metadata.page_count} ${file.metadata.page_count === 1 ? 'page' : 'pages'} · ` : mediaDimensions(file) ? `${mediaDimensions(file)} · ` : ''}{formatBytes(file.size)}</dd>
       {#if mediaDuration(file)}<dt>Length</dt><dd>{mediaDuration(file)}</dd>{/if}
+      <dt>Added</dt><dd>{modifiedLabel(file.added_at)}</dd>
       <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>
       <dt>Mime</dt><dd>{file.media_type}</dd>
       <dt>Hash</dt><dd class="hash">{file.content_id}</dd>

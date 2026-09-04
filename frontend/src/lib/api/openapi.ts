@@ -1440,6 +1440,8 @@ export interface components {
             /** Format: int64 */
             size: number;
             /** Format: date-time */
+            added_at: string;
+            /** Format: date-time */
             modified_time: string;
             media_type: string;
             /** @enum {string} */
