@@ -87,10 +87,10 @@
   let savedSearchReorderError = $state('');
   const commonTags = $derived(normalizeCommonTags(tags).slice(0, 20));
   const orderedSavedSearches = $derived.by(() => {
-    const byID = new Map(savedSearches.map((item) => [item.id, item]));
+    const byID = new Map(savedSearches.map((item: SavedSearchLike) => [item.id, item]));
     const ordered = savedSearchOrder.map((id) => byID.get(id)).filter((item): item is SavedSearchLike => Boolean(item));
-    const seen = new Set(ordered.map((item) => item.id));
-    return [...ordered, ...savedSearches.filter((item) => !seen.has(item.id))];
+    const seen = new Set(ordered.map((item: SavedSearchLike) => item.id));
+    return [...ordered, ...savedSearches.filter((item: SavedSearchLike) => !seen.has(item.id))];
   });
 
   onMount(() => {
@@ -107,7 +107,7 @@
   });
 
   $effect(() => {
-    const ids = savedSearches.map((item) => item.id);
+    const ids = savedSearches.map((item: SavedSearchLike) => item.id);
     const membership = [...ids].sort().join('\u0000');
     if (membership !== savedSearchMembership) {
       savedSearchMembership = membership;
