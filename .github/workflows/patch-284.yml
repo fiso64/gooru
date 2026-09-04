@@ -1,0 +1,53 @@
+name: Patch 284 default fullscreen
+
+on:
+  push:
+    branches:
+      - feat/284-default-fullscreen
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply focused source edits
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('frontend/src/lib/components/PreviewDialog.svelte')
+          s = p.read_text()
+          old = """  onMount(() => {\n    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;\n    return claimFocus(dialogElement, previous);\n  });"""
+          new = """  onMount(() => {\n    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;\n    if ($runtimeConfig.fullscreenMediaByDefault) {\n      const stage = dialogElement?.querySelector<HTMLElement>('.viewer-stage');\n      if (stage) void stage.requestFullscreen().catch(() => undefined);\n    }\n    return claimFocus(dialogElement, previous);\n  });"""
+          if old not in s:
+              raise SystemExit('PreviewDialog mount block not found')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('docs/CONFIG.md')
+          s = p.read_text()
+          row = '| `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |'
+          added = row + '\n| `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |'
+          if row not in s:
+              raise SystemExit('CONFIG ui row not found')
+          s = s.replace(row, added, 1)
+          example = '  load_full_media_by_default: false\n'
+          if example not in s:
+              raise SystemExit('CONFIG example option not found')
+          s = s.replace(example, example + '  fullscreen_media_by_default: false\n', 1)
+          p.write_text(s)
+          PY
+      - name: Commit source edits
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add frontend/src/lib/components/PreviewDialog.svelte docs/CONFIG.md
+          git commit -m 'feat(webui): request configured fullscreen on viewer open'
+          git push origin HEAD:feat/284-default-fullscreen
