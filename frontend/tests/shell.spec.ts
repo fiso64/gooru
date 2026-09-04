@@ -263,7 +263,7 @@ test('search bar commits token pills and keyboard autocomplete', async ({ page }
   const search = page.getByLabel('Search library');
 
   await search.pressSequentially('rat', { delay: 10 });
-  await expect(page.getByText('Namespaces')).toBeVisible();
+  await expect(page.getByText('Suggestions', { exact: true })).toBeVisible();
   await search.press('Enter');
   await expect(search).toHaveValue('rating:');
   await search.pressSequentially('safe', { delay: 10 });
@@ -366,8 +366,9 @@ test('tag index renders real tag counts and navigates to a tag query', async ({ 
   await page.getByRole('button', { name: /Tags/ }).first().click();
   await expect(page.getByRole('heading', { name: '2 tags across 3 files' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'rating', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: /rating:safe/ })).toBeVisible();
-  await page.getByRole('button', { name: /rating:safe/ }).click();
+  const ratingSafe = page.getByRole('main').getByRole('button', { name: /rating:safe/ });
+  await expect(ratingSafe).toBeVisible();
+  await ratingSafe.click();
   await expect.poll(() => fileQueries).toContain('rating:safe');
 });
 
@@ -503,7 +504,7 @@ test('bulk selection supports concept untag action', async ({ page }) => {
   await expect(page.getByText('1 of 2 selected')).toBeVisible();
   await page.locator('.selection-bar .sb-actions button').filter({ hasText: 'Untag' }).click();
   await expect(page.getByRole('heading', { name: 'Untag selected files' })).toBeVisible();
-  await page.getByLabel('Tags').fill('blue');
+  await page.getByRole('textbox', { name: 'Tags', exact: true }).fill('blue');
   await page.getByRole('button', { name: 'Remove tags' }).click();
 
   await expect.poll(() => mutations.length).toBe(1);
@@ -661,16 +662,14 @@ test('Shortcuts matches the concept and question mark opens it outside text entr
   await page.locator('.main').click({ position: { x: 8, y: 8 } });
   await page.keyboard.press('Shift+/');
   await expect(page.getByRole('heading', { name: 'Shortcuts' })).toBeVisible();
-  await expect(page.getByText('Press').locator('..')).toContainText('from anywhere to open this cheatsheet.');
   await expect(page.getByRole('heading', { name: 'Navigation' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Browsing' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Viewer' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Selection' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Tagging' })).toBeVisible();
-
-  const supportedFocusSearch = page.locator('.shortcut-row').filter({ hasText: 'Focus search' });
-  await expect(supportedFocusSearch).not.toHaveAttribute('title', 'Coming soon');
-  const supportedNext = page.locator('.shortcut-row').filter({ hasText: 'Next file' });
-  await expect(supportedNext).not.toHaveAttribute('title', 'Coming soon');
+  await expect(page.getByText('Focus search')).toBeVisible();
+  await expect(page.getByText('Next file or comic page')).toBeVisible();
+  await expect(page.getByText('Select all files in the current view')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Shortcuts' })).toHaveCount(0);
 
   await page.locator('.sidebar').getByRole('button', { name: /Library/ }).click();
   const search = page.getByLabel('Search library');
@@ -795,7 +794,7 @@ test('uses exact concept primitives and font weights', async ({ page }) => {
   });
   expect(buttonStyle).toEqual({ padding: '5px 10px', radius: '6px', fontSize: '14px', weight: '400', gap: '6px' });
 
-  const segment = page.getByRole('button', { name: 'Modified' });
+  const segment = page.getByRole('button', { name: 'Added' });
   const segmentStyle = await segment.evaluate((node) => {
     const style = getComputedStyle(node);
     return { padding: style.padding, radius: style.borderRadius, fontSize: style.fontSize, weight: style.fontWeight };
@@ -1058,12 +1057,16 @@ test('matches concept utility views while exposing only real capabilities', asyn
     const style = getComputedStyle(node);
     return { gap: style.gap, columns: style.gridTemplateColumns };
   });
-  expect(shortcutGridStyle.gap).toBe('24px 40px');
+  expect(shortcutGridStyle.gap).toBe('28px 42px');
   expect(shortcutGridStyle.columns).not.toBe('none');
-  const futureShortcut = page.locator('.shortcut-row').filter({ hasText: 'Go to library' });
-  await expect.poll(() => futureShortcut.evaluate((node) => getComputedStyle(node).opacity)).toBe('0.42');
-  const launcherShortcut = page.locator('.shortcut-row').filter({ hasText: 'Show this cheatsheet' });
+  const focusSearchShortcut = page.locator('.shortcut-row').filter({ hasText: 'Focus search' });
+  await expect(focusSearchShortcut).toBeVisible();
+  expect(await focusSearchShortcut.evaluate((node) => getComputedStyle(node).opacity)).toBe('1');
+  const launcherShortcut = page.locator('.shortcut-row').filter({ hasText: 'Show shortcuts' });
+  await expect(launcherShortcut).toBeVisible();
   expect(await launcherShortcut.evaluate((node) => getComputedStyle(node).opacity)).toBe('1');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Shortcuts' })).toHaveCount(0);
 
   // The top-bar Jobs drawer and shared row preserve the concept geometry while
   // pause-all stays visibly disabled and live job data replaces mock counters.

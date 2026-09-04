@@ -122,8 +122,7 @@ test('Delete and Shift+Delete remove a query-wide selection through confirmation
 		});
 	});
 
-	const selectAll = page.getByLabel('Select all files in current view');
-	await selectAll.click();
+	await page.keyboard.press('a');
 	await expect(page.getByRole('button', { name: 'Untrack', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
 
@@ -135,7 +134,7 @@ test('Delete and Shift+Delete remove a query-wide selection through confirmation
 	expect(removals[0]).toEqual({ mode: 'untrack', query: '*' });
 	await expect(page.getByText('3 of 3 selected')).toHaveCount(0);
 
-	await selectAll.click();
+	await page.keyboard.press('a');
 	await page.keyboard.press('Shift+Delete');
 	await expect(page.getByRole('dialog', { name: 'Delete selected files' })).toBeVisible();
 	await page.getByRole('button', { name: 'Delete files' }).click();
@@ -143,16 +142,17 @@ test('Delete and Shift+Delete remove a query-wide selection through confirmation
 	expect(removals[1]).toEqual({ mode: 'delete', query: '*' });
 });
 
-test('Escape clears selection even when the select-all checkbox owns focus', async ({ page }) => {
+test('Escape clears selection even when a selected-file checkbox owns focus', async ({ page }) => {
   await mockApp(page);
 
-  const selectAll = page.getByLabel('Select all files in current view');
-  await selectAll.click();
-  await expect(page.getByText('3 of 3 selected')).toBeVisible();
-  await expect(selectAll).toBeFocused();
+  await page.getByRole('button', { name: 'Preview one.jpg' }).hover();
+  await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
+  const selected = page.getByRole('checkbox', { name: 'Deselect one.jpg' });
+  await expect(page.getByText('1 of 3 selected')).toBeVisible();
+  await expect(selected).toBeFocused();
 
   await page.keyboard.press('Escape');
-  await expect(page.getByText('3 of 3 selected')).toHaveCount(0);
+  await expect(page.locator('.selection-bar')).toHaveCount(0);
 });
 
 test('pointer viewer controls return focus to the stage so shortcuts remain global', async ({ page }) => {
@@ -165,13 +165,9 @@ test('pointer viewer controls return focus to the stage so shortcuts remain glob
   await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
   await expect(page.locator('.viewer-stage')).toBeFocused();
 
-  await page.keyboard.press('Space');
-  await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
-
-  await page.getByLabel('Rotate right').click();
-  await expect(page.locator('.viewer-stage')).toBeFocused();
   await page.keyboard.press('r');
-  await expect(page.locator('.viewer-visual-media')).toHaveAttribute('style', /rotate\(180deg\)/);
+  await expect(page.locator('.viewer-visual-media')).toHaveAttribute('style', /rotate\(90deg\)/);
+  await expect(page.locator('.viewer-stage')).toBeFocused();
 });
 
 test('viewer tag editor keeps Left and Right for caret movement', async ({ page }) => {

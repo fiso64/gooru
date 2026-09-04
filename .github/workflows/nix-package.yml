@@ -20,11 +20,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: nix-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v31
       - name: Build packaged application
         run: nix build .#packages.x86_64-linux.default --print-build-logs
