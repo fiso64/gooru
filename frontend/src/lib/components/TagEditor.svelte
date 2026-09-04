@@ -45,6 +45,7 @@
       existing={excluded}
       placeholder=""
       readOnly={busy}
+      commitOnBlur={false}
       ariaLabel={`${mode === 'remove' ? 'Remove tags from' : 'Tags for'} ${fileName}`}
       {onInput}
       {onCommit}

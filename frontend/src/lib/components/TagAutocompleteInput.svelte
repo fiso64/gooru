@@ -9,6 +9,7 @@
     placeholder = 'add tag',
     disabled = false,
     readOnly = false,
+    commitOnBlur = true,
     ariaLabel = 'Tag',
     onInput,
     onCommit,
@@ -21,6 +22,7 @@
     placeholder?: string;
     disabled?: boolean;
     readOnly?: boolean;
+    commitOnBlur?: boolean;
     ariaLabel?: string;
     onInput: (value: string) => void;
     onCommit: (value: string) => void;
@@ -69,7 +71,7 @@
 
   function handleBlur() {
     open = false;
-    if (readOnly) return;
+    if (readOnly || !commitOnBlur) return;
     if (suppressBlurCommit) {
       suppressBlurCommit = false;
       return;
@@ -78,7 +80,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (readOnly) return;
+    if (readOnly || event.isComposing) return;
     if (event.key === 'ArrowDown' && suggestions.length) {
       event.preventDefault();
       open = true;
@@ -96,7 +98,7 @@
       selectSuggestion(suggestions[active]);
       return;
     }
-    if (event.key === 'Enter' && value.trim()) {
+    if ((event.key === 'Enter' || event.key === ' ') && value.trim()) {
       event.preventDefault();
       commit(value);
       return;
@@ -108,6 +110,12 @@
     }
     if (event.key === 'Escape') {
       event.preventDefault();
+      if (open && suggestions.length > 0) {
+        event.stopPropagation();
+        open = false;
+        active = 0;
+        return;
+      }
       open = false;
       suppressBlurCommit = true;
       onInput('');
@@ -193,8 +201,9 @@
     z-index: 1000;
     top: calc(100% + 6px);
     left: 0;
-    width: min(360px, 80vw);
+    width: min(360px, 100%);
     max-height: 260px;
+    box-sizing: border-box;
     overflow: auto;
     margin: 0;
     padding: 4px;

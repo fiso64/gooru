@@ -1,0 +1,144 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const session = {
+  user: { id: 'usr_test', username: 'mac', role: 'admin' },
+  capabilities: { upload: true, tag: true, delete: true, admin: true },
+  csrf_token: 'csrf-one'
+};
+
+const file = {
+  id: 'one',
+  content_id: 'hash-one',
+  name: 'one.jpg',
+  safe_display_path: 'library/one.jpg',
+  size: 2048,
+  added_at: '2026-05-20T00:00:00Z',
+  modified_time: '2026-05-20T00:00:00Z',
+  media_type: 'image/jpeg',
+  media_kind: 'photo',
+  metadata: { image_width: 800, image_height: 600 },
+  tags: [],
+  can_delete: true,
+  media_urls: {
+    thumbnail: '/api/v1/files/one/thumbnail',
+    preview: '/api/v1/files/one/preview',
+    content: '/api/v1/files/one/content',
+    download: '/api/v1/files/one/download'
+  }
+};
+
+type TagRequest = { method: string; body: { file_ids?: string[]; tags?: string[] } };
+
+async function mockApp(page: Page) {
+  let loggedIn = false;
+  const tagRequests: TagRequest[] = [];
+
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({})
+  }));
+  await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
+    status: loggedIn ? 200 : 401,
+    contentType: 'application/json',
+    body: JSON.stringify(loggedIn ? session : { error: { code: 'unauthorized', message: 'login required' } })
+  }));
+  await page.route('**/api/v1/auth/login', async (route) => {
+    loggedIn = true;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
+  });
+  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ tags: [
+      { name: 'technology', count: 8 },
+      { name: 'technique', count: 3 },
+      { name: 'rating:safe', namespace: 'rating', value: 'safe', count: 4 }
+    ] })
+  }));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ files: [file], total_count: 1, library_count: 1, facets: { kind: [{ value: 'photo', count: 1 }] } })
+  }));
+  await page.route('**/api/v1/files/tags', async (route) => {
+    if (!['POST', 'PUT', 'DELETE'].includes(route.request().method())) return route.fallback();
+    tagRequests.push({ method: route.request().method(), body: route.request().postDataJSON() });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
+  });
+  await page.route('**/api/v1/files/one/thumbnail**', async (route) => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" />'
+  }));
+  await page.route('**/api/v1/files/one/preview**', async (route) => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" />'
+  }));
+
+  await page.goto('/');
+  await page.getByLabel('Username').fill('mac');
+  await page.getByLabel('Password').fill('correct horse');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  return tagRequests;
+}
+
+test('viewer tag input dismisses completions before blur, does not commit on blur, and commits on Space', async ({ page }) => {
+  const tagRequests = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+
+  const preview = page.getByRole('dialog', { name: 'one.jpg' });
+  const aside = preview.locator('.lightbox-aside');
+  const input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await input.fill('tech');
+
+  const suggestions = page.getByRole('listbox', { name: 'Tags for one.jpg suggestions' });
+  await expect(suggestions).toBeVisible();
+  const [asideBox, suggestionsBox] = await Promise.all([aside.boundingBox(), suggestions.boundingBox()]);
+  expect(asideBox).not.toBeNull();
+  expect(suggestionsBox).not.toBeNull();
+  expect(suggestionsBox!.x + suggestionsBox!.width).toBeLessThanOrEqual(asideBox!.x + asideBox!.width);
+
+  await input.press('Escape');
+  await expect(suggestions).toBeHidden();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('tech');
+  expect(tagRequests).toHaveLength(0);
+
+  await preview.getByRole('button', { name: 'Close preview' }).focus();
+  await expect(input).not.toBeFocused();
+  expect(tagRequests).toHaveLength(0);
+
+  await input.focus();
+  await input.fill('tech');
+  await expect(suggestions).toBeVisible();
+  await input.press('Space');
+  await expect.poll(() => tagRequests.length).toBe(1);
+  expect(tagRequests[0]).toMatchObject({ method: 'POST', body: { file_ids: ['one'], tags: ['tech'] } });
+});
+
+test('tag modal keeps open on first Escape and Space commits the literal prefix', async ({ page }) => {
+  await mockApp(page);
+  await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
+  await page.getByRole('button', { name: 'Tag…' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
+  const input = dialog.getByRole('textbox', { name: 'Tags' });
+  await input.fill('tech');
+  const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
+  await expect(suggestions).toBeVisible();
+
+  await input.press('Escape');
+  await expect(suggestions).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('tech');
+
+  await input.press('Space');
+  await expect(dialog.getByText('tech', { exact: true })).toBeVisible();
+  await expect(input).toHaveValue('');
+
+  await input.press('Escape');
+  await expect(dialog).toHaveCount(0);
+});
