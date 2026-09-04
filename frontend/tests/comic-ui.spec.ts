@@ -96,6 +96,13 @@ test('comic reader matches supplied entry treatment and shared playback controls
   await stage.focus();
   await page.mouse.move(0, 0);
   await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity), { timeout: 3500 }).toBe('0');
+
+  // Page navigation updates progress but is not control-surface activity. Hidden controls must stay hidden.
+  await page.keyboard.press('ArrowRight');
+  await expect(controls.locator('.video-time').first()).toHaveText('2');
+  await page.waitForTimeout(200);
+  await expect(controls).toHaveCSS('opacity', '0');
+
   const box = await stage.boundingBox();
   if (!box) throw new Error('viewer stage has no bounding box');
   await page.mouse.move(box.x + 30, box.y + box.height - 30);

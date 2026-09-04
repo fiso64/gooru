@@ -220,8 +220,8 @@
     videoPaused = true;
     videoTime = 0;
     videoLength = 0;
-    if (nextFile.media_kind === 'video' || comicEntered) showPlaybackControls();
-    else if (playbackControlsTimer) {
+    if (nextFile.media_kind === 'video') showPlaybackControls();
+    else if (!comicEntered && playbackControlsTimer) {
       clearTimeout(playbackControlsTimer);
       playbackControlsTimer = undefined;
       playbackControlsIdle = false;
@@ -285,8 +285,7 @@
     videoLength = Number.isFinite(video.duration) ? video.duration : 0;
   }
 
-  function showPlaybackControls() {
-    if (!playbackControlsActive) return;
+  function revealPlaybackControls() {
     playbackControlsIdle = false;
     if (playbackControlsTimer) clearTimeout(playbackControlsTimer);
     playbackControlsTimer = setTimeout(() => {
@@ -295,15 +294,17 @@
     }, 2000);
   }
 
-  $effect(() => {
-    if (comicEntered) showPlaybackControls();
-  });
+  function showPlaybackControls() {
+    if (!playbackControlsActive) return;
+    revealPlaybackControls();
+  }
 
   $effect(() => {
     const nextComicEntered = comicEntered;
     if (nextComicEntered === previousComicEntered) return;
     previousComicEntered = nextComicEntered;
     comicTransition = nextComicEntered ? 'entering' : 'exiting';
+    if (nextComicEntered) revealPlaybackControls();
     const timer = setTimeout(() => { comicTransition = ''; }, 520);
     return () => clearTimeout(timer);
   });
