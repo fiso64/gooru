@@ -46,8 +46,8 @@ func TestRunMigrationsPreservesGolangMigrateVersionLayout(t *testing.T) {
 	if err := db.QueryRow(`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty); err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if version != 9 || dirty {
-		t.Fatalf("schema_migrations = (%d, %t), want (9, false)", version, dirty)
+	if version != 10 || dirty {
+		t.Fatalf("schema_migrations = (%d, %t), want (10, false)", version, dirty)
 	}
 
 	if err := RunMigrations(db); err != nil {
@@ -144,6 +144,93 @@ func TestLocationAddedAtMigrationBackfillsExistingRows(t *testing.T) {
 	}
 	if addedAt != 2468 {
 		t.Fatalf("backfilled added_at = %d, want legacy mod_time 2468", addedAt)
+	}
+}
+
+func TestFilenameTrigramIndexBackfillsAndTracksLocations(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	migrations, err := loadEmbeddedMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureMigrationTable(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.version >= 10 {
+			break
+		}
+		if err := applyMigration(db, migration); err != nil {
+			t.Fatalf("apply migration %d: %v", migration.version, err)
+		}
+	}
+
+	if _, err := db.Exec(`INSERT INTO contents (hash) VALUES ('legacy')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension)
+		VALUES ('file_legacy', 'legacy', '/nested/Legacy-Photo.JPG', 1, 1, '.JPG')
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("RunMigrations through v10: %v", err)
+	}
+
+	assertFilename := func(id int64, want string) {
+		t.Helper()
+		var got string
+		if err := db.QueryRow(`SELECT filename FROM location_filenames WHERE rowid = ?`, id).Scan(&got); err != nil {
+			t.Fatalf("read filename row %d: %v", id, err)
+		}
+		if got != want {
+			t.Fatalf("filename row %d = %q, want %q", id, got, want)
+		}
+	}
+
+	var legacyID int64
+	if err := db.QueryRow(`SELECT id FROM locations WHERE public_id = 'file_legacy'`).Scan(&legacyID); err != nil {
+		t.Fatal(err)
+	}
+	assertFilename(legacyID, "Legacy-Photo.JPG")
+
+	if _, err := db.Exec(`INSERT INTO contents (hash) VALUES ('new')`); err != nil {
+		t.Fatal(err)
+	}
+	res, err := db.Exec(`
+		INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension)
+		VALUES ('file_new', 'new', 'C:\\pictures\\Fresh_File.png', 1, 1, '.png')
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFilename(newID, "Fresh_File.png")
+
+	if _, err := db.Exec(`UPDATE locations SET path = '/renamed/Final.Name.webp' WHERE id = ?`, newID); err != nil {
+		t.Fatal(err)
+	}
+	assertFilename(newID, "Final.Name.webp")
+
+	if _, err := db.Exec(`DELETE FROM locations WHERE id = ?`, newID); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM location_filenames WHERE rowid = ?`, newID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("deleted location left %d filename index rows", count)
 	}
 }
 
