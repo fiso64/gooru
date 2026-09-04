@@ -61,6 +61,19 @@ test('configured fullscreen default requests fullscreen from the viewer-opening 
 
   await page.keyboard.press('Escape');
   await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(page.locator('.viewer-stage')).toHaveCount(0);
+});
+
+test('F exits automatic fullscreen while keeping the normal viewer open', async ({ page }) => {
+  await mockApp(page, true);
+
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  await expect(page.locator('.viewer-stage')).toBeVisible();
+  await expect.poll(() => viewerIsFullscreen(page)).toBe(true);
+
+  await page.keyboard.press('f');
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(page.locator('.viewer-stage')).toBeVisible();
 });
 
 test('fullscreen default remains off when runtime config is false', async ({ page }) => {
