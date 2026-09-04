@@ -1,6 +1,7 @@
 import { createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
 import type { SavedSearch, SavedSearchRequest, UploadImportResponse, Job } from '$lib/api/types';
+import type { UploadAddedAtStrategy } from '$lib/state/uploadItems';
 import type { QueryClient } from '@tanstack/query-core';
 
 export const libraryKeys = {
@@ -85,13 +86,22 @@ export interface UploadVariables {
   preferAsync: boolean;
   targetID: string;
   conflictPolicy: string;
+  addedAtStrategy: UploadAddedAtStrategy;
+  queueTimeMs: number;
+  queueIndex: number;
+  queueTotal: number;
   onProgress?: (progress: number) => void;
 }
 
 export function createUploadMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<Job | UploadImportResponse, Error, UploadVariables>(() => ({
-    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, onProgress }) =>
-      new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress),
+    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueIndex, queueTotal, onProgress }) =>
+      new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress, {
+        addedAtStrategy,
+        queueTimeMs: [queueTimeMs],
+        queueIndex: [queueIndex],
+        queueTotal: [queueTotal]
+      }),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['files'] }),

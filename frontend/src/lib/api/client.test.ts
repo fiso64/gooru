@@ -124,7 +124,12 @@ describe('ApiClient', () => {
     const sourceModTime = 1_594_200_611_123;
     const file = new File(['hello'], 'hello.txt', { type: 'text/plain', lastModified: sourceModTime });
 
-    const result = await client.uploadFiles([file], ['reviewed'], true, '', 'rename', progress);
+    const result = await client.uploadFiles([file], ['reviewed'], true, '', 'rename', progress, {
+      addedAtStrategy: 'reverse_queue',
+      queueTimeMs: [1_700_000_000_000],
+      queueIndex: [2],
+      queueTotal: [4]
+    });
 
     expect(result).toMatchObject({ id: 'job-one', status: 'pending' });
     expect(xhr.method).toBe('POST');
@@ -137,6 +142,10 @@ describe('ApiClient', () => {
     expect((xhr.body as FormData).get('tags')).toBe('reviewed');
     expect(((xhr.body as FormData).get('files') as File).name).toBe('hello.txt');
     expect((xhr.body as FormData).get('source_modtime_ms')).toBe(String(sourceModTime));
+    expect((xhr.body as FormData).get('added_at_strategy')).toBe('reverse_queue');
+    expect((xhr.body as FormData).get('queue_time_ms')).toBe('1700000000000');
+    expect((xhr.body as FormData).get('queue_index')).toBe('2');
+    expect((xhr.body as FormData).get('queue_total')).toBe('4');
     expect(progress.mock.calls.map(([value]) => value)).toEqual([20, 70, 100, 100]);
   });
 

@@ -15,32 +15,40 @@ export type UploadItemStatus =
   | 'error'
   | 'canceled';
 
+export type UploadAddedAtStrategy = 'queue' | 'reverse_queue' | 'modtime';
+
 export interface UploadItem {
   name: string;
   size: number;
   type: string;
   targetID?: string;
+  queueTimeMs?: number;
   status: UploadItemStatus;
   progress: number;
   error?: string;
 }
 
-export type UploadTargetOption = { id: string; name: string };
+export type UploadTargetOption = { id: string; name: string; added_at_strategy?: UploadAddedAtStrategy };
 
 export function effectiveUploadTargetID(targetID: string, targets: UploadTargetOption[]): string {
   if (targetID && targets.some((target) => target.id === targetID)) return targetID;
   return targets[0]?.id ?? '';
 }
 
-export function stagedUploadItems(files: File[], targetID = ''): UploadItem[] {
+export function stagedUploadItems(files: File[], targetID = '', queueTimeMs = Date.now()): UploadItem[] {
   return files.map((file) => ({
     name: file.name,
     size: file.size,
     type: file.type,
     targetID,
+    queueTimeMs,
     status: 'staged',
     progress: 0
   }));
+}
+
+export function retargetStagedUploadItems(items: UploadItem[], targetID: string): UploadItem[] {
+  return items.map((item) => item.status === 'staged' ? { ...item, targetID } : item);
 }
 
 export function waitingUploadItems(items: UploadItem[]): UploadItem[] {
@@ -98,6 +106,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       size: file.size,
       type: prior?.type ?? '',
       targetID: file.target_id,
+      queueTimeMs: prior?.queueTimeMs,
       status: file.status,
       progress: 100,
       error: file.error
