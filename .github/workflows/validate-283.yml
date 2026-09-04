@@ -1,0 +1,27 @@
+name: Validate 283 viewer preferences
+
+on:
+  push:
+    branches:
+      - feat/283-viewer-session-preferences
+
+permissions:
+  contents: read
+
+jobs:
+  viewer-session-preferences:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+      - name: Focused Chromium regression
+        run: npx playwright test tests/viewer-session-preferences.spec.ts --project=chromium
