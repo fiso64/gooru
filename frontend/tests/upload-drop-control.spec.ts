@@ -35,11 +35,11 @@ async function openUpload(page: Page) {
 test('drop behavior control lives inside the drop zone without nested interactive semantics', async ({ page }) => {
   await openUpload(page);
 
-  const dropZone = page.locator('.upload-zone');
+  const dropZone = page.getByRole('group', { name: 'File upload drop zone' });
   const behavior = dropZone.getByLabel('Upload drop behavior');
   const browseSurface = dropZone.getByRole('button', { name: 'Browse files from drop zone' });
 
-  await expect(dropZone).not.toHaveAttribute('role', 'button');
+  await expect(dropZone).toBeVisible();
   await expect(dropZone).not.toHaveAttribute('tabindex');
   await expect(browseSurface).toBeVisible();
   await expect(behavior).toBeVisible();

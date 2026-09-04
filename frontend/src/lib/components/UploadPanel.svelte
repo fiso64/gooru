@@ -241,6 +241,8 @@
 
       <section
         class={`upload-zone ${dragActive ? 'is-drag' : ''}`}
+        role="group"
+        aria-label="File upload drop zone"
         style="position: relative;"
         ondragover={handleDragOver}
         ondragleave={handleDragLeave}
