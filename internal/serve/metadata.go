@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type MediaMetadata struct {
 	VideoDuration *float64 `json:"video_duration,omitempty"`
 	AudioDuration *float64 `json:"audio_duration,omitempty"`
 	FrameCount    *int     `json:"frame_count,omitempty"`
+	PageCount     *int     `json:"page_count,omitempty"`
 }
 
 type MediaMetadataProvider interface {
@@ -53,6 +55,15 @@ func (p BasicMediaMetadataProvider) Metadata(ctx context.Context, file types.Fil
 	if err := ctx.Err(); err != nil {
 		return MediaMetadata{}, err
 	}
+	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
+		archive, err := openComicArchive(file.Path)
+		if err != nil {
+			return MediaMetadata{}, err
+		}
+		defer archive.Close()
+		count := len(archive.pages)
+		return MediaMetadata{PageCount: &count}, nil
+	}
 	switch mediaKind {
 	case "photo", "gif":
 		return p.imageMetadata(ctx, file)
@@ -69,6 +80,15 @@ func (p BasicMediaMetadataProvider) MetadataFromSource(ctx context.Context, file
 	}
 	if source == nil || size < 0 {
 		return MediaMetadata{}, nil
+	}
+	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
+		archive, err := openComicArchiveReader(file.Path, source, size, nil)
+		if err != nil {
+			return MediaMetadata{}, err
+		}
+		defer archive.Close()
+		count := len(archive.pages)
+		return MediaMetadata{PageCount: &count}, nil
 	}
 	reader := io.NewSectionReader(source, 0, size)
 	switch mediaKind {

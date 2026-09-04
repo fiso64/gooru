@@ -227,8 +227,8 @@ func (s *Store) UpsertMediaMetadata(meta types.MediaMetadata) error {
 	_, err := s.Exec(`
 		INSERT INTO media_metadata (
 			location_id, media_kind, mime_type, image_width, image_height,
-			video_width, video_height, duration_seconds, frame_count, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			video_width, video_height, duration_seconds, frame_count, page_count, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(location_id) DO UPDATE SET
 			media_kind=excluded.media_kind,
 			mime_type=excluded.mime_type,
@@ -238,8 +238,9 @@ func (s *Store) UpsertMediaMetadata(meta types.MediaMetadata) error {
 			video_height=excluded.video_height,
 			duration_seconds=excluded.duration_seconds,
 			frame_count=excluded.frame_count,
+			page_count=excluded.page_count,
 			updated_at=CURRENT_TIMESTAMP
-	`, meta.LocationID, meta.MediaKind, meta.MimeType, meta.ImageWidth, meta.ImageHeight, meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds, meta.FrameCount)
+	`, meta.LocationID, meta.MediaKind, meta.MimeType, meta.ImageWidth, meta.ImageHeight, meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds, meta.FrameCount, meta.PageCount)
 	return err
 }
 
@@ -247,9 +248,9 @@ func (s *Store) GetMediaMetadata(locationID int64) (types.MediaMetadata, error) 
 	var meta types.MediaMetadata
 	meta.LocationID = locationID
 	err := s.QueryRow(`
-		SELECT media_kind, mime_type, image_width, image_height, video_width, video_height, duration_seconds, frame_count
+		SELECT media_kind, mime_type, image_width, image_height, video_width, video_height, duration_seconds, frame_count, page_count
 		FROM media_metadata WHERE location_id = ?
-	`, locationID).Scan(&meta.MediaKind, &meta.MimeType, &meta.ImageWidth, &meta.ImageHeight, &meta.VideoWidth, &meta.VideoHeight, &meta.DurationSeconds, &meta.FrameCount)
+	`, locationID).Scan(&meta.MediaKind, &meta.MimeType, &meta.ImageWidth, &meta.ImageHeight, &meta.VideoWidth, &meta.VideoHeight, &meta.DurationSeconds, &meta.FrameCount, &meta.PageCount)
 	return meta, err
 }
 
@@ -1896,9 +1897,9 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 		var file types.FileInfo
 		var tagsCache string
 		var mediaKind, mimeType sql.NullString
-		var imageWidth, imageHeight, videoWidth, videoHeight, frameCount sql.NullInt64
+		var imageWidth, imageHeight, videoWidth, videoHeight, frameCount, pageCount sql.NullInt64
 		var duration sql.NullFloat64
-		if err := rows.Scan(&file.ID, &file.PublicID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache, &mediaKind, &mimeType, &imageWidth, &imageHeight, &videoWidth, &videoHeight, &duration, &frameCount); err != nil {
+		if err := rows.Scan(&file.ID, &file.PublicID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache, &mediaKind, &mimeType, &imageWidth, &imageHeight, &videoWidth, &videoHeight, &duration, &frameCount, &pageCount); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -1913,6 +1914,7 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 				VideoHeight:     nullIntPtr(videoHeight),
 				DurationSeconds: nullFloatPtr(duration),
 				FrameCount:      nullIntPtr(frameCount),
+				PageCount:       nullIntPtr(pageCount),
 			}
 		}
 		files = append(files, file)
@@ -1923,7 +1925,7 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 func fileInfoColumns() string {
 	return `l.id, l.public_id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache,
 		mm.media_kind, mm.mime_type, mm.image_width, mm.image_height,
-		mm.video_width, mm.video_height, mm.duration_seconds, mm.frame_count`
+		mm.video_width, mm.video_height, mm.duration_seconds, mm.frame_count, mm.page_count`
 }
 
 func fileSortExpression(sort string) string {

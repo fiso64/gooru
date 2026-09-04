@@ -682,7 +682,7 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 		if err != nil {
 			continue
 		}
-		if metadata.ImageWidth == nil && metadata.ImageHeight == nil && metadata.VideoWidth == nil && metadata.VideoHeight == nil && metadata.VideoDuration == nil && metadata.FrameCount == nil {
+		if metadata.ImageWidth == nil && metadata.ImageHeight == nil && metadata.VideoWidth == nil && metadata.VideoHeight == nil && metadata.VideoDuration == nil && metadata.FrameCount == nil && metadata.PageCount == nil {
 			continue
 		}
 		_ = l.client.UpsertMediaMetadata(types.MediaMetadata{
@@ -695,6 +695,7 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 			VideoHeight:     metadata.VideoHeight,
 			DurationSeconds: metadata.VideoDuration,
 			FrameCount:      metadata.FrameCount,
+			PageCount:       metadata.PageCount,
 		})
 	}
 }

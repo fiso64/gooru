@@ -246,10 +246,46 @@ func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (Medi
 		return MediaMetadata{}, err
 	}
 	meta, err := l.client.GetMediaMetadata(locationID)
-	if errors.Is(err, sql.ErrNoRows) {
+	haveStored := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return MediaMetadata{}, err
+	}
+	if haveStored && meta.PageCount != nil {
+		return mediaMetadataDTO(meta), nil
+	}
+
+	file, fileErr := l.client.GetFileInfoByLocationID(locationID)
+	if fileErr != nil || !strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
+		if haveStored {
+			return mediaMetadataDTO(meta), nil
+		}
+		return MediaMetadata{}, fileErr
+	}
+	mediaType := mediaTypeForPath(file.Path)
+	mediaKind := mediaKindForType(mediaType)
+	provider := l.metadata
+	if provider == nil {
+		provider = BasicMediaMetadataProvider{}
+	}
+	derived, deriveErr := l.importedMediaMetadata(ctx, provider, file, file.Path, mediaType, mediaKind)
+	if deriveErr != nil || derived.PageCount == nil {
+		if haveStored {
+			return mediaMetadataDTO(meta), nil
+		}
 		return MediaMetadata{}, nil
 	}
-	if err != nil {
+	if !haveStored {
+		meta = types.MediaMetadata{LocationID: locationID, MediaKind: mediaKind, MimeType: mediaType}
+	} else {
+		if meta.MediaKind == "" {
+			meta.MediaKind = mediaKind
+		}
+		if meta.MimeType == "" {
+			meta.MimeType = mediaType
+		}
+	}
+	meta.PageCount = derived.PageCount
+	if err := l.client.UpsertMediaMetadata(meta); err != nil {
 		return MediaMetadata{}, err
 	}
 	return mediaMetadataDTO(meta), nil
@@ -596,6 +632,13 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 			}
 		}
 	}
+	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") && dto.Metadata.PageCount == nil {
+		if search, ok := s.library.(SearchLibrary); ok {
+			if metadata, err := search.FileMetadata(ctx, file.ID); err == nil {
+				dto.Metadata = metadata
+			}
+		}
+	}
 	return dto
 }
 
@@ -638,6 +681,7 @@ func mediaMetadataDTO(meta types.MediaMetadata) MediaMetadata {
 		VideoDuration: meta.DurationSeconds,
 		AudioDuration: nil,
 		FrameCount:    meta.FrameCount,
+		PageCount:     meta.PageCount,
 	}
 }
 
