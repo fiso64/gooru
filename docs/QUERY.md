@@ -7,9 +7,9 @@ Gooru's query language is used by `list`, `table`, `count`, `exists`, query-base
 | Meaning | Syntax | Example |
 | --- | --- | --- |
 | AND | whitespace or `&` | `photo favorite` |
-| OR | `|` or the word `or` | `photo | video` |
+| OR | `\|` or the word `or` | `photo \| video` |
 | NOT | `-`, `!`, or the word `not` | `photo -work` |
-| Grouping | `( … )` | `(photo | video) favorite` |
+| Grouping | `( … )` | `(photo \| video) favorite` |
 
 AND binds within an OR branch. Parentheses are recommended whenever a mixed expression could be read ambiguously.
 

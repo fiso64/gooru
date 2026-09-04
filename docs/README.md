@@ -11,5 +11,3 @@ Start with the task you are trying to complete.
 | Integrate with the HTTP API | [openapi.yaml](openapi.yaml) |
 | Embed the Go package | [LIBRARY.md](LIBRARY.md) |
 | Work on Gooru itself | [DEVELOPMENT.md](DEVELOPMENT.md) |
-
-The root [README](../README.md) contains the shortest end-to-end introduction.

@@ -19,7 +19,7 @@ gooru --database /absolute/path/library.db list
 gooru init
 ```
 
-Initialization is a one-time operation. It creates the database and records the hashing strategy. Choose partial hashing for speed on large media or full hashing when reading the entire file for identity is preferred.
+Initialization is a one-time operation. It creates the database and records the hashing strategy. See [HASHING.md](HASHING.md) for the differences between partial and full hashing and how to choose between them.
 
 ## Track and tag files
 

@@ -24,7 +24,7 @@ func main() {
 }
 ```
 
-`StrategyPartial` is optimized for large files. `StrategyFull` hashes the entire file. The chosen strategy is persisted with the database.
+`StrategyPartial` is optimized for large files. `StrategyFull` hashes the entire file. The chosen strategy is persisted with the database. See [HASHING.md](HASHING.md) for the exact behavior and trade-offs.
 
 ## Open a client
 

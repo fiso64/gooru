@@ -1,15 +1,17 @@
 # Gooru
 
-Gooru is a media library for browsing, searching, tagging, uploading, and previewing files through a web interface.
+Gooru is a media library for browsing, tagging, uploading, and viewing files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server.
 
-Files are identified by content rather than only by path. This lets Gooru recognize the same content after a rename or move, and associate tags with the file's content instead of a particular filename.
+Files are identified by content rather than only by path. This allows Gooru to recognize the same content after a rename or move, or even function as an archive capable of checking file integrity when using [full hashing](HASHING.md).
+
+Gooru is intended primarily for personal and private multi-user libraries rather than public imageboard-style communities.
 
 This project is fully maintained by an LLM.
 
 ## Features
 
-- Browser-based library with search, tags, saved searches, and bulk actions.
-- Thumbnails and in-browser previews for supported media.
+- Browser-based library with search, tags, tag namespaces, saved searches, and bulk actions.
+- Thumbnails and in-browser previews for supported media, including images, videos, gifs, and basic support for `.cbz` comic archives. 
 - Uploads and imports with background job tracking.
 - Content-based file identity that survives renames and moves.
 - Optional encryption for the database, managed uploads, and generated media.
@@ -33,8 +35,6 @@ The complete server configuration is documented in [docs/CONFIG.md](docs/CONFIG.
 | Go packages | [docs/LIBRARY.md](docs/LIBRARY.md) |
 | Development | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | Frontend development | [frontend/README.md](frontend/README.md) |
-
-The [documentation index](docs/README.md) provides the same material organized by task.
 
 ## Project status
 
