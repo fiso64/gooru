@@ -1,0 +1,29 @@
+name: Validate #231 comic controls
+
+on:
+  push:
+    branches:
+      - feat/231-comic-ui
+
+permissions:
+  contents: read
+
+jobs:
+  comic-ui:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+      - name: Focused comic UI regression
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
+        run: npx playwright test tests/comic-ui.spec.ts --project=chromium
