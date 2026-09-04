@@ -18,7 +18,7 @@ import (
 
 const (
 	DefaultListenAddress = "127.0.0.1:5678"
-	DefaultGridSize      = 180
+	DefaultGridSize      = 200
 	DefaultGridType      = "square"
 	MinGridSize          = 64
 	MaxGridSize          = 1024

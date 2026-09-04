@@ -173,7 +173,7 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | --- | --- | --- |
 | `ui.accent_color` | empty | Optional runtime UI accent in six-digit hex form such as `#2f80ed`. When empty, the built-in yellow accent is used. The UI derives readable foreground and translucent accent tokens from this color. |
 | `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
-| `ui.grid_size` | `180` | Target gallery cell size in pixels. Must be between `64` and `1024`. In `square` and `fit` modes it controls square cell width; in `tile` mode it controls the target justified-row height. |
+| `ui.grid_size` | `200` | Base gallery cell size in pixels. Must be between `64` and `1024`. `fit` uses this value directly; `square` and `tile` receive a fixed 40px layout boost, so the default effective square width / tile row target is 240px. |
 | `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |
 | `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |
 | `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |
@@ -245,7 +245,7 @@ logging:
 ui:
   accent_color: "#2f80ed"
   font_style: editorial
-  grid_size: 180
+  grid_size: 200
   grid_type: square
   load_full_media_by_default: false
   fullscreen_media_by_default: false
