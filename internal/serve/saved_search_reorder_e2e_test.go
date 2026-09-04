@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	core "gooru.local/gooru"
 	"gooru.local/internal/database"
@@ -32,7 +33,7 @@ func TestSavedSearchReorderGoldenPath(t *testing.T) {
 		t.Fatalf("open auth db: %v", err)
 	}
 	defer authDB.Close()
-	authStore := NewAuthStore(authDB.DB)
+	authStore := NewAuthStore(authDB.DB, time.Hour)
 	if _, err := authStore.CreateAdmin(context.Background(), "saved-search-test", "correct horse"); err != nil {
 		t.Fatalf("create test user: %v", err)
 	}
