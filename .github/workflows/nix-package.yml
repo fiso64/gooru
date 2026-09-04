@@ -1,4 +1,4 @@
-# TEMPORARY runner concurrency benchmark trigger; do not merge.
+# TEMPORARY 3-runner concurrency benchmark trigger; do not merge.
 name: Nix package
 
 on:
