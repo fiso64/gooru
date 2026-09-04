@@ -17,6 +17,7 @@ replace(
     "docs/CONFIG.md",
     "  max_file_size_bytes: 104857600\\n  conflict_policy: rename",
     "  max_file_size_bytes: 104857600\\n  preserve_modtime: true\\n  conflict_policy: rename",
+    2,
 )
 '''
 if text.count(old) != 1:
