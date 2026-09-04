@@ -58,7 +58,7 @@ async function mockApp(page: Page) {
 test('comics entry stays visible while its count follows the active saved search', async ({ page }) => {
   await mockApp(page);
 
-  const comics = page.locator('.sidebar-item').filter({ hasText: 'Comics' });
+  const comics = page.locator('.sidebar-item[data-sidebar-shortcut]').filter({ hasText: 'Comics' });
   await expect(comics).toBeVisible();
   await expect(comics.locator('.count')).toHaveText('2');
 
