@@ -72,6 +72,10 @@
 
   onMount(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    if ($runtimeConfig.fullscreenMediaByDefault) {
+      const stage = dialogElement?.querySelector<HTMLElement>('.viewer-stage');
+      if (stage) void stage.requestFullscreen().catch(() => undefined);
+    }
     return claimFocus(dialogElement, previous);
   });
 

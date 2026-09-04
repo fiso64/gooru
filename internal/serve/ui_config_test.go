@@ -70,6 +70,21 @@ func TestConfigLoadsFullMediaDefault(t *testing.T) {
 	}
 }
 
+func TestConfigLoadsFullscreenMediaDefault(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gooru.yaml")
+	if err := os.WriteFile(path, []byte("ui:\n  fullscreen_media_by_default: true\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !cfg.UI.FullscreenMediaByDefault {
+		t.Fatal("ui.fullscreen_media_by_default was not loaded")
+	}
+}
+
 func TestConfigRejectsOldMediaFullDefault(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gooru.yaml")
@@ -86,6 +101,7 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg := DefaultConfig(t.TempDir() + "/gooru.db")
 	cfg.UI.AccentColor = "#2f80ed"
 	cfg.UI.LoadFullMediaByDefault = true
+	cfg.UI.FullscreenMediaByDefault = true
 	cfg.Media.ThumbnailSizes = []int{128, 384, 768}
 	cfg.UI.GridSize = 240
 	server := NewServer(cfg)
@@ -100,6 +116,9 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"load_full_media_by_default":true`) {
 		t.Fatalf("response missing full-media preference: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"fullscreen_media_by_default":true`) {
+		t.Fatalf("response missing fullscreen-media preference: %s", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"grid_size":240`) {
 		t.Fatalf("response missing grid size: %s", rec.Body.String())
