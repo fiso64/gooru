@@ -236,20 +236,11 @@
             </div>
           </div>
         </div>
-
-        <div class="field-row">
-          <span>On drop</span>
-          <div class="field-control">
-            <div class="seg" aria-label="Upload drop behavior">
-              <button type="button" class={!autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(false)}>Stage first</button>
-              <button type="button" class={autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(true)}>Auto-upload</button>
-            </div>
-          </div>
-        </div>
       </section>
 
       <section
         class={`upload-zone ${dragActive ? 'is-drag' : ''}`}
+        style="position: relative;"
         role="button"
         tabindex="0"
         onkeydown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); chooseFiles(); } }}
@@ -259,6 +250,16 @@
         ondrop={handleDrop}
       >
         <input bind:this={fileInput} type="file" multiple hidden onchange={picked} />
+        <div
+          class="seg"
+          aria-label="Upload drop behavior"
+          style="position: absolute; top: 12px; right: 12px;"
+          onclick={(event) => event.stopPropagation()}
+          onkeydown={(event) => event.stopPropagation()}
+        >
+          <button type="button" class={!autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(false)}>Stage first</button>
+          <button type="button" class={autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(true)}>Auto-upload</button>
+        </div>
         <div class="icon-wrap"><Icon name="upload" size={26} /></div>
         <h3>Drop files here</h3>
         <p>or click to browse</p>
