@@ -6,27 +6,53 @@ on:
       - feat/264-saved-search-order
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   diagnostics:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
+      - name: Apply narrow frontend type fix
+        id: fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/lib/components/AppShell.svelte')
+          text = path.read_text()
+          text = text.replace('savedSearches.map((item) =>', 'savedSearches.map((item: SavedSearchLike) =>')
+          text = text.replace('ordered.map((item) =>', 'ordered.map((item: SavedSearchLike) =>')
+          text = text.replace('savedSearches.filter((item) =>', 'savedSearches.filter((item: SavedSearchLike) =>')
+          path.write_text(text)
+          PY
+          if git diff --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add frontend/src/lib/components/AppShell.svelte
+            git commit -m 'fix: type saved-search ordering callbacks'
+            git push
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-go@v5
+        if: steps.fix.outputs.changed == 'false'
         with:
           go-version-file: go.mod
           cache: true
       - uses: actions/setup-node@v4
+        if: steps.fix.outputs.changed == 'false'
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
+        if: steps.fix.outputs.changed == 'false'
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
       - name: Capture diagnostics
-        id: diagnostics
+        if: steps.fix.outputs.changed == 'false'
         shell: bash
         run: |
           set +e
@@ -37,9 +63,10 @@ jobs:
           printf 'go_status=%s\nfrontend_status=%s\n' "$go_status" "$frontend_status" > statuses.txt
           exit 0
       - name: Upload diagnostics
+        if: steps.fix.outputs.changed == 'false'
         uses: actions/upload-artifact@v4
         with:
-          name: pr-271-diagnostics
+          name: pr-271-diagnostics-${{ github.sha }}
           path: |
             go-test.log
             frontend-check.log
