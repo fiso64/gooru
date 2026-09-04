@@ -43,6 +43,7 @@ type StagedUpload struct {
 	Status        string
 	Error         string
 	SourceModTime time.Time
+	AddedAt       time.Time
 }
 
 const maxUploadFiles = 100
@@ -52,8 +53,9 @@ type UploadTargetsResponse struct {
 }
 
 type UploadTargetDTO struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	AddedAtStrategy string `json:"added_at_strategy"`
 }
 
 func (s *Server) handleUploadTargets(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +68,11 @@ func (s *Server) handleUploadTargets(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(target.ID) == "" || strings.TrimSpace(target.Path) == "" {
 			continue
 		}
-		items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name})
+		strategy, err := uploadAddedAtStrategy("", target.AddedAtStrategy)
+		if err != nil {
+			continue
+		}
+		items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name, AddedAtStrategy: strategy})
 	}
 	writeJSON(w, http.StatusOK, UploadTargetsResponse{Items: items})
 }
@@ -208,6 +214,7 @@ type savedUpload struct {
 	error           string
 	replace         bool
 	sourceModTime   time.Time
+	addedAt         time.Time
 }
 
 var (
@@ -237,6 +244,25 @@ func uploadErrorDetails(err error) map[string]string {
 		return map[string]string{"file": fileErr.name}
 	}
 	return nil
+}
+
+func uploadAddedAtStrategy(requested string, fallback string) (string, error) {
+	strategy := strings.TrimSpace(requested)
+	if strategy == "" {
+		strategy = strings.TrimSpace(fallback)
+	}
+	if strategy == "" {
+		return "queue", nil
+	}
+	switch strategy {
+	case "queue", "reverse_queue", "modtime":
+		return strategy, nil
+	default:
+		if strings.TrimSpace(requested) != "" {
+			return "", errors.New("added_at_strategy must be one of: queue, reverse_queue, modtime")
+		}
+		return "", errors.New("configured upload target added_at_strategy is invalid")
+	}
 }
 
 func uploadConflictPolicy(requested string, fallback string) (string, error) {
@@ -556,7 +582,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt})
 	}
 	return out
 }
@@ -626,11 +652,16 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		response.Files = append(response.Files, dto)
 		responseIndexByPath[file.Path] = len(response.Files) - 1
 		analysisPathByDestination[file.Path] = analysisPath
+		addedAt := int64(0)
+		if !file.AddedAt.IsZero() {
+			addedAt = file.AddedAt.Unix()
+		}
 		importLocations = append(importLocations, types.LocationInfo{
 			Path:      file.Path,
 			Hash:      info.Hash,
 			Size:      info.Size,
 			ModTime:   info.ModTime,
+			AddedAt:   addedAt,
 			Extension: filepath.Ext(file.Path),
 		})
 	}

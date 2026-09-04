@@ -836,6 +836,17 @@ export interface paths {
                 content: {
                     "multipart/form-data": {
                         files: string[];
+                        /**
+                         * @description Override the selected upload target's added-at strategy for this submission.
+                         * @enum {string}
+                         */
+                        added_at_strategy?: "queue" | "reverse_queue" | "modtime";
+                        /** @description Client-captured queue timestamps in Unix milliseconds, one per file. */
+                        queue_time_ms?: number[];
+                        /** @description Stable queue indexes, one per file. */
+                        queue_index?: number[];
+                        /** @description Queue batch size, one per file. */
+                        queue_total?: number[];
                         /** @description Source modification timestamps in Unix milliseconds, in the same order as `files`. Invalid or missing entries are treated as unavailable. */
                         source_modtime_ms?: number[];
                         /** @description Configured upload target ID. Defaults to the first configured target. */
@@ -1392,6 +1403,11 @@ export interface components {
             items: {
                 id: string;
                 name: string;
+                /**
+                 * @description Default added-at strategy configured for this upload target.
+                 * @enum {string}
+                 */
+                added_at_strategy: "queue" | "reverse_queue" | "modtime";
             }[];
         };
         Job: {

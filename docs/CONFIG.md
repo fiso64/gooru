@@ -101,18 +101,20 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | Option | Default | Description |
 | --- | --- | --- |
 | `uploads.enabled` | `false` | Enable browser/API uploads. Enabling uploads requires at least one valid target. |
-| `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, and `path`. |
+| `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, `path`, and optional `added_at_strategy`. |
 | `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
 | `uploads.preserve_modtime` | `true` | Preserve each browser-uploaded file's source modification timestamp on the stored destination. Source timestamps are still carried through upload processing when disabled. |
 | `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
 
-Each entry in `uploads.targets` supports:
+Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `added_at_strategy`. The strategy defaults to `queue` and accepts `queue`, `reverse_queue`, or `modtime`.
+
 
 | Field | Description |
 | --- | --- |
 | `id` | Stable client-facing identifier. Required, unique, and limited to letters, numbers, `_`, and `-`; the first character must be alphanumeric. |
 | `name` | Human-readable target name. Required. |
 | `path` | Absolute destination directory. Required. The path itself is not returned by the upload-target API. |
+| `added_at_strategy` | Optional default for library-added ordering: `queue` (default), `reverse_queue`, or `modtime`. An upload request may override the target default. |
 
 Upload targets must not overlap Gooru-owned application paths. Startup rejects a target that contains, is contained by, or resolves through symlinks onto the configured database, encryption key file, media cache, frontend directory, or an explicitly configured absolute ffmpeg/ffprobe executable path. Keep application state and executables outside directories that Gooru is allowed to upload into, replace within, or delete from.
 
@@ -125,6 +127,7 @@ uploads:
     - id: default
       name: Default
       path: /srv/gooru/incoming
+      added_at_strategy: queue
   max_file_size_bytes: 104857600
   preserve_modtime: true
   conflict_policy: rename
@@ -206,6 +209,7 @@ uploads:
     - id: default
       name: Default
       path: /srv/gooru/incoming
+      added_at_strategy: queue
   max_file_size_bytes: 104857600
   preserve_modtime: true
   conflict_policy: rename

@@ -1377,7 +1377,7 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 	if len(locations) == 0 {
 		return nil
 	}
-	const columns = 5 // content_hash, path, size_bytes, mod_time, extension
+	const columns = 6 // content_hash, path, size_bytes, mod_time, added_at, extension
 	batchSize := maxVars / columns
 
 	locs := make([]types.LocationInfo, 0, len(locations))
@@ -1395,10 +1395,10 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 		var placeholders []string
 		var args []interface{}
 		for _, loc := range batch {
-			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?)")
-			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.Extension)
+			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, COALESCE(NULLIF(?, 0), CAST(strftime('%s','now') AS INTEGER)), ?)")
+			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.AddedAt, loc.Extension)
 		}
-		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ` +
+		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, added_at, extension) VALUES ` +
 			strings.Join(placeholders, ",") +
 			` ON CONFLICT(path) DO UPDATE SET
 				content_hash=excluded.content_hash,
