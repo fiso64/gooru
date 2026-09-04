@@ -1395,7 +1395,7 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 		var placeholders []string
 		var args []interface{}
 		for _, loc := range batch {
-			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)")
+			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, COALESCE(NULLIF(?, 0), CAST(strftime('%s','now') AS INTEGER)), ?)")
 			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.AddedAt, loc.Extension)
 		}
 		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, added_at, extension) VALUES ` +

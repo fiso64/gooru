@@ -122,4 +122,16 @@ func TestBatchUpsertLocationsPersistsExplicitAddedAtWithoutRewritingExistingValu
 	if file.AddedAt != 1234 {
 		t.Fatalf("existing added_at changed to %d, want stable 1234", file.AddedAt)
 	}
+
+	defaultPath := "/library/default-added.jpg"
+	if err := store.BatchUpsertLocations(store.DB, map[string]types.LocationInfo{defaultPath: {Path: defaultPath, Hash: "hash-one", Size: 3, ModTime: 30, Extension: ".jpg"}}); err != nil {
+		t.Fatalf("default added_at upsert: %v", err)
+	}
+	file, err = store.GetFileInfoByPath(defaultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.AddedAt <= 0 {
+		t.Fatalf("default added_at=%d, want insertion timestamp", file.AddedAt)
+	}
 }
