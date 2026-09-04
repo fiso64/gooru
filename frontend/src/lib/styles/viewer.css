@@ -26,6 +26,10 @@
 }
 
 .lightbox-video-controls {
+  /* The image handoff canvas is intentionally z-index: 2 while the next image
+     loads. Viewer chrome must stay in a higher paint layer so source changes
+     cannot briefly cover an otherwise-stable controls component. */
+  z-index: 3;
   transition: opacity 160ms ease;
 }
 
