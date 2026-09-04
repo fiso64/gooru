@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	core "gooru.local/gooru"
+	"gooru.local/internal/database"
 	"gooru.local/types"
 )
 
@@ -26,8 +27,12 @@ func TestSavedSearchReorderGoldenPath(t *testing.T) {
 	}
 	defer client.Close()
 
-	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
-	authStore := newAuthTestStore(t)
+	authDB, err := database.NewStore(dbPath, false)
+	if err != nil {
+		t.Fatalf("open auth db: %v", err)
+	}
+	defer authDB.Close()
+	authStore := NewAuthStore(authDB.DB)
 	if _, err := authStore.CreateAdmin(context.Background(), "saved-search-test", "correct horse"); err != nil {
 		t.Fatalf("create test user: %v", err)
 	}
@@ -36,6 +41,7 @@ func TestSavedSearchReorderGoldenPath(t *testing.T) {
 		t.Fatalf("login test user: %v", err)
 	}
 
+	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
 	server.SetAuthStore(authStore)
 
