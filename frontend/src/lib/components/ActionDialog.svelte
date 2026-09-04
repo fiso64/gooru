@@ -60,6 +60,12 @@
     return Boolean(target.closest('input, textarea, [contenteditable=""], [contenteditable="true"]'));
   }
 
+  function hasOpenTagCompletions(target: EventTarget | null) {
+    return target instanceof HTMLInputElement
+      && target.getAttribute('aria-haspopup') === 'listbox'
+      && target.getAttribute('aria-expanded') === 'true';
+  }
+
   onMount(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     if (tagInput) committedTags = parseTags(value ?? '');
@@ -76,6 +82,7 @@
     function handleKeydown(event: KeyboardEvent) {
       if (!dialogRef) return;
       if (event.key === 'Escape') {
+        if (hasOpenTagCompletions(event.target)) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         if (!busy) onCancel();
