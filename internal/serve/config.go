@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"gooru.local/internal/query"
 	"gooru.local/internal/securekey"
 	"gopkg.in/yaml.v3"
 )
@@ -77,10 +78,11 @@ type UploadsConfig struct {
 }
 
 type UploadTarget struct {
-	ID              string `yaml:"id"`
-	Name            string `yaml:"name"`
-	Path            string `yaml:"path"`
-	AddedAtStrategy string `yaml:"added_at_strategy"`
+	ID              string   `yaml:"id"`
+	Name            string   `yaml:"name"`
+	Path            string   `yaml:"path"`
+	AddedAtStrategy string   `yaml:"added_at_strategy"`
+	DefaultTags     []string `yaml:"default_tags"`
 }
 
 type MediaConfig struct {
@@ -108,11 +110,11 @@ type LoggingConfig struct {
 }
 
 type UIConfig struct {
-	AccentColor                   string `yaml:"accent_color"`
-	FontStyle                     string `yaml:"font_style"`
-	GridSize                      int    `yaml:"grid_size"`
-	LoadFullMediaByDefault        bool   `yaml:"load_full_media_by_default"`
-	FullscreenMediaByDefault      bool   `yaml:"fullscreen_media_by_default"`
+	AccentColor              string `yaml:"accent_color"`
+	FontStyle                string `yaml:"font_style"`
+	GridSize                 int    `yaml:"grid_size"`
+	LoadFullMediaByDefault   bool   `yaml:"load_full_media_by_default"`
+	FullscreenMediaByDefault bool   `yaml:"fullscreen_media_by_default"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
@@ -353,6 +355,12 @@ func (cfg *Config) Validate() error {
 		cfg.Uploads.Targets[i].Name = name
 		cfg.Uploads.Targets[i].Path = path
 		cfg.Uploads.Targets[i].AddedAtStrategy = addedAtStrategy
+		for tagIndex := range cfg.Uploads.Targets[i].DefaultTags {
+			cfg.Uploads.Targets[i].DefaultTags[tagIndex] = strings.TrimSpace(cfg.Uploads.Targets[i].DefaultTags[tagIndex])
+		}
+		if err := query.ValidateTagDirectives(cfg.Uploads.Targets[i].DefaultTags); err != nil {
+			errs = append(errs, fmt.Errorf("uploads target %q default_tags: %w", id, err))
+		}
 		if id == "" {
 			errs = append(errs, fmt.Errorf("uploads.targets[%d].id is required", i))
 		} else if !validUploadTargetID(id) {

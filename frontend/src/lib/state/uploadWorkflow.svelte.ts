@@ -26,6 +26,7 @@ export function createUploadWorkflow() {
   let items = $state<UploadItem[]>([]);
   let tags = $state('');
   let targetID = $state('');
+  let managedDefaultTags = $state<string[]>([]);
   let conflictPolicy = $state('rename');
   let addedAtStrategy = $state<UploadAddedAtStrategy>('queue');
   let autoUpload = $state(false);
@@ -38,6 +39,7 @@ export function createUploadWorkflow() {
     files = [];
     items = [];
     tags = '';
+    managedDefaultTags = [];
     conflictPolicy = 'rename';
     addedAtStrategy = 'queue';
     autoUpload = false;
@@ -82,7 +84,20 @@ export function createUploadWorkflow() {
     }
   }
 
-  function setTarget(value: string, defaultStrategy?: UploadAddedAtStrategy) {
+  function setTarget(value: string, defaultStrategy?: UploadAddedAtStrategy, defaultTags: string[] = []) {
+    const previousDefaults = new Set(managedDefaultTags);
+    const retained = parseTags(tags).filter((tag) => !previousDefaults.has(tag));
+    const nextDefaults = Array.from(new Set(defaultTags.map((tag) => tag.trim()).filter(Boolean)));
+    const merged = [...retained];
+    const seen = new Set(merged);
+    for (const tag of nextDefaults) {
+      if (!seen.has(tag)) {
+        merged.push(tag);
+        seen.add(tag);
+      }
+    }
+    tags = merged.join(' ');
+    managedDefaultTags = nextDefaults;
     targetID = value;
     if (defaultStrategy) addedAtStrategy = defaultStrategy;
     if (files.length) items = retargetStagedUploadItems(items, targetID);

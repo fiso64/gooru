@@ -1284,6 +1284,11 @@ components:
                 type: string
                 enum: [queue, reverse_queue, modtime]
                 description: Default added-at strategy configured for this upload target.
+              default_tags:
+                type: array
+                items:
+                  type: string
+                description: Visible editable tag/-tag directives prefilled for this upload target.
     Job:
       type: object
       required: [id, type, status, submitted_at]

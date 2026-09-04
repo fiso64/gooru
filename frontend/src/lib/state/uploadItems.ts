@@ -28,7 +28,7 @@ export interface UploadItem {
   error?: string;
 }
 
-export type UploadTargetOption = { id: string; name: string; added_at_strategy?: UploadAddedAtStrategy };
+export type UploadTargetOption = { id: string; name: string; added_at_strategy?: UploadAddedAtStrategy; default_tags?: string[] };
 
 export function effectiveUploadTargetID(targetID: string, targets: UploadTargetOption[]): string {
   if (targetID && targets.some((target) => target.id === targetID)) return targetID;

@@ -53,9 +53,10 @@ type UploadTargetsResponse struct {
 }
 
 type UploadTargetDTO struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	AddedAtStrategy string `json:"added_at_strategy"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	AddedAtStrategy string   `json:"added_at_strategy"`
+	DefaultTags     []string `json:"default_tags"`
 }
 
 func (s *Server) handleUploadTargets(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +73,7 @@ func (s *Server) handleUploadTargets(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name, AddedAtStrategy: strategy})
+		items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name, AddedAtStrategy: strategy, DefaultTags: append([]string(nil), target.DefaultTags...)})
 	}
 	writeJSON(w, http.StatusOK, UploadTargetsResponse{Items: items})
 }
@@ -115,7 +116,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeMultipartUploadError(w, err)
 		return
 	}
-	if err := query.ValidateTags(tags); err != nil {
+	resolvedTags, err := query.ResolveTagDirectives(tags)
+	if err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
@@ -134,7 +136,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			cleanup()
 			return nil, err
 		}
-		response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), tags)
+		response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), resolvedTags)
 		if err != nil {
 			rollbackErr := rollbackSavedReplacements(activated)
 			cleanup()

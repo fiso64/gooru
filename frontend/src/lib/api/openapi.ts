@@ -1466,6 +1466,8 @@ export interface components {
                  * @enum {string}
                  */
                 added_at_strategy: "queue" | "reverse_queue" | "modtime";
+                /** @description Visible editable tag/-tag directives prefilled for this upload target. */
+                default_tags?: string[];
             }[];
         };
         Job: {
