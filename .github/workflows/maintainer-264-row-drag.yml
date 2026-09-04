@@ -21,7 +21,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Apply focused repair
-        run: python3 tools/maintainer_264_patch.py
+        run: node tools/maintainer_264_patch.mjs
       - name: Install dependencies
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
@@ -42,6 +42,6 @@ jobs:
           git config user.name 'ChatGPT Codex Connector'
           git config user.email '1144995+chatgpt-codex-connector[bot]@users.noreply.github.com'
           git add frontend/src/lib/components/AppShell.svelte frontend/tests/saved-search-reorder.spec.ts
-          git rm .github/workflows/maintainer-264-row-drag.yml tools/maintainer_264_patch.py
+          git rm .github/workflows/maintainer-264-row-drag.yml tools/maintainer_264_patch.py tools/maintainer_264_patch.mjs
           git commit -m 'fix(web): drag saved-search entries directly'
           git push origin HEAD:fix/264-saved-search-row-drag
