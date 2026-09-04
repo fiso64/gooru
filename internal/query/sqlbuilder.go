@@ -170,7 +170,7 @@ func (b *SQLBuilder) buildMediaTypeQuery(value string) {
 }
 
 func quoteFTS5Phrase(value string) string {
-	return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+	return `"`[:1] + strings.ReplaceAll(value, `"`[:1], `""`[:2]) + `"`[:1]
 }
 
 func (b *SQLBuilder) buildFilenameContainsQuery(value string) {
@@ -248,7 +248,7 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 			b.args = append(b.args, parsed.Key)
 		} else {
 			b.query.WriteString(`t.key = ?`)
-			b.args = append(b.args, parsed.Key)
+			b.args = append(b.args, parsed.Key, parsed.Value)
 		}
 	}
 }
