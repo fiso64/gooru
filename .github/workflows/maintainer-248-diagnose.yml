@@ -1,0 +1,51 @@
+name: Maintainer 248 Diagnose
+
+on:
+  push:
+    branches:
+      - feat/248-upload-target-default-tags
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: ${{ !contains(github.event.head_commit.message, '[maintainer-248-diagnostic]') && !contains(github.event.head_commit.message, '[maintainer-248-applied]') && !contains(github.event.head_commit.message, '[maintainer-248-cleanup]') }}
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/248-upload-target-default-tags
+          fetch-depth: 0
+      - name: Reproduce transformation and persist stderr
+        shell: bash
+        run: |
+          set +e
+          python3 - <<'PY' >/tmp/maintainer-248.log 2>&1
+          from pathlib import Path
+          import textwrap
+          workflow = Path('.github/workflows/maintainer-248.yml').read_text()
+          start_marker = "          python3 - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = workflow.index(start_marker) + len(start_marker)
+          end = workflow.index(end_marker, start)
+          script = textwrap.dedent(workflow[start:end])
+          old = "marker = '''        added_at_strategy:\\n          type: string\\n          enum: [queue, reverse_queue, modtime]\\n'''"
+          new = "marker = '''              added_at_strategy:\\n                type: string\\n                enum: [queue, reverse_queue, modtime]\\n'''"
+          if old not in script:
+              raise SystemExit('could not locate original OpenAPI marker in transformation script')
+          script = script.replace(old, new, 1)
+          script = script.replace("marker + '''        default_tags:\\n          type: array\\n          items:\\n            type: string\\n          description: Visible editable tag/-tag directives prefilled for this upload target.\\n'''", "marker + '''              default_tags:\\n                type: array\\n                items:\\n                  type: string\\n                description: Visible editable tag/-tag directives prefilled for this upload target.\\n'''")
+          exec(compile(script, 'maintainer-248-embedded.py', 'exec'))
+          PY
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            printf 'transformation succeeded\n' > .maintainer-248-diagnostic.txt
+          else
+            cp /tmp/maintainer-248.log .maintainer-248-diagnostic.txt
+          fi
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .maintainer-248-diagnostic.txt
+          git commit -m "chore: capture transform failure [maintainer-248-diagnostic]"
+          git push origin HEAD:feat/248-upload-target-default-tags
