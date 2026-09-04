@@ -185,7 +185,8 @@ export class ApiClient {
     preferAsync = true,
     targetID = '',
     conflictPolicy = 'rename',
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
+    ordering: UploadOrderingMetadata = {}
   ): Promise<Job | UploadImportResponse> {
     const form = new FormData();
     for (const file of files) form.append('files', file, file.name);
@@ -193,6 +194,12 @@ export class ApiClient {
     if (tags.length) form.append('tags', tags.join(' '));
     if (targetID) form.append('target_id', targetID);
     if (conflictPolicy) form.append('conflict_policy', conflictPolicy);
+    if (ordering.addedAtStrategy) form.append('added_at_strategy', ordering.addedAtStrategy);
+    for (const value of ordering.queueTimeMs ?? []) if (Number.isFinite(value) && value > 0) form.append('queue_time_ms', String(Math.trunc(value)));
+    if (Number.isFinite(ordering.queueFirstTimeMs) && (ordering.queueFirstTimeMs ?? 0) > 0) form.append('queue_first_time_ms', String(Math.trunc(ordering.queueFirstTimeMs!)));
+    if (Number.isFinite(ordering.queueLastTimeMs) && (ordering.queueLastTimeMs ?? 0) > 0) form.append('queue_last_time_ms', String(Math.trunc(ordering.queueLastTimeMs!)));
+    for (const value of ordering.queueIndex ?? []) if (Number.isInteger(value) && value >= 0) form.append('queue_index', String(value));
+    for (const value of ordering.queueTotal ?? []) if (Number.isInteger(value) && value > 0) form.append('queue_total', String(value));
 
     return uploadMultipart<Job | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
       csrfToken: this.csrfToken,
@@ -236,6 +243,15 @@ export class ApiClient {
     }
     return data as T;
   }
+}
+
+export interface UploadOrderingMetadata {
+  addedAtStrategy?: 'queue' | 'reverse_queue' | 'modtime';
+  queueTimeMs?: number[];
+  queueFirstTimeMs?: number;
+  queueLastTimeMs?: number;
+  queueIndex?: number[];
+  queueTotal?: number[];
 }
 
 interface UploadMultipartOptions {

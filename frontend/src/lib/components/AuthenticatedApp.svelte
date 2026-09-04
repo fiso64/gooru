@@ -101,6 +101,13 @@
   const selectedCount = $derived(library.selectedCount(currentTotalCount));
 
   $effect(() => {
+    const targets = uploadTargetsQuery.data?.items ?? [];
+    if (!targets.length || upload.targetID) return;
+    const target = targets[0];
+    upload.setTarget(target.id, target.added_at_strategy ?? 'queue');
+  });
+
+  $effect(() => {
     const csrf = $authState.csrfToken;
     if (csrf === observedCSRF) return;
     observedCSRF = csrf;
@@ -299,6 +306,11 @@
     }
   }
 
+  function selectUploadTarget(value: string) {
+    const target = (uploadTargetsQuery.data?.items ?? []).find((candidate) => candidate.id === value);
+    upload.setTarget(value, target?.added_at_strategy ?? 'queue');
+  }
+
   function selectUploadFiles(files: FileList | File[] | null) {
     upload.select(files);
     if (upload.autoUpload && files && Array.from(files).length) {
@@ -432,12 +444,14 @@
         targets={uploadTargetsQuery.data?.items ?? []}
         targetID={upload.targetID}
         conflictPolicy={upload.conflictPolicy}
+        addedAtStrategy={upload.addedAtStrategy}
         autoUpload={upload.autoUpload}
         tags={tagsQuery.data?.tags ?? []}
-        onTargetInput={upload.setTarget}
+        onTargetInput={selectUploadTarget}
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
         onConflictInput={(value) => (upload.conflictPolicy = value)}
+        onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}
         onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}
         onCancel={cancelUploadJob}
