@@ -488,10 +488,6 @@
       >
         {#snippet actions()}
           <div class="library-head-actions">
-            <label class="g-btn g-btn-sm" title="Select all files in the current view">
-              <input type="checkbox" aria-label="Select all files in current view" checked={currentTotalCount > 0 && selectedCount === currentTotalCount} onchange={(event) => event.currentTarget.checked ? library.selectAll() : library.clearSelection()} />
-              Select <u>a</u>ll
-            </label>
             <div class="seg" aria-label="Sort field">
               {#each [{ value: 'modified', label: 'Modified' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
                 <button
