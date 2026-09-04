@@ -1,4 +1,4 @@
-# temporary #254 validation trigger v3
+# temporary #254 validation trigger v4
 name: maintainer-254-added-sort
 
 on:
@@ -36,6 +36,6 @@ jobs:
         run: |
           git config user.name chatgpt-codex-connector
           git config user.email chatgpt-codex-connector@users.noreply.github.com
-          git add internal/database/database.go internal/serve/browse.go internal/serve/browse_test.go docs/openapi.yaml frontend/src/lib/queries/files.ts frontend/src/lib/utils/appRoute.ts frontend/src/lib/utils/appRoute.test.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/api/openapi.ts
+          git add internal/database/database.go internal/serve/browse.go internal/serve/browse_test.go docs/openapi.yaml frontend/src/lib/api/client.ts frontend/src/lib/queries/files.ts frontend/src/lib/utils/appRoute.ts frontend/src/lib/utils/appRoute.test.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/api/openapi.ts
           git commit -m 'feat: make added time the library sort default [maintainer-254-sorting-applied]'
           git push origin HEAD:feat/254-added-at-sorting
