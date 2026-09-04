@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { flip } from 'svelte/animate';
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
   import JobsDrawer from './JobsDrawer.svelte';
@@ -81,6 +82,7 @@
   let shortcutsOpen = $state(false);
   let shortcutsReturnRoute = $state('library');
   let draggedSavedSearchID = $state('');
+  let savedSearchDragStartOrder = $state<string[]>([]);
   let savedSearchOrder = $state<string[]>([]);
   let savedSearchMembership = $state('');
   let savedSearchReorderBusy = $state(false);
@@ -145,24 +147,54 @@
       return;
     }
     draggedSavedSearchID = id;
+    savedSearchDragStartOrder = orderedSavedSearches.map((item) => item.id);
     savedSearchReorderError = '';
     event.dataTransfer?.setData('text/plain', id);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
   }
 
+  function previewSavedSearchDrag(event: DragEvent, targetID: string) {
+    const sourceID = draggedSavedSearchID || event.dataTransfer?.getData('text/plain') || '';
+    if (!sourceID || savedSearchReorderBusy) return;
+    event.preventDefault();
+    if (sourceID === targetID) return;
+
+    const current = orderedSavedSearches.map((item) => item.id);
+    const from = current.indexOf(sourceID);
+    const target = current.indexOf(targetID);
+    if (from < 0 || target < 0) return;
+
+    const targetRow = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    const bounds = targetRow?.getBoundingClientRect();
+    const insertAfter = bounds ? event.clientY >= bounds.top + bounds.height / 2 : from < target;
+    const next = current.filter((id) => id !== sourceID);
+    const targetAfterRemoval = next.indexOf(targetID);
+    if (targetAfterRemoval < 0) return;
+    next.splice(targetAfterRemoval + (insertAfter ? 1 : 0), 0, sourceID);
+    if (next.every((id, index) => id === current[index])) return;
+    savedSearchOrder = next;
+  }
+
+  function endSavedSearchDrag() {
+    draggedSavedSearchID = '';
+    if (!savedSearchDragStartOrder.length) return;
+    savedSearchOrder = savedSearchDragStartOrder;
+    savedSearchDragStartOrder = [];
+  }
+
   async function dropSavedSearch(event: DragEvent, targetID: string) {
     event.preventDefault();
     const sourceID = draggedSavedSearchID || event.dataTransfer?.getData('text/plain') || '';
-    draggedSavedSearchID = '';
-    if (!sourceID || sourceID === targetID || savedSearchReorderBusy) return;
+    if (!sourceID || savedSearchReorderBusy) return;
 
-    const previous = orderedSavedSearches.map((item) => item.id);
-    const next = [...previous];
-    const from = next.indexOf(sourceID);
-    const to = next.indexOf(targetID);
-    if (from < 0 || to < 0) return;
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
+    previewSavedSearchDrag(event, targetID);
+    const previous = savedSearchDragStartOrder.length
+      ? [...savedSearchDragStartOrder]
+      : orderedSavedSearches.map((item) => item.id);
+    const next = orderedSavedSearches.map((item) => item.id);
+    draggedSavedSearchID = '';
+    savedSearchDragStartOrder = [];
+    if (next.every((id, index) => id === previous[index])) return;
 
     savedSearchOrder = next;
     savedSearchReorderBusy = true;
@@ -325,11 +357,12 @@
           <Icon name="plus" size={11} />
         </button>
       </div>
-      {#each orderedSavedSearches as saved}
+      {#each orderedSavedSearches as saved (saved.id)}
         <div
           class="sidebar-saved-row"
           class:drag-target={Boolean(draggedSavedSearchID) && draggedSavedSearchID !== saved.id}
-          ondragover={(event) => { if (draggedSavedSearchID) event.preventDefault(); }}
+          animate:flip={{ duration: 160 }}
+          ondragover={(event) => previewSavedSearchDrag(event, saved.id)}
           ondrop={(event) => void dropSavedSearch(event, saved.id)}
         >
           <button
@@ -338,7 +371,7 @@
             draggable={!savedSearchReorderBusy}
             disabled={savedSearchReorderBusy}
             ondragstart={(event) => startSavedSearchDrag(event, saved.id)}
-            ondragend={() => (draggedSavedSearchID = '')}
+            ondragend={endSavedSearchDrag}
             onclick={() => onSavedSearch(saved.query, saved.name)}
           >
             <Icon name="bookmark" size={14} />

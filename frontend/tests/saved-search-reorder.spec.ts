@@ -65,9 +65,27 @@ test('persists saved-search drag order across reload', async ({ page }) => {
   await expect(rows.locator('.truncate')).toHaveText(['First', 'Second', 'Third']);
 
   await expect(page.getByRole('button', { name: 'Drag First' })).toHaveCount(0);
-  const firstEntry = rows.nth(0).locator('.sidebar-item');
+  const firstEntry = rows.filter({ hasText: 'First' }).locator('.sidebar-item');
+  const thirdRow = rows.filter({ hasText: 'Third' });
   await expect(firstEntry).toHaveAttribute('draggable', 'true');
-  await firstEntry.dragTo(rows.nth(2));
+
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  const thirdBox = await thirdRow.boundingBox();
+  expect(thirdBox).not.toBeNull();
+  await firstEntry.dispatchEvent('dragstart', { dataTransfer });
+  await thirdRow.dispatchEvent('dragover', {
+    dataTransfer,
+    clientY: thirdBox!.y + thirdBox!.height - 1
+  });
+
+  await expect(rows.locator('.truncate')).toHaveText(['Second', 'Third', 'First']);
+  expect(reorderRequests).toHaveLength(0);
+
+  await thirdRow.dispatchEvent('drop', {
+    dataTransfer,
+    clientY: thirdBox!.y + thirdBox!.height - 1
+  });
+  await firstEntry.dispatchEvent('dragend', { dataTransfer });
 
   await expect.poll(() => reorderRequests).toEqual([{ ids: ['s2', 's3', 's1'], csrf: 'csrf-one' }]);
   await expect(rows.locator('.truncate')).toHaveText(['Second', 'Third', 'First']);
