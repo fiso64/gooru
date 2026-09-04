@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply patch
         run: |
+          python3 .maintainer-254-source-modtime-docfix.py
           python3 .maintainer-254-source-modtime.py
           gofmt -w internal/serve/config.go internal/serve/config_test.go internal/serve/upload_stream.go internal/serve/uploads.go internal/serve/uploads_test.go internal/serve/upload_encryption_e2e_test.go
           git diff --check
