@@ -18,7 +18,7 @@ concurrency:
 jobs:
   go:
     name: Go
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -32,7 +32,7 @@ jobs:
 
   frontend:
     name: Frontend
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     defaults:
       run:
         working-directory: frontend
