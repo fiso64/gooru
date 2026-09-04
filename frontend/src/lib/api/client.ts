@@ -145,6 +145,12 @@ export class ApiClient {
     );
   }
 
+  async reorderSavedSearches(ids: string[]): Promise<void> {
+    await this.unwrap(
+      this.client.PUT('/saved-searches/reorder', { params: { header: this.csrfHeaderParam('PUT') }, body: { ids } })
+    );
+  }
+
   async deleteSavedSearch(id: string): Promise<void> {
     await this.unwrap(this.client.DELETE('/saved-searches/{id}', { params: { header: this.csrfHeaderParam('DELETE'), path: { id } } }));
   }

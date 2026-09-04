@@ -52,10 +52,15 @@ type savedSearchRequest struct {
 	Order string `json:"order"`
 }
 
+type savedSearchReorderRequest struct {
+	IDs []string `json:"ids"`
+}
+
 type SavedSearchLibrary interface {
 	ListSavedSearches(ctx context.Context, userID string) ([]types.SavedSearch, error)
 	CreateSavedSearch(ctx context.Context, userID string, req savedSearchRequest) (types.SavedSearch, error)
 	UpdateSavedSearch(ctx context.Context, userID string, id string, req savedSearchRequest) (types.SavedSearch, error)
+	ReorderSavedSearches(ctx context.Context, userID string, ids []string) error
 	DeleteSavedSearch(ctx context.Context, userID string, id string) (bool, error)
 }
 
@@ -173,6 +178,10 @@ func (s *Server) handleSavedSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "saved search not found", nil)
 		return
 	}
+	if id == "reorder" {
+		handleSavedSearchReorder(w, r, library, userID)
+		return
+	}
 	switch r.Method {
 	case http.MethodPut:
 		req, err := decodeSavedSearchRequest(r)
@@ -205,6 +214,28 @@ func (s *Server) handleSavedSearch(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "PUT, DELETE")
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}
+}
+
+func handleSavedSearchReorder(w http.ResponseWriter, r *http.Request, library SavedSearchLibrary, userID string) {
+	if r.Method != http.MethodPut {
+		w.Header().Set("Allow", "PUT")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
+	}
+	var req savedSearchReorderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IDs == nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "ids is required", nil)
+		return
+	}
+	if err := library.ReorderSavedSearches(r.Context(), userID, req.IDs); err != nil {
+		if errors.Is(err, core.ErrInvalidSavedSearchOrder) {
+			writeError(w, http.StatusBadRequest, "invalid_request", "saved search order must contain every saved search exactly once", nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to reorder saved searches", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func decodeSavedSearchRequest(r *http.Request) (savedSearchRequest, error) {

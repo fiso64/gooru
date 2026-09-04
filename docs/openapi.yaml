@@ -776,6 +776,36 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /saved-searches/reorder:
+    put:
+      summary: Replace the saved-search order for the current user.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavedSearchReorderRequest"
+      responses:
+        "200":
+          description: Saved-search order replaced.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /saved-searches/{id}:
     put:
       summary: Replace one saved search.
@@ -1480,6 +1510,14 @@ components:
       required: [items]
       properties:
         items:
+          type: array
+          items:
+            type: string
+    SavedSearchReorderRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
           type: array
           items:
             type: string

@@ -1,0 +1,82 @@
+# Development
+
+## Backend
+
+```bash
+go build ./...
+go test ./...
+```
+
+Run a local server with:
+
+```bash
+go run ./cmd/gooru serve --config serve.yaml
+```
+
+The module currently declares Go 1.25.
+
+## Frontend
+
+```bash
+cd frontend
+npm ci
+npm run check
+npm run test:unit
+npm run dev
+```
+
+The Vite development server is for frontend work. The production application is a static build served by the Go server.
+
+Run end-to-end tests with:
+
+```bash
+npm run test:e2e
+```
+
+## Build the production frontend
+
+```bash
+cd frontend
+npm run build
+```
+
+The output is `frontend/build`.
+
+## OpenAPI workflow
+
+`docs/openapi.yaml` is the source of truth for the public HTTP contract.
+
+After changing endpoint shapes:
+
+```bash
+cd frontend
+npm run generate:api
+```
+
+Commit the regenerated `src/lib/api/openapi.ts` together with the OpenAPI change. Go tests also parse the specification to catch drift.
+
+## Logging policy
+
+Server logs are structured text written to stderr. Levels are `debug`, `info`, `warn`, and `error`.
+
+Logging should describe operational events without copying sensitive or library-specific content into logs. In particular, avoid passwords, session/CSRF values, request bodies, raw query strings, concrete media URL paths, filesystem paths, filenames, tags/search expressions, and unbounded error strings that may embed them.
+
+Prefer fixed event names, route patterns, opaque IDs when correlation is necessary, bounded counts, statuses, and durations.
+
+## Optional build tags
+
+### FUSE virtual filesystem
+
+```bash
+go build -tags fuse -o ./bin/gooru ./cmd/gooru
+```
+
+Requires the platform's FUSE development/runtime support.
+
+### libvips thumbnails
+
+```bash
+go build -tags govips -o ./bin/gooru ./cmd/gooru
+```
+
+Requires libvips development files at build time and the shared library at runtime.

@@ -10,7 +10,7 @@ func (l *GooruLibrary) ListSavedSearches(ctx context.Context, userID string) ([]
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return l.client.ListSavedSearches(userID)
+	return l.client.ListSavedSearchesOrdered(userID)
 }
 
 func (l *GooruLibrary) CreateSavedSearch(ctx context.Context, userID string, req savedSearchRequest) (types.SavedSearch, error) {
@@ -32,6 +32,13 @@ func (l *GooruLibrary) UpdateSavedSearch(ctx context.Context, userID string, id 
 		Sort:   req.Sort,
 		Order:  req.Order,
 	})
+}
+
+func (l *GooruLibrary) ReorderSavedSearches(ctx context.Context, userID string, ids []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return l.client.ReorderSavedSearches(userID, ids)
 }
 
 func (l *GooruLibrary) DeleteSavedSearch(ctx context.Context, userID string, id string) (bool, error) {

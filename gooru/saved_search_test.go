@@ -1,6 +1,7 @@
 package gooru
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -79,5 +80,84 @@ func TestCreateSavedSearchNormalizesSortAndRejectsInvalidQuery(t *testing.T) {
 	}
 	if _, err := client.CreateSavedSearchForUsername("alice", "Broken", "(", "name", "asc"); err == nil {
 		t.Fatal("expected invalid query to be rejected")
+	}
+}
+
+func TestSavedSearchReorderPersistsWithoutRewritingMetadata(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := Init(dbPath, types.StrategyPartial, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+	if _, err := client.store.Exec(`INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)`, "usr_test", "alice", "unused-test-hash", "admin"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	first, err := client.CreateSavedSearchForUsername("alice", "First", "kind:image", "name", "asc")
+	if err != nil {
+		t.Fatalf("create first: %v", err)
+	}
+	second, err := client.CreateSavedSearchForUsername("alice", "Second", "kind:video", "size", "desc")
+	if err != nil {
+		t.Fatalf("create second: %v", err)
+	}
+	third, err := client.CreateSavedSearchForUsername("alice", "Third", "", "name", "asc")
+	if err != nil {
+		t.Fatalf("create third: %v", err)
+	}
+
+	want := []string{third.ID, first.ID, second.ID}
+	if err := client.ReorderSavedSearchesForUsername("alice", want); err != nil {
+		t.Fatalf("reorder: %v", err)
+	}
+	items, err := client.ListSavedSearchesForUsername("alice")
+	if err != nil {
+		t.Fatalf("list reordered: %v", err)
+	}
+	for i, id := range want {
+		if items[i].ID != id {
+			t.Fatalf("order[%d] = %s, want %s", i, items[i].ID, id)
+		}
+	}
+	if items[0].Name != "Third" || items[1].Name != "First" || items[1].Query != "kind:image" || items[2].Order != "desc" {
+		t.Fatalf("reorder rewrote metadata: %+v", items)
+	}
+
+	first.Name = "First renamed"
+	if _, err := client.UpdateSavedSearch(first); err != nil {
+		t.Fatalf("update first metadata: %v", err)
+	}
+	items, err = client.ListSavedSearchesForUsername("alice")
+	if err != nil {
+		t.Fatalf("list after metadata update: %v", err)
+	}
+	for i, id := range want {
+		if items[i].ID != id {
+			t.Fatalf("metadata update changed order: got %+v, want %v", items, want)
+		}
+	}
+
+	fourth, err := client.CreateSavedSearchForUsername("alice", "Fourth", "", "name", "asc")
+	if err != nil {
+		t.Fatalf("create fourth: %v", err)
+	}
+	items, err = client.ListSavedSearchesForUsername("alice")
+	if err != nil {
+		t.Fatalf("list after append: %v", err)
+	}
+	if items[len(items)-1].ID != fourth.ID {
+		t.Fatalf("new search did not append: got last %s, want %s", items[len(items)-1].ID, fourth.ID)
+	}
+
+	if err := client.ReorderSavedSearches("usr_test", []string{first.ID, second.ID}); !errors.Is(err, ErrInvalidSavedSearchOrder) {
+		t.Fatalf("incomplete reorder error = %v, want ErrInvalidSavedSearchOrder", err)
+	}
+	if err := client.ReorderSavedSearches("usr_test", []string{first.ID, second.ID, third.ID, third.ID}); !errors.Is(err, ErrInvalidSavedSearchOrder) {
+		t.Fatalf("duplicate reorder error = %v, want ErrInvalidSavedSearchOrder", err)
 	}
 }

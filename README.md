@@ -1,89 +1,45 @@
 # Gooru
 
-Gooru is a high-performance, content-centric command-line tool for tagging and organizing local files. It uses content hashing to identify files, making it resilient to renames and moves.
+Gooru is a media library for browsing, tagging, uploading, and viewing files through a web interface inspired by boorus. The CLI can also be used as a standalone tagging tool and does not require a running server.
+
+Files are identified by content rather than only by path. This allows Gooru to recognize the same content after a rename or move, or even function as an archive capable of checking file integrity when using [full hashing](HASHING.md).
+
+Gooru is intended primarily for personal and private multi-user libraries rather than public imageboard-style communities.
 
 This project is fully maintained by an LLM.
 
-## Web Application
+## Features
 
-The `gooru serve` command runs the REST API, authenticated media backend, upload
-import endpoint, job polling routes, and static SvelteKit frontend. See
-[docs/SERVE.md](docs/SERVE.md) for local setup, production static-asset
-deployment, secure network access, upload configuration, and optional media tool
-dependencies. Every supported YAML option is documented in the
-[serve configuration reference](docs/CONFIG.md).
+- Browser-based library with search, tags, tag namespaces, saved searches, and bulk actions.
+- Thumbnails and in-browser previews for supported media, including images, videos, gifs, and basic support for `.cbz` comic archives. 
+- Uploads and imports with background job tracking.
+- Content-based file identity that survives renames and moves.
+- Optional encryption for the database, managed uploads, and generated media.
+- HTTP API, CLI, and Go packages for automation and integration.
 
-## NixOS
+## Getting started
 
-The repository flake provides both the packaged application and a NixOS module.
-The package builds the static frontend and installs it beside the Go binary, so a
-Node runtime is not required on the server. The module creates a `gooru` system
-user by default, stores application state under `/var/lib/gooru`, media cache
-under `/var/cache/gooru`, installs `ffmpeg`/`ffprobe` in the service PATH, and
-writes the generated serve configuration to `/etc/gooru/serve.yaml`.
+See [Running Gooru](docs/SERVE.md) for building the application, creating the first user, configuring the server, and deployment options.
 
-Add Gooru as a flake input and import its module:
+The complete server configuration is documented in [docs/CONFIG.md](docs/CONFIG.md).
 
-```nix
-{
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    gooru.url = "github:fiso64/gooru";
-  };
+## Documentation
 
-  outputs = { nixpkgs, gooru, ... }: {
-    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        gooru.nixosModules.default
-        {
-          services.gooru = {
-            enable = true;
-            settings = {
-              # The default is 127.0.0.1:5678. Bind more broadly only when
-              # authenticated access on your network is intentional.
-              server.listen = "127.0.0.1:5678";
+| Topic | Documentation |
+| --- | --- |
+| Run and deploy Gooru | [docs/SERVE.md](docs/SERVE.md) |
+| Server configuration | [docs/CONFIG.md](docs/CONFIG.md) |
+| Search and query syntax | [docs/QUERY.md](docs/QUERY.md) |
+| Command-line interface | [docs/CLI.md](docs/CLI.md) |
+| HTTP API | [docs/openapi.yaml](docs/openapi.yaml) |
+| Go packages | [docs/LIBRARY.md](docs/LIBRARY.md) |
+| Development | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
+| Frontend development | [frontend/README.md](frontend/README.md) |
 
-              uploads = {
-                enabled = true;
-                targets = [
-                  {
-                    id = "default";
-                    name = "Default";
-                    path = "/srv/gooru/incoming";
-                  }
-                ];
-              };
-            };
-          };
-        }
-      ];
-    };
-  };
-}
-```
+## Project status
 
-Create any configured upload directories with permissions appropriate for the
-service user. After rebuilding the system, create the first admin account with:
-
-```bash
-sudo -u gooru gooru user create-admin --username alice --config /etc/gooru/serve.yaml
-```
-
-For non-interactive provisioning, the same command accepts the password through
-the `GOORU_ADMIN_PASSWORD` environment variable. `services.gooru.settings` maps
-directly to the normal serve YAML configuration, so options documented in
-[docs/CONFIG.md](docs/CONFIG.md) can be expressed as Nix attributes. Set
-`services.gooru.openFirewall = true` only when the configured listen port should
-be reachable through the NixOS firewall.
-
-The package can also be built or run without enabling the service:
-
-```bash
-nix build .#
-nix run .# -- --help
-```
+Gooru is under active development. Treat the CLI, configuration schema, and HTTP API as evolving unless a release explicitly documents compatibility guarantees.
 
 ## License
 
-Gooru is licensed under the **GNU Affero General Public License v3.0 only** (`AGPL-3.0-only`). See [LICENSE](LICENSE) for the complete license text and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and assets distributed under their own compatible terms.
+Gooru is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE) for the license text and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and assets.

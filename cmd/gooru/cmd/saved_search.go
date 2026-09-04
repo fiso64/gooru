@@ -13,6 +13,7 @@ type savedSearchClient interface {
 	ListSavedSearchesForUsername(username string) ([]types.SavedSearch, error)
 	CreateSavedSearchForUsername(username, name, expression, sort, order string) (types.SavedSearch, error)
 	SearchSavedSearchForUsername(username, reference string, verbose bool) ([]types.FileInfo, error)
+	ReorderSavedSearchesForUsername(username string, references []string) error
 }
 
 func newSavedSearchCmd(client func() savedSearchClient) *cobra.Command {
@@ -60,6 +61,18 @@ func newSavedSearchCmd(client func() savedSearchClient) *cobra.Command {
 		},
 	}
 
+	reorderCmd := &cobra.Command{
+		Use:   "reorder <name-or-id>...",
+		Short: "Persists the complete saved-search order for a user.",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := client().ReorderSavedSearchesForUsername(username, args); err != nil {
+				return fmt.Errorf("reorder saved searches: %w", err)
+			}
+			return nil
+		},
+	}
+
 	searchCmd := &cobra.Command{
 		Use:     "search <name-or-id>",
 		Aliases: []string{"run"},
@@ -77,7 +90,7 @@ func newSavedSearchCmd(client func() savedSearchClient) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(createCmd, listCmd, searchCmd)
+	cmd.AddCommand(createCmd, listCmd, reorderCmd, searchCmd)
 	return cmd
 }
 

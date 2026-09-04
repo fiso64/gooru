@@ -9,11 +9,15 @@ import (
 	"strings"
 	"time"
 
+	"gooru.local/internal/database"
 	"gooru.local/internal/query"
 	"gooru.local/types"
 )
 
-var ErrSavedSearchNotFound = errors.New("saved search not found")
+var (
+	ErrSavedSearchNotFound    = errors.New("saved search not found")
+	ErrInvalidSavedSearchOrder = database.ErrInvalidSavedSearchOrder
+)
 
 func NormalizeSavedSearchSort(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
@@ -54,12 +58,50 @@ func (c *Client) SavedSearchUserID(username string) (string, error) {
 	return id, err
 }
 
+// ListSavedSearchesOrdered returns the saved-search order used by user-facing
+// surfaces. It is separate from the legacy low-level list method so ordering is
+// owned explicitly instead of piggybacking on metadata update timestamps.
+func (c *Client) ListSavedSearchesOrdered(userID string) ([]types.SavedSearch, error) {
+	return c.store.ListSavedSearchesOrdered(userID)
+}
+
 func (c *Client) ListSavedSearchesForUsername(username string) ([]types.SavedSearch, error) {
 	userID, err := c.SavedSearchUserID(username)
 	if err != nil {
 		return nil, err
 	}
-	return c.ListSavedSearches(userID)
+	return c.ListSavedSearchesOrdered(userID)
+}
+
+func (c *Client) ReorderSavedSearches(userID string, ids []string) error {
+	return c.store.ReorderSavedSearches(userID, ids)
+}
+
+func (c *Client) ReorderSavedSearchesForUsername(username string, references []string) error {
+	userID, err := c.SavedSearchUserID(username)
+	if err != nil {
+		return err
+	}
+	items, err := c.ListSavedSearchesOrdered(userID)
+	if err != nil {
+		return err
+	}
+	ids := make([]string, 0, len(references))
+	for _, reference := range references {
+		reference = strings.TrimSpace(reference)
+		matched := ""
+		for _, item := range items {
+			if item.ID == reference || strings.EqualFold(item.Name, reference) {
+				matched = item.ID
+				break
+			}
+		}
+		if matched == "" {
+			return fmt.Errorf("%w: %q", ErrSavedSearchNotFound, reference)
+		}
+		ids = append(ids, matched)
+	}
+	return c.ReorderSavedSearches(userID, ids)
 }
 
 func (c *Client) CreateSavedSearchForUser(userID, name, expression, sort, order string) (types.SavedSearch, error) {

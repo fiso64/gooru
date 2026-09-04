@@ -1,13 +1,12 @@
-# Serving the Web Application
+# Serve the web app
 
-`gooru serve` runs the REST API, authenticated media routes, upload/import
-endpoint, in-memory jobs, and the static SvelteKit frontend from one Go process.
+`gooru serve` runs the HTTP API, authenticated media endpoints, uploads, background jobs, and the static SvelteKit frontend in one Go process.
 
-## Build the Frontend
+For every YAML field and default, see [CONFIG.md](CONFIG.md). For endpoint-level integration, see [openapi.yaml](openapi.yaml).
 
-The production server serves static files from `frontend/build` by default. Build
-those assets before running `gooru serve` from a source checkout or before
-packaging a release:
+## From a source checkout
+
+### 1. Build the frontend
 
 ```bash
 cd frontend
@@ -15,270 +14,198 @@ npm ci
 npm run check
 npm run test:unit
 npm run build
+cd ..
 ```
 
-The Go server does not require a Node server at runtime. If you deploy outside a
-source checkout, copy `frontend/build` with the `gooru` binary and point
-`server.frontend_dir` at that directory.
+The generated static site is written to `frontend/build`. Node is not required at runtime once the frontend has been built.
 
-## Create a Serve Config
-
-Start from the generated default config:
+### 2. Build the Go binary
 
 ```bash
-go run ./cmd/gooru serve --print-default-config > serve.yaml
+go build -o ./bin/gooru ./cmd/gooru
 ```
 
-The default listen address is `127.0.0.1:5678`, which is suitable for local use.
-Authentication is enabled by default and uses DB-backed users plus opaque
-server-side sessions. If uploads are desired, configure at least one upload
-target with a stable ID and absolute directory path:
+### 3. Initialize the database if needed
+
+```bash
+./bin/gooru init
+```
+
+If you use a non-default database, pass the same `--database` path when initializing it or set `database.path` in the server config.
+
+### 4. Generate a config
+
+```bash
+./bin/gooru serve --print-default-config > serve.yaml
+```
+
+For local use, the most important defaults are already conservative:
+
+- listen on `127.0.0.1:5678`;
+- authentication enabled;
+- uploads disabled;
+- protected/encrypted storage disabled until a key is configured.
+
+### 5. Create the first admin
+
+```bash
+./bin/gooru user create-admin --username alice --config serve.yaml
+```
+
+For non-interactive provisioning, supply the password through `GOORU_ADMIN_PASSWORD`; do not put normal usernames or passwords in YAML and avoid command-line password arguments.
+
+### 6. Start the server
+
+```bash
+./bin/gooru serve --config serve.yaml
+```
+
+Open `http://127.0.0.1:5678` unless you changed `server.listen` or `server.public_url`.
+
+## Uploads
+
+Uploads are off by default. Enable them only with an explicit target:
 
 ```yaml
-server:
-  listen: "127.0.0.1:5678"
-  frontend_dir: "frontend/build"
-
-database:
-  path: "/home/alice/.config/gooru/gooru.db"
-
-auth:
-  enabled: true
-  session_ttl: "720h"
-  cookie_name: "gooru_session"
-  cookie_secure: "auto"
-  cookie_same_site: "lax"
-
 uploads:
   enabled: true
   targets:
-    - id: "default"
-      name: "Default"
-      path: "/home/alice/Pictures/incoming"
+    - id: default
+      name: Default
+      path: /srv/gooru/incoming
   max_file_size_bytes: 104857600
-  conflict_policy: "rename"
-
-media:
-  cache_dir: "/home/alice/.cache/gooru/media"
-  thumbnail_sizes: [256, 512]
-  thumbnail_format: "jpeg"
-  preview_size: 1280
-
-jobs:
-  completed_ttl: "1h"
-  max_queued: 100
-  max_running: 2
-  max_result_bytes: 10485760
-
-tools:
-  ffmpeg_path: "ffmpeg"
-  ffprobe_path: "ffprobe"
-
-logging:
-  level: "info"
+  conflict_policy: rename
 ```
 
-Create the first admin user, then run the server:
+Upload target paths must be absolute. Gooru exposes target IDs and display names to clients, not the configured filesystem paths.
+
+Uploads are staged before being committed to their final names. `rename` resolves filename conflicts with numbered names; `error` rejects the conflict.
+
+## Network access
+
+Keep the default loopback bind for single-machine use:
+
+```yaml
+server:
+  listen: 127.0.0.1:5678
+```
+
+For LAN access:
+
+```yaml
+server:
+  listen: 0.0.0.0:5678
+
+auth:
+  enabled: true
+```
+
+Gooru refuses unauthenticated non-loopback serving unless `auth.allow_unsafe_no_auth_non_loopback` is deliberately enabled.
+
+`gooru serve` does not terminate TLS. Use a reverse proxy, VPN, SSH tunnel, or another trusted network layer for access beyond a trusted LAN.
+
+## Authentication and cookies
+
+Authentication uses DB-backed users and server-side sessions. The browser receives an HttpOnly session cookie. Mutating cookie-authenticated API requests also require a CSRF token in `X-Gooru-CSRF`.
+
+`auth.cookie_secure: auto` is the normal choice; configure the cookie and proxy/public URL settings to match your deployment.
+
+Legacy token-auth options (`auth.token`, `auth.token_env`, `auth.token_file`, and `--auth-token`) are intentionally rejected.
+
+## Encryption at rest
+
+Protected storage can encrypt:
+
+- the SQLite database;
+- files under configured upload-target roots;
+- generated media derivatives.
+
+It does **not** rewrite arbitrary external library files outside managed upload roots.
+
+Generate a 256-bit key and protect the file permissions:
 
 ```bash
-go run ./cmd/gooru user create-admin --username alice --config serve.yaml
-go run ./cmd/gooru serve --config serve.yaml
+umask 077
+openssl rand -base64 32 > /srv/gooru/encryption.key
 ```
 
-For automation, provide the password through the clearly named
-`GOORU_ADMIN_PASSWORD` environment variable. Avoid passing passwords as command
-arguments.
+Then configure one key source, for example:
 
-Login uses `POST /api/v1/auth/login`. The server sets an HttpOnly
-`gooru_session` cookie and returns a CSRF token. Mutating cookie-authenticated
-requests must send that token in `X-Gooru-CSRF`; `GET /api/v1/auth/me` returns a
-fresh token for browser reloads. Original media, thumbnails, and previews are
-loaded with same-origin session cookies, so normal `<img>`, `<video>`, and
-`<audio>` elements can use range requests without JavaScript blob fetching.
-File responses include stable media URLs for thumbnail, preview, inline content,
-and attachment download routes.
+```yaml
+encryption:
+  enabled: true
+  key_file: /srv/gooru/encryption.key
+```
 
-The old `auth.token`, `auth.token_env`, `auth.token_file`, and `--auth-token`
-browser auth configuration is rejected with a migration message. Do not store
-normal usernames or passwords in YAML config.
+Alternatively use `GOORU_ENCRYPTION_KEY` or `GOORU_ENCRYPTION_KEY_FILE`. Exactly one key source must be active. Back up the key separately from encrypted data; the wrong key cannot decrypt content written with the original key.
 
-## Logging
+See [CONFIG.md#encryption](CONFIG.md#encryption) for the complete rules.
 
-`gooru serve` writes structured text logs to stderr. `logging.level` accepts
-`debug`, `info`, `warn`, or `error` and defaults to `info`.
+## Media tooling
 
-The logging policy is:
+A default build includes a pure-Go image thumbnail path. Video thumbnails require `ffmpeg`; `ffprobe` is also used for media inspection/cache versioning.
 
-- **debug**: high-frequency diagnostic lifecycle data such as routine read
-  requests and queued work;
-- **info**: successful or expected state transitions that are useful to an
-  operator, including mutating requests, authentication/session changes, and
-  background-job start/completion/cancellation;
-- **warn**: degraded or failed operations that need attention but do not make the
-  daemon unusable, including 5xx request outcomes, failed jobs, and queue
-  saturation;
-- **error**: reserved for failures at process/subsystem boundaries where the
-  daemon cannot continue the requested responsibility safely.
-
-New features should log the domain event at the layer that owns the transition,
-not copy request payloads into logs or add duplicate messages at every call
-layer. HTTP completion logging provides request outcome and timing; background
-jobs log their own lifecycle because they can outlive the request that started
-them.
-
-Logs are intentionally metadata-minimizing. Do not log passwords, session/CSRF
-or API tokens, request bodies, raw query strings, concrete media URL path values,
-filesystem paths, filenames, tags/search expressions, job results, or arbitrary
-error strings that can embed those values. Prefer fixed event names, route
-patterns, opaque internal IDs when correlation is necessary, bounded counts,
-status values, and durations. A subsystem may log richer data only when it is
-both operationally necessary and explicitly reviewed for privacy/sensitivity.
-
-Setting `logging.level: debug` adds request lifecycle and other diagnostic
-records in the invoking terminal. Request logs record the matched route pattern
-rather than raw URL paths or query strings; headers, request bodies, library file
-names, and filesystem paths remain excluded.
-
-## Local Development
-
-For Go/backend development:
+To build with libvips as the primary image thumbnail backend:
 
 ```bash
-go build ./...
-go test ./...
-go run ./cmd/gooru serve --config serve.yaml
+go build -tags govips -o ./bin/gooru ./cmd/gooru
 ```
 
-For frontend development, use the Vite dev server from `frontend/` and keep a
-`go run ./cmd/gooru serve` process available for API/media routes when testing
-against a real library. If you need same-origin frontend-only development, add a
-local Vite proxy for that workflow. Production deployments should use
-`npm run build` and the Go server, not `npm run dev`.
+That build requires libvips development files at build time and the shared library at runtime.
 
-## Build a Release Binary
+If an optional media tool is missing, core browse/tag/upload/original-media functionality remains available; derivative requests can return `unsupported_media`.
 
-For packaged or copied deployments, build a specific binary and run that path
-explicitly:
+## Production packaging
+
+Build and run a specific binary so you do not accidentally execute an older `gooru` from `PATH`:
 
 ```bash
 go build -o ./bin/gooru ./cmd/gooru
 ./bin/gooru serve --config serve.yaml
 ```
 
-Using `go run ./cmd/gooru ...` from a checkout or `./bin/gooru ...` from a
-freshly built binary avoids accidentally running an older `gooru` from `PATH`.
+When packaging outside the source tree, ship the built frontend directory too and point `server.frontend_dir` at it.
 
-## Network Access
+## NixOS
 
-For local-only use, keep `server.listen` on `127.0.0.1`. To access the app from
-another device, bind to a private interface or `0.0.0.0` and keep session auth
-enabled:
+The repository flake exports a NixOS module under `gooru.nixosModules.default`. The module maps `services.gooru.settings` directly to the normal YAML configuration, so [CONFIG.md](CONFIG.md) remains the option reference.
 
-```yaml
-server:
-  listen: "0.0.0.0:5678"
+Example:
 
-auth:
-  enabled: true
+```nix
+services.gooru = {
+  enable = true;
+  settings = {
+    server.listen = "127.0.0.1:5678";
+    uploads = {
+      enabled = true;
+      targets = [{
+        id = "default";
+        name = "Default";
+        path = "/srv/gooru/incoming";
+      }];
+    };
+  };
+};
 ```
 
-`gooru serve` refuses `auth.enabled: false` on non-loopback binds unless the
-intentionally named escape hatch `auth.allow_unsafe_no_auth_non_loopback: true`
-is set for trusted throwaway environments.
+Create configured upload directories with permissions appropriate for the service user. The module defaults to a `gooru` system user, application state under `/var/lib/gooru`, media cache under `/var/cache/gooru`, and generated config at `/etc/gooru/serve.yaml`.
 
-TLS is intentionally not managed by `gooru serve` in this stack. Use a reverse
-proxy, VPN, SSH tunnel, or private network tunnel when exposing the app beyond a
-trusted LAN.
+Open the firewall only when the configured listen address is intentionally reachable from the network.
 
-## Media Tooling
+## Troubleshooting
 
-Default builds use the built-in Go image thumbnail path. To enable libvips as
-the primary image thumbnail backend, build with the `govips` tag:
+Print the defaults supported by the exact binary you are running:
 
 ```bash
-go build -tags govips -o ./bin/gooru ./cmd/gooru
+gooru serve --print-default-config
 ```
 
-`govips` builds require libvips development files at build time and the libvips
-shared library at runtime. Without that tag, image thumbnailing still works for
-formats supported by the pure-Go fallback. Video thumbnails use `ffmpeg`;
-`ffprobe` is included in thumbnail cache versioning.
-
-Missing optional tools do not prevent browse, tagging, upload, or original media
-routes from working. Affected derivative requests return a machine-readable
-`unsupported_media` error until the relevant tool is installed or configured.
-The built-in pure-Go image fallback uses a quality-preserving scaler for minimal
-builds and tests. Video thumbnails prefer a frame shortly after the beginning of
-the video, using `ffprobe` duration when available, then fall back to the first
-decodable frame.
-
-Media metadata used by file list and detail responses is read from the database
-cache when present. List/detail routes do not synchronously open media files just
-to discover dimensions.
-
-## Browse API
-
-`GET /api/v1/files` supports `query`, `limit`, `page_token`, `sort`, `order`,
-and `include_facets=true`. Responses include the current page, total matching
-count, total library count, and optional kind facets scoped to the active query.
-Browse pagination uses opaque cursor tokens. Free-text filename matching uses
-SQLite `LIKE` against stored paths; it is bounded by cursor paging but remains a
-known scan-heavy path until a future full-text index is added. File DTOs always
-include `safe_display_path` for UI labels; absolute `path` is omitted unless
-path exposure is explicitly enabled.
-`GET /api/v1/search/suggestions?q=...&existing=...` returns namespace, tag, and
-namespace-value autocomplete suggestions, while `GET /api/v1/tags/namespaces`
-returns known tag namespaces.
-
-Authenticated users can persist browser queries through `GET`/`POST`
-`/api/v1/saved-searches` and `PUT`/`DELETE /api/v1/saved-searches/{id}`. Saved
-searches are scoped to the current DB-backed user.
-
-`DELETE /api/v1/files/{id}` accepts `{"mode":"untrack"}` to remove only the
-tracked location or `{"mode":"delete"}` to also remove the underlying file. Physical
-deletion is deliberately limited to files inside configured upload-target roots; other
-indexed paths remain untrack-only. File responses expose `can_delete` so clients do not
-offer destructive deletion where the server will refuse it.
-
-## Jobs
-
-Long-running mutations use the in-memory job manager. Current limits are:
+For server diagnostics, set:
 
 ```yaml
-jobs:
-  completed_ttl: "1h"
-  max_queued: 100
-  max_running: 2
-  max_result_bytes: 10485760
+logging:
+  level: debug
 ```
 
-`max_queued` caps pending jobs, `max_running` caps concurrent async job
-execution, and `max_result_bytes` prevents large completed results from being
-kept in memory. A full queue returns the normal JSON error envelope with
-`job_queue_full`.
-
-## Upload Safety
-
-Uploads are disabled unless `uploads.enabled` is true and at least one
-`uploads.targets` entry has a stable ID, display name, and absolute path.
-Clients can list configured targets through `GET /api/v1/upload-targets`; the
-response includes only target IDs and names, not filesystem paths. Upload
-requests may pass `target_id`, defaulting to the first configured target.
-Uploaded filenames are reduced to safe basenames, path traversal is rejected by
-construction, and `uploads.conflict_policy` controls same-name conflicts. Use
-`rename` to apply numbered suffixes or `error` to reject the upload.
-
-Uploads are staged into temporary files in the target directory before they are
-atomically linked into their final names. Failed batches remove staged files.
-Import responses include a per-file status such as `imported`,
-`duplicate_existing`, `duplicate_in_batch`, or `error`. If an async upload/import
-job is canceled before it starts running, the staged files are cleaned up when
-the queued job is drained.
-
-## API Contract Drift
-
-`docs/openapi.yaml` is the source for the public HTTP contract. When server DTOs
-or endpoint behavior changes, update the OpenAPI file and regenerate the
-frontend client types with `cd frontend && npm run generate:api`. Go tests parse
-the OpenAPI document, and the frontend `ApiClient` consumes the generated
-`openapi-fetch` contract.
+Debug request logging intentionally avoids raw query strings, request bodies, filenames, filesystem paths, credentials, and session/CSRF secrets.
