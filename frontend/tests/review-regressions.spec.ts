@@ -68,21 +68,13 @@ async function mockApp(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('Library header renders a visible word gap in Select all', async ({ page }) => {
+test('Library header keeps sorting separate from selection controls', async ({ page }) => {
   await mockApp(page);
-  const label = page.locator('.library-head-actions label.g-btn');
-  await expect(label).toBeVisible();
-  await expect(label).toContainText('Select all');
-
-  const gap = await label.evaluate((node) => {
-    const underline = node.querySelector('u');
-    const textNode = Array.from(node.childNodes).find((child) => child.nodeType === Node.TEXT_NODE && child.textContent?.includes('Select'));
-    if (!underline || !textNode) throw new Error('Select-all label structure changed');
-    const range = document.createRange();
-    range.selectNodeContents(textNode);
-    return underline.getBoundingClientRect().left - range.getBoundingClientRect().right;
-  });
-  expect(gap).toBeGreaterThan(1);
+  const actions = page.locator('.library-head-actions');
+  await expect(actions.getByRole('button', { name: 'Added' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Name' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'Size' })).toBeVisible();
+  await expect(actions.getByText('Select all')).toHaveCount(0);
 });
 
 test('ArrowDown in the viewer cannot activate the background media-grid cursor', async ({ page }) => {
