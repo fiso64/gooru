@@ -1,37 +1,40 @@
-# Gooru Frontend
+# Gooru frontend
 
-Static SvelteKit app served by `gooru serve`.
+Static SvelteKit application served by `gooru serve` in production.
 
 ## Development
 
 ```bash
-npm install
+npm ci
+npm run check
+npm run test:unit
 npm run dev
 ```
 
-The dev server expects the Go API at the same origin in production. During local frontend-only work, run the API separately or configure a Vite proxy in a follow-up slice.
+The dev server is for frontend work. When testing against real library/API behavior, run the Go server separately and use an appropriate local proxy/same-origin setup.
 
-## Production Build
+## Production build
 
 ```bash
-npm run check
-npm run test:unit
 npm run build
 ```
 
-The static output is written to `frontend/build`. `gooru serve` serves that directory by default through `server.frontend_dir`.
+Static output is written to `frontend/build`, which the Go server serves through `server.frontend_dir`.
 
-See [../docs/SERVE.md](../docs/SERVE.md) for the full runtime configuration and
-deployment notes.
+## End-to-end tests
 
-## API client
+```bash
+npm run test:e2e
+```
 
-`../docs/openapi.yaml` is the API source of truth. Regenerate the frontend API
-types before changing endpoint shapes:
+## API types
+
+`../docs/openapi.yaml` is the public API contract. Regenerate TypeScript definitions after endpoint/schema changes:
 
 ```bash
 npm run generate:api
 ```
 
-`src/lib/api/openapi.ts` is generated and `src/lib/api/client.ts` is a thin
-`openapi-fetch` facade used by the Svelte query modules.
+`src/lib/api/openapi.ts` is generated. `src/lib/api/client.ts` is the thin `openapi-fetch` facade used by the frontend query modules.
+
+See [../docs/DEVELOPMENT.md](../docs/DEVELOPMENT.md) for the repository-wide workflow and [../docs/SERVE.md](../docs/SERVE.md) for runtime deployment.

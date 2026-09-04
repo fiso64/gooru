@@ -1,8 +1,16 @@
-# Serve configuration reference
+# Server configuration reference
 
-`gooru serve` reads YAML with `--config <path>`. Unknown YAML fields are rejected, so a misspelled option fails fast instead of being silently ignored. `gooru serve --print-default-config` prints the defaults for the current build and default database location.
+This is the exhaustive reference for `gooru serve` YAML. For a deployment walkthrough, start with [SERVE.md](SERVE.md) instead.
 
-This page documents every supported YAML field in the server configuration. Paths described as absolute are validated as such.
+Generate the defaults for the exact binary you are running:
+
+```bash
+gooru serve --print-default-config
+```
+
+Unknown YAML fields are rejected, so misspelled options fail fast. Paths documented as absolute are validated as such.
+
+The safest starting point is the default configuration: loopback-only listening, authentication enabled, uploads disabled, and encryption disabled until a key is explicitly configured.
 
 ## `server`
 

@@ -1,247 +1,128 @@
+# Go package
 
-# Gooru Library Usage
+Gooru's core library lives in `gooru.local/gooru` and is used by the CLI and server.
 
-This document outlines how to use the `gooru` package as a library in your own Go projects.
+> **Module-path note:** the repository currently declares `module gooru.local`. That is suitable for this source tree, but it is not a normal public Go module path. External consumers will need a local module replacement/fork until the project adopts a publicly resolvable module path. Treat the package API as evolving unless a release states otherwise.
 
-## Setup
-
-To use the Gooru library, import it into your Go project:
-
-```go
-import "gooru.local/gooru"
-```
-
-## Initialization
-
-Using the Gooru library is a two-step process: initializing a database and then creating a client to connect to it.
-
-### Step 1: Initializing the Database
-
-Before you can use Gooru, you must initialize a database file. This is a one-time operation that creates the necessary tables and, crucially, sets the **hashing strategy** for the database. This choice is permanent.
-
-Use the `gooru.Init()` function for this:
-```go
-import "gooru.local/gooru/types"
-
-// dbPath is the path where the SQLite database file will be created.
-dbPath := "/path/to/gooru.db"
-
-// Choose a hashing strategy. This determines the trade-off between
-// performance and reliability for large files.
-// - types.StrategyPartial: (Recommended) Very fast. Identifies files by their size
-//   plus hashes of a few small data chunks. Ideal for large media libraries.
-// - types.StrategyFull: Slower for large files but provides maximum reliability by
-//   hashing the entire file content. Best for critical documents.
-strategy := types.StrategyPartial
-
-// The verbose flag logs SQL queries to stderr.
-err := gooru.Init(dbPath, strategy, false)
-if err != nil {
-    // handle error (e.g., if the file already exists)
-}
-```
-
-### Step 2: Creating a Client
-
-Once the database is initialized, you can create a `gooru.Client` to interact with it. The client will automatically detect and use the hashing strategy that was set during initialization.
+## Create a database
 
 ```go
-// dbPath points to your *initialized* database file.
-client, err := gooru.New(dbPath, false)
-if err != nil {
-    // This will return `gooru.ErrDBUninitialized` if `gooru.Init()` was not run.
-    // Handle other potential errors.
-}
-defer client.Close() // IMPORTANT: Always close the client when done.
-```
+package main
 
-## Core Operations
+import (
+    "log"
 
-All operations are methods on the `gooru.Client` struct.
+    "gooru.local/gooru"
+    "gooru.local/types"
+)
 
-### Tag Validation
-
-The library enforces a strict validation policy for tags.
-
-#### General Syntax Rules (for all operations)
-
-The following rules apply to tags whether you are creating them or using them in a query:
--   A tag must only contain printable ASCII characters (characters 33-126). **Spaces are not allowed.**
--   The key part of a `key:value` tag cannot be empty.
--   A tag (or the key/value parts of a `key:value` tag) cannot start or end with the characters `-`, `!`, or `:`.
-
-**Valid syntax examples:** `photo`, `project:alpha`, `version-1.0`, `needs_review`
-**Invalid syntax examples:** `"my tag"` (contains space), `!important` (starts with `!`), `final-` (ends with `-`), `:work` (empty key), `project:v1:` (value ends with `:`)
-
-#### Reserved Keywords (for creating/setting tags)
-
-When you are applying tags to a file (e.g., using `TagFiles`, `SetTagsForFiles`), an additional rule applies:
--   The tag key cannot be `ext` or `type`, as these are reserved for special query syntax.
-
-This means you can search for files using `ext:jpg`, but you cannot create a tag with the key `ext`. Methods that create tags will return an error if you attempt to use a reserved keyword.
-
-**Invalid tags to apply:** `ext:backup`, `type:document`.
-
-**Note on Simple Tags vs. Key-Only Queries:**
-
-- When **tagging**, `tag` and `tag:` are treated identically. Both create a simple tag in the database with `key='tag'` and an empty value.
-- When **querying**, a simple tag like `photo` in an expression (`gooru list photo`) acts as a "key-only" search. It will match all content that has *any* tag with the key `photo`, including the simple tag `photo` as well as key-value tags like `photo:album1` and `photo:vacation`.
-
-### Tagging Files
-
-The library provides high-performance, transactional methods for tagging files.
-
-- **`TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error)`**: Adds one or more tags to multiple files. It's additive and won't remove existing tags. Returns a `TagOperationResult` containing the number of *new* tag associations created and a list of notifications about file moves or modifications.
-
-- **`SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error)`**: Sets the tags for multiple files, replacing all existing tags. If `tags` is empty, it removes all tags. Returns a `TagOperationResult` containing the total number of tag associations changed (removed + added) and a list of notifications.
-
-- **`UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error)`**: Removes specific tags from multiple files. If `tags` is empty, it removes all tags from the files. Returns a `TagOperationResult` containing the number of tag associations removed and a list of notifications.
-
-The `progressCb` is an optional callback that, if provided, is invoked for each file processed, reporting either success (`err == nil`) or failure.
-
-**Example:**
-```go
-files := []string{"/path/to/image.jpg", "/path/to/doc.pdf"}
-tags := []string{"project:alpha", "important"}
-
-// `useMetadataHeuristic` is false, ensuring content is always hashed for correctness.
-// Set to true for higher performance at the risk of missing some changes.
-result, err := client.TagFiles(files, tags, func(filePath string, err error) {
+func main() {
+    err := gooru.Init("/path/to/gooru.db", types.StrategyPartial, false)
     if err != nil {
-        fmt.Printf("Failed to tag %s: %v\n", filePath, err)
-    }
-}, false)
-// handle potential database error
-```
-
-**File Modification and Move Handling**
-
-All path-based tagging functions (`TagFiles`, `SetTagsForFiles`, `UntagFiles`, `RehashFiles`, etc.) provide a `useMetadataHeuristic` boolean parameter to control how file changes are detected. This establishes a policy of **correctness by default, performance by choice.**
-
-*   **Default Behavior (`useMetadataHeuristic = false`):** To guarantee correctness, the system **always performs a content hash** on the file to get its definitive, current identity. If this hash differs from the one stored in the database for that path, the file is treated as modified. The system updates the database to point the path to the new content and proceeds with the operation. A `Notification` of kind `NotificationKindModified` is returned, which includes the tags of the old, now-orphaned content.
-
-*   **Performance Opt-In (`useMetadataHeuristic = true`):** For higher performance on large batches of files, the system can use a faster heuristic. It first checks if the file's `size + modification time` match the database record. Only if the metadata differs does it perform a full content hash. This is much faster but carries a small risk of missing content changes where the file's metadata did not update.
-
-If a file path is new, but its content hash matches an existing file that is now missing from its old path, the system treats this as a **move/rename**. It updates the path in the database and applies the operation. A `Notification` of kind `NotificationKindMoveDetected` is returned, containing the old and new paths.
-
-This system ensures that operations can be tuned for either guaranteed correctness or maximum performance, providing data integrity and resilience to filesystem changes.
-
-### Tagging by Query
-
-For maximum performance when tagging large sets of files that match a query, use the `ByQuery` variants. These methods operate directly on the database using the query expression, avoiding the overhead of fetching and iterating through file paths in your application. They do not support progress callbacks but return a count of affected records.
-
-- **`TagFilesByQuery(expression string, tags []string) (int, error)`**: Adds tags to all files matching the query expression. Returns the number of new tag associations created.
-
-- **`SetTagsForFilesByQuery(expression string, tags []string) (int, error)`**: Sets the tags for all files matching the query, replacing existing ones. Returns the number of files affected.
-
-- **`UntagFilesByQuery(expression string, tags []string) (int, error)`**: Removes specific tags from all files matching the query. If `tags` is empty, it removes *all* tags from the matching files. Returns the number of tag associations removed.
-
-**Example:**
-```go
-// Add the 'archived' tag to all files that are not tagged 'important'
-count, err := client.TagFilesByQuery("-important", []string{"archived"})
-if err != nil {
-    // handle error
-}
-fmt.Printf("Archived %d items.\n", count)
-```
-
-### Retrieving Files and Tags
-
-- **`GetTagsForFile(filePath string, useMetadataHeuristic bool) ([]string, types.FileStatus, error)`**: Retrieves all tags for a single file. It also returns a `FileStatus` to indicate the file's state (`StatusOK`, `StatusModified`, `StatusNotInDB`). The `useMetadataHeuristic` parameter controls whether change detection is done via fast metadata checks or a guaranteed content hash (see "File Modification and Move Handling" above).
-
-- **`GetAllTags() ([]string, error)`**: Returns a sorted list of all unique tags in the database.
-
-- **`GetAllTagsWithCounts() ([]types.TagWithCount, error)`**: Returns a list of all tags and their usage counts, sorted by count (descending). The `TagWithCount` struct has `Tag` (string) and `Count` (int) fields. For simple tags (e.g., `photo`), the returned count is an aggregate of all files tagged with the `photo` key, including `photo`, `photo:album1`, etc. For key-value tags, the count is specific to that tag only.
-
-- **`ListFilesByQuery(expression string, verbose bool) ([]string, error)`**: The most powerful query method. Parses a complex query expression and returns a list of matching file paths.
-    - **Expression Syntax**: `tag1`, `"tag1 tag2"` (AND), `"tag1 | tag2"` (OR), `tag1 -tag2` (NOT), `(tag1 | tag2) -tag3` (grouping), `ext:jpg`, `type:img`.
-
-- **`CountFilesByQuery(expression string, verbose bool) (int, error)`**: Efficiently counts files matching a query expression without fetching the full list. Uses pre-calculated statistics for simple single-tag queries.
-
-- **`ExistsFilesByQuery(expression string, verbose bool) (bool, error)`**: Performs a high-performance check to see if any files match a query expression, stopping at the first match. Ideal for conditional logic.
-
-- **`ListAllFiles() ([]string, error)`**: Lists all file paths known to the database.
-
-- **`ListFilesByTag(tag string) ([]string, error)`**: Lists files matching a single tag.
-
-- **`ListFilesByTagsAnd(tags []string, notTags []string) ([]string, error)`**: Lists files matching all of the given `tags` while also not having any of the `notTags`.
-
-**Example:**
-```go
-// Find all files tagged with 'photo' but not 'work'
-paths, err := client.ListFilesByQuery("photo -work", false)
-if err != nil {
-    // handle error
-}
-for _, p := range paths {
-    fmt.Println(p)
-}
-```
-
-### Retrieving Detailed File Information
-
-The library also provides methods to retrieve `types.FileInfo` structs, which include the path, hash, size, modification time, and a slice of tag strings. These are more efficient than getting paths and then getting tags for each file.
-
-- **`GetFileInfoForFile(filePath string, useMetadataHeuristic bool) (types.FileInfo, types.FileStatus, error)`**: Retrieves detailed file info for a single file, including all its metadata and tags. Like `GetTagsForFile`, it also returns a `FileStatus` to indicate if the file has been modified. The `useMetadataHeuristic` parameter controls the change detection method.
-- **`GetFilesInfoByQuery(expression string, verbose bool) ([]types.FileInfo, error)`**
-- **`GetAllFilesInfo() ([]types.FileInfo, error)`**
-- **`GetFilesInfoByTag(tag string) ([]types.FileInfo, error)`**
-- **`GetFilesInfoByTagsAnd(tags []string, notTags []string) ([]types.FileInfo, error)`**: Retrieves detailed info for files matching all of the given `tags` while also not having any of the `notTags`.
-
-
-### Filesystem Synchronization
-
-Gooru is resilient to file moves and renames. The `relink` operation scans the filesystem to find these changes.
-
-- **`NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)`**: Performs a check to see if a full relink scan is necessary. By default (`alwaysVerifyHash = false`), it uses a fast metadata check. If `alwaysVerifyHash` is true, it performs a slower but 100% accurate content hash check on all files.
-
-- **`Relink(dirs []string) (types.RelinkResult, error)`**: Performs a "dry run" scan of the specified directories. It returns a `RelinkResult` struct detailing proposed changes:
-    - `ProposedMoves`: Files that have been moved or renamed.
-    - `ProposedAdds`: New locations (duplicates) for content already in the database.
-    - `ProposedDeletes`: Database records for files no longer found on disk.
-
-- **`ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkStats, error)`**: Executes the changes proposed by `Relink`. This is the only method in the relink process that modifies the database.
-
-**Example Workflow:**
-```go
-dirs := []string{"/home/user/documents"}
-// Use the default, fast metadata check for the pre-scan.
-// Set the second argument to `true` for a slower but 100% accurate pre-scan.
-needsScan, err := client.NeedsRelink(dirs, false)
-if err == nil && needsScan {
-    proposedChanges, err := client.Relink(dirs)
-    if err == nil {
-        // Optionally, inspect proposedChanges and ask for user confirmation
-        stats, err := client.ApplyRelinkChanges(proposedChanges)
-        // handle error and check stats
+        log.Fatal(err)
     }
 }
 ```
 
-### Manual Path Management
+`StrategyPartial` is optimized for large files. `StrategyFull` hashes the entire file. The chosen strategy is persisted with the database.
 
-For cases where you know a file has moved and want to update the database without a full scan.
+## Open a client
 
-- **`EditPath(oldPath, newPath string) error`**: Manually updates a file's path in the database.
-
-- **`PruneLocations(paths []string) (int, error)`**: Removes a list of file paths from the database. Returns the number of records removed.
-
-- **`DeleteFilesByQuery(expression string) (int, error)`**: Removes file records from the database that match a given query expression. Returns the number of file location records removed.
-
-### Manual Content Management
-
-- **`RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error), useMetadataHeuristic bool)`**: Explicitly updates the content record for files that have been modified on disk. For each file, it calculates the new content hash and transactionally transfers all existing tags from the old content record to the new one, preserving the file's tagged identity. This is the primary library function for managing the lifecycle of a file that is expected to change over time. The `progressCb` is invoked for each file, reporting its final status (e.g., `StatusRehashed`, `StatusSkippedUnchanged`). The `useMetadataHeuristic` parameter controls whether the initial check for changes is done via fast metadata or a guaranteed content hash.
-
-### Tag Management
-
-- **`RenameTag(oldName, newName string) error`**: Atomically renames a tag across the entire database. The `newName` must be a valid tag format and must not already exist. The `oldName` must exist. All file tag caches are automatically updated.
-
-**Example:**
 ```go
-// Rename all instances of the tag 'project:alpha' to 'project:beta'
+client, err := gooru.New("/path/to/gooru.db", false)
+if err != nil {
+    // gooru.ErrDBUninitialized means Init has not been run for this database.
+    return err
+}
+defer client.Close()
+```
+
+All normal operations are methods on `*gooru.Client`.
+
+## Tag files
+
+```go
+result, err := client.TagFiles(
+    []string{"/data/image.jpg"},
+    []string{"photo", "project:alpha"},
+    nil,
+    false,
+)
+```
+
+The last argument controls the metadata heuristic:
+
+- `false` — hash content for correctness;
+- `true` — use size + modification time as a fast pre-check, with the risk of missing changes whose metadata did not change.
+
+Related methods include `SetTagsForFiles` and `UntagFiles`.
+
+## Tag by query
+
+```go
+count, err := client.TagFilesByQuery("photo -reviewed", []string{"reviewed"})
+```
+
+Query-based mutations operate directly against matching database records and avoid per-path callbacks.
+
+See [QUERY.md](QUERY.md) for expression syntax.
+
+## Read data
+
+Common methods include:
+
+```go
+paths, err := client.ListFilesByQuery("photo favorite", false)
+files, err := client.GetFilesInfoByQuery("photo favorite", false)
+tags, err := client.GetAllTags()
+tagCounts, err := client.GetAllTagsWithCounts()
+count, err := client.CountFilesByQuery("photo", false)
+found, err := client.ExistsFilesByQuery("photo", false)
+```
+
+`GetTagsForFile` and `GetFileInfoForFile` also return a `types.FileStatus` indicating whether the path is known and whether its current content differs from the recorded identity.
+
+## Filesystem synchronization
+
+Use the relink flow when paths may have moved:
+
+```go
+needsScan, err := client.NeedsRelink([]string{"/data"}, false)
+if err != nil {
+    return err
+}
+if needsScan {
+    proposed, err := client.Relink([]string{"/data"})
+    if err != nil {
+        return err
+    }
+
+    // Inspect proposed before applying it.
+    _, err = client.ApplyRelinkChanges(proposed)
+    if err != nil {
+        return err
+    }
+}
+```
+
+The proposal separates moved/renamed paths, additional duplicate locations, and obsolete locations.
+
+For a known path rename, use `EditPath`. To remove location records, use `PruneLocations` or `DeleteFilesByQuery`.
+
+## Intentionally modified content
+
+`RehashFiles` updates a file's content identity while transferring its tags to the new content record. Use it for files that are expected to change in place.
+
+## Rename a tag
+
+```go
 err := client.RenameTag("project:alpha", "project:beta")
-if err != nil {
-    // handle error (e.g., if 'project:beta' already exists)
-}
 ```
+
+The operation updates the tag across the database.
+
+## Tag validation
+
+Tags use printable, non-space ASCII syntax. A tag can be a simple key (`photo`) or key/value pair (`project:alpha`). Keys and values cannot begin or end with `-`, `!`, or `:` and the key cannot be empty.
+
+The query-only keys `ext` and `type` are reserved and cannot be created as normal tag keys.
