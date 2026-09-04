@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 )
 
 const maxUploadFieldBytes = 1 << 20
@@ -46,11 +49,13 @@ func writeMultipartUploadError(w http.ResponseWriter, err error) {
 }
 
 type streamedUpload struct {
-	name   string
-	path   string
-	size   int64
-	status string
-	error  string
+	name          string
+	path          string
+	size          int64
+	status        string
+	error         string
+	sourceModTime time.Time
+	addedAt       time.Time
 }
 
 func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []savedUpload, retErr error) {
@@ -66,9 +71,14 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		return nil, nil, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
 	}
 
-	var targetID, conflictRequested string
-	var targetSeen, conflictSeen bool
+	var targetID, conflictRequested, addedAtStrategyRequested string
+	var queueFirstTimeValue, queueLastTimeValue string
+	var targetSeen, conflictSeen, addedAtStrategySeen, queueFirstTimeSeen, queueLastTimeSeen bool
 	tagValues := make([]string, 0)
+	sourceModTimeValues := make([]string, 0)
+	queueTimeValues := make([]string, 0)
+	queueIndexValues := make([]string, 0)
+	queueTotalValues := make([]string, 0)
 	streamed := make([]streamedUpload, 0)
 	fileCount := 0
 	defer func() {
@@ -106,6 +116,26 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 				}
 			case "tags":
 				tagValues = append(tagValues, value)
+			case "source_modtime_ms":
+				sourceModTimeValues = append(sourceModTimeValues, value)
+			case "added_at_strategy":
+				if !addedAtStrategySeen {
+					addedAtStrategyRequested, addedAtStrategySeen = value, true
+				}
+			case "queue_time_ms":
+				queueTimeValues = append(queueTimeValues, value)
+			case "queue_first_time_ms":
+				if !queueFirstTimeSeen {
+					queueFirstTimeValue, queueFirstTimeSeen = value, true
+				}
+			case "queue_last_time_ms":
+				if !queueLastTimeSeen {
+					queueLastTimeValue, queueLastTimeSeen = value, true
+				}
+			case "queue_index":
+				queueIndexValues = append(queueIndexValues, value)
+			case "queue_total":
+				queueTotalValues = append(queueTotalValues, value)
 			}
 			continue
 		}
@@ -130,9 +160,34 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 	if fileCount == 0 {
 		return nil, saved, multipartUploadError{message: "at least one file is required", err: errors.New("missing upload file")}
 	}
+	for i := range streamed {
+		if i >= len(sourceModTimeValues) {
+			break
+		}
+		streamed[i].sourceModTime = parseUploadSourceModTime(sourceModTimeValues[i])
+	}
 	target, err := s.uploadTarget(targetID)
 	if err != nil {
 		return nil, saved, multipartUploadError{code: "invalid_upload_target", message: err.Error(), err: err}
+	}
+	addedAtStrategy, err := uploadAddedAtStrategy(addedAtStrategyRequested, target.AddedAtStrategy)
+	if err != nil {
+		return nil, saved, multipartUploadError{message: err.Error(), err: err}
+	}
+	queueFallback := time.Now().UTC()
+	queueFirstTime := parseUploadSourceModTime(queueFirstTimeValue)
+	queueLastTime := parseUploadSourceModTime(queueLastTimeValue)
+	for i := range streamed {
+		queueTime := queueFallback
+		if i < len(queueTimeValues) {
+			if parsed := parseUploadSourceModTime(queueTimeValues[i]); !parsed.IsZero() {
+				queueTime = parsed
+			}
+		}
+		queueIndex := parseUploadOrdinal(queueIndexValues, i, i)
+		queueTotal := parseUploadOrdinal(queueTotalValues, i, len(streamed))
+		// The resolved value is copied into saved/staged state before async job submission.
+		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)
 	}
 	conflictPolicy, err := uploadConflictPolicy(conflictRequested, s.cfg.Uploads.ConflictPolicy)
 	if err != nil {
@@ -148,8 +203,9 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 			saved = append(saved, savedUpload{name: file.name, size: file.size, targetID: target.ID, status: "error", error: file.error})
 			continue
 		}
-		finalized, finalErr := finalizeStreamedUpload(target, *file, conflictPolicy)
+		finalized, finalErr := finalizeStreamedUpload(target, *file, conflictPolicy, s.cfg.Uploads.PreserveModTime)
 		if finalErr == nil {
+			finalized.addedAt = file.addedAt
 			file.path = ""
 			saved = append(saved, finalized)
 			continue
@@ -210,27 +266,95 @@ func (s *Server) streamUploadPart(target UploadTarget, originalName string, src 
 	return streamedUpload{name: name, path: path, size: size}, nil
 }
 
-func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPolicy string) (savedUpload, error) {
+func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPolicy string, preserveModTime bool) (savedUpload, error) {
 	path, skipped, replace, err := chooseUploadDestination(target.Path, file.name, conflictPolicy)
 	if err != nil {
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
 	if skipped {
 		_ = os.Remove(file.path)
-		return savedUpload{name: file.name, path: path, destinationPath: path, size: file.size, targetID: target.ID, status: "skipped"}, nil
+		return savedUpload{name: file.name, path: path, destinationPath: path, size: file.size, targetID: target.ID, status: "skipped", sourceModTime: file.sourceModTime}, nil
 	}
 	stagedPath, err := moveStreamedUploadIntoDir(file.path, target.Path, file.name)
 	if err != nil {
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
 	if replace {
-		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true}, nil
+		if err := applyUploadedSourceModTime(stagedPath, file.sourceModTime, preserveModTime); err != nil {
+			_ = os.Remove(stagedPath)
+			return savedUpload{}, uploadFileError{name: file.name, err: err}
+		}
+		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true, sourceModTime: file.sourceModTime}, nil
 	}
 	if err := commitUploadDestination(stagedPath, path); err != nil {
 		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
-	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID}, nil
+	if err := applyUploadedSourceModTime(path, file.sourceModTime, preserveModTime); err != nil {
+		_ = os.Remove(path)
+		return savedUpload{}, uploadFileError{name: file.name, err: err}
+	}
+	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime}, nil
+}
+
+func parseUploadOrdinal(values []string, index int, fallback int) int {
+	if index < len(values) {
+		value, err := strconv.Atoi(strings.TrimSpace(values[index]))
+		if err == nil && value >= 0 {
+			return value
+		}
+	}
+	return fallback
+}
+
+func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstTime, queueLastTime time.Time, queueIndex, queueTotal int) time.Time {
+	if queueTime.IsZero() {
+		queueTime = time.Now().UTC()
+	}
+	if queueIndex < 0 {
+		queueIndex = 0
+	}
+	if queueTotal <= 0 {
+		queueTotal = queueIndex + 1
+	}
+	if queueIndex >= queueTotal {
+		queueIndex = queueTotal - 1
+	}
+	queueOffset := queueIndex
+	if strategy == "modtime" && !sourceModTime.IsZero() {
+		return sourceModTime.UTC()
+	}
+	if strategy == "reverse_queue" {
+		queueOffset = queueTotal - 1 - queueIndex
+		if !queueFirstTime.IsZero() && !queueLastTime.IsZero() && !queueLastTime.Before(queueFirstTime) && !queueTime.Before(queueFirstTime) && !queueTime.After(queueLastTime) {
+			// Reflect each item's real queue-entry time across the batch envelope, then
+			// use the reversed ordinal as the second-granularity tie breaker. This
+			// keeps one-file async worker requests globally reversed even when files
+			// were appended to the UI queue in separate selections.
+			queueTime = queueFirstTime.Add(queueLastTime.Sub(queueTime))
+		}
+	}
+	// locations.added_at is second-granularity; offset equal-time batch items by one
+	// second so async worker completion order cannot affect stable queue ordering.
+	return queueTime.UTC().Truncate(time.Second).Add(time.Duration(queueOffset) * time.Second)
+}
+
+func parseUploadSourceModTime(value string) time.Time {
+	millis, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil || millis <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(millis).UTC()
+}
+
+func applyUploadedSourceModTime(path string, sourceModTime time.Time, preserve bool) error {
+	if !preserve || sourceModTime.IsZero() {
+		return nil
+	}
+	if err := os.Chtimes(path, sourceModTime, sourceModTime); err != nil {
+		return errors.New("failed to preserve uploaded file modification time")
+	}
+	return nil
 }
 
 func chooseUploadDestination(dir, name, conflictPolicy string) (path string, skipped bool, replace bool, err error) {

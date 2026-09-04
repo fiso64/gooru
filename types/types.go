@@ -97,6 +97,7 @@ type LocationInfo struct {
 	Hash      string
 	Size      int64
 	ModTime   int64 // Unix time
+	AddedAt   int64 // Unix time; zero lets the database assign insertion time
 	Extension string
 	TagsCache string
 }
@@ -109,6 +110,7 @@ type FileInfo struct {
 	Hash     string
 	Size     int64
 	ModTime  int64 // Unix time
+	AddedAt  int64 // Unix time
 	Tags     []string
 	Metadata *MediaMetadata
 }
@@ -131,6 +133,7 @@ type MediaMetadata struct {
 	VideoHeight     *int
 	DurationSeconds *float64
 	FrameCount      *int
+	PageCount       *int
 }
 
 // SavedSearch is a per-user persisted browse query.

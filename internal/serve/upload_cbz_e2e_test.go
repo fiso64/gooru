@@ -3,6 +3,7 @@ package serve
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"image/color"
 	"io"
 	"net"
@@ -51,6 +52,21 @@ func TestCBZUploadImportAndOpenGoldenPath(t *testing.T) {
 	}
 	if file.PublicID == "" {
 		t.Fatal("uploaded comic has no public id")
+	}
+	if file.Metadata == nil || file.Metadata.PageCount == nil || *file.Metadata.PageCount != 1 {
+		t.Fatalf("uploaded comic page count = %+v, want 1", file.Metadata)
+	}
+	fileResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(fileResponse, httptest.NewRequest(http.MethodGet, "/api/v1/files/"+file.PublicID, nil))
+	if fileResponse.Code != http.StatusOK {
+		t.Fatalf("file metadata status = %d: %s", fileResponse.Code, fileResponse.Body.String())
+	}
+	var fileDTO FileDTO
+	if err := json.Unmarshal(fileResponse.Body.Bytes(), &fileDTO); err != nil {
+		t.Fatalf("decode file metadata: %v", err)
+	}
+	if fileDTO.Metadata.PageCount == nil || *fileDTO.Metadata.PageCount != 1 {
+		t.Fatalf("file API page count = %+v, want 1", fileDTO.Metadata.PageCount)
 	}
 
 	manifest := httptest.NewRecorder()

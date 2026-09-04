@@ -40,6 +40,36 @@ describe('createUploadWorkflow', () => {
     ]);
   });
 
+  it('captures queue metadata before parallel workers and preserves it across target changes', async () => {
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValueOnce(1_700_000_000_000).mockReturnValueOnce(1_700_000_010_000).mockReturnValue(1_800_000_000_000);
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg')]);
+    workflow.select([uploadFile('second.jpg')]);
+    workflow.setTarget('archive', 'reverse_queue');
+
+    const calls: Array<{ name: string; queueTimeMs: number; queueFirstTimeMs: number; queueLastTimeMs: number; queueIndex: number; queueTotal: number; strategy: string }> = [];
+    await workflow.submit(async (variables) => {
+      calls.push({
+        name: variables.files[0].name,
+        queueTimeMs: variables.queueTimeMs,
+        queueFirstTimeMs: variables.queueFirstTimeMs,
+        queueLastTimeMs: variables.queueLastTimeMs,
+        queueIndex: variables.queueIndex,
+        queueTotal: variables.queueTotal,
+        strategy: variables.addedAtStrategy
+      });
+      return pendingJob(`job-${variables.files[0].name}`);
+    });
+
+    expect(calls).toEqual([
+      { name: 'first.jpg', queueTimeMs: 1_700_000_000_000, queueFirstTimeMs: 1_700_000_000_000, queueLastTimeMs: 1_700_000_010_000, queueIndex: 0, queueTotal: 2, strategy: 'reverse_queue' },
+      { name: 'second.jpg', queueTimeMs: 1_700_000_010_000, queueFirstTimeMs: 1_700_000_000_000, queueLastTimeMs: 1_700_000_010_000, queueIndex: 1, queueTotal: 2, strategy: 'reverse_queue' }
+    ]);
+    expect(workflow.items.map((item) => item.queueTimeMs)).toEqual([1_700_000_000_000, 1_700_000_010_000]);
+    now.mockRestore();
+  });
+
   it('uploads each file independently with real per-file progress', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);

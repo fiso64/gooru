@@ -18,12 +18,14 @@
     targets,
     targetID,
     conflictPolicy,
+    addedAtStrategy,
     autoUpload,
     tags,
     onTargetInput,
     onFiles,
     onTagsInput,
     onConflictInput,
+    onAddedAtStrategyInput,
     onAutoUploadInput,
     onSubmit,
     onCancel,
@@ -41,12 +43,14 @@
     targets: UploadTargetOption[];
     targetID: string;
     conflictPolicy: string;
+    addedAtStrategy: 'queue' | 'reverse_queue' | 'modtime';
     autoUpload: boolean;
     tags: TagCandidate[];
     onTargetInput: (value: string) => void;
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
     onConflictInput: (value: string) => void;
+    onAddedAtStrategyInput: (value: 'queue' | 'reverse_queue' | 'modtime') => void;
     onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;
     onCancel: (jobID: string) => void;
@@ -208,6 +212,17 @@
               onCommit={commitInitialTag}
               onRemoveLast={removeInitialTag}
             />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <span>Added time</span>
+          <div class="field-control">
+            <div class="seg" aria-label="Library added time strategy">
+              {#each [{ value: 'queue', label: 'Queue' }, { value: 'reverse_queue', label: 'Reverse queue' }, { value: 'modtime', label: 'File modified' }] as option}
+                <button type="button" class={addedAtStrategy === option.value ? 'is-active' : ''} onclick={() => onAddedAtStrategyInput(option.value as 'queue' | 'reverse_queue' | 'modtime')}>{option.label}</button>
+              {/each}
+            </div>
           </div>
         </div>
 

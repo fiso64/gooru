@@ -3,11 +3,13 @@ import {
   itemFromJob,
   itemFromResult,
   queuedItem,
+  retargetStagedUploadItems,
   stagedUploadItems,
   uploadingItem,
   uploadProgressItem,
   uploadSummary,
   waitingUploadItems,
+  type UploadAddedAtStrategy,
   type UploadItem
 } from './uploadItems';
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
@@ -25,6 +27,7 @@ export function createUploadWorkflow() {
   let tags = $state('');
   let targetID = $state('');
   let conflictPolicy = $state('rename');
+  let addedAtStrategy = $state<UploadAddedAtStrategy>('queue');
   let autoUpload = $state(false);
   let busy = $state(false);
   let cancelBusy = $state(false);
@@ -36,6 +39,7 @@ export function createUploadWorkflow() {
     items = [];
     tags = '';
     conflictPolicy = 'rename';
+    addedAtStrategy = 'queue';
     autoUpload = false;
     busy = false;
     cancelBusy = false;
@@ -51,7 +55,7 @@ export function createUploadWorkflow() {
 
   function removeAt(index: number) {
     files = files.filter((_, fileIndex) => fileIndex !== index);
-    items = stagedUploadItems(files, targetID);
+    items = items.filter((_, itemIndex) => itemIndex !== index);
     status = '';
   }
 
@@ -67,8 +71,9 @@ export function createUploadWorkflow() {
       return;
     }
 
+    const queueTimeMs = Date.now();
     files = [...files, ...additions];
-    items = stagedUploadItems(files, targetID);
+    items = [...items, ...stagedUploadItems(additions, targetID, queueTimeMs)];
     status = '';
     if (autoUpload) {
       queueMicrotask(() => {
@@ -77,9 +82,10 @@ export function createUploadWorkflow() {
     }
   }
 
-  function setTarget(value: string) {
+  function setTarget(value: string, defaultStrategy?: UploadAddedAtStrategy) {
     targetID = value;
-    if (files.length) items = stagedUploadItems(files, targetID);
+    if (defaultStrategy) addedAtStrategy = defaultStrategy;
+    if (files.length) items = retargetStagedUploadItems(items, targetID);
   }
 
   function applyJob(job: Job) {
@@ -136,6 +142,12 @@ export function createUploadWorkflow() {
     const parsedTags = parseTags(tags);
     const batchTargetID = targetID;
     const batchConflictPolicy = conflictPolicy;
+    const batchAddedAtStrategy = addedAtStrategy;
+    const fallbackQueueTimeMs = Date.now();
+    const batchQueueTimes = items.map((item) => item.queueTimeMs ?? fallbackQueueTimeMs);
+    const batchQueueFirstTimeMs = Math.min(...batchQueueTimes);
+    const batchQueueLastTimeMs = Math.max(...batchQueueTimes);
+    const batchQueueTotal = batchFiles.length;
     let queued = 0;
     let changedFiles = false;
     let nextIndex = 0;
@@ -154,6 +166,12 @@ export function createUploadWorkflow() {
             preferAsync: true,
             targetID: batchTargetID,
             conflictPolicy: batchConflictPolicy,
+            addedAtStrategy: batchAddedAtStrategy,
+            queueTimeMs: batchQueueTimes[index],
+            queueFirstTimeMs: batchQueueFirstTimeMs,
+            queueLastTimeMs: batchQueueLastTimeMs,
+            queueIndex: index,
+            queueTotal: batchQueueTotal,
             onProgress: (progress) => {
               items = uploadProgressItem(items, index, progress);
               status = uploadSummary(items);
@@ -224,6 +242,8 @@ export function createUploadWorkflow() {
     get targetID() { return targetID; },
     get conflictPolicy() { return conflictPolicy; },
     set conflictPolicy(value: string) { conflictPolicy = value; },
+    get addedAtStrategy() { return addedAtStrategy; },
+    set addedAtStrategy(value: UploadAddedAtStrategy) { addedAtStrategy = value; },
     get autoUpload() { return autoUpload; },
     set autoUpload(value: boolean) { autoUpload = value; },
     get busy() { return busy; },

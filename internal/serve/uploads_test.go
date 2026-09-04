@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,39 @@ func TestUploadPreventsTraversalAndHandlesConflicts(t *testing.T) {
 	}
 	if len(library.tags) != 1 || library.tags[0] != "reviewed" {
 		t.Fatalf("unexpected initial tags: %+v", library.tags)
+	}
+}
+
+func TestUploadPreservesSourceModTimeAndCarriesItWhenDisabled(t *testing.T) {
+	source := time.Date(2020, time.July, 8, 9, 10, 11, 123000000, time.UTC)
+
+	for _, preserve := range []bool{true, false} {
+		t.Run(map[bool]string{true: "preserve", false: "do-not-preserve"}[preserve], func(t *testing.T) {
+			dir := t.TempDir()
+			library := &recordingUploadLibrary{}
+			server := newUploadTestServer(t, dir, true, library)
+			server.cfg.Uploads.PreserveModTime = preserve
+			rec := httptest.NewRecorder()
+
+			server.Handler().ServeHTTP(rec, uploadBinaryRequestWithSourceModTime(t, "a.txt", []byte("hello"), source))
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if len(library.files) != 1 || !library.files[0].SourceModTime.Equal(source) {
+				t.Fatalf("source modtime was not carried to importer: %+v", library.files)
+			}
+			info, err := os.Stat(filepath.Join(dir, "a.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if preserve && !info.ModTime().Equal(source) {
+				t.Fatalf("stored modtime=%v want source=%v", info.ModTime(), source)
+			}
+			if !preserve && info.ModTime().Equal(source) {
+				t.Fatalf("stored modtime unexpectedly preserved while disabled: %v", info.ModTime())
+			}
+		})
 	}
 }
 
@@ -600,6 +634,28 @@ func uploadBinaryRequestWithConflict(t *testing.T, files map[string][]byte, tags
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close multipart writer: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	return req
+}
+
+func uploadBinaryRequestWithSourceModTime(t *testing.T, name string, content []byte, source time.Time) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("files", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteField("source_modtime_ms", strconv.FormatInt(source.UnixMilli(), 10)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())

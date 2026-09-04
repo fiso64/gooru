@@ -219,7 +219,7 @@ export interface paths {
                     query?: string;
                     limit?: number;
                     page_token?: string;
-                    sort?: "name" | "modified" | "size" | "kind";
+                    sort?: "added" | "name" | "modified" | "size" | "kind";
                     order?: "asc" | "desc";
                     include_facets?: boolean;
                 };
@@ -836,6 +836,29 @@ export interface paths {
                 content: {
                     "multipart/form-data": {
                         files: string[];
+                        /**
+                         * @description Override the selected upload target's added-at strategy for this submission.
+                         * @enum {string}
+                         */
+                        added_at_strategy?: "queue" | "reverse_queue" | "modtime";
+                        /** @description Client-captured queue timestamps in Unix milliseconds, one per file. */
+                        queue_time_ms?: number[];
+                        /**
+                         * Format: int64
+                         * @description Earliest client-captured queue timestamp in this submission; used with `queue_last_time_ms` to reverse queues consistently across one-file async worker requests.
+                         */
+                        queue_first_time_ms?: number;
+                        /**
+                         * Format: int64
+                         * @description Latest client-captured queue timestamp in this submission; used with `queue_first_time_ms` to reverse queues consistently across one-file async worker requests.
+                         */
+                        queue_last_time_ms?: number;
+                        /** @description Stable queue indexes, one per file. */
+                        queue_index?: number[];
+                        /** @description Queue batch size, one per file. */
+                        queue_total?: number[];
+                        /** @description Source modification timestamps in Unix milliseconds, in the same order as `files`. Invalid or missing entries are treated as unavailable. */
+                        source_modtime_ms?: number[];
                         /** @description Configured upload target ID. Defaults to the first configured target. */
                         target_id?: string;
                         /**
@@ -1390,6 +1413,11 @@ export interface components {
             items: {
                 id: string;
                 name: string;
+                /**
+                 * @description Default added-at strategy configured for this upload target.
+                 * @enum {string}
+                 */
+                added_at_strategy: "queue" | "reverse_queue" | "modtime";
             }[];
         };
         Job: {
@@ -1440,6 +1468,8 @@ export interface components {
             /** Format: int64 */
             size: number;
             /** Format: date-time */
+            added_at: string;
+            /** Format: date-time */
             modified_time: string;
             media_type: string;
             /** @enum {string} */
@@ -1461,6 +1491,8 @@ export interface components {
             /** Format: double */
             audio_duration?: number;
             frame_count?: number;
+            /** @description Number of displayable pages for paged media such as CBZ comics. */
+            page_count?: number;
         };
         MediaURLs: {
             thumbnail: string;
@@ -1503,12 +1535,12 @@ export interface components {
             name: string;
             query: string;
             /**
-             * @default name
+             * @default added
              * @enum {string}
              */
-            sort: "name" | "modified" | "size" | "kind";
+            sort: "added" | "name" | "modified" | "size" | "kind";
             /**
-             * @default asc
+             * @default desc
              * @enum {string}
              */
             order: "asc" | "desc";
@@ -1518,7 +1550,7 @@ export interface components {
             name: string;
             query: string;
             /** @enum {string} */
-            sort: "name" | "modified" | "size" | "kind";
+            sort: "added" | "name" | "modified" | "size" | "kind";
             /** @enum {string} */
             order: "asc" | "desc";
             /** Format: date-time */

@@ -7,7 +7,7 @@ import type { InfiniteData, QueryFunctionContext } from '@tanstack/query-core';
 
 export const pageLimit = 60;
 export const retainedFilePages = 8;
-export type FileSort = 'modified' | 'name' | 'size' | 'kind';
+export type FileSort = 'added' | 'modified' | 'name' | 'size' | 'kind';
 export type SortOrder = 'asc' | 'desc';
 
 export const fileKeys = {
@@ -64,7 +64,7 @@ export function createFileFacetsQuery(
     queryFn: ({ signal }) => new ApiClient().listFiles({
       query: getQuery(),
       limit: 1,
-      sort: 'modified',
+      sort: 'added',
       order: 'desc',
       includeFacets: true,
       signal
@@ -84,7 +84,7 @@ export function createFileCountQuery(
     queryFn: ({ signal }) => new ApiClient().listFiles({
       query: getQuery(),
       limit: 1,
-      sort: 'modified',
+      sort: 'added',
       order: 'desc',
       includeFacets: false,
       signal

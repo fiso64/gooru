@@ -29,6 +29,19 @@ describe('ApiClient', () => {
     expect(requests[0].url).toContain('/api/v1/files?query=kind%3Aimage&limit=24&page_token=next');
   });
 
+  it('uses added-desc defaults when creating a saved search without explicit sorting', async () => {
+    let requestBody = '';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      requestBody = await request.clone().text();
+      return Response.json({ id: 'saved-one', name: 'Recent', query: '', sort: 'added', order: 'desc', created_at: '', updated_at: '' });
+    }) as typeof fetch;
+
+    await new ApiClient('csrf').createSavedSearch({ name: 'Recent', query: '' });
+
+    expect(JSON.parse(requestBody)).toMatchObject({ name: 'Recent', query: '', sort: 'added', order: 'desc' });
+  });
+
   it('maps API error envelopes', async () => {
     globalThis.fetch = (async () =>
       Response.json({ error: { code: 'unauthorized', message: 'login required' } }, { status: 401 })) as typeof fetch;
@@ -108,9 +121,17 @@ describe('ApiClient', () => {
     });
     const progress = vi.fn();
     const client = new ApiClient('secret-token');
-    const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
+    const sourceModTime = 1_594_200_611_123;
+    const file = new File(['hello'], 'hello.txt', { type: 'text/plain', lastModified: sourceModTime });
 
-    const result = await client.uploadFiles([file], ['reviewed'], true, '', 'rename', progress);
+    const result = await client.uploadFiles([file], ['reviewed'], true, '', 'rename', progress, {
+      addedAtStrategy: 'reverse_queue',
+      queueTimeMs: [1_700_000_000_000],
+      queueFirstTimeMs: 1_699_999_990_000,
+      queueLastTimeMs: 1_700_000_010_000,
+      queueIndex: [2],
+      queueTotal: [4]
+    });
 
     expect(result).toMatchObject({ id: 'job-one', status: 'pending' });
     expect(xhr.method).toBe('POST');
@@ -122,6 +143,13 @@ describe('ApiClient', () => {
     expect((xhr.body as FormData).get('conflict_policy')).toBe('rename');
     expect((xhr.body as FormData).get('tags')).toBe('reviewed');
     expect(((xhr.body as FormData).get('files') as File).name).toBe('hello.txt');
+    expect((xhr.body as FormData).get('source_modtime_ms')).toBe(String(sourceModTime));
+    expect((xhr.body as FormData).get('added_at_strategy')).toBe('reverse_queue');
+    expect((xhr.body as FormData).get('queue_time_ms')).toBe('1700000000000');
+    expect((xhr.body as FormData).get('queue_first_time_ms')).toBe('1699999990000');
+    expect((xhr.body as FormData).get('queue_last_time_ms')).toBe('1700000010000');
+    expect((xhr.body as FormData).get('queue_index')).toBe('2');
+    expect((xhr.body as FormData).get('queue_total')).toBe('4');
     expect(progress.mock.calls.map(([value]) => value)).toEqual([20, 70, 100, 100]);
   });
 

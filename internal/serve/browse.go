@@ -246,10 +246,46 @@ func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (Medi
 		return MediaMetadata{}, err
 	}
 	meta, err := l.client.GetMediaMetadata(locationID)
-	if errors.Is(err, sql.ErrNoRows) {
+	haveStored := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return MediaMetadata{}, err
+	}
+	if haveStored && meta.PageCount != nil {
+		return mediaMetadataDTO(meta), nil
+	}
+
+	file, fileErr := l.client.GetFileInfoByLocationID(locationID)
+	if fileErr != nil || !strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
+		if haveStored {
+			return mediaMetadataDTO(meta), nil
+		}
+		return MediaMetadata{}, fileErr
+	}
+	mediaType := mediaTypeForPath(file.Path)
+	mediaKind := mediaKindForType(mediaType)
+	provider := l.metadata
+	if provider == nil {
+		provider = BasicMediaMetadataProvider{}
+	}
+	derived, deriveErr := l.importedMediaMetadata(ctx, provider, file, file.Path, mediaType, mediaKind)
+	if deriveErr != nil || derived.PageCount == nil {
+		if haveStored {
+			return mediaMetadataDTO(meta), nil
+		}
 		return MediaMetadata{}, nil
 	}
-	if err != nil {
+	if !haveStored {
+		meta = types.MediaMetadata{LocationID: locationID, MediaKind: mediaKind, MimeType: mediaType}
+	} else {
+		if meta.MediaKind == "" {
+			meta.MediaKind = mediaKind
+		}
+		if meta.MimeType == "" {
+			meta.MimeType = mediaType
+		}
+	}
+	meta.PageCount = derived.PageCount
+	if err := l.client.UpsertMediaMetadata(meta); err != nil {
 		return MediaMetadata{}, err
 	}
 	return mediaMetadataDTO(meta), nil
@@ -304,6 +340,7 @@ type FileDTO struct {
 	Path            string        `json:"path,omitempty"`
 	SafeDisplayPath string        `json:"safe_display_path"`
 	Size            int64         `json:"size"`
+	AddedAt         time.Time     `json:"added_at"`
 	ModifiedTime    time.Time     `json:"modified_time"`
 	MediaType       string        `json:"media_type"`
 	MediaKind       string        `json:"media_kind"`
@@ -562,6 +599,7 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 		Name:            filepath.Base(file.Path),
 		SafeDisplayPath: safeDisplayPath(file.Path),
 		Size:            file.Size,
+		AddedAt:         time.Unix(file.AddedAt, 0).UTC(),
 		ModifiedTime:    time.Unix(file.ModTime, 0).UTC(),
 		MediaType:       mediaType,
 		MediaKind:       mediaKind,
@@ -592,6 +630,13 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 			}
 		} else if s.meta != nil {
 			if metadata, err := s.meta.Metadata(ctx, file, mediaType, mediaKind); err == nil {
+				dto.Metadata = metadata
+			}
+		}
+	}
+	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") && dto.Metadata.PageCount == nil {
+		if search, ok := s.library.(SearchLibrary); ok {
+			if metadata, err := search.FileMetadata(ctx, file.ID); err == nil {
 				dto.Metadata = metadata
 			}
 		}
@@ -638,6 +683,7 @@ func mediaMetadataDTO(meta types.MediaMetadata) MediaMetadata {
 		VideoDuration: meta.DurationSeconds,
 		AudioDuration: nil,
 		FrameCount:    meta.FrameCount,
+		PageCount:     meta.PageCount,
 	}
 }
 
@@ -690,18 +736,18 @@ func excludedSuggestionTags(existing string) map[string]struct{} {
 
 func normalizeFileSort(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "modified", "name", "size", "kind":
+	case "added", "modified", "name", "size", "kind":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return "name"
+		return "added"
 	}
 }
 
 func normalizeSortOrder(value string) string {
-	if strings.EqualFold(strings.TrimSpace(value), "desc") {
-		return "desc"
+	if strings.EqualFold(strings.TrimSpace(value), "asc") {
+		return "asc"
 	}
-	return "asc"
+	return "desc"
 }
 
 func mediaTypeForPath(path string) string {

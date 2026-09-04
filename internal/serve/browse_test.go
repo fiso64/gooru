@@ -126,6 +126,9 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if page.Files[0].MediaKind != "photo" {
 		t.Fatalf("expected photo media kind, got %q", page.Files[0].MediaKind)
 	}
+	if page.Files[0].AddedAt.IsZero() || page.Files[0].AddedAt.Unix() != storedFile.AddedAt {
+		t.Fatalf("expected added_at from stored location, dto=%v stored=%d", page.Files[0].AddedAt, storedFile.AddedAt)
+	}
 
 	nextReq := authedRequest(http.MethodGet, "/api/v1/files?query=kind:image&limit=1&page_token="+page.NextPageToken)
 	nextRec := httptest.NewRecorder()
@@ -184,6 +187,67 @@ func TestTagsIncludeLibrarySummaryWithoutListingFiles(t *testing.T) {
 	counts := facetCounts(response.Facets.Kind)
 	if counts["photo"] == 0 || counts["other"] == 0 {
 		t.Fatalf("expected global kind facets in tags response, got %+v", response.Facets.Kind)
+	}
+}
+
+func TestBrowseDefaultsToAddedNewestAndSupportsAddedCursor(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	if got := normalizeFileSort(""); got != "added" {
+		t.Fatalf("expected default sort added, got %q", got)
+	}
+	if got := normalizeSortOrder(""); got != "desc" {
+		t.Fatalf("expected default order desc, got %q", got)
+	}
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/files?limit=3"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected default list 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var page FileListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode default list: %v", err)
+	}
+	if len(page.Files) < 2 {
+		t.Fatalf("expected multiple files, got %d", len(page.Files))
+	}
+	for i := 1; i < len(page.Files); i++ {
+		if page.Files[i-1].AddedAt.Before(page.Files[i].AddedAt) {
+			t.Fatalf("default list is not added-at descending: %v before %v", page.Files[i-1].AddedAt, page.Files[i].AddedAt)
+		}
+	}
+
+	firstRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(firstRec, authedRequest(http.MethodGet, "/api/v1/files?sort=added&order=desc&limit=1"))
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("expected first added page 200, got %d: %s", firstRec.Code, firstRec.Body.String())
+	}
+	var first FileListResponse
+	if err := json.Unmarshal(firstRec.Body.Bytes(), &first); err != nil {
+		t.Fatalf("decode first added page: %v", err)
+	}
+	if len(first.Files) != 1 {
+		t.Fatalf("expected one first-page file, got %d", len(first.Files))
+	}
+	stored, err := server.getFileByPublicID(context.Background(), first.Files[0].ID)
+	if err != nil {
+		t.Fatalf("resolve first added-sort file: %v", err)
+	}
+	cursor := CursorPageToken("added", "desc", stored.ID)
+	secondRec := httptest.NewRecorder()
+	secondURL := "/api/v1/files?sort=added&order=desc&limit=1&page_token=" + url.QueryEscape(cursor)
+	server.Handler().ServeHTTP(secondRec, authedRequest(http.MethodGet, secondURL))
+	if secondRec.Code != http.StatusOK {
+		t.Fatalf("expected added cursor page 200, got %d: %s", secondRec.Code, secondRec.Body.String())
+	}
+	var second FileListResponse
+	if err := json.Unmarshal(secondRec.Body.Bytes(), &second); err != nil {
+		t.Fatalf("decode second added page: %v", err)
+	}
+	if len(second.Files) != 1 || second.Files[0].ID == first.Files[0].ID {
+		t.Fatalf("expected cursor to advance to another file, first=%+v second=%+v", first.Files, second.Files)
 	}
 }
 

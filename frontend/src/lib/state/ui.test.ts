@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gridColumns, gridRowHeight, virtualGrid, virtualGridStartRow } from './ui';
+import { gridCardWidth, gridColumns, gridRowHeight, virtualGrid, virtualGridStartRow } from './ui';
 
 describe('virtual grid scrolling', () => {
   it('keeps the reactive window stable across scroll events within overscan rows', () => {
@@ -20,13 +20,17 @@ describe('virtual grid scrolling', () => {
     expect(nextWindow.offsetTop).toBeGreaterThanOrEqual(first.offsetTop);
   });
 
-  it('uses the configured minimum cell size for both columns and row geometry', () => {
+  it('uses one shared configured card width for layout and thumbnail sizing', () => {
     expect(gridColumns(960, 180)).toBe(5);
     expect(gridColumns(960, 240)).toBe(3);
 
+    const expectedCardWidth = (960 - 32 - 5 * 2) / 3;
+    expect(gridCardWidth(960, 240, 3)).toBeCloseTo(expectedCardWidth);
+
     const configured = virtualGrid([], 960, 800, 0, 0, 30, 0, 240);
     expect(configured.columns).toBe(3);
-    expect(configured.rowHeight).toBeCloseTo((960 - 32 - 5 * 2) / 3 + 5);
+    expect(configured.cardWidth).toBeCloseTo(expectedCardWidth);
+    expect(configured.rowHeight).toBeCloseTo(expectedCardWidth + 5);
     expect(configured.totalHeight).toBeCloseTo(configured.rowHeight * 10);
   });
 });

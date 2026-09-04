@@ -227,8 +227,8 @@ func (s *Store) UpsertMediaMetadata(meta types.MediaMetadata) error {
 	_, err := s.Exec(`
 		INSERT INTO media_metadata (
 			location_id, media_kind, mime_type, image_width, image_height,
-			video_width, video_height, duration_seconds, frame_count, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			video_width, video_height, duration_seconds, frame_count, page_count, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(location_id) DO UPDATE SET
 			media_kind=excluded.media_kind,
 			mime_type=excluded.mime_type,
@@ -238,8 +238,9 @@ func (s *Store) UpsertMediaMetadata(meta types.MediaMetadata) error {
 			video_height=excluded.video_height,
 			duration_seconds=excluded.duration_seconds,
 			frame_count=excluded.frame_count,
+			page_count=excluded.page_count,
 			updated_at=CURRENT_TIMESTAMP
-	`, meta.LocationID, meta.MediaKind, meta.MimeType, meta.ImageWidth, meta.ImageHeight, meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds, meta.FrameCount)
+	`, meta.LocationID, meta.MediaKind, meta.MimeType, meta.ImageWidth, meta.ImageHeight, meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds, meta.FrameCount, meta.PageCount)
 	return err
 }
 
@@ -247,9 +248,9 @@ func (s *Store) GetMediaMetadata(locationID int64) (types.MediaMetadata, error) 
 	var meta types.MediaMetadata
 	meta.LocationID = locationID
 	err := s.QueryRow(`
-		SELECT media_kind, mime_type, image_width, image_height, video_width, video_height, duration_seconds, frame_count
+		SELECT media_kind, mime_type, image_width, image_height, video_width, video_height, duration_seconds, frame_count, page_count
 		FROM media_metadata WHERE location_id = ?
-	`, locationID).Scan(&meta.MediaKind, &meta.MimeType, &meta.ImageWidth, &meta.ImageHeight, &meta.VideoWidth, &meta.VideoHeight, &meta.DurationSeconds, &meta.FrameCount)
+	`, locationID).Scan(&meta.MediaKind, &meta.MimeType, &meta.ImageWidth, &meta.ImageHeight, &meta.VideoWidth, &meta.VideoHeight, &meta.DurationSeconds, &meta.FrameCount, &meta.PageCount)
 	return meta, err
 }
 
@@ -751,7 +752,7 @@ func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag, notTags []types.Parse
 
 // GetAllFilesInfo retrieves detailed info for all files from the database using the cache.
 func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
-	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations ORDER BY path`
+	query := `SELECT id, path, content_hash, size_bytes, mod_time, added_at, tags_cache FROM locations ORDER BY path`
 
 	rows, err := s.Query(query)
 	if err != nil {
@@ -763,7 +764,7 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -774,7 +775,7 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 
 // GetAllFilesInfoPage retrieves one bounded page of file info from the database.
 func (s *Store) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, error) {
-	query := `SELECT id, path, content_hash, size_bytes, mod_time, tags_cache FROM locations ORDER BY path LIMIT ? OFFSET ?`
+	query := `SELECT id, path, content_hash, size_bytes, mod_time, added_at, tags_cache FROM locations ORDER BY path LIMIT ? OFFSET ?`
 
 	rows, err := s.Query(query, limit, offset)
 	if err != nil {
@@ -786,7 +787,7 @@ func (s *Store) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, er
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -836,7 +837,7 @@ func (s *Store) GetFileInfoByPath(path string) (types.FileInfo, error) {
 // GetFilesInfoByTag retrieves info for all files for a given tag using the cache.
 func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	query := `
-		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.added_at, l.tags_cache
 		FROM locations l
 		JOIN content_tags ct ON l.content_hash = ct.content_hash
 		JOIN tags t ON ct.tag_id = t.id
@@ -853,7 +854,7 @@ func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -908,7 +909,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 
 	// 3. Build Final Select
 	queryBuilder.WriteString(`
-		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.added_at, l.tags_cache
 		FROM locations l
 		JOIN positive_hashes ph ON l.content_hash = ph.content_hash`)
 	if len(notTags) > 0 {
@@ -928,7 +929,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -1376,7 +1377,7 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 	if len(locations) == 0 {
 		return nil
 	}
-	const columns = 5 // content_hash, path, size_bytes, mod_time, extension
+	const columns = 6 // content_hash, path, size_bytes, mod_time, added_at, extension
 	batchSize := maxVars / columns
 
 	locs := make([]types.LocationInfo, 0, len(locations))
@@ -1394,10 +1395,10 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 		var placeholders []string
 		var args []interface{}
 		for _, loc := range batch {
-			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?)")
-			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.Extension)
+			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, COALESCE(NULLIF(?, 0), CAST(strftime('%s','now') AS INTEGER)), ?)")
+			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.AddedAt, loc.Extension)
 		}
-		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ` +
+		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, added_at, extension) VALUES ` +
 			strings.Join(placeholders, ",") +
 			` ON CONFLICT(path) DO UPDATE SET
 				content_hash=excluded.content_hash,
@@ -1765,7 +1766,7 @@ func (s *Store) GetPathsByContentQuery(query string, args []interface{}) ([]stri
 func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]types.FileInfo, error) {
 	finalQuery := fmt.Sprintf(`
 		WITH result_hashes(hash) AS (%s)
-		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.added_at, l.tags_cache
 		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
 		ORDER BY l.path
 	`, query)
@@ -1780,7 +1781,7 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -1793,7 +1794,7 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{}, limit int, offset int) ([]types.FileInfo, error) {
 	finalQuery := fmt.Sprintf(`
 		WITH result_hashes(hash) AS (%s)
-		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache
+		SELECT l.id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.added_at, l.tags_cache
 		FROM locations l JOIN result_hashes rh ON l.content_hash = rh.hash
 		ORDER BY l.path
 		LIMIT ? OFFSET ?
@@ -1810,7 +1811,7 @@ func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{},
 	for rows.Next() {
 		var file types.FileInfo
 		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -1896,9 +1897,9 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 		var file types.FileInfo
 		var tagsCache string
 		var mediaKind, mimeType sql.NullString
-		var imageWidth, imageHeight, videoWidth, videoHeight, frameCount sql.NullInt64
+		var imageWidth, imageHeight, videoWidth, videoHeight, frameCount, pageCount sql.NullInt64
 		var duration sql.NullFloat64
-		if err := rows.Scan(&file.ID, &file.PublicID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &tagsCache, &mediaKind, &mimeType, &imageWidth, &imageHeight, &videoWidth, &videoHeight, &duration, &frameCount); err != nil {
+		if err := rows.Scan(&file.ID, &file.PublicID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache, &mediaKind, &mimeType, &imageWidth, &imageHeight, &videoWidth, &videoHeight, &duration, &frameCount, &pageCount); err != nil {
 			return nil, err
 		}
 		file.Tags = splitTags(tagsCache)
@@ -1913,6 +1914,7 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 				VideoHeight:     nullIntPtr(videoHeight),
 				DurationSeconds: nullFloatPtr(duration),
 				FrameCount:      nullIntPtr(frameCount),
+				PageCount:       nullIntPtr(pageCount),
 			}
 		}
 		files = append(files, file)
@@ -1921,13 +1923,15 @@ func (s *Store) scanFileInfos(query string, args ...interface{}) ([]types.FileIn
 }
 
 func fileInfoColumns() string {
-	return `l.id, l.public_id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.tags_cache,
+	return `l.id, l.public_id, l.path, l.content_hash, l.size_bytes, l.mod_time, l.added_at, l.tags_cache,
 		mm.media_kind, mm.mime_type, mm.image_width, mm.image_height,
-		mm.video_width, mm.video_height, mm.duration_seconds, mm.frame_count`
+		mm.video_width, mm.video_height, mm.duration_seconds, mm.frame_count, mm.page_count`
 }
 
 func fileSortExpression(sort string) string {
 	switch sort {
+	case "added":
+		return "l.added_at"
 	case "modified":
 		return "l.mod_time"
 	case "name":
@@ -1974,7 +1978,7 @@ func (s *Store) cursorKeyForLocation(locationID int64, sort string) (interface{}
 		WHERE l.id = ?
 	`, fileSortExpression(sort))
 	switch sort {
-	case "modified", "size":
+	case "added", "modified", "size":
 		var value int64
 		if err := s.QueryRow(query, locationID).Scan(&value); err != nil {
 			return nil, err

@@ -75,6 +75,7 @@
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
   const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
+  const comicLibraryCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => library.route === 'library');
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
@@ -98,6 +99,13 @@
   const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.sort}|${library.order}`);
   const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);
   const selectedCount = $derived(library.selectedCount(currentTotalCount));
+
+  $effect(() => {
+    const targets = uploadTargetsQuery.data?.items ?? [];
+    if (!targets.length || upload.targetID) return;
+    const target = targets[0];
+    upload.setTarget(target.id, target.added_at_strategy ?? 'queue');
+  });
 
   $effect(() => {
     const csrf = $authState.csrfToken;
@@ -298,6 +306,11 @@
     }
   }
 
+  function selectUploadTarget(value: string) {
+    const target = (uploadTargetsQuery.data?.items ?? []).find((candidate) => candidate.id === value);
+    upload.setTarget(value, target?.added_at_strategy ?? 'queue');
+  }
+
   function selectUploadFiles(files: FileList | File[] | null) {
     upload.select(files);
     if (upload.autoUpload && files && Array.from(files).length) {
@@ -401,6 +414,7 @@
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
     comicCount={comicCountQuery.data?.total_count ?? 0}
+    comicAvailable={(comicLibraryCountQuery.data?.total_count ?? 0) > 0}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     metaTags={suggestionsQuery.data?.meta_tags ?? []}
@@ -430,12 +444,14 @@
         targets={uploadTargetsQuery.data?.items ?? []}
         targetID={upload.targetID}
         conflictPolicy={upload.conflictPolicy}
+        addedAtStrategy={upload.addedAtStrategy}
         autoUpload={upload.autoUpload}
         tags={tagsQuery.data?.tags ?? []}
-        onTargetInput={upload.setTarget}
+        onTargetInput={selectUploadTarget}
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
         onConflictInput={(value) => (upload.conflictPolicy = value)}
+        onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}
         onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}
         onCancel={cancelUploadJob}
@@ -488,12 +504,8 @@
       >
         {#snippet actions()}
           <div class="library-head-actions">
-            <label class="g-btn g-btn-sm" title="Select all files in the current view">
-              <input type="checkbox" aria-label="Select all files in current view" checked={currentTotalCount > 0 && selectedCount === currentTotalCount} onchange={(event) => event.currentTarget.checked ? library.selectAll() : library.clearSelection()} />
-              Select <u>a</u>ll
-            </label>
             <div class="seg" aria-label="Sort field">
-              {#each [{ value: 'modified', label: 'Modified' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
+              {#each [{ value: 'added', label: 'Added' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
                 <button
                   class:active={library.sort === option.value}
                   type="button"

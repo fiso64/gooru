@@ -318,6 +318,8 @@
     <button class="searchbar-clear" type="button" aria-label="Clear search" title="Clear search" onclick={clearAll}>
       <Icon name="close" size={13} />
     </button>
+  {:else}
+    <span class="searchbar-shortcut g-kbd" aria-hidden="true">/</span>
   {/if}
 
   {#if open && draft.trim() && flat.length > 0}
@@ -359,3 +361,14 @@
     </ul>
   {/if}
 </div>
+
+<style>
+  .searchbar-shortcut {
+    margin-left: auto;
+    margin-right: 5px;
+    flex: 0 0 auto;
+    color: var(--text-3);
+    font-size: 9px;
+    pointer-events: none;
+  }
+</style>

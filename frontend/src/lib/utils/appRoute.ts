@@ -13,7 +13,7 @@ export interface LibraryURLState {
 export const defaultLibraryURLState: LibraryURLState = {
   query: '',
   kind: '',
-  sort: 'modified',
+  sort: 'added',
   order: 'desc',
   fileID: ''
 };
@@ -29,7 +29,7 @@ const routePaths: Record<AppRoute, string> = {
 
 const pathRoutes = new Map(Object.entries(routePaths).map(([route, pathname]) => [pathname, route as AppRoute]));
 pathRoutes.set('/uploads', 'upload');
-const fileSorts = new Set<FileSort>(['modified', 'name', 'size', 'kind']);
+const fileSorts = new Set<FileSort>(['added', 'modified', 'name', 'size', 'kind']);
 
 function normalizeAppPath(pathname: string): string {
   return pathname !== '/' ? pathname.replace(/\/+$/, '') : '/';

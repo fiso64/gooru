@@ -73,12 +73,14 @@ type UploadsConfig struct {
 	Targets          []UploadTarget `yaml:"targets"`
 	MaxFileSizeBytes int64          `yaml:"max_file_size_bytes"`
 	ConflictPolicy   string         `yaml:"conflict_policy"`
+	PreserveModTime  bool           `yaml:"preserve_modtime"`
 }
 
 type UploadTarget struct {
-	ID   string `yaml:"id"`
-	Name string `yaml:"name"`
-	Path string `yaml:"path"`
+	ID              string `yaml:"id"`
+	Name            string `yaml:"name"`
+	Path            string `yaml:"path"`
+	AddedAtStrategy string `yaml:"added_at_strategy"`
 }
 
 type MediaConfig struct {
@@ -151,7 +153,7 @@ func DefaultConfig(dbPath string) Config {
 			CookieSecure:   "auto",
 			CookieSameSite: "lax",
 		},
-		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename"},
+		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename", PreserveModTime: true},
 		Media: MediaConfig{
 			ThumbnailSizes:  []int{256, 512},
 			ThumbnailFormat: "jpeg",
@@ -342,9 +344,14 @@ func (cfg *Config) Validate() error {
 		id := strings.TrimSpace(target.ID)
 		name := strings.TrimSpace(target.Name)
 		path := strings.TrimSpace(target.Path)
+		addedAtStrategy := strings.TrimSpace(target.AddedAtStrategy)
+		if addedAtStrategy == "" {
+			addedAtStrategy = "queue"
+		}
 		cfg.Uploads.Targets[i].ID = id
 		cfg.Uploads.Targets[i].Name = name
 		cfg.Uploads.Targets[i].Path = path
+		cfg.Uploads.Targets[i].AddedAtStrategy = addedAtStrategy
 		if id == "" {
 			errs = append(errs, fmt.Errorf("uploads.targets[%d].id is required", i))
 		} else if !validUploadTargetID(id) {
@@ -356,6 +363,11 @@ func (cfg *Config) Validate() error {
 		}
 		if name == "" {
 			errs = append(errs, fmt.Errorf("uploads target %q name is required", id))
+		}
+		switch addedAtStrategy {
+		case "queue", "reverse_queue", "modtime":
+		default:
+			errs = append(errs, fmt.Errorf("uploads target %q added_at_strategy must be one of: queue, reverse_queue, modtime", id))
 		}
 		if path == "" {
 			errs = append(errs, fmt.Errorf("uploads target %q path is required", id))

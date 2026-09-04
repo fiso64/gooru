@@ -33,7 +33,7 @@ async function mockApp(page: Page, gridSize: number, dimensions = { width: 800, 
       font_style: 'editorial',
       load_full_media_by_default: false,
       grid_size: gridSize,
-      thumbnail_sizes: [256, 512]
+      thumbnail_sizes: [512, 256, 512]
     })
   }));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
@@ -66,6 +66,14 @@ async function mockApp(page: Page, gridSize: number, dimensions = { width: 800, 
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
+async function expectSquareThumbnailMatchesCard(page: Page) {
+  const card = page.getByTestId('virtual-media-grid').locator('.thumb').first();
+  const image = card.locator('img');
+  const box = await card.boundingBox();
+  const expectedSize = (box?.width ?? 0) <= 256 ? 256 : 512;
+  await expect(image).toHaveAttribute('src', new RegExp(`[?&]size=${expectedSize}(?:&|$)`));
+}
+
 test('runtime ui grid_size changes the fluid media grid and virtualization together', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 900 });
   await mockApp(page, 240);
@@ -83,6 +91,15 @@ test('runtime ui grid_size changes the fluid media grid and virtualization toget
   expect(firstBox?.width).toBeGreaterThanOrEqual(240);
 
   await expect(cards.first().locator('img')).toHaveAttribute('src', /[?&]size=512(?:&|$)/);
+});
+
+test('thumbnail sizing follows shared grid geometry after responsive resize', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await mockApp(page, 180, { width: 800, height: 800 });
+
+  await expectSquareThumbnailMatchesCard(page);
+  await page.setViewportSize({ width: 880, height: 900 });
+  await expectSquareThumbnailMatchesCard(page);
 });
 
 test('thumbnail sizing covers the square card short edge for portrait media', async ({ page }) => {

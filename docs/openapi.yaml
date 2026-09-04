@@ -124,15 +124,15 @@ paths:
           required: false
           schema:
             type: string
-            enum: [name, modified, size, kind]
-            default: name
+            enum: [added, name, modified, size, kind]
+            default: added
         - name: order
           in: query
           required: false
           schema:
             type: string
             enum: [asc, desc]
-            default: asc
+            default: desc
         - name: include_facets
           in: query
           required: false
@@ -600,6 +600,36 @@ paths:
                   items:
                     type: string
                     format: binary
+                added_at_strategy:
+                  type: string
+                  enum: [queue, reverse_queue, modtime]
+                  description: Override the selected upload target's added-at strategy for this submission.
+                queue_time_ms:
+                  type: array
+                  items: { type: integer, format: int64 }
+                  description: Client-captured queue timestamps in Unix milliseconds, one per file.
+                queue_first_time_ms:
+                  type: integer
+                  format: int64
+                  description: Earliest client-captured queue timestamp in this submission; used with `queue_last_time_ms` to reverse queues consistently across one-file async worker requests.
+                queue_last_time_ms:
+                  type: integer
+                  format: int64
+                  description: Latest client-captured queue timestamp in this submission; used with `queue_first_time_ms` to reverse queues consistently across one-file async worker requests.
+                queue_index:
+                  type: array
+                  items: { type: integer, minimum: 0 }
+                  description: Stable queue indexes, one per file.
+                queue_total:
+                  type: array
+                  items: { type: integer, minimum: 1 }
+                  description: Queue batch size, one per file.
+                source_modtime_ms:
+                  type: array
+                  description: Source modification timestamps in Unix milliseconds, in the same order as `files`. Invalid or missing entries are treated as unavailable.
+                  items:
+                    type: integer
+                    format: int64
                 target_id:
                   type: string
                   description: Configured upload target ID. Defaults to the first configured target.
@@ -1214,12 +1244,16 @@ components:
           type: array
           items:
             type: object
-            required: [id, name]
+            required: [id, name, added_at_strategy]
             properties:
               id:
                 type: string
               name:
                 type: string
+              added_at_strategy:
+                type: string
+                enum: [queue, reverse_queue, modtime]
+                description: Default added-at strategy configured for this upload target.
     Job:
       type: object
       required: [id, type, status, submitted_at]
@@ -1298,6 +1332,7 @@ components:
         - name
         - safe_display_path
         - size
+        - added_at
         - modified_time
         - media_type
         - media_kind
@@ -1323,6 +1358,9 @@ components:
         size:
           type: integer
           format: int64
+        added_at:
+          type: string
+          format: date-time
         modified_time:
           type: string
           format: date-time
@@ -1362,6 +1400,10 @@ components:
           format: double
         frame_count:
           type: integer
+        page_count:
+          type: integer
+          minimum: 1
+          description: Number of displayable pages for paged media such as CBZ comics.
     MediaURLs:
       type: object
       required: [thumbnail, preview, content, download]
@@ -1451,12 +1493,12 @@ components:
           type: string
         sort:
           type: string
-          enum: [name, modified, size, kind]
-          default: name
+          enum: [added, name, modified, size, kind]
+          default: added
         order:
           type: string
           enum: [asc, desc]
-          default: asc
+          default: desc
     SavedSearch:
       type: object
       required: [id, name, query, sort, order, created_at, updated_at]
@@ -1469,7 +1511,7 @@ components:
           type: string
         sort:
           type: string
-          enum: [name, modified, size, kind]
+          enum: [added, name, modified, size, kind]
         order:
           type: string
           enum: [asc, desc]

@@ -7,6 +7,22 @@ import (
 	"testing"
 )
 
+func TestConfigUploadTargetAddedAtStrategyDefaultsAndValidates(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Uploads.Enabled = true
+	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: t.TempDir()}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate default target strategy: %v", err)
+	}
+	if got := cfg.Uploads.Targets[0].AddedAtStrategy; got != "queue" {
+		t.Fatalf("default added_at_strategy=%q want queue", got)
+	}
+	cfg.Uploads.Targets[0].AddedAtStrategy = "random"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "added_at_strategy") {
+		t.Fatalf("expected added_at_strategy validation error, got %v", err)
+	}
+}
+
 func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	cfg, err := LoadConfig("", filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
 	if err != nil {
@@ -32,6 +48,9 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	}
 	if cfg.Uploads.ConflictPolicy != "rename" {
 		t.Fatalf("unexpected upload conflict policy default %q", cfg.Uploads.ConflictPolicy)
+	}
+	if !cfg.Uploads.PreserveModTime {
+		t.Fatal("uploads.preserve_modtime should default true")
 	}
 }
 
