@@ -146,6 +146,7 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   await expect(page.getByRole('button', { name: 'Clear search' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear search' }).click();
   await expect(searchShortcut).toHaveText('/');
+  await search.press('Escape');
 
   await page.keyboard.press('b');
   await expect(page.getByRole('dialog', { name: 'Save search' })).toBeVisible();
