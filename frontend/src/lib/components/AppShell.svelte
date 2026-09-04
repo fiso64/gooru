@@ -6,12 +6,15 @@
   import Logo from './Logo.svelte';
   import SearchBar from './SearchBar.svelte';
   import ShortcutsView from './ShortcutsView.svelte';
+  import { ApiClient } from '$lib/api/client';
   import type { Job, MetaTagDefinition } from '$lib/api/types';
+  import { authState } from '$lib/stores/auth';
   import { readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { replaceSidebarKind, sidebarKindActive, sidebarKindFilters } from '$lib/utils/sidebarKinds';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
+  type SavedSearchLike = { id: string; name: string; query: string };
 
   const commonTagsCollapsedKey = 'common-tags.collapsed';
   const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
@@ -54,7 +57,7 @@
     kindCounts: Array<{ value: string; count: number }>;
     comicCount: number;
     comicAvailable: boolean;
-    savedSearches: Array<{ id: string; name: string; query: string }>;
+    savedSearches: SavedSearchLike[];
     suggestions: Array<{ name: string; count?: number }>;
     metaTags: MetaTagDefinition[];
     tags: TagLike[];
@@ -77,7 +80,18 @@
   let commonTagsCollapsed = $state(false);
   let shortcutsOpen = $state(false);
   let shortcutsReturnRoute = $state('library');
+  let draggedSavedSearchID = $state('');
+  let savedSearchOrder = $state<string[]>([]);
+  let savedSearchMembership = $state('');
+  let savedSearchReorderBusy = $state(false);
+  let savedSearchReorderError = $state('');
   const commonTags = $derived(normalizeCommonTags(tags).slice(0, 20));
+  const orderedSavedSearches = $derived.by(() => {
+    const byID = new Map(savedSearches.map((item) => [item.id, item]));
+    const ordered = savedSearchOrder.map((id) => byID.get(id)).filter((item): item is SavedSearchLike => Boolean(item));
+    const seen = new Set(ordered.map((item) => item.id));
+    return [...ordered, ...savedSearches.filter((item) => !seen.has(item.id))];
+  });
 
   onMount(() => {
     commonTagsCollapsed = readBrowserPreference(commonTagsCollapsedKey, false, isBoolean);
@@ -90,6 +104,15 @@
     }
     shortcutsOpen = true;
     queueMicrotask(() => onRoute(shortcutsReturnRoute));
+  });
+
+  $effect(() => {
+    const ids = savedSearches.map((item) => item.id);
+    const membership = [...ids].sort().join('\u0000');
+    if (membership !== savedSearchMembership) {
+      savedSearchMembership = membership;
+      savedSearchOrder = ids;
+    }
   });
 
   function kindCount(kind: string) {
@@ -114,6 +137,44 @@
   function toggleCommonTags() {
     commonTagsCollapsed = !commonTagsCollapsed;
     writeBrowserPreference(commonTagsCollapsedKey, commonTagsCollapsed);
+  }
+
+  function startSavedSearchDrag(event: DragEvent, id: string) {
+    if (savedSearchReorderBusy) {
+      event.preventDefault();
+      return;
+    }
+    draggedSavedSearchID = id;
+    savedSearchReorderError = '';
+    event.dataTransfer?.setData('text/plain', id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  async function dropSavedSearch(event: DragEvent, targetID: string) {
+    event.preventDefault();
+    const sourceID = draggedSavedSearchID || event.dataTransfer?.getData('text/plain') || '';
+    draggedSavedSearchID = '';
+    if (!sourceID || sourceID === targetID || savedSearchReorderBusy) return;
+
+    const previous = orderedSavedSearches.map((item) => item.id);
+    const next = [...previous];
+    const from = next.indexOf(sourceID);
+    const to = next.indexOf(targetID);
+    if (from < 0 || to < 0) return;
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+
+    savedSearchOrder = next;
+    savedSearchReorderBusy = true;
+    savedSearchReorderError = '';
+    try {
+      await new ApiClient($authState.csrfToken).reorderSavedSearches(next);
+    } catch (error) {
+      savedSearchOrder = previous;
+      savedSearchReorderError = error instanceof Error ? error.message : 'Could not save saved-search order.';
+    } finally {
+      savedSearchReorderBusy = false;
+    }
   }
 
   function openLibrary() {
@@ -264,8 +325,25 @@
           <Icon name="plus" size={11} />
         </button>
       </div>
-      {#each savedSearches as saved}
-        <div class="sidebar-saved-row">
+      {#each orderedSavedSearches as saved}
+        <div
+          class="sidebar-saved-row"
+          class:drag-target={Boolean(draggedSavedSearchID) && draggedSavedSearchID !== saved.id}
+          ondragover={(event) => { if (draggedSavedSearchID) event.preventDefault(); }}
+          ondrop={(event) => void dropSavedSearch(event, saved.id)}
+        >
+          <button
+            class="sidebar-mini saved-search-drag"
+            type="button"
+            title={`Drag ${saved.name}`}
+            aria-label={`Drag ${saved.name}`}
+            draggable={!savedSearchReorderBusy}
+            disabled={savedSearchReorderBusy}
+            ondragstart={(event) => startSavedSearchDrag(event, saved.id)}
+            ondragend={() => (draggedSavedSearchID = '')}
+          >
+            <span aria-hidden="true">⋮⋮</span>
+          </button>
           <button class="sidebar-item" type="button" onclick={() => onSavedSearch(saved.query, saved.name)}>
             <Icon name="bookmark" size={14} />
             <span class="truncate">{saved.name}</span>
@@ -282,6 +360,9 @@
       {:else}
         <div class="sidebar-note">No saved searches yet</div>
       {/each}
+      {#if savedSearchReorderError}
+        <div class="sidebar-note saved-search-order-error" role="status">{savedSearchReorderError}</div>
+      {/if}
     </div>
 
     {#if commonTags.length}
@@ -337,6 +418,19 @@
 {/if}
 
 <style>
+  .saved-search-drag {
+    cursor: grab;
+    flex: 0 0 auto;
+  }
+
+  .saved-search-drag:active {
+    cursor: grabbing;
+  }
+
+  .saved-search-order-error {
+    color: var(--danger, var(--text-2));
+  }
+
   .common-tags-toggle {
     width: 100%;
     border: 0;
