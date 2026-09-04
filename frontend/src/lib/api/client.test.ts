@@ -121,7 +121,8 @@ describe('ApiClient', () => {
     });
     const progress = vi.fn();
     const client = new ApiClient('secret-token');
-    const file = new File(['hello'], 'hello.txt', { type: 'text/plain' });
+    const sourceModTime = 1_700_000_000_123;
+    const file = new File(['hello'], 'hello.txt', { type: 'text/plain', lastModified: sourceModTime });
 
     const result = await client.uploadFiles([file], ['reviewed'], true, '', 'rename', progress);
 
@@ -135,6 +136,7 @@ describe('ApiClient', () => {
     expect((xhr.body as FormData).get('conflict_policy')).toBe('rename');
     expect((xhr.body as FormData).get('tags')).toBe('reviewed');
     expect(((xhr.body as FormData).get('files') as File).name).toBe('hello.txt');
+    expect((xhr.body as FormData).get('source_mod_time_ms')).toBe(String(sourceModTime));
     expect(progress.mock.calls.map(([value]) => value)).toEqual([20, 70, 100, 100]);
   });
 

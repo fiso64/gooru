@@ -160,6 +160,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 			finalized.sourceModTime = sourceModTime
 			if s.cfg.Uploads.PreserveModTime && finalized.status != "skipped" && !sourceModTime.IsZero() {
 				if err := os.Chtimes(finalized.path, sourceModTime, sourceModTime); err != nil {
+					_ = os.Remove(finalized.path)
 					return nil, saved, uploadFileError{name: finalized.name, err: errors.New("failed to preserve uploaded file modification time")}
 				}
 			}
