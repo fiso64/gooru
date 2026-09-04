@@ -2,7 +2,9 @@ package serve
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -25,8 +27,27 @@ func TestSavedSearchReorderGoldenPath(t *testing.T) {
 	defer client.Close()
 
 	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
-	cfg.Auth.Enabled = false
+	authStore := newAuthTestStore(t)
+	if _, err := authStore.CreateAdmin(context.Background(), "saved-search-test", "correct horse"); err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+	auth, err := authStore.Login(context.Background(), "saved-search-test", "correct horse")
+	if err != nil {
+		t.Fatalf("login test user: %v", err)
+	}
+
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	server.SetAuthStore(authStore)
+
+	request := func(method, path string, body io.Reader) *http.Request {
+		t.Helper()
+		req := httptest.NewRequest(method, path, body)
+		req.AddCookie(&http.Cookie{Name: cfg.Auth.CookieName, Value: auth.Token})
+		if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete {
+			req.Header.Set("X-Gooru-CSRF", auth.CSRFToken)
+		}
+		return req
+	}
 
 	create := func(name string) SavedSearchDTO {
 		t.Helper()
@@ -35,7 +56,7 @@ func TestSavedSearchReorderGoldenPath(t *testing.T) {
 			t.Fatalf("marshal create request: %v", err)
 		}
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/saved-searches", bytes.NewReader(body))
+		req := request(http.MethodPost, "/api/v1/saved-searches", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		server.Handler().ServeHTTP(rec, req)
 		if rec.Code != http.StatusCreated {
@@ -57,7 +78,7 @@ func TestSavedSearchReorderGoldenPath(t *testing.T) {
 		t.Fatalf("marshal reorder request: %v", err)
 	}
 	reorderRec := httptest.NewRecorder()
-	reorderReq := httptest.NewRequest(http.MethodPut, "/api/v1/saved-searches/reorder", bytes.NewReader(reorderBody))
+	reorderReq := request(http.MethodPut, "/api/v1/saved-searches/reorder", bytes.NewReader(reorderBody))
 	reorderReq.Header.Set("Content-Type", "application/json")
 	server.Handler().ServeHTTP(reorderRec, reorderReq)
 	if reorderRec.Code != http.StatusOK {
@@ -65,7 +86,7 @@ func TestSavedSearchReorderGoldenPath(t *testing.T) {
 	}
 
 	listRec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(listRec, httptest.NewRequest(http.MethodGet, "/api/v1/saved-searches", nil))
+	server.Handler().ServeHTTP(listRec, request(http.MethodGet, "/api/v1/saved-searches", nil))
 	if listRec.Code != http.StatusOK {
 		t.Fatalf("list status = %d: %s", listRec.Code, listRec.Body.String())
 	}
