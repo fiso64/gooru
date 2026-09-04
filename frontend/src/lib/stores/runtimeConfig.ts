@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 
-export const defaultGridSize = 180;
+export const defaultGridSize = 200;
+export const denseGridSizeBoost = 40;
 export type GridType = 'square' | 'fit' | 'tile';
 
 export type RuntimeConfig = {
@@ -17,6 +18,10 @@ export function normalizeThumbnailSizes(sizes: number[]) {
 
 export function normalizeGridType(value: string | undefined): GridType {
   return value === 'fit' || value === 'tile' ? value : 'square';
+}
+
+export function effectiveGridSize(size: number, type: GridType) {
+  return size + (type === 'fit' ? 0 : denseGridSizeBoost);
 }
 
 export const runtimeConfig = writable<RuntimeConfig>({
