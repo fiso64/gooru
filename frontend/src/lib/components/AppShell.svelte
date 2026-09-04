@@ -26,6 +26,7 @@
     jobsDrawerOpen,
     kindCounts,
     comicCount,
+    comicAvailable,
     savedSearches,
     suggestions,
     metaTags,
@@ -52,6 +53,7 @@
     jobsDrawerOpen: boolean;
     kindCounts: Array<{ value: string; count: number }>;
     comicCount: number;
+    comicAvailable: boolean;
     savedSearches: Array<{ id: string; name: string; query: string }>;
     suggestions: Array<{ name: string; count?: number }>;
     metaTags: MetaTagDefinition[];
@@ -246,7 +248,7 @@
           <span class="count">{kindCount(kind.key).toLocaleString()}</span>
         </button>
       {/each}
-      {#if comicCount > 0}
+      {#if comicAvailable}
         <button data-sidebar-shortcut class:active={route === 'library' && sidebarKindActive(search, 'ext:cbz')} class="sidebar-item" type="button" onclick={() => toggleKind('ext:cbz')}>
           <Icon name="bookmark" size={16} active={route === 'library' && sidebarKindActive(search, 'ext:cbz')} />
           <span>Comics</span>
@@ -317,7 +319,7 @@
 
     <div class="sidebar-section bottom">
       <button data-sidebar-shortcut class:active={route === 'settings'} class="sidebar-item" type="button" onclick={() => onRoute('settings')}>
-        <Icon name="settings" size={16} />
+        <Icon name="settings" size={16} active={route === 'settings'} />
         <span>Settings</span>
       </button>
       <button class="sidebar-item" type="button" onclick={openShortcuts}>
@@ -327,7 +329,9 @@
     </div>
   </aside>
 
-  {@render children()}
+  <main class="main">
+    {@render children()}
+  </main>
 </div>
 
 {#if shortcutsOpen}
