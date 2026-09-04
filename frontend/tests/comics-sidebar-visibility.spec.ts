@@ -62,7 +62,7 @@ test('comics entry stays visible while its count follows the active saved search
   await expect(comics).toBeVisible();
   await expect(comics.locator('.count')).toHaveText('2');
 
-  await page.getByRole('button', { name: 'No comics' }).click();
+  await page.getByRole('button', { name: 'No comics', exact: true }).click();
 
   await expect(comics).toBeVisible();
   await expect(comics.locator('.count')).toHaveText('0');
