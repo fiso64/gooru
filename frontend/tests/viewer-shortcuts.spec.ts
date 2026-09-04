@@ -144,7 +144,7 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
     const root = element.closest('.gooru-root');
     if (!root) throw new Error('search shortcut is outside the themed root');
     const probe = document.createElement('span');
-    probe.style.color = 'var(--text-4)';
+    probe.style.color = 'var(--text-3)';
     root.appendChild(probe);
     const colors = [getComputedStyle(element).color, getComputedStyle(probe).color];
     probe.remove();

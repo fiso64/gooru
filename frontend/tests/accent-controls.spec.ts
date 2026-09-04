@@ -72,30 +72,24 @@ async function gapAfterShortcut(locator: Locator) {
   });
 }
 
-test('select-all checkbox follows the configured accent', async ({ page }) => {
+test('file-selection checkbox follows the configured accent', async ({ page }) => {
   await mockLibrary(page);
 
   await page.locator('.gooru-root').evaluate((node) => {
     (node as HTMLElement).style.setProperty('--accent', 'rgb(12, 34, 56)');
   });
 
-  const selectAll = page.getByLabel('Select all files in current view');
-  await expect(selectAll).toHaveCSS('accent-color', 'rgb(12, 34, 56)');
-
-  await selectAll.click();
-  await expect(selectAll).toBeChecked();
-  await expect(selectAll).toHaveCSS('accent-color', 'rgb(12, 34, 56)');
+  await page.keyboard.press('a');
+  const selected = page.getByRole('checkbox', { name: 'Deselect one.jpg' });
+  await expect(selected).toBeVisible();
+  await expect(selected).toHaveCSS('background-color', 'rgb(12, 34, 56)');
+  await expect(selected).toHaveCSS('border-color', 'rgb(12, 34, 56)');
 });
 
 test('shortcut underlines do not create visual spaces inside button labels', async ({ page }) => {
   await mockLibrary(page);
 
-  const selectAll = page.getByLabel('Select all files in current view');
-  const selectAllLabel = page.locator('label.g-btn:has(input[aria-label="Select all files in current view"])');
-  await expect(selectAllLabel).toHaveCount(1);
-  expect(await gapAfterShortcut(selectAllLabel)).toBeLessThanOrEqual(1);
-
-  await selectAll.click();
+  await page.keyboard.press('a');
   await expect(page.locator('.selection-bar')).toBeVisible();
 
   const shortcutButtons = page.locator('.selection-bar button.g-btn:has(> u)');
