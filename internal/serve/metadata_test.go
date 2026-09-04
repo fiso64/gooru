@@ -3,6 +3,7 @@ package serve
 import (
 	"bytes"
 	"context"
+	"image/color"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,6 +50,42 @@ func TestImageMetadataFromRandomAccessSource(t *testing.T) {
 	}
 }
 
+func TestComicMetadataIncludesNaturalCoverDimensions(t *testing.T) {
+	provider := BasicMediaMetadataProvider{}
+	path := writeComic(t, map[string][]byte{
+		"10.png": tinyPNG(t, 40, 30, color.RGBA{B: 255, A: 255}),
+		"2.png":  tinyPNG(t, 120, 180, color.RGBA{R: 255, A: 255}),
+	})
+
+	meta, err := provider.Metadata(context.Background(), types.FileInfo{Path: path}, "application/vnd.comicbook+zip", "other")
+	if err != nil {
+		t.Fatalf("comic metadata: %v", err)
+	}
+	assertComicCoverMetadata(t, meta, 120, 180, 2)
+}
+
+func TestComicMetadataFromRandomAccessSourceIncludesCoverDimensions(t *testing.T) {
+	provider := BasicMediaMetadataProvider{}
+	path := writeComic(t, map[string][]byte{
+		"001.png": tinyPNG(t, 90, 140, color.RGBA{G: 255, A: 255}),
+		"002.png": tinyPNG(t, 30, 30, color.RGBA{B: 255, A: 255}),
+	})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical := filepath.Join(t.TempDir(), "encrypted", "book.cbz")
+
+	meta, err := provider.MetadataFromSource(context.Background(), types.FileInfo{Path: logical}, bytes.NewReader(data), int64(len(data)), "application/vnd.comicbook+zip", "other")
+	if err != nil {
+		t.Fatalf("comic metadata from source: %v", err)
+	}
+	assertComicCoverMetadata(t, meta, 90, 140, 2)
+	if _, err := os.Stat(logical); !os.IsNotExist(err) {
+		t.Fatalf("source comic metadata unexpectedly required logical plaintext path: %v", err)
+	}
+}
+
 func TestVideoMetadataFromRandomAccessSourceUsesFFprobePipe(t *testing.T) {
 	ffprobe := writeSourceJSONFFprobe(t, `{"streams":[{"width":1920,"height":1080,"duration":"12.5","nb_frames":"300"}],"format":{"duration":"13.0"}}`)
 	provider := BasicMediaMetadataProvider{FFprobePath: ffprobe}
@@ -69,6 +106,19 @@ func TestVideoMetadataDegradesWhenFFprobeMissing(t *testing.T) {
 	}
 	if meta.VideoWidth != nil || meta.VideoHeight != nil || meta.VideoDuration != nil || meta.FrameCount != nil {
 		t.Fatalf("expected empty metadata when ffprobe is unavailable, got %+v", meta)
+	}
+}
+
+func assertComicCoverMetadata(t *testing.T, meta MediaMetadata, width int, height int, pages int) {
+	t.Helper()
+	if meta.ImageWidth == nil || *meta.ImageWidth != width {
+		t.Fatalf("expected comic cover width %d, got %+v", width, meta)
+	}
+	if meta.ImageHeight == nil || *meta.ImageHeight != height {
+		t.Fatalf("expected comic cover height %d, got %+v", height, meta)
+	}
+	if meta.PageCount == nil || *meta.PageCount != pages {
+		t.Fatalf("expected comic page count %d, got %+v", pages, meta)
 	}
 }
 
