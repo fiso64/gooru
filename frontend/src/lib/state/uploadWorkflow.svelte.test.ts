@@ -228,4 +228,20 @@ describe('createUploadWorkflow', () => {
     expect(workflow.activeJobIDs).toEqual([]);
     expect(workflow.items.map((item) => item.status)).toEqual(['canceled', 'canceled']);
   });
+  it('replaces managed target defaults while preserving user tags', () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox', 'source:upload']);
+    expect(workflow.tags).toBe('project:inbox source:upload');
+    workflow.tags += ' user:kept';
+    workflow.setTarget('two', 'queue', ['source:upload', 'user:kept']);
+    expect(workflow.tags).toBe('user:kept source:upload');
+  });
+
+  it('does not duplicate target defaults on repeated selection', () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox', 'project:inbox']);
+    workflow.setTarget('one', 'queue', ['project:inbox']);
+    expect(workflow.tags).toBe('project:inbox');
+  });
+
 });

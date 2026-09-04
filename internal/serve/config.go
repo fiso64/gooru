@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"gooru.local/internal/query"
 	"gooru.local/internal/securekey"
 	"gopkg.in/yaml.v3"
 )
@@ -78,10 +79,11 @@ type UploadsConfig struct {
 }
 
 type UploadTarget struct {
-	ID              string `yaml:"id"`
-	Name            string `yaml:"name"`
-	Path            string `yaml:"path"`
-	AddedAtStrategy string `yaml:"added_at_strategy"`
+	ID              string   `yaml:"id"`
+	Name            string   `yaml:"name"`
+	Path            string   `yaml:"path"`
+	AddedAtStrategy string   `yaml:"added_at_strategy"`
+	DefaultTags     []string `yaml:"default_tags"`
 }
 
 type MediaConfig struct {
@@ -355,6 +357,14 @@ func (cfg *Config) Validate() error {
 		cfg.Uploads.Targets[i].Name = name
 		cfg.Uploads.Targets[i].Path = path
 		cfg.Uploads.Targets[i].AddedAtStrategy = addedAtStrategy
+		for tagIndex := range cfg.Uploads.Targets[i].DefaultTags {
+			value := strings.TrimSpace(cfg.Uploads.Targets[i].DefaultTags[tagIndex])
+			cfg.Uploads.Targets[i].DefaultTags[tagIndex] = value
+			tag := strings.TrimPrefix(value, "-")
+			if err := query.ValidateTag(tag); err != nil {
+				errs = append(errs, fmt.Errorf("uploads target %q default_tags: %w", id, err))
+			}
+		}
 		if id == "" {
 			errs = append(errs, fmt.Errorf("uploads.targets[%d].id is required", i))
 		} else if !validUploadTargetID(id) {

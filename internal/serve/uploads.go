@@ -53,9 +53,10 @@ type UploadTargetsResponse struct {
 }
 
 type UploadTargetDTO struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	AddedAtStrategy string `json:"added_at_strategy"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	AddedAtStrategy string   `json:"added_at_strategy"`
+	DefaultTags     []string `json:"default_tags"`
 }
 
 func (s *Server) handleUploadTargets(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +73,7 @@ func (s *Server) handleUploadTargets(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name, AddedAtStrategy: strategy})
+		items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name, AddedAtStrategy: strategy, DefaultTags: append([]string(nil), target.DefaultTags...)})
 	}
 	writeJSON(w, http.StatusOK, UploadTargetsResponse{Items: items})
 }

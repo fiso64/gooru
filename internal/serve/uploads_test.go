@@ -252,6 +252,7 @@ func TestUploadRejectsUnknownTargetID(t *testing.T) {
 
 func TestUploadTargetsEndpointHidesPaths(t *testing.T) {
 	server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})
+	server.cfg.Uploads.Targets[0].DefaultTags = []string{"project:inbox", "source:upload"}
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/upload-targets", nil))
@@ -265,6 +266,9 @@ func TestUploadTargetsEndpointHidesPaths(t *testing.T) {
 	}
 	if len(payload.Items) != 1 || payload.Items[0].ID != "default" || payload.Items[0].Name != "Default" {
 		t.Fatalf("unexpected targets response: %+v", payload)
+	}
+	if got := payload.Items[0].DefaultTags; len(got) != 2 || got[0] != "project:inbox" || got[1] != "source:upload" {
+		t.Fatalf("unexpected default tags: %+v", got)
 	}
 	if strings.Contains(rec.Body.String(), server.cfg.Uploads.Targets[0].Path) {
 		t.Fatalf("targets response exposed absolute path: %s", rec.Body.String())

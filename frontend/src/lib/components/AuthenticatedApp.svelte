@@ -104,7 +104,7 @@
     const targets = uploadTargetsQuery.data?.items ?? [];
     if (!targets.length || upload.targetID) return;
     const target = targets[0];
-    upload.setTarget(target.id, target.added_at_strategy ?? 'queue');
+    upload.setTarget(target.id, target.added_at_strategy ?? 'queue', target.default_tags ?? []);
   });
 
   $effect(() => {
@@ -308,7 +308,7 @@
 
   function selectUploadTarget(value: string) {
     const target = (uploadTargetsQuery.data?.items ?? []).find((candidate) => candidate.id === value);
-    upload.setTarget(value, target?.added_at_strategy ?? 'queue');
+    upload.setTarget(value, target?.added_at_strategy ?? 'queue', target?.default_tags ?? []);
   }
 
   function selectUploadFiles(files: FileList | File[] | null) {
