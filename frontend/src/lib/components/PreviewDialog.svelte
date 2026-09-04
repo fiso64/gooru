@@ -5,6 +5,7 @@
   import ViewerStage from './ViewerStage.svelte';
   import { ApiClient } from '$lib/api/client';
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { readViewerSessionPreferences, updateViewerSessionPreferences } from '$lib/state/viewerSessionPreferences';
   import { adjacentComicPages, comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
   import { errorMessage, formatBytes, groupTags, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
@@ -47,9 +48,15 @@
     onNestedNavigationChange?: (active: boolean) => void;
   }>();
 
+  const initialViewerPreferences = readViewerSessionPreferences({
+    preferOriginal: $runtimeConfig.loadFullMediaByDefault,
+    rotation: 0,
+    fitMode: 'screen'
+  });
+
   let dialogElement = $state<HTMLDivElement | undefined>();
   let downloadLink = $state<HTMLAnchorElement | undefined>();
-  let preferOriginal = $state($runtimeConfig.loadFullMediaByDefault);
+  let preferOriginal = $state(initialViewerPreferences.preferOriginal);
   let tagMode = $state<'add' | 'remove'>('add');
   let comicManifest = $state<ComicManifest | null>(null);
   let comicPageIndex = $state(0);
@@ -312,7 +319,10 @@
         aria-label={preferOriginal ? 'Use derived preview' : 'Use original media'}
         aria-pressed={preferOriginal}
         title={preferOriginal ? 'Using original media; click to use preview' : 'Load original media'}
-        onclick={() => { preferOriginal = !preferOriginal; }}
+        onclick={() => {
+          preferOriginal = !preferOriginal;
+          updateViewerSessionPreferences({ preferOriginal });
+        }}
       >
         <Icon name="photo" size={16} active={preferOriginal} />
       </button>

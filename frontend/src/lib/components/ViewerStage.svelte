@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
+  import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { preserveNativeViewerSize } from '$lib/utils/media';
-  import { rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerFitMode } from '$lib/utils/viewer';
+  import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerFitMode } from '$lib/utils/viewer';
   import { preloadViewerMediaSource, viewerPreloadSource } from '$lib/utils/viewerPreload';
   import type { FileItem } from '$lib/api/types';
 
@@ -26,6 +27,12 @@
     navigationUnit?: string;
   }>();
 
+  const initialViewerPreferences = readViewerSessionPreferences({
+    preferOriginal: false,
+    rotation: 0,
+    fitMode: 'screen'
+  });
+
   let stageElement = $state<HTMLDivElement | undefined>();
   let panViewportElement = $state<HTMLDivElement | undefined>();
   let imageElement = $state<HTMLImageElement | undefined>();
@@ -39,8 +46,8 @@
   let displayedImageSource = $state('');
   let waitingForTarget = $state(false);
   let transitionGeneration = 0;
-  let rotation = $state(0);
-  let fitMode = $state<ViewerFitMode>('screen');
+  let rotation = $state<number>(initialViewerPreferences.rotation);
+  let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);
   let isFullscreen = $state(false);
   let stageWidth = $state(0);
   let stageHeight = $state(0);
@@ -361,6 +368,7 @@
 
   function setFitMode(mode: ViewerFitMode) {
     fitMode = mode;
+    updateViewerSessionPreferences({ fitMode });
     resetViewerTransform();
   }
 
@@ -412,6 +420,7 @@
 
   function rotateViewerAndReconcile(direction: 'left' | 'right') {
     rotation = rotateViewer(rotation, direction);
+    updateViewerSessionPreferences({ rotation: normalizeViewerRotation(rotation) as ViewerRotation });
     queueMicrotask(reconcileViewerTransform);
   }
 
