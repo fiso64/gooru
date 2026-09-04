@@ -25,7 +25,7 @@ func TestMetaTagCatalogAndParser(t *testing.T) {
 	}
 }
 
-func TestFilenameContainsBuildLocationsTargetsBasenameCaseInsensitivelyAndEscapesWildcards(t *testing.T) {
+func TestFilenameContainsBuildLocationsUsesIndexedBasenameAndLiteralGuard(t *testing.T) {
 	expr, err := Parse(`"@filename_contains:100%_SET"`)
 	if err != nil {
 		t.Fatal(err)
@@ -34,12 +34,21 @@ func TestFilenameContainsBuildLocationsTargetsBasenameCaseInsensitivelyAndEscape
 		t.Fatal(err)
 	}
 	queryText, args := BuildLocations(expr, nil)
-	if len(args) != 1 || args[0] != `%100\%\_SET%` {
-		t.Fatalf("unexpected LIKE args: %#v", args)
+	if len(args) != 2 || args[0] != `"100%_SET"` || args[1] != `100%_SET` {
+		t.Fatalf("unexpected filename_contains args: %#v", args)
 	}
-	for _, fragment := range []string{"WITH RECURSIVE path_parts", "replace(path, char(92), '/')", "p.rest = ''", "lower(p.part) LIKE lower(?) ESCAPE '\\'"} {
+	for _, fragment := range []string{
+		"FROM location_filenames lf JOIN locations l ON l.id = lf.rowid",
+		"lf.filename MATCH ?",
+		"instr(lower(lf.filename), lower(?)) > 0",
+	} {
 		if !strings.Contains(queryText, fragment) {
 			t.Fatalf("query missing %q: %s", fragment, queryText)
+		}
+	}
+	for _, stale := range []string{"WITH RECURSIVE", "LIKE"} {
+		if strings.Contains(queryText, stale) {
+			t.Fatalf("query unexpectedly contains stale %q path: %s", stale, queryText)
 		}
 	}
 }
