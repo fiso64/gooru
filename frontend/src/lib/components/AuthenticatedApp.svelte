@@ -75,6 +75,7 @@
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
   const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
+  const comicLibraryCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => library.route === 'library');
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
@@ -401,6 +402,7 @@
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
     comicCount={comicCountQuery.data?.total_count ?? 0}
+    comicAvailable={(comicLibraryCountQuery.data?.total_count ?? 0) > 0}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     metaTags={suggestionsQuery.data?.meta_tags ?? []}
