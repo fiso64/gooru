@@ -1,0 +1,191 @@
+name: Maintainer 251 patch
+
+on:
+  push:
+    branches:
+      - feat/251-viewer-fit-modes
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/251-viewer-fit-modes
+      - name: Apply implementation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"replacement not found in {path}: {old[:80]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Backend config and public runtime contract.
+          replace('internal/serve/config.go',
+              'type UIConfig struct {\n\tAccentColor              string `yaml:"accent_color"`\n\tFontStyle                string `yaml:"font_style"`\n\tGridSize                 int    `yaml:"grid_size"`\n\tLoadFullMediaByDefault   bool   `yaml:"load_full_media_by_default"`\n\tFullscreenMediaByDefault bool   `yaml:"fullscreen_media_by_default"`\n}',
+              'type UIConfig struct {\n\tAccentColor              string `yaml:"accent_color"`\n\tFontStyle                string `yaml:"font_style"`\n\tGridSize                 int    `yaml:"grid_size"`\n\tLoadFullMediaByDefault   bool   `yaml:"load_full_media_by_default"`\n\tFullscreenMediaByDefault bool   `yaml:"fullscreen_media_by_default"`\n\tViewerFitMode            string `yaml:"viewer_fit_mode"`\n}')
+          replace('internal/serve/config.go',
+              '\t\tUI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize},',
+              '\t\tUI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, ViewerFitMode: "fit_window"},')
+          replace('internal/serve/config.go',
+              '\tif cfg.UI.GridSize < MinGridSize || cfg.UI.GridSize > MaxGridSize {\n\t\terrs = append(errs, fmt.Errorf("ui.grid_size must be between %d and %d pixels", MinGridSize, MaxGridSize))\n\t}\n',
+              '\tif cfg.UI.GridSize < MinGridSize || cfg.UI.GridSize > MaxGridSize {\n\t\terrs = append(errs, fmt.Errorf("ui.grid_size must be between %d and %d pixels", MinGridSize, MaxGridSize))\n\t}\n\tcfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))\n\tif cfg.UI.ViewerFitMode == "" {\n\t\tcfg.UI.ViewerFitMode = "fit_window"\n\t}\n\tswitch cfg.UI.ViewerFitMode {\n\tcase "fit_window", "fit_down_only", "original_size_if_fit":\n\tdefault:\n\t\terrs = append(errs, errors.New("ui.viewer_fit_mode must be one of: fit_window, fit_down_only, original_size_if_fit"))\n\t}\n')
+          replace('internal/serve/ui_config.go',
+              '\tFullscreenMediaByDefault bool   `json:"fullscreen_media_by_default"`\n\tGridSize                 int    `json:"grid_size"`',
+              '\tFullscreenMediaByDefault bool   `json:"fullscreen_media_by_default"`\n\tViewerFitMode            string `json:"viewer_fit_mode"`\n\tGridSize                 int    `json:"grid_size"`')
+          replace('internal/serve/ui_config.go',
+              '\t\tFullscreenMediaByDefault: s.cfg.UI.FullscreenMediaByDefault,\n\t\tGridSize:',
+              '\t\tFullscreenMediaByDefault: s.cfg.UI.FullscreenMediaByDefault,\n\t\tViewerFitMode:            s.cfg.UI.ViewerFitMode,\n\t\tGridSize:')
+
+          # Geometry model: retain explicit actual-size override while adding requested configured modes.
+          replace('frontend/src/lib/utils/viewer.ts',
+              "export type ViewerFitMode = 'screen' | 'actual';",
+              "export type ViewerConfiguredFitMode = 'fit_window' | 'fit_down_only' | 'original_size_if_fit';\nexport type ViewerFitMode = ViewerConfiguredFitMode | 'actual';")
+          replace('frontend/src/lib/utils/viewer.ts',
+              "  if (input.fitMode === 'actual') {\n    return { width: intrinsicWidth, height: intrinsicHeight, rotation: input.rotation, scale: 1 };\n  }\n\n  const quarterTurn",
+              "  if (input.fitMode === 'actual') {\n    return { width: intrinsicWidth, height: intrinsicHeight, rotation: input.rotation, scale: 1 };\n  }\n\n  const quarterTurn")
+          replace('frontend/src/lib/utils/viewer.ts',
+              '  const scale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight, maxScale);',
+              "  const fitScale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight, maxScale);\n  // Both non-upscaling policies are intentionally distinct public modes even though\n  // contain geometry makes them equivalent today: if the original fits, keep 1:1;\n  // otherwise scale down to fit. Keeping both names preserves the requested contract\n  // and leaves room for future fit policies without a config migration.\n  const scale = input.fitMode === 'fit_window' ? fitScale : Math.min(1, fitScale);")
+
+          # Session persistence accepts the new modes and migrates the old screen value.
+          replace('frontend/src/lib/state/viewerSessionPreferences.ts',
+              "    if (parsed.fitMode === 'screen' || parsed.fitMode === 'actual') preferences.fitMode = parsed.fitMode;",
+              "    if (parsed.fitMode === 'screen') preferences.fitMode = 'fit_window';\n    else if (parsed.fitMode === 'fit_window' || parsed.fitMode === 'fit_down_only' || parsed.fitMode === 'original_size_if_fit' || parsed.fitMode === 'actual') preferences.fitMode = parsed.fitMode;")
+
+          # Runtime config wiring.
+          replace('frontend/src/lib/stores/runtimeConfig.ts',
+              "import { writable } from 'svelte/store';",
+              "import { writable } from 'svelte/store';\nimport type { ViewerConfiguredFitMode } from '$lib/utils/viewer';")
+          replace('frontend/src/lib/stores/runtimeConfig.ts',
+              '  fullscreenMediaByDefault: boolean;\n  gridSize:',
+              '  fullscreenMediaByDefault: boolean;\n  viewerFitMode: ViewerConfiguredFitMode;\n  gridSize:')
+          replace('frontend/src/lib/stores/runtimeConfig.ts',
+              '  fullscreenMediaByDefault: false,\n  gridSize:',
+              "  fullscreenMediaByDefault: false,\n  viewerFitMode: 'fit_window',\n  gridSize:")
+
+          replace('frontend/src/lib/components/AppPage.svelte',
+              "  import { accentTheme, type AccentTheme } from '$lib/utils/theme';",
+              "  import { accentTheme, type AccentTheme } from '$lib/utils/theme';\n  import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';")
+          replace('frontend/src/lib/components/AppPage.svelte',
+              '    fullscreen_media_by_default?: boolean;\n    grid_size?: number;',
+              '    fullscreen_media_by_default?: boolean;\n    viewer_fit_mode?: ViewerConfiguredFitMode;\n    grid_size?: number;')
+          replace('frontend/src/lib/components/AppPage.svelte',
+              '      fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,\n      gridSize:',
+              "      fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,\n      viewerFitMode: config.viewer_fit_mode ?? 'fit_window',\n      gridSize:")
+
+          # Pass configured default into ViewerStage; session preference remains the live override.
+          replace('frontend/src/lib/components/PreviewDialog.svelte',
+              '    {imageSource}\n    onPrev={stagePrev}',
+              '    {imageSource}\n    initialFitMode={$runtimeConfig.viewerFitMode}\n    onPrev={stagePrev}')
+
+          # ViewerStage behavior, cycling shortcut, and transient feedback.
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "  import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerFitMode } from '$lib/utils/viewer';",
+              "  import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerConfiguredFitMode, type ViewerFitMode } from '$lib/utils/viewer';")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "    imageSource,\n    onPrev,",
+              "    imageSource,\n    initialFitMode = 'fit_window',\n    onPrev,")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              '    imageSource: string;\n    onPrev:',
+              '    imageSource: string;\n    initialFitMode?: ViewerConfiguredFitMode;\n    onPrev:')
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "    fitMode: 'screen'\n  });",
+              '    fitMode: initialFitMode\n  });')
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "  let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);\n  let isFullscreen",
+              "  let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);\n  let fitModeFeedback = $state('');\n  let fitModeFeedbackTimer: ReturnType<typeof setTimeout> | undefined;\n  let isFullscreen")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "    fitMode: 'screen',",
+              "    fitMode: 'fit_window',")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "  const minimumZoom = $derived(fitMode === 'screen' ? 1 : Math.min(1, fitGeometry.scale));",
+              "  const minimumZoom = $derived(fitMode === 'actual' ? Math.min(1, fitGeometry.scale) : 1);")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              '      if (cursorIdleTimer) clearTimeout(cursorIdleTimer);\n      cursorIdleTimer = undefined;\n    };',
+              '      if (cursorIdleTimer) clearTimeout(cursorIdleTimer);\n      cursorIdleTimer = undefined;\n      if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);\n      fitModeFeedbackTimer = undefined;\n    };')
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "  function setFitMode(mode: ViewerFitMode) {\n    fitMode = mode;\n    updateViewerSessionPreferences({ fitMode });\n    resetViewerTransform();\n  }",
+              "  const configuredFitModes: ViewerConfiguredFitMode[] = ['fit_window', 'fit_down_only', 'original_size_if_fit'];\n\n  function fitModeLabel(mode: ViewerFitMode) {\n    if (mode === 'fit_window') return 'Fit window';\n    if (mode === 'fit_down_only') return 'Fit down only';\n    if (mode === 'original_size_if_fit') return 'Original size if it fits';\n    return 'Actual size';\n  }\n\n  function announceFitMode() {\n    fitModeFeedback = fitModeLabel(fitMode);\n    if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);\n    fitModeFeedbackTimer = setTimeout(() => { fitModeFeedback = ''; fitModeFeedbackTimer = undefined; }, 1100);\n  }\n\n  function setFitMode(mode: ViewerFitMode, announce = false) {\n    fitMode = mode;\n    updateViewerSessionPreferences({ fitMode });\n    resetViewerTransform();\n    if (announce) announceFitMode();\n  }\n\n  function cycleFitMode() {\n    const current = configuredFitModes.indexOf(fitMode as ViewerConfiguredFitMode);\n    setFitMode(configuredFitModes[(current + 1 + configuredFitModes.length) % configuredFitModes.length], true);\n  }")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "    if (key === 'f') {",
+              "    if (key === 'v') {\n      event.preventDefault();\n      event.stopPropagation();\n      cycleFitMode();\n      return;\n    }\n    if (key === 'f') {")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "      setFitMode('screen');",
+              "      setFitMode('fit_window', true);")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              "      setFitMode('actual');",
+              "      setFitMode('actual', true);")
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              '  <div class="viewer-mode-controls" aria-label="Viewer display controls">\n    <button type="button" class="viewer-mode-button" class:active={fitMode === \'screen\'} aria-label="Fit to screen" title="Fit to screen (1)" onclick={(event) => { setFitMode(\'screen\'); restoreStageFocusAfterPointer(event); }}>1</button>',
+              '  {#if fitModeFeedback}<div class="viewer-mode-feedback" role="status" aria-live="polite">{fitModeFeedback}</div>{/if}\n\n  <div class="viewer-mode-controls" aria-label="Viewer display controls">\n    <button type="button" class="viewer-mode-button" class:active={fitMode === \'fit_window\'} aria-label="Fit to window" title="Fit to window (1)" onclick={(event) => { setFitMode(\'fit_window\', true); restoreStageFocusAfterPointer(event); }}>1</button>\n    <button type="button" class="viewer-mode-button" aria-label="Cycle fit mode" title="Cycle fit mode (V)" onclick={(event) => { cycleFitMode(); restoreStageFocusAfterPointer(event); }}>V</button>')
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              '    <button type="button" class="viewer-mode-button" class:active={fitMode === \'actual\'} aria-label="Actual size" title="Actual size (2)" onclick={(event) => { setFitMode(\'actual\'); restoreStageFocusAfterPointer(event); }}>2</button>',
+              '    <button type="button" class="viewer-mode-button" class:active={fitMode === \'actual\'} aria-label="Actual size" title="Actual size (2)" onclick={(event) => { setFitMode(\'actual\', true); restoreStageFocusAfterPointer(event); }}>2</button>')
+          replace('frontend/src/lib/components/ViewerStage.svelte',
+              '  .viewer-mode-controls {\n',
+              '  .viewer-mode-feedback {\n    position: absolute;\n    z-index: 5;\n    left: 50%;\n    bottom: 54px;\n    transform: translateX(-50%);\n    padding: 7px 10px;\n    border: 1px solid rgba(255, 255, 255, 0.16);\n    border-radius: 5px;\n    background: rgba(0, 0, 0, 0.76);\n    color: #fff;\n    font: 600 11px/1.2 var(--font-mono);\n    pointer-events: none;\n  }\n\n  .viewer-mode-controls {\n')
+
+          # Shortcut reference.
+          replace('frontend/src/lib/components/ShortcutsView.svelte',
+              "        { keys: ['q'], description: 'Toggle original / preview media' },",
+              "        { keys: ['q'], description: 'Toggle original / preview media' },\n        { keys: ['v'], description: 'Cycle viewer fit mode' },\n        { keys: ['1'], description: 'Fit media to window' },\n        { keys: ['2'], description: 'Show media at actual size' },")
+
+          # Go coverage for config normalization/exposure.
+          p = Path('internal/serve/ui_config_test.go')
+          p.write_text(p.read_text() + '''\nfunc TestConfigLoadsAndValidatesViewerFitMode(t *testing.T) {\n\tdir := t.TempDir()\n\tpath := filepath.Join(dir, "gooru.yaml")\n\tif err := os.WriteFile(path, []byte("ui:\\n  viewer_fit_mode: FIT_DOWN_ONLY\\n"), 0o600); err != nil {\n\t\tt.Fatalf("write config: %v", err)\n\t}\n\tcfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})\n\tif err != nil {\n\t\tt.Fatalf("load config: %v", err)\n\t}\n\tif cfg.UI.ViewerFitMode != "fit_down_only" {\n\t\tt.Fatalf("ui.viewer_fit_mode = %q, want fit_down_only", cfg.UI.ViewerFitMode)\n\t}\n\tcfg.UI.ViewerFitMode = "stretch"\n\tif err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.viewer_fit_mode") {\n\t\tt.Fatalf("expected invalid viewer fit mode error, got %v", err)\n\t}\n}\n''')
+          replace('internal/serve/ui_config_test.go',
+              '\tcfg.UI.FullscreenMediaByDefault = true\n\tcfg.Media.ThumbnailSizes',
+              '\tcfg.UI.FullscreenMediaByDefault = true\n\tcfg.UI.ViewerFitMode = "original_size_if_fit"\n\tcfg.Media.ThumbnailSizes')
+          replace('internal/serve/ui_config_test.go',
+              '\tif !strings.Contains(rec.Body.String(), `"fullscreen_media_by_default":true`) {\n\t\tt.Fatalf("response missing fullscreen-media preference: %s", rec.Body.String())\n\t}\n',
+              '\tif !strings.Contains(rec.Body.String(), `"fullscreen_media_by_default":true`) {\n\t\tt.Fatalf("response missing fullscreen-media preference: %s", rec.Body.String())\n\t}\n\tif !strings.Contains(rec.Body.String(), `"viewer_fit_mode":"original_size_if_fit"`) {\n\t\tt.Fatalf("response missing viewer fit mode: %s", rec.Body.String())\n\t}\n')
+
+          # Geometry regression coverage and update prior fit-window literals.
+          p = Path('frontend/src/lib/utils/viewer.test.ts')
+          text = p.read_text().replace("fitMode: 'screen'", "fitMode: 'fit_window'")
+          text = text.replace("  it('renders geometry as a centered rotation transform', () => {", "  it('does not upscale small media in non-upscaling modes', () => {\n    for (const fitMode of ['fit_down_only', 'original_size_if_fit'] as const) {\n      const geometry = viewerGeometry({ intrinsicWidth: 320, intrinsicHeight: 200, viewportWidth: 1920, viewportHeight: 1080, rotation: 0, fitMode });\n      expect(geometry.scale).toBe(1);\n      expect(geometry.width).toBe(320);\n      expect(geometry.height).toBe(200);\n    }\n  });\n\n  it('still scales oversized media down in non-upscaling modes', () => {\n    const geometry = viewerGeometry({ intrinsicWidth: 2000, intrinsicHeight: 1000, viewportWidth: 1000, viewportHeight: 700, rotation: 0, fitMode: 'original_size_if_fit' });\n    expect(geometry.scale).toBeCloseTo(0.5);\n  });\n\n  it('renders geometry as a centered rotation transform', () => {")
+          p.write_text(text)
+
+          # Session-persistence coverage: old value migrates, new values round-trip.
+          p = Path('frontend/src/lib/state/viewerSessionPreferences.test.ts')
+          if p.exists():
+              text = p.read_text().replace("fitMode: 'screen'", "fitMode: 'fit_window'")
+              p.write_text(text)
+
+          # Canonical config docs: add the option near grid_size in YAML example and a short semantic note.
+          p = Path('docs/CONFIG.md')
+          text = p.read_text()
+          if 'viewer_fit_mode:' not in text:
+              lines = text.splitlines()
+              inserted = False
+              for i, line in enumerate(lines):
+                  if 'grid_size:' in line and line.lstrip().startswith('grid_size:'):
+                      indent = line[:len(line)-len(line.lstrip())]
+                      lines.insert(i + 1, indent + 'viewer_fit_mode: fit_window')
+                      inserted = True
+                      break
+              text = '\n'.join(lines) + ('\n' if p.read_text().endswith('\n') else '')
+              if not inserted:
+                  text += '\n### Viewer fit mode\n\n`ui.viewer_fit_mode` controls the viewer default: `fit_window` (current contain behavior), `fit_down_only` (never upscale), or `original_size_if_fit` (use 1:1 when it fits, otherwise scale down). Press `V` in the viewer to cycle the configured fit policies for the current browser session.\n'
+              else:
+                  text += '\n### Viewer fit mode\n\n`ui.viewer_fit_mode` controls the viewer default: `fit_window` (current contain behavior), `fit_down_only` (never upscale), or `original_size_if_fit` (use 1:1 when it fits, otherwise scale down). Press `V` in the viewer to cycle the configured fit policies for the current browser session.\n'
+              p.write_text(text)
+
+          # Remove this one-shot mutation workflow from the resulting branch commit.
+          Path('.github/workflows/maintainer-251-patch.yml').unlink()
+          PY
+          gofmt -w internal/serve/config.go internal/serve/ui_config.go internal/serve/ui_config_test.go
+          git config user.name "Gooru Maintainer"
+          git config user.email "maintainer@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(webui): add configurable viewer fit modes"
+          git push origin HEAD:feat/251-viewer-fit-modes
