@@ -11,6 +11,7 @@
       name: 'Navigation',
       items: [
         { keys: ['1–9'], description: 'Open the matching visible sidebar item' },
+        { keys: ['/'], description: 'Focus search' },
         { keys: ['b'], description: 'Save current search' },
         { keys: ['?'], description: 'Show shortcuts' }
       ]
