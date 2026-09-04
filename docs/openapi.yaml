@@ -1362,6 +1362,10 @@ components:
           format: double
         frame_count:
           type: integer
+        page_count:
+          type: integer
+          minimum: 1
+          description: Number of displayable pages for paged media such as CBZ comics.
     MediaURLs:
       type: object
       required: [thumbnail, preview, content, download]

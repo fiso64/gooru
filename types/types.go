@@ -131,6 +131,7 @@ type MediaMetadata struct {
 	VideoHeight     *int
 	DurationSeconds *float64
 	FrameCount      *int
+	PageCount       *int
 }
 
 // SavedSearch is a per-user persisted browse query.

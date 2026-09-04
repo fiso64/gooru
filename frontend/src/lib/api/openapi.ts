@@ -1461,6 +1461,8 @@ export interface components {
             /** Format: double */
             audio_duration?: number;
             frame_count?: number;
+            /** @description Number of displayable pages for paged media such as CBZ comics. */
+            page_count?: number;
         };
         MediaURLs: {
             thumbnail: string;
