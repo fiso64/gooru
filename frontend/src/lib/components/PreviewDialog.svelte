@@ -324,6 +324,8 @@
     onPrimaryAction={comicAvailable ? () => void toggleComic() : undefined}
     keyboardNavigation={comicEntered}
     navigationUnit={comicEntered ? 'page' : 'file'}
+    closeOnFullscreenExit={$runtimeConfig.fullscreenMediaByDefault}
+    onFullscreenExit={onClose}
   />
 
   <aside class="lightbox-rail">
