@@ -9,20 +9,126 @@ permissions:
   contents: write
 
 jobs:
-  inspect:
+  apply-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[maintainer-254-applied]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect added-time read surfaces
+      - name: Apply added-at read surface
         run: |
-          set -euxo pipefail
-          echo '--- FileItem API type ---'
-          grep -n -A28 -B4 'export interface FileItem' frontend/src/lib/api/types.ts || true
-          echo '--- modified_time references ---'
-          grep -RIn -C3 'modified_time' frontend/src internal/serve docs/openapi.yaml | head -240 || true
-          echo '--- viewer properties references ---'
-          grep -RIn -C5 -E 'Modified|Properties|properties' frontend/src/lib/components frontend/src/routes | head -260 || true
-          echo '--- fileDTO mapper ---'
-          grep -n -A80 -B10 'func (s \*Server) fileDTO' internal/serve/browse.go || true
-          echo '--- FileInfo database read sites ---'
-          grep -n -E 'fileInfoColumns|scanFileInfos|SELECT .*mod_time.*tags_cache|Scan\(&file.ID' internal/database/database.go
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=None):
+              p = Path(path)
+              text = p.read_text()
+              actual = text.count(old)
+              if count is not None and actual != count:
+                  raise SystemExit(f'{path}: expected {count} occurrences, found {actual}: {old!r}')
+              if actual == 0:
+                  raise SystemExit(f'{path}: missing expected text: {old!r}')
+              p.write_text(text.replace(old, new))
+
+          replace(
+              'types/types.go',
+              '\tModTime  int64 // Unix time\n\tTags     []string',
+              '\tModTime  int64 // Unix time\n\tAddedAt  int64 // Unix time\n\tTags     []string',
+              1,
+          )
+
+          replace(
+              'internal/database/database.go',
+              'size_bytes, mod_time, tags_cache',
+              'size_bytes, mod_time, added_at, tags_cache',
+              2,
+          )
+          replace(
+              'internal/database/database.go',
+              'l.size_bytes, l.mod_time, l.tags_cache',
+              'l.size_bytes, l.mod_time, l.added_at, l.tags_cache',
+              5,
+          )
+          replace(
+              'internal/database/database.go',
+              '&file.Size, &file.ModTime, &tagsCache',
+              '&file.Size, &file.ModTime, &file.AddedAt, &tagsCache',
+              7,
+          )
+
+          replace(
+              'internal/serve/browse.go',
+              '\tSize            int64         `json:"size"`\n\tModifiedTime    time.Time     `json:"modified_time"`',
+              '\tSize            int64         `json:"size"`\n\tAddedAt         time.Time     `json:"added_at"`\n\tModifiedTime    time.Time     `json:"modified_time"`',
+              1,
+          )
+          replace(
+              'internal/serve/browse.go',
+              '\t\tSize:            file.Size,\n\t\tModifiedTime:    time.Unix(file.ModTime, 0).UTC(),',
+              '\t\tSize:            file.Size,\n\t\tAddedAt:         time.Unix(file.AddedAt, 0).UTC(),\n\t\tModifiedTime:    time.Unix(file.ModTime, 0).UTC(),',
+              1,
+          )
+
+          replace(
+              'docs/openapi.yaml',
+              '        - size\n        - modified_time',
+              '        - size\n        - added_at\n        - modified_time',
+              1,
+          )
+          replace(
+              'docs/openapi.yaml',
+              '        modified_time:\n          type: string\n          format: date-time',
+              '        added_at:\n          type: string\n          format: date-time\n        modified_time:\n          type: string\n          format: date-time',
+              1,
+          )
+
+          replace(
+              'frontend/src/lib/api/openapi.ts',
+              '            size: number;\n            /** Format: date-time */\n            modified_time: string;',
+              '            size: number;\n            /** Format: date-time */\n            added_at: string;\n            /** Format: date-time */\n            modified_time: string;',
+              1,
+          )
+          replace(
+              'frontend/src/lib/components/PreviewDialog.svelte',
+              '      <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>',
+              '      <dt>Added</dt><dd>{modifiedLabel(file.added_at)}</dd>\n      <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>',
+              1,
+          )
+          replace(
+              'frontend/tests/viewer-metadata.spec.ts',
+              "    modified_time: '2026-09-02T15:08:00Z', media_type: mediaType, media_kind: 'other', metadata, tags: [],",
+              "    added_at: '2026-09-03T11:22:00Z', modified_time: '2026-09-02T15:08:00Z', media_type: mediaType, media_kind: 'other', metadata, tags: [],",
+              1,
+          )
+          replace(
+              'frontend/tests/viewer-metadata.spec.ts',
+              "  await expect(genericMeta).toContainText('text/markdown; charset=utf-8');",
+              "  await expect(genericMeta).toContainText('text/markdown; charset=utf-8');\n  await expect(genericMeta.locator('dt')).toHaveText(['Path', 'Size', 'Added', 'Modified', 'Mime', 'Hash']);\n  await expect(genericMeta.locator('dd').nth(2)).toContainText('03 Sept 2026');\n  await expect(genericMeta.locator('dd').nth(3)).toContainText('02 Sept 2026');",
+              1,
+          )
+
+          replace(
+              'internal/serve/browse_test.go',
+              '\tif page.Files[0].MediaKind != "photo" {\n\t\tt.Fatalf("expected photo media kind, got %q", page.Files[0].MediaKind)\n\t}',
+              '\tif page.Files[0].MediaKind != "photo" {\n\t\tt.Fatalf("expected photo media kind, got %q", page.Files[0].MediaKind)\n\t}\n\tif page.Files[0].AddedAt.IsZero() || page.Files[0].AddedAt.Unix() != storedFile.AddedAt {\n\t\tt.Fatalf("expected added_at from stored location, dto=%v stored=%d", page.Files[0].AddedAt, storedFile.AddedAt)\n\t}',
+              1,
+          )
+          PY
+          gofmt -w types/types.go internal/database/database.go internal/serve/browse.go internal/serve/browse_test.go
+          git diff --check
+      - name: Validate Go read surface
+        run: go test ./internal/database ./internal/serve
+      - name: Validate generated API contract
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run generate:api
+          git diff --exit-code -- src/lib/api/openapi.ts
+          npm run check
+          npm run test:unit
+      - name: Commit implementation
+        run: |
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email 'chatgpt-codex-connector@users.noreply.github.com'
+          git add types/types.go internal/database/database.go internal/serve/browse.go internal/serve/browse_test.go docs/openapi.yaml frontend/src/lib/api/openapi.ts frontend/src/lib/components/PreviewDialog.svelte frontend/tests/viewer-metadata.spec.ts
+          git commit -m 'feat: expose location added-at metadata [maintainer-254-applied]'
+          git push origin HEAD:feat/254-added-at-read-surface
