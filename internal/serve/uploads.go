@@ -116,8 +116,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeMultipartUploadError(w, err)
 		return
 	}
-	resolvedTags, err := query.ResolveTagDirectives(tags)
-	if err != nil {
+	if err := query.ValidateTags(tags); err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
@@ -136,7 +135,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 			cleanup()
 			return nil, err
 		}
-		response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), resolvedTags)
+		response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), tags)
 		if err != nil {
 			rollbackErr := rollbackSavedReplacements(activated)
 			cleanup()

@@ -230,8 +230,8 @@ describe('createUploadWorkflow', () => {
   });
   it('replaces managed target defaults while preserving user tags', () => {
     const workflow = createUploadWorkflow();
-    workflow.setTarget('one', 'queue', ['project:inbox', '-project:archive']);
-    expect(workflow.tags).toBe('project:inbox -project:archive');
+    workflow.setTarget('one', 'queue', ['project:inbox', 'source:upload']);
+    expect(workflow.tags).toBe('project:inbox source:upload');
     workflow.tags += ' user:kept';
     workflow.setTarget('two', 'queue', ['source:upload', 'user:kept']);
     expect(workflow.tags).toBe('user:kept source:upload');

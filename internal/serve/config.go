@@ -358,7 +358,7 @@ func (cfg *Config) Validate() error {
 		for tagIndex := range cfg.Uploads.Targets[i].DefaultTags {
 			cfg.Uploads.Targets[i].DefaultTags[tagIndex] = strings.TrimSpace(cfg.Uploads.Targets[i].DefaultTags[tagIndex])
 		}
-		if err := query.ValidateTagDirectives(cfg.Uploads.Targets[i].DefaultTags); err != nil {
+		if err := query.ValidateTags(cfg.Uploads.Targets[i].DefaultTags); err != nil {
 			errs = append(errs, fmt.Errorf("uploads target %q default_tags: %w", id, err))
 		}
 		if id == "" {

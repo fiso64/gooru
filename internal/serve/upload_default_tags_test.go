@@ -6,17 +6,17 @@ import (
 	"testing"
 )
 
-func TestConfigUploadTargetDefaultTagsValidateDirectives(t *testing.T) {
+func TestConfigUploadTargetDefaultTagsValidateOrdinaryTags(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Uploads.Enabled = true
-	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: t.TempDir(), DefaultTags: []string{" project:inbox ", "-project:archive"}}}
+	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: t.TempDir(), DefaultTags: []string{" project:inbox ", "source:upload"}}}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate default_tags: %v", err)
 	}
-	if got := cfg.Uploads.Targets[0].DefaultTags[0]; got != "project:inbox" {
-		t.Fatalf("trimmed default tag=%q", got)
+	if got := cfg.Uploads.Targets[0].DefaultTags; len(got) != 2 || got[0] != "project:inbox" || got[1] != "source:upload" {
+		t.Fatalf("trimmed default tags=%v", got)
 	}
-	cfg.Uploads.Targets[0].DefaultTags = []string{"-"}
+	cfg.Uploads.Targets[0].DefaultTags = []string{"bad tag"}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "default_tags") {
 		t.Fatalf("expected default_tags validation error, got %v", err)
 	}
