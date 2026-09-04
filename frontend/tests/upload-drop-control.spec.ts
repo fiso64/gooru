@@ -6,7 +6,9 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-async function openUpload(page: Page) {
+type UploadTarget = { id: string; name: string; default_tags?: string[] };
+
+async function openUpload(page: Page, targets: UploadTarget[] = [{ id: 'default', name: 'Default inbox' }]) {
   let loggedIn = false;
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -21,7 +23,7 @@ async function openUpload(page: Page) {
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: targets }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
 
@@ -56,4 +58,25 @@ test('drop behavior control lives inside the drop zone without nested interactiv
 
   await behavior.getByRole('button', { name: 'Auto-upload' }).click();
   await expect(behavior.getByRole('button', { name: 'Auto-upload' })).toHaveClass(/is-active/);
+});
+
+test('target default tags pre-populate the upload form and remain editable', async ({ page }) => {
+  await openUpload(page, [
+    { id: 'inbox', name: 'Inbox', default_tags: ['project:inbox', 'source:upload'] },
+    { id: 'archive', name: 'Archive', default_tags: ['project:archive'] }
+  ]);
+
+  const config = page.locator('.upload-config-card');
+  await expect(config.getByText('project:', { exact: true })).toBeVisible();
+  await expect(config.getByText('inbox', { exact: true })).toBeVisible();
+  await expect(config.getByText('source:', { exact: true })).toBeVisible();
+  await expect(config.getByText('upload', { exact: true })).toBeVisible();
+
+  await config.getByRole('button', { name: 'Remove project:inbox' }).click();
+  await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toHaveCount(0);
+  await expect(config.getByRole('button', { name: 'Remove source:upload' })).toBeVisible();
+
+  await config.getByRole('combobox').first().selectOption('archive');
+  await expect(config.getByRole('button', { name: 'Remove source:upload' })).toHaveCount(0);
+  await expect(config.getByRole('button', { name: 'Remove project:archive' })).toBeVisible();
 });
