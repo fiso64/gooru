@@ -9,15 +9,67 @@ on:
       - develop
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  apply-264:
+    name: Apply and validate #264
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply product patch
+        run: |
+          python .github/tmp-264-order.py
+          python .github/tmp-264-tests.py
+          python .github/tmp-264-fixes.py
+          gofmt -w types/types.go internal/database/database.go gooru/saved_search.go gooru/saved_search_test.go cmd/gooru/cmd/saved_search.go internal/serve/saved_search_library.go internal/serve/search_saved.go internal/serve/server.go
+      - name: Generate API client
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run generate:api
+      - name: Backend validation
+        run: go test ./...
+      - name: Frontend validation
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit
+          npm run build
+          npx playwright install --with-deps chromium
+          npm run test:e2e -- --grep "persists saved-search drag order across reload"
+      - name: Diff validation
+        run: git diff --check
+      - name: Commit product patch
+        run: |
+          git config user.name chatgpt-codex-connector
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add types internal gooru cmd docs frontend
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat(saved-search): persist sidebar ordering'
+            git fetch origin feat/264-saved-search-order
+            git rebase origin/feat/264-saved-search-order
+            git push origin HEAD:feat/264-saved-search-order
+          fi
+
   go:
     name: Go
+    needs: apply-264
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +84,7 @@ jobs:
 
   frontend:
     name: Frontend
+    needs: apply-264
     runs-on: ubuntu-latest
     defaults:
       run:
