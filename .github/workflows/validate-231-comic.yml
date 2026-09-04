@@ -23,7 +23,24 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
+      - name: Locate Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          for candidate in chromium chromium-browser google-chrome google-chrome-stable; do
+            if path="$(command -v "$candidate" 2>/dev/null)" && [ -n "$path" ]; then
+              echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$path" >> "$GITHUB_ENV"
+              echo "Using Chromium executable: $path"
+              exit 0
+            fi
+          done
+          path="$(find /nix/store -maxdepth 4 -type f \( -name chromium -o -name chromium-browser -o -name google-chrome-stable \) -perm -111 -print -quit 2>/dev/null || true)"
+          if [ -n "$path" ]; then
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$path" >> "$GITHUB_ENV"
+            echo "Using Chromium executable: $path"
+            exit 0
+          fi
+          echo 'No system Chromium executable found; installing Playwright Chromium.'
+          npx playwright install chromium
       - name: Focused comic UI regression
-        env:
-          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
         run: npx playwright test tests/comic-ui.spec.ts --project=chromium
