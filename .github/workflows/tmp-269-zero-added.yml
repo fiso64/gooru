@@ -1,0 +1,46 @@
+name: tmp-269-zero-added
+on:
+  push:
+    branches: [feat/254-added-at-strategy]
+    paths: [.github/workflows/tmp-269-zero-added.yml]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - name: Preserve database default when AddedAt is unset
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/database/database.go')
+          s = p.read_text()
+          old = '''placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)")'''
+          new = '''placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, COALESCE(NULLIF(?, 0), CAST(strftime('%s','now') AS INTEGER)), ?)")'''
+          if old not in s:
+              raise SystemExit('BatchUpsertLocations placeholder not found')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('internal/database/database_test.go')
+          s = p.read_text()
+          marker = '''\tif file.AddedAt != 1234 {\n\t\tt.Fatalf("existing added_at changed to %d, want stable 1234", file.AddedAt)\n\t}\n}'''
+          replacement = '''\tif file.AddedAt != 1234 {\n\t\tt.Fatalf("existing added_at changed to %d, want stable 1234", file.AddedAt)\n\t}\n\n\tdefaultPath := "/library/default-added.jpg"\n\tif err := store.BatchUpsertLocations(store.DB, map[string]types.LocationInfo{defaultPath: {Path: defaultPath, Hash: "hash-one", Size: 3, ModTime: 30, Extension: ".jpg"}}); err != nil {\n\t\tt.Fatalf("default added_at upsert: %v", err)\n\t}\n\tfile, err = store.GetFileInfoByPath(defaultPath)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif file.AddedAt <= 0 {\n\t\tt.Fatalf("default added_at=%d, want insertion timestamp", file.AddedAt)\n\t}\n}'''
+          if marker not in s:
+              raise SystemExit('database test marker not found')
+          p.write_text(s.replace(marker, replacement, 1))
+          PY
+      - name: Validate
+        run: |
+          go test ./...
+          git diff --check
+      - name: Commit fix and remove validator
+        run: |
+          git config user.name chatgpt-codex-connector
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/tmp-269-zero-added.yml
+          git add internal/database/database.go internal/database/database_test.go
+          git commit -m 'fix(database): preserve default added timestamp'
+          git push origin HEAD:feat/254-added-at-strategy
