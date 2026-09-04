@@ -16,17 +16,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Normalize trailing newlines
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          for name in ['internal/serve/config.go', 'frontend/src/lib/components/AppPage.svelte']:
-              path = Path(name)
-              data = path.read_bytes()
-              if not data.endswith(b'\n'):
-                  path.write_bytes(data + b'\n')
-          PY
+          node <<'NODE'
+          const fs = require('node:fs');
+          for (const path of ['internal/serve/config.go', 'frontend/src/lib/components/AppPage.svelte']) {
+            const data = fs.readFileSync(path);
+            if (data.length && data[data.length - 1] !== 10) fs.appendFileSync(path, '\n');
+          }
+          NODE
       - name: Commit normalization
         shell: bash
         run: |
