@@ -63,7 +63,7 @@ test('plain Enter accepts a no-input confirmation dialog', async ({ page }) => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ mode: 'delete', selector: removals.at(-1), removed_locations: 1 }) });
   });
 
-  await page.getByLabel('Select all files in current view').click();
+  await page.keyboard.press('a');
   await page.keyboard.press('Shift+Delete');
   const dialog = page.getByRole('dialog', { name: 'Delete selected files' });
   await expect(dialog).toBeVisible();
@@ -84,7 +84,7 @@ test('plain Enter stays inside tag input while Ctrl+Enter accepts the modal', as
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
   });
 
-  await page.getByLabel('Select all files in current view').click();
+  await page.keyboard.press('a');
   await page.keyboard.press('t');
   const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
   const input = page.getByRole('textbox', { name: 'Tags', exact: true });

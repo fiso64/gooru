@@ -111,7 +111,7 @@ test('ArrowDown enters the media grid with a high-contrast cursor and cursor act
 test('ArrowDown enters the tags grid without stealing arrows from the filter', async ({ page }) => {
   await mockApp(page);
 
-  await page.getByRole('button', { name: 'Tags' }).click();
+  await page.locator('.sidebar').getByRole('button', { name: /^Tags\b/ }).click();
   await expect(page.getByRole('heading', { name: /tags across/i })).toBeVisible();
 
   const filter = page.getByPlaceholder('Filter tags…');
