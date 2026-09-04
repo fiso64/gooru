@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/247-search-shortcut-indicator-polish
+  pull_request:
+    branches:
+      - develop
 
 permissions:
   contents: read
