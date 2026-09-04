@@ -1,40 +1,52 @@
 name: tmp-264-saved-search-order
+
 on:
   push:
-    branches: [feat/264-saved-search-order]
+    branches:
+      - feat/264-saved-search-order
+
 permissions:
   contents: write
+
 jobs:
-  validate:
+  validate-saved-search-order:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with: {fetch-depth: 0}
-      - uses: actions/setup-go@v5
-        with: {go-version-file: go.mod}
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          node-version: 24
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Apply product patch
-        run: python .github/tmp-264-order.py
+        run: |
+          python .github/tmp-264-order.py
+          python .github/tmp-264-tests.py
       - name: Format Go
-        run: gofmt -w types/types.go internal/database/database.go gooru/saved_search.go internal/serve/saved_search_library.go internal/serve/search_saved.go internal/serve/server.go
-      - name: Generate API types
+        run: |
+          gofmt -w types/types.go internal/database/database.go gooru/saved_search.go gooru/saved_search_test.go internal/serve/saved_search_library.go internal/serve/search_saved.go internal/serve/server.go
+      - name: Install and generate API
         working-directory: frontend
         run: |
           npm ci
           npm run generate:api
-      - name: Backend validation
+      - name: Validate backend
         run: go test ./...
-      - name: Frontend validation
+      - name: Validate frontend
         working-directory: frontend
         run: |
           npm run check
           npm run test:unit
           npm run build
-      - name: Diff check
+      - name: Validate diff
         run: git diff --check
       - name: Commit product patch
         run: |
