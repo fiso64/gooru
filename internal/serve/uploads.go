@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gooru.local/internal/query"
 	"gooru.local/types"
@@ -34,13 +35,14 @@ type UploadedFileDTO struct {
 }
 
 type StagedUpload struct {
-	Name         string
-	Path         string
-	AnalysisPath string
-	Size         int64
-	TargetID     string
-	Status       string
-	Error        string
+	Name          string
+	Path          string
+	AnalysisPath  string
+	Size          int64
+	SourceModTime time.Time
+	TargetID      string
+	Status        string
+	Error         string
 }
 
 const maxUploadFiles = 100
@@ -205,6 +207,7 @@ type savedUpload struct {
 	status          string
 	error           string
 	replace         bool
+	sourceModTime   time.Time
 }
 
 var (
@@ -553,7 +556,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, SourceModTime: file.sourceModTime, TargetID: file.targetID, Status: file.status, Error: file.error})
 	}
 	return out
 }

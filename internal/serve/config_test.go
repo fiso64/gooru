@@ -33,6 +33,9 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Uploads.ConflictPolicy != "rename" {
 		t.Fatalf("unexpected upload conflict policy default %q", cfg.Uploads.ConflictPolicy)
 	}
+	if !cfg.Uploads.PreserveModTime {
+		t.Fatal("uploads.preserve_modtime should default true")
+	}
 }
 
 func TestLoadConfigEncryptionKeyFile(t *testing.T) {

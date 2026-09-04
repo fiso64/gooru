@@ -188,7 +188,11 @@ export class ApiClient {
     onProgress?: (progress: number) => void
   ): Promise<Job | UploadImportResponse> {
     const form = new FormData();
-    for (const file of files) form.append('files', file, file.name);
+    for (const file of files) {
+      form.append('files', file, file.name);
+      const sourceModTime = Number.isFinite(file.lastModified) && file.lastModified > 0 ? Math.trunc(file.lastModified) : '';
+      form.append('source_mod_time_ms', String(sourceModTime));
+    }
     if (tags.length) form.append('tags', tags.join(' '));
     if (targetID) form.append('target_id', targetID);
     if (conflictPolicy) form.append('conflict_policy', conflictPolicy);

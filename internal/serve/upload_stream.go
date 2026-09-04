@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 )
 
 const maxUploadFieldBytes = 1 << 20
@@ -69,6 +71,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 	var targetID, conflictRequested string
 	var targetSeen, conflictSeen bool
 	tagValues := make([]string, 0)
+	sourceModTimeValues := make([]string, 0)
 	streamed := make([]streamedUpload, 0)
 	fileCount := 0
 	defer func() {
@@ -106,6 +109,8 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 				}
 			case "tags":
 				tagValues = append(tagValues, value)
+			case "source_mod_time_ms":
+				sourceModTimeValues = append(sourceModTimeValues, value)
 			}
 			continue
 		}
@@ -141,15 +146,23 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 	if err := os.MkdirAll(target.Path, 0700); err != nil {
 		return nil, saved, multipartUploadError{message: "failed to prepare upload directory", err: err}
 	}
+	sourceModTimes := uploadSourceModTimes(sourceModTimeValues, len(streamed))
 
 	for i := range streamed {
 		file := &streamed[i]
+		sourceModTime := sourceModTimes[i]
 		if file.status == "error" {
-			saved = append(saved, savedUpload{name: file.name, size: file.size, targetID: target.ID, status: "error", error: file.error})
+			saved = append(saved, savedUpload{name: file.name, size: file.size, sourceModTime: sourceModTime, targetID: target.ID, status: "error", error: file.error})
 			continue
 		}
 		finalized, finalErr := finalizeStreamedUpload(target, *file, conflictPolicy)
 		if finalErr == nil {
+			finalized.sourceModTime = sourceModTime
+			if s.cfg.Uploads.PreserveModTime && finalized.status != "skipped" && !sourceModTime.IsZero() {
+				if err := os.Chtimes(finalized.path, sourceModTime, sourceModTime); err != nil {
+					return nil, saved, uploadFileError{name: finalized.name, err: errors.New("failed to preserve uploaded file modification time")}
+				}
+			}
 			file.path = ""
 			saved = append(saved, finalized)
 			continue
@@ -171,6 +184,18 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		return nil, saved, uploadFileError{name: saved[0].name, err: errors.New(saved[0].error)}
 	}
 	return parseUploadTags(tagValues), saved, nil
+}
+
+func uploadSourceModTimes(values []string, count int) []time.Time {
+	out := make([]time.Time, count)
+	for i := 0; i < count && i < len(values); i++ {
+		millis, err := strconv.ParseInt(values[i], 10, 64)
+		if err != nil || millis <= 0 {
+			continue
+		}
+		out[i] = time.Unix(millis/1000, (millis%1000)*int64(time.Millisecond)).UTC()
+	}
+	return out
 }
 
 func readUploadField(part *multipart.Part) (string, error) {

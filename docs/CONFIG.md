@@ -101,6 +101,7 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | Option | Default | Description |
 | --- | --- | --- |
 | `uploads.enabled` | `false` | Enable browser/API uploads. Enabling uploads requires at least one valid target. |
+| `uploads.preserve_modtime` | `true` | Preserve the source modification timestamp reported by browser uploads on the managed destination file. Source timestamps are still carried with the upload when disabled so upload ordering policies can use them independently. |
 | `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, and `path`. |
 | `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
 | `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
@@ -120,6 +121,7 @@ Example:
 ```yaml
 uploads:
   enabled: true
+  preserve_modtime: true
   targets:
     - id: default
       name: Default

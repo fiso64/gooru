@@ -600,6 +600,12 @@ paths:
                   items:
                     type: string
                     format: binary
+                source_mod_time_ms:
+                  type: array
+                  items:
+                    type: integer
+                    format: int64
+                  description: Source file modification timestamps in Unix milliseconds, one entry per files item in the same order.
                 target_id:
                   type: string
                   description: Configured upload target ID. Defaults to the first configured target.
