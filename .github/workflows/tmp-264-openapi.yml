@@ -19,7 +19,7 @@ jobs:
           ref: feat/264-saved-search-order
       - name: Switch reorder client to generated route and self-remove
         run: |
-          python3 - <<'PY'
+          nix shell nixpkgs#python3 --command python3 - <<'PY'
           from pathlib import Path
           path = Path('frontend/src/lib/api/client.ts')
           text = path.read_text()
