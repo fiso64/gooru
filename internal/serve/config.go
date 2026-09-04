@@ -77,9 +77,10 @@ type UploadsConfig struct {
 }
 
 type UploadTarget struct {
-	ID   string `yaml:"id"`
-	Name string `yaml:"name"`
-	Path string `yaml:"path"`
+	ID              string `yaml:"id"`
+	Name            string `yaml:"name"`
+	Path            string `yaml:"path"`
+	AddedAtStrategy string `yaml:"added_at_strategy"`
 }
 
 type MediaConfig struct {

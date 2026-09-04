@@ -106,7 +106,8 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | `uploads.preserve_modtime` | `true` | Preserve each browser-uploaded file's source modification timestamp on the stored destination. Source timestamps are still carried through upload processing when disabled. |
 | `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
 
-Each entry in `uploads.targets` supports:
+Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `added_at_strategy`. The strategy defaults to `queue` and accepts `queue`, `reverse_queue`, or `modtime`.
+
 
 | Field | Description |
 | --- | --- |

@@ -600,6 +600,22 @@ paths:
                   items:
                     type: string
                     format: binary
+                added_at_strategy:
+                  type: string
+                  enum: [queue, reverse_queue, modtime]
+                  description: Override the selected upload target's added-at strategy for this submission.
+                queue_time_ms:
+                  type: array
+                  items: { type: integer, format: int64 }
+                  description: Client-captured queue timestamps in Unix milliseconds, one per file.
+                queue_index:
+                  type: array
+                  items: { type: integer, minimum: 0 }
+                  description: Stable queue indexes, one per file.
+                queue_total:
+                  type: array
+                  items: { type: integer, minimum: 1 }
+                  description: Queue batch size, one per file.
                 source_modtime_ms:
                   type: array
                   description: Source modification timestamps in Unix milliseconds, in the same order as `files`. Invalid or missing entries are treated as unavailable.

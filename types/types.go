@@ -97,6 +97,7 @@ type LocationInfo struct {
 	Hash      string
 	Size      int64
 	ModTime   int64 // Unix time
+	AddedAt   int64 // Unix time; zero lets the database assign insertion time
 	Extension string
 	TagsCache string
 }
