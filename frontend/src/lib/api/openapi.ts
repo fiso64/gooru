@@ -1083,6 +1083,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/saved-searches/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the saved-search order for the current user. */
+        put: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SavedSearchReorderRequest"];
+                };
+            };
+            responses: {
+                /** @description Saved-search order replaced. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/saved-searches/{id}": {
         parameters: {
             query?: never;
@@ -1530,6 +1578,9 @@ export interface components {
         };
         NamespacesResponse: {
             items: string[];
+        };
+        SavedSearchReorderRequest: {
+            ids: string[];
         };
         SavedSearchRequest: {
             name: string;
