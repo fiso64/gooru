@@ -9,13 +9,15 @@ import (
 )
 
 type fakeSavedSearchClient struct {
-	createUsername string
-	createName     string
-	createQuery    string
-	createSort     string
-	createOrder    string
-	searchUsername string
-	searchRef      string
+	createUsername    string
+	createName        string
+	createQuery       string
+	createSort        string
+	createOrder       string
+	searchUsername    string
+	searchRef         string
+	reorderUsername   string
+	reorderReferences []string
 }
 
 func (f *fakeSavedSearchClient) ListSavedSearchesForUsername(username string) ([]types.SavedSearch, error) {
@@ -35,6 +37,12 @@ func (f *fakeSavedSearchClient) SearchSavedSearchForUsername(username, reference
 	f.searchUsername = username
 	f.searchRef = reference
 	return []types.FileInfo{{Path: "/library/a.jpg"}, {Path: "/library/b.jpg"}}, nil
+}
+
+func (f *fakeSavedSearchClient) ReorderSavedSearchesForUsername(username string, references []string) error {
+	f.reorderUsername = username
+	f.reorderReferences = append([]string(nil), references...)
+	return nil
 }
 
 func TestSavedSearchCreateCommandForwardsUserQueryAndSort(t *testing.T) {
@@ -70,6 +78,23 @@ func TestSavedSearchSearchCommandPrintsMatchingPaths(t *testing.T) {
 	}
 	if got := strings.TrimSpace(out.String()); got != "/library/a.jpg\n/library/b.jpg" {
 		t.Fatalf("unexpected search output %q", got)
+	}
+}
+
+func TestSavedSearchReorderCommandForwardsCompleteOrder(t *testing.T) {
+	fake := &fakeSavedSearchClient{}
+	cmd := newSavedSearchCmd(func() savedSearchClient { return fake })
+	cmd.SetArgs([]string{"--user", "Alice", "reorder", "third", "first", "second"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute saved-search reorder: %v", err)
+	}
+	if fake.reorderUsername != "Alice" {
+		t.Fatalf("reorder username = %q, want Alice", fake.reorderUsername)
+	}
+	want := []string{"third", "first", "second"}
+	if strings.Join(fake.reorderReferences, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("reorder references = %v, want %v", fake.reorderReferences, want)
 	}
 }
 
