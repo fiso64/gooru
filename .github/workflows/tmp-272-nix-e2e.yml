@@ -24,7 +24,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Apply accessible drop-zone semantics
         run: |
-          python3 - <<'PY'
+          nix shell nixpkgs#python3 --command python3 - <<'PY'
           from pathlib import Path
 
           panel = Path('frontend/src/lib/components/UploadPanel.svelte')
