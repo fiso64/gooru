@@ -17,15 +17,11 @@ jobs:
         id: fix
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('frontend/src/lib/components/AppShell.svelte')
-          text = path.read_text()
-          text = text.replace('savedSearches.map((item) =>', 'savedSearches.map((item: SavedSearchLike) =>')
-          text = text.replace('ordered.map((item) =>', 'ordered.map((item: SavedSearchLike) =>')
-          text = text.replace('savedSearches.filter((item) =>', 'savedSearches.filter((item: SavedSearchLike) =>')
-          path.write_text(text)
-          PY
+          sed -i \
+            -e 's/savedSearches\.map((item) =>/savedSearches.map((item: SavedSearchLike) =>/g' \
+            -e 's/ordered\.map((item) =>/ordered.map((item: SavedSearchLike) =>/g' \
+            -e 's/savedSearches\.filter((item) =>/savedSearches.filter((item: SavedSearchLike) =>/g' \
+            frontend/src/lib/components/AppShell.svelte
           if git diff --quiet; then
             echo 'changed=false' >> "$GITHUB_OUTPUT"
           else
