@@ -1,0 +1,97 @@
+name: Validate 284 fullscreen exit
+
+on:
+  push:
+    branches:
+      - fix/284-fullscreen-escape-grid
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validate-284-fullscreen-exit
+  cancel-in-progress: true
+
+jobs:
+  patch-and-test:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/284-fullscreen-escape-grid
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply fullscreen exit behavior
+        id: patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/lib/components/ViewerStage.svelte')
+          text = path.read_text()
+          replacements = [
+            ("    keyboardNavigation = false,\n    navigationUnit = 'file'\n", "    keyboardNavigation = false,\n    navigationUnit = 'file',\n    closeOnFullscreenExit = false,\n    onFullscreenExit\n"),
+            ("    keyboardNavigation?: boolean;\n    navigationUnit?: string;\n", "    keyboardNavigation?: boolean;\n    navigationUnit?: string;\n    closeOnFullscreenExit?: boolean;\n    onFullscreenExit?: () => void;\n"),
+            ("  let isFullscreen = $state(false);\n", "  let isFullscreen = $state(false);\n  let keepViewerAfterFullscreenExit = false;\n"),
+            ("    const syncFullscreen = () => {\n      isFullscreen = document.fullscreenElement === stage;\n      resize();\n      if (isFullscreen) scheduleCursorIdle();\n      else {\n        cursorIdle = false;\n        if (cursorIdleTimer) clearTimeout(cursorIdleTimer);\n        cursorIdleTimer = undefined;\n      }\n    };\n", "    const syncFullscreen = () => {\n      const wasFullscreen = isFullscreen;\n      const nextFullscreen = document.fullscreenElement === stage;\n      isFullscreen = nextFullscreen;\n      resize();\n      if (isFullscreen) scheduleCursorIdle();\n      else {\n        cursorIdle = false;\n        if (cursorIdleTimer) clearTimeout(cursorIdleTimer);\n        cursorIdleTimer = undefined;\n      }\n      if (wasFullscreen && !nextFullscreen && closeOnFullscreenExit) {\n        if (keepViewerAfterFullscreenExit) keepViewerAfterFullscreenExit = false;\n        else onFullscreenExit?.();\n      }\n    };\n"),
+            ("  async function toggleFullscreen() {\n    const stage = stageElement;\n    if (!stage) return;\n    try {\n      if (document.fullscreenElement === stage) await document.exitFullscreen();\n      else await stage.requestFullscreen();\n    } catch {\n      // Browsers may deny fullscreen without a user gesture; keyboard/button use normally qualifies.\n    }\n  }\n", "  async function toggleFullscreen() {\n    const stage = stageElement;\n    if (!stage) return;\n    const exiting = document.fullscreenElement === stage;\n    if (exiting && closeOnFullscreenExit) keepViewerAfterFullscreenExit = true;\n    try {\n      if (exiting) await document.exitFullscreen();\n      else await stage.requestFullscreen();\n    } catch {\n      if (exiting) keepViewerAfterFullscreenExit = false;\n      // Browsers may deny fullscreen without a user gesture; keyboard/button use normally qualifies.\n    }\n  }\n"),
+          ]
+          for old, new in replacements:
+            if old not in text:
+              raise SystemExit(f'missing ViewerStage anchor: {old[:80]!r}')
+            text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          path = Path('frontend/src/lib/components/PreviewDialog.svelte')
+          text = path.read_text()
+          old = "    keyboardNavigation={comicEntered}\n    navigationUnit={comicEntered ? 'page' : 'file'}\n"
+          new = "    keyboardNavigation={comicEntered}\n    navigationUnit={comicEntered ? 'page' : 'file'}\n    closeOnFullscreenExit={$runtimeConfig.fullscreenMediaByDefault}\n    onFullscreenExit={onClose}\n"
+          if old not in text:
+            raise SystemExit('missing PreviewDialog ViewerStage anchor')
+          path.write_text(text.replace(old, new, 1))
+
+          path = Path('frontend/tests/viewer-fullscreen-default.spec.ts')
+          text = path.read_text()
+          old = "  await page.keyboard.press('Escape');\n  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);\n});\n\ntest('fullscreen default remains off when runtime config is false'"
+          new = "  await page.keyboard.press('Escape');\n  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);\n  await expect(page.locator('.viewer-stage')).toHaveCount(0);\n});\n\ntest('F exits automatic fullscreen while keeping the normal viewer open', async ({ page }) => {\n  await mockApp(page, true);\n\n  await page.getByRole('button', { name: 'Preview one.jpg' }).click();\n  await expect(page.locator('.viewer-stage')).toBeVisible();\n  await expect.poll(() => viewerIsFullscreen(page)).toBe(true);\n\n  await page.keyboard.press('f');\n  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);\n  await expect(page.locator('.viewer-stage')).toBeVisible();\n});\n\ntest('fullscreen default remains off when runtime config is false'"
+          if old not in text:
+            raise SystemExit('missing fullscreen test anchor')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Commit behavior patch
+        if: steps.patch.outputs.changed == 'true'
+        run: |
+          git config user.name "gooru-maintainer"
+          git config user.email "maintainer@users.noreply.github.com"
+          git add frontend/src/lib/components/ViewerStage.svelte frontend/src/lib/components/PreviewDialog.svelte frontend/tests/viewer-fullscreen-default.spec.ts
+          git commit -m "fix(viewer): close automatic fullscreen on escape"
+          git push origin HEAD:fix/284-fullscreen-escape-grid
+      - name: Stop after patch push
+        if: steps.patch.outputs.changed == 'true'
+        run: echo "Patch pushed; next run validates the new head."
+      - name: Install frontend dependencies
+        if: steps.patch.outputs.changed != 'true'
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend check and unit tests
+        if: steps.patch.outputs.changed != 'true'
+        working-directory: frontend
+        run: npm run check && npm run test:unit
+      - name: Focused fullscreen browser regression
+        if: steps.patch.outputs.changed != 'true'
+        working-directory: frontend
+        run: npm run test:e2e -- viewer-fullscreen-default.spec.ts --project=chromium
+      - name: Frontend build
+        if: steps.patch.outputs.changed != 'true'
+        working-directory: frontend
+        run: npm run build
