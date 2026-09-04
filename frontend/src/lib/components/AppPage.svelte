@@ -5,7 +5,7 @@
   import SessionLoading from './SessionLoading.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, normalizeThumbnailSizes, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
 
@@ -34,7 +34,7 @@
     runtimeConfig.set({
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       gridSize: runtimeGridSize,
-      thumbnailSizes: config.thumbnail_sizes ?? []
+      thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? [])
     });
     faviconHref = '/favicon.svg';
     if (!runtimeAccent) return;

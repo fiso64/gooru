@@ -6,6 +6,7 @@ export interface VirtualGrid {
   totalHeight: number;
   offsetTop: number;
   columns: number;
+  cardWidth: number;
   rowHeight: number;
   needsPrevious: boolean;
   needsNext: boolean;
@@ -21,10 +22,14 @@ export function gridColumns(containerWidth: number, minCardWidth = defaultGridSi
   return Math.max(1, Math.floor((innerWidth + gridGap) / (minCardWidth + gridGap)));
 }
 
-export function gridRowHeight(containerWidth: number, minCardWidth = defaultGridSize, columns = gridColumns(containerWidth, minCardWidth)) {
+export function gridCardWidth(containerWidth: number, minCardWidth = defaultGridSize, columns = gridColumns(containerWidth, minCardWidth)) {
   const innerWidth = Math.max(0, containerWidth - gridPadding);
   const cardWidth = columns > 0 ? (innerWidth - gridGap * (columns - 1)) / columns : minCardWidth;
-  return Math.max(minCardWidth, cardWidth) + gridGap;
+  return Math.max(minCardWidth, cardWidth);
+}
+
+export function gridRowHeight(containerWidth: number, minCardWidth = defaultGridSize, columns = gridColumns(containerWidth, minCardWidth)) {
+  return gridCardWidth(containerWidth, minCardWidth, columns) + gridGap;
 }
 
 export function virtualGridStartRow(scrollY: number, gridTop: number, rowHeight: number) {
@@ -45,7 +50,8 @@ export function virtualGrid(
   minCardWidth = defaultGridSize
 ): VirtualGrid {
   const columns = gridColumns(containerWidth, minCardWidth);
-  const rowHeight = gridRowHeight(containerWidth, minCardWidth, columns);
+  const cardWidth = gridCardWidth(containerWidth, minCardWidth, columns);
+  const rowHeight = cardWidth + gridGap;
   const totalRows = Math.ceil(Math.max(totalItems, retainedStartIndex + files.length) / columns);
   const startRow = virtualGridStartRow(scrollY, gridTop, rowHeight);
   // Keep enough trailing rows for the window to stay mounted while its
@@ -62,6 +68,7 @@ export function virtualGrid(
     totalHeight: totalRows * rowHeight,
     offsetTop: Math.floor(startIndex / columns) * rowHeight,
     columns,
+    cardWidth,
     rowHeight,
     needsPrevious: globalStartIndex < retainedStartIndex,
     needsNext: globalEndIndex > retainedEndIndex
