@@ -1,0 +1,217 @@
+name: Maintainer 248 Node
+
+on:
+  push:
+    branches:
+      - feat/248-upload-target-default-tags
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-test:
+    if: ${{ !contains(github.event.head_commit.message, '[maintainer-248-applied]') && !contains(github.event.head_commit.message, '[maintainer-248-cleanup]') }}
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/248-upload-target-default-tags
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > internal/query/tag_directives.go <<'EOF'
+          package query
+
+          import (
+          	"fmt"
+          	"strings"
+          )
+
+          // ValidateTagDirective validates an upload tag directive. A leading dash means
+          // the corresponding positive tag should be excluded from the resolved set.
+          func ValidateTagDirective(directive string) error {
+          	directive = strings.TrimSpace(directive)
+          	if directive == "" {
+          		return fmt.Errorf("tag directive cannot be empty")
+          	}
+          	tag := directive
+          	if strings.HasPrefix(tag, "-") {
+          		tag = strings.TrimPrefix(tag, "-")
+          		if tag == "" {
+          			return fmt.Errorf("tag exclusion cannot be empty")
+          		}
+          	}
+          	return ValidateTag(tag)
+          }
+
+          func ValidateTagDirectives(directives []string) error {
+          	for _, directive := range directives {
+          		if err := ValidateTagDirective(directive); err != nil {
+          			return err
+          		}
+          	}
+          	return nil
+          }
+
+          // ResolveTagDirectives applies tag/-tag directives in order and returns the
+          // positive tags to apply. Exclusions remove an earlier matching tag; a later
+          // positive directive can add it again.
+          func ResolveTagDirectives(directives []string) ([]string, error) {
+          	if err := ValidateTagDirectives(directives); err != nil {
+          		return nil, err
+          	}
+          	result := make([]string, 0, len(directives))
+          	present := make(map[string]struct{}, len(directives))
+          	for _, raw := range directives {
+          		directive := strings.TrimSpace(raw)
+          		if strings.HasPrefix(directive, "-") {
+          			tag := strings.TrimPrefix(directive, "-")
+          			if _, ok := present[tag]; !ok {
+          				continue
+          			}
+          			delete(present, tag)
+          			filtered := result[:0]
+          			for _, existing := range result {
+          				if existing != tag {
+          					filtered = append(filtered, existing)
+          				}
+          			}
+          			result = filtered
+          			continue
+          		}
+          		if _, ok := present[directive]; ok {
+          			continue
+          		}
+          		present[directive] = struct{}{}
+          		result = append(result, directive)
+          	}
+          	return result, nil
+          }
+          EOF
+          cat > internal/query/tag_directives_test.go <<'EOF'
+          package query
+
+          import (
+          	"reflect"
+          	"testing"
+          )
+
+          func TestResolveTagDirectives(t *testing.T) {
+          	got, err := ResolveTagDirectives([]string{"project:inbox", "source:upload", "project:archive", "-project:archive", "project:inbox"})
+          	if err != nil {
+          		t.Fatalf("ResolveTagDirectives: %v", err)
+          	}
+          	want := []string{"project:inbox", "source:upload"}
+          	if !reflect.DeepEqual(got, want) {
+          		t.Fatalf("resolved tags=%v want %v", got, want)
+          	}
+          }
+
+          func TestResolveTagDirectivesAllowsLaterReAdd(t *testing.T) {
+          	got, err := ResolveTagDirectives([]string{"tag", "-tag", "tag"})
+          	if err != nil || !reflect.DeepEqual(got, []string{"tag"}) {
+          		t.Fatalf("resolved tags=%v err=%v", got, err)
+          	}
+          }
+
+          func TestValidateTagDirectiveRejectsInvalidExclusion(t *testing.T) {
+          	if err := ValidateTagDirective("-"); err == nil {
+          		t.Fatal("expected empty exclusion error")
+          	}
+          }
+          EOF
+          cat > internal/serve/upload_default_tags_test.go <<'EOF'
+          package serve
+
+          import (
+          	"path/filepath"
+          	"strings"
+          	"testing"
+          )
+
+          func TestConfigUploadTargetDefaultTagsValidateDirectives(t *testing.T) {
+          	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+          	cfg.Uploads.Enabled = true
+          	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: t.TempDir(), DefaultTags: []string{" project:inbox ", "-project:archive"}}}
+          	if err := cfg.Validate(); err != nil {
+          		t.Fatalf("Validate default_tags: %v", err)
+          	}
+          	if got := cfg.Uploads.Targets[0].DefaultTags[0]; got != "project:inbox" {
+          		t.Fatalf("trimmed default tag=%q", got)
+          	}
+          	cfg.Uploads.Targets[0].DefaultTags = []string{"-"}
+          	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "default_tags") {
+          		t.Fatalf("expected default_tags validation error, got %v", err)
+          	}
+          }
+          EOF
+          node <<'JS'
+          const fs = require('fs');
+          function replaceOne(path, oldText, newText) {
+            const text = fs.readFileSync(path, 'utf8');
+            if (!text.includes(oldText)) throw new Error(`missing marker in ${path}: ${oldText.slice(0, 100)}`);
+            fs.writeFileSync(path, text.replace(oldText, newText));
+          }
+
+          replaceOne('internal/serve/config.go', '\t"gooru.local/internal/securekey"\n', '\t"gooru.local/internal/query"\n\t"gooru.local/internal/securekey"\n');
+          replaceOne('internal/serve/config.go', 'type UploadTarget struct {\n\tID              string `yaml:"id"`\n\tName            string `yaml:"name"`\n\tPath            string `yaml:"path"`\n\tAddedAtStrategy string `yaml:"added_at_strategy"`\n}', 'type UploadTarget struct {\n\tID              string   `yaml:"id"`\n\tName            string   `yaml:"name"`\n\tPath            string   `yaml:"path"`\n\tAddedAtStrategy string   `yaml:"added_at_strategy"`\n\tDefaultTags     []string `yaml:"default_tags"`\n}');
+          replaceOne('internal/serve/config.go', '\t\tcfg.Uploads.Targets[i].AddedAtStrategy = addedAtStrategy\n', '\t\tcfg.Uploads.Targets[i].AddedAtStrategy = addedAtStrategy\n\t\tfor tagIndex := range cfg.Uploads.Targets[i].DefaultTags {\n\t\t\tcfg.Uploads.Targets[i].DefaultTags[tagIndex] = strings.TrimSpace(cfg.Uploads.Targets[i].DefaultTags[tagIndex])\n\t\t}\n\t\tif err := query.ValidateTagDirectives(cfg.Uploads.Targets[i].DefaultTags); err != nil {\n\t\t\terrs = append(errs, fmt.Errorf("uploads target %q default_tags: %w", id, err))\n\t\t}\n');
+
+          replaceOne('internal/serve/uploads.go', 'type UploadTargetDTO struct {\n\tID              string `json:"id"`\n\tName            string `json:"name"`\n\tAddedAtStrategy string `json:"added_at_strategy"`\n}', 'type UploadTargetDTO struct {\n\tID              string   `json:"id"`\n\tName            string   `json:"name"`\n\tAddedAtStrategy string   `json:"added_at_strategy"`\n\tDefaultTags     []string `json:"default_tags"`\n}');
+          replaceOne('internal/serve/uploads.go', 'items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name, AddedAtStrategy: strategy})', 'items = append(items, UploadTargetDTO{ID: target.ID, Name: target.Name, AddedAtStrategy: strategy, DefaultTags: append([]string(nil), target.DefaultTags...)} )'.replace(')} )', ')})'));
+          replaceOne('internal/serve/uploads.go', '\tif err := query.ValidateTags(tags); err != nil {\n\t\tremoveSavedUploads(saved)\n\t\twriteError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)\n\t\treturn\n\t}\n', '\tresolvedTags, err := query.ResolveTagDirectives(tags)\n\tif err != nil {\n\t\tremoveSavedUploads(saved)\n\t\twriteError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)\n\t\treturn\n\t}\n');
+          replaceOne('internal/serve/uploads.go', 'response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), tags)', 'response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), resolvedTags)');
+
+          replaceOne('internal/serve/uploads_test.go', 'server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})\n\trec := httptest.NewRecorder()\n\n\tserver.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/upload-targets", nil))', 'server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})\n\tserver.cfg.Uploads.Targets[0].DefaultTags = []string{"project:inbox", "-project:archive"}\n\trec := httptest.NewRecorder()\n\n\tserver.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/upload-targets", nil))');
+          const targetAssertion = '\tif len(payload.Items) != 1 || payload.Items[0].ID != "default" || payload.Items[0].Name != "Default" {\n\t\tt.Fatalf("unexpected targets response: %+v", payload)\n\t}\n';
+          replaceOne('internal/serve/uploads_test.go', targetAssertion, targetAssertion + '\tif got := payload.Items[0].DefaultTags; len(got) != 2 || got[0] != "project:inbox" || got[1] != "-project:archive" {\n\t\tt.Fatalf("unexpected default tags: %+v", got)\n\t}\n');
+
+          replaceOne('frontend/src/lib/state/uploadItems.ts', 'export type UploadTargetOption = { id: string; name: string; added_at_strategy?: UploadAddedAtStrategy };', 'export type UploadTargetOption = { id: string; name: string; added_at_strategy?: UploadAddedAtStrategy; default_tags?: string[] };');
+          replaceOne('frontend/src/lib/state/uploadWorkflow.svelte.ts', "  let targetID = $state('');\n", "  let targetID = $state('');\n  let managedDefaultTags = $state<string[]>([]);\n");
+          replaceOne('frontend/src/lib/state/uploadWorkflow.svelte.ts', "    tags = '';\n    conflictPolicy = 'rename';", "    tags = '';\n    managedDefaultTags = [];\n    conflictPolicy = 'rename';");
+          replaceOne('frontend/src/lib/state/uploadWorkflow.svelte.ts', "  function setTarget(value: string, defaultStrategy?: UploadAddedAtStrategy) {\n    targetID = value;\n    if (defaultStrategy) addedAtStrategy = defaultStrategy;\n    if (files.length) items = retargetStagedUploadItems(items, targetID);\n  }", "  function setTarget(value: string, defaultStrategy?: UploadAddedAtStrategy, defaultTags: string[] = []) {\n    const previousDefaults = new Set(managedDefaultTags);\n    const retained = parseTags(tags).filter((tag) => !previousDefaults.has(tag));\n    const nextDefaults = Array.from(new Set(defaultTags.map((tag) => tag.trim()).filter(Boolean)));\n    const merged = [...retained];\n    const seen = new Set(merged);\n    for (const tag of nextDefaults) {\n      if (!seen.has(tag)) {\n        merged.push(tag);\n        seen.add(tag);\n      }\n    }\n    tags = merged.join(' ');\n    managedDefaultTags = nextDefaults;\n    targetID = value;\n    if (defaultStrategy) addedAtStrategy = defaultStrategy;\n    if (files.length) items = retargetStagedUploadItems(items, targetID);\n  }");
+          replaceOne('frontend/src/lib/components/AuthenticatedApp.svelte', "upload.setTarget(target.id, target.added_at_strategy ?? 'queue');", "upload.setTarget(target.id, target.added_at_strategy ?? 'queue', target.default_tags ?? []);");
+          replaceOne('frontend/src/lib/components/AuthenticatedApp.svelte', "upload.setTarget(value, target?.added_at_strategy ?? 'queue');", "upload.setTarget(value, target?.added_at_strategy ?? 'queue', target?.default_tags ?? []);");
+
+          const testPath = 'frontend/src/lib/state/uploadWorkflow.svelte.test.ts';
+          let test = fs.readFileSync(testPath, 'utf8');
+          const insertion = "\n  it('replaces managed target defaults while preserving user tags', () => {\n    const workflow = createUploadWorkflow();\n    workflow.setTarget('one', 'queue', ['project:inbox', '-project:archive']);\n    expect(workflow.tags).toBe('project:inbox -project:archive');\n    workflow.tags += ' user:kept';\n    workflow.setTarget('two', 'queue', ['source:upload', 'user:kept']);\n    expect(workflow.tags).toBe('user:kept source:upload');\n  });\n\n  it('does not duplicate target defaults on repeated selection', () => {\n    const workflow = createUploadWorkflow();\n    workflow.setTarget('one', 'queue', ['project:inbox', 'project:inbox']);\n    workflow.setTarget('one', 'queue', ['project:inbox']);\n    expect(workflow.tags).toBe('project:inbox');\n  });\n";
+          const testEnd = test.lastIndexOf('\n});');
+          if (testEnd < 0) throw new Error('could not locate upload workflow describe end');
+          fs.writeFileSync(testPath, test.slice(0, testEnd) + insertion + test.slice(testEnd));
+
+          replaceOne('docs/CONFIG.md', '| `added_at_strategy` | Optional default for library-added ordering: `queue` (default), `reverse_queue`, or `modtime`. An upload request may override the target default. |', '| `added_at_strategy` | Optional default for library-added ordering: `queue` (default), `reverse_queue`, or `modtime`. An upload request may override the target default. |\n| `default_tags` | Optional list of visible, editable upload-tag directives. Entries use the Upload tab `tag` / `-tag` syntax; exclusions remove matching positive tags when the upload is submitted. |');
+          replaceOne('docs/CONFIG.md', '      added_at_strategy: queue\n', '      added_at_strategy: queue\n      default_tags:\n        - project:inbox\n        - source:upload\n        - -project:archive\n');
+          const openapiMarker = '              added_at_strategy:\n                type: string\n                enum: [queue, reverse_queue, modtime]\n                description: Default added-at strategy configured for this upload target.\n';
+          replaceOne('docs/openapi.yaml', openapiMarker, openapiMarker + '              default_tags:\n                type: array\n                items:\n                  type: string\n                description: Visible editable tag/-tag directives prefilled for this upload target.\n');
+          JS
+          gofmt -w internal/query/tag_directives.go internal/query/tag_directives_test.go internal/serve/config.go internal/serve/uploads.go internal/serve/uploads_test.go internal/serve/upload_default_tags_test.go
+          cd frontend
+          npm ci --prefer-offline --no-audit
+          npm run generate:api
+      - name: Focused Go tests
+        run: go test ./internal/query ./internal/serve
+      - name: Frontend unit and type checks
+        working-directory: frontend
+        run: |
+          npm run test:unit -- --run src/lib/state/uploadWorkflow.svelte.test.ts
+          npm run check
+      - name: Commit implementation
+        shell: bash
+        run: |
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/query/tag_directives.go internal/query/tag_directives_test.go internal/serve/config.go internal/serve/uploads.go internal/serve/uploads_test.go internal/serve/upload_default_tags_test.go docs/CONFIG.md docs/openapi.yaml frontend/src/lib/api/openapi.ts frontend/src/lib/state/uploadItems.ts frontend/src/lib/state/uploadWorkflow.svelte.ts frontend/src/lib/state/uploadWorkflow.svelte.test.ts frontend/src/lib/components/AuthenticatedApp.svelte
+          git commit -m "feat: support upload target default tags [maintainer-248-applied]"
+          git push origin HEAD:feat/248-upload-target-default-tags
