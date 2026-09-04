@@ -38,15 +38,15 @@ jobs:
 
           replace(
               'internal/database/database.go',
-              'size_bytes, mod_time, tags_cache',
-              'size_bytes, mod_time, added_at, tags_cache',
+              'SELECT id, path, content_hash, size_bytes, mod_time, tags_cache',
+              'SELECT id, path, content_hash, size_bytes, mod_time, added_at, tags_cache',
               2,
           )
           replace(
               'internal/database/database.go',
               'l.size_bytes, l.mod_time, l.tags_cache',
               'l.size_bytes, l.mod_time, l.added_at, l.tags_cache',
-              5,
+              4,
           )
           replace(
               'internal/database/database.go',
