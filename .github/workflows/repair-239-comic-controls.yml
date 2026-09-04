@@ -1,4 +1,4 @@
-name: Repair 239 comic controls
+name: Validate 239 comic controls
 
 on:
   push:
@@ -6,14 +6,14 @@ on:
       - feat/231-comic-ui
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: repair-239-comic-controls
+  group: validate-239-comic-controls
   cancel-in-progress: true
 
 jobs:
-  repair-and-validate:
+  validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -24,76 +24,15 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply comic control reveal fix
-        id: patch
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          function replaceOnce(text, oldText, newText, label) {
-            if (text.includes(newText)) return [text, false];
-            if (!text.includes(oldText)) throw new Error(`missing ${label} anchor`);
-            return [text.replace(oldText, newText), true];
-          }
-          let changed = false;
-          let path = 'frontend/src/lib/components/ViewerStage.svelte';
-          let text = fs.readFileSync(path, 'utf8');
-          let result;
-          [text, result] = replaceOnce(
-            text,
-            "    if (nextFile.media_kind === 'video' || comicEntered) showPlaybackControls();\n    else if (playbackControlsTimer) {",
-            "    if (nextFile.media_kind === 'video') showPlaybackControls();\n    else if (!comicEntered && playbackControlsTimer) {",
-            'source-change control reveal'
-          ); changed ||= result;
-          [text, result] = replaceOnce(
-            text,
-            "  function showPlaybackControls() {\n    if (!playbackControlsActive) return;\n    playbackControlsIdle = false;\n    if (playbackControlsTimer) clearTimeout(playbackControlsTimer);\n    playbackControlsTimer = setTimeout(() => {\n      playbackControlsIdle = true;\n      playbackControlsTimer = undefined;\n    }, 2000);\n  }\n\n  $effect(() => {\n    if (comicEntered) showPlaybackControls();\n  });\n",
-            "  function revealPlaybackControls() {\n    playbackControlsIdle = false;\n    if (playbackControlsTimer) clearTimeout(playbackControlsTimer);\n    playbackControlsTimer = setTimeout(() => {\n      playbackControlsIdle = true;\n      playbackControlsTimer = undefined;\n    }, 2000);\n  }\n\n  function showPlaybackControls() {\n    if (!playbackControlsActive) return;\n    revealPlaybackControls();\n  }\n",
-            'control reveal helper'
-          ); changed ||= result;
-          [text, result] = replaceOnce(
-            text,
-            "    previousComicEntered = nextComicEntered;\n    comicTransition = nextComicEntered ? 'entering' : 'exiting';\n    const timer = setTimeout(() => { comicTransition = ''; }, 520);",
-            "    previousComicEntered = nextComicEntered;\n    comicTransition = nextComicEntered ? 'entering' : 'exiting';\n    if (nextComicEntered) revealPlaybackControls();\n    const timer = setTimeout(() => { comicTransition = ''; }, 520);",
-            'comic entry reveal'
-          ); changed ||= result;
-          fs.writeFileSync(path, text);
-
-          path = 'frontend/tests/comic-ui.spec.ts';
-          text = fs.readFileSync(path, 'utf8');
-          [text, result] = replaceOnce(
-            text,
-            "  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity), { timeout: 3500 }).toBe('0');\n  const box = await stage.boundingBox();",
-            "  await expect.poll(() => controls.evaluate((element) => getComputedStyle(element).opacity), { timeout: 3500 }).toBe('0');\n\n  // Page navigation updates progress but is not control-surface activity. Hidden controls must stay hidden.\n  await page.keyboard.press('ArrowRight');\n  await expect(controls.locator('.video-time').first()).toHaveText('2');\n  await page.waitForTimeout(200);\n  await expect(controls).toHaveCSS('opacity', '0');\n\n  const box = await stage.boundingBox();",
-            'hidden controls navigation regression'
-          ); changed ||= result;
-          fs.writeFileSync(path, text);
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `changed=${changed}\n`);
-          NODE
-      - name: Commit correction
-        if: steps.patch.outputs.changed == 'true'
-        run: |
-          git config user.name "gooru-maintainer"
-          git config user.email "maintainer@users.noreply.github.com"
-          git add frontend/src/lib/components/ViewerStage.svelte frontend/tests/comic-ui.spec.ts
-          git commit -m "fix(comics): keep idle controls hidden during page navigation"
-          git push origin HEAD:feat/231-comic-ui
-      - name: Stop after correction push
-        if: steps.patch.outputs.changed == 'true'
-        run: echo "Correction pushed; follow-up run validates the new head."
       - name: Install frontend dependencies
-        if: steps.patch.outputs.changed != 'true'
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
       - name: Frontend check and unit tests
-        if: steps.patch.outputs.changed != 'true'
         working-directory: frontend
         run: npm run check && npm run test:unit
       - name: Focused Chromium comic regression
-        if: steps.patch.outputs.changed != 'true'
         working-directory: frontend
         run: npm run test:e2e -- comic-ui.spec.ts --project=chromium
       - name: Frontend build
-        if: steps.patch.outputs.changed != 'true'
         working-directory: frontend
         run: npm run build
