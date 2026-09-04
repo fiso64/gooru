@@ -29,6 +29,19 @@ describe('ApiClient', () => {
     expect(requests[0].url).toContain('/api/v1/files?query=kind%3Aimage&limit=24&page_token=next');
   });
 
+  it('uses added-desc defaults when creating a saved search without explicit sorting', async () => {
+    let requestBody = '';
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      requestBody = await request.clone().text();
+      return Response.json({ id: 'saved-one', name: 'Recent', query: '', sort: 'added', order: 'desc', created_at: '', updated_at: '' });
+    }) as typeof fetch;
+
+    await new ApiClient('csrf').createSavedSearch({ name: 'Recent', query: '' });
+
+    expect(JSON.parse(requestBody)).toMatchObject({ name: 'Recent', query: '', sort: 'added', order: 'desc' });
+  });
+
   it('maps API error envelopes', async () => {
     globalThis.fetch = (async () =>
       Response.json({ error: { code: 'unauthorized', message: 'login required' } }, { status: 401 })) as typeof fetch;

@@ -305,8 +305,8 @@ function savedSearchBody(body: SavedSearchRequest) {
   return {
     name: body.name,
     query: body.query,
-    sort: body.sort ?? 'name',
-    order: body.order ?? 'asc'
+    sort: body.sort ?? 'added',
+    order: body.order ?? 'desc'
   };
 }
 
