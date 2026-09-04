@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/247-trim-shortcut-reference-copy
+  pull_request:
+    branches:
+      - develop
 
 permissions:
   contents: read
