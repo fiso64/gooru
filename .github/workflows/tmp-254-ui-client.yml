@@ -1,0 +1,39 @@
+name: tmp-254-ui-client
+on:
+  push:
+    branches: [feat/254-upload-strategy-ui-client]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply product patch
+        run: python .github/tmp-254-ui-client.py
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit
+          npm run build
+      - name: Validate diff
+        run: git diff --check
+      - name: Commit product patch
+        run: |
+          git config user.name chatgpt-codex-connector
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add frontend
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat(upload): wire added-at strategy UI metadata'
+            git push origin HEAD:feat/254-upload-strategy-ui-client
+          fi
