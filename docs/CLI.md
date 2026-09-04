@@ -145,8 +145,8 @@ Saved searches are scoped to a DB-backed username.
 `gooru mount` is only functional in binaries built with FUSE support:
 
 ```bash
-go build -tags fuse -o ./bin/gooru ./cmd/gooru
-./bin/gooru mount /mnt/gooru 'photo favorite'
+go build -tags fuse -o gooru ./cmd/gooru
+gooru mount /mnt/gooru 'photo favorite'
 ```
 
 A normal build still contains the command, but reports that FUSE support is unavailable. Platform FUSE headers/runtime support are required.
