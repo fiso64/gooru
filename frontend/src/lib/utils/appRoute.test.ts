@@ -48,14 +48,14 @@ describe('app route URL policy', () => {
       order: 'asc',
       fileID: 'opaque-file'
     });
-    expect(searchForLibraryURLState({ query: '', kind: '', sort: 'modified', order: 'desc', fileID: '' })).toBe('');
+    expect(searchForLibraryURLState({ query: '', kind: '', sort: 'added', order: 'desc', fileID: '' })).toBe('');
   });
 
   it('normalizes invalid URL state to safe library defaults', () => {
     expect(libraryURLStateFromSearch('?sort=wat&order=sideways&q=%20fox%20')).toEqual({
       query: 'fox',
       kind: '',
-      sort: 'modified',
+      sort: 'added',
       order: 'desc',
       fileID: ''
     });

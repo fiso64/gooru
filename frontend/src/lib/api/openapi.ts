@@ -219,7 +219,7 @@ export interface paths {
                     query?: string;
                     limit?: number;
                     page_token?: string;
-                    sort?: "name" | "modified" | "size" | "kind";
+                    sort?: "added" | "name" | "modified" | "size" | "kind";
                     order?: "asc" | "desc";
                     include_facets?: boolean;
                 };
@@ -1507,12 +1507,12 @@ export interface components {
             name: string;
             query: string;
             /**
-             * @default name
+             * @default added
              * @enum {string}
              */
-            sort: "name" | "modified" | "size" | "kind";
+            sort: "added" | "name" | "modified" | "size" | "kind";
             /**
-             * @default asc
+             * @default desc
              * @enum {string}
              */
             order: "asc" | "desc";
@@ -1522,7 +1522,7 @@ export interface components {
             name: string;
             query: string;
             /** @enum {string} */
-            sort: "name" | "modified" | "size" | "kind";
+            sort: "added" | "name" | "modified" | "size" | "kind";
             /** @enum {string} */
             order: "asc" | "desc";
             /** Format: date-time */

@@ -491,7 +491,7 @@
         {#snippet actions()}
           <div class="library-head-actions">
             <div class="seg" aria-label="Sort field">
-              {#each [{ value: 'modified', label: 'Modified' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
+              {#each [{ value: 'added', label: 'Added' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
                 <button
                   class:active={library.sort === option.value}
                   type="button"
