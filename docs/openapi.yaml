@@ -124,15 +124,15 @@ paths:
           required: false
           schema:
             type: string
-            enum: [name, modified, size, kind]
-            default: name
+            enum: [added, name, modified, size, kind]
+            default: added
         - name: order
           in: query
           required: false
           schema:
             type: string
             enum: [asc, desc]
-            default: asc
+            default: desc
         - name: include_facets
           in: query
           required: false
@@ -1459,12 +1459,12 @@ components:
           type: string
         sort:
           type: string
-          enum: [name, modified, size, kind]
-          default: name
+          enum: [added, name, modified, size, kind]
+          default: added
         order:
           type: string
           enum: [asc, desc]
-          default: asc
+          default: desc
     SavedSearch:
       type: object
       required: [id, name, query, sort, order, created_at, updated_at]
@@ -1477,7 +1477,7 @@ components:
           type: string
         sort:
           type: string
-          enum: [name, modified, size, kind]
+          enum: [added, name, modified, size, kind]
         order:
           type: string
           enum: [asc, desc]

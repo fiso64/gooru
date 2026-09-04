@@ -1930,6 +1930,8 @@ func fileInfoColumns() string {
 
 func fileSortExpression(sort string) string {
 	switch sort {
+	case "added":
+		return "l.added_at"
 	case "modified":
 		return "l.mod_time"
 	case "name":
@@ -1976,7 +1978,7 @@ func (s *Store) cursorKeyForLocation(locationID int64, sort string) (interface{}
 		WHERE l.id = ?
 	`, fileSortExpression(sort))
 	switch sort {
-	case "modified", "size":
+	case "added", "modified", "size":
 		var value int64
 		if err := s.QueryRow(query, locationID).Scan(&value); err != nil {
 			return nil, err

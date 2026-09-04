@@ -736,18 +736,18 @@ func excludedSuggestionTags(existing string) map[string]struct{} {
 
 func normalizeFileSort(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "modified", "name", "size", "kind":
+	case "added", "modified", "name", "size", "kind":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
-		return "name"
+		return "added"
 	}
 }
 
 func normalizeSortOrder(value string) string {
-	if strings.EqualFold(strings.TrimSpace(value), "desc") {
-		return "desc"
+	if strings.EqualFold(strings.TrimSpace(value), "asc") {
+		return "asc"
 	}
-	return "asc"
+	return "desc"
 }
 
 func mediaTypeForPath(path string) string {

@@ -23,7 +23,7 @@ import type {
   UploadTargetsResponse
 } from './types';
 
-type FileSort = 'name' | 'modified' | 'size' | 'kind';
+type FileSort = 'added' | 'name' | 'modified' | 'size' | 'kind';
 type SortOrder = 'asc' | 'desc';
 type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
 type ClearableJobStatus = 'completed' | 'failed' | 'canceled';
