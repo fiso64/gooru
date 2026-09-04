@@ -18,7 +18,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Apply self-review patch
-        run: python .github/tmp-254-strategy-review.py
+        run: python .github/tmp-254-strategy-review2.py
       - name: Format
         run: gofmt -w internal/serve/config.go internal/serve/config_test.go internal/serve/upload_stream.go internal/database/database_test.go
       - name: Generate API types
