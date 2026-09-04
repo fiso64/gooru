@@ -111,7 +111,8 @@
   }
 
   function handleDragLeave(event: DragEvent) {
-    if (event.currentTarget !== event.target) return;
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && (event.currentTarget as HTMLElement).contains(nextTarget)) return;
     dragActive = false;
   }
 
@@ -241,31 +242,31 @@
       <section
         class={`upload-zone ${dragActive ? 'is-drag' : ''}`}
         style="position: relative;"
-        role="button"
-        tabindex="0"
-        onkeydown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); chooseFiles(); } }}
-        onclick={chooseFiles}
         ondragover={handleDragOver}
         ondragleave={handleDragLeave}
         ondrop={handleDrop}
       >
         <input bind:this={fileInput} type="file" multiple hidden onchange={picked} />
+        <button
+          type="button"
+          aria-label="Browse files from drop zone"
+          style="position: absolute; inset: 0; z-index: 0; border: 0; background: transparent; cursor: pointer;"
+          onclick={chooseFiles}
+        ></button>
         <div
           class="seg"
           aria-label="Upload drop behavior"
-          style="position: absolute; top: 12px; right: 12px;"
-          onclick={(event) => event.stopPropagation()}
-          onkeydown={(event) => event.stopPropagation()}
+          style="position: absolute; top: 12px; right: 12px; z-index: 2;"
         >
           <button type="button" class={!autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(false)}>Stage first</button>
           <button type="button" class={autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(true)}>Auto-upload</button>
         </div>
-        <div class="icon-wrap"><Icon name="upload" size={26} /></div>
-        <h3>Drop files here</h3>
-        <p>or click to browse</p>
-        <div class="upload-zone-actions">
-          <button class="g-btn g-btn-primary" type="button" onclick={(event) => { event.stopPropagation(); chooseFiles(); }}><Icon name="folder" size={14} /> Choose files…</button>
-          <button class="g-btn" type="button" disabled title="Paste URL import coming soon" onclick={(event) => event.stopPropagation()}><Icon name="external" size={14} /> Paste URL</button>
+        <div class="icon-wrap" style="position: relative; z-index: 1; pointer-events: none;"><Icon name="upload" size={26} /></div>
+        <h3 style="position: relative; z-index: 1; pointer-events: none;">Drop files here</h3>
+        <p style="position: relative; z-index: 1; pointer-events: none;">or click to browse</p>
+        <div class="upload-zone-actions" style="position: relative; z-index: 2;">
+          <button class="g-btn g-btn-primary" type="button" onclick={chooseFiles}><Icon name="folder" size={14} /> Choose files…</button>
+          <button class="g-btn" type="button" disabled title="Paste URL import coming soon"><Icon name="external" size={14} /> Paste URL</button>
         </div>
       </section>
 
