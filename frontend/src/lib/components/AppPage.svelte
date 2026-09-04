@@ -14,6 +14,7 @@
     accent_color?: string;
     font_style?: FontStyle;
     load_full_media_by_default?: boolean;
+    fullscreen_media_by_default?: boolean;
     grid_size?: number;
     thumbnail_sizes?: number[];
   };
@@ -33,6 +34,7 @@
     runtimeGridSize = config.grid_size ?? defaultGridSize;
     runtimeConfig.set({
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
+      fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
       gridSize: runtimeGridSize,
       thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? [])
     });
@@ -52,10 +54,10 @@
   onMount(() => {
     const configPromise = fetch('/api/v1/ui-config', { credentials: 'same-origin' })
       .then(async (response) => {
-        if (!response.ok) return { accent_color: '', font_style: 'editorial', load_full_media_by_default: false } satisfies UIConfig;
+        if (!response.ok) return { accent_color: '', font_style: 'editorial', load_full_media_by_default: false, fullscreen_media_by_default: false } satisfies UIConfig;
         return await response.json() as UIConfig;
       })
-      .catch(() => ({ accent_color: '', font_style: 'editorial', load_full_media_by_default: false }) satisfies UIConfig);
+      .catch(() => ({ accent_color: '', font_style: 'editorial', load_full_media_by_default: false, fullscreen_media_by_default: false }) satisfies UIConfig);
     const sessionPromise = new ApiClient().me();
 
     void Promise.all([configPromise, sessionPromise])
