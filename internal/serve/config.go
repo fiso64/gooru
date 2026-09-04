@@ -356,10 +356,12 @@ func (cfg *Config) Validate() error {
 		cfg.Uploads.Targets[i].Path = path
 		cfg.Uploads.Targets[i].AddedAtStrategy = addedAtStrategy
 		for tagIndex := range cfg.Uploads.Targets[i].DefaultTags {
-			cfg.Uploads.Targets[i].DefaultTags[tagIndex] = strings.TrimSpace(cfg.Uploads.Targets[i].DefaultTags[tagIndex])
-		}
-		if err := query.ValidateTags(cfg.Uploads.Targets[i].DefaultTags); err != nil {
-			errs = append(errs, fmt.Errorf("uploads target %q default_tags: %w", id, err))
+			value := strings.TrimSpace(cfg.Uploads.Targets[i].DefaultTags[tagIndex])
+			cfg.Uploads.Targets[i].DefaultTags[tagIndex] = value
+			tag := strings.TrimPrefix(value, "-")
+			if err := query.ValidateTag(tag); err != nil {
+				errs = append(errs, fmt.Errorf("uploads target %q default_tags: %w", id, err))
+			}
 		}
 		if id == "" {
 			errs = append(errs, fmt.Errorf("uploads.targets[%d].id is required", i))

@@ -62,7 +62,7 @@ test('drop behavior control lives inside the drop zone without nested interactiv
 
 test('target default tags pre-populate the upload form and remain editable', async ({ page }) => {
   await openUpload(page, [
-    { id: 'inbox', name: 'Inbox', default_tags: ['project:inbox', 'source:upload'] },
+    { id: 'inbox', name: 'Inbox', default_tags: ['project:inbox', 'source:upload', '-project:archive'] },
     { id: 'archive', name: 'Archive', default_tags: ['project:archive'] }
   ]);
 
@@ -71,6 +71,7 @@ test('target default tags pre-populate the upload form and remain editable', asy
   await expect(config.getByText('inbox', { exact: true })).toBeVisible();
   await expect(config.getByText('source:', { exact: true })).toBeVisible();
   await expect(config.getByText('upload', { exact: true })).toBeVisible();
+  await expect(config.getByRole('button', { name: 'Remove -project:archive' })).toBeVisible();
 
   await config.getByRole('button', { name: 'Remove project:inbox' }).click();
   await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toHaveCount(0);

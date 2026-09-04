@@ -123,7 +123,7 @@ Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `add
 | `name` | Human-readable target name. Required. |
 | `path` | Absolute destination directory. Required. The path itself is not returned by the upload-target API. |
 | `added_at_strategy` | Optional default for library-added ordering: `queue` (default), `reverse_queue`, or `modtime`. An upload request may override the target default. |
-| `default_tags` | Optional list of ordinary tags used to pre-populate the Upload tab when this destination is selected. These tags remain visible and editable before upload. |
+| `default_tags` | Optional list of tags and `-tag` exclusions used to pre-populate the Upload tab when this destination is selected. These values remain visible and editable before upload. |
 
 Upload targets must not overlap Gooru-owned application paths. Startup rejects a target that contains, is contained by, or resolves through symlinks onto the configured database, encryption key file, media cache, frontend directory, or an explicitly configured absolute ffmpeg/ffprobe executable path. Keep application state and executables outside directories that Gooru is allowed to upload into, replace within, or delete from.
 
@@ -140,6 +140,7 @@ uploads:
       default_tags:
         - project:inbox
         - source:upload
+        - -project:archive
   max_file_size_bytes: 104857600
   preserve_modtime: true
   conflict_policy: rename
