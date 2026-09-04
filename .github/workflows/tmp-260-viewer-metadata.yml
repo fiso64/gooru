@@ -23,6 +23,7 @@ jobs:
       - name: Apply issue 260 implementation
         run: |
           python3 .github/tmp-260-apply.py
+          python3 .github/tmp-260-fix-test.py
           gofmt -w types/types.go internal/database/database.go internal/database/migration_test.go internal/serve/metadata.go internal/serve/browse.go internal/serve/uploads.go internal/serve/upload_cbz_e2e_test.go
       - name: Generate frontend API types
         working-directory: frontend
@@ -43,7 +44,7 @@ jobs:
           npx playwright test tests/viewer-metadata.spec.ts --project=chromium
       - name: Commit validated implementation
         run: |
-          rm .github/workflows/tmp-260-viewer-metadata.yml .github/tmp-260-apply.py
+          rm .github/workflows/tmp-260-viewer-metadata.yml .github/tmp-260-apply.py .github/tmp-260-fix-test.py
           git config user.name "chatgpt-codex-connector[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
