@@ -64,12 +64,13 @@ test('viewer restores original-media, rotation, and fit state but not zoom after
   await expect(page.getByRole('button', { name: 'Use derived preview' })).toHaveAttribute('aria-pressed', 'true');
   await expect(image).toHaveAttribute('src', '/api/v1/files/one/content');
 
-  await page.getByRole('button', { name: 'Actual size' }).click();
-  await page.getByRole('button', { name: 'Rotate right' }).click();
-  await expect(page.getByRole('button', { name: 'Actual size' })).toHaveClass(/active/);
+  const stage = page.locator('.viewer-stage');
+  await stage.focus();
+  await page.keyboard.press('2');
+  await page.keyboard.press('r');
+  await expect(page.locator('.viewer-mode-button[aria-label="Actual size"]')).toHaveClass(/active/);
   await expect(image).toHaveAttribute('style', /rotate\(90deg\)/);
 
-  const stage = page.locator('.viewer-stage');
   const box = await stage.boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
@@ -88,7 +89,7 @@ test('viewer restores original-media, rotation, and fit state but not zoom after
 
   image = await openViewer(page);
   await expect(page.getByRole('button', { name: 'Use derived preview' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: 'Actual size' })).toHaveClass(/active/);
+  await expect(page.locator('.viewer-mode-button[aria-label="Actual size"]')).toHaveClass(/active/);
   await expect(image).toHaveAttribute('src', '/api/v1/files/one/content');
   await expect(image).toHaveAttribute('style', /rotate\(90deg\).*scale\(1\)/);
 });
