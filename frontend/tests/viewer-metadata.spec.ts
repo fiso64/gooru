@@ -9,7 +9,7 @@ const session = {
 function fileItem(id: string, name: string, mediaType: string, size: number, metadata: Record<string, number> = {}) {
   return {
     id, content_id: `hash-${id}`, name, safe_display_path: `uploads/${name}`, size,
-    modified_time: '2026-09-02T15:08:00Z', media_type: mediaType, media_kind: 'other', metadata, tags: [],
+    added_at: '2026-09-03T11:22:00Z', modified_time: '2026-09-02T15:08:00Z', media_type: mediaType, media_kind: 'other', metadata, tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`,
       content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download`
@@ -60,6 +60,9 @@ test('viewer size omits duplicate MIME for generic files and uses persisted CBZ 
   const genericMeta = page.locator('.lightbox-meta');
   await expect(genericMeta.locator('dd').nth(1)).toHaveText('7.5 KB');
   await expect(genericMeta).toContainText('text/markdown; charset=utf-8');
+  await expect(genericMeta.locator('dt')).toHaveText(['Path', 'Size', 'Added', 'Modified', 'Mime', 'Hash']);
+  await expect(genericMeta.locator('dd').nth(2)).toContainText('03 Sept 2026');
+  await expect(genericMeta.locator('dd').nth(3)).toContainText('02 Sept 2026');
   await page.keyboard.press('Escape');
 
   await openViewerFor(page, 'book.cbz');

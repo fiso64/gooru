@@ -126,6 +126,9 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if page.Files[0].MediaKind != "photo" {
 		t.Fatalf("expected photo media kind, got %q", page.Files[0].MediaKind)
 	}
+	if page.Files[0].AddedAt.IsZero() || page.Files[0].AddedAt.Unix() != storedFile.AddedAt {
+		t.Fatalf("expected added_at from stored location, dto=%v stored=%d", page.Files[0].AddedAt, storedFile.AddedAt)
+	}
 
 	nextReq := authedRequest(http.MethodGet, "/api/v1/files?query=kind:image&limit=1&page_token="+page.NextPageToken)
 	nextRec := httptest.NewRecorder()

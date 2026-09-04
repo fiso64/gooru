@@ -1298,6 +1298,7 @@ components:
         - name
         - safe_display_path
         - size
+        - added_at
         - modified_time
         - media_type
         - media_kind
@@ -1323,6 +1324,9 @@ components:
         size:
           type: integer
           format: int64
+        added_at:
+          type: string
+          format: date-time
         modified_time:
           type: string
           format: date-time
