@@ -1,0 +1,28 @@
+name: maintainer-254-read-surface
+
+on:
+  push:
+    branches:
+      - feat/254-added-at-read-surface
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect added-time read surfaces
+        run: |
+          set -euxo pipefail
+          echo '--- FileItem API type ---'
+          grep -n -A28 -B4 'export interface FileItem' frontend/src/lib/api/types.ts || true
+          echo '--- modified_time references ---'
+          grep -RIn -C3 'modified_time' frontend/src internal/serve docs/openapi.yaml | head -240 || true
+          echo '--- viewer properties references ---'
+          grep -RIn -C5 -E 'Modified|Properties|properties' frontend/src/lib/components frontend/src/routes | head -260 || true
+          echo '--- fileDTO mapper ---'
+          grep -n -A80 -B10 'func (s \*Server) fileDTO' internal/serve/browse.go || true
+          echo '--- FileInfo database read sites ---'
+          grep -n -E 'fileInfoColumns|scanFileInfos|SELECT .*mod_time.*tags_cache|Scan\(&file.ID' internal/database/database.go
