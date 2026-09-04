@@ -5,7 +5,7 @@
   import SessionLoading from './SessionLoading.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, normalizeThumbnailSizes, runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, normalizeGridType, normalizeThumbnailSizes, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
 
@@ -16,6 +16,7 @@
     load_full_media_by_default?: boolean;
     fullscreen_media_by_default?: boolean;
     grid_size?: number;
+    grid_type?: string;
     thumbnail_sizes?: number[];
   };
 
@@ -36,6 +37,7 @@
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
       gridSize: runtimeGridSize,
+      gridType: normalizeGridType(config.grid_type),
       thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? [])
     });
     faviconHref = '/favicon.svg';

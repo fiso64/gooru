@@ -8,6 +8,7 @@ type UIConfigResponse struct {
 	LoadFullMediaByDefault   bool   `json:"load_full_media_by_default"`
 	FullscreenMediaByDefault bool   `json:"fullscreen_media_by_default"`
 	GridSize                 int    `json:"grid_size"`
+	GridType                 string `json:"grid_type"`
 	ThumbnailSizes           []int  `json:"thumbnail_sizes"`
 }
 
@@ -18,6 +19,7 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		LoadFullMediaByDefault:   s.cfg.UI.LoadFullMediaByDefault,
 		FullscreenMediaByDefault: s.cfg.UI.FullscreenMediaByDefault,
 		GridSize:                 s.cfg.UI.GridSize,
+		GridType:                 s.cfg.UI.GridType,
 		ThumbnailSizes:           s.cfg.Media.ThumbnailSizes,
 	})
 }

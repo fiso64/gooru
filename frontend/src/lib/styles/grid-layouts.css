@@ -1,0 +1,48 @@
+.fit-media-grid .thumb,
+.fit-media-grid .thumb-open,
+.fit-media-grid .thumb img,
+.fit-media-grid .thumb video,
+.fit-media-grid .thumb .thumb-ph {
+  background: transparent;
+}
+
+.fit-media-grid .thumb-open {
+  padding: 20px;
+}
+
+.fit-media-grid .thumb img,
+.fit-media-grid .thumb video,
+.fit-media-grid .thumb .thumb-ph {
+  object-fit: contain;
+}
+
+.fit-media-grid .thumb:hover img {
+  transform: none;
+}
+
+.variable-media-grid {
+  display: block;
+  padding: 0;
+  transform: none;
+}
+
+.virtual-media-item {
+  position: absolute;
+}
+
+.virtual-media-item .thumb {
+  width: 100%;
+  height: 100%;
+}
+
+/* Tile geometry follows source aspect ratios, but contain defensively as well: archive/document
+   metadata can describe the container rather than the rendered cover. Tile mode must never crop. */
+.variable-media-grid .thumb img,
+.variable-media-grid .thumb video,
+.variable-media-grid .thumb .thumb-ph {
+  object-fit: contain;
+}
+
+.variable-media-grid .thumb:hover img {
+  transform: none;
+}

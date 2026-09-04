@@ -40,6 +40,21 @@ func TestConfigValidatesGridSize(t *testing.T) {
 	}
 }
 
+func TestConfigValidatesGridType(t *testing.T) {
+	for _, gridType := range []string{"square", "fit", "tile"} {
+		cfg := DefaultConfig(t.TempDir() + "/gooru.db")
+		cfg.UI.GridType = gridType
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("valid grid type %q rejected: %v", gridType, err)
+		}
+	}
+	cfg := DefaultConfig(t.TempDir() + "/gooru.db")
+	cfg.UI.GridType = "columns"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.grid_type") {
+		t.Fatalf("expected invalid grid type error, got %v", err)
+	}
+}
+
 func TestConfigLoadsGridSize(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gooru.yaml")
@@ -52,6 +67,21 @@ func TestConfigLoadsGridSize(t *testing.T) {
 	}
 	if cfg.UI.GridSize != 240 {
 		t.Fatalf("ui.grid_size = %d, want 240", cfg.UI.GridSize)
+	}
+}
+
+func TestConfigLoadsGridType(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gooru.yaml")
+	if err := os.WriteFile(path, []byte("ui:\n  grid_type: tile\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UI.GridType != "tile" {
+		t.Fatalf("ui.grid_type = %q, want tile", cfg.UI.GridType)
 	}
 }
 
@@ -104,6 +134,7 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg.UI.FullscreenMediaByDefault = true
 	cfg.Media.ThumbnailSizes = []int{128, 384, 768}
 	cfg.UI.GridSize = 240
+	cfg.UI.GridType = "fit"
 	server := NewServer(cfg)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/ui-config", nil)
@@ -122,6 +153,9 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"grid_size":240`) {
 		t.Fatalf("response missing grid size: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"grid_type":"fit"`) {
+		t.Fatalf("response missing grid type: %s", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"thumbnail_sizes":[128,384,768]`) {
 		t.Fatalf("response missing thumbnail sizes: %s", rec.Body.String())
