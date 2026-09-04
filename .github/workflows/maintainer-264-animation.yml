@@ -1,0 +1,231 @@
+name: Maintainer saved-search animation validation
+
+on:
+  push:
+    branches:
+      - fix/264-saved-search-drag-animation
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[saved-search-animation-applied]') }}
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply saved-search drag animation patch
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          function replaceExact(path, before, after) {
+            const source = fs.readFileSync(path, 'utf8');
+            if (!source.includes(before)) {
+              throw new Error(`Expected source block not found in ${path}`);
+            }
+            fs.writeFileSync(path, source.replace(before, after));
+          }
+
+          const app = 'frontend/src/lib/components/AppShell.svelte';
+          replaceExact(app,
+            "  import { onMount } from 'svelte';\n  import type { Snippet } from 'svelte';",
+            "  import { onMount } from 'svelte';\n  import { flip } from 'svelte/animate';\n  import type { Snippet } from 'svelte';"
+          );
+          replaceExact(app,
+            "  let draggedSavedSearchID = $state('');\n  let savedSearchOrder = $state<string[]>([]);",
+            "  let draggedSavedSearchID = $state('');\n  let savedSearchDragStartOrder = $state<string[]>([]);\n  let savedSearchOrder = $state<string[]>([]);"
+          );
+          replaceExact(app,
+`  function startSavedSearchDrag(event: DragEvent, id: string) {
+    if (savedSearchReorderBusy) {
+      event.preventDefault();
+      return;
+    }
+    draggedSavedSearchID = id;
+    savedSearchReorderError = '';
+    event.dataTransfer?.setData('text/plain', id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  async function dropSavedSearch(event: DragEvent, targetID: string) {
+    event.preventDefault();
+    const sourceID = draggedSavedSearchID || event.dataTransfer?.getData('text/plain') || '';
+    draggedSavedSearchID = '';
+    if (!sourceID || sourceID === targetID || savedSearchReorderBusy) return;
+
+    const previous = orderedSavedSearches.map((item) => item.id);
+    const next = [...previous];
+    const from = next.indexOf(sourceID);
+    const to = next.indexOf(targetID);
+    if (from < 0 || to < 0) return;
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+
+    savedSearchOrder = next;
+    savedSearchReorderBusy = true;
+    savedSearchReorderError = '';
+    try {
+      await new ApiClient($authState.csrfToken).reorderSavedSearches(next);
+    } catch (error) {
+      savedSearchOrder = previous;
+      savedSearchReorderError = error instanceof Error ? error.message : 'Could not save saved-search order.';
+    } finally {
+      savedSearchReorderBusy = false;
+    }
+  }
+`,
+`  function startSavedSearchDrag(event: DragEvent, id: string) {
+    if (savedSearchReorderBusy) {
+      event.preventDefault();
+      return;
+    }
+    draggedSavedSearchID = id;
+    savedSearchDragStartOrder = orderedSavedSearches.map((item) => item.id);
+    savedSearchReorderError = '';
+    event.dataTransfer?.setData('text/plain', id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  function previewSavedSearchDrag(event: DragEvent, targetID: string) {
+    const sourceID = draggedSavedSearchID || event.dataTransfer?.getData('text/plain') || '';
+    if (!sourceID || sourceID === targetID || savedSearchReorderBusy) return;
+    event.preventDefault();
+
+    const current = orderedSavedSearches.map((item) => item.id);
+    const from = current.indexOf(sourceID);
+    const target = current.indexOf(targetID);
+    if (from < 0 || target < 0) return;
+
+    const targetRow = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
+    const bounds = targetRow?.getBoundingClientRect();
+    const insertAfter = bounds ? event.clientY >= bounds.top + bounds.height / 2 : from < target;
+    const next = current.filter((id) => id !== sourceID);
+    const targetAfterRemoval = next.indexOf(targetID);
+    if (targetAfterRemoval < 0) return;
+    next.splice(targetAfterRemoval + (insertAfter ? 1 : 0), 0, sourceID);
+    if (next.every((id, index) => id === current[index])) return;
+    savedSearchOrder = next;
+  }
+
+  function endSavedSearchDrag() {
+    draggedSavedSearchID = '';
+    if (!savedSearchDragStartOrder.length) return;
+    savedSearchOrder = savedSearchDragStartOrder;
+    savedSearchDragStartOrder = [];
+  }
+
+  async function dropSavedSearch(event: DragEvent, targetID: string) {
+    event.preventDefault();
+    const sourceID = draggedSavedSearchID || event.dataTransfer?.getData('text/plain') || '';
+    if (!sourceID || savedSearchReorderBusy) return;
+
+    previewSavedSearchDrag(event, targetID);
+    const previous = savedSearchDragStartOrder.length
+      ? [...savedSearchDragStartOrder]
+      : orderedSavedSearches.map((item) => item.id);
+    const next = orderedSavedSearches.map((item) => item.id);
+    draggedSavedSearchID = '';
+    savedSearchDragStartOrder = [];
+    if (next.every((id, index) => id === previous[index])) return;
+
+    savedSearchOrder = next;
+    savedSearchReorderBusy = true;
+    savedSearchReorderError = '';
+    try {
+      await new ApiClient($authState.csrfToken).reorderSavedSearches(next);
+    } catch (error) {
+      savedSearchOrder = previous;
+      savedSearchReorderError = error instanceof Error ? error.message : 'Could not save saved-search order.';
+    } finally {
+      savedSearchReorderBusy = false;
+    }
+  }
+`
+          );
+          replaceExact(app,
+`      {#each orderedSavedSearches as saved}
+        <div
+          class="sidebar-saved-row"
+          class:drag-target={Boolean(draggedSavedSearchID) && draggedSavedSearchID !== saved.id}
+          ondragover={(event) => { if (draggedSavedSearchID) event.preventDefault(); }}
+          ondrop={(event) => void dropSavedSearch(event, saved.id)}
+        >`,
+`      {#each orderedSavedSearches as saved (saved.id)}
+        <div
+          class="sidebar-saved-row"
+          class:drag-target={Boolean(draggedSavedSearchID) && draggedSavedSearchID !== saved.id}
+          animate:flip={{ duration: 160 }}
+          ondragover={(event) => previewSavedSearchDrag(event, saved.id)}
+          ondrop={(event) => void dropSavedSearch(event, saved.id)}
+        >`
+          );
+          replaceExact(app,
+            "            ondragend={() => (draggedSavedSearchID = '')}\n",
+            "            ondragend={endSavedSearchDrag}\n"
+          );
+
+          const spec = 'frontend/tests/saved-search-reorder.spec.ts';
+          replaceExact(spec,
+`  await expect(page.getByRole('button', { name: 'Drag First' })).toHaveCount(0);
+  const firstEntry = rows.nth(0).locator('.sidebar-item');
+  await expect(firstEntry).toHaveAttribute('draggable', 'true');
+  await firstEntry.dragTo(rows.nth(2));
+
+  await expect.poll(() => reorderRequests).toEqual([{ ids: ['s2', 's3', 's1'], csrf: 'csrf-one' }]);
+  await expect(rows.locator('.truncate')).toHaveText(['Second', 'Third', 'First']);`,
+`  await expect(page.getByRole('button', { name: 'Drag First' })).toHaveCount(0);
+  const firstEntry = rows.filter({ hasText: 'First' }).locator('.sidebar-item');
+  const thirdRow = rows.filter({ hasText: 'Third' });
+  await expect(firstEntry).toHaveAttribute('draggable', 'true');
+
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  const thirdBox = await thirdRow.boundingBox();
+  expect(thirdBox).not.toBeNull();
+  await firstEntry.dispatchEvent('dragstart', { dataTransfer });
+  await thirdRow.dispatchEvent('dragover', {
+    dataTransfer,
+    clientY: thirdBox!.y + thirdBox!.height - 1
+  });
+
+  await expect(rows.locator('.truncate')).toHaveText(['Second', 'Third', 'First']);
+  expect(reorderRequests).toHaveLength(0);
+
+  await thirdRow.dispatchEvent('drop', {
+    dataTransfer,
+    clientY: thirdBox!.y + thirdBox!.height - 1
+  });
+  await firstEntry.dispatchEvent('dragend', { dataTransfer });
+
+  await expect.poll(() => reorderRequests).toEqual([{ ids: ['s2', 's3', 's1'], csrf: 'csrf-one' }]);
+  await expect(rows.locator('.truncate')).toHaveText(['Second', 'Third', 'First']);`
+          );
+          NODE
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+      - name: Focused Chromium regression
+        working-directory: frontend
+        run: npx playwright test tests/saved-search-reorder.spec.ts --project=chromium
+      - name: Commit validated patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/components/AppShell.svelte frontend/tests/saved-search-reorder.spec.ts
+          git diff --cached --check
+          git commit -m "fix(webui): animate saved-search drag reflow [saved-search-animation-applied]"
+          git push origin HEAD:fix/264-saved-search-drag-animation
