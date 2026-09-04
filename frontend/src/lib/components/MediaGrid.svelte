@@ -7,7 +7,7 @@
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import type { Snippet } from 'svelte';
   import { virtualGrid, virtualGridStartRow, virtualMediaLayout } from '$lib/state/ui';
-  import { runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { effectiveGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -35,17 +35,18 @@
   let paneScrollY = $state(0);
   let gridTop = $state(0);
   let pixelRatio = $state(1);
-  const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, $runtimeConfig.gridSize));
-  const tileVirtual = $derived(virtualMediaLayout(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, $runtimeConfig.gridSize));
   const tileMode = $derived($runtimeConfig.gridType === 'tile');
   const fitMode = $derived($runtimeConfig.gridType === 'fit');
+  const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));
+  const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, layoutGridSize));
+  const tileVirtual = $derived(virtualMediaLayout(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, layoutGridSize));
 
   onMount(() => { pixelRatio = Math.max(1, window.devicePixelRatio || 1); });
 
   function handleScroll() {
     const nextScrollY = mainHost?.scrollTop ?? 0;
     if (tileMode) {
-      const stride = Math.max(96, Math.floor($runtimeConfig.gridSize * 0.75));
+      const stride = Math.max(96, Math.floor(layoutGridSize * 0.75));
       if (Math.floor(Math.max(0, nextScrollY - gridTop) / stride) === Math.floor(Math.max(0, paneScrollY - gridTop) / stride)) return;
       paneScrollY = nextScrollY;
       return;
