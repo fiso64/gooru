@@ -1,0 +1,41 @@
+name: Repair #316 check failure
+
+on:
+  push:
+    branches:
+      - fix/316-latest-wins-viewer
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/316-latest-wins-viewer
+      - name: Fix nullable neighbor props and remove repair workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          s = p.read_text()
+          replacements = {
+              'preloadPrev={previewNeighbor(library.activeFile, files, -1)}': 'preloadPrev={previewNeighbor(library.activeFile, files, -1) ?? undefined}',
+              'preloadNext={previewNeighbor(library.activeFile, files, 1)}': 'preloadNext={previewNeighbor(library.activeFile, files, 1) ?? undefined}',
+          }
+          for old, new in replacements.items():
+              if old not in s:
+                  raise SystemExit(f'missing expected text: {old}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          git config user.name 'Gooru Maintainer'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git rm .github/workflows/repair-316.yml
+          git add frontend/src/lib/components/AuthenticatedApp.svelte
+          git commit -m 'fix(webui): normalize optional viewer neighbors'
+          git push origin HEAD:fix/316-latest-wins-viewer
