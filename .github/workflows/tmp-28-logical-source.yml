@@ -19,13 +19,13 @@ jobs:
           cache: true
       - name: Gofmt
         run: |
-          bad=$(gofmt -l internal/filesource internal/hashing internal/scanning gooru/gooru.go cmd/gooru/cmd/database_storage.go)
+          bad=$(gofmt -l $(git ls-files '*.go'))
           if [ -n "$bad" ]; then
             echo "::error::gofmt required: $bad"
             exit 1
           fi
       - name: Focused tests
-        run: go test ./internal/filesource ./internal/hashing ./internal/scanning ./gooru ./cmd/gooru/cmd
+        run: go test ./internal/filesource ./internal/hashing ./internal/scanning ./internal/serve ./gooru ./cmd/gooru/cmd
       - name: Full tests
         run: go test ./...
       - name: Build
