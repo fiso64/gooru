@@ -6,7 +6,7 @@
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import type { Snippet } from 'svelte';
-  import { virtualGrid, virtualGridStartRow, virtualMediaLayout } from '$lib/state/ui';
+  import { virtualGrid, virtualGridStartRow, virtualMediaGeometry, virtualMediaWindow } from '$lib/state/ui';
   import { effectiveGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';
   import type { FileItem } from '$lib/api/types';
 
@@ -39,7 +39,8 @@
   const fitMode = $derived($runtimeConfig.gridType === 'fit');
   const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));
   const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, layoutGridSize));
-  const tileVirtual = $derived(virtualMediaLayout(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, layoutGridSize));
+  const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, totalCount || files.length, retainedStartIndex, layoutGridSize));
+  const tileVirtual = $derived(virtualMediaWindow(tileGeometry, paneHeight, paneScrollY, gridTop, layoutGridSize));
 
   onMount(() => { pixelRatio = Math.max(1, window.devicePixelRatio || 1); });
 
