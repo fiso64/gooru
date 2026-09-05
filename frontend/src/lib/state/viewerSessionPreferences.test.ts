@@ -47,7 +47,8 @@ describe('viewer session preferences', () => {
     expect(readViewerSessionPreferences(defaults, storage)).toEqual({
       preferOriginal: false,
       rotation: 270,
-      fitMode: 'actual'
+      fitMode: 'actual',
+      scaling: 'smooth'
     });
   });
 
@@ -88,7 +89,8 @@ describe('viewer session preferences', () => {
     expect(readViewerSessionPreferences(defaults, storage)).toEqual({
       preferOriginal: false,
       rotation: 180,
-      fitMode: 'actual'
+      fitMode: 'actual',
+      scaling: 'smooth'
     });
   });
 });
