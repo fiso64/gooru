@@ -95,7 +95,7 @@ export interface UploadVariables {
   onProgress?: (progress: number) => void;
 }
 
-export function createUploadMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+export function createUploadMutation(getCSRFToken: () => string) {
   return createMutation<Job | UploadImportResponse, Error, UploadVariables>(() => ({
     mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, onProgress }) =>
       new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress, {
@@ -105,13 +105,14 @@ export function createUploadMutation(getCSRFToken: () => string, queryClient: Qu
         queueLastTimeMs,
         queueIndex: [queueIndex],
         queueTotal: [queueTotal]
-      }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['files'] }),
-        queryClient.invalidateQueries({ queryKey: ['jobs'] }),
-        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
-      ]);
-    }
+      })
   }));
+}
+
+export async function refreshUploadQueries(queryClient: QueryClient) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['files'] }),
+    queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+    queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
+  ]);
 }

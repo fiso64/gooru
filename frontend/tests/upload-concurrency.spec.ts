@@ -26,7 +26,7 @@ function uploadResult(name: string) {
   };
 }
 
-async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBatchRequest?: (ids: string[]) => void) {
+async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBatchRequest?: (ids: string[]) => void, onLibraryRefresh?: (kind: 'jobs' | 'tags') => void) {
   let loggedIn = false;
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -42,7 +42,7 @@ async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBat
     contentType: 'application/json',
     body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
   }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/jobs', async (route) => { onLibraryRefresh?.('jobs'); await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }); });
   await page.route('**/api/v1/jobs?**', async (route) => {
     const ids = new URL(route.request().url()).searchParams.getAll('id');
     onBatchRequest?.(ids);
@@ -56,7 +56,7 @@ async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBat
     contentType: 'application/json',
     body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] })
   }));
-  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => { onLibraryRefresh?.('tags'); await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }); });
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/jobs/job-*', async (route) => {
     const id = route.request().url().split('/').at(-1) ?? '';
@@ -152,9 +152,14 @@ test('browser keeps at most four upload requests in flight and updates each row 
   expect(statusBatchRequests).toBe(0);
 });
 
-test('large completed WebUI uploads do not wait for timer-driven job-status batches', async ({ page }) => {
+test('large completed WebUI uploads coalesce cache refresh and do not wait for timer-driven job-status batches', async ({ page }) => {
   let statusBatchRequests = 0;
-  await mockApp(page, 'completed', () => statusBatchRequests += 1);
+  let jobsListRequests = 0;
+  let tagsRequests = 0;
+  await mockApp(page, 'completed', () => statusBatchRequests += 1, (kind) => {
+    if (kind === 'jobs') jobsListRequests += 1;
+    else tagsRequests += 1;
+  });
 
   let requestCount = 0;
   await page.route('**/api/v1/uploads', async (route) => {
@@ -171,6 +176,8 @@ test('large completed WebUI uploads do not wait for timer-driven job-status batc
       buffer: Buffer.from(`batch-${index + 1}`)
     }))
   );
+  const jobsBeforeUpload = jobsListRequests;
+  const tagsBeforeUpload = tagsRequests;
   await page.getByRole('button', { name: /Upload 130 files/ }).click();
 
   await expect.poll(() => requestCount).toBe(total);
@@ -179,4 +186,6 @@ test('large completed WebUI uploads do not wait for timer-driven job-status batc
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(30, { timeout: 5000 });
 
   expect(statusBatchRequests).toBe(0);
+  await expect.poll(() => jobsListRequests - jobsBeforeUpload).toBe(1);
+  await expect.poll(() => tagsRequests - tagsBeforeUpload).toBe(1);
 });
