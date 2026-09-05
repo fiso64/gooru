@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
@@ -52,7 +52,7 @@
   const initialViewerPreferences = readViewerSessionPreferences({
     preferOriginal: false,
     rotation: 0,
-    fitMode: initialFitMode
+    fitMode: untrack(() => initialFitMode)
   });
 
   let stageElement = $state<HTMLDivElement | undefined>();
