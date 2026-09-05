@@ -1,6 +1,7 @@
 package scanning
 
 import (
+	"io/fs"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -39,7 +40,7 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *ha
 		walkWg.Add(1)
 		go func(d string) {
 			defer walkWg.Done()
-			_ = filepath.WalkDir(d, func(path string, de interface{ IsDir() bool }, err error) error {
+			_ = filepath.WalkDir(d, func(path string, de fs.DirEntry, err error) error {
 				if err != nil {
 					return nil // Skip files we can't access.
 				}
