@@ -1,6 +1,7 @@
 const STORAGE_PREFIX = 'gooru.preference.v1.';
 
-type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+type ReadWriteStorage = Pick<Storage, 'getItem' | 'setItem'>;
+type MutableStorage = ReadWriteStorage & Pick<Storage, 'removeItem'>;
 
 export const browserPersistenceRegistry = {
   commonTagsCollapsed: { scope: 'local', key: 'common-tags.collapsed' },
@@ -16,7 +17,7 @@ type PersistenceKeyForScope<Scope extends PersistenceRegistration['scope']> = Ex
 export type BrowserLocalPreferenceKey = PersistenceKeyForScope<'local'>;
 export type BrowserSessionPreferenceKey = PersistenceKeyForScope<'session'>;
 
-function browserLocalStorage(): StorageLike | undefined {
+function browserLocalStorage(): MutableStorage | undefined {
   if (typeof window === 'undefined') return undefined;
   try {
     return window.localStorage;
@@ -25,7 +26,7 @@ function browserLocalStorage(): StorageLike | undefined {
   }
 }
 
-function browserSessionStorage(): StorageLike | undefined {
+function browserSessionStorage(): ReadWriteStorage | undefined {
   if (typeof window === 'undefined') return undefined;
   try {
     return window.sessionStorage;
@@ -42,7 +43,7 @@ export function readBrowserPreference<T>(
   key: BrowserLocalPreferenceKey,
   fallback: T,
   isValid: (value: unknown) => value is T,
-  storage: StorageLike | undefined = browserLocalStorage()
+  storage: ReadWriteStorage | undefined = browserLocalStorage()
 ): T {
   return readStoredJSON(localStorageKey(key), fallback, isValid, storage);
 }
@@ -50,14 +51,14 @@ export function readBrowserPreference<T>(
 export function writeBrowserPreference<T>(
   key: BrowserLocalPreferenceKey,
   value: T,
-  storage: StorageLike | undefined = browserLocalStorage()
+  storage: ReadWriteStorage | undefined = browserLocalStorage()
 ): boolean {
   return writeStoredJSON(localStorageKey(key), value, storage);
 }
 
 export function clearBrowserPreference(
   key: BrowserLocalPreferenceKey,
-  storage: StorageLike | undefined = browserLocalStorage()
+  storage: MutableStorage | undefined = browserLocalStorage()
 ): boolean {
   return clearStoredValue(localStorageKey(key), storage);
 }
@@ -66,7 +67,7 @@ export function readBrowserSessionPreference<T>(
   key: BrowserSessionPreferenceKey,
   fallback: T,
   isValid: (value: unknown) => value is T,
-  storage: StorageLike | undefined = browserSessionStorage()
+  storage: ReadWriteStorage | undefined = browserSessionStorage()
 ): T {
   return readStoredJSON(key, fallback, isValid, storage);
 }
@@ -74,7 +75,7 @@ export function readBrowserSessionPreference<T>(
 export function writeBrowserSessionPreference<T>(
   key: BrowserSessionPreferenceKey,
   value: T,
-  storage: StorageLike | undefined = browserSessionStorage()
+  storage: ReadWriteStorage | undefined = browserSessionStorage()
 ): boolean {
   return writeStoredJSON(key, value, storage);
 }
@@ -83,7 +84,7 @@ function readStoredJSON<T>(
   key: string,
   fallback: T,
   isValid: (value: unknown) => value is T,
-  storage: StorageLike | undefined
+  storage: ReadWriteStorage | undefined
 ): T {
   if (!storage) return fallback;
   try {
@@ -96,7 +97,7 @@ function readStoredJSON<T>(
   }
 }
 
-function writeStoredJSON<T>(key: string, value: T, storage: StorageLike | undefined): boolean {
+function writeStoredJSON<T>(key: string, value: T, storage: ReadWriteStorage | undefined): boolean {
   if (!storage) return false;
   try {
     storage.setItem(key, JSON.stringify(value));
@@ -106,7 +107,7 @@ function writeStoredJSON<T>(key: string, value: T, storage: StorageLike | undefi
   }
 }
 
-function clearStoredValue(key: string, storage: StorageLike | undefined): boolean {
+function clearStoredValue(key: string, storage: MutableStorage | undefined): boolean {
   if (!storage) return false;
   try {
     storage.removeItem(key);
