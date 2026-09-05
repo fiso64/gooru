@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/query-core';
-import { filesQueryOptions, pageLimit, pageTokenOffset, retainedFilePages } from './files';
+import { filesQueryOptions, pageLimit, pageTokenOffset } from './files';
 
 describe('files query options', () => {
   it('keeps loaded pages coherent and only requests facets for the first page', async () => {
@@ -22,7 +22,9 @@ describe('files query options', () => {
     const signal = new AbortController().signal;
     const client = new QueryClient();
 
-    expect(options.maxPages).toBe(retainedFilePages);
+    // Infinite scrolling virtualizes rendered media independently. Query-level page eviction
+    // would mutate the logical prefix under the viewport and can repack already-visible tiles.
+    expect('maxPages' in options).toBe(false);
     await options.queryFn({ client, pageParam: '', signal, queryKey: options.queryKey, direction: 'forward', meta: undefined });
     await options.queryFn({ client, pageParam: 'next-page', signal, queryKey: options.queryKey, direction: 'forward', meta: undefined });
 
