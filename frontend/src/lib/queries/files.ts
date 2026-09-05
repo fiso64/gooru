@@ -6,7 +6,6 @@ import type { QueryClient } from '@tanstack/query-core';
 import type { InfiniteData, QueryFunctionContext } from '@tanstack/query-core';
 
 export const pageLimit = 60;
-export const retainedFilePages = 8;
 export type FileSort = 'added' | 'modified' | 'name' | 'size' | 'kind';
 export type SortOrder = 'asc' | 'desc';
 
@@ -116,7 +115,9 @@ export function filesQueryOptions(
       }),
     getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined,
     getPreviousPageParam: (firstPage: FileListResponse) => firstPage.previous_page_token || undefined,
-    maxPages: retainedFilePages,
+    // Keep fetched logical pages stable. Rendering is independently virtualized, so evicting
+    // query pages saves little DOM work but changes the logical prefix under the viewport and
+    // can repack already-visible grid items as the user scrolls.
     placeholderData: (previousData: InfiniteData<FileListResponse, string> | undefined) => previousData
   };
 }
