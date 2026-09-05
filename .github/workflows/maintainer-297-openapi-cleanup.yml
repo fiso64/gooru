@@ -1,0 +1,44 @@
+name: Repair protected search API contract
+
+on:
+  push:
+    branches:
+      - fix/28-protected-browser-privacy
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Remove phantom endpoint and regenerate API types
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+          start = text.index('  /search/suggestions/private:\n')
+          end = text.index('  /tags/namespaces:\n', start)
+          p.write_text(text[:start] + text[end:])
+          PY
+          cd frontend
+          npm ci --prefer-offline --no-audit
+          npm run generate:api
+          cd ..
+          ! grep -R 'search/suggestions/private' docs/openapi.yaml frontend/src/lib/api/openapi.ts
+          rm .github/workflows/maintainer-297-openapi-cleanup.yml
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add docs/openapi.yaml frontend/src/lib/api/openapi.ts .github/workflows/maintainer-297-openapi-cleanup.yml
+          git commit -m "fix: remove phantom protected search endpoint"
+          git push
