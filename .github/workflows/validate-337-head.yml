@@ -1,0 +1,52 @@
+name: Validate 337 Head
+
+on:
+  push:
+    branches:
+      - fix/311-pagination-overflow
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Validate backend
+        run: |
+          set -euxo pipefail
+          go test ./...
+          go build ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          set -euxo pipefail
+          npm ci
+          npm run check
+          npm run test:unit
+          npm run build
+      - name: Validate focused browser regressions
+        working-directory: frontend
+        run: |
+          set -euxo pipefail
+          npx playwright test e2e/paged-library.spec.ts e2e/upload-large-batch.spec.ts --project=chromium
+      - name: Remove one-shot validation workflow
+        if: success()
+        run: |
+          set -euxo pipefail
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/validate-337-head.yml
+          git commit -m "chore: remove pagination validation workflow"
+          git push
