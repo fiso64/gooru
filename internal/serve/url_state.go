@@ -25,6 +25,7 @@ const (
 var (
 	errInvalidURLStateToken = errors.New("invalid URL state token")
 	errExpiredURLStateToken = errors.New("expired URL state token")
+	errURLStateTooLarge     = errors.New("URL state is too large")
 )
 
 type browserURLState struct {
@@ -80,7 +81,7 @@ func (c *urlStateCodec) seal(state browserURLState, userID string) (string, erro
 	ciphertext := c.aead.Seal(nil, nonce, payload, []byte(opaqueURLStatePurpose))
 	token := base64.RawURLEncoding.EncodeToString(append(nonce, ciphertext...))
 	if len(token) > maxOpaqueURLStateToken {
-		return "", errInvalidURLStateToken
+		return "", errURLStateTooLarge
 	}
 	return token, nil
 }
@@ -139,8 +140,12 @@ func (s *Server) handleUIState(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		token, err := s.urlState.seal(state, requestURLStateUserID(r))
+		if errors.Is(err, errURLStateTooLarge) {
+			writeError(w, http.StatusBadRequest, "url_state_too_large", "URL state is too large to protect", nil)
+			return
+		}
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "url_state_failed", "URL state is too large to protect", nil)
+			writeError(w, http.StatusInternalServerError, "url_state_failed", "failed to protect URL state", nil)
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]string{"token": token})
