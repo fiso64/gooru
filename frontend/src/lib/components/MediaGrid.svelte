@@ -13,7 +13,8 @@
   let {
     sessionActive, isLoading, isError, error, files, retainedStartIndex, totalCount, libraryCount,
     searchActive, selectedCount, isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,
-    isFetchingPreviousPage, loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,
+    isFetchingPreviousPage, pagedMode = false, pageNumber = 1, pageCount = 1,
+    loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,
     onToggleSelect, onSelectAll, onClearSelection, onBulkTag, onBulkUntag, onBulkUntrack,
     onBulkDelete, onLoadMore, onLoadPrevious, actions
   } = $props<{
@@ -21,11 +22,12 @@
     retainedStartIndex: number; totalCount: number; libraryCount: number; searchActive: boolean;
     selectedCount: number; isSelected: (fileID: string) => boolean; hasNextPage: boolean;
     isFetchingNextPage: boolean; hasPreviousPage: boolean; isFetchingPreviousPage: boolean;
+    pagedMode?: boolean; pageNumber?: number; pageCount?: number;
     loadMoreSentinel?: HTMLDivElement; onOpen: (file: FileItem, files: FileItem[]) => void;
     onToggleSelect: (file: FileItem, files: FileItem[], range: boolean) => void; onSelectAll: () => void;
     onClearSelection: () => void; onBulkTag: () => void; onBulkUntag: () => void;
-    onBulkUntrack: () => void; onBulkDelete: () => void; onLoadMore: () => void;
-    onLoadPrevious: () => void; actions?: Snippet;
+    onBulkUntrack: () => void; onBulkDelete: () => void; onLoadMore: () => void | Promise<void>;
+    onLoadPrevious: () => void | Promise<void>; actions?: Snippet;
   }>();
 
   let mainHost = $state<HTMLElement | undefined>();
@@ -38,8 +40,10 @@
   const tileMode = $derived($runtimeConfig.gridType === 'tile');
   const fitMode = $derived($runtimeConfig.gridType === 'fit');
   const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));
-  const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, layoutGridSize));
-  const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, totalCount || files.length, retainedStartIndex, layoutGridSize));
+  const virtualTotalCount = $derived(pagedMode ? files.length : totalCount || files.length);
+  const virtualRetainedStartIndex = $derived(pagedMode ? 0 : retainedStartIndex);
+  const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));
+  const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));
   const tileVirtual = $derived(virtualMediaWindow(tileGeometry, paneHeight, paneScrollY, gridTop, layoutGridSize));
 
   onMount(() => { pixelRatio = Math.max(1, window.devicePixelRatio || 1); });
@@ -90,7 +94,7 @@
   });
 
   $effect(() => {
-    if (tileMode) return;
+    if (pagedMode || tileMode) return;
     const node = loadMoreSentinel; const root = mainHost;
     if (!node || !root || !hasNextPage || isFetchingNextPage) return;
     const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) onLoadMore(); }, { root, rootMargin: '900px 0px' });
@@ -98,13 +102,22 @@
   });
 
   $effect(() => {
+    if (pagedMode) return;
     const needsPrevious = tileMode ? tileVirtual.needsPrevious : squareVirtual.needsPrevious;
     if (needsPrevious && hasPreviousPage && !isFetchingPreviousPage) onLoadPrevious();
   });
   $effect(() => {
+    if (pagedMode) return;
     const needsNext = tileMode ? tileVirtual.needsNext : squareVirtual.needsNext;
     if (needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();
   });
+
+  async function movePaged(direction: 'previous' | 'next') {
+    if (direction === 'previous') await onLoadPrevious();
+    else await onLoadMore();
+    mainHost?.scrollTo({ top: 0 });
+    paneScrollY = 0;
+  }
 </script>
 
 <svelte:window onkeydown={focusFirstGridItem} />
@@ -132,5 +145,13 @@
       </div>
     </div>
   {/if}
-  {#if hasNextPage || isFetchingNextPage}<div bind:this={loadMoreSentinel} class="infinite-sentinel" data-testid="infinite-scroll-sentinel"><span class="infinite-sentinel-content"><span class="infinite-sentinel-spinner" aria-hidden="true"></span>Loading more</span></div>{/if}
+  {#if pagedMode && files.length}
+    <nav class="library-pager" aria-label="Library pages" data-testid="library-pager">
+      <button class="g-btn g-btn-sm" type="button" disabled={!hasPreviousPage || isFetchingPreviousPage || isFetchingNextPage} onclick={() => void movePaged('previous')}>Previous</button>
+      <span>Page {pageNumber.toLocaleString()} of {pageCount.toLocaleString()}</span>
+      <button class="g-btn g-btn-sm" type="button" disabled={!hasNextPage || isFetchingNextPage || isFetchingPreviousPage} onclick={() => void movePaged('next')}>Next</button>
+    </nav>
+  {:else if !pagedMode && (hasNextPage || isFetchingNextPage)}
+    <div bind:this={loadMoreSentinel} class="infinite-sentinel" data-testid="infinite-scroll-sentinel"><span class="infinite-sentinel-content"><span class="infinite-sentinel-spinner" aria-hidden="true"></span>Loading more</span></div>
+  {/if}
 </main>
