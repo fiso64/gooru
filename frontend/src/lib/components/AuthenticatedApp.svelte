@@ -528,8 +528,8 @@
   {#if library.activeFile}
     <PreviewDialog
       file={library.activeFile}
-      preloadPrev={previewNeighbor(library.activeFile, files, -1)}
-      preloadNext={previewNeighbor(library.activeFile, files, 1)}
+      preloadPrev={previewNeighbor(library.activeFile, files, -1) ?? undefined}
+      preloadNext={previewNeighbor(library.activeFile, files, 1) ?? undefined}
       tagDraft={tagWorkflow.drafts[library.activeFile.id] ?? ''}
       tagBusy={Boolean(tagWorkflow.busy[library.activeFile.id])}
       tagError={tagWorkflow.errors[library.activeFile.id] ?? ''}
