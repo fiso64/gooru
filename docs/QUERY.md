@@ -93,8 +93,6 @@ For a value containing spaces, quote the complete token:
 "@filename_contains:summer trip"
 ```
 
-Filename matching is implemented using SQLite `LIKE` against stored paths and may be more scan-heavy than indexed tag queries on large libraries.
-
 ## Examples
 
 ```text
