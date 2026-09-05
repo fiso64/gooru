@@ -107,7 +107,7 @@ function mediaAspect(file: FileItem) {
   return Math.min(8, Math.max(0.125, width / height));
 }
 
-function tilePlacements(files: FileItem[], containerWidth: number, minCardWidth: number) {
+function tilePlacements(files: FileItem[], containerWidth: number, minCardWidth: number, flushIncompleteRow: boolean) {
   const innerWidth = Math.max(minCardWidth, containerWidth - gridPadding);
   const placements: VirtualMediaItem[] = [];
   let y = gridInset;
@@ -115,12 +115,23 @@ function tilePlacements(files: FileItem[], containerWidth: number, minCardWidth:
   while (start < files.length) {
     let end = start;
     let aspectSum = 0;
+    let rowFilled = false;
     while (end < files.length) {
       aspectSum += mediaAspect(files[end]);
       end += 1;
       const widthAtTarget = aspectSum * minCardWidth + Math.max(0, end - start - 1) * gridGap;
-      if (widthAtTarget >= innerWidth) break;
+      if (widthAtTarget >= innerWidth) {
+        rowFilled = true;
+        break;
+      }
     }
+
+    // Infinite-query pages are transport chunks, not layout boundaries. If the loaded
+    // sequence ends before this row has enough media to close naturally, keep the tail
+    // pending until another page arrives. Publishing it now would make its membership and
+    // geometry change on append, moving already-visible cards on every non-aligned page turn.
+    if (!rowFilled && !flushIncompleteRow) break;
+
     const count = end - start;
     const isLast = end === files.length;
     const availableWidth = innerWidth - Math.max(0, count - 1) * gridGap;
@@ -148,14 +159,15 @@ export function virtualMediaGeometry(
   retainedStartIndex = 0,
   minCardWidth = defaultGridSize
 ): VirtualMediaGeometry {
-  const local = tilePlacements(files, containerWidth, minCardWidth);
+  const retainedEndIndex = retainedStartIndex + files.length;
+  const local = tilePlacements(files, containerWidth, minCardWidth, retainedEndIndex >= totalItems);
   const retainedCount = Math.max(1, files.length);
   const localContentHeight = Math.max(1, local.height - gridPadding);
   return {
     placements: local.placements.map((item) => ({ ...item, index: retainedStartIndex + item.index })),
     localHeight: local.height,
     retainedStartIndex,
-    retainedEndIndex: retainedStartIndex + files.length,
+    retainedEndIndex,
     totalItems,
     heightPerItem: localContentHeight / retainedCount
   };
