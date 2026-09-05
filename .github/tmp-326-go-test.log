@@ -1,0 +1,5 @@
+# gooru.local/cmd/gooru/cmd [gooru.local/cmd/gooru/cmd.test]
+cmd/gooru/cmd/user_test.go:40:37: cannot use dbPath (variable of type string) as serve.Config value in argument to prepareAdminDatabase
+cmd/gooru/cmd/user_test.go:63:37: cannot use dbPath (variable of type string) as serve.Config value in argument to prepareAdminDatabase
+FAIL	gooru.local/cmd/gooru/cmd [build failed]
+FAIL
