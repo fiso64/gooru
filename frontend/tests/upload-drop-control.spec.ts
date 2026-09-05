@@ -60,7 +60,7 @@ test('drop behavior control lives inside the drop zone without nested interactiv
   await expect(behavior.getByRole('button', { name: 'Auto-upload' })).toHaveClass(/is-active/);
 });
 
-test('target defaults remain editable and explicit same-target selection reapplies them', async ({ page }) => {
+test('target picker dismisses on click-away and explicit same-target selection reapplies defaults', async ({ page }) => {
   await openUpload(page, [
     { id: 'inbox', name: 'Inbox', default_tags: ['project:inbox', 'source:upload'] },
     { id: 'archive', name: 'Archive', default_tags: ['project:archive'] },
@@ -69,15 +69,21 @@ test('target defaults remain editable and explicit same-target selection reappli
 
   const config = page.locator('.upload-config-card');
   const targetPicker = config.getByLabel('Upload target', { exact: true });
+  const inboxOption = config.getByRole('option', { name: 'Inbox' });
 
   await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toBeVisible();
   await expect(config.getByRole('button', { name: 'Remove source:upload' })).toBeVisible();
+
+  await targetPicker.click();
+  await expect(inboxOption).toBeVisible();
+  await page.locator('.page-header').click();
+  await expect(inboxOption).not.toBeVisible();
 
   await config.getByRole('button', { name: 'Remove project:inbox' }).click();
   await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toHaveCount(0);
 
   await targetPicker.click();
-  await config.getByRole('option', { name: 'Inbox' }).click();
+  await inboxOption.click();
   await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toBeVisible();
   await expect(config.getByRole('button', { name: 'Remove source:upload' })).toBeVisible();
 
