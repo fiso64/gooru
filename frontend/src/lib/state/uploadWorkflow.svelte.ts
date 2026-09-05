@@ -4,9 +4,9 @@ import {
   itemFromJob,
   itemFromResult,
   queuedItem,
+  replaceUploadItemInPlace,
   retargetStagedUploadItems,
   stagedUploadItems,
-  transitionUploadStatus,
   uploadingItem,
   uploadProgressItem,
   uploadSummaryFromCounts,
@@ -82,10 +82,7 @@ export function createUploadWorkflow() {
   }
 
   function replaceItem(index: number, next: UploadItem | undefined) {
-    const previous = items[index];
-    if (!previous || !next) return;
-    items[index] = next;
-    transitionUploadStatus(statusCounts, previous.status, next.status);
+    replaceUploadItemInPlace(items, index, next, statusCounts);
   }
 
   function refreshStatus() {
@@ -237,8 +234,8 @@ export function createUploadWorkflow() {
             // Retain async-response compatibility for callers/servers that
             // explicitly return jobs despite the WebUI's inline preference.
             trackedJobs = { ...trackedJobs, [response.id]: index };
-            const queued = items[index];
-            replaceItem(index, queued ? queuedItem([queued], 0)[0] : undefined);
+            const queuedItemState = items[index];
+            replaceItem(index, queuedItemState ? queuedItem([queuedItemState], 0)[0] : undefined);
             queued += 1;
           } else {
             const resultItem = items[index];
