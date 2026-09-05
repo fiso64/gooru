@@ -278,7 +278,7 @@ func uploadConflictPolicy(requested string, fallback string) (string, error) {
 	}
 	fallback = strings.TrimSpace(fallback)
 	if fallback == "" {
-		return "rename", nil
+		return "skip", nil
 	}
 	switch fallback {
 	case "skip", "rename", "replace", "error":
