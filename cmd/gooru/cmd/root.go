@@ -12,12 +12,14 @@ import (
 	"gooru.local/cmd/gooru/config"
 	"gooru.local/cmd/gooru/display"
 	"gooru.local/gooru"
+	"gooru.local/internal/serve"
 )
 
 var (
 	svc          *gooru.Client
 	verbose      bool
 	databasePath string
+	configPath   string
 	rootCmd      = &cobra.Command{
 		Use:   "gooru",
 		Short: "A blazing-fast local file tagger.",
@@ -28,12 +30,12 @@ var (
 				return nil
 			}
 
-			dbPath, err := configuredDatabasePath()
+			cfg, err := loadCommandConfig(serve.Overrides{DatabasePath: databasePath})
 			if err != nil {
-				return fmt.Errorf("failed to get db path: %w", err)
+				return err
 			}
 
-			svc, err = gooru.New(dbPath, verbose)
+			svc, err = openConfiguredClient(cfg, verbose)
 			if err != nil {
 				if err == gooru.ErrDBUninitialized {
 					return fmt.Errorf("database not initialized. Please run 'gooru init' first")
@@ -45,16 +47,40 @@ var (
 		PersistentPostRun: func(cmd *cobra.Command, args []string) {
 			if svc != nil {
 				svc.Close()
+				svc = nil
 			}
 		},
 	}
 )
 
+func defaultDatabasePath() (string, error) {
+	return config.GetDBPath()
+}
+
+func loadCommandConfig(overrides serve.Overrides) (serve.Config, error) {
+	dbPath, err := defaultDatabasePath()
+	if err != nil {
+		return serve.Config{}, fmt.Errorf("failed to get db path: %w", err)
+	}
+	cfg, err := serve.LoadConfig(configPath, dbPath, overrides)
+	if err != nil {
+		return serve.Config{}, err
+	}
+	return cfg, nil
+}
+
 func configuredDatabasePath() (string, error) {
 	if path := strings.TrimSpace(databasePath); path != "" {
 		return path, nil
 	}
-	return config.GetDBPath()
+	if strings.TrimSpace(configPath) == "" {
+		return defaultDatabasePath()
+	}
+	cfg, err := loadCommandConfig(serve.Overrides{})
+	if err != nil {
+		return "", err
+	}
+	return cfg.Database.Path, nil
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -83,4 +109,5 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "Enable verbose logging, including SQL statements")
 	rootCmd.PersistentFlags().StringVar(&databasePath, "database", "", "Path to the Gooru database (overrides the default and database.path in server config)")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to YAML server config (also configures protected storage for CLI commands)")
 }
