@@ -107,3 +107,30 @@ for (const scenario of [
     expect(afterBox!.y).toBeCloseTo(beforeBox!.y, 1);
   });
 }
+
+test('square virtual windows begin on the same row boundary the browser renders', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 820 });
+  await mockPagedApp(page, 'square', 200);
+  await page.goto('/');
+  await expect(page.getByText('600 files')).toBeVisible();
+
+  const main = page.locator('.main');
+  await main.evaluate((node) => { node.scrollTop = 2500; node.dispatchEvent(new Event('scroll')); });
+  await page.waitForTimeout(50);
+
+  const grid = page.locator('[data-testid="virtual-media-grid"]');
+  const first = grid.locator('.thumb-open').first();
+  const label = await first.getAttribute('aria-label');
+  expect(label).toBeTruthy();
+  const match = label!.match(/perf-(\d+)\.jpg$/);
+  expect(match).not.toBeNull();
+  const firstIndex = Number(match![1]);
+  expect(firstIndex).toBeGreaterThan(0);
+
+  const renderedColumns = await grid.evaluate((node) => {
+    const template = getComputedStyle(node).gridTemplateColumns.trim();
+    return template ? template.split(/\s+/).length : 0;
+  });
+  expect(renderedColumns).toBeGreaterThan(0);
+  expect(firstIndex % renderedColumns).toBe(0);
+});
