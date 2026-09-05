@@ -25,14 +25,10 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply protected search and opaque URL state
-        run: |
-          python3 .github/maintainer-28-private-search.py
-          python3 .github/maintainer-28-fix-import.py
-          python3 .github/maintainer-28-fix-openapi.py
-          python3 .github/maintainer-28-opaque-url.py
+      - name: Apply opaque protected URL state
+        run: python3 .github/maintainer-28-opaque-url.py
       - name: Format Go
-        run: gofmt -w internal/serve/browse.go internal/serve/search_saved.go internal/serve/server.go internal/serve/ui_config.go internal/serve/config.go internal/serve/protected_search_test.go internal/serve/url_state.go internal/serve/url_state_test.go
+        run: gofmt -w internal/serve/server.go internal/serve/ui_config.go internal/serve/config.go internal/serve/url_state.go internal/serve/url_state_test.go
       - name: Generate frontend API types
         working-directory: frontend
         run: |
