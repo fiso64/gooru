@@ -12,7 +12,7 @@
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
-  import { runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { runtimeConfig, type PaginationMode } from '$lib/stores/runtimeConfig';
   import { createFileCountQuery, createFileFacetsQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
@@ -29,6 +29,7 @@
   import { selectionRequest } from '$lib/state/selection';
   import { createTagWorkflow } from '$lib/state/tagWorkflow.svelte';
   import { createUploadWorkflow } from '$lib/state/uploadWorkflow.svelte';
+  import { browserPersistenceRegistry, readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
   import { appendSidebarKind, queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
@@ -36,8 +37,16 @@
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { Job, SavedSearchRequest } from '$lib/api/types';
 
+  const paginationPreferenceKey = browserPersistenceRegistry.libraryPaginationMode.key;
+  const isPaginationMode = (value: unknown): value is PaginationMode => value === 'infinite' || value === 'paged';
+  let paginationModeOverride = $state<PaginationMode | undefined>(
+    readBrowserPreference<PaginationMode | undefined>(paginationPreferenceKey, undefined, isPaginationMode)
+  );
+  const effectivePaginationMode = $derived(paginationModeOverride ?? $runtimeConfig.paginationMode);
+  const pagedMode = $derived(effectivePaginationMode === 'paged');
+
   const queryClient = useQueryClient();
-  const library = createLibraryWorkflow(undefined, $runtimeConfig.paginationMode === 'paged');
+  const library = createLibraryWorkflow(undefined, pagedMode);
   const searchDraft = library.searchDraft;
   const submittedSearch = library.submittedSearch;
   const suggestionSearch = library.suggestionSearch;
@@ -75,12 +84,12 @@
     () => authScope,
     () => library.route === 'library',
     () => $runtimeConfig.itemsPerPage,
-    () => $runtimeConfig.paginationMode === 'paged',
+    () => pagedMode,
     () => library.page - 1
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
-  const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && $runtimeConfig.paginationMode === 'paged');
+  const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && pagedMode);
   const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
   const comicLibraryCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => library.route === 'library');
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
@@ -100,11 +109,10 @@
   const updateSavedSearchMutation = createSavedSearchUpdateMutation(() => $authState.csrfToken, queryClient);
   const deleteSavedSearchMutation = createSavedSearchDeleteMutation(() => $authState.csrfToken, queryClient);
 
-  const pagedMode = $derived($runtimeConfig.paginationMode === 'paged');
   const loadedFiles = $derived(filesQuery.data?.pages.flatMap((page) => page.files) ?? []);
   const retainedStartIndex = $derived(pagedMode ? 0 : pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
-  const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.sort}|${library.order}`);
+  const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.sort}|${library.order}|${effectivePaginationMode}`);
   const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);
   const pagedPageCount = $derived(Math.max(1, Math.ceil(currentTotalCount / $runtimeConfig.itemsPerPage)));
   const selectedCount = $derived(library.selectedCount(currentTotalCount));
@@ -137,7 +145,7 @@
   });
 
   $effect(() => {
-    library.setPaginationEnabled($runtimeConfig.paginationMode === 'paged');
+    library.setPaginationEnabled(pagedMode);
     const itemsPerPage = $runtimeConfig.itemsPerPage;
     if (itemsPerPage === observedItemsPerPage) return;
     observedItemsPerPage = itemsPerPage;
@@ -418,6 +426,13 @@
     library.page = Math.min(Math.max(0, pageIndex), Math.max(0, pagedPageCount - 1)) + 1;
   }
 
+  function setPaginationMode(mode: PaginationMode) {
+    if (mode === effectivePaginationMode) return;
+    paginationModeOverride = mode;
+    writeBrowserPreference(paginationPreferenceKey, mode);
+    library.page = 1;
+  }
+
   async function logout() {
     try {
       await new ApiClient($authState.csrfToken).logout();
@@ -555,6 +570,18 @@
             <button class="g-btn g-btn-sm" type="button" title="Sort direction" onclick={() => (library.order = library.order === 'desc' ? 'asc' : 'desc')}>
               <Icon name="sort" size={14} /> {library.order === 'desc' ? 'Newest' : 'Oldest'}
             </button>
+            <div class="seg" aria-label="Library display mode">
+              {#each [{ value: 'infinite', label: 'Infinite' }, { value: 'paged', label: 'Paged' }] as option}
+                <button
+                  class:active={effectivePaginationMode === option.value}
+                  type="button"
+                  aria-pressed={effectivePaginationMode === option.value}
+                  onclick={() => setPaginationMode(option.value as PaginationMode)}
+                >
+                  {option.label}
+                </button>
+              {/each}
+            </div>
           </div>
         {/snippet}
       </MediaGrid>
