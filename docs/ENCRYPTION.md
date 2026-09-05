@@ -33,6 +33,8 @@ On non-Windows systems key files must not be readable or writable by group or ot
 
 Back the key up separately from the encrypted data. Losing the key means losing access to the encrypted database and Gooru-managed encrypted media. A backup of only the encrypted data is not sufficient recovery material.
 
+The configured key is a master recovery key. Gooru derives independent cryptographic subkeys for the database and managed media instead of using the same encryption key material for both domains. Existing protected installations created before this separation are migrated in place on startup while the original master key remains configured.
+
 ## What is encrypted
 
 When protected mode is enabled, Gooru encrypts:
@@ -66,7 +68,7 @@ Disabling opaque URL state deliberately restores self-contained readable URLs an
 The current supported lifecycle is intentionally fail-safe:
 
 - **Disabling encryption in place is not supported.** If an existing database is encrypted and `encryption.enabled` is turned off, configured commands fail with an explicit diagnostic rather than attempting to interpret encrypted data as plaintext.
-- **Automatic re-key/key rotation is not yet supported.** Replacing the configured key for an existing encrypted installation causes opening to fail. Restore the original key instead of repeatedly trying new keys against the live data.
+- **Automatic administrator-driven re-key/key rotation is not yet supported.** Replacing the configured master key for an existing encrypted installation causes opening to fail. Restore the original key instead of repeatedly trying new keys against the live data. Internal format upgrades may migrate ciphertext between Gooru-owned subkeys while preserving the configured master key.
 - **Intentional decrypt/migration back to plaintext is not yet provided as an administrative workflow.** Do not disable protected mode expecting an automatic reverse migration.
 - **Recovery requires the original key and recoverable encrypted data.** If the key is lost and no backup exists, Gooru has no recovery key or escrow mechanism that can decrypt the data.
 
