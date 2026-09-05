@@ -56,7 +56,7 @@
   const upload = createUploadWorkflow();
 
   let authScope = $state(0);
-  let observedCSRF = $state('');
+  let observedCSRF = $state($authState.csrfToken);
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let cancelRequestedJobID = $state('');
   let jobsDrawerOpen = $state(false);
