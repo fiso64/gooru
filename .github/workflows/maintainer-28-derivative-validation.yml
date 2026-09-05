@@ -18,7 +18,21 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Focused derivative tests
-        run: go test ./internal/serve -run 'Test(MemoryDerivativeStore|PersistentDerivativeStore|NewDerivativeStore|Media|Comic)' -count=1
+        id: focused
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          go test ./internal/serve -run 'Test(MemoryDerivativeStore|PersistentDerivativeStore|NewDerivativeStore|Media|Comic)' -count=1 2>&1 | tee focused-test.log
+      - name: Preserve focused diagnostics
+        if: steps.focused.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: focused-test-log
+          path: focused-test.log
+          if-no-files-found: error
+      - name: Fail after preserving diagnostics
+        if: steps.focused.outcome == 'failure'
+        run: exit 1
       - name: Full Go tests
         run: go test ./...
       - name: Build
