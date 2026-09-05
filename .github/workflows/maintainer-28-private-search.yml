@@ -25,51 +25,58 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply opaque protected URL state
-        shell: bash
+      - name: Apply reviewed source corrections
         run: |
-          set +e
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('.github/maintainer-28-opaque-url.py')
-          lines = p.read_text().splitlines()
-          needle = "''').write_text(Path('internal/serve/url_state_test.go')"
-          for i, line in enumerate(lines):
-              if needle in line:
-                  lines[i:i+1] = [
-                      "''')",
-                      "p = Path('internal/serve/url_state_test.go')",
-                      "p.write_text(p.read_text().replace('\\\"encoding/json\\\"', '\\\"encoding/json\\\"\\n    \\\"errors\\\"'))",
-                  ]
-                  break
-          else:
-              raise SystemExit('generator bug line not found')
-          p.write_text('\n'.join(lines) + '\n')
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing correction pattern in {path}: {old!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace('frontend/src/lib/state/libraryWorkflow.svelte.ts',
+                  "import { get, writable } from 'svelte/store';",
+                  "import { writable } from 'svelte/store';")
+          replace('internal/serve/config.go',
+                  '\tOpaqueURLState bool   `yaml:"opaque_url_state"`\n', '')
+          replace('internal/serve/config.go',
+                  '\t\tDatabase:   DatabaseConfig{Path: dbPath},\n\t\tEncryption: EncryptionConfig{OpaqueURLState: true},\n',
+                  '\t\tDatabase: DatabaseConfig{Path: dbPath},\n')
+          replace('internal/serve/url_state.go',
+                  'const opaqueURLStateTTL = 24 * time.Hour',
+                  'const opaqueURLStateTTL = 30 * 24 * time.Hour')
+          replace('internal/serve/url_state.go',
+                  'if !cfg.Encryption.Enabled || !cfg.Encryption.OpaqueURLState || len(cfg.Encryption.Key) == 0 {',
+                  'if !cfg.Encryption.Enabled || len(cfg.Encryption.Key) == 0 {')
+          replace('internal/serve/url_state_test.go',
+                  '\tcfg.Encryption.OpaqueURLState = true\n', '')
+          replace('internal/serve/ui_config.go',
+                  '\t\tOpaqueURLState:           s.cfg.Encryption.Enabled && s.cfg.Encryption.OpaqueURLState,',
+                  '\t\tOpaqueURLState:           s.cfg.Encryption.Enabled,')
+
+          p = Path('docs/CONFIG.md')
+          text = p.read_text()
+          text = '\n'.join(line for line in text.splitlines() if '`encryption.opaque_url_state`' not in line) + '\n'
+          text = text.replace('With `encryption.opaque_url_state` enabled (the default), library query/sort/preview state is also sealed into an authenticated `state` token before entering browser history. Tokens contain no readable query/file state, are bound to the authenticated user, expire after 24 hours, survive server restarts while the same encryption key remains configured, and become unreadable after key rotation. Reload and back/forward work while a token remains valid; long-lived bookmarks intentionally do not have the same permanence as readable URLs.',
+                              'Library query/sort/preview state is also sealed into an authenticated `state` token before entering browser history. Tokens contain no readable query/file state, are bound to the authenticated user, expire after 30 days, survive server restarts while the same encryption key remains configured, and become unreadable after key rotation. Reload, back/forward, and ordinary bookmarks work while a token remains valid.')
+          p.write_text(text)
           PY
-          python3 .github/maintainer-28-opaque-url.py > .github/maintainer-28-generator.log 2>&1
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add .github/maintainer-28-generator.log
-            git commit -m 'chore: capture protected URL generator failure'
-            git push
-            exit "$status"
-          fi
           rm -f .github/maintainer-28-generator.log
-      - name: Format Go
-        run: gofmt -w internal/serve/server.go internal/serve/ui_config.go internal/serve/config.go internal/serve/url_state.go internal/serve/url_state_test.go
+          gofmt -w internal/serve/config.go internal/serve/ui_config.go internal/serve/url_state.go internal/serve/url_state_test.go
       - name: Generate frontend API types
         working-directory: frontend
         run: |
           npm ci --prefer-offline --no-audit
           npm run generate:api
-      - name: Persist integrated source
+      - name: Persist corrected source
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add internal/serve frontend/src/lib docs
-          git commit -m 'fix: protect WebUI state with opaque URL tokens'
+          git add internal/serve frontend/src/lib docs .github/maintainer-28-generator.log
+          git commit -m 'fix: harden protected WebUI URL state'
           git push
       - name: Validate Go
         id: go_test
