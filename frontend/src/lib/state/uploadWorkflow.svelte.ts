@@ -68,6 +68,12 @@ export function createUploadWorkflow() {
     return Object.keys(trackedJobs).length > 0;
   }
 
+  function pollJobID() {
+    const ids = Object.keys(trackedJobs);
+    if (busy && ids.length < uploadJobStatusBatchSize) return '';
+    return ids.slice(0, uploadJobStatusBatchSize).join(',');
+  }
+
   function select(nextFiles: FileList | File[] | null) {
     const additions = nextFiles ? Array.from(nextFiles) : [];
     if (!additions.length) return;
@@ -271,7 +277,7 @@ export function createUploadWorkflow() {
     get busy() { return busy; },
     get cancelBusy() { return cancelBusy; },
     get status() { return status; },
-    get activeJobID() { return Object.keys(trackedJobs).slice(0, uploadJobStatusBatchSize).join(','); },
+    get activeJobID() { return pollJobID(); },
     get activeJobIDs() { return Object.keys(trackedJobs); },
     reset,
     clear,
