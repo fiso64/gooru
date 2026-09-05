@@ -1,0 +1,54 @@
+?   	gooru.local/cmd/gooru	[no test files]
+ok  	gooru.local/cmd/gooru/cmd	5.955s
+?   	gooru.local/cmd/gooru/config	[no test files]
+?   	gooru.local/cmd/gooru/display	[no test files]
+ok  	gooru.local/gooru	10.154s
+ok  	gooru.local/internal/config	0.002s
+ok  	gooru.local/internal/database	2.523s
+ok  	gooru.local/internal/encryptedfile	0.625s
+ok  	gooru.local/internal/encryptionkeys	0.001s
+ok  	gooru.local/internal/filesource	0.002s
+ok  	gooru.local/internal/hashing	0.005s
+ok  	gooru.local/internal/hashing/hashes	0.011s
+?   	gooru.local/internal/ipc	[no test files]
+ok  	gooru.local/internal/managedfile	0.003s
+ok  	gooru.local/internal/query	0.006s
+ok  	gooru.local/internal/relink	0.002s
+?   	gooru.local/internal/scanning	[no test files]
+ok  	gooru.local/internal/securekey	0.002s
+2026/09/05 19:47:06 INFO authentication succeeded
+2026/09/05 19:47:06 INFO http request completed method=POST route=/api/v1/auth/login status=200 duration=253.534588ms
+2026/09/05 19:47:06 INFO password change rejected
+2026/09/05 19:47:06 INFO http request completed method=POST route=/api/v1/auth/change-password status=401 duration=137.594539ms
+2026/09/05 19:47:13 INFO password changed
+2026/09/05 19:47:13 INFO http request completed method=POST route=/api/v1/auth/change-password status=200 duration=287.340394ms
+2026/09/05 19:47:19 INFO authentication succeeded
+2026/09/05 19:47:19 INFO http request completed method=POST route=/api/v1/auth/login status=200 duration=154.705267ms
+2026/09/05 19:47:19 INFO http request completed method=POST route=/api/v1/auth/logout status=403 duration=151.116µs
+2026/09/05 19:47:19 INFO session revoked
+2026/09/05 19:47:19 INFO http request completed method=POST route=/api/v1/auth/logout status=200 duration=21.08115ms
+2026/09/05 19:47:19 INFO http request completed method=POST route=/api/v1/auth/login status=404 duration=8.207µs
+2026/09/05 19:47:19 INFO http request completed method=POST route=/api/v1/auth/logout status=404 duration=5.181µs
+2026/09/05 19:47:19 INFO http request completed method=POST route=/api/v1/auth/change-password status=404 duration=4.472µs
+2026/09/05 19:47:19 INFO http request completed method=POST route=/api/v1/uploads status=403 duration=120.394µs
+2026/09/05 19:47:19 INFO http request completed method=POST route=/api/v1/files/tags status=403 duration=107.82µs
+2026/09/05 19:47:19 INFO http request completed method=DELETE route=/api/v1/files/ status=403 duration=85.3µs
+2026/09/05 19:47:20 INFO http request completed method=DELETE route=/api/v1/jobs status=403 duration=80.892µs
+2026/09/05 19:47:20 INFO http request completed method=DELETE route=/api/v1/jobs/ status=403 duration=82.724µs
+2026/09/05 19:47:21 WARN http request completed method=GET route=/api/v1/files status=500 duration=6.844µs
+2026/09/05 19:47:24 INFO http request completed method=DELETE route=/api/v1/files/ status=200 duration=7.804533ms
+2026/09/05 19:47:24 INFO http request completed method=DELETE route=/api/v1/files/ status=400 duration=13.989µs
+2026/09/05 19:47:25 INFO http request completed method=POST route=/api/v1/saved-searches status=201 duration=7.229024ms
+2026/09/05 19:47:25 INFO http request completed method=PUT route=/api/v1/saved-searches/ status=200 duration=7.499329ms
+2026/09/05 19:47:25 INFO http request completed method=PUT route=/api/v1/saved-searches/ status=404 duration=217.894µs
+2026/09/05 19:47:25 INFO http request completed method=DELETE route=/api/v1/saved-searches/ status=200 duration=5.115515ms
+--- FAIL: TestLoadConfigDefaultsAreValid (0.00s)
+    config_test.go:50: unexpected upload conflict policy default "skip"
+2026/09/05 19:47:26 INFO http request completed method=DELETE route=/api/v1/files status=200 duration=11.641484ms
+2026/09/05 19:47:27 INFO http request completed method=DELETE route=/api/v1/files/ status=200 duration=7.866474ms
+2026/09/05 19:47:27 INFO http request completed method=DELETE route=/api/v1/files/ status=409 duration=131.508µs
+FAIL
+FAIL	gooru.local/internal/serve	38.930s
+?   	gooru.local/scripts/devprofile	[no test files]
+?   	gooru.local/types	[no test files]
+FAIL
