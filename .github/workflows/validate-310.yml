@@ -1,0 +1,34 @@
+name: Validate 310 browser regression
+
+on:
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefer-offline --no-audit
+      - name: Run focused page-turn regression
+        shell: bash
+        run: |
+          CHROMIUM="$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)"
+          if [ -n "$CHROMIUM" ]; then
+            export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$CHROMIUM"
+          else
+            npx playwright install chromium
+          fi
+          npx playwright test tests/grid-page-turn-regression.spec.ts
