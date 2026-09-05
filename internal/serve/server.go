@@ -7,18 +7,21 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"gooru.local/internal/managedfile"
 )
 
 const metadataRequestBodyLimit int64 = 1 << 20
 
 type Server struct {
-	cfg      Config
-	jobs     *JobManager
-	library  Library
-	media    *MediaService
-	meta     MediaMetadataProvider
-	auth     *AuthStore
-	urlState *urlStateCodec
+	cfg          Config
+	jobs         *JobManager
+	library      Library
+	media        *MediaService
+	meta         MediaMetadataProvider
+	auth         *AuthStore
+	urlState     *urlStateCodec
+	managedFiles *managedfile.Writer
 }
 
 func NewServer(cfg Config) *Server {
@@ -31,13 +34,18 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
 	}
+	managedFiles := managedfile.NewFilesystem()
+	if cfg.Encryption.Enabled {
+		managedFiles = managedfile.NewProtected(cfg.Encryption.Key)
+	}
 	return &Server{
-		cfg:      cfg,
-		jobs:     NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
-		library:  library,
-		media:    NewMediaService(cfg),
-		meta:     metadata,
-		urlState: newURLStateCodec(cfg),
+		cfg:          cfg,
+		jobs:         NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
+		library:      library,
+		media:        NewMediaService(cfg),
+		meta:         metadata,
+		urlState:     newURLStateCodec(cfg),
+		managedFiles: managedFiles,
 	}
 }
 
