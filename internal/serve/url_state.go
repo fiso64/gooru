@@ -34,6 +34,7 @@ type browserURLState struct {
 	Sort   string `json:"sort,omitempty"`
 	Order  string `json:"order,omitempty"`
 	FileID string `json:"file_id,omitempty"`
+	Page   int    `json:"page,omitempty"`
 }
 
 type sealedBrowserURLState struct {

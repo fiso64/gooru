@@ -37,7 +37,7 @@
   import type { Job, SavedSearchRequest } from '$lib/api/types';
 
   const queryClient = useQueryClient();
-  const library = createLibraryWorkflow();
+  const library = createLibraryWorkflow(undefined, $runtimeConfig.paginationMode === 'paged');
   const searchDraft = library.searchDraft;
   const submittedSearch = library.submittedSearch;
   const suggestionSearch = library.suggestionSearch;
@@ -50,7 +50,7 @@
   let cancelRequestedJobID = $state('');
   let jobsDrawerOpen = $state(false);
   let nestedPreviewNavigation = $state(false);
-  let pagedPageIndex = $state(0);
+  let observedItemsPerPage = $state($runtimeConfig.itemsPerPage);
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -76,7 +76,7 @@
     () => library.route === 'library',
     () => $runtimeConfig.itemsPerPage,
     () => $runtimeConfig.paginationMode === 'paged',
-    () => pagedPageIndex
+    () => library.page - 1
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
@@ -136,18 +136,16 @@
   });
 
   $effect(() => {
-    authScope;
-    $submittedSearch;
-    library.sort;
-    library.order;
-    $runtimeConfig.paginationMode;
-    $runtimeConfig.itemsPerPage;
-    pagedPageIndex = 0;
+    library.setPaginationEnabled($runtimeConfig.paginationMode === 'paged');
+    const itemsPerPage = $runtimeConfig.itemsPerPage;
+    if (itemsPerPage === observedItemsPerPage) return;
+    observedItemsPerPage = itemsPerPage;
+    library.page = 1;
   });
 
   $effect(() => {
     fileMetadataKey;
-    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);
+    const metadataPage = filesQuery.data?.pages.find((page) => page.facets) ?? filesQuery.data?.pages[0];
     if (!metadataPage) return;
     fileMetadata = {
       total_count: metadataPage.total_count,
@@ -412,8 +410,9 @@
   }
 
   function selectFilesPage(pageIndex: number) {
-    if (!pagedMode || filesQuery.isFetching || pageIndex === pagedPageIndex) return;
-    pagedPageIndex = Math.min(Math.max(0, pageIndex), Math.max(0, pagedPageCount - 1));
+    const currentPageIndex = library.page - 1;
+    if (!pagedMode || filesQuery.isFetching || pageIndex === currentPageIndex) return;
+    library.page = Math.min(Math.max(0, pageIndex), Math.max(0, pagedPageCount - 1)) + 1;
   }
 
   async function logout() {
@@ -522,7 +521,7 @@
         hasPreviousPage={Boolean(filesQuery.hasPreviousPage)}
         isFetchingPreviousPage={Boolean(filesQuery.isFetchingPreviousPage)}
         {pagedMode}
-        pageNumber={pagedPageIndex + 1}
+        pageNumber={library.page}
         pageCount={pagedPageCount}
         bind:loadMoreSentinel
         onOpen={library.openPreview}

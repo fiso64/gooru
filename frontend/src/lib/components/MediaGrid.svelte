@@ -2,10 +2,10 @@
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import MediaCard from './MediaCard.svelte';
+  import PageNav from './PageNav.svelte';
   import { errorMessage } from '$lib/utils/format';
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
-  import { paginationWindow } from '$lib/utils/pagination';
   import type { Snippet } from 'svelte';
   import { virtualGrid, virtualGridStartRow, virtualMediaGeometry, virtualMediaWindow } from '$lib/state/ui';
   import { effectiveGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';
@@ -147,26 +147,14 @@
     </div>
   {/if}
   {#if pagedMode && files.length}
-    <nav class="library-pager" aria-label="Library pages" data-testid="library-pager">
-      <button class="g-btn g-btn-sm" type="button" aria-label="Previous page" disabled={pageNumber <= 1 || isFetchingPreviousPage || isFetchingNextPage} onclick={() => selectPagedPage(pageNumber - 1)}>Previous</button>
-      <div class="library-pager-pages">
-        {#each paginationWindow(pageNumber, pageCount) as control, index (`${control}-${index}`)}
-          {#if control === 'ellipsis'}
-            <span class="library-pager-ellipsis" aria-hidden="true">…</span>
-          {:else}
-            <button
-              class="g-btn g-btn-sm library-page-button"
-              type="button"
-              aria-label={`Page ${control}`}
-              aria-current={control === pageNumber ? 'page' : undefined}
-              disabled={isFetchingPreviousPage || isFetchingNextPage}
-              onclick={() => selectPagedPage(control)}
-            >{control.toLocaleString()}</button>
-          {/if}
-        {/each}
-      </div>
-      <button class="g-btn g-btn-sm" type="button" aria-label="Next page" disabled={pageNumber >= pageCount || isFetchingNextPage || isFetchingPreviousPage} onclick={() => selectPagedPage(pageNumber + 1)}>Next</button>
-    </nav>
+    <PageNav
+      page={pageNumber}
+      {pageCount}
+      ariaLabel="Library pages"
+      testId="library-pager"
+      disabled={isFetchingPreviousPage || isFetchingNextPage}
+      onPage={selectPagedPage}
+    />
   {:else if !pagedMode && (hasNextPage || isFetchingNextPage)}
     <div bind:this={loadMoreSentinel} class="infinite-sentinel" data-testid="infinite-scroll-sentinel"><span class="infinite-sentinel-content"><span class="infinite-sentinel-spinner" aria-hidden="true"></span>Loading more</span></div>
   {/if}

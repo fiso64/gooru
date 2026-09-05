@@ -28,7 +28,10 @@ import {
   type LibrarySelection
 } from '$lib/state/selection';
 
-export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRouteFromPath(window.location.pathname) : 'library') {
+export function createLibraryWorkflow(
+  initialRoute: AppRoute = browser ? appRouteFromPath(window.location.pathname) : 'library',
+  initialPaginationEnabled = false
+) {
   const opaqueURLState = browser && useOpaqueURLState();
   const initialOpaqueToken = opaqueURLState && initialRoute === 'library'
     ? (new URLSearchParams(window.location.search).get('state')?.trim() ?? '')
@@ -48,6 +51,8 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   let activeSavedSearch = $state('');
   let sort: FileSort = $state(initialLibraryState.sort);
   let order: SortOrder = $state(initialLibraryState.order);
+  let page = $state(initialLibraryState.page);
+  let paginationEnabled = $state(initialPaginationEnabled);
   let selection: LibrarySelection = $state(emptySelection());
   let selectionAnchorID = $state('');
   let activeFile = $state<FileItem | null>(null);
@@ -64,15 +69,31 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     submittedSearch.set(value);
   }
 
+  function normalizePage(value: number) {
+    return Number.isSafeInteger(value) && value > 0 ? value : 1;
+  }
+
   function stateKey(state: typeof defaultLibraryURLState) { return JSON.stringify(state); }
 
+  function currentHistoryState() {
+    return {
+      query: submittedQuery,
+      kind: '',
+      sort,
+      order,
+      fileID: pendingPreviewID,
+      page: paginationEnabled ? page : 1
+    };
+  }
+
   function applyRestoredLibraryState(nextLibraryState: typeof defaultLibraryURLState) {
-    restoredStateKey = stateKey(nextLibraryState);
+    restoredStateKey = stateKey({ ...nextLibraryState, page: paginationEnabled ? normalizePage(nextLibraryState.page) : 1 });
     const restoredQuery = nextLibraryState.kind ? replaceSidebarKind(nextLibraryState.query, `type:${nextLibraryState.kind}`) : nextLibraryState.query;
     activeKind = '';
     activeSavedSearch = '';
     sort = nextLibraryState.sort;
     order = nextLibraryState.order;
+    page = normalizePage(nextLibraryState.page);
     pendingPreviewID = nextLibraryState.fileID;
     searchDraft.set(restoredQuery);
     suggestionSearch.set(restoredQuery);
@@ -103,9 +124,9 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     return () => controller.abort();
   });
 
-  // Keep top-level navigation, durable library controls, and the active preview
-  // in one browser-history policy. Protected mode seals library state server-side
-  // before it enters the address bar; ordinary mode retains readable URLs.
+  // Keep top-level navigation, durable library controls, the selected page, and
+  // the active preview in one browser-history policy. Protected mode seals the
+  // entire library state server-side before it enters the address bar.
   $effect(() => {
     if (!browser || initialOpaqueRestorePending) return;
     const pathname = pathForAppRoute(route);
@@ -115,7 +136,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
       if (currentURL !== pathname) window.history.pushState(null, '', pathname);
       return;
     }
-    const state = { query: submittedQuery, kind: '', sort, order, fileID: pendingPreviewID };
+    const state = currentHistoryState();
     const key = stateKey(state);
     if (restoredStateKey === key) { restoredStateKey = ''; return; }
     if (!opaqueURLState) {
@@ -188,6 +209,10 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     return () => controller.abort();
   });
 
+  function resetPage() {
+    page = 1;
+  }
+
   function reset() {
     selection = emptySelection();
     selectionAnchorID = '';
@@ -197,6 +222,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
   function submitSearch() {
     setSubmittedSearch(get(searchDraft).trim());
+    resetPage();
     selection = emptySelection();
     selectionAnchorID = '';
     route = 'library';
@@ -223,6 +249,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     searchDraft.set(query);
     suggestionSearch.set(query);
     setSubmittedSearch(query);
+    resetPage();
     selection = emptySelection();
     selectionAnchorID = '';
     route = 'library';
@@ -242,6 +269,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     searchDraft.set(query);
     suggestionSearch.set(query);
     setSubmittedSearch(query);
+    resetPage();
     selection = emptySelection();
     selectionAnchorID = '';
     activeFile = null;
@@ -255,6 +283,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     searchDraft.set(query);
     suggestionSearch.set(query);
     setSubmittedSearch(query);
+    resetPage();
     selection = emptySelection();
     selectionAnchorID = '';
     route = 'library';
@@ -265,6 +294,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     searchDraft.set(next);
     suggestionSearch.set(next);
     setSubmittedSearch(next);
+    resetPage();
     selection = emptySelection();
     selectionAnchorID = '';
     route = 'library';
@@ -367,12 +397,15 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     get activeKind() { return activeKind; },
     get activeSavedSearch() { return activeSavedSearch; },
     get sort() { return sort; },
-    set sort(value: FileSort) { sort = value; },
+    set sort(value: FileSort) { sort = value; resetPage(); },
     get order() { return order; },
-    set order(value: SortOrder) { order = value; },
+    set order(value: SortOrder) { order = value; resetPage(); },
+    get page() { return page; },
+    set page(value: number) { page = normalizePage(value); },
     get selection() { return selection; },
     get activeFile() { return activeFile; },
     get pendingPreviewID() { return pendingPreviewID; },
+    setPaginationEnabled(value: boolean) { paginationEnabled = value; },
     reset,
     submitSearch,
     setSearch,

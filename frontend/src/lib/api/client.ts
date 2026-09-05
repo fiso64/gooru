@@ -127,7 +127,7 @@ export class ApiClient {
     const response = await fetch(`${absoluteBaseURL(this.baseURL)}/ui-state`, {
       method: 'POST', credentials: 'same-origin', signal,
       headers: { 'Content-Type': 'application/json', 'X-Gooru-CSRF': this.csrfToken },
-      body: JSON.stringify({ query: state.query, kind: state.kind, sort: state.sort, order: state.order, file_id: state.fileID })
+      body: JSON.stringify({ query: state.query, kind: state.kind, sort: state.sort, order: state.order, file_id: state.fileID, page: state.page })
     });
     const payload = await parseJSONResponse<{ token?: string }>(response);
     if (!response.ok || !payload?.token) throw apiErrorFromResponse(response, payload);
@@ -136,9 +136,9 @@ export class ApiClient {
 
   async resolveURLState(token: string, signal?: AbortSignal): Promise<LibraryURLState> {
     const response = await fetch(`${absoluteBaseURL(this.baseURL)}/ui-state/${encodeURIComponent(token)}`, { credentials: 'same-origin', signal });
-    const payload = await parseJSONResponse<{ query?: string; kind?: string; sort?: FileSort; order?: SortOrder; file_id?: string }>(response);
+    const payload = await parseJSONResponse<{ query?: string; kind?: string; sort?: FileSort; order?: SortOrder; file_id?: string; page?: number }>(response);
     if (!response.ok || !payload) throw apiErrorFromResponse(response, payload);
-    return { query: payload.query ?? '', kind: payload.kind ?? '', sort: payload.sort ?? 'added', order: payload.order ?? 'desc', fileID: payload.file_id ?? '' };
+    return { query: payload.query ?? '', kind: payload.kind ?? '', sort: payload.sort ?? 'added', order: payload.order ?? 'desc', fileID: payload.file_id ?? '', page: payload.page ?? 1 };
   }
 
   async getFile(id: string, signal?: AbortSignal): Promise<FileItem> {
