@@ -117,9 +117,10 @@ type FileInfo struct {
 
 // PageCursor identifies the last row from a keyset-paginated file page.
 type PageCursor struct {
-	Sort  string `json:"sort"`
-	Order string `json:"order"`
-	ID    int64  `json:"id"`
+	Sort   string `json:"sort"`
+	Order  string `json:"order"`
+	ID     int64  `json:"id"`
+	Offset int    `json:"offset,omitempty"`
 }
 
 // MediaMetadata holds cached media properties for a tracked file.

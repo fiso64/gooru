@@ -56,17 +56,21 @@ func ParsePage(limitRaw string, token string) (Page, error) {
 			if err := json.Unmarshal(decoded, &cursor); err != nil || cursor.ID <= 0 {
 				return Page{}, fmt.Errorf("page_token is invalid")
 			}
-			return Page{Limit: limit, Cursor: &cursor}, nil
+			return Page{Limit: limit, Offset: cursor.Offset, Cursor: &cursor}, nil
 		}
 	}
 	return Page{Limit: limit, Offset: offset}, nil
 }
 
 func CursorPageToken(sort string, order string, id int64) string {
-	if id <= 0 {
+	return CursorPageTokenAtOffset(sort, order, id, 0)
+}
+
+func CursorPageTokenAtOffset(sort string, order string, id int64, offset int) string {
+	if id <= 0 || offset < 0 {
 		return ""
 	}
-	payload, err := json.Marshal(types.PageCursor{Sort: sort, Order: order, ID: id})
+	payload, err := json.Marshal(types.PageCursor{Sort: sort, Order: order, ID: id, Offset: offset})
 	if err != nil {
 		return ""
 	}
@@ -80,7 +84,7 @@ func ValidateCursorForSort(cursor *types.PageCursor, sort string, order string) 
 	if cursor.Sort != sort || cursor.Order != order {
 		return nil, fmt.Errorf("page_token sort does not match request")
 	}
-	if cursor.ID <= 0 {
+	if cursor.ID <= 0 || cursor.Offset < 0 {
 		return nil, fmt.Errorf("page_token is invalid")
 	}
 	return cursor, nil
