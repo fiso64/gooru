@@ -3,9 +3,12 @@ package hashing
 import (
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"sync"
+	"time"
 
+	"gooru.local/internal/filesource"
 	"gooru.local/internal/hashing/hashes"
 	"gooru.local/types"
 )
@@ -14,10 +17,21 @@ import (
 type hashFunc func(string) (string, error)
 type hashSourceFunc func(io.ReaderAt, int64) (string, error)
 
-// Hasher is configured with a specific hashing strategy.
+// FileMetadata describes the logical plaintext file independent of its physical
+// storage representation.
+type FileMetadata struct {
+	Size    int64
+	ModTime time.Time
+}
+
+// Hasher is configured with a specific hashing strategy. When a logical source
+// resolver is installed, all path-based hashing is transparently routed through
+// the resolved plaintext source so callers cannot hash encrypted container
+// bytes by choosing the convenient path API.
 type Hasher struct {
 	hashFile   hashFunc
 	hashSource hashSourceFunc
+	sources    *filesource.Resolver
 }
 
 // NewHasher creates a new Hasher based on the provided strategy.
@@ -37,9 +51,43 @@ func NewHasher(strategy types.HashingStrategy) (*Hasher, error) {
 	return &Hasher{hashFile: hf, hashSource: hs}, nil
 }
 
-// HashFile computes a hash for the given file path using the configured strategy.
+// SetSourceResolver installs the storage policy used by HashFile and concurrent
+// path hashing. The resolver belongs to the composition layer, not feature code.
+func (h *Hasher) SetSourceResolver(resolver *filesource.Resolver) {
+	h.sources = resolver
+}
+
+// FileMetadata returns logical plaintext metadata for a path. With the ordinary
+// filesystem resolver this remains a stat-only operation so large scans do not
+// open every file simply to compare size and modification time.
+func (h *Hasher) FileMetadata(filePath string) (FileMetadata, error) {
+	if h.sources == nil {
+		info, err := os.Stat(filePath)
+		if err != nil {
+			return FileMetadata{}, err
+		}
+		return FileMetadata{Size: info.Size(), ModTime: info.ModTime()}, nil
+	}
+	metadata, err := h.sources.Metadata(filePath)
+	if err != nil {
+		return FileMetadata{}, err
+	}
+	return FileMetadata{Size: metadata.Size, ModTime: metadata.ModTime}, nil
+}
+
+// HashFile computes a hash for the logical file at filePath using the configured
+// strategy. With a source resolver configured, protected managed paths are
+// decrypted and hashed as plaintext rather than as their container bytes.
 func (h *Hasher) HashFile(filePath string) (string, error) {
-	return h.hashFile(filePath)
+	if h.sources == nil {
+		return h.hashFile(filePath)
+	}
+	source, err := h.sources.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer source.Close()
+	return h.hashSource(source, source.Size())
 }
 
 // HashSource computes the same content identity from an arbitrary random-access
@@ -102,7 +150,7 @@ func (h *Hasher) ConcurrentlyHashFiles(filesToHash []string) map[string]Result {
 func (h *Hasher) worker(wg *sync.WaitGroup, jobs <-chan Job, results chan<- Result) {
 	defer wg.Done()
 	for job := range jobs {
-		hash, err := h.hashFile(job.FilePath)
+		hash, err := h.HashFile(job.FilePath)
 		results <- Result{
 			FilePath: job.FilePath,
 			Hash:     hash,

@@ -49,21 +49,20 @@ func (c *Client) EditPath(oldPath, newPath string) error {
 		return fmt.Errorf("could not resolve old path '%s': %w", oldPath, err)
 	}
 
-	// For a manual edit, we must get the metadata from the new file on disk.
-	fsInfo, err := os.Stat(newPath)
-	if err != nil {
-		return fmt.Errorf("could not stat new path '%s': %w", newPath, err)
-	}
-
 	absNewPath, err := resolvePath(newPath)
 	if err != nil {
 		return fmt.Errorf("could not resolve new path '%s': %w", newPath, err)
 	}
 
+	logicalInfo, err := c.hasher.FileMetadata(absNewPath)
+	if err != nil {
+		return fmt.Errorf("could not inspect new path '%s': %w", newPath, err)
+	}
+
 	newInfo := types.LocationInfo{
 		Path:      absNewPath,
-		Size:      fsInfo.Size(),
-		ModTime:   fsInfo.ModTime().Unix(),
+		Size:      logicalInfo.Size,
+		ModTime:   logicalInfo.ModTime.Unix(),
 		Extension: filepath.Ext(absNewPath),
 	}
 
@@ -92,21 +91,28 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		return false, fmt.Errorf("could not build size-to-hash map for pre-check: %w", err)
 	}
 
-	// Get FS state for "relevant" files in the given directories.
-	fsPaths := make(map[string]struct{})
+	// Get FS state for "relevant" files in the given directories. Logical
+	// metadata is required here: encrypted containers have a different physical
+	// size from the plaintext identity stored in the database. Cache it during
+	// the walk so the common metadata-only path opens each source only once.
+	type logicalMetadata struct {
+		size    int64
+		modTime int64
+	}
+	fsPaths := make(map[string]logicalMetadata)
 	for _, dir := range absDirs {
 		walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil // Skip unreadable files/dirs
 			}
 			if !d.IsDir() {
-				info, err := d.Info()
+				info, err := c.hasher.FileMetadata(path)
 				if err != nil {
-					return nil // Skip files we can't stat
+					return nil // Skip files we can't inspect through the configured source policy
 				}
 				// The core filtering logic that must match Relink's scanner.
-				if _, ok := sizeToHashes[info.Size()]; ok {
-					fsPaths[path] = struct{}{}
+				if _, ok := sizeToHashes[info.Size]; ok {
+					fsPaths[path] = logicalMetadata{size: info.Size, modTime: info.ModTime.Unix()}
 				}
 			}
 			return nil
@@ -126,14 +132,9 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 
 	// 2. Slower check: Compare metadata for each file the DB expects to be there.
 	for path, dbInfo := range dbLocations {
-		// If a path from the DB is not in our filtered FS map, something is wrong (e.g., deleted).
-		if _, ok := fsPaths[path]; !ok {
-			return true, nil
-		}
-
-		fsInfo, err := os.Stat(path)
-		if err != nil {
-			return true, nil // File vanished between walk and stat, or permissions changed.
+		logicalInfo, ok := fsPaths[path]
+		if !ok {
+			return true, nil // A DB path is missing from the filtered filesystem set.
 		}
 
 		if alwaysVerifyHash {
@@ -144,10 +145,8 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 			if currentHash != dbInfo.Hash {
 				return true, nil // Content hash mismatch.
 			}
-		} else {
-			if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-				return true, nil // Metadata mismatch.
-			}
+		} else if logicalInfo.size != dbInfo.Size || logicalInfo.modTime != dbInfo.ModTime {
+			return true, nil // Metadata mismatch.
 		}
 	}
 
@@ -357,14 +356,14 @@ func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, st
 			continue
 		}
 
-		fsInfo, err := os.Stat(absPath)
+		logicalInfo, err := c.hasher.FileMetadata(absPath)
 		if err != nil {
-			progressCb(originalPath, 0, err) // e.g., file deleted from disk
+			progressCb(originalPath, 0, err) // e.g., file deleted or source policy rejected it
 			continue
 		}
 
-		// Path 1: Fast exit using heuristic if requested and metadata matches.
-		if useMetadataHeuristic && (fsInfo.Size() == dbInfo.Size && fsInfo.ModTime().Unix() == dbInfo.ModTime) {
+		// Path 1: Fast exit using heuristic if requested and logical metadata matches.
+		if useMetadataHeuristic && (logicalInfo.Size == dbInfo.Size && logicalInfo.ModTime.Unix() == dbInfo.ModTime) {
 			progressCb(originalPath, types.StatusSkippedUnchanged, nil)
 			continue
 		}
@@ -379,8 +378,8 @@ func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, st
 		// Case A: Content is identical.
 		if newHash == dbInfo.Hash {
 			// Check if only metadata changed.
-			if fsInfo.Size() != dbInfo.Size || fsInfo.ModTime().Unix() != dbInfo.ModTime {
-				err := c.store.UpdateLocationMetadata(absPath, fsInfo.Size(), fsInfo.ModTime().Unix())
+			if logicalInfo.Size != dbInfo.Size || logicalInfo.ModTime.Unix() != dbInfo.ModTime {
+				err := c.store.UpdateLocationMetadata(absPath, logicalInfo.Size, logicalInfo.ModTime.Unix())
 				if err != nil {
 					progressCb(originalPath, 0, fmt.Errorf("metadata update failed: %w", err))
 				} else {
@@ -397,8 +396,8 @@ func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, st
 		newLocInfo := types.LocationInfo{
 			Path:      absPath,
 			Hash:      newHash,
-			Size:      fsInfo.Size(),
-			ModTime:   fsInfo.ModTime().Unix(),
+			Size:      logicalInfo.Size,
+			ModTime:   logicalInfo.ModTime.Unix(),
 			Extension: filepath.Ext(absPath),
 		}
 		err = c.store.TransferTagsAndRehashLocation(dbInfo.Hash, newHash, newLocInfo)

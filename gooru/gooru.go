@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"gooru.local/internal/database"
+	"gooru.local/internal/filesource"
 	"gooru.local/internal/hashing"
 	"gooru.local/types"
 )
@@ -26,6 +27,23 @@ var (
 type DatabaseOpenOptions struct {
 	EncryptionKey    []byte
 	MigratePlaintext bool
+}
+
+// ContentSourceOptions controls how tracked file locations are opened as
+// logical media. Protected roots are fail-closed: their on-disk representation
+// must be an authenticated encrypted file and callers receive plaintext through
+// a random-access source instead of raw container bytes.
+type ContentSourceOptions struct {
+	EncryptionKey  []byte
+	ProtectedRoots []string
+}
+
+// OpenOptions groups storage capabilities needed by the core client. Keeping
+// database and content-source policy together at the composition boundary
+// prevents feature code from choosing plaintext/encrypted implementations.
+type OpenOptions struct {
+	Database DatabaseOpenOptions
+	Content  ContentSourceOptions
 }
 
 // Init creates and initializes a new Gooru database with a chosen hashing strategy.
@@ -67,20 +85,27 @@ func Init(dbPath string, strategy types.HashingStrategy, verbose bool) error {
 
 // Client encapsulates the core business logic.
 type Client struct {
-	store  *database.Store
-	hasher *hashing.Hasher
+	store   *database.Store
+	hasher  *hashing.Hasher
+	sources *filesource.Resolver
 }
 
-// New creates a new Client using the ordinary plaintext database path.
+// New creates a new Client using ordinary plaintext database and filesystem
+// storage policies.
 func New(dbPath string, verbose bool) (*Client, error) {
-	return NewWithDatabaseOptions(dbPath, verbose, DatabaseOpenOptions{})
+	return NewWithOptions(dbPath, verbose, OpenOptions{})
 }
 
-// NewWithDatabaseOptions creates a Client using the selected database storage
-// policy. Encrypted mode may explicitly migrate an existing plaintext database
-// before opening it; wrong-key/unknown encrypted files are never remigrated.
+// NewWithDatabaseOptions is retained for callers that only need a custom
+// database policy. Tracked file content remains ordinary filesystem content.
 func NewWithDatabaseOptions(dbPath string, verbose bool, options DatabaseOpenOptions) (*Client, error) {
-	store, err := openDatabaseStore(dbPath, verbose, options)
+	return NewWithOptions(dbPath, verbose, OpenOptions{Database: options})
+}
+
+// NewWithOptions creates a Client with database and logical content-source
+// policies resolved at the composition boundary.
+func NewWithOptions(dbPath string, verbose bool, options OpenOptions) (*Client, error) {
+	store, err := openDatabaseStore(dbPath, verbose, options.Database)
 	if err != nil {
 		// This can happen if the file doesn't exist.
 		if os.IsNotExist(err) {
@@ -132,7 +157,17 @@ func NewWithDatabaseOptions(dbPath string, verbose bool, options DatabaseOpenOpt
 		return nil, fmt.Errorf("failed to initialize hasher: %w", err)
 	}
 
-	return &Client{store: store, hasher: hasher}, nil
+	sources := filesource.NewFilesystem()
+	if len(options.Content.EncryptionKey) > 0 || len(options.Content.ProtectedRoots) > 0 {
+		sources, err = filesource.NewProtected(options.Content.EncryptionKey, options.Content.ProtectedRoots)
+		if err != nil {
+			store.Close()
+			return nil, fmt.Errorf("configure logical file sources: %w", err)
+		}
+	}
+	hasher.SetSourceResolver(sources)
+
+	return &Client{store: store, hasher: hasher, sources: sources}, nil
 }
 
 func openDatabaseStore(dbPath string, verbose bool, options DatabaseOpenOptions) (*database.Store, error) {
