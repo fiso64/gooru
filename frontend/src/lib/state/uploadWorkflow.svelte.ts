@@ -87,7 +87,7 @@ export function createUploadWorkflow() {
   function setTarget(value: string, defaultStrategy?: UploadAddedAtStrategy, defaultTags: string[] = [], explicitSelection = false) {
     const previousDefaults = new Set(managedDefaultTags);
     const nextDefaults = Array.from(new Set(defaultTags.map((tag) => tag.trim()).filter(Boolean)));
-    if (explicitSelection && nextDefaults.length > 0) {
+    if ((explicitSelection || value === targetID) && nextDefaults.length > 0) {
       tags = nextDefaults.join(' ');
     } else {
       const retained = parseTags(tags).filter((tag) => !previousDefaults.has(tag));
