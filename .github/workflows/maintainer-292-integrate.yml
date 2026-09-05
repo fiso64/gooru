@@ -17,14 +17,101 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-      - name: Integrate current develop for explicit overlap repair
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Restore both runtime config contracts and validate
         run: |
-          git fetch origin develop
-          if git merge-base --is-ancestor origin/develop HEAD; then
-            echo 'develop already integrated'
-            exit 0
-          fi
+          python3 - <<'PY'
+          from pathlib import Path
+
+          config = Path('internal/serve/config.go')
+          text = config.read_text()
+          text = text.replace(
+              'UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, GridType: DefaultGridType}',
+              'UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, GridType: DefaultGridType, ViewerFitMode: "fit_window", ViewerScaling: "smooth"}',
+              1,
+          )
+          grid_validation = '''\tcfg.UI.GridType = strings.ToLower(strings.TrimSpace(cfg.UI.GridType))
+\tif cfg.UI.GridType == "" {
+\t\tcfg.UI.GridType = DefaultGridType
+\t}
+\tswitch cfg.UI.GridType {
+\tcase "square", "fit", "tile":
+\tdefault:
+\t\terrs = append(errs, errors.New("ui.grid_type must be one of: square, fit, tile"))
+\t}
+'''
+          viewer_validation = '''\tcfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))
+\tif cfg.UI.ViewerFitMode == "" {
+\t\tcfg.UI.ViewerFitMode = "fit_window"
+\t}
+\tif cfg.UI.ViewerFitMode == "screen" {
+\t\tcfg.UI.ViewerFitMode = "fit_window"
+\t}
+\tswitch cfg.UI.ViewerFitMode {
+\tcase "fit_window", "fit_down_only", "original_size_if_fit", "actual":
+\tdefault:
+\t\terrs = append(errs, errors.New("ui.viewer_fit_mode must be one of: fit_window, fit_down_only, original_size_if_fit, actual"))
+\t}
+\tcfg.UI.ViewerScaling = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerScaling))
+\tif cfg.UI.ViewerScaling == "" {
+\t\tcfg.UI.ViewerScaling = "smooth"
+\t}
+\tswitch cfg.UI.ViewerScaling {
+\tcase "smooth", "nearest":
+\tdefault:
+\t\terrs = append(errs, errors.New("ui.viewer_scaling must be one of: smooth, nearest"))
+\t}
+'''
+          if viewer_validation not in text:
+              if grid_validation not in text:
+                  raise SystemExit('grid validation anchor missing')
+              text = text.replace(grid_validation, grid_validation + viewer_validation, 1)
+          config.write_text(text)
+
+          docs = Path('docs/CONFIG.md')
+          text = docs.read_text()
+          grid_row = '| `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |\n'
+          viewer_rows = '| `ui.viewer_fit_mode` | `fit_window` | Default viewer fit policy: `fit_window` (legacy alias `screen`) fills the available viewer bounds, `fit_down_only` never enlarges smaller media, `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down, and `actual` starts at original size. Press `V` to cycle the fit policies for the current browser session. |\n| `ui.viewer_scaling` | `smooth` | Browser-side image interpolation: `smooth` uses normal browser filtering and `nearest` uses nearest-neighbor/pixelated scaling. Press `S` in the viewer to toggle it for the current browser session. |\n'
+          if '`ui.viewer_fit_mode`' not in text:
+              if grid_row not in text:
+                  raise SystemExit('grid docs anchor missing')
+              text = text.replace(grid_row, grid_row + viewer_rows, 1)
+          sample = '  grid_size: 200\n  grid_type: square\n'
+          if '  viewer_fit_mode: fit_window\n' not in text:
+              if sample not in text:
+                  raise SystemExit('ui sample anchor missing')
+              text = text.replace(sample, sample + '  viewer_fit_mode: fit_window\n  viewer_scaling: smooth\n', 1)
+          docs.write_text(text)
+          PY
+          grep -q 'GridType' internal/serve/config.go
+          grep -q 'ViewerScaling' internal/serve/config.go
+          grep -q 'gridType' frontend/src/lib/components/AppPage.svelte
+          grep -q 'viewerScaling' frontend/src/lib/components/AppPage.svelte
+          grep -q 'gridType' frontend/src/lib/stores/runtimeConfig.ts
+          grep -q 'viewerScaling' frontend/src/lib/stores/runtimeConfig.ts
+          grep -q 'ui.grid_type' docs/CONFIG.md
+          grep -q 'ui.viewer_scaling' docs/CONFIG.md
+          go test ./...
+          cd frontend
+          npm ci --prefer-offline --no-audit
+          npm run check
+          npm run test:unit
+          chromium=$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)
+          test -n "$chromium"
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$chromium" npx playwright test tests/grid-layout-config.spec.ts tests/viewer-fit-mode.spec.ts --project=chromium
+          cd ..
           git config user.name 'autonomous-maintainer'
           git config user.email 'autonomous-maintainer@users.noreply.github.com'
-          git merge --no-edit -X ours origin/develop
-          git push origin HEAD:${{ github.ref_name }}
+          if ! git diff --quiet -- internal/serve/config.go docs/CONFIG.md; then
+            git add internal/serve/config.go docs/CONFIG.md
+            git commit -m 'fix(ui): preserve viewer config across grid integration'
+            git push origin HEAD:${{ github.ref_name }}
+          fi
