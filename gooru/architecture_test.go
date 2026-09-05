@@ -4,7 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,16 +17,7 @@ import (
 // resolver, and database implementation selection belongs to the composition
 // layer in gooru.go.
 func TestCoreStorageArchitectureBoundaries(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
+	for _, name := range trackedCoreProductionFiles(t) {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
 		if err != nil {
@@ -82,4 +73,30 @@ func TestCoreStorageArchitectureBoundaries(t *testing.T) {
 			return true
 		})
 	}
+}
+
+func trackedCoreProductionFiles(t *testing.T) []string {
+	t.Helper()
+
+	rootOut, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		t.Fatalf("locate repository root: %v", err)
+	}
+	root := strings.TrimSpace(string(rootOut))
+	out, err := exec.Command("git", "-C", root, "ls-files", "--", "gooru/*.go").Output()
+	if err != nil {
+		t.Fatalf("list tracked core files: %v", err)
+	}
+
+	var files []string
+	for _, tracked := range strings.Fields(string(out)) {
+		if filepath.Dir(tracked) != "gooru" || strings.HasSuffix(tracked, "_test.go") {
+			continue
+		}
+		files = append(files, filepath.Join(root, tracked))
+	}
+	if len(files) == 0 {
+		t.Fatal("no tracked production core files found")
+	}
+	return files
 }
