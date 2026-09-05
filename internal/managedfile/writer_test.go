@@ -52,6 +52,21 @@ func TestWriterProtectedPersistsOnlyEncryptedContainer(t *testing.T) {
 	require.Equal(t, payload, decoded)
 }
 
+func TestWriterProtectedInvalidKeyFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "invalid-key.bin")
+	file, err := os.Create(path)
+	require.NoError(t, err)
+
+	payload := []byte("must never be written as plaintext")
+	_, err = NewProtected(nil).Write(file, bytes.NewReader(payload), 0)
+	require.Error(t, err)
+	require.NoError(t, file.Close())
+
+	stored, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(stored), string(payload))
+}
+
 func TestWriterLimitUsesLogicalPlaintextSize(t *testing.T) {
 	for _, protected := range []bool{false, true} {
 		t.Run(map[bool]string{false: "filesystem", true: "protected"}[protected], func(t *testing.T) {
