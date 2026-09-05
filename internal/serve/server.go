@@ -91,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 
 	var h http.Handler = mux
 	h = securityHeadersMiddleware(h)
+	h = protectedAPICacheMiddleware(s.cfg.Encryption.Enabled, h)
 	h = requestSizeMiddleware(s.cfg.Server.MaxRequestBodyBytes, h)
 	h = corsMiddleware(s.cfg.Server.CORSOrigins, h)
 	h = requestLoggingMiddleware(h)
