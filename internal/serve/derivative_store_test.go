@@ -8,7 +8,6 @@ import (
 )
 
 func TestMemoryDerivativeStoreNeverPersistsPlaintext(t *testing.T) {
-	root := t.TempDir()
 	store := memoryDerivativeStore{}
 	artifact, err := store.GetOrGenerate(filepath.Join("aa", "cover.jpg"), func(dst io.Writer) error {
 		_, err := io.WriteString(dst, "sensitive derivative")
@@ -27,13 +26,6 @@ func TestMemoryDerivativeStoreNeverPersistsPlaintext(t *testing.T) {
 	}
 	if string(data) != "sensitive derivative" {
 		t.Fatalf("unexpected artifact contents: %q", data)
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("memory derivative store unexpectedly persisted files: %v", entries)
 	}
 }
 
@@ -84,7 +76,7 @@ func TestPersistentDerivativeStoreGeneratesOnceAndReusesArtifact(t *testing.T) {
 }
 
 func TestNewDerivativeStoreChoosesPersistenceAtCompositionBoundary(t *testing.T) {
-	plainCfg := DefaultConfig()
+	plainCfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	plainCfg.Media.CacheDir = t.TempDir()
 	plain, err := newDerivativeStore(plainCfg)
 	if err != nil {
@@ -102,5 +94,31 @@ func TestNewDerivativeStoreChoosesPersistenceAtCompositionBoundary(t *testing.T)
 	}
 	if _, ok := protected.(memoryDerivativeStore); !ok {
 		t.Fatalf("protected store type = %T, want memoryDerivativeStore", protected)
+	}
+}
+
+func TestProtectedDerivativeStoreLeavesConfiguredCacheUntouched(t *testing.T) {
+	cacheDir := t.TempDir()
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Media.CacheDir = cacheDir
+	cfg.Encryption.Enabled = true
+	store, err := newDerivativeStore(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := store.GetOrGenerate(filepath.Join("ab", "cover.jpg"), func(dst io.Writer) error {
+		_, err := io.WriteString(dst, "sensitive derivative")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = artifact.Close()
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("protected derivative store persisted plaintext cache entries: %v", entries)
 	}
 }
