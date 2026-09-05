@@ -56,7 +56,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   let suggestionDebounce: ReturnType<typeof setTimeout> | undefined;
   let historyGeneration = 0;
   let restoredStateKey = opaqueURLState && !window.location.search ? stateKey(initialLibraryState) : '';
-  let initialOpaqueRestorePending = Boolean(initialOpaqueToken);
+  let initialOpaqueRestorePending = $state(Boolean(initialOpaqueToken));
 
   function setSubmittedSearch(value: string) {
     submittedQuery = value;
@@ -87,13 +87,17 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
 
   $effect(() => {
     if (!browser || !initialOpaqueRestorePending || !initialOpaqueToken) return;
-    initialOpaqueRestorePending = false;
     const controller = new AbortController();
-    resolveOpaqueState(initialOpaqueToken, controller.signal).then(applyRestoredLibraryState).catch((error) => {
+    resolveOpaqueState(initialOpaqueToken, controller.signal).then((state) => {
+      if (controller.signal.aborted) return;
+      applyRestoredLibraryState(state);
+      initialOpaqueRestorePending = false;
+    }).catch((error) => {
       if (controller.signal.aborted) return;
       console.warn('Unable to restore protected library URL state', error);
       restoredStateKey = stateKey(defaultLibraryURLState);
       window.history.replaceState(null, '', pathForAppRoute('library'));
+      initialOpaqueRestorePending = false;
     });
     return () => controller.abort();
   });
