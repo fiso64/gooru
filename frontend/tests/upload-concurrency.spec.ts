@@ -42,14 +42,22 @@ async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBat
     contentType: 'application/json',
     body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
   }));
-  await page.route('**/api/v1/jobs', async (route) => { onLibraryRefresh?.('jobs'); await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }); });
+  await page.route('**/api/v1/jobs', async (route) => {
+    onLibraryRefresh?.('jobs');
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
+  });
   await page.route('**/api/v1/jobs?**', async (route) => {
     const ids = new URL(route.request().url()).searchParams.getAll('id');
-    onBatchRequest?.(ids);
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ items: ids.map((id) => jobResponse(id, uploadJobStatus)) })
-    });
+    if (ids.length) {
+      onBatchRequest?.(ids);
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ items: ids.map((id) => jobResponse(id, uploadJobStatus)) })
+      });
+      return;
+    }
+    onLibraryRefresh?.('jobs');
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
   });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({
@@ -152,7 +160,7 @@ test('browser keeps at most four upload requests in flight and updates each row 
   expect(statusBatchRequests).toBe(0);
 });
 
-test('large completed WebUI uploads coalesce cache refresh and do not wait for timer-driven job-status batches', async ({ page }) => {
+test('large completed WebUI uploads coalesce metadata refresh and do not wait for timer-driven job-status batches', async ({ page }) => {
   let statusBatchRequests = 0;
   let jobsListRequests = 0;
   let tagsRequests = 0;
@@ -186,6 +194,6 @@ test('large completed WebUI uploads coalesce cache refresh and do not wait for t
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(30, { timeout: 5000 });
 
   expect(statusBatchRequests).toBe(0);
-  await expect.poll(() => jobsListRequests - jobsBeforeUpload).toBe(0);
+  await expect.poll(() => jobsListRequests - jobsBeforeUpload).toBe(1);
   await expect.poll(() => tagsRequests - tagsBeforeUpload).toBe(1);
 });

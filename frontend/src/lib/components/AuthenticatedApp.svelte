@@ -39,6 +39,7 @@
   import type { Job, SavedSearchRequest } from '$lib/api/types';
 
   const paginationPreferenceKey = browserPersistenceRegistry.libraryPaginationMode.key;
+  const uploadMetadataRefreshIntervalMs = 3_000;
   const isPaginationMode = (value: unknown): value is PaginationMode => value === 'infinite' || value === 'paged';
   let paginationModeOverride = $state<PaginationMode | undefined>(
     readBrowserPreference<PaginationMode | undefined>(paginationPreferenceKey, undefined, isPaginationMode)
@@ -61,6 +62,11 @@
   let jobsDrawerOpen = $state(false);
   let nestedPreviewNavigation = $state(false);
   let observedItemsPerPage = $state($runtimeConfig.itemsPerPage);
+  let trackUploadResults = $state(false);
+  let uploadResultsFloor = $state(0);
+  let observedUploadResultQueryKey = $state('');
+  let uploadMetadataRefreshTimer: number | undefined;
+  let uploadMetadataRefreshPromise: Promise<number | undefined> | null = null;
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -93,6 +99,7 @@
   const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && pagedMode);
   const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
   const comicLibraryCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => library.route === 'library');
+  const uploadResultsCountQuery = createFileCountQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && trackUploadResults);
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
@@ -114,7 +121,10 @@
   const retainedStartIndex = $derived(pagedMode ? 0 : pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
   const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.sort}|${library.order}|${effectivePaginationMode}`);
+  const uploadResultQueryKey = $derived(`${authScope}|${$submittedSearch}`);
   const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);
+  const liveUploadResultCount = $derived(uploadResultsCountQuery.data?.total_count ?? currentTotalCount);
+  const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveUploadResultCount - Math.max(currentTotalCount, uploadResultsFloor)) : 0);
   const pagedPageCount = $derived(Math.max(1, Math.ceil(currentTotalCount / $runtimeConfig.itemsPerPage)));
   const selectedCount = $derived(library.selectedCount(currentTotalCount));
 
@@ -135,14 +145,25 @@
     tagWorkflow.reset();
     upload.reset();
     fileMetadata = null;
+    trackUploadResults = false;
+    uploadResultsFloor = 0;
     cancelRequestedJobID = '';
     jobsDrawerOpen = false;
+    stopUploadMetadataRefresh();
     closeActionDialog();
   });
 
   $effect(() => {
     fileMetadataKey;
     fileMetadata = null;
+  });
+
+  $effect(() => {
+    const key = uploadResultQueryKey;
+    if (key === observedUploadResultQueryKey) return;
+    observedUploadResultQueryKey = key;
+    trackUploadResults = upload.busy;
+    uploadResultsFloor = currentTotalCount;
   });
 
   $effect(() => {
@@ -170,7 +191,13 @@
     const job = uploadJobQuery.data;
     if (!job) return;
     const result = upload.applyJob(job);
-    if (result.changedFiles) void refreshUploadQueries(queryClient);
+    if (result.changedFiles) {
+      if (!trackUploadResults) {
+        trackUploadResults = true;
+        uploadResultsFloor = currentTotalCount;
+      }
+      void refreshUploadMetadata(true);
+    }
     if (result.completed) void jobsQuery.refetch();
   });
 
@@ -325,15 +352,78 @@
     }
   }
 
+  function beginTrackingUploadResults() {
+    if (trackUploadResults) return;
+    trackUploadResults = true;
+    uploadResultsFloor = currentTotalCount;
+  }
+
+  async function refreshUploadMetadata(forceAfterCurrent = false) {
+    if (uploadMetadataRefreshPromise) {
+      const currentResult = await uploadMetadataRefreshPromise;
+      if (!forceAfterCurrent) return currentResult;
+    }
+
+    const run = (async () => {
+      let currentViewTotal: number | undefined;
+      const requests: Promise<unknown>[] = [
+        tagsQuery.refetch(),
+        kindFacetsQuery.refetch(),
+        comicCountQuery.refetch(),
+        comicLibraryCountQuery.refetch(),
+        jobsQuery.refetch()
+      ];
+      if (trackUploadResults) {
+        requests.push(uploadResultsCountQuery.refetch().then((result) => {
+          currentViewTotal = result.data?.total_count;
+        }));
+      }
+      await Promise.allSettled(requests);
+      return currentViewTotal;
+    })();
+
+    uploadMetadataRefreshPromise = run;
+    try {
+      return await run;
+    } finally {
+      if (uploadMetadataRefreshPromise === run) uploadMetadataRefreshPromise = null;
+    }
+  }
+
+  function startUploadMetadataRefresh() {
+    beginTrackingUploadResults();
+    if (uploadMetadataRefreshTimer) return;
+    uploadMetadataRefreshTimer = window.setInterval(() => void refreshUploadMetadata(), uploadMetadataRefreshIntervalMs);
+  }
+
+  function stopUploadMetadataRefresh() {
+    if (!uploadMetadataRefreshTimer) return;
+    window.clearInterval(uploadMetadataRefreshTimer);
+    uploadMetadataRefreshTimer = undefined;
+  }
+
   async function submitUpload() {
+    if (!upload.files.length || upload.busy || upload.activeJobIDs.length) return;
     cancelRequestedJobID = '';
+    startUploadMetadataRefresh();
     try {
       const result = await upload.submit((variables) => uploadMutation.mutateAsync(variables));
-      if (result.changedFiles) await refreshUploadQueries(queryClient);
+      if (result.changedFiles) beginTrackingUploadResults();
       if (result.queued) void jobsQuery.refetch();
     } finally {
+      stopUploadMetadataRefresh();
+      const finalTotal = await refreshUploadMetadata(true);
+      if (!upload.busy && finalTotal != null && finalTotal <= Math.max(currentTotalCount, uploadResultsFloor)) {
+        trackUploadResults = false;
+      }
       uploadMutation.reset();
     }
+  }
+
+  async function refreshUploadResults() {
+    uploadResultsFloor = Math.max(uploadResultsFloor, liveUploadResultCount);
+    if (!upload.busy) trackUploadResults = false;
+    await refreshUploadQueries(queryClient);
   }
 
   function selectUploadTarget(value: string) {
@@ -460,7 +550,7 @@
   <AppShell
     username={$authState.user.username}
     route={library.route}
-    libraryCount={page?.library_count ?? tagsQuery.data?.library_count ?? files.length}
+    libraryCount={tagsQuery.data?.library_count ?? page?.library_count ?? files.length}
     tagCount={tagsQuery.data?.tags.length ?? 0}
     jobsActiveCount={jobsQuery.data?.active_count ?? activeJobs.length}
     jobs={jobsQuery.data?.items ?? []}
@@ -516,7 +606,7 @@
     {:else if library.route === 'tags'}
       <TagsView
         tags={tagsQuery.data?.tags ?? []}
-        libraryCount={page?.library_count ?? tagsQuery.data?.library_count ?? files.length}
+        libraryCount={tagsQuery.data?.library_count ?? page?.library_count ?? files.length}
         loading={tagsQuery.isLoading}
         error={tagsQuery.isError ? errorMessage(tagsQuery.error) : ''}
         onTag={library.runTagSearch}
@@ -559,6 +649,11 @@
       >
         {#snippet actions()}
           <div class="library-head-actions">
+            {#if newUploadResultCount > 0}
+              <button class="g-btn g-btn-sm" type="button" data-testid="refresh-upload-results" onclick={() => void refreshUploadResults()}>
+                {newUploadResultCount.toLocaleString()} new item{newUploadResultCount === 1 ? '' : 's'} · Refresh results
+              </button>
+            {/if}
             <div class="seg" aria-label="Library display mode">
               {#each [{ value: 'infinite', label: 'Infinite' }, { value: 'paged', label: 'Paged' }] as option}
                 <button
