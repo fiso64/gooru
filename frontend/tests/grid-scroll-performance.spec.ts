@@ -6,11 +6,11 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-const aspectDimensions = [[1600, 900], [600, 900], [900, 900], [900, 1400], [1200, 800], [700, 1200]] as const;
+const aspectDimensions = [[1600, 900], [600, 900], [900, 900], [900, 1400], [1200, 800], [700, 1200], [2000, 800]] as const;
 
-function fileItem(index: number) {
+function fileItem(index: number, dimensions: readonly [number, number] = aspectDimensions[index % aspectDimensions.length]) {
   const id = `file-${index}`;
-  const [width, height] = aspectDimensions[index % aspectDimensions.length];
+  const [width, height] = dimensions;
   return {
     id, content_id: `hash-${id}`, name: `perf-${index}.jpg`, safe_display_path: `library/${id}.jpg`,
     size: 2048, modified_time: '2026-05-20T00:00:00Z', media_type: index % 2 ? 'video/mp4' : 'image/jpeg', media_kind: index % 2 ? 'video' : 'photo',
@@ -20,6 +20,16 @@ function fileItem(index: number) {
       content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download`
     }
   };
+}
+
+function pagedFileItem(index: number) {
+  const pageIndex = index % 60;
+  // Force every transport page to end with an unmistakably incomplete tile row regardless
+  // of the exact browser grid width. Item 56 is wide enough to close the preceding row;
+  // items 57-59 are tiny portraits whose combined target width cannot close a normal row.
+  if (pageIndex === 56) return fileItem(index, [8000, 1000]);
+  if (pageIndex >= 57) return fileItem(index, [125, 1000]);
+  return fileItem(index);
 }
 
 async function mockApp(page: Page, gridType: 'square' | 'tile' = 'square') {
@@ -42,7 +52,7 @@ async function mockApp(page: Page, gridType: 'square' | 'tile' = 'square') {
 }
 
 async function mockPagedTileApp(page: Page) {
-  const allFiles = Array.from({ length: 1200 }, (_, index) => fileItem(index));
+  const allFiles = Array.from({ length: 1200 }, (_, index) => pagedFileItem(index));
   const requestedOffsets: number[] = [];
   let releaseNinthPage!: () => void;
   const ninthPageGate = new Promise<void>((resolve) => { releaseNinthPage = resolve; });
@@ -106,37 +116,39 @@ test('large library keeps a bounded DOM while sustained scrolling advances the v
   expect(await cards.count()).toBeLessThan(100);
 });
 
-test('tile geometry stays stable when pagination crosses the former eviction boundary', async ({ page }) => {
+test('tile pagination keeps committed rows stable and does not publish an incomplete page tail', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 900 });
   const paging = await mockPagedTileApp(page);
   await page.goto('/');
   await expect(page.getByText('1,200 files')).toBeVisible();
   const main = page.locator('.main');
-  const target = page.getByRole('button', { name: 'Preview perf-460.jpg' });
+  const grid = page.getByTestId('virtual-media-grid');
+  const stableTarget = grid.getByRole('button', { name: 'Preview perf-476.jpg' });
+  const pendingTarget = grid.getByRole('button', { name: 'Preview perf-478.jpg' });
 
-  // Advance near the end of the eighth loaded page. The ninth request is held so we can
-  // measure an already-visible card on both sides of the data update that used to evict
-  // the first page and repack all retained tile rows.
+  // Page eight deliberately ends with items 477-479 unable to close a tile row. Hold page
+  // nine so the transport-page tail is observable: it must remain unpublished rather than
+  // being rendered as a temporary final row and then repacked on append.
   for (let scrollTop = 3000; scrollTop <= 50_000 && !paging.requestedOffsets.includes(480); scrollTop += 2000) {
     await main.evaluate((node, y) => { node.scrollTop = y; node.dispatchEvent(new Event('scroll')); }, scrollTop);
     await page.waitForTimeout(30);
   }
   await expect.poll(() => paging.requestedOffsets.includes(480)).toBe(true);
 
-  // Keep the pending request in flight while finding the target in the loaded eighth page.
-  for (let scrollTop = 20_000; scrollTop <= 50_000 && await target.count() === 0; scrollTop += 500) {
+  for (let scrollTop = 20_000; scrollTop <= 50_000 && await stableTarget.count() === 0; scrollTop += 500) {
     await main.evaluate((node, y) => { node.scrollTop = y; node.dispatchEvent(new Event('scroll')); }, scrollTop);
     await page.waitForTimeout(16);
   }
-  await expect(target).toBeVisible();
-  const before = await target.boundingBox();
+  await expect(stableTarget).toBeVisible();
+  await expect(pendingTarget).toHaveCount(0);
+  const before = await stableTarget.boundingBox();
   expect(before).not.toBeNull();
 
   paging.releaseNinthPage();
   await expect.poll(() => paging.requestedOffsets.filter((offset) => offset === 480).length).toBe(1);
   await page.waitForTimeout(100);
-  await expect(target).toBeVisible();
-  const after = await target.boundingBox();
+  await expect(stableTarget).toBeVisible();
+  const after = await stableTarget.boundingBox();
   expect(after).not.toBeNull();
   expect(after!.x).toBeCloseTo(before!.x, 1);
   expect(after!.y).toBeCloseTo(before!.y, 1);
