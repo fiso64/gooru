@@ -3,8 +3,10 @@ package hashing
 import (
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"sync"
+	"time"
 
 	"gooru.local/internal/filesource"
 	"gooru.local/internal/hashing/hashes"
@@ -14,6 +16,13 @@ import (
 // hashFunc is a function signature for any file hashing implementation.
 type hashFunc func(string) (string, error)
 type hashSourceFunc func(io.ReaderAt, int64) (string, error)
+
+// FileMetadata describes the logical plaintext file independent of its physical
+// storage representation.
+type FileMetadata struct {
+	Size    int64
+	ModTime time.Time
+}
 
 // Hasher is configured with a specific hashing strategy. When a logical source
 // resolver is installed, all path-based hashing is transparently routed through
@@ -46,6 +55,23 @@ func NewHasher(strategy types.HashingStrategy) (*Hasher, error) {
 // path hashing. The resolver belongs to the composition layer, not feature code.
 func (h *Hasher) SetSourceResolver(resolver *filesource.Resolver) {
 	h.sources = resolver
+}
+
+// FileMetadata returns logical plaintext metadata for a path.
+func (h *Hasher) FileMetadata(filePath string) (FileMetadata, error) {
+	if h.sources == nil {
+		info, err := os.Stat(filePath)
+		if err != nil {
+			return FileMetadata{}, err
+		}
+		return FileMetadata{Size: info.Size(), ModTime: info.ModTime()}, nil
+	}
+	source, err := h.sources.Open(filePath)
+	if err != nil {
+		return FileMetadata{}, err
+	}
+	defer source.Close()
+	return FileMetadata{Size: source.Size(), ModTime: source.ModTime()}, nil
 }
 
 // HashFile computes a hash for the logical file at filePath using the configured
