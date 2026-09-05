@@ -42,7 +42,7 @@ type urlStateCodec struct {
 }
 
 func newURLStateCodec(cfg Config) *urlStateCodec {
-	if !cfg.Encryption.Enabled || len(cfg.Encryption.Key) == 0 {
+	if !cfg.Encryption.Enabled || !cfg.Encryption.OpaqueURLState || len(cfg.Encryption.Key) == 0 {
 		return nil
 	}
 	mac := hmac.New(sha256.New, cfg.Encryption.Key)

@@ -39,6 +39,7 @@ The default database path is normally `~/.config/gooru/gooru.db`. `gooru serve -
 | --- | --- | --- |
 | `encryption.enabled` | `false` | Enable protected storage for the SQLite database, managed uploads, and generated media derivatives. Requires exactly one encryption-key source described below. |
 | `encryption.key_file` | empty | Path to a regular file containing a base64-encoded 256-bit key. On non-Windows systems the file must not be readable or writable by group or others. Mutually exclusive with the environment key sources below. |
+| `encryption.opaque_url_state` | `true` | In protected mode, keep library query/sort/preview state out of browser-visible URLs by using encrypted, opaque state tokens. Disable only when deliberately accepting readable/self-contained URLs and their browser/proxy history leakage. |
 
 Encryption key **material** is never stored directly in YAML. When `encryption.enabled: true`, configure exactly one source: `encryption.key_file`, `GOORU_ENCRYPTION_KEY`, or `GOORU_ENCRYPTION_KEY_FILE`.
 
@@ -88,6 +89,8 @@ services.gooru.settings.encryption = {
 Keep the key backed up separately from the encrypted data. Starting protected mode without a valid key fails closed; using a different key cannot decrypt data encrypted with the original key.
 
 When protected mode starts, Gooru migrates its database and files registered under configured `uploads.targets` to encrypted storage before serving requests. Indexed media outside those managed upload roots is deliberately left unchanged because Gooru does not rewrite arbitrary external library files. New managed uploads and generated derivatives are encrypted while protected mode is enabled. Media responses that contain decrypted protected content use no-store cache policy to reduce plaintext traces in client/proxy caches.
+
+With `encryption.opaque_url_state` enabled (the default), protected-mode library query/sort/preview state is sealed into an authenticated `state` token before entering browser history. Tokens contain no readable query/file state, are bound to the authenticated user, expire after 30 days, survive server restarts while the same encryption key remains configured, and become unreadable after key rotation. Reload, back/forward, and bookmarks work while a token remains valid. Disable this option only if you deliberately prefer self-contained readable URLs and accept that arbitrary library/search state can then persist in browser history, copied URLs, and upstream request logs. The WebUI still sends free-form search expressions in POST request bodies while protected mode is enabled. HTTPS remains required to protect request and response contents in transit.
 
 
 ## `auth`
