@@ -1,0 +1,34 @@
+name: Validate 344 browser flow
+
+on:
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  paged-library-e2e:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefer-offline --no-audit
+      - name: Resolve Chromium
+        shell: bash
+        run: |
+          chromium="$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)"
+          if [ -n "$chromium" ]; then
+            echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$chromium" >> "$GITHUB_ENV"
+          else
+            npx playwright install chromium
+          fi
+      - run: npm run test:e2e -- paged-library.spec.ts
