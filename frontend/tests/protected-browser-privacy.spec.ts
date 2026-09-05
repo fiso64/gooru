@@ -73,8 +73,9 @@ async function commitSearchToken(page: Page, token: string) {
 }
 
 async function expectCommittedTokens(page: Page, expected: string[]) {
-  await expect(page.locator('.searchbar-pill')).toHaveCount(expected.length);
-  await expect.poll(() => page.locator('.searchbar-pill').allTextContents()).toEqual(expected);
+  const pills = page.locator('.searchbar-pill');
+  await expect(pills).toHaveCount(expected.length);
+  await expect.poll(async () => (await pills.allTextContents()).map((text) => text.trim())).toEqual(expected);
 }
 
 test('protected mode keeps free-form search out of request URLs and restores opaque browser history', async ({ page }) => {
