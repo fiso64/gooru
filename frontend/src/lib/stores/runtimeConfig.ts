@@ -21,10 +21,7 @@ export type RuntimeConfig = {
 };
 
 export function normalizeThumbnailSizes(values: number[]): number[] {
-  return values
-    .filter((value) => Number.isFinite(value) && value > 0)
-    .map((value) => Math.round(value))
-    .sort((a, b) => a - b);
+  return [...new Set(values.filter((value) => Number.isFinite(value) && value > 0).map((value) => Math.round(value)))].sort((a, b) => a - b);
 }
 
 export function normalizeGridType(value: string | undefined): GridType {
