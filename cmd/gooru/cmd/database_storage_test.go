@@ -75,17 +75,6 @@ func TestConfiguredClientMigratesLegacyMasterKeyDatabase(t *testing.T) {
 	if err := database.MigratePlaintextDatabase(path, master); err != nil {
 		t.Fatalf("create legacy master-key database: %v", err)
 	}
-	legacy, err := database.NewEncryptedStore(path, false, master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := legacy.SetFileCount(17); err != nil {
-		_ = legacy.Close()
-		t.Fatal(err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatal(err)
-	}
 
 	cfg := serve.DefaultConfig(path)
 	cfg.Encryption.Enabled = true
