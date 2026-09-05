@@ -6,7 +6,7 @@
   import { ApiClient } from '$lib/api/client';
   import { setOpaqueURLState, setProtectedReadTransport } from '$lib/api/privacy';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeThumbnailSizes, runtimeConfig, type GridType } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, runtimeConfig, type GridType } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
   import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
@@ -23,6 +23,8 @@
     grid_size?: number;
     grid_type?: string;
     thumbnail_sizes?: number[];
+    pagination_mode?: string;
+    items_per_page?: number;
     protected_mode?: boolean;
     opaque_url_state?: boolean;
   };
@@ -51,7 +53,9 @@
       viewerScaling: config.viewer_scaling ?? 'smooth',
       gridSize: runtimeGridSize,
       gridType: runtimeGridType,
-      thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? [])
+      thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? []),
+      paginationMode: normalizePaginationMode(config.pagination_mode),
+      itemsPerPage: normalizeItemsPerPage(config.items_per_page)
     });
     faviconHref = '/favicon.svg';
     if (!runtimeAccent) return;
