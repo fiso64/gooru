@@ -135,10 +135,11 @@ export function replaceUploadItemInPlace(
   next: UploadItem | undefined,
   counts: UploadStatusCounts
 ): void {
-  const previous = items[index];
-  if (!previous || !next) return;
-  items[index] = next;
-  transitionUploadStatus(counts, previous.status, next.status);
+  const current = items[index];
+  if (!current || !next) return;
+  const previousStatus = current.status;
+  Object.assign(current, next);
+  transitionUploadStatus(counts, previousStatus, next.status);
 }
 
 export function uploadSummaryFromCounts(counts: UploadStatusCounts): string {
