@@ -139,7 +139,6 @@ func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file
 	}
 	defer source.Close()
 	applyOriginalContentPolicy(w, file)
-	m.applyProtectedMediaCachePolicy(w)
 	http.ServeContent(w, r, filepath.Base(file.Path), source.modTime, source)
 }
 
@@ -222,15 +221,6 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 		w.Header().Set("Expires", "0")
 	}
 	http.ServeContent(w, r, artifact.Name, artifact.ModTime, artifact.Reader)
-}
-
-func (m *MediaService) applyProtectedMediaCachePolicy(w http.ResponseWriter) {
-	if !m.cfg.Encryption.Enabled {
-		return
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Expires", "0")
 }
 
 func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err error) {
