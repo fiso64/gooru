@@ -8,6 +8,7 @@ import (
 
 	"gooru.local/gooru"
 	"gooru.local/internal/database"
+	"gooru.local/internal/encryptionkeys"
 	"gooru.local/internal/serve"
 	"gooru.local/types"
 )
@@ -37,6 +38,21 @@ func TestConfiguredDatabaseOpenersShareEncryptedStorage(t *testing.T) {
 	if plain {
 		t.Fatal("configured encrypted client left the database plaintext")
 	}
+	keys, err := encryptionkeys.Derive(cfg.Encryption.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy, err := database.NewEncryptedStore(path, false, cfg.Encryption.Key); err == nil {
+		_ = legacy.Close()
+		t.Fatal("master key unexpectedly opens database after domain separation")
+	}
+	derived, err := database.NewEncryptedStore(path, false, keys.Database)
+	if err != nil {
+		t.Fatalf("database subkey does not open configured database: %v", err)
+	}
+	if err := derived.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	authStore, err := openConfiguredAuthStore(cfg, false)
 	if err != nil {
@@ -47,6 +63,52 @@ func TestConfiguredDatabaseOpenersShareEncryptedStorage(t *testing.T) {
 	}
 	if err := authStore.Close(); err != nil {
 		t.Fatalf("close auth store: %v", err)
+	}
+}
+
+func TestConfiguredClientMigratesLegacyMasterKeyDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gooru.db")
+	if err := gooru.Init(path, types.StrategyPartial, false); err != nil {
+		t.Fatal(err)
+	}
+	master := bytes.Repeat([]byte{0x47}, 32)
+	if err := database.MigratePlaintextDatabase(path, master); err != nil {
+		t.Fatalf("create legacy master-key database: %v", err)
+	}
+	legacy, err := database.NewEncryptedStore(path, false, master)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.SetFileCount(17); err != nil {
+		_ = legacy.Close()
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := serve.DefaultConfig(path)
+	cfg.Encryption.Enabled = true
+	cfg.Encryption.Key = master
+	client, err := openConfiguredClient(cfg, false)
+	if err != nil {
+		t.Fatalf("open legacy protected database: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := encryptionkeys.Derive(master)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := database.NewEncryptedStore(path, false, keys.Database)
+	if err != nil {
+		t.Fatalf("derived database key does not open migrated database: %v", err)
+	}
+	defer migrated.Close()
+	if legacy, err := database.NewEncryptedStore(path, false, master); err == nil {
+		_ = legacy.Close()
+		t.Fatal("legacy master key unexpectedly opens migrated database")
 	}
 }
 
