@@ -14,7 +14,8 @@ var ErrTooLarge = errors.New("managed file exceeds size limit")
 // composition boundary. Callers provide plaintext and do not need to know
 // whether the on-disk representation is encrypted.
 type Writer struct {
-	key []byte
+	protected bool
+	key       []byte
 }
 
 // NewFilesystem returns a writer that persists plaintext content.
@@ -24,16 +25,17 @@ func NewFilesystem() *Writer {
 
 // NewProtected returns a writer that persists authenticated encrypted content.
 // The key is copied so callers do not retain ownership of the writer's key
-// material through a shared backing slice.
+// material through a shared backing slice. Invalid key material fails writes;
+// it never downgrades the protected policy to plaintext persistence.
 func NewProtected(key []byte) *Writer {
-	return &Writer{key: append([]byte(nil), key...)}
+	return &Writer{protected: true, key: append([]byte(nil), key...)}
 }
 
 // Write replaces dst with the logical plaintext read from src. limit is a
 // plaintext byte limit; values <= 0 mean unlimited. dst must be a newly-created
 // seekable file because protected writes finalize authenticated chunks in place.
 func (w *Writer) Write(dst io.ReadWriteSeeker, src io.Reader, limit int64) (int64, error) {
-	if len(w.key) == 0 {
+	if !w.protected {
 		return copyLimited(dst, src, limit)
 	}
 
