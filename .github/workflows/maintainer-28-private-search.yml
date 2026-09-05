@@ -51,7 +51,6 @@ jobs:
           name: frontend-validation-diagnostics
           path: frontend-validation.log
       - name: Validate protected browser privacy
-        if: hashFiles('frontend/tests/protected-browser-privacy.spec.ts') != ''
         id: browser
         shell: bash
         working-directory: frontend
