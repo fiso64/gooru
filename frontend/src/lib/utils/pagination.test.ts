@@ -7,7 +7,7 @@ describe('paginationWindow', () => {
   });
 
   it('does not add gap markers for contiguous page ranges', () => {
-    expect(paginationWindow(2, 5)).toEqual([1, 2, 3, 4, 'ellipsis', 5]);
+    expect(paginationWindow(2, 5)).toEqual([1, 2, 3, 4, 5]);
     expect(paginationWindow(1, 3)).toEqual([1, 2, 3]);
   });
 });
