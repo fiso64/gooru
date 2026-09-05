@@ -29,4 +29,20 @@ jobs:
       - run: npm run check
       - run: npm run test:unit
       - run: npm run build
-      - run: npx playwright test tests/grid-scroll-performance.spec.ts --project=chromium
+      - name: Browser regression
+        id: browser
+        shell: bash
+        run: |
+          set +e
+          npx playwright test tests/grid-scroll-performance.spec.ts --project=chromium --reporter=json > ../playwright-310.json 2>&1
+          status=$?
+          set -e
+          cat ../playwright-310.json
+          exit $status
+      - name: Upload browser diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-310-diagnostic
+          path: playwright-310.json
+          if-no-files-found: error
