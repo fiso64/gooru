@@ -3,9 +3,7 @@ package serve
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -13,9 +11,16 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"gooru.local/internal/securekey"
 )
 
-const opaqueURLStateTTL = 30 * 24 * time.Hour
+const (
+	opaqueURLStateTTL        = 30 * 24 * time.Hour
+	opaqueURLStatePurpose    = "gooru/protected-url-state/v1"
+	maxOpaqueURLStateToken   = 8192
+	maxOpaqueURLStateRequest = 16 << 10
+)
 
 var (
 	errInvalidURLStateToken = errors.New("invalid URL state token")
@@ -45,10 +50,11 @@ func newURLStateCodec(cfg Config) *urlStateCodec {
 	if !cfg.Encryption.Enabled || !cfg.Encryption.OpaqueURLState || len(cfg.Encryption.Key) == 0 {
 		return nil
 	}
-	mac := hmac.New(sha256.New, cfg.Encryption.Key)
-	_, _ = mac.Write([]byte("gooru/protected-url-state/v1"))
-	key := mac.Sum(nil)
-	block, err := aes.NewCipher(key)
+	key, err := securekey.Derive(cfg.Encryption.Key, opaqueURLStatePurpose)
+	if err != nil {
+		return nil
+	}
+	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return nil
 	}
@@ -71,20 +77,27 @@ func (c *urlStateCodec) seal(state browserURLState, userID string) (string, erro
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return "", err
 	}
-	ciphertext := c.aead.Seal(nil, nonce, payload, []byte("gooru/protected-url-state/v1"))
-	token := append(nonce, ciphertext...)
-	return base64.RawURLEncoding.EncodeToString(token), nil
+	ciphertext := c.aead.Seal(nil, nonce, payload, []byte(opaqueURLStatePurpose))
+	token := base64.RawURLEncoding.EncodeToString(append(nonce, ciphertext...))
+	if len(token) > maxOpaqueURLStateToken {
+		return "", errInvalidURLStateToken
+	}
+	return token, nil
 }
 
 func (c *urlStateCodec) open(token, userID string) (browserURLState, error) {
 	if c == nil {
 		return browserURLState{}, errInvalidURLStateToken
 	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(token))
+	token = strings.TrimSpace(token)
+	if token == "" || len(token) > maxOpaqueURLStateToken {
+		return browserURLState{}, errInvalidURLStateToken
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil || len(raw) <= c.aead.NonceSize() {
 		return browserURLState{}, errInvalidURLStateToken
 	}
-	plaintext, err := c.aead.Open(nil, raw[:c.aead.NonceSize()], raw[c.aead.NonceSize():], []byte("gooru/protected-url-state/v1"))
+	plaintext, err := c.aead.Open(nil, raw[:c.aead.NonceSize()], raw[c.aead.NonceSize():], []byte(opaqueURLStatePurpose))
 	if err != nil {
 		return browserURLState{}, errInvalidURLStateToken
 	}
@@ -119,6 +132,7 @@ func (s *Server) handleUIState(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxOpaqueURLStateRequest)
 		var state browserURLState
 		if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_request", "invalid URL state", nil)
@@ -126,7 +140,7 @@ func (s *Server) handleUIState(w http.ResponseWriter, r *http.Request) {
 		}
 		token, err := s.urlState.seal(state, requestURLStateUserID(r))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "url_state_failed", "failed to protect URL state", nil)
+			writeError(w, http.StatusBadRequest, "url_state_failed", "URL state is too large to protect", nil)
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]string{"token": token})
