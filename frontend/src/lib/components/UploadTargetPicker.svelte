@@ -12,7 +12,7 @@
   }>();
 
   let picker: HTMLDetailsElement | undefined;
-  const selected = $derived(targets.find((target) => target.id === selectedID));
+  const selected = $derived(targets.find((target: UploadTargetOption) => target.id === selectedID));
 
   function choose(id: string) {
     onSelect(id);
