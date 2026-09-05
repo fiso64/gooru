@@ -706,7 +706,8 @@ paths:
                 conflict_policy:
                   type: string
                   enum: [skip, rename, replace]
-                  description: How to handle uploaded filenames that already exist in the target.
+                  default: skip
+                  description: How to handle uploaded filenames that already exist in the target; omitted values default to skip.
                 tags:
                   type: string
                   description: Space- or comma-separated initial tags.
