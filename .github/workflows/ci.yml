@@ -51,7 +51,7 @@ jobs:
         run: npm run test:unit
       - name: Install Chromium
         run: npx playwright install chromium
-      - name: Upload browser regressions
-        run: npm run test:e2e -- upload-metadata-refresh.spec.ts upload-concurrency.spec.ts
+      - name: Browser regressions
+        run: npm run test:e2e -- startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts
       - name: Build
         run: npm run build
