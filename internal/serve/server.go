@@ -42,7 +42,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		cfg:          cfg,
 		jobs:         NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
 		library:      library,
-		media:        NewMediaService(cfg),
+		media:        newComposedMediaServiceFromConfig(cfg),
 		meta:         metadata,
 		urlState:     newURLStateCodec(cfg),
 		managedFiles: managedFiles,
