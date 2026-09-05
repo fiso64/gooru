@@ -29,12 +29,11 @@ The complete server configuration is documented in [docs/CONFIG.md](docs/CONFIG.
 | --- | --- |
 | Run and deploy Gooru | [docs/SERVE.md](docs/SERVE.md) |
 | Server configuration | [docs/CONFIG.md](docs/CONFIG.md) |
-| Search and query syntax | [docs/QUERY.md](docs/QUERY.md) |
 | Command-line interface | [docs/CLI.md](docs/CLI.md) |
-| HTTP API | [docs/openapi.yaml](docs/openapi.yaml) |
-| Go packages | [docs/LIBRARY.md](docs/LIBRARY.md) |
 | Development | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | Frontend development | [frontend/README.md](frontend/README.md) |
+
+[Read the full documentation](docs)
 
 ## Project status
 

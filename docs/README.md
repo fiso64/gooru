@@ -1,13 +1,14 @@
 # Gooru documentation
 
-Start with the task you are trying to complete.
-
-| I want to… | Read |
+| Topic | Documentation |
 | --- | --- |
-| Tag, search, or repair a local library from the terminal | [CLI.md](CLI.md) |
-| Understand query syntax | [QUERY.md](QUERY.md) |
-| Run the browser UI and HTTP server | [SERVE.md](SERVE.md) |
-| Look up a YAML option | [CONFIG.md](CONFIG.md) |
-| Integrate with the HTTP API | [openapi.yaml](openapi.yaml) |
-| Embed the Go package | [LIBRARY.md](LIBRARY.md) |
-| Work on Gooru itself | [DEVELOPMENT.md](DEVELOPMENT.md) |
+| Run and deploy Gooru | [docs/SERVE.md](docs/SERVE.md) |
+| Server configuration | [docs/CONFIG.md](docs/CONFIG.md) |
+| Search and query syntax | [docs/QUERY.md](docs/QUERY.md) |
+| Command-line interface | [docs/CLI.md](docs/CLI.md) |
+| Encryption | [docs/ENCRYPTION.md](docs/ENCRYPTION.md) |
+| Hashing strategies | [docs/HASHING.md](docs/HASHING.md) |
+| HTTP API | [docs/openapi.yaml](docs/openapi.yaml) |
+| Go packages | [docs/LIBRARY.md](docs/LIBRARY.md) |
+| Development | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
+| Frontend development | [frontend/README.md](frontend/README.md) |
