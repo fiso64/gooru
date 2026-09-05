@@ -2,13 +2,13 @@
 
 | Topic | Documentation |
 | --- | --- |
-| Run and deploy Gooru | [docs/SERVE.md](docs/SERVE.md) |
-| Server configuration | [docs/CONFIG.md](docs/CONFIG.md) |
-| Search and query syntax | [docs/QUERY.md](docs/QUERY.md) |
-| Command-line interface | [docs/CLI.md](docs/CLI.md) |
-| Encryption | [docs/ENCRYPTION.md](docs/ENCRYPTION.md) |
-| Hashing strategies | [docs/HASHING.md](docs/HASHING.md) |
-| HTTP API | [docs/openapi.yaml](docs/openapi.yaml) |
-| Go packages | [docs/LIBRARY.md](docs/LIBRARY.md) |
-| Development | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
-| Frontend development | [frontend/README.md](frontend/README.md) |
+| Run and deploy Gooru | [SERVE.md](SERVE.md) |
+| Server configuration | [CONFIG.md](CONFIG.md) |
+| Search and query syntax | [QUERY.md](QUERY.md) |
+| Command-line interface | [CLI.md](CLI.md) |
+| Encryption | [ENCRYPTION.md](ENCRYPTION.md) |
+| Hashing strategies | [HASHING.md](HASHING.md) |
+| HTTP API | [openapi.yaml](openapi.yaml) |
+| Go packages | [LIBRARY.md](LIBRARY.md) |
+| Development | [DEVELOPMENT.md](DEVELOPMENT.md) |
+| Frontend development | [../frontend/README.md](../frontend/README.md) |
