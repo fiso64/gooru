@@ -1,0 +1,73 @@
+name: Temporary #333 reuse grid facets
+on:
+  push:
+    branches: [perf/333-reuse-grid-facets]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-reuse-grid-facets
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply optimization and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = app.read_text()
+          old = "  const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');"
+          new = "  const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library' && sidebarBaseQuery !== $submittedSearch);"
+          if old not in text:
+              raise SystemExit('kind facets query declaration not found')
+          app.write_text(text.replace(old, new, 1))
+
+          test = Path('frontend/tests/startup-query-churn.spec.ts')
+          text = test.read_text()
+          text = text.replace(
+              "  const requests = { jobs: 0, tags: 0, savedSearches: 0, uploadTargets: 0 };",
+              "  const requests = { jobs: 0, tags: 0, savedSearches: 0, uploadTargets: 0 };\n  let facetFileRequests = 0;",
+              1
+          )
+          text = text.replace(
+              "  await page.route('**/api/v1/files?**', async (route) => route.fulfill({\n    contentType: 'application/json',\n    body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })\n  }));",
+              "  await page.route('**/api/v1/files?**', async (route) => {\n    if (new URL(route.request().url()).searchParams.get('include_facets') === 'true') facetFileRequests += 1;\n    await route.fulfill({\n      contentType: 'application/json',\n      body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })\n    });\n  });",
+              1
+          )
+          text = text.replace(
+              "  expect(requests).toEqual({ jobs: 1, tags: 1, savedSearches: 1, uploadTargets: 1 });",
+              "  expect(requests).toEqual({ jobs: 1, tags: 1, savedSearches: 1, uploadTargets: 1 });\n  expect(facetFileRequests).toBe(1);",
+              1
+          )
+          test.write_text(text)
+          PY
+      - name: Validate frontend
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit
+          npm run check
+          npm run test:unit
+          npx playwright install chromium
+          npx playwright test tests/startup-query-churn.spec.ts --project=chromium
+          npm run build
+      - name: Commit source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/tests/startup-query-churn.spec.ts
+          git commit -m 'perf(webui): reuse grid facets for root sidebar'
+          git push origin HEAD:perf/333-reuse-grid-facets
