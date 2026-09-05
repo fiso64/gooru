@@ -1,8 +1,8 @@
 name: Maintainer 251 scaling validate
 
 on:
-  push:
-    branches: [feat/251-viewer-scaling]
+  pull_request:
+    branches: [develop]
 
 permissions:
   contents: read
