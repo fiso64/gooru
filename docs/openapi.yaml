@@ -182,6 +182,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /files/search:
+    post:
+      summary: Search tracked files with query state in the request body.
+      description: Read-only alternative to GET /files for clients that must keep free-form library query text out of browser/proxy URL histories. Uses the same search service and pagination semantics as GET /files.
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileSearchRequest"
+      responses:
+        "200":
+          description: Page of tracked files.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /files/{id}:
     get:
       summary: Get one tracked file by opaque file ID.
@@ -565,6 +588,53 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /ui-state:
+    post:
+      summary: Seal WebUI library state into an opaque protected-mode token
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserURLState'
+      responses:
+        '201':
+          description: Protected state token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ui-state/{token}:
+    get:
+      summary: Resolve an opaque protected-mode WebUI state token
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Restored library state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserURLState'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: Protected state token expired
   /upload-targets:
     get:
       summary: List configured upload targets.
@@ -703,6 +773,27 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
   /search/suggestions:
+    post:
+      summary: Return search suggestions with free-form query state in the request body.
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestionRequest"
+      responses:
+        "200":
+          description: Search suggestions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestionsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
     get:
       summary: Return tag autocomplete suggestions.
       security:
@@ -1090,6 +1181,36 @@ components:
         role:
           type: string
           enum: [admin]
+    FileSearchRequest:
+      type: object
+      properties:
+        query:
+          type: string
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+        page_token:
+          type: string
+        sort:
+          type: string
+          enum: [added, name, modified, size, kind]
+        order:
+          type: string
+          enum: [asc, desc]
+        include_facets:
+          type: boolean
+    SuggestionRequest:
+      type: object
+      properties:
+        q:
+          type: string
+        existing:
+          type: string
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
     ErrorResponse:
       type: object
       required: [error]
@@ -1324,6 +1445,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Job"
+    BrowserURLState:
+      type: object
+      properties:
+        query:
+          type: string
+        kind:
+          type: string
+        sort:
+          type: string
+          enum: [added, name, modified, size, kind]
+        order:
+          type: string
+          enum: [asc, desc]
+        file_id:
+          type: string
     FileListResponse:
       type: object
       required: [files, total_count, library_count]

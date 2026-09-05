@@ -292,6 +292,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/files/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search tracked files with query state in the request body.
+         * @description Read-only alternative to GET /files for clients that must keep free-form library query text out of browser/proxy URL histories. Uses the same search service and pagination semantics as GET /files.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FileSearchRequest"];
+                };
+            };
+            responses: {
+                /** @description Page of tracked files. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FileListResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files/{id}": {
         parameters: {
             query?: never;
@@ -773,6 +818,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ui-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Seal WebUI library state into an opaque protected-mode token */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BrowserURLState"];
+                };
+            };
+            responses: {
+                /** @description Protected state token */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            token: string;
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ui-state/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve an opaque protected-mode WebUI state token */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Restored library state */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BrowserURLState"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+                /** @description Protected state token expired */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/upload-targets": {
         parameters: {
             query?: never;
@@ -1009,7 +1143,33 @@ export interface paths {
             };
         };
         put?: never;
-        post?: never;
+        /** Return search suggestions with free-form query state in the request body. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SuggestionRequest"];
+                };
+            };
+            responses: {
+                /** @description Search suggestions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuggestionsResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1377,6 +1537,21 @@ export interface components {
             /** @enum {string} */
             role: "admin";
         };
+        FileSearchRequest: {
+            query?: string;
+            limit?: number;
+            page_token?: string;
+            /** @enum {string} */
+            sort?: "added" | "name" | "modified" | "size" | "kind";
+            /** @enum {string} */
+            order?: "asc" | "desc";
+            include_facets?: boolean;
+        };
+        SuggestionRequest: {
+            q?: string;
+            existing?: string;
+            limit?: number;
+        };
         ErrorResponse: {
             error: {
                 code: string;
@@ -1487,6 +1662,15 @@ export interface components {
         };
         JobListResponse: {
             items: components["schemas"]["Job"][];
+        };
+        BrowserURLState: {
+            query?: string;
+            kind?: string;
+            /** @enum {string} */
+            sort?: "added" | "name" | "modified" | "size" | "kind";
+            /** @enum {string} */
+            order?: "asc" | "desc";
+            file_id?: string;
         };
         FileListResponse: {
             files: components["schemas"]["File"][];

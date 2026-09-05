@@ -4,6 +4,7 @@
   import AuthPanel from './AuthPanel.svelte';
   import SessionLoading from './SessionLoading.svelte';
   import { ApiClient } from '$lib/api/client';
+  import { setOpaqueURLState, setProtectedReadTransport } from '$lib/api/privacy';
   import { authState } from '$lib/stores/auth';
   import { defaultGridSize, normalizeThumbnailSizes, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
@@ -21,6 +22,8 @@
     viewer_scaling?: ViewerScaling;
     grid_size?: number;
     thumbnail_sizes?: number[];
+    protected_mode?: boolean;
+    opaque_url_state?: boolean;
   };
 
   let loginUsername = $state('');
@@ -36,6 +39,8 @@
     runtimeAccent = accentTheme(config.accent_color ?? '');
     runtimeFontStyle = config.font_style ?? 'editorial';
     runtimeGridSize = config.grid_size ?? defaultGridSize;
+    setProtectedReadTransport(config.protected_mode ?? false);
+    setOpaqueURLState(config.opaque_url_state ?? false);
     runtimeConfig.set({
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,

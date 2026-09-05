@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -379,19 +380,66 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type fileSearchRequest struct {
+	Query         string `json:"query"`
+	Limit         int    `json:"limit"`
+	PageToken     string `json:"page_token"`
+	Sort          string `json:"sort"`
+	Order         string `json:"order"`
+	IncludeFacets bool   `json:"include_facets"`
+}
+
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
+	req := fileSearchRequest{
+		Query:         r.URL.Query().Get("query"),
+		PageToken:     r.URL.Query().Get("page_token"),
+		Sort:          r.URL.Query().Get("sort"),
+		Order:         r.URL.Query().Get("order"),
+		IncludeFacets: r.URL.Query().Get("include_facets") == "true",
+	}
+	if value := r.URL.Query().Get("limit"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			req.Limit = parsed
+		} else {
+			req.Limit = -1
+		}
+	}
+	s.handleListFilesRequest(w, r, req)
+}
+
+func (s *Server) handleFileSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
+	}
+	var req fileSearchRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON request body", nil)
+		return
+	}
+	s.handleListFilesRequest(w, r, req)
+}
+
+func (s *Server) handleListFilesRequest(w http.ResponseWriter, r *http.Request, req fileSearchRequest) {
 	if s.library == nil {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file library is not configured", nil)
 		return
 	}
-	page, err := ParsePage(r.URL.Query().Get("limit"), r.URL.Query().Get("page_token"))
+	limitText := ""
+	if req.Limit != 0 {
+		limitText = strconv.Itoa(req.Limit)
+	}
+	page, err := ParsePage(limitText, req.PageToken)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
-	queryText := r.URL.Query().Get("query")
-	sort := normalizeFileSort(r.URL.Query().Get("sort"))
-	order := normalizeSortOrder(r.URL.Query().Get("order"))
+	queryText := req.Query
+	sort := normalizeFileSort(req.Sort)
+	order := normalizeSortOrder(req.Order)
 	pageResult, err := s.listFilesPage(r.Context(), queryText, page, sort, order)
 	if err != nil {
 		if errors.Is(err, core.ErrInvalidQuery) {
@@ -414,7 +462,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	if pageResult.NextPageToken != "" {
 		response.TotalCount++
 	}
-	includeAggregates := r.URL.Query().Get("include_facets") == "true"
+	includeAggregates := req.IncludeFacets
 	if search, ok := s.library.(SearchLibrary); ok && includeAggregates {
 		if total, err := s.countFiles(r.Context(), queryText); err == nil {
 			response.TotalCount = total

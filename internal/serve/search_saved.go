@@ -89,15 +89,45 @@ func matchingMetaTagSuggestions(prefix string) []TagDTO {
 	return items
 }
 
+type suggestionRequest struct {
+	Query    string `json:"q"`
+	Existing string `json:"existing"`
+	Limit    int    `json:"limit"`
+}
+
 func (s *Server) handleSearchSuggestions(w http.ResponseWriter, r *http.Request) {
+	var req suggestionRequest
+	switch r.Method {
+	case http.MethodGet:
+		req.Query = r.URL.Query().Get("q")
+		req.Existing = r.URL.Query().Get("existing")
+		req.Limit, _ = strconvAtoiDefault(r.URL.Query().Get("limit"), 20)
+	case http.MethodPost:
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON request body", nil)
+			return
+		}
+		if req.Limit == 0 {
+			req.Limit = 20
+		}
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
+	}
 	search, ok := s.library.(SearchLibrary)
 	if !ok {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "search service is not configured", nil)
 		return
 	}
-	limit, _ := strconvAtoiDefault(r.URL.Query().Get("limit"), 20)
-	prefix := strings.TrimSpace(r.URL.Query().Get("q"))
-	items, err := search.TagSuggestions(r.Context(), prefix, strings.TrimSpace(r.URL.Query().Get("existing")), limit)
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	prefix := strings.TrimSpace(req.Query)
+	items, err := search.TagSuggestions(r.Context(), prefix, strings.TrimSpace(req.Existing), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load suggestions", nil)
 		return
