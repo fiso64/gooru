@@ -228,6 +228,7 @@ describe('createUploadWorkflow', () => {
     expect(workflow.activeJobIDs).toEqual([]);
     expect(workflow.items.map((item) => item.status)).toEqual(['canceled', 'canceled']);
   });
+
   it('replaces managed target defaults while preserving user tags', () => {
     const workflow = createUploadWorkflow();
     workflow.setTarget('one', 'queue', ['project:inbox', 'source:upload']);
@@ -244,4 +245,33 @@ describe('createUploadWorkflow', () => {
     expect(workflow.tags).toBe('project:inbox');
   });
 
+  it('reapplies target defaults exactly for an explicit selection', () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox']);
+    workflow.tags = 'project:inbox user:custom';
+    workflow.setTarget('one', 'queue', ['project:inbox', 'source:upload'], true);
+    expect(workflow.tags).toBe('project:inbox source:upload');
+  });
+
+  it('keeps user tags when an explicitly selected target has no defaults', () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox']);
+    workflow.tags = 'project:inbox user:custom';
+    workflow.setTarget('plain', 'queue', [], true);
+    expect(workflow.tags).toBe('user:custom');
+  });
+
+  it('preserves initial tags after a completed upload batch', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox']);
+    workflow.tags = 'project:inbox user:custom';
+    workflow.select([uploadFile('first.jpg')]);
+
+    await workflow.submit(async () => ({
+      files: [{ name: 'first.jpg', size: 10, target_id: 'one', status: 'uploaded' }]
+    } as never));
+
+    expect(workflow.files).toEqual([]);
+    expect(workflow.tags).toBe('project:inbox user:custom');
+  });
 });
