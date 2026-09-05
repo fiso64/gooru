@@ -29,26 +29,28 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Validate frontend
+        id: frontend
+        continue-on-error: true
+        working-directory: frontend
         run: |
-          set -uo pipefail
-          cd frontend
-          npm ci
-          npm run check 2>&1 | tee /tmp/validation-337-check.log
-          status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            cd ..
-            if [ ! -e .validation-337.log ]; then
-              cp /tmp/validation-337-check.log .validation-337.log
-              git config user.name "chatgpt-codex-connector[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add .validation-337.log
-              git commit -m "chore: capture pagination validation diagnostics"
-              git push
-            fi
-            exit "$status"
-          fi
-          npm run test:unit
-          npm run build
+          set -o pipefail
+          {
+            npm ci &&
+            npm run check &&
+            npm run test:unit &&
+            npm run build
+          } 2>&1 | tee /tmp/validation-337-frontend.log
+      - name: Upload frontend diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-337-frontend
+          path: /tmp/validation-337-frontend.log
+          if-no-files-found: error
+          retention-days: 1
+      - name: Fail on frontend validation error
+        if: steps.frontend.outcome == 'failure'
+        run: exit 1
       - name: Validate focused browser regressions
         working-directory: frontend
         run: |
