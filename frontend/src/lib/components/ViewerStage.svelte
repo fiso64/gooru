@@ -260,6 +260,7 @@
     if (!context) return;
     try {
       context.clearRect(0, 0, canvas.width, canvas.height);
+      context.imageSmoothingEnabled = scaling !== 'nearest';
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
     } catch {
       return;
