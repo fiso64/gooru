@@ -31,4 +31,13 @@ jobs:
           else
             npx playwright install chromium
           fi
+
+          git fetch origin develop --depth=1
+          git checkout FETCH_HEAD -- src/lib/components/AppPage.svelte
+          if npx playwright test tests/grid-page-turn-regression.spec.ts --grep 'square virtual windows begin'; then
+            echo 'regression assertion unexpectedly passes against pre-fix develop layout'
+            exit 1
+          fi
+
+          git checkout HEAD -- src/lib/components/AppPage.svelte
           npx playwright test tests/grid-page-turn-regression.spec.ts
