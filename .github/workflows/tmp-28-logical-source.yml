@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tmp-28-logical-source-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go:
     runs-on: [self-hosted, gooru]
