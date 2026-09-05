@@ -22,6 +22,35 @@ func TestProtectedModeDefaultsAPIResponsesToNoStore(t *testing.T) {
 	if got := rec.Header().Get("Cache-Control"); got != protectedAPICacheControl {
 		t.Fatalf("expected protected API cache policy %q, got %q", protectedAPICacheControl, got)
 	}
+	if got := rec.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("expected protected Pragma no-cache, got %q", got)
+	}
+	if got := rec.Header().Get("Expires"); got != "0" {
+		t.Fatalf("expected protected Expires 0, got %q", got)
+	}
+}
+
+func TestProtectedModeOverridesHandlerCachePolicyAtCommit(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.Header().Del("Pragma")
+		w.Header().Del("Expires")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/future-cacheable-feature", nil)
+
+	protectedAPICacheMiddleware(true, next).ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Cache-Control"); got != protectedAPICacheControl {
+		t.Fatalf("handler overrode protected API cache policy: %q", got)
+	}
+	if got := rec.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("handler removed protected Pragma: %q", got)
+	}
+	if got := rec.Header().Get("Expires"); got != "0" {
+		t.Fatalf("handler removed protected Expires: %q", got)
+	}
 }
 
 func TestOrdinaryModeDoesNotForceProtectedAPICachePolicy(t *testing.T) {
