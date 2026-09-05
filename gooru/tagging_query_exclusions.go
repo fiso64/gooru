@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"gooru.local/internal/database"
 	"gooru.local/internal/query"
 	"gooru.local/types"
 )
@@ -116,7 +115,7 @@ func (c *Client) mutateTagsByQueryExcluding(expression string, tags, excludedHas
 	return int(affected), tx.Commit()
 }
 
-func (c *Client) tagIDsForMutation(tx *database.Tx, tags []string, create bool) ([]int64, error) {
+func (c *Client) tagIDsForMutation(tx *databaseTx, tags []string, create bool) ([]int64, error) {
 	parsed := make([]types.ParsedTag, len(tags))
 	for i, tag := range tags {
 		parsed[i] = query.ParseTag(tag)
