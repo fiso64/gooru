@@ -175,7 +175,7 @@ func DefaultConfig(dbPath string) Config {
 		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
-		UI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, GridType: DefaultGridType},
+		UI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, GridType: DefaultGridType, ViewerFitMode: "fit_window", ViewerScaling: "smooth"},
 	}
 }
 
@@ -449,6 +449,27 @@ func (cfg *Config) Validate() error {
 	case "square", "fit", "tile":
 	default:
 		errs = append(errs, errors.New("ui.grid_type must be one of: square, fit, tile"))
+	}
+	cfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))
+	if cfg.UI.ViewerFitMode == "" {
+		cfg.UI.ViewerFitMode = "fit_window"
+	}
+	if cfg.UI.ViewerFitMode == "screen" {
+		cfg.UI.ViewerFitMode = "fit_window"
+	}
+	switch cfg.UI.ViewerFitMode {
+	case "fit_window", "fit_down_only", "original_size_if_fit", "actual":
+	default:
+		errs = append(errs, errors.New("ui.viewer_fit_mode must be one of: fit_window, fit_down_only, original_size_if_fit, actual"))
+	}
+	cfg.UI.ViewerScaling = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerScaling))
+	if cfg.UI.ViewerScaling == "" {
+		cfg.UI.ViewerScaling = "smooth"
+	}
+	switch cfg.UI.ViewerScaling {
+	case "smooth", "nearest":
+	default:
+		errs = append(errs, errors.New("ui.viewer_scaling must be one of: smooth, nearest"))
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"
