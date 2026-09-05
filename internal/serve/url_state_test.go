@@ -59,6 +59,16 @@ func TestOpaqueURLStateExpires(t *testing.T) {
 	}
 }
 
+func TestOpaqueURLStateRejectsOversizedState(t *testing.T) {
+	codec := newURLStateCodec(protectedURLConfig(t))
+	if _, err := codec.seal(browserURLState{Query: strings.Repeat("x", maxOpaqueURLStateToken)}, ""); !errors.Is(err, errURLStateTooLarge) {
+		t.Fatalf("oversized state error = %v, want errURLStateTooLarge", err)
+	}
+	if _, err := codec.open(strings.Repeat("x", maxOpaqueURLStateToken+1), ""); !errors.Is(err, errInvalidURLStateToken) {
+		t.Fatalf("oversized token error = %v, want errInvalidURLStateToken", err)
+	}
+}
+
 func TestOpaqueURLStateHTTPUsesOnlyOpaqueTokenInURL(t *testing.T) {
 	server := NewServerWithLibrary(protectedURLConfig(t), emptyLibrary{})
 	body := []byte(`{"query":"secret tag","sort":"added","order":"desc","file_id":"private-file"}`)
@@ -88,5 +98,16 @@ func TestOpaqueURLStateHTTPUsesOnlyOpaqueTokenInURL(t *testing.T) {
 	}
 	if strings.Contains(resolveReq.URL.String(), "secret") || strings.Contains(resolveReq.URL.String(), "private") {
 		t.Fatalf("resolve URL leaked state: %q", resolveReq.URL.String())
+	}
+}
+
+func TestOpaqueURLStateHTTPRejectsOversizedRequest(t *testing.T) {
+	server := NewServerWithLibrary(protectedURLConfig(t), emptyLibrary{})
+	body := []byte(`{"query":"` + strings.Repeat("x", maxOpaqueURLStateRequest) + `"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ui-state", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized create expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
