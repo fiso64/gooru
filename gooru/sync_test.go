@@ -1,17 +1,17 @@
 package gooru_test
 
 import (
-    "bytes"
-    "os"
-    "path/filepath"
-    "sync"
-    "testing"
+	"bytes"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
 
-    "github.com/stretchr/testify/assert"
-    "github.com/stretchr/testify/require"
-    "gooru.local/gooru"
-    "gooru.local/internal/encryptedfile"
-    "gooru.local/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gooru.local/gooru"
+	"gooru.local/internal/encryptedfile"
+	"gooru.local/types"
 )
 
 func TestClient_RehashFiles(t *testing.T) {
