@@ -2,6 +2,8 @@ package serve
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -62,15 +64,26 @@ func newPersistentDerivativeStore(root string) *persistentDerivativeStore {
 }
 
 func (s *persistentDerivativeStore) GetOrGenerate(relativePath string, generate derivativeGenerator) (*derivativeArtifact, error) {
-	path := filepath.Join(s.root, relativePath)
-	if artifact, err := openPersistentDerivative(path, "hit"); err == nil {
+	path, err := s.path(relativePath)
+	if err != nil {
+		return nil, err
+	}
+	artifact, err := openPersistentDerivative(path, "hit")
+	if err == nil {
 		return artifact, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 
 	unlock := s.lock(path)
 	defer unlock()
-	if artifact, err := openPersistentDerivative(path, "hit"); err == nil {
+	artifact, err = openPersistentDerivative(path, "hit")
+	if err == nil {
 		return artifact, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
@@ -98,6 +111,14 @@ func (s *persistentDerivativeStore) GetOrGenerate(relativePath string, generate 
 		return nil, err
 	}
 	return openPersistentDerivative(path, "miss")
+}
+
+func (s *persistentDerivativeStore) path(relativePath string) (string, error) {
+	clean := filepath.Clean(relativePath)
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || len(clean) > 3 && clean[:3] == ".."+string(filepath.Separator) {
+		return "", fmt.Errorf("invalid derivative cache path")
+	}
+	return filepath.Join(s.root, clean), nil
 }
 
 func openPersistentDerivative(path, status string) (*derivativeArtifact, error) {
