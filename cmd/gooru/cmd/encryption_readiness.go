@@ -15,13 +15,16 @@ type registeredFileLister interface {
 }
 
 // ensureStorageEncryptionReady migrates registered files owned by configured
-// upload targets before protected mode starts serving requests. Arbitrary
-// indexed media outside those roots is intentionally left untouched: Gooru
-// owns encryption-at-rest for its database and managed uploads, not a user's
-// external library trees.
+// upload targets and removes plaintext derivatives before protected mode starts
+// serving requests. Arbitrary indexed media outside managed roots is
+// intentionally left untouched: Gooru owns encryption-at-rest for its database,
+// managed uploads, and derivative cache, not a user's external library trees.
 func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister) error {
 	if !cfg.Encryption.Enabled {
 		return nil
+	}
+	if err := serve.CleanupPlaintextMediaCache(cfg.Media); err != nil {
+		return fmt.Errorf("clean plaintext media cache for protected mode: %w", err)
 	}
 	files, err := client.GetAllFilesInfo()
 	if err != nil {
