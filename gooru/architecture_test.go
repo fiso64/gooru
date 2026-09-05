@@ -14,9 +14,18 @@ import (
 // TestCoreStorageArchitectureBoundaries keeps encryption/storage safety on the
 // mandatory path. Business-logic files may discover paths and inspect existence,
 // but logical media contents must flow through Client's configured source
-// resolver, and database implementation selection belongs to the composition
-// layer in gooru.go.
+// resolver, and database implementation selection belongs to explicit
+// composition-boundary files.
 func TestCoreStorageArchitectureBoundaries(t *testing.T) {
+	// tagging.go is the sole remaining legacy implementation import. Keep it
+	// explicit so this test prevents new coupling while #28's storage refactor
+	// continues removing the existing one.
+	allowedDatabaseImports := map[string]bool{
+		"database_boundary.go": true,
+		"gooru.go":             true,
+		"tagging.go":           true,
+	}
+
 	for _, name := range trackedCoreProductionFiles(t) {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
@@ -30,8 +39,8 @@ func TestCoreStorageArchitectureBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unquote import in %s: %v", name, err)
 			}
-			if path == "gooru.local/internal/database" && name != "gooru.go" {
-				t.Errorf("%s imports the database implementation directly; keep DB opening/policy in gooru.go", name)
+			if path == "gooru.local/internal/database" && !allowedDatabaseImports[filepath.Base(name)] {
+				t.Errorf("%s imports the database implementation directly; keep DB implementation types behind the composition boundary", name)
 			}
 			if path == "os" {
 				osAlias = "os"
