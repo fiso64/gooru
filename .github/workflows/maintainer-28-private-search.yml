@@ -39,6 +39,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          nl -ba internal/serve/url_state.go | sed -n '105,135p'
           go test ./... 2>&1 | tee go-test.log
       - name: Upload Go diagnostics
         if: failure() && steps.go_test.outcome == 'failure'
