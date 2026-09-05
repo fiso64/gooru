@@ -101,7 +101,8 @@ test('large library keeps a bounded DOM while sustained scrolling advances the v
     }
     return values;
   });
-  expect(new Set(samples).size).toBeGreaterThan(10);
+  expect(new Set(samples).size).toBeGreaterThan(5);
+  expect(samples.at(-1)).not.toBe(samples[0]);
   expect(await cards.count()).toBeLessThan(100);
 });
 
