@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import PageNav from './PageNav.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import UploadTargetPicker from './UploadTargetPicker.svelte';
   import UploadMediaPreview from './UploadMediaPreview.svelte';
@@ -269,10 +270,15 @@
               {/each}
             </div>
             {#if stagedPageCount > 1}
-              <div class="upload-list-pager" aria-label="Staged upload pages">
-                <button class="g-btn g-btn-sm" type="button" disabled={stagedPage === 0} onclick={() => stagedPage -= 1}>Previous</button>
-                <span>Page {stagedPage + 1} of {stagedPageCount} · showing {stagedVisibleRows.length} at a time</span>
-                <button class="g-btn g-btn-sm" type="button" disabled={stagedPage + 1 >= stagedPageCount} onclick={() => stagedPage += 1}>Next</button>
+              <div class="upload-list-pager">
+                <PageNav
+                  page={stagedPage + 1}
+                  pageCount={stagedPageCount}
+                  ariaLabel="Staged upload pages"
+                  embedded
+                  onPage={(page) => (stagedPage = page - 1)}
+                />
+                <span>Showing {stagedVisibleRows.length} at a time</span>
               </div>
             {/if}
           </div>
@@ -317,10 +323,15 @@
               {/each}
             </div>
             {#if queuePageCount > 1}
-              <div class="upload-list-pager" aria-label="Upload queue pages">
-                <button class="g-btn g-btn-sm" type="button" disabled={queuePage === 0} onclick={() => queuePage -= 1}>Previous</button>
-                <span>Page {queuePage + 1} of {queuePageCount} · showing {queueVisibleRows.length} at a time</span>
-                <button class="g-btn g-btn-sm" type="button" disabled={queuePage + 1 >= queuePageCount} onclick={() => queuePage += 1}>Next</button>
+              <div class="upload-list-pager">
+                <PageNav
+                  page={queuePage + 1}
+                  pageCount={queuePageCount}
+                  ariaLabel="Upload queue pages"
+                  embedded
+                  onPage={(page) => (queuePage = page - 1)}
+                />
+                <span>Showing {queueVisibleRows.length} at a time</span>
               </div>
             {/if}
           </div>
@@ -330,17 +341,14 @@
   </div>
 </main>
 
-
 <style>
   .upload-list-pager {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-top: 1px solid var(--border);
     color: var(--text-3);
     font-family: var(--font-mono);
     font-size: 11px;
+    padding-bottom: 10px;
   }
 </style>
