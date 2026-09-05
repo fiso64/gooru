@@ -68,7 +68,7 @@ test('shared tag completion scrolls keyboard-selected item into view', async ({ 
   await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
   await page.getByRole('button', { name: 'Tag…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
-  const input = dialog.getByLabel('Tags');
+  const input = dialog.getByRole('textbox', { name: 'Tags' });
   await input.fill('test');
   const list = dialog.getByRole('listbox', { name: 'Tags suggestions' });
   await expect(list).toBeVisible();
