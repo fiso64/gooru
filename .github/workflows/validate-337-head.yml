@@ -40,7 +40,7 @@ jobs:
         working-directory: frontend
         run: |
           set -euxo pipefail
-          npx playwright test e2e/paged-library.spec.ts e2e/upload-large-batch.spec.ts --project=chromium
+          npx playwright test tests/paged-library.spec.ts tests/upload-large-batch.spec.ts --project=chromium
       - name: Remove one-shot validation workflow
         if: success()
         run: |
