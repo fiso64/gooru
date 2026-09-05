@@ -19,8 +19,17 @@ function fileItem(index: number) {
   };
 }
 
+function pageOffset(token: string | null) {
+  if (!token) return 0;
+  if (/^\d+$/.test(token)) return Number(token);
+  const normalized = token.replace(/-/g, '+').replace(/_/g, '/');
+  const decoded = Buffer.from(normalized, 'base64').toString('utf8');
+  const match = /^offset:(\d+)$/.exec(decoded);
+  return match ? Number(match[1]) : 0;
+}
+
 async function mockPagedLibrary(page: Page) {
-  const allFiles = Array.from({ length: 73 }, (_, index) => fileItem(index));
+  const allFiles = Array.from({ length: 273 }, (_, index) => fileItem(index));
   const requests: Array<{ offset: number; limit: number }> = [];
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ pagination_mode: 'paged', items_per_page: 25, grid_type: 'square', grid_size: 120 }) }));
@@ -31,7 +40,7 @@ async function mockPagedLibrary(page: Page) {
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => {
     const url = new URL(route.request().url());
-    const offset = Number(url.searchParams.get('page_token') ?? '0');
+    const offset = pageOffset(url.searchParams.get('page_token'));
     const limit = Number(url.searchParams.get('limit') ?? '0');
     requests.push({ offset, limit });
     const files = allFiles.slice(offset, offset + limit);
@@ -48,24 +57,45 @@ async function mockPagedLibrary(page: Page) {
   return requests;
 }
 
-test('paged mode keeps one configured page and navigates explicitly', async ({ page }) => {
+test('paged mode uses centered numbered controls with direct page navigation', async ({ page }) => {
   const requests = await mockPagedLibrary(page);
   await page.goto('/');
-  await expect(page.getByText('73 files')).toBeVisible();
-  await expect(page.getByTestId('library-pager')).toContainText('Page 1 of 3');
+  await expect(page.getByText('273 files')).toBeVisible();
+  const pager = page.getByTestId('library-pager');
+  await expect(pager).toBeVisible();
   await expect(page.getByTestId('infinite-scroll-sentinel')).toHaveCount(0);
   await expect.poll(() => requests.some((request) => request.offset === 0 && request.limit === 25)).toBe(true);
-  await expect(page.getByRole('button', { name: /page-0\.jpg$/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /page-25\.jpg$/ })).toHaveCount(0);
 
-  const next = page.getByRole('button', { name: 'Next' });
-  await next.click();
-  await expect(page.getByTestId('library-pager')).toContainText('Page 2 of 3');
-  await expect.poll(() => requests.some((request) => request.offset === 25 && request.limit === 25)).toBe(true);
-  await expect(page.getByRole('button', { name: /page-25\.jpg$/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /page-0\.jpg$/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Page 2', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 3', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 11', exact: true })).toBeVisible();
+  await expect(pager.getByText('…')).toBeVisible();
 
-  await page.getByRole('button', { name: 'Previous' }).click();
-  await expect(page.getByTestId('library-pager')).toContainText('Page 1 of 3');
-  await expect(page.getByRole('button', { name: /page-0\.jpg$/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Page 3', exact: true }).click();
+  await expect.poll(() => requests.some((request) => request.offset === 50 && request.limit === 25)).toBe(true);
+  await expect(page.getByRole('button', { name: /page-50\.jpg$/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Page 5', exact: true }).click();
+  await expect.poll(() => requests.some((request) => request.offset === 100 && request.limit === 25)).toBe(true);
+
+  for (const pageNumber of [1, 3, 4, 5, 6, 7, 11]) {
+    await expect(page.getByRole('button', { name: `Page ${pageNumber}`, exact: true })).toBeVisible();
+  }
+  await expect(page.getByRole('button', { name: 'Page 5', exact: true })).toHaveAttribute('aria-current', 'page');
+
+  const mainBox = await page.locator('main.main').boundingBox();
+  const pagerBox = await pager.boundingBox();
+  const lastCardBox = await page.getByRole('button', { name: /page-124\.jpg$/ }).boundingBox();
+  expect(mainBox).not.toBeNull();
+  expect(pagerBox).not.toBeNull();
+  expect(lastCardBox).not.toBeNull();
+  expect(Math.abs((pagerBox!.x + pagerBox!.width / 2) - (mainBox!.x + mainBox!.width / 2))).toBeLessThan(2);
+  expect(pagerBox!.y).toBeGreaterThanOrEqual(lastCardBox!.y + lastCardBox!.height);
+
+  await page.getByRole('button', { name: 'Page 11', exact: true }).click();
+  await expect.poll(() => requests.some((request) => request.offset === 250 && request.limit === 25)).toBe(true);
+  await expect(page.getByRole('button', { name: /page-250\.jpg$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 11', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Next page' })).toBeDisabled();
 });
