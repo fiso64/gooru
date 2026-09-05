@@ -58,7 +58,7 @@ func TestUploadPreventsTraversalAndHandlesConflicts(t *testing.T) {
 	server := newUploadTestServer(t, dir, true, library)
 	rec := httptest.NewRecorder()
 
-	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"../evil.txt": "uploaded"}, []string{"reviewed"}))
+	server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{"../evil.txt": "uploaded"}, []string{"reviewed"}, "", "rename"))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -166,6 +166,32 @@ func TestUploadConflictPolicyErrorIsolatesExistingNameWithinBatch(t *testing.T) 
 	}
 	if got := string(mustReadFile(t, filepath.Join(dir, "b.txt"))); got != "existing" {
 		t.Fatalf("existing file was changed: %q", got)
+	}
+}
+
+func TestUploadOmittedConflictPolicySkipsExistingName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("existing"), 0600); err != nil {
+		t.Fatalf("write existing file: %v", err)
+	}
+	library := &recordingUploadLibrary{}
+	server := newUploadTestServer(t, dir, true, library)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"a.txt": "uploaded"}, nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "existing" {
+		t.Fatalf("existing file was overwritten: %q", got)
+	}
+	var response UploadImportResponse
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Files) != 1 || response.Files[0].Status != "skipped" {
+		t.Fatalf("expected skipped response, got %+v", response.Files)
 	}
 }
 
