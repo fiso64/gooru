@@ -27,7 +27,7 @@ async function openTinyAnimatedViewer(page: Page) {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify({ viewer_fit_mode: 'original_size_if_fit' })
+    contentType: 'application/json', body: JSON.stringify({ viewer_fit_mode: 'original_size_if_fit', viewer_scaling: 'nearest' })
   }));
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
@@ -60,6 +60,15 @@ test('configured non-upscaling default and V cycling apply to animated image vie
 
   await expect.poll(async () => (await image.boundingBox())?.width ?? 0).toBeGreaterThan(318);
   expect((await image.boundingBox())!.width).toBeLessThan(322);
+  await expect.poll(async () => image.evaluate((node) => getComputedStyle(node).imageRendering)).toBe('pixelated');
+
+  await page.keyboard.press('s');
+  await expect(page.getByRole('status')).toContainText('Smooth scaling');
+  await expect.poll(async () => image.evaluate((node) => getComputedStyle(node).imageRendering)).not.toBe('pixelated');
+
+  await page.keyboard.press('s');
+  await expect(page.getByRole('status')).toContainText('Nearest-neighbor scaling');
+  await expect.poll(async () => image.evaluate((node) => getComputedStyle(node).imageRendering)).toBe('pixelated');
 
   await page.keyboard.press('1');
   await expect(page.getByRole('status')).toContainText('Fit window');

@@ -1,5 +1,5 @@
-export type ViewerConfiguredFitMode = 'fit_window' | 'fit_down_only' | 'original_size_if_fit';
-export type ViewerFitMode = ViewerConfiguredFitMode | 'actual';
+export type ViewerConfiguredFitMode = 'fit_window' | 'fit_down_only' | 'original_size_if_fit' | 'actual';
+export type ViewerFitMode = ViewerConfiguredFitMode;
 
 export type ViewerGeometryInput = {
   intrinsicWidth: number;

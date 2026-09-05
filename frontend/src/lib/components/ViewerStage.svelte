@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
-  import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation } from '$lib/state/viewerSessionPreferences';
+  import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation, type ViewerScaling } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { preserveNativeViewerSize } from '$lib/utils/media';
@@ -13,6 +13,7 @@
     file,
     imageSource,
     initialFitMode = 'fit_window',
+    initialScaling = 'smooth',
     onPrev,
     onNext,
     onPrimaryAction,
@@ -32,6 +33,7 @@
     file: FileItem;
     imageSource: string;
     initialFitMode?: ViewerConfiguredFitMode;
+    initialScaling?: ViewerScaling;
     onPrev: () => void;
     onNext: () => void;
     onPrimaryAction?: () => void;
@@ -52,7 +54,8 @@
   const initialViewerPreferences = readViewerSessionPreferences({
     preferOriginal: false,
     rotation: 0,
-    fitMode: untrack(() => initialFitMode)
+    fitMode: untrack(() => initialFitMode),
+    scaling: untrack(() => initialScaling)
   });
 
   let stageElement = $state<HTMLDivElement | undefined>();
@@ -72,6 +75,7 @@
   let transitionGeneration = 0;
   let rotation = $state<number>(initialViewerPreferences.rotation);
   let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);
+  let scaling = $state<ViewerScaling>(initialViewerPreferences.scaling);
   let fitModeFeedback = $state('');
   let fitModeFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
   let isFullscreen = $state(false);
@@ -463,6 +467,14 @@
     setFitMode(configuredFitModes[(current + 1 + configuredFitModes.length) % configuredFitModes.length], true);
   }
 
+  function toggleScaling() {
+    scaling = scaling === 'nearest' ? 'smooth' : 'nearest';
+    updateViewerSessionPreferences({ scaling });
+    fitModeFeedback = scaling === 'nearest' ? 'Nearest-neighbor scaling' : 'Smooth scaling';
+    if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);
+    fitModeFeedbackTimer = setTimeout(() => { fitModeFeedback = ''; fitModeFeedbackTimer = undefined; }, 1100);
+  }
+
   function handleViewerWheel(event: WheelEvent) {
     if (renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')) return;
     const stage = stageElement;
@@ -562,6 +574,12 @@
     }
 
     const key = event.key.toLowerCase();
+    if (key === 's') {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleScaling();
+      return;
+    }
     if (key === 'v') {
       event.preventDefault();
       event.stopPropagation();
@@ -657,7 +675,7 @@
 
 <svelte:window onkeydown={handleViewerKeydown} />
 
-<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
+<div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
   <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
     <div class="viewer-pan-surface" style={panSurfaceStyle}>
       {#if renderedFile.media_kind === 'video'}
@@ -793,6 +811,11 @@
   :global(.viewer-stage .viewer-visual-media) {
     object-fit: contain;
     transition: filter 120ms ease, opacity 120ms ease;
+  }
+
+  :global(.viewer-stage.nearest-scaling img.viewer-visual-media),
+  :global(.viewer-stage.nearest-scaling .viewer-image-freeze) {
+    image-rendering: pixelated;
   }
 
   .viewer-image-freeze {

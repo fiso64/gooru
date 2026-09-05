@@ -9,6 +9,7 @@
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
   import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
+  import type { ViewerScaling } from '$lib/state/viewerSessionPreferences';
 
   type FontStyle = 'editorial' | 'modern' | 'comic';
   type UIConfig = {
@@ -17,6 +18,7 @@
     load_full_media_by_default?: boolean;
     fullscreen_media_by_default?: boolean;
     viewer_fit_mode?: ViewerConfiguredFitMode;
+    viewer_scaling?: ViewerScaling;
     grid_size?: number;
     thumbnail_sizes?: number[];
   };
@@ -38,6 +40,7 @@
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
       viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
+      viewerScaling: config.viewer_scaling ?? 'smooth',
       gridSize: runtimeGridSize,
       thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? [])
     });
