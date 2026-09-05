@@ -117,12 +117,8 @@ func (l *GooruLibrary) ListFilesSearch(ctx context.Context, query string, page P
 	result := PageResult[types.FileInfo]{Items: files}
 	if len(result.Items) > page.Limit {
 		result.Items = result.Items[:page.Limit]
-		if cursor != nil {
-			last := result.Items[len(result.Items)-1]
-			result.NextPageToken = CursorPageToken(sort, order, last.ID)
-		} else {
-			result.NextPageToken = NextPageToken(page.Offset, page.Limit, page.Limit)
-		}
+		last := result.Items[len(result.Items)-1]
+		result.NextPageToken = CursorPageTokenAtOffset(sort, order, last.ID, page.Offset+page.Limit)
 	}
 	return result, nil
 }

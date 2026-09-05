@@ -107,8 +107,12 @@ func TestBrowseFilesAndDetailsUseOpaqueIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode next page token: %v", err)
 	}
-	if !strings.HasPrefix(string(decodedToken), "offset:") {
-		t.Fatalf("file search should use offset token for bidirectional UI paging, got %q", string(decodedToken))
+	if strings.HasPrefix(string(decodedToken), "offset:") {
+		t.Fatalf("file search should advance with a stable cursor token, got %q", string(decodedToken))
+	}
+	parsedPage, err := ParsePage("1", page.NextPageToken)
+	if err != nil || parsedPage.Cursor == nil || parsedPage.Offset != 1 {
+		t.Fatalf("expected cursor token with retained logical offset, page=%+v err=%v", parsedPage, err)
 	}
 	if strings.HasPrefix(page.Files[0].ID, "loc:") {
 		t.Fatalf("file id exposed storage prefix: %q", page.Files[0].ID)
@@ -248,6 +252,53 @@ func TestBrowseDefaultsToAddedNewestAndSupportsAddedCursor(t *testing.T) {
 	}
 	if len(second.Files) != 1 || second.Files[0].ID == first.Files[0].ID {
 		t.Fatalf("expected cursor to advance to another file, first=%+v second=%+v", first.Files, second.Files)
+	}
+}
+
+func TestBrowseCursorRemainsStableWhenEarlierRowsAreInserted(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	firstRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(firstRec, authedRequest(http.MethodGet, "/api/v1/files?sort=name&order=asc&limit=1"))
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("expected first page 200, got %d: %s", firstRec.Code, firstRec.Body.String())
+	}
+	var first FileListResponse
+	if err := json.Unmarshal(firstRec.Body.Bytes(), &first); err != nil {
+		t.Fatalf("decode first page: %v", err)
+	}
+	if len(first.Files) != 1 || first.NextPageToken == "" {
+		t.Fatalf("unexpected first page: %+v", first)
+	}
+	if first.Files[0].Name != "a.jpg" {
+		t.Fatalf("expected a.jpg first, got %+v", first.Files)
+	}
+
+	client := server.library.(*GooruLibrary).client
+	inserted := writeTestFile(t, t.TempDir(), "0-new.jpg", "new earlier file")
+	if _, err := client.TagFiles([]string{inserted}, nil, nil, false); err != nil {
+		t.Fatalf("insert file ahead of cursor: %v", err)
+	}
+
+	nextRec := httptest.NewRecorder()
+	nextURL := "/api/v1/files?sort=name&order=asc&limit=1&page_token=" + url.QueryEscape(first.NextPageToken)
+	server.Handler().ServeHTTP(nextRec, authedRequest(http.MethodGet, nextURL))
+	if nextRec.Code != http.StatusOK {
+		t.Fatalf("expected next page 200, got %d: %s", nextRec.Code, nextRec.Body.String())
+	}
+	var next FileListResponse
+	if err := json.Unmarshal(nextRec.Body.Bytes(), &next); err != nil {
+		t.Fatalf("decode next page: %v", err)
+	}
+	if len(next.Files) != 1 || next.Files[0].Name != "b.png" {
+		t.Fatalf("expected stable cursor to continue at b.png after earlier insertion, first=%+v next=%+v", first.Files, next.Files)
+	}
+	if next.Files[0].ID == first.Files[0].ID {
+		t.Fatalf("pagination duplicated the boundary row after earlier insertion: %+v", next.Files[0])
+	}
+	if next.PreviousPageToken == "" {
+		t.Fatal("cursor page should retain offset metadata for backward navigation")
 	}
 }
 
