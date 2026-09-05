@@ -67,6 +67,7 @@ test('paged mode uses centered numbered controls with direct page navigation', a
   await expect.poll(() => requests.some((request) => request.offset === 0 && request.limit === 25)).toBe(true);
 
   await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page).not.toHaveURL(/[?&]page=/);
   await expect(page.getByRole('button', { name: 'Page 2', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Page 3', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Page 11', exact: true })).toBeVisible();
@@ -74,9 +75,11 @@ test('paged mode uses centered numbered controls with direct page navigation', a
 
   await page.getByRole('button', { name: 'Page 3', exact: true }).click();
   await expect.poll(() => requests.some((request) => request.offset === 50 && request.limit === 25)).toBe(true);
+  await expect(page).toHaveURL(/[?&]page=3(?:&|$)/);
   await expect(page.getByRole('button', { name: /page-50\.jpg$/ })).toBeVisible();
   await page.getByRole('button', { name: 'Page 5', exact: true }).click();
   await expect.poll(() => requests.some((request) => request.offset === 100 && request.limit === 25)).toBe(true);
+  await expect(page).toHaveURL(/[?&]page=5(?:&|$)/);
 
   for (const pageNumber of [1, 3, 4, 5, 6, 7, 11]) {
     await expect(page.getByRole('button', { name: `Page ${pageNumber}`, exact: true })).toBeVisible();
@@ -94,10 +97,29 @@ test('paged mode uses centered numbered controls with direct page navigation', a
 
   await page.getByRole('button', { name: 'Page 11', exact: true }).click();
   await expect.poll(() => requests.some((request) => request.offset === 250 && request.limit === 25)).toBe(true);
+  await expect(page).toHaveURL(/[?&]page=11(?:&|$)/);
   await expect(page.getByRole('button', { name: /page-250\.jpg$/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Page 11', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Next page' })).toBeDisabled();
+});
+
+test('paged mode restores a direct page URL and browser history', async ({ page }) => {
+  const requests = await mockPagedLibrary(page);
+  await page.goto('/?page=4');
+  await expect.poll(() => requests.some((request) => request.offset === 75 && request.limit === 25)).toBe(true);
+  await expect(page.getByRole('button', { name: /page-75\.jpg$/ })).toBeVisible();
+  await expect(page.getByText('273 files')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 4', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page).toHaveURL(/[?&]page=4(?:&|$)/);
+
+  await page.getByRole('button', { name: 'Page 2', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]page=2(?:&|$)/);
+  await expect(page.getByRole('button', { name: /page-25\.jpg$/ })).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/[?&]page=4(?:&|$)/);
+  await expect(page.getByRole('button', { name: /page-75\.jpg$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 4', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
 test('six-page pager keeps the last page reachable through middle pages on narrow screens', async ({ page }) => {
