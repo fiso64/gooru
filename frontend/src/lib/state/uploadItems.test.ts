@@ -42,9 +42,10 @@ describe('effectiveUploadTargetID', () => {
 });
 
 describe('large upload queue updates', () => {
-  it('keeps the 10k queue array stable while progress and status counts update incrementally', () => {
+  it('keeps the 10k queue and row identities stable while progress and status counts update incrementally', () => {
     const items = Array.from({ length: 10_000 }, (_, index) => queueItem(index));
     const queueIdentity = items;
+    const activeItems = items.slice(0, 4);
     const untouchedItem = items[9_999];
     const counts = countUploadStatuses(items);
 
@@ -60,12 +61,15 @@ describe('large upload queue updates', () => {
     }
 
     expect(items).toBe(queueIdentity);
+    expect(items.slice(0, 4)).toEqual(activeItems);
+    for (let index = 0; index < 4; index += 1) expect(items[index]).toBe(activeItems[index]);
     expect(items[9_999]).toBe(untouchedItem);
     expect(items.slice(0, 4).map((item) => item.progress)).toEqual([100, 100, 100, 100]);
     expect(counts).toEqual({ waiting: 9_996, uploading: 4 });
     expect(uploadSummaryFromCounts(counts)).toBe('9996 waiting / 4 uploading');
 
     replaceUploadItemInPlace(items, 0, { ...items[0], status: 'imported', progress: 100 }, counts);
+    expect(items[0]).toBe(activeItems[0]);
     expect(counts).toEqual({ waiting: 9_996, uploading: 3, imported: 1 });
     expect(uploadSummaryFromCounts(counts)).toBe('9996 waiting / 3 uploading / 1 imported');
   });
