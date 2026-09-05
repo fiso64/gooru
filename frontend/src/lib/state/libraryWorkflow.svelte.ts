@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { get, writable } from 'svelte/store';
+import { writable } from 'svelte/store';
 import { ApiClient } from '$lib/api/client';
 import { useOpaqueURLState } from '$lib/api/privacy';
 import { authState } from '$lib/stores/auth';

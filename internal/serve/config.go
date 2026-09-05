@@ -54,10 +54,9 @@ type DatabaseConfig struct {
 }
 
 type EncryptionConfig struct {
-	Enabled        bool   `yaml:"enabled"`
-	KeyFile        string `yaml:"key_file"`
-	OpaqueURLState bool   `yaml:"opaque_url_state"`
-	Key            []byte `yaml:"-"`
+	Enabled bool   `yaml:"enabled"`
+	KeyFile string `yaml:"key_file"`
+	Key     []byte `yaml:"-"`
 }
 
 type AuthConfig struct {
@@ -150,8 +149,7 @@ func DefaultConfig(dbPath string) Config {
 			WriteTimeout:        30 * time.Second,
 			IdleTimeout:         2 * time.Minute,
 		},
-		Database:   DatabaseConfig{Path: dbPath},
-		Encryption: EncryptionConfig{OpaqueURLState: true},
+		Database: DatabaseConfig{Path: dbPath},
 		Auth: AuthConfig{
 			Enabled:        true,
 			SessionTTLRaw:  "720h",

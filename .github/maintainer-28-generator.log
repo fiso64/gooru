@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "/var/cache/github-runner-work-gooru-2/gooru/gooru/.github/maintainer-28-opaque-url.py", line 286, in <module>
-    ''').write_text(Path('internal/serve/url_state_test.go').read_text().replace('"encoding/json"', '"encoding/json"\n    "errors"'))
-         ^^^^^^^^^^
-AttributeError: 'int' object has no attribute 'write_text'

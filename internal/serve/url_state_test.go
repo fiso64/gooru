@@ -18,7 +18,6 @@ func protectedURLConfig(t *testing.T) Config {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Auth.Enabled = false
 	cfg.Encryption.Enabled = true
-	cfg.Encryption.OpaqueURLState = true
 	cfg.Encryption.Key = bytes.Repeat([]byte{0x42}, 32)
 	return cfg
 }
