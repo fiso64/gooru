@@ -143,8 +143,12 @@ test('speculative neighbor preload waits for presentation and follows original-m
   const media = page.locator('.viewer-visual-media');
   await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(900);
 
+  // Let the preview-mode neighbor preload start so the mode switch can prove it is cancelled
+  // rather than racing with the request-accounting reset below.
+  await expect.poll(() => app.previewRequests.includes('b')).toBe(true);
   app.previewRequests.length = 0;
   app.contentRequests.length = 0;
+
   await page.getByRole('button', { name: 'Use original media' }).click();
   await expect(media).toHaveAttribute('src', /\/a\/content/);
   await expect.poll(() => app.contentRequests.includes('b')).toBe(true);
