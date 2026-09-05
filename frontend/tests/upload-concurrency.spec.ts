@@ -186,6 +186,6 @@ test('large completed WebUI uploads coalesce cache refresh and do not wait for t
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(30, { timeout: 5000 });
 
   expect(statusBatchRequests).toBe(0);
-  await expect.poll(() => jobsListRequests - jobsBeforeUpload).toBe(1);
+  await expect.poll(() => jobsListRequests - jobsBeforeUpload).toBe(0);
   await expect.poll(() => tagsRequests - tagsBeforeUpload).toBe(1);
 });

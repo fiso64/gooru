@@ -112,7 +112,6 @@ export function createUploadMutation(getCSRFToken: () => string) {
 export async function refreshUploadQueries(queryClient: QueryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ['files'] }),
-    queryClient.invalidateQueries({ queryKey: ['jobs'] }),
     queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
   ]);
 }
