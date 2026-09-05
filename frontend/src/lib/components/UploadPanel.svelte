@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import Icon from './Icon.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
+  import UploadTargetPicker from './UploadTargetPicker.svelte';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
@@ -175,16 +176,12 @@
 
     <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); onSubmit(); }}>
       <section class="g-card upload-config-card">
-        <label class="field-row">
+        <div class="field-row">
           <span>Target</span>
-          <select class="g-input" value={selectedTargetID} onchange={(event) => onTargetInput(event.currentTarget.value)}>
-            {#each targets as target}
-              <option value={target.id}>{target.name}</option>
-            {:else}
-              <option value="">Default target</option>
-            {/each}
-          </select>
-        </label>
+          <div class="field-control">
+            <UploadTargetPicker targets={targets} selectedID={selectedTargetID} onSelect={onTargetInput} />
+          </div>
+        </div>
 
         <div class="field-row">
           <span>Initial tags</span>
