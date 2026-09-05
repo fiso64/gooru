@@ -19,6 +19,7 @@ import type { UploadVariables } from '$lib/queries/library';
 type UploadMutate = (variables: UploadVariables) => Promise<Job | UploadImportResponse>;
 type CancelJob = (jobID: string) => Promise<Job>;
 type JobBatch = { items: Job[] };
+type JobApplyResult = { completed: boolean; changedFiles: boolean };
 
 export const browserUploadConcurrency = 4;
 export const uploadJobStatusBatchSize = 64;
@@ -109,7 +110,7 @@ export function createUploadWorkflow() {
     if (files.length) items = retargetStagedUploadItems(items, targetID);
   }
 
-  function applyJob(job: Job | JobBatch) {
+  function applyJob(job: Job | JobBatch): JobApplyResult {
     if ('items' in job) return applyJobs(job.items);
     return untrack(() => {
       const index = trackedJobs[job?.id];
@@ -137,7 +138,7 @@ export function createUploadWorkflow() {
     });
   }
 
-  function applyJobs(jobs: Job[]) {
+  function applyJobs(jobs: Job[]): JobApplyResult {
     let completed = false;
     let changedFiles = false;
     for (const job of jobs) {
