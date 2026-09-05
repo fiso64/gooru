@@ -1,6 +1,8 @@
 import { browser } from '$app/environment';
 import { writable } from 'svelte/store';
 import { ApiClient } from '$lib/api/client';
+import { useOpaqueURLState } from '$lib/api/privacy';
+import { authState } from '$lib/stores/auth';
 import type { FileItem } from '$lib/api/types';
 import type { FileSort, SortOrder } from '$lib/queries/files';
 import {
@@ -27,7 +29,11 @@ import {
 } from '$lib/state/selection';
 
 export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRouteFromPath(window.location.pathname) : 'library') {
-  const initialLibraryState = browser && initialRoute === 'library'
+  const opaqueURLState = browser && useOpaqueURLState();
+  const initialOpaqueToken = opaqueURLState && initialRoute === 'library'
+    ? (new URLSearchParams(window.location.search).get('state')?.trim() ?? '')
+    : '';
+  const initialLibraryState = browser && initialRoute === 'library' && !initialOpaqueToken
     ? libraryURLStateFromSearch(window.location.search)
     : defaultLibraryURLState;
   const initialQuery = initialLibraryState.kind
@@ -48,48 +54,111 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   let pendingPreviewID = $state(initialLibraryState.fileID);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
   let suggestionDebounce: ReturnType<typeof setTimeout> | undefined;
+  let historyGeneration = 0;
+  let restoreGeneration = 0;
+  let restoredStateKey = opaqueURLState && !window.location.search ? stateKey(initialLibraryState) : '';
+  let initialOpaqueRestorePending = $state(Boolean(initialOpaqueToken));
 
   function setSubmittedSearch(value: string) {
     submittedQuery = value;
     submittedSearch.set(value);
   }
 
-  // Keep top-level navigation, durable library controls, and the active preview
-  // in one browser-history policy. Components remain unaware of the History API,
-  // and a preview URL can be restored independently of the currently loaded page.
+  function stateKey(state: typeof defaultLibraryURLState) { return JSON.stringify(state); }
+
+  function applyRestoredLibraryState(nextLibraryState: typeof defaultLibraryURLState) {
+    restoredStateKey = stateKey(nextLibraryState);
+    const restoredQuery = nextLibraryState.kind ? replaceSidebarKind(nextLibraryState.query, `type:${nextLibraryState.kind}`) : nextLibraryState.query;
+    activeKind = '';
+    activeSavedSearch = '';
+    sort = nextLibraryState.sort;
+    order = nextLibraryState.order;
+    pendingPreviewID = nextLibraryState.fileID;
+    searchDraft.set(restoredQuery);
+    suggestionSearch.set(restoredQuery);
+    setSubmittedSearch(restoredQuery);
+    activeFile = null;
+    selection = emptySelection();
+    selectionAnchorID = '';
+  }
+
+  async function resolveOpaqueState(token: string, signal?: AbortSignal) {
+    return new ApiClient(get(authState).csrfToken).resolveURLState(token, signal);
+  }
+
   $effect(() => {
-    if (!browser) return;
+    if (!browser || !initialOpaqueRestorePending || !initialOpaqueToken) return;
+    const controller = new AbortController();
+    resolveOpaqueState(initialOpaqueToken, controller.signal).then((state) => {
+      if (controller.signal.aborted) return;
+      applyRestoredLibraryState(state);
+      initialOpaqueRestorePending = false;
+    }).catch((error) => {
+      if (controller.signal.aborted) return;
+      console.warn('Unable to restore protected library URL state', error);
+      restoredStateKey = stateKey(defaultLibraryURLState);
+      window.history.replaceState(null, '', pathForAppRoute('library'));
+      initialOpaqueRestorePending = false;
+    });
+    return () => controller.abort();
+  });
+
+  // Keep top-level navigation, durable library controls, and the active preview
+  // in one browser-history policy. Protected mode seals library state server-side
+  // before it enters the address bar; ordinary mode retains readable URLs.
+  $effect(() => {
+    if (!browser || initialOpaqueRestorePending) return;
     const pathname = pathForAppRoute(route);
-    const search = route === 'library'
-      ? searchForLibraryURLState({ query: submittedQuery, kind: '', sort, order, fileID: pendingPreviewID })
-      : '';
-    const nextURL = `${pathname}${search}`;
-    const currentURL = `${window.location.pathname}${window.location.search}`;
-    if (currentURL !== nextURL) window.history.pushState(null, '', nextURL);
+    const generation = ++historyGeneration;
+    if (route !== 'library') {
+      const currentURL = `${window.location.pathname}${window.location.search}`;
+      if (currentURL !== pathname) window.history.pushState(null, '', pathname);
+      return;
+    }
+    const state = { query: submittedQuery, kind: '', sort, order, fileID: pendingPreviewID };
+    const key = stateKey(state);
+    if (restoredStateKey === key) { restoredStateKey = ''; return; }
+    if (!opaqueURLState) {
+      const nextURL = `${pathname}${searchForLibraryURLState(state)}`;
+      const currentURL = `${window.location.pathname}${window.location.search}`;
+      if (currentURL !== nextURL) window.history.pushState(null, '', nextURL);
+      return;
+    }
+    if (key === stateKey(defaultLibraryURLState)) {
+      if (`${window.location.pathname}${window.location.search}` !== pathname) window.history.pushState(null, '', pathname);
+      return;
+    }
+    const replaceLegacy = !new URLSearchParams(window.location.search).has('state') && window.location.search !== '';
+    new ApiClient(get(authState).csrfToken).createURLState(state).then((token) => {
+      if (generation !== historyGeneration) return;
+      const nextURL = `${pathname}?state=${encodeURIComponent(token)}`;
+      if (`${window.location.pathname}${window.location.search}` === nextURL) return;
+      if (replaceLegacy) window.history.replaceState(null, '', nextURL);
+      else window.history.pushState(null, '', nextURL);
+    }).catch((error) => console.warn('Unable to protect library URL state', error));
   });
 
   $effect(() => {
     if (!browser) return;
-    const restoreRoute = () => {
+    const restoreRoute = async () => {
+      const generation = ++restoreGeneration;
       const nextRoute = appRouteFromPath(window.location.pathname);
-      const nextLibraryState = nextRoute === 'library'
-        ? libraryURLStateFromSearch(window.location.search)
-        : defaultLibraryURLState;
       route = nextRoute;
-      const restoredQuery = nextLibraryState.kind
-        ? replaceSidebarKind(nextLibraryState.query, `type:${nextLibraryState.kind}`)
-        : nextLibraryState.query;
-      activeKind = '';
-      activeSavedSearch = '';
-      sort = nextLibraryState.sort;
-      order = nextLibraryState.order;
-      pendingPreviewID = nextLibraryState.fileID;
-      searchDraft.set(restoredQuery);
-      suggestionSearch.set(restoredQuery);
-      setSubmittedSearch(restoredQuery);
-      activeFile = null;
-      selection = emptySelection();
-      selectionAnchorID = '';
+      if (nextRoute !== 'library') {
+        applyRestoredLibraryState(defaultLibraryURLState);
+        return;
+      }
+      const token = opaqueURLState ? (new URLSearchParams(window.location.search).get('state')?.trim() ?? '') : '';
+      try {
+        const nextLibraryState = token ? await resolveOpaqueState(token) : libraryURLStateFromSearch(window.location.search);
+        if (generation !== restoreGeneration) return;
+        applyRestoredLibraryState(nextLibraryState);
+      } catch (error) {
+        if (generation !== restoreGeneration) return;
+        console.warn('Unable to restore protected library history state', error);
+        applyRestoredLibraryState(defaultLibraryURLState);
+        window.history.replaceState(null, '', pathForAppRoute('library'));
+      }
     };
     window.addEventListener('popstate', restoreRoute);
     return () => window.removeEventListener('popstate', restoreRoute);
