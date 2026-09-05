@@ -12,6 +12,7 @@ type UIConfigResponse struct {
 	GridSize                 int    `json:"grid_size"`
 	ThumbnailSizes           []int  `json:"thumbnail_sizes"`
 	ProtectedMode            bool   `json:"protected_mode"`
+	OpaqueURLState           bool   `json:"opaque_url_state"`
 }
 
 func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
@@ -25,5 +26,6 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		GridSize:                 s.cfg.UI.GridSize,
 		ThumbnailSizes:           s.cfg.Media.ThumbnailSizes,
 		ProtectedMode:            s.cfg.Encryption.Enabled,
+		OpaqueURLState:           s.cfg.Encryption.Enabled && s.cfg.Encryption.OpaqueURLState,
 	})
 }

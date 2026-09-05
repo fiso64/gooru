@@ -12,12 +12,13 @@ import (
 const metadataRequestBodyLimit int64 = 1 << 20
 
 type Server struct {
-	cfg     Config
-	jobs    *JobManager
-	library Library
-	media   *MediaService
-	meta    MediaMetadataProvider
-	auth    *AuthStore
+	cfg      Config
+	jobs     *JobManager
+	library  Library
+	media    *MediaService
+	meta     MediaMetadataProvider
+	auth     *AuthStore
+	urlState *urlStateCodec
 }
 
 func NewServer(cfg Config) *Server {
@@ -31,11 +32,12 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		gooruLibrary.encryption = cfg.Encryption
 	}
 	return &Server{
-		cfg:     cfg,
-		jobs:    NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
-		library: library,
-		media:   NewMediaService(cfg),
-		meta:    metadata,
+		cfg:      cfg,
+		jobs:     NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
+		library:  library,
+		media:    NewMediaService(cfg),
+		meta:     metadata,
+		urlState: newURLStateCodec(cfg),
 	}
 }
 
@@ -61,6 +63,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/auth/logout", s.protected(http.HandlerFunc(s.handleAuthLogout)))
 	mux.Handle("/api/v1/auth/me", authMiddleware(s.cfg, s.auth, http.HandlerFunc(s.handleAuthMe)))
 	mux.Handle("/api/v1/auth/change-password", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleChangePassword))))
+	mux.Handle("/api/v1/ui-state/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleUIState))))
+	mux.Handle("/api/v1/ui-state", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleUIState))))
 	mux.Handle("/api/v1/upload-targets", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleUploadTargets)))
 	mux.Handle("/api/v1/uploads", s.adminProtected(http.HandlerFunc(s.handleUpload)))
 	mux.Handle("/api/v1/files/tags", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleMutateTags))))

@@ -1,5 +1,6 @@
 import createClient from 'openapi-fetch';
 import type { paths } from './openapi';
+import type { LibraryURLState } from '$lib/utils/appRoute';
 import { useProtectedReadTransport } from './privacy';
 import type {
   ApiErrorResponse,
@@ -120,6 +121,24 @@ export class ApiClient {
         signal: params.signal
       })
     );
+  }
+
+  async createURLState(state: LibraryURLState, signal?: AbortSignal): Promise<string> {
+    const response = await fetch(`${absoluteBaseURL(this.baseURL)}/ui-state`, {
+      method: 'POST', credentials: 'same-origin', signal,
+      headers: { 'Content-Type': 'application/json', 'X-Gooru-CSRF': this.csrfToken },
+      body: JSON.stringify({ query: state.query, kind: state.kind, sort: state.sort, order: state.order, file_id: state.fileID })
+    });
+    const payload = await parseJSONResponse<{ token?: string }>(response);
+    if (!response.ok || !payload?.token) throw apiErrorFromResponse(response, payload);
+    return payload.token;
+  }
+
+  async resolveURLState(token: string, signal?: AbortSignal): Promise<LibraryURLState> {
+    const response = await fetch(`${absoluteBaseURL(this.baseURL)}/ui-state/${encodeURIComponent(token)}`, { credentials: 'same-origin', signal });
+    const payload = await parseJSONResponse<{ query?: string; kind?: string; sort?: FileSort; order?: SortOrder; file_id?: string }>(response);
+    if (!response.ok || !payload) throw apiErrorFromResponse(response, payload);
+    return { query: payload.query ?? '', kind: payload.kind ?? '', sort: payload.sort ?? 'added', order: payload.order ?? 'desc', fileID: payload.file_id ?? '' };
   }
 
   async getFile(id: string, signal?: AbortSignal): Promise<FileItem> {
@@ -321,6 +340,17 @@ function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipar
     xhr.addEventListener('abort', () => reject(new ApiError(0, 'request_aborted', 'Upload was canceled')));
     xhr.send(form);
   });
+}
+
+async function parseJSONResponse<T>(response: Response): Promise<T | undefined> {
+  try { return await response.json() as T; } catch { return undefined; }
+}
+
+function apiErrorFromResponse(response: Response, payload: unknown): ApiError {
+  const errorPayload = payload as ApiErrorResponse | undefined;
+  const error = new ApiError(response.status, errorPayload?.error?.code ?? 'http_error', errorPayload?.error?.message ?? `Request failed with HTTP ${response.status}`);
+  if (response.status === 401) unauthorizedHandler?.();
+  return error;
 }
 
 function parseXHRPayload(text: string): unknown {

@@ -588,6 +588,53 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /ui-state:
+    post:
+      summary: Seal WebUI library state into an opaque protected-mode token
+      security:
+        - cookieAuth: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserURLState'
+      responses:
+        '201':
+          description: Protected state token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ui-state/{token}:
+    get:
+      summary: Resolve an opaque protected-mode WebUI state token
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Restored library state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserURLState'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: Protected state token expired
   /upload-targets:
     get:
       summary: List configured upload targets.
@@ -1420,6 +1467,21 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Job"
+    BrowserURLState:
+      type: object
+      properties:
+        query:
+          type: string
+        kind:
+          type: string
+        sort:
+          type: string
+          enum: [added, name, modified, size, kind]
+        order:
+          type: string
+          enum: [asc, desc]
+        file_id:
+          type: string
     FileListResponse:
       type: object
       required: [files, total_count, library_count]

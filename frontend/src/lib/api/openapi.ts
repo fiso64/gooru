@@ -818,6 +818,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ui-state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Seal WebUI library state into an opaque protected-mode token */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BrowserURLState"];
+                };
+            };
+            responses: {
+                /** @description Protected state token */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            token: string;
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ui-state/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Resolve an opaque protected-mode WebUI state token */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Restored library state */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BrowserURLState"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+                /** @description Protected state token expired */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/upload-targets": {
         parameters: {
             query?: never;
@@ -1615,6 +1704,15 @@ export interface components {
         };
         JobListResponse: {
             items: components["schemas"]["Job"][];
+        };
+        BrowserURLState: {
+            query?: string;
+            kind?: string;
+            /** @enum {string} */
+            sort?: "added" | "name" | "modified" | "size" | "kind";
+            /** @enum {string} */
+            order?: "asc" | "desc";
+            file_id?: string;
         };
         FileListResponse: {
             files: components["schemas"]["File"][];
