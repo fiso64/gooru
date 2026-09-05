@@ -29,6 +29,7 @@ export interface UploadItem {
 }
 
 export type UploadTargetOption = { id: string; name: string; added_at_strategy?: UploadAddedAtStrategy; default_tags?: string[] };
+export type UploadStatusCounts = Partial<Record<UploadItemStatus, number>>;
 
 export function effectiveUploadTargetID(targetID: string, targets: UploadTargetOption[]): string {
   if (targetID && targets.some((target) => target.id === targetID)) return targetID;
@@ -114,15 +115,42 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
   });
 }
 
-export function uploadSummary(items: UploadItem[]): string {
-  if (!items.length) return '';
-  const counts = items.reduce<Record<string, number>>((acc, item) => {
-    acc[item.status] = (acc[item.status] ?? 0) + 1;
-    return acc;
-  }, {});
+export function countUploadStatuses(items: UploadItem[]): UploadStatusCounts {
+  const counts: UploadStatusCounts = {};
+  for (const item of items) counts[item.status] = (counts[item.status] ?? 0) + 1;
+  return counts;
+}
+
+export function transitionUploadStatus(counts: UploadStatusCounts, previous: UploadItemStatus, next: UploadItemStatus): void {
+  if (previous === next) return;
+  const previousCount = counts[previous] ?? 0;
+  if (previousCount <= 1) delete counts[previous];
+  else counts[previous] = previousCount - 1;
+  counts[next] = (counts[next] ?? 0) + 1;
+}
+
+export function replaceUploadItemInPlace(
+  items: UploadItem[],
+  index: number,
+  next: UploadItem | undefined,
+  counts: UploadStatusCounts
+): void {
+  const previous = items[index];
+  if (!previous || !next) return;
+  items[index] = next;
+  transitionUploadStatus(counts, previous.status, next.status);
+}
+
+export function uploadSummaryFromCounts(counts: UploadStatusCounts): string {
   return Object.entries(counts)
+    .filter(([, count]) => Boolean(count))
     .map(([status, count]) => `${count} ${status.replace(/_/g, ' ')}`)
     .join(' / ');
+}
+
+export function uploadSummary(items: UploadItem[]): string {
+  if (!items.length) return '';
+  return uploadSummaryFromCounts(countUploadStatuses(items));
 }
 
 function updateUploadItem(items: UploadItem[], index: number, update: (item: UploadItem) => UploadItem): UploadItem[] {

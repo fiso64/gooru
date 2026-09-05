@@ -1,16 +1,19 @@
 import { untrack } from 'svelte';
 import {
+  countUploadStatuses,
   itemFromJob,
   itemFromResult,
   queuedItem,
+  replaceUploadItemInPlace,
   retargetStagedUploadItems,
   stagedUploadItems,
   uploadingItem,
   uploadProgressItem,
-  uploadSummary,
+  uploadSummaryFromCounts,
   waitingUploadItems,
   type UploadAddedAtStrategy,
-  type UploadItem
+  type UploadItem,
+  type UploadStatusCounts
 } from './uploadItems';
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
@@ -37,6 +40,7 @@ export function createUploadWorkflow() {
   let cancelBusy = $state(false);
   let status = $state('');
   let trackedJobs = $state<Record<string, number>>({});
+  let statusCounts: UploadStatusCounts = {};
 
   function reset() {
     files = [];
@@ -50,18 +54,21 @@ export function createUploadWorkflow() {
     cancelBusy = false;
     status = '';
     trackedJobs = {};
+    statusCounts = {};
   }
 
   function clear() {
     files = [];
     items = [];
     status = '';
+    statusCounts = {};
   }
 
   function removeAt(index: number) {
     files = files.filter((_, fileIndex) => fileIndex !== index);
     items = items.filter((_, itemIndex) => itemIndex !== index);
     status = '';
+    statusCounts = countUploadStatuses(items);
   }
 
   function hasActiveJobs() {
@@ -72,6 +79,14 @@ export function createUploadWorkflow() {
     const ids = Object.keys(trackedJobs);
     if (busy && ids.length < uploadJobStatusBatchSize) return '';
     return ids.slice(0, uploadJobStatusBatchSize).join(',');
+  }
+
+  function replaceItem(index: number, next: UploadItem | undefined) {
+    replaceUploadItemInPlace(items, index, next, statusCounts);
+  }
+
+  function refreshStatus() {
+    status = uploadSummaryFromCounts(statusCounts);
   }
 
   function select(nextFiles: FileList | File[] | null) {
@@ -85,6 +100,7 @@ export function createUploadWorkflow() {
     const queueTimeMs = Date.now();
     files = [...files, ...additions];
     items = [...items, ...stagedUploadItems(additions, targetID, queueTimeMs)];
+    statusCounts = countUploadStatuses(items);
     status = '';
     if (autoUpload) {
       queueMicrotask(() => {
@@ -121,7 +137,8 @@ export function createUploadWorkflow() {
     return untrack(() => {
       const index = trackedJobs[job?.id];
       if (!job || index === undefined) return { completed: false, changedFiles: false };
-      items = itemFromJob(items, index, job);
+      const current = items[index];
+      replaceItem(index, current ? itemFromJob([current], 0, job)[0] : undefined);
       if (!isTerminalJob(job)) return { completed: false, changedFiles: false };
 
       const nextTrackedJobs = { ...trackedJobs };
@@ -129,7 +146,7 @@ export function createUploadWorkflow() {
       trackedJobs = nextTrackedJobs;
       const changedFiles = job.status === 'completed';
       if (!busy && !hasActiveJobs()) finishBatch();
-      else status = uploadSummary(items);
+      else refreshStatus();
       return { completed: true, changedFiles };
     });
   }
@@ -140,7 +157,8 @@ export function createUploadWorkflow() {
       if (!jobID) return;
       const index = trackedJobs[jobID];
       status = errorMessage(error);
-      items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: status } : item);
+      const current = items[index];
+      if (current) items[index] = { ...current, error: status };
     });
   }
 
@@ -158,7 +176,7 @@ export function createUploadWorkflow() {
 
   function finishBatch() {
     files = [];
-    status = uploadSummary(items) || 'Upload finished';
+    status = uploadSummaryFromCounts(statusCounts) || 'Upload finished';
   }
 
   async function submit(mutate: UploadMutate) {
@@ -166,6 +184,7 @@ export function createUploadWorkflow() {
     busy = true;
     trackedJobs = {};
     items = waitingUploadItems(items.length ? items : stagedUploadItems(files, targetID));
+    statusCounts = countUploadStatuses(items);
     const batchFiles = files;
     const parsedTags = parseTags(tags);
     const batchTargetID = targetID;
@@ -185,8 +204,9 @@ export function createUploadWorkflow() {
         const index = nextIndex;
         nextIndex += 1;
         const file = batchFiles[index];
-        items = uploadingItem(items, index);
-        status = uploadSummary(items);
+        const current = items[index];
+        replaceItem(index, current ? uploadingItem([current], 0)[0] : undefined);
+        refreshStatus();
         try {
           const response = await mutate({
             files: [file],
@@ -206,25 +226,28 @@ export function createUploadWorkflow() {
             queueIndex: index,
             queueTotal: batchQueueTotal,
             onProgress: (progress) => {
-              items = uploadProgressItem(items, index, progress);
-              status = uploadSummary(items);
+              const progressItem = items[index];
+              replaceItem(index, progressItem ? uploadProgressItem([progressItem], 0, progress)[0] : undefined);
             }
           });
           if ('id' in response) {
             // Retain async-response compatibility for callers/servers that
             // explicitly return jobs despite the WebUI's inline preference.
             trackedJobs = { ...trackedJobs, [response.id]: index };
-            items = queuedItem(items, index);
+            const queuedItemState = items[index];
+            replaceItem(index, queuedItemState ? queuedItem([queuedItemState], 0)[0] : undefined);
             queued += 1;
           } else {
-            items = itemFromResult(items, index, response);
+            const resultItem = items[index];
+            replaceItem(index, resultItem ? itemFromResult([resultItem], 0, response)[0] : undefined);
             changedFiles = true;
           }
         } catch (error) {
           const message = errorMessage(error);
-          items = items.map((item, itemIndex) => itemIndex === index ? { ...item, status: 'error', error: message } : item);
+          const failed = items[index];
+          if (failed) replaceItem(index, { ...failed, status: 'error', error: message });
         }
-        status = uploadSummary(items);
+        refreshStatus();
       }
     }
 
@@ -232,7 +255,7 @@ export function createUploadWorkflow() {
     await Promise.all(Array.from({ length: workerCount }, () => uploadNext()));
 
     busy = false;
-    if (hasActiveJobs()) status = uploadSummary(items);
+    if (hasActiveJobs()) refreshStatus();
     else finishBatch();
     return { queued: queued > 0, changedFiles };
   }
@@ -248,7 +271,8 @@ export function createUploadWorkflow() {
         if (index === undefined) continue;
         try {
           const job = await mutate(jobID);
-          items = itemFromJob(items, index, job);
+          const current = items[index];
+          replaceItem(index, current ? itemFromJob([current], 0, job)[0] : undefined);
           if (isTerminalJob(job)) {
             const nextTrackedJobs = { ...trackedJobs };
             delete nextTrackedJobs[jobID];
@@ -257,12 +281,13 @@ export function createUploadWorkflow() {
           changed = true;
         } catch (error) {
           const message = errorMessage(error);
-          items = items.map((item, itemIndex) => itemIndex === index ? { ...item, error: message } : item);
+          const current = items[index];
+          if (current) items[index] = { ...current, error: message };
           status = message;
         }
       }
       if (!busy && !hasActiveJobs()) finishBatch();
-      else status = uploadSummary(items);
+      else refreshStatus();
       return { changed };
     } finally {
       cancelBusy = false;
