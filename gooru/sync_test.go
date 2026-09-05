@@ -1,6 +1,7 @@
 package gooru_test
 
 import (
+    "bytes"
     "os"
     "path/filepath"
     "sync"
@@ -9,6 +10,7 @@ import (
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
     "gooru.local/gooru"
+    "gooru.local/internal/encryptedfile"
     "gooru.local/types"
 )
 
@@ -58,6 +60,54 @@ func TestClient_RehashFiles(t *testing.T) {
 	// - A full rehash that transfers tags.
 	// - Rehash on a file not in the DB.
 	// - Rehash on an unchanged file.
+}
+
+func TestClient_ProtectedSyncUsesLogicalPlaintextMetadata(t *testing.T) {
+	dbPath := setupTestDB(t)
+	root := t.TempDir()
+	path := createTestFile(t, root, "protected.bin", "logical protected contents")
+
+	plainClient, err := gooru.New(dbPath, false)
+	require.NoError(t, err)
+	_, err = plainClient.TagFiles([]string{path}, []string{"protected:test"}, nil, false)
+	require.NoError(t, err)
+	require.NoError(t, plainClient.Close())
+
+	plainInfo, err := os.Stat(path)
+	require.NoError(t, err)
+	plaintext, err := os.ReadFile(path)
+	require.NoError(t, err)
+	key := bytes.Repeat([]byte{0x5a}, 32)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o600)
+	require.NoError(t, err)
+	require.NoError(t, encryptedfile.Encrypt(file, bytes.NewReader(plaintext), int64(len(plaintext)), key))
+	require.NoError(t, file.Close())
+	// Preserve the logical timestamp while making the physical representation
+	// substantially larger than the plaintext. Core sync must not confuse the
+	// encrypted container metadata with tracked content metadata.
+	require.NoError(t, os.Chtimes(path, plainInfo.ModTime(), plainInfo.ModTime()))
+	containerInfo, err := os.Stat(path)
+	require.NoError(t, err)
+	require.NotEqual(t, plainInfo.Size(), containerInfo.Size())
+
+	client, err := gooru.NewWithOptions(dbPath, false, gooru.OpenOptions{
+		Content: gooru.ContentSourceOptions{EncryptionKey: key, ProtectedRoots: []string{root}},
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	var status types.RehashStatus
+	client.RehashFiles([]string{path}, func(gotPath string, gotStatus types.RehashStatus, err error) {
+		require.NoError(t, err)
+		if gotPath == path {
+			status = gotStatus
+		}
+	}, true)
+	require.Equal(t, types.StatusSkippedUnchanged, status)
+
+	needsRelink, err := client.NeedsRelink([]string{root}, false)
+	require.NoError(t, err)
+	require.False(t, needsRelink, "logical plaintext metadata should keep protected files stable")
 }
 
 func TestClient_Relink(t *testing.T) {
