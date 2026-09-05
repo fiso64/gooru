@@ -1,0 +1,233 @@
+name: Temporary #311 implementation
+
+on:
+  push:
+    branches: [feat/311-paged-library-ui]
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-validate:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/311-paged-library-ui
+          fetch-depth: 0
+      - name: Apply paged library implementation
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  if new in text:
+                      return
+                  raise SystemExit(f"missing patch context in {path}: {old[:100]!r}")
+              p.write_text(text.replace(old, new))
+
+          # Expose validated server-side UI paging policy to the authenticated frontend.
+          replace('internal/serve/ui_config.go',
+          '''\tGridSize                 int    `json:"grid_size"`\n\tGridType                 string `json:"grid_type"`\n\tThumbnailSizes           []int  `json:"thumbnail_sizes"`''',
+          '''\tGridSize                 int    `json:"grid_size"`\n\tGridType                 string `json:"grid_type"`\n\tPaginationMode           string `json:"pagination_mode"`\n\tItemsPerPage             int    `json:"items_per_page"`\n\tThumbnailSizes           []int  `json:"thumbnail_sizes"`''')
+          replace('internal/serve/ui_config.go',
+          '''\t\tGridSize:                 s.cfg.UI.GridSize,\n\t\tGridType:                 s.cfg.UI.GridType,\n\t\tThumbnailSizes:           s.cfg.Media.ThumbnailSizes,''',
+          '''\t\tGridSize:                 s.cfg.UI.GridSize,\n\t\tGridType:                 s.cfg.UI.GridType,\n\t\tPaginationMode:           s.cfg.UI.PaginationMode,\n\t\tItemsPerPage:             s.cfg.UI.ItemsPerPage,\n\t\tThumbnailSizes:           s.cfg.Media.ThumbnailSizes,''')
+
+          # Parameterize the existing file query rather than creating a second data path.
+          replace('frontend/src/lib/queries/files.ts',
+          '''  pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder) =>\n    ['files', 'pages', scope, query, kind, sort, order] as const,''',
+          '''  pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder, limit: number, paged: boolean) =>\n    ['files', 'pages', scope, query, kind, sort, order, limit, paged ? 'paged' : 'infinite'] as const,''')
+          replace('frontend/src/lib/queries/files.ts',
+          '''  getOrder: () => SortOrder,\n  getAuthScope: () => number,\n  getEnabled: () => boolean\n) {\n  return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() => ({\n    ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope),''',
+          '''  getOrder: () => SortOrder,\n  getAuthScope: () => number,\n  getEnabled: () => boolean,\n  getPageLimit: () => number = () => pageLimit,\n  getPaged: () => boolean = () => false\n) {\n  return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() => ({\n    ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope, getPageLimit, getPaged),''')
+          replace('frontend/src/lib/queries/files.ts',
+          '''  getOrder: () => SortOrder,\n  getAuthScope: () => number\n) {\n  return {\n    queryKey: fileKeys.pages(getAuthScope(), getSearch(), getKind(), getSort(), getOrder()),''',
+          '''  getOrder: () => SortOrder,\n  getAuthScope: () => number,\n  getPageLimit: () => number = () => pageLimit,\n  getPaged: () => boolean = () => false\n) {\n  const limit = getPageLimit();\n  const paged = getPaged();\n  return {\n    queryKey: fileKeys.pages(getAuthScope(), getSearch(), getKind(), getSort(), getOrder(), limit, paged),''')
+          replace('frontend/src/lib/queries/files.ts', '        limit: pageLimit,', '        limit,')
+          replace('frontend/src/lib/queries/files.ts',
+          '''    // Keep fetched logical pages stable. Rendering is independently virtualized, so evicting\n    // query pages saves little DOM work but changes the logical prefix under the viewport and\n    // can repack already-visible grid items as the user scrolls.\n    placeholderData:''',
+          '''    // Paged mode deliberately retains one transport page. Infinite mode must keep its fetched\n    // logical prefix stable because rendering is independently virtualized and eviction can repack\n    // already-visible tile geometry.\n    ...(paged ? { maxPages: 1 } : {}),\n    placeholderData:''')
+
+          # Wire the runtime policy into the shared library query and page navigation state.
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''  import { authState } from '$lib/stores/auth';\n  import { createFileCountQuery,''',
+          '''  import { authState } from '$lib/stores/auth';\n  import { runtimeConfig } from '$lib/stores/runtimeConfig';\n  import { createFileCountQuery,''')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''  let nestedPreviewNavigation = $state(false);\n  let fileMetadata = $state<{''',
+          '''  let nestedPreviewNavigation = $state(false);\n  let pagedPageIndex = $state(0);\n  let fileMetadata = $state<{''')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''    () => library.order,\n    () => authScope,\n    () => library.route === 'library'\n  );''',
+          '''    () => library.order,\n    () => authScope,\n    () => library.route === 'library',\n    () => $runtimeConfig.itemsPerPage,\n    () => $runtimeConfig.paginationMode === 'paged'\n  );''')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''  const loadedFiles = $derived(filesQuery.data?.pages.flatMap((page) => page.files) ?? []);\n  const retainedStartIndex = $derived(pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));''',
+          '''  const pagedMode = $derived($runtimeConfig.paginationMode === 'paged');\n  const loadedFiles = $derived(filesQuery.data?.pages.flatMap((page) => page.files) ?? []);\n  const retainedStartIndex = $derived(pagedMode ? 0 : pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));\n  const pagedPageCount = $derived(Math.max(1, Math.ceil(currentTotalCount / $runtimeConfig.itemsPerPage)));''')
+          # page count references currentTotalCount, so place it after that derived declaration.
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''  const pagedPageCount = $derived(Math.max(1, Math.ceil(currentTotalCount / $runtimeConfig.itemsPerPage)));\n  const activeJobs =''',
+          '''  const activeJobs =''')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''  const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);\n  const selectedCount =''',
+          '''  const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);\n  const pagedPageCount = $derived(Math.max(1, Math.ceil(currentTotalCount / $runtimeConfig.itemsPerPage)));\n  const selectedCount =''')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''  $effect(() => {\n    fileMetadataKey;\n    fileMetadata = null;\n  });''',
+          '''  $effect(() => {\n    fileMetadataKey;\n    fileMetadata = null;\n  });\n\n  $effect(() => {\n    authScope;\n    $submittedSearch;\n    library.sort;\n    library.order;\n    $runtimeConfig.paginationMode;\n    $runtimeConfig.itemsPerPage;\n    pagedPageIndex = 0;\n  });''')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''  async function logout() {\n    try {\n      await new ApiClient($authState.csrfToken).logout();\n    } finally {\n      authState.set({ user: null, csrfToken: '', checked: true });\n    }\n  }\n</script>''',
+          '''  async function loadNextFilesPage() {\n    if (!filesQuery.hasNextPage || filesQuery.isFetchingNextPage) return;\n    const result = await filesQuery.fetchNextPage();\n    if (pagedMode && !result.isError) pagedPageIndex += 1;\n  }\n\n  async function loadPreviousFilesPage() {\n    if (!filesQuery.hasPreviousPage || filesQuery.isFetchingPreviousPage) return;\n    const result = await filesQuery.fetchPreviousPage();\n    if (pagedMode && !result.isError) pagedPageIndex = Math.max(0, pagedPageIndex - 1);\n  }\n\n  async function logout() {\n    try {\n      await new ApiClient($authState.csrfToken).logout();\n    } finally {\n      authState.set({ user: null, csrfToken: '', checked: true });\n    }\n  }\n</script>''')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''        isFetchingPreviousPage={Boolean(filesQuery.isFetchingPreviousPage)}\n        bind:loadMoreSentinel''',
+          '''        isFetchingPreviousPage={Boolean(filesQuery.isFetchingPreviousPage)}\n        {pagedMode}\n        pageNumber={pagedPageIndex + 1}\n        pageCount={pagedPageCount}\n        bind:loadMoreSentinel''')
+          replace('frontend/src/lib/components/AuthenticatedApp.svelte',
+          '''        onLoadMore={() => { if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) void filesQuery.fetchNextPage(); }}\n        onLoadPrevious={() => { if (filesQuery.hasPreviousPage && !filesQuery.isFetchingPreviousPage) void filesQuery.fetchPreviousPage(); }}''',
+          '''        onLoadMore={loadNextFilesPage}\n        onLoadPrevious={loadPreviousFilesPage}''')
+
+          # Keep one shared grid component; paging only changes its transport/window policy and controls.
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''    searchActive, selectedCount, isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,\n    isFetchingPreviousPage, loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,''',
+          '''    searchActive, selectedCount, isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,\n    isFetchingPreviousPage, pagedMode = false, pageNumber = 1, pageCount = 1,\n    loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,''')
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''    selectedCount: number; isSelected: (fileID: string) => boolean; hasNextPage: boolean;\n    isFetchingNextPage: boolean; hasPreviousPage: boolean; isFetchingPreviousPage: boolean;\n    loadMoreSentinel?: HTMLDivElement;''',
+          '''    selectedCount: number; isSelected: (fileID: string) => boolean; hasNextPage: boolean;\n    isFetchingNextPage: boolean; hasPreviousPage: boolean; isFetchingPreviousPage: boolean;\n    pagedMode?: boolean; pageNumber?: number; pageCount?: number;\n    loadMoreSentinel?: HTMLDivElement;''')
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''    onBulkUntrack: () => void; onBulkDelete: () => void; onLoadMore: () => void;\n    onLoadPrevious: () => void; actions?: Snippet;''',
+          '''    onBulkUntrack: () => void; onBulkDelete: () => void; onLoadMore: () => void | Promise<void>;\n    onLoadPrevious: () => void | Promise<void>; actions?: Snippet;''')
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''  const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));\n  const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, totalCount || files.length, retainedStartIndex, layoutGridSize));\n  const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, totalCount || files.length, retainedStartIndex, layoutGridSize));''',
+          '''  const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));\n  const virtualTotalCount = $derived(pagedMode ? files.length : totalCount || files.length);\n  const virtualRetainedStartIndex = $derived(pagedMode ? 0 : retainedStartIndex);\n  const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));\n  const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));''')
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''  $effect(() => {\n    if (tileMode) return;''',
+          '''  $effect(() => {\n    if (pagedMode || tileMode) return;''')
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''  $effect(() => {\n    const needsPrevious = tileMode ? tileVirtual.needsPrevious : squareVirtual.needsPrevious;''',
+          '''  $effect(() => {\n    if (pagedMode) return;\n    const needsPrevious = tileMode ? tileVirtual.needsPrevious : squareVirtual.needsPrevious;''')
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''  $effect(() => {\n    const needsNext = tileMode ? tileVirtual.needsNext : squareVirtual.needsNext;''',
+          '''  $effect(() => {\n    if (pagedMode) return;\n    const needsNext = tileMode ? tileVirtual.needsNext : squareVirtual.needsNext;''')
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''  $effect(() => {\n    if (pagedMode) return;\n    const needsNext = tileMode ? tileVirtual.needsNext : squareVirtual.needsNext;\n    if (needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();\n  });\n</script>''',
+          '''  $effect(() => {\n    if (pagedMode) return;\n    const needsNext = tileMode ? tileVirtual.needsNext : squareVirtual.needsNext;\n    if (needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();\n  });\n\n  async function movePaged(direction: 'previous' | 'next') {\n    if (direction === 'previous') await onLoadPrevious();\n    else await onLoadMore();\n    mainHost?.scrollTo({ top: 0 });\n    paneScrollY = 0;\n  }\n</script>''')
+          replace('frontend/src/lib/components/MediaGrid.svelte',
+          '''  {#if hasNextPage || isFetchingNextPage}<div bind:this={loadMoreSentinel} class="infinite-sentinel" data-testid="infinite-scroll-sentinel"><span class="infinite-sentinel-content"><span class="infinite-sentinel-spinner" aria-hidden="true"></span>Loading more</span></div>{/if}\n</main>''',
+          '''  {#if pagedMode && files.length}\n    <nav class="library-pager" aria-label="Library pages" data-testid="library-pager">\n      <button class="g-btn g-btn-sm" type="button" disabled={!hasPreviousPage || isFetchingPreviousPage || isFetchingNextPage} onclick={() => void movePaged('previous')}>Previous</button>\n      <span>Page {pageNumber.toLocaleString()} of {pageCount.toLocaleString()}</span>\n      <button class="g-btn g-btn-sm" type="button" disabled={!hasNextPage || isFetchingNextPage || isFetchingPreviousPage} onclick={() => void movePaged('next')}>Next</button>\n    </nav>\n  {:else if !pagedMode && (hasNextPage || isFetchingNextPage)}\n    <div bind:this={loadMoreSentinel} class="infinite-sentinel" data-testid="infinite-scroll-sentinel"><span class="infinite-sentinel-content"><span class="infinite-sentinel-spinner" aria-hidden="true"></span>Loading more</span></div>\n  {/if}\n</main>''')
+
+          # Canonical config documentation.
+          replace('docs/CONFIG.md',
+          '''| `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |\n| `ui.hidden_tags`''',
+          '''| `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |\n| `ui.pagination_mode` | `infinite` | Library browsing mode: `infinite` incrementally appends results while scrolling; `paged` keeps only the current transport page in browser query state and shows Previous/Next controls. |\n| `ui.items_per_page` | `60` | Number of files requested per library page. Used by both modes as the transport page size; must be between `1` and `200`. In paged mode this is the visible page size. |\n| `ui.hidden_tags`''')
+          replace('docs/CONFIG.md',
+          '''  grid_size: 200\n  grid_type: square\n  hidden_tags: []''',
+          '''  grid_size: 200\n  grid_type: square\n  pagination_mode: infinite\n  items_per_page: 60\n  hidden_tags: []''')
+
+          # Focused config validation and user-boundary browser regression.
+          p = Path('internal/serve/config_test.go')
+          text = p.read_text()
+          marker = '\nfunc TestLoadConfigEncryptionKeyFile('
+          test = '''\nfunc TestUIPaginationConfigDefaultsAndValidates(t *testing.T) {\n\tcfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))\n\tif cfg.UI.PaginationMode != "infinite" || cfg.UI.ItemsPerPage != 60 {\n\t\tt.Fatalf("unexpected pagination defaults: mode=%q items=%d", cfg.UI.PaginationMode, cfg.UI.ItemsPerPage)\n\t}\n\tcfg.UI.PaginationMode = "paged"\n\tcfg.UI.ItemsPerPage = MaxPageLimit\n\tif err := cfg.Validate(); err != nil {\n\t\tt.Fatalf("validate paged UI config: %v", err)\n\t}\n\tcfg.UI.PaginationMode = "pages"\n\tcfg.UI.ItemsPerPage = MaxPageLimit + 1\n\terr := cfg.Validate()\n\tif err == nil || !strings.Contains(err.Error(), "ui.pagination_mode") || !strings.Contains(err.Error(), "ui.items_per_page") {\n\t\tt.Fatalf("expected pagination validation errors, got %v", err)\n\t}\n}\n'''
+          if 'TestUIPaginationConfigDefaultsAndValidates' not in text:
+              if marker not in text: raise SystemExit('config test marker missing')
+              p.write_text(text.replace(marker, test + marker))
+
+          e2e = Path('frontend/tests/paged-library.spec.ts')
+          if not e2e.exists():
+              e2e.write_text(r'''import { expect, test, type Page } from '@playwright/test';
+
+const session = {
+  user: { id: 'usr_test', username: 'mac', role: 'admin' },
+  capabilities: { upload: true, tag: true, delete: true, admin: true },
+  csrf_token: 'csrf-one'
+};
+
+function fileItem(index: number) {
+  const id = `file-${index}`;
+  return {
+    id, content_id: `hash-${id}`, name: `page-${index}.jpg`, safe_display_path: `library/${id}.jpg`,
+    size: 2048, modified_time: '2026-05-20T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo',
+    metadata: { image_width: 900, image_height: 900 }, tags: [],
+    media_urls: {
+      thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`,
+      content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download`
+    }
+  };
+}
+
+async function mockPagedLibrary(page: Page) {
+  const allFiles = Array.from({ length: 73 }, (_, index) => fileItem(index));
+  const requests: Array<{ offset: number; limit: number }> = [];
+  await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ pagination_mode: 'paged', items_per_page: 25, grid_type: 'square', grid_size: 120 }) }));
+  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default' }] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/files?**', async (route) => {
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get('page_token') ?? '0');
+    const limit = Number(url.searchParams.get('limit') ?? '0');
+    requests.push({ offset, limit });
+    const files = allFiles.slice(offset, offset + limit);
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      files, total_count: allFiles.length, library_count: allFiles.length,
+      facets: offset === 0 ? { kind: [{ value: 'photo', count: allFiles.length }] } : undefined,
+      next_page_token: offset + limit < allFiles.length ? String(offset + limit) : undefined,
+      previous_page_token: offset > 0 ? String(Math.max(0, offset - limit)) : undefined
+    }) });
+  });
+  await page.route('**/api/v1/files/*/thumbnail*', async (route) => route.fulfill({
+    contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#777"/></svg>'
+  }));
+  return requests;
+}
+
+test('paged mode keeps one configured page and navigates explicitly', async ({ page }) => {
+  const requests = await mockPagedLibrary(page);
+  await page.goto('/');
+  await expect(page.getByText('73 files')).toBeVisible();
+  await expect(page.getByTestId('library-pager')).toContainText('Page 1 of 3');
+  await expect(page.getByTestId('infinite-scroll-sentinel')).toHaveCount(0);
+  await expect.poll(() => requests.some((request) => request.offset === 0 && request.limit === 25)).toBe(true);
+  await expect(page.getByRole('button', { name: /page-0\.jpg$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /page-25\.jpg$/ })).toHaveCount(0);
+
+  const next = page.getByRole('button', { name: 'Next' });
+  await next.click();
+  await expect(page.getByTestId('library-pager')).toContainText('Page 2 of 3');
+  await expect.poll(() => requests.some((request) => request.offset === 25 && request.limit === 25)).toBe(true);
+  await expect(page.getByRole('button', { name: /page-25\.jpg$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /page-0\.jpg$/ })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Previous' }).click();
+  await expect(page.getByTestId('library-pager')).toContainText('Page 1 of 3');
+  await expect(page.getByRole('button', { name: /page-0\.jpg$/ })).toBeVisible();
+});
+''')
+          PY
+          gofmt -w internal/serve/ui_config.go internal/serve/config_test.go
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/serve/ui_config.go internal/serve/config_test.go frontend/src/lib/queries/files.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/MediaGrid.svelte frontend/tests/paged-library.spec.ts docs/CONFIG.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat(ui): add paged library browsing mode'
+            git push origin HEAD:feat/311-paged-library-ui
+          fi
+      - name: Validate Go
+        run: |
+          go test ./...
+          go build ./...
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run check
+          npm run test:unit
+          npm run build
+      - name: Validate paged browsing in Chromium
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }}
+        run: npx playwright test tests/paged-library.spec.ts --project=chromium
