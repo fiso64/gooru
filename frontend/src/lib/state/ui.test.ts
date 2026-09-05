@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileItem } from '$lib/api/types';
-import { gridCardWidth, gridColumns, gridRowHeight, virtualGrid, virtualGridStartRow, virtualMediaLayout } from './ui';
+import { gridCardWidth, gridColumns, gridRowHeight, virtualGrid, virtualGridStartRow, virtualMediaGeometry, virtualMediaLayout } from './ui';
 
 function mediaFile(id: string, width: number, height: number): FileItem {
   return { id, content_id: `hash-${id}`, name: `${id}.jpg`, safe_display_path: `library/${id}.jpg`, size: 1,
@@ -45,5 +45,29 @@ describe('tile gallery layout', () => {
   it('estimates unloaded library height without expanding retained DOM work', () => {
     const layout = virtualMediaLayout(files, 1000, 800, 0, 0, 10_000, 0, 180);
     expect(layout.totalHeight).toBeGreaterThan(100_000); expect(layout.items.length).toBeLessThanOrEqual(files.length); expect(layout.needsNext).toBe(true);
+  });
+  it('keeps published rows prefix-stable when a non-aligned query page is appended', () => {
+    const dimensions = [[1600, 900], [600, 900], [900, 900], [900, 1400], [1200, 800], [700, 1200], [2000, 800]] as const;
+    const pagedFiles = Array.from({ length: 120 }, (_, index) => {
+      const [width, height] = dimensions[index % dimensions.length];
+      return mediaFile(`page-${index}`, width, height);
+    });
+    const firstPage = virtualMediaGeometry(pagedFiles.slice(0, 60), 1200, 120, 0, 200);
+
+    // This aspect sequence makes items 57-59 an incomplete transport-page tail. Publishing
+    // that row before page 2 arrives would make those visible cards move on the append.
+    expect(firstPage.placements.at(-1)?.index).toBe(56);
+
+    const twoPages = virtualMediaGeometry(pagedFiles, 1200, 120, 0, 200);
+    for (const before of firstPage.placements) {
+      const after = twoPages.placements.find((item) => item.index === before.index);
+      expect(after).toBeDefined();
+      expect(after).toMatchObject({ x: before.x, y: before.y, width: before.width, height: before.height });
+    }
+  });
+  it('flushes an incomplete row at the actual end of the result set', () => {
+    const tail = [mediaFile('tail-a', 900, 900), mediaFile('tail-b', 900, 900), mediaFile('tail-c', 900, 900)];
+    const geometry = virtualMediaGeometry(tail, 1200, tail.length, 0, 200);
+    expect(geometry.placements).toHaveLength(tail.length);
   });
 });
