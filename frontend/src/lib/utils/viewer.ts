@@ -1,4 +1,5 @@
-export type ViewerFitMode = 'screen' | 'actual';
+export type ViewerConfiguredFitMode = 'fit_window' | 'fit_down_only' | 'original_size_if_fit' | 'actual';
+export type ViewerFitMode = ViewerConfiguredFitMode;
 
 export type ViewerGeometryInput = {
   intrinsicWidth: number;
@@ -48,7 +49,12 @@ export function viewerGeometry(input: ViewerGeometryInput): ViewerGeometry {
   const rotatedWidth = quarterTurn ? intrinsicHeight : intrinsicWidth;
   const rotatedHeight = quarterTurn ? intrinsicWidth : intrinsicHeight;
   const maxScale = input.maxScale ?? Number.POSITIVE_INFINITY;
-  const scale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight, maxScale);
+  const fitScale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight, maxScale);
+  // Both non-upscaling policies are intentionally distinct public modes even though
+  // contain geometry makes them equivalent today: if the original fits, keep 1:1;
+  // otherwise scale down to fit. Keeping both names preserves the requested contract
+  // and leaves room for future fit policies without a config migration.
+  const scale = input.fitMode === 'fit_window' ? fitScale : Math.min(1, fitScale);
 
   return {
     width: intrinsicWidth * scale,

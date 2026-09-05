@@ -261,3 +261,4 @@ For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default
 ```bash
 go run ./cmd/gooru serve --print-default-config
 ```
+

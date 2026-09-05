@@ -132,6 +132,8 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg.UI.AccentColor = "#2f80ed"
 	cfg.UI.LoadFullMediaByDefault = true
 	cfg.UI.FullscreenMediaByDefault = true
+	cfg.UI.ViewerFitMode = "original_size_if_fit"
+	cfg.UI.ViewerScaling = "nearest"
 	cfg.Media.ThumbnailSizes = []int{128, 384, 768}
 	cfg.UI.GridSize = 240
 	cfg.UI.GridType = "fit"
@@ -151,6 +153,12 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"fullscreen_media_by_default":true`) {
 		t.Fatalf("response missing fullscreen-media preference: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"viewer_fit_mode":"original_size_if_fit"`) {
+		t.Fatalf("response missing viewer fit mode: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"viewer_scaling":"nearest"`) {
+		t.Fatalf("response missing viewer scaling: %s", rec.Body.String())
+	}
 	if !strings.Contains(rec.Body.String(), `"grid_size":240`) {
 		t.Fatalf("response missing grid size: %s", rec.Body.String())
 	}
@@ -159,5 +167,48 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"thumbnail_sizes":[128,384,768]`) {
 		t.Fatalf("response missing thumbnail sizes: %s", rec.Body.String())
+	}
+}
+
+func TestConfigLoadsAndValidatesViewerFitMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gooru.yaml")
+	if err := os.WriteFile(path, []byte("ui:\n  viewer_fit_mode: FIT_DOWN_ONLY\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UI.ViewerFitMode != "fit_down_only" {
+		t.Fatalf("ui.viewer_fit_mode = %q, want fit_down_only", cfg.UI.ViewerFitMode)
+	}
+	cfg.UI.ViewerFitMode = "stretch"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.viewer_fit_mode") {
+		t.Fatalf("expected invalid viewer fit mode error, got %v", err)
+	}
+}
+
+func TestViewerPresentationConfigAliasesAndScaling(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.UI.ViewerFitMode = "screen"
+	cfg.UI.ViewerScaling = "NEAREST"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate presentation config: %v", err)
+	}
+	if cfg.UI.ViewerFitMode != "fit_window" {
+		t.Fatalf("legacy screen alias normalized to %q", cfg.UI.ViewerFitMode)
+	}
+	if cfg.UI.ViewerScaling != "nearest" {
+		t.Fatalf("viewer scaling normalized to %q", cfg.UI.ViewerScaling)
+	}
+	cfg.UI.ViewerFitMode = "actual"
+	cfg.UI.ViewerScaling = "nearest"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("actual fit mode should be accepted: %v", err)
+	}
+	cfg.UI.ViewerScaling = "bicubic"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.viewer_scaling") {
+		t.Fatalf("expected invalid viewer scaling error, got %v", err)
 	}
 }

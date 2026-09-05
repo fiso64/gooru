@@ -117,6 +117,8 @@ type UIConfig struct {
 	GridType                 string `yaml:"grid_type"`
 	LoadFullMediaByDefault   bool   `yaml:"load_full_media_by_default"`
 	FullscreenMediaByDefault bool   `yaml:"fullscreen_media_by_default"`
+	ViewerFitMode            string `yaml:"viewer_fit_mode"`
+	ViewerScaling            string `yaml:"viewer_scaling"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {

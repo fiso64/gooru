@@ -8,6 +8,8 @@
   import { defaultGridSize, normalizeGridType, normalizeThumbnailSizes, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
+  import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
+  import type { ViewerScaling } from '$lib/state/viewerSessionPreferences';
 
   type FontStyle = 'editorial' | 'modern' | 'comic';
   type UIConfig = {
@@ -15,6 +17,8 @@
     font_style?: FontStyle;
     load_full_media_by_default?: boolean;
     fullscreen_media_by_default?: boolean;
+    viewer_fit_mode?: ViewerConfiguredFitMode;
+    viewer_scaling?: ViewerScaling;
     grid_size?: number;
     grid_type?: string;
     thumbnail_sizes?: number[];
@@ -36,6 +40,8 @@
     runtimeConfig.set({
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
+      viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
+      viewerScaling: config.viewer_scaling ?? 'smooth',
       gridSize: runtimeGridSize,
       gridType: normalizeGridType(config.grid_type),
       thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? [])

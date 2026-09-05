@@ -51,7 +51,8 @@
   const initialViewerPreferences = readViewerSessionPreferences({
     preferOriginal: $runtimeConfig.loadFullMediaByDefault,
     rotation: 0,
-    fitMode: 'screen'
+    fitMode: 'fit_window',
+    scaling: $runtimeConfig.viewerScaling
   });
 
   let dialogElement = $state<HTMLDivElement | undefined>();
@@ -305,6 +306,8 @@
   <ViewerStage
     {file}
     {imageSource}
+    initialFitMode={$runtimeConfig.viewerFitMode}
+    initialScaling={$runtimeConfig.viewerScaling}
     onPrev={stagePrev}
     onNext={stageNext}
     onPrimaryAction={comicAvailable ? () => void toggleComic() : undefined}

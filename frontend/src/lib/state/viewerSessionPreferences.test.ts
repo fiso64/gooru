@@ -25,7 +25,8 @@ function memoryStorage(initial?: string) {
 const defaults: ViewerSessionPreferences = {
   preferOriginal: true,
   rotation: 0,
-  fitMode: 'screen'
+  fitMode: 'fit_window',
+  scaling: 'smooth'
 };
 
 describe('viewer session preferences', () => {
@@ -46,8 +47,20 @@ describe('viewer session preferences', () => {
     expect(readViewerSessionPreferences(defaults, storage)).toEqual({
       preferOriginal: false,
       rotation: 270,
-      fitMode: 'actual'
+      fitMode: 'actual',
+      scaling: 'smooth'
     });
+  });
+
+  it('persists viewer scaling without content-derived state', () => {
+    const storage = memoryStorage();
+    updateViewerSessionPreferences({ scaling: 'nearest' }, storage);
+    expect(readViewerSessionPreferences(defaults, storage).scaling).toBe('nearest');
+  });
+
+  it('migrates the legacy screen fit preference to fit_window', () => {
+    const storage = memoryStorage(JSON.stringify({ version: 1, fitMode: 'screen' }));
+    expect(readViewerSessionPreferences(defaults, storage).fitMode).toBe('fit_window');
   });
 
   it('ignores malformed, stale, and invalid saved values', () => {
@@ -64,7 +77,8 @@ describe('viewer session preferences', () => {
     expect(readViewerSessionPreferences(defaults, storage)).toEqual({
       preferOriginal: true,
       rotation: 90,
-      fitMode: 'screen'
+      fitMode: 'fit_window',
+      scaling: 'smooth'
     });
   });
 
@@ -75,7 +89,8 @@ describe('viewer session preferences', () => {
     expect(readViewerSessionPreferences(defaults, storage)).toEqual({
       preferOriginal: false,
       rotation: 180,
-      fitMode: 'actual'
+      fitMode: 'actual',
+      scaling: 'smooth'
     });
   });
 });

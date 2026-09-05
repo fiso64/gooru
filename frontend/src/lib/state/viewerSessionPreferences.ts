@@ -1,11 +1,13 @@
 import type { ViewerFitMode } from '$lib/utils/viewer';
 
 export type ViewerRotation = 0 | 90 | 180 | 270;
+export type ViewerScaling = 'smooth' | 'nearest';
 
 export interface ViewerSessionPreferences {
   preferOriginal: boolean;
   rotation: ViewerRotation;
   fitMode: ViewerFitMode;
+  scaling: ViewerScaling;
 }
 
 type StoredViewerSessionPreferences = Partial<ViewerSessionPreferences> & { version: 1 };
@@ -41,7 +43,9 @@ function parseStoredPreferences(storage: SessionStorage | undefined): Partial<Vi
     if (parsed.rotation === 0 || parsed.rotation === 90 || parsed.rotation === 180 || parsed.rotation === 270) {
       preferences.rotation = parsed.rotation;
     }
-    if (parsed.fitMode === 'screen' || parsed.fitMode === 'actual') preferences.fitMode = parsed.fitMode;
+    if (parsed.fitMode === 'screen') preferences.fitMode = 'fit_window';
+    else if (parsed.fitMode === 'fit_window' || parsed.fitMode === 'fit_down_only' || parsed.fitMode === 'original_size_if_fit' || parsed.fitMode === 'actual') preferences.fitMode = parsed.fitMode;
+    if (parsed.scaling === 'smooth' || parsed.scaling === 'nearest') preferences.scaling = parsed.scaling;
     return preferences;
   } catch {
     return {};
