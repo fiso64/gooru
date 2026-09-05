@@ -65,7 +65,7 @@
   let trackUploadResults = $state(false);
   let uploadResultsFloor = $state(0);
   let observedUploadResultQueryKey = $state('');
-  let uploadMetadataRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  let uploadMetadataRefreshTimer: number | undefined;
   let uploadMetadataRefreshPromise: Promise<number | undefined> | null = null;
   let fileMetadata = $state<{
     total_count: number;
@@ -393,7 +393,6 @@
   function startUploadMetadataRefresh() {
     beginTrackingUploadResults();
     if (uploadMetadataRefreshTimer) return;
-    void refreshUploadMetadata();
     uploadMetadataRefreshTimer = window.setInterval(() => void refreshUploadMetadata(), uploadMetadataRefreshIntervalMs);
   }
 
