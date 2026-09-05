@@ -95,7 +95,7 @@
     () => library.page - 1
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
-  const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
+  const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library' && sidebarBaseQuery !== $submittedSearch);
   const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && pagedMode);
   const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
   const comicLibraryCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => library.route === 'library');

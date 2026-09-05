@@ -8,16 +8,20 @@ const session = {
 
 test('authenticated startup does not refetch global queries after mount', async ({ page }) => {
   const requests = { jobs: 0, tags: 0, savedSearches: 0, uploadTargets: 0 };
+  let facetFileRequests = 0;
 
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify(session)
   }));
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
-  await page.route('**/api/v1/files?**', async (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
-  }));
+  await page.route('**/api/v1/files?**', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('include_facets') === 'true') facetFileRequests += 1;
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
+    });
+  });
   await page.route('**/api/v1/jobs?**', async (route) => {
     requests.jobs += 1;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
@@ -39,4 +43,5 @@ test('authenticated startup does not refetch global queries after mount', async 
   await expect.poll(() => Math.min(...Object.values(requests))).toBe(1);
   await page.waitForTimeout(300);
   expect(requests).toEqual({ jobs: 1, tags: 1, savedSearches: 1, uploadTargets: 1 });
+  expect(facetFileRequests).toBe(1);
 });
