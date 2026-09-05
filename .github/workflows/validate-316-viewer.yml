@@ -23,6 +23,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --prefer-offline --no-audit
       - name: Latest-wins browser regression
-        run: npx playwright test tests/viewer-latest-wins.spec.ts --project=chromium
+        run: npx playwright test tests/viewer-rapid-navigation.spec.ts --project=chromium
       - name: Viewer transition regressions
         run: npx playwright test tests/viewer*.spec.ts --project=chromium
