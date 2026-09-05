@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gooru.local/gooru"
@@ -71,5 +72,34 @@ func TestConfiguredAuthStoreUsesEncryptionKey(t *testing.T) {
 	if store, err := openConfiguredAuthStore(wrong, false); err == nil {
 		_ = store.Close()
 		t.Fatal("auth store unexpectedly opened encrypted database with wrong key")
+	} else if !strings.Contains(err.Error(), "recovery-critical encryption key") || !strings.Contains(err.Error(), "re-key is not supported") {
+		t.Fatalf("wrong-key diagnostic is not actionable: %v", err)
+	}
+}
+
+func TestConfiguredOpenRejectsDisablingEncryptionForEncryptedDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gooru.db")
+	if err := gooru.Init(path, types.StrategyFull, false); err != nil {
+		t.Fatalf("initialize plaintext database: %v", err)
+	}
+
+	cfg := serve.DefaultConfig(path)
+	cfg.Encryption.Enabled = true
+	cfg.Encryption.Key = bytes.Repeat([]byte{0x61}, 32)
+	client, err := openConfiguredClient(cfg, false)
+	if err != nil {
+		t.Fatalf("migrate configured database: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	disabled := cfg
+	disabled.Encryption.Enabled = false
+	disabled.Encryption.Key = nil
+	if _, err := openConfiguredClient(disabled, false); err == nil {
+		t.Fatal("disabled encryption unexpectedly opened encrypted database")
+	} else if !strings.Contains(err.Error(), "disabling protected storage in place is not supported") || !strings.Contains(err.Error(), "original recovery key") {
+		t.Fatalf("disable diagnostic is not actionable: %v", err)
 	}
 }
