@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: maintainer-330
+  cancel-in-progress: true
+
 jobs:
   patch-and-validate:
     if: github.actor != 'github-actions[bot]'
@@ -25,70 +29,40 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply focused fix
+      - name: Add handler regression coverage
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          p = Path('internal/serve/uploads_test.go')
+          text = p.read_text()
+          old = 'server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"../evil.txt": "uploaded"}, []string{"reviewed"}))'
+          new = 'server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{"../evil.txt": "uploaded"}, []string{"reviewed"}, "", "rename"))'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('traversal/conflict test request did not match expected source')
 
-          def replace(path, old, new, count=1):
-              p = Path(path)
-              text = p.read_text()
-              actual = text.count(old)
-              if actual != count:
-                  raise SystemExit(f'{path}: expected {count} occurrence(s), found {actual}: {old!r}')
-              p.write_text(text.replace(old, new))
-
-          replace('internal/serve/config.go', 'Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename", PreserveModTime: true}', 'Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "skip", PreserveModTime: true}')
-          replace('internal/serve/uploads.go', 'if fallback == "" {\n\t\treturn "rename", nil\n\t}', 'if fallback == "" {\n\t\treturn "skip", nil\n\t}')
-          replace('frontend/src/lib/api/client.ts', "conflictPolicy = 'rename',", "conflictPolicy = 'skip',")
-          replace('frontend/src/lib/state/uploadWorkflow.svelte.ts', "let conflictPolicy = $state('rename');", "let conflictPolicy = $state('skip');")
-          replace('frontend/src/lib/state/uploadWorkflow.svelte.ts', "conflictPolicy = 'rename';", "conflictPolicy = 'skip';")
-
-          panel = Path('frontend/src/lib/components/UploadPanel.svelte')
-          text = panel.read_text()
-          block = '''        <div class="field-row">\n          <span>On conflict</span>\n          <div class="field-control">\n            <div class="seg" aria-label="Upload conflict policy">\n              {#each [{ value: 'skip', label: 'Skip' }, { value: 'rename', label: 'Rename' }, { value: 'replace', label: 'Replace' }] as option}\n                <button type="button" class={conflictPolicy === option.value ? 'is-active' : ''} onclick={() => onConflictInput(option.value)}>{option.label}</button>\n              {/each}\n            </div>\n          </div>\n        </div>\n'''
-          if text.count(block) != 1:
-              raise SystemExit('UploadPanel: conflict selector block mismatch')
-          text = text.replace(block, '')
-          for old in ['    conflictPolicy,\n', '    onConflictInput,\n', '    conflictPolicy: string;\n', '    onConflictInput: (value: string) => void;\n']:
-              if text.count(old) != 1:
-                  raise SystemExit(f'UploadPanel: expected one {old!r}')
-              text = text.replace(old, '')
-          panel.write_text(text)
-
-          app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
-          text = app.read_text()
-          for old in ['        conflictPolicy={upload.conflictPolicy}\n', '        onConflictInput={(value) => (upload.conflictPolicy = value)}\n']:
-              if text.count(old) != 1:
-                  raise SystemExit(f'AuthenticatedApp: expected one {old!r}')
-              text = text.replace(old, '')
-          app.write_text(text)
-
-          tests = Path('internal/serve/config_upload_policy_test.go')
-          text = tests.read_text()
-          addition = '''\nfunc TestDefaultUploadConflictPolicyIsSkip(t *testing.T) {\n\tcfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))\n\tif cfg.Uploads.ConflictPolicy != "skip" {\n\t\tt.Fatalf("expected default uploads.conflict_policy=skip, got %q", cfg.Uploads.ConflictPolicy)\n\t}\n\tpolicy, err := uploadConflictPolicy("", "")\n\tif err != nil {\n\t\tt.Fatalf("resolve omitted conflict policy: %v", err)\n\t}\n\tif policy != "skip" {\n\t\tt.Fatalf("expected omitted conflict policy to resolve to skip, got %q", policy)\n\t}\n}\n'''
-          if 'func TestDefaultUploadConflictPolicyIsSkip' not in text:
-              tests.write_text(text + addition)
-
-          tests = Path('frontend/src/lib/state/uploadWorkflow.svelte.test.ts')
-          text = tests.read_text()
-          marker = "  it('appends later file selections to the staged batch', () => {"
-          addition = '''  it('defaults browser uploads to skip conflicts', async () => {\n    const workflow = createUploadWorkflow();\n    workflow.select([uploadFile('first.jpg')]);\n    let policy = '';\n\n    await workflow.submit(async (variables) => {\n      policy = variables.conflictPolicy;\n      return pendingJob('job-first');\n    });\n\n    expect(policy).toBe('skip');\n  });\n\n'''
-          if addition not in text:
+          marker = 'func TestUploadRequestedConflictPolicySkipReturnsSkippedFile(t *testing.T) {'
+          addition = '''func TestUploadOmittedConflictPolicySkipsExistingName(t *testing.T) {\n\tdir := t.TempDir()\n\tif err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("existing"), 0600); err != nil {\n\t\tt.Fatalf("write existing file: %v", err)\n\t}\n\tlibrary := &recordingUploadLibrary{}\n\tserver := newUploadTestServer(t, dir, true, library)\n\trec := httptest.NewRecorder()\n\n\tserver.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"a.txt": "uploaded"}, nil))\n\n\tif rec.Code != http.StatusOK {\n\t\tt.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())\n\t}\n\tif got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "existing" {\n\t\tt.Fatalf("existing file was overwritten: %q", got)\n\t}\n\tvar response UploadImportResponse\n\tif err := json.NewDecoder(rec.Body).Decode(&response); err != nil {\n\t\tt.Fatalf("decode response: %v", err)\n\t}\n\tif len(response.Files) != 1 || response.Files[0].Status != "skipped" {\n\t\tt.Fatalf("expected skipped response, got %+v", response.Files)\n\t}\n}\n\n'''
+          if 'func TestUploadOmittedConflictPolicySkipsExistingName' not in text:
               if text.count(marker) != 1:
-                  raise SystemExit('upload workflow test marker mismatch')
-              tests.write_text(text.replace(marker, addition + marker))
+                  raise SystemExit('skip test marker mismatch')
+              text = text.replace(marker, addition + marker, 1)
+          p.write_text(text)
           PY
-      - name: Commit fix
+      - name: Commit regression update
         run: |
+          if git diff --quiet; then exit 0; fi
           git config user.name "chatgpt-codex-connector[bot]"
           git config user.email "chatgpt-codex-connector[bot]@users.noreply.github.com"
-          git add internal/serve/config.go internal/serve/uploads.go internal/serve/config_upload_policy_test.go frontend/src/lib/api/client.ts frontend/src/lib/state/uploadWorkflow.svelte.ts frontend/src/lib/state/uploadWorkflow.svelte.test.ts frontend/src/lib/components/UploadPanel.svelte frontend/src/lib/components/AuthenticatedApp.svelte
-          git commit -m "fix(upload): default conflict handling to skip"
+          git add internal/serve/uploads_test.go
+          git commit -m "test(upload): cover omitted conflict policy"
           git push origin HEAD:fix/330-upload-conflict-default
       - name: Go tests
         run: go test ./...
+      - name: Go build
+        run: go build ./...
       - name: Frontend install
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
