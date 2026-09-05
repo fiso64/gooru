@@ -1,0 +1,190 @@
+name: Maintainer 251 scaling
+
+on:
+  push:
+    branches: [feat/251-viewer-scaling]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/251-viewer-scaling
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Implement scaling contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def change(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing anchor in {path}: {old[:100]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          # Backend config/runtime contract. `screen` remains accepted as the issue's
+          # legacy/public spelling and normalizes to the merged `fit_window` name.
+          change('internal/serve/config.go',
+              '\tViewerFitMode            string `yaml:"viewer_fit_mode"`\n}',
+              '\tViewerFitMode            string `yaml:"viewer_fit_mode"`\n\tViewerScaling            string `yaml:"viewer_scaling"`\n}')
+          change('internal/serve/config.go',
+              '\t\tUI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, ViewerFitMode: "fit_window"},',
+              '\t\tUI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, ViewerFitMode: "fit_window", ViewerScaling: "smooth"},')
+          change('internal/serve/config.go',
+              '\tcfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))\n\tif cfg.UI.ViewerFitMode == "" {\n\t\tcfg.UI.ViewerFitMode = "fit_window"\n\t}\n\tswitch cfg.UI.ViewerFitMode {\n\tcase "fit_window", "fit_down_only", "original_size_if_fit":\n\tdefault:\n\t\terrs = append(errs, errors.New("ui.viewer_fit_mode must be one of: fit_window, fit_down_only, original_size_if_fit"))\n\t}\n',
+              '\tcfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))\n\tif cfg.UI.ViewerFitMode == "" {\n\t\tcfg.UI.ViewerFitMode = "fit_window"\n\t}\n\tif cfg.UI.ViewerFitMode == "screen" {\n\t\tcfg.UI.ViewerFitMode = "fit_window"\n\t}\n\tswitch cfg.UI.ViewerFitMode {\n\tcase "fit_window", "fit_down_only", "original_size_if_fit", "actual":\n\tdefault:\n\t\terrs = append(errs, errors.New("ui.viewer_fit_mode must be one of: fit_window, fit_down_only, original_size_if_fit, actual"))\n\t}\n\tcfg.UI.ViewerScaling = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerScaling))\n\tif cfg.UI.ViewerScaling == "" {\n\t\tcfg.UI.ViewerScaling = "smooth"\n\t}\n\tswitch cfg.UI.ViewerScaling {\n\tcase "smooth", "nearest":\n\tdefault:\n\t\terrs = append(errs, errors.New("ui.viewer_scaling must be one of: smooth, nearest"))\n\t}\n')
+          change('internal/serve/ui_config.go',
+              '\tViewerFitMode            string `json:"viewer_fit_mode"`\n\tGridSize',
+              '\tViewerFitMode            string `json:"viewer_fit_mode"`\n\tViewerScaling            string `json:"viewer_scaling"`\n\tGridSize')
+          change('internal/serve/ui_config.go',
+              '\t\tViewerFitMode:            s.cfg.UI.ViewerFitMode,\n\t\tGridSize:',
+              '\t\tViewerFitMode:            s.cfg.UI.ViewerFitMode,\n\t\tViewerScaling:            s.cfg.UI.ViewerScaling,\n\t\tGridSize:')
+
+          # Frontend fit type now permits actual as a configured default.
+          change('frontend/src/lib/utils/viewer.ts',
+              "export type ViewerConfiguredFitMode = 'fit_window' | 'fit_down_only' | 'original_size_if_fit';\nexport type ViewerFitMode = ViewerConfiguredFitMode | 'actual';",
+              "export type ViewerConfiguredFitMode = 'fit_window' | 'fit_down_only' | 'original_size_if_fit' | 'actual';\nexport type ViewerFitMode = ViewerConfiguredFitMode;")
+
+          # Persist only low-sensitivity presentation state in browser session storage.
+          change('frontend/src/lib/state/viewerSessionPreferences.ts',
+              "export type ViewerRotation = 0 | 90 | 180 | 270;\n\nexport interface ViewerSessionPreferences {",
+              "export type ViewerRotation = 0 | 90 | 180 | 270;\nexport type ViewerScaling = 'smooth' | 'nearest';\n\nexport interface ViewerSessionPreferences {")
+          change('frontend/src/lib/state/viewerSessionPreferences.ts',
+              '  fitMode: ViewerFitMode;\n}',
+              '  fitMode: ViewerFitMode;\n  scaling: ViewerScaling;\n}')
+          change('frontend/src/lib/state/viewerSessionPreferences.ts',
+              "    else if (parsed.fitMode === 'fit_window' || parsed.fitMode === 'fit_down_only' || parsed.fitMode === 'original_size_if_fit' || parsed.fitMode === 'actual') preferences.fitMode = parsed.fitMode;\n    return preferences;",
+              "    else if (parsed.fitMode === 'fit_window' || parsed.fitMode === 'fit_down_only' || parsed.fitMode === 'original_size_if_fit' || parsed.fitMode === 'actual') preferences.fitMode = parsed.fitMode;\n    if (parsed.scaling === 'smooth' || parsed.scaling === 'nearest') preferences.scaling = parsed.scaling;\n    return preferences;")
+
+          # Runtime config plumbing.
+          change('frontend/src/lib/stores/runtimeConfig.ts',
+              "import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';",
+              "import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';\nimport type { ViewerScaling } from '$lib/state/viewerSessionPreferences';")
+          change('frontend/src/lib/stores/runtimeConfig.ts',
+              '  viewerFitMode: ViewerConfiguredFitMode;\n  gridSize:',
+              '  viewerFitMode: ViewerConfiguredFitMode;\n  viewerScaling: ViewerScaling;\n  gridSize:')
+          change('frontend/src/lib/stores/runtimeConfig.ts',
+              "  viewerFitMode: 'fit_window',\n  gridSize:",
+              "  viewerFitMode: 'fit_window',\n  viewerScaling: 'smooth',\n  gridSize:")
+          change('frontend/src/lib/components/AppPage.svelte',
+              "  import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';",
+              "  import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';\n  import type { ViewerScaling } from '$lib/state/viewerSessionPreferences';")
+          change('frontend/src/lib/components/AppPage.svelte',
+              '    viewer_fit_mode?: ViewerConfiguredFitMode;\n    grid_size?: number;',
+              '    viewer_fit_mode?: ViewerConfiguredFitMode;\n    viewer_scaling?: ViewerScaling;\n    grid_size?: number;')
+          change('frontend/src/lib/components/AppPage.svelte',
+              "      viewerFitMode: config.viewer_fit_mode ?? 'fit_window',\n      gridSize:",
+              "      viewerFitMode: config.viewer_fit_mode ?? 'fit_window',\n      viewerScaling: config.viewer_scaling ?? 'smooth',\n      gridSize:")
+
+          # Viewer receives config defaults; session overrides survive media navigation.
+          change('frontend/src/lib/components/PreviewDialog.svelte',
+              '    fitMode: \'fit_window\'\n  });',
+              "    fitMode: 'fit_window',\n    scaling: $runtimeConfig.viewerScaling\n  });")
+          change('frontend/src/lib/components/PreviewDialog.svelte',
+              '    initialFitMode={$runtimeConfig.viewerFitMode}\n    onPrev=',
+              '    initialFitMode={$runtimeConfig.viewerFitMode}\n    initialScaling={$runtimeConfig.viewerScaling}\n    onPrev=')
+
+          # Viewer interaction + rendering. Apply nearest only to image/canvas surfaces,
+          # never server derivatives or video/audio.
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              "import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation } from '$lib/state/viewerSessionPreferences';",
+              "import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation, type ViewerScaling } from '$lib/state/viewerSessionPreferences';")
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              "    initialFitMode = 'fit_window',\n    onPrev,",
+              "    initialFitMode = 'fit_window',\n    initialScaling = 'smooth',\n    onPrev,")
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              '    initialFitMode?: ViewerConfiguredFitMode;\n    onPrev:',
+              '    initialFitMode?: ViewerConfiguredFitMode;\n    initialScaling?: ViewerScaling;\n    onPrev:')
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              '    rotation: 0,\n    fitMode: untrack(() => initialFitMode)\n  });',
+              '    rotation: 0,\n    fitMode: untrack(() => initialFitMode),\n    scaling: untrack(() => initialScaling)\n  });')
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              '  let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);\n  let fitModeFeedback',
+              '  let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);\n  let scaling = $state<ViewerScaling>(initialViewerPreferences.scaling);\n  let fitModeFeedback')
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              "  function cycleFitMode() {\n    const current = configuredFitModes.indexOf(fitMode as ViewerConfiguredFitMode);\n    setFitMode(configuredFitModes[(current + 1 + configuredFitModes.length) % configuredFitModes.length], true);\n  }",
+              "  function cycleFitMode() {\n    const current = configuredFitModes.indexOf(fitMode as ViewerConfiguredFitMode);\n    setFitMode(configuredFitModes[(current + 1 + configuredFitModes.length) % configuredFitModes.length], true);\n  }\n\n  function toggleScaling() {\n    scaling = scaling === 'nearest' ? 'smooth' : 'nearest';\n    updateViewerSessionPreferences({ scaling });\n    fitModeFeedback = scaling === 'nearest' ? 'Nearest-neighbor scaling' : 'Smooth scaling';\n    if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);\n    fitModeFeedbackTimer = setTimeout(() => { fitModeFeedback = ''; fitModeFeedbackTimer = undefined; }, 1100);\n  }")
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              "    if (key === 'v') {",
+              "    if (key === 's') {\n      event.preventDefault();\n      event.stopPropagation();\n      toggleScaling();\n      return;\n    }\n    if (key === 'v') {")
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              'class="lightbox-stage viewer-stage" tabindex=',
+              "class:nearest-scaling={scaling === 'nearest'} class=\"lightbox-stage viewer-stage\" tabindex=")
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              '  :global(.viewer-stage .viewer-visual-media) {\n    object-fit: contain;',
+              '  :global(.viewer-stage .viewer-visual-media) {\n    object-fit: contain;')
+          # Insert image-rendering rules before freeze canvas block.
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              '  .viewer-image-freeze {\n',
+              "  :global(.viewer-stage.nearest-scaling img.viewer-visual-media),\n  :global(.viewer-stage.nearest-scaling .viewer-image-freeze) {\n    image-rendering: pixelated;\n  }\n\n  .viewer-image-freeze {\n")
+
+          # Shortcut reference.
+          change('frontend/src/lib/components/ShortcutsView.svelte',
+              "        { keys: ['v'], description: 'Cycle viewer fit mode' },",
+              "        { keys: ['v'], description: 'Cycle viewer fit mode' },\n        { keys: ['s'], description: 'Toggle smooth / nearest-neighbor scaling' },")
+
+          # Config docs: fit actual/legacy alias + scaling row/example.
+          p = Path('docs/CONFIG.md'); text = p.read_text()
+          text = text.replace(
+              '| `ui.viewer_fit_mode` | `fit_window` | Default viewer scaling policy: `fit_window` fills the available viewer bounds, `fit_down_only` never enlarges smaller media, and `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down. Press `V` in the viewer to cycle these policies for the current browser session. |',
+              '| `ui.viewer_fit_mode` | `fit_window` | Default viewer fit policy: `fit_window` (legacy alias `screen`) fills the available viewer bounds, `fit_down_only` never enlarges smaller media, `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down, and `actual` starts at original size. Press `V` to cycle the fit policies for the current browser session. |\n| `ui.viewer_scaling` | `smooth` | Browser-side image interpolation: `smooth` uses normal browser filtering and `nearest` uses nearest-neighbor/pixelated scaling. Press `S` in the viewer to toggle it for the current browser session. |')
+          text = text.replace('  viewer_fit_mode: fit_window\n', '  viewer_fit_mode: fit_window\n  viewer_scaling: smooth\n', 1)
+          p.write_text(text)
+
+          # Go tests extend public runtime response + aliases/validation.
+          p = Path('internal/serve/ui_config_test.go'); text = p.read_text()
+          text = text.replace('cfg.UI.ViewerFitMode = "original_size_if_fit"', 'cfg.UI.ViewerFitMode = "original_size_if_fit"\n\tcfg.UI.ViewerScaling = "nearest"', 1)
+          text = text.replace('if !strings.Contains(rec.Body.String(), `"viewer_fit_mode":"original_size_if_fit"`) {\n\t\tt.Fatalf("response missing viewer fit mode: %s", rec.Body.String())\n\t}', 'if !strings.Contains(rec.Body.String(), `"viewer_fit_mode":"original_size_if_fit"`) {\n\t\tt.Fatalf("response missing viewer fit mode: %s", rec.Body.String())\n\t}\n\tif !strings.Contains(rec.Body.String(), `"viewer_scaling":"nearest"`) {\n\t\tt.Fatalf("response missing viewer scaling: %s", rec.Body.String())\n\t}', 1)
+          text += '''\nfunc TestViewerPresentationConfigAliasesAndScaling(t *testing.T) {\n\tcfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))\n\tcfg.UI.ViewerFitMode = "screen"\n\tcfg.UI.ViewerScaling = "NEAREST"\n\tif err := cfg.Validate(); err != nil {\n\t\tt.Fatalf("validate presentation config: %v", err)\n\t}\n\tif cfg.UI.ViewerFitMode != "fit_window" {\n\t\tt.Fatalf("legacy screen alias normalized to %q", cfg.UI.ViewerFitMode)\n\t}\n\tif cfg.UI.ViewerScaling != "nearest" {\n\t\tt.Fatalf("viewer scaling normalized to %q", cfg.UI.ViewerScaling)\n\t}\n\tcfg.UI.ViewerFitMode = "actual"\n\tcfg.UI.ViewerScaling = "nearest"\n\tif err := cfg.Validate(); err != nil {\n\t\tt.Fatalf("actual fit mode should be accepted: %v", err)\n\t}\n\tcfg.UI.ViewerScaling = "bicubic"\n\tif err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.viewer_scaling") {\n\t\tt.Fatalf("expected invalid viewer scaling error, got %v", err)\n\t}\n}\n'''
+          p.write_text(text)
+
+          # Session test defaults/round trip.
+          p = Path('frontend/src/lib/state/viewerSessionPreferences.test.ts'); text = p.read_text()
+          text = text.replace("  fitMode: 'fit_window'\n};", "  fitMode: 'fit_window',\n  scaling: 'smooth'\n};", 1)
+          # Expected object after roundtrip needs scaling default if not explicitly present.
+          text = text.replace("      fitMode: 'fit_window'\n    });", "      fitMode: 'fit_window',\n      scaling: 'smooth'\n    });")
+          insert = "  it('persists viewer scaling without content-derived state', () => {\n    const storage = memoryStorage();\n    updateViewerSessionPreferences({ scaling: 'nearest' }, storage);\n    expect(readViewerSessionPreferences(defaults, storage).scaling).toBe('nearest');\n  });\n\n"
+          text = text.replace("  it('migrates the legacy screen fit preference to fit_window', () => {", insert + "  it('migrates the legacy screen fit preference to fit_window', () => {", 1)
+          p.write_text(text)
+
+          # Extend focused browser test to cover default + immediate S toggle.
+          p = Path('frontend/tests/viewer-fit-mode.spec.ts'); text = p.read_text()
+          text = text.replace("body: JSON.stringify({ viewer_fit_mode: 'original_size_if_fit' })", "body: JSON.stringify({ viewer_fit_mode: 'original_size_if_fit', viewer_scaling: 'nearest' })")
+          text = text.replace("  expect((await image.boundingBox())!.width).toBeLessThan(322);\n\n  await page.keyboard.press('1');", "  expect((await image.boundingBox())!.width).toBeLessThan(322);\n  await expect.poll(async () => image.evaluate((node) => getComputedStyle(node).imageRendering)).toBe('pixelated');\n\n  await page.keyboard.press('s');\n  await expect(page.getByRole('status')).toContainText('Smooth scaling');\n  await expect.poll(async () => image.evaluate((node) => getComputedStyle(node).imageRendering)).not.toBe('pixelated');\n\n  await page.keyboard.press('s');\n  await expect(page.getByRole('status')).toContainText('Nearest-neighbor scaling');\n  await expect.poll(async () => image.evaluate((node) => getComputedStyle(node).imageRendering)).toBe('pixelated');\n\n  await page.keyboard.press('1');", 1)
+          p.write_text(text)
+
+          Path('.github/workflows/maintainer-251-scaling.yml').unlink()
+          PY
+          gofmt -w internal/serve/config.go internal/serve/ui_config.go internal/serve/ui_config_test.go
+          git config user.name 'Gooru Maintainer'
+          git config user.email 'maintainer@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat(webui): add nearest-neighbor viewer scaling'
+          git push origin HEAD:feat/251-viewer-scaling
+      - name: Go tests
+        run: go test ./...
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend checks
+        working-directory: frontend
+        run: npm run check && npm run test:unit && npm run build
+      - name: Focused Chromium viewer regression
+        working-directory: frontend
+        run: |
+          chromium=$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)
+          test -n "$chromium"
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$chromium" npx playwright test tests/viewer-fit-mode.spec.ts --project=chromium
