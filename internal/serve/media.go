@@ -1,7 +1,6 @@
 package serve
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	_ "image/gif"
 
@@ -74,29 +72,27 @@ func (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Wr
 }
 
 type MediaService struct {
-	cfg               Config
-	thumbnailer       Thumbnailer
-	sourceResolver    *filesource.Resolver
-	sourceResolverErr error
-	cacheMu           sync.Mutex
-	cacheLocks        map[string]*cacheLock
-	comicMu           sync.Mutex
-	comicCache        map[string]*cachedComicArchive
-	comicTick         uint64
-}
-
-type cacheLock struct {
-	mu   sync.Mutex
-	refs int
+	cfg                Config
+	thumbnailer        Thumbnailer
+	sourceResolver     *filesource.Resolver
+	sourceResolverErr  error
+	derivatives        derivativeStore
+	derivativeStoreErr error
+	comicMu            sync.Mutex
+	comicCache         map[string]*cachedComicArchive
+	comicTick          uint64
 }
 
 func NewMediaService(cfg Config) *MediaService {
 	resolver, resolverErr := newMediaSourceResolver(cfg)
+	store, storeErr := newDerivativeStore(cfg)
 	return &MediaService{
-		cfg:               cfg,
-		thumbnailer:       NewMediaThumbnailer(cfg),
-		sourceResolver:    resolver,
-		sourceResolverErr: resolverErr,
+		cfg:                cfg,
+		thumbnailer:        NewMediaThumbnailer(cfg),
+		sourceResolver:     resolver,
+		sourceResolverErr:  resolverErr,
+		derivatives:        store,
+		derivativeStoreErr: storeErr,
 	}
 }
 
@@ -109,6 +105,28 @@ func newMediaSourceResolver(cfg Config) (*filesource.Resolver, error) {
 		roots = append(roots, target.Path)
 	}
 	return filesource.NewProtected(cfg.Encryption.Key, roots)
+}
+
+func newDerivativeStore(cfg Config) (derivativeStore, error) {
+	if cfg.Encryption.Enabled {
+		return memoryDerivativeStore{}, nil
+	}
+	root, err := derivativeCacheRoot(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return newPersistentDerivativeStore(root), nil
+}
+
+func derivativeCacheRoot(cfg Config) (string, error) {
+	if strings.TrimSpace(cfg.Media.CacheDir) != "" {
+		return cfg.Media.CacheDir, nil
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		dir = os.TempDir()
+	}
+	return filepath.Join(dir, "gooru", "media-cache"), nil
 }
 
 func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
@@ -181,54 +199,27 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	if format == "" {
 		format = "jpeg"
 	}
-	if m.cfg.Encryption.Enabled {
-		m.serveProtectedDerivative(w, r, file, size, format)
+	if m.derivativeStoreErr != nil || m.derivatives == nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare media cache", nil)
 		return
 	}
-	cachePath, err := m.cachePath(file, kind, size, format)
+	relativePath := m.derivativeRelativePath(file, kind, size, format)
+	artifact, err := m.derivatives.GetOrGenerate(relativePath, func(dst io.Writer) error {
+		return m.generateThumbnail(file, dst, size, format)
+	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare media cache", nil)
+		m.writeThumbnailGenerationError(w, err)
 		return
 	}
-	if _, err := os.Stat(cachePath); err == nil {
-		w.Header().Set("X-Gooru-Cache", "hit")
-		m.serveCachedDerivative(w, r, cachePath, format)
-		return
+	defer artifact.Close()
+	w.Header().Set("X-Gooru-Cache", artifact.CacheStatus)
+	w.Header().Set("Content-Type", mimeForDerivative(format))
+	w.Header().Set("Cache-Control", artifact.CacheControl)
+	if artifact.CacheControl == "private, no-store" {
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
 	}
-	unlock := m.lockCachePath(cachePath)
-	defer unlock()
-	if _, err := os.Stat(cachePath); err == nil {
-		w.Header().Set("X-Gooru-Cache", "hit")
-		m.serveCachedDerivative(w, r, cachePath, format)
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(cachePath), 0700); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare media cache", nil)
-		return
-	}
-	tmp := cachePath + ".tmp"
-	out, err := os.Create(tmp)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare media cache", nil)
-		return
-	}
-	genErr := m.generateThumbnail(file, out, size, format)
-	closeErr := out.Close()
-	if genErr != nil || closeErr != nil {
-		_ = os.Remove(tmp)
-		if genErr == nil {
-			genErr = closeErr
-		}
-		m.writeThumbnailGenerationError(w, genErr)
-		return
-	}
-	if err := os.Rename(tmp, cachePath); err != nil {
-		_ = os.Remove(tmp)
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to store thumbnail", nil)
-		return
-	}
-	w.Header().Set("X-Gooru-Cache", "miss")
-	m.serveCachedDerivative(w, r, cachePath, format)
+	http.ServeContent(w, r, artifact.Name, artifact.ModTime, artifact.Reader)
 }
 
 func (m *MediaService) applyProtectedMediaCachePolicy(w http.ResponseWriter) {
@@ -238,18 +229,6 @@ func (m *MediaService) applyProtectedMediaCachePolicy(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
-}
-
-func (m *MediaService) serveProtectedDerivative(w http.ResponseWriter, r *http.Request, file types.FileInfo, size int, format string) {
-	var out bytes.Buffer
-	if err := m.generateThumbnail(file, &out, size, format); err != nil {
-		m.writeThumbnailGenerationError(w, err)
-		return
-	}
-	m.applyProtectedMediaCachePolicy(w)
-	w.Header().Set("X-Gooru-Cache", "bypass")
-	w.Header().Set("Content-Type", mimeForDerivative(format))
-	http.ServeContent(w, r, "protected."+derivativeExtension(format), time.Time{}, bytes.NewReader(out.Bytes()))
 }
 
 func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err error) {
@@ -284,31 +263,6 @@ func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, siz
 	return m.thumbnailer.Thumbnail(file.Path, dst, size, format)
 }
 
-func (m *MediaService) lockCachePath(path string) func() {
-	m.cacheMu.Lock()
-	if m.cacheLocks == nil {
-		m.cacheLocks = make(map[string]*cacheLock)
-	}
-	lock := m.cacheLocks[path]
-	if lock == nil {
-		lock = &cacheLock{}
-		m.cacheLocks[path] = lock
-	}
-	lock.refs++
-	m.cacheMu.Unlock()
-
-	lock.mu.Lock()
-	return func() {
-		lock.mu.Unlock()
-		m.cacheMu.Lock()
-		lock.refs--
-		if lock.refs == 0 {
-			delete(m.cacheLocks, path)
-		}
-		m.cacheMu.Unlock()
-	}
-}
-
 func (m *MediaService) derivativeSize(r *http.Request, kind string) (int, error) {
 	if kind == "preview" {
 		return m.cfg.Media.PreviewSize, nil
@@ -332,11 +286,7 @@ func (m *MediaService) derivativeSize(r *http.Request, kind string) (int, error)
 	return 0, fmt.Errorf("size must be one of: %s", intList(m.cfg.Media.ThumbnailSizes))
 }
 
-func (m *MediaService) cachePath(file types.FileInfo, kind string, size int, format string) (string, error) {
-	root, err := m.cacheRoot()
-	if err != nil {
-		return "", err
-	}
+func (m *MediaService) derivativeRelativePath(file types.FileInfo, kind string, size int, format string) string {
 	backendVersion := m.thumbnailer.BackendVersion()
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
 		backendVersion += "|cbz-cover-v1"
@@ -351,35 +301,7 @@ func (m *MediaService) cachePath(file types.FileInfo, kind string, size int, for
 	}, "|")
 	sum := sha256.Sum256([]byte(key))
 	name := hex.EncodeToString(sum[:]) + "." + derivativeExtension(format)
-	return filepath.Join(root, name[:2], name), nil
-}
-
-func (m *MediaService) cacheRoot() (string, error) {
-	if strings.TrimSpace(m.cfg.Media.CacheDir) != "" {
-		return m.cfg.Media.CacheDir, nil
-	}
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		dir = os.TempDir()
-	}
-	return filepath.Join(dir, "gooru", "media-cache"), nil
-}
-
-func (m *MediaService) serveCachedDerivative(w http.ResponseWriter, r *http.Request, path string, format string) {
-	f, err := os.Open(path)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "thumbnail not found", nil)
-		return
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "thumbnail not found", nil)
-		return
-	}
-	w.Header().Set("Content-Type", mimeForDerivative(format))
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	http.ServeContent(w, r, info.Name(), info.ModTime().Truncate(time.Second), f)
+	return filepath.Join(name[:2], name)
 }
 
 func scaleImage(src image.Image, maxSize int) image.Image {
