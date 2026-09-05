@@ -108,6 +108,7 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   $effect(() => {
     if (!browser || initialOpaqueRestorePending) return;
     const pathname = pathForAppRoute(route);
+    const generation = ++historyGeneration;
     if (route !== 'library') {
       const currentURL = `${window.location.pathname}${window.location.search}`;
       if (currentURL !== pathname) window.history.pushState(null, '', pathname);
@@ -126,7 +127,6 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
       if (`${window.location.pathname}${window.location.search}` !== pathname) window.history.pushState(null, '', pathname);
       return;
     }
-    const generation = ++historyGeneration;
     const replaceLegacy = !new URLSearchParams(window.location.search).has('state') && window.location.search !== '';
     new ApiClient(get(authState).csrfToken).createURLState(state).then((token) => {
       if (generation !== historyGeneration) return;
