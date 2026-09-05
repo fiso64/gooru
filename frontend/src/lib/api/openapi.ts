@@ -292,6 +292,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/files/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search tracked files with query state in the request body.
+         * @description Read-only alternative to GET /files for clients that must keep free-form library query text out of browser/proxy URL histories. Uses the same search service and pagination semantics as GET /files.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FileSearchRequest"];
+                };
+            };
+            responses: {
+                /** @description Page of tracked files. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FileListResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files/{id}": {
         parameters: {
             query?: never;
@@ -936,6 +981,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/search/suggestions/private": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Return search suggestions with free-form query state in the request body. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SuggestionRequest"];
+                };
+            };
+            responses: {
+                /** @description Search suggestions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuggestionsResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tags/namespaces": {
         parameters: {
             query?: never;
@@ -1009,7 +1096,33 @@ export interface paths {
             };
         };
         put?: never;
-        post?: never;
+        /** Return search suggestions with free-form query state in the request body. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SuggestionRequest"];
+                };
+            };
+            responses: {
+                /** @description Search suggestions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuggestionsResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1376,6 +1489,21 @@ export interface components {
             username: string;
             /** @enum {string} */
             role: "admin";
+        };
+        FileSearchRequest: {
+            query?: string;
+            limit?: number;
+            page_token?: string;
+            /** @enum {string} */
+            sort?: "added" | "name" | "modified" | "size" | "kind";
+            /** @enum {string} */
+            order?: "asc" | "desc";
+            include_facets?: boolean;
+        };
+        SuggestionRequest: {
+            q?: string;
+            existing?: string;
+            limit?: number;
         };
         ErrorResponse: {
             error: {

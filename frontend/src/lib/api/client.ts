@@ -1,5 +1,6 @@
 import createClient from 'openapi-fetch';
 import type { paths } from './openapi';
+import { useProtectedReadTransport } from './privacy';
 import type {
   ApiErrorResponse,
   AuthMeResponse,
@@ -89,6 +90,21 @@ export class ApiClient {
   }
 
   async listFiles(params: ListFilesParams = {}): Promise<FileListResponse> {
+    if (useProtectedReadTransport()) {
+      return this.unwrap(
+        this.client.POST('/files/search', {
+          body: {
+            query: params.query || undefined,
+            limit: params.limit,
+            page_token: params.pageToken,
+            sort: params.sort,
+            order: params.order,
+            include_facets: params.includeFacets || undefined
+          },
+          signal: params.signal
+        })
+      );
+    }
     return this.unwrap(
       this.client.GET('/files', {
         params: {
@@ -115,6 +131,11 @@ export class ApiClient {
   }
 
   async searchSuggestions(q = '', limit?: number, existing = '', signal?: AbortSignal): Promise<SuggestionsResponse> {
+    if (useProtectedReadTransport()) {
+      return this.unwrap(
+        this.client.POST('/search/suggestions', { body: { q: q || undefined, limit, existing: existing || undefined }, signal })
+      );
+    }
     return this.unwrap(
       this.client.GET('/search/suggestions', {
         params: { query: { q: q || undefined, limit, existing: existing || undefined } },

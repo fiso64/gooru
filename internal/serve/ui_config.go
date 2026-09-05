@@ -11,6 +11,7 @@ type UIConfigResponse struct {
 	ViewerScaling            string `json:"viewer_scaling"`
 	GridSize                 int    `json:"grid_size"`
 	ThumbnailSizes           []int  `json:"thumbnail_sizes"`
+	ProtectedMode            bool   `json:"protected_mode"`
 }
 
 func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
@@ -23,5 +24,6 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		ViewerScaling:            s.cfg.UI.ViewerScaling,
 		GridSize:                 s.cfg.UI.GridSize,
 		ThumbnailSizes:           s.cfg.Media.ThumbnailSizes,
+		ProtectedMode:            s.cfg.Encryption.Enabled,
 	})
 }

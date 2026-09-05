@@ -89,6 +89,8 @@ Keep the key backed up separately from the encrypted data. Starting protected mo
 
 When protected mode starts, Gooru migrates its database and files registered under configured `uploads.targets` to encrypted storage before serving requests. Indexed media outside those managed upload roots is deliberately left unchanged because Gooru does not rewrite arbitrary external library files. New managed uploads and generated derivatives are encrypted while protected mode is enabled. Media responses that contain decrypted protected content use no-store cache policy to reduce plaintext traces in client/proxy caches.
 
+When protected mode is enabled, the bundled WebUI sends free-form file searches and search-suggestion context in authenticated POST request bodies instead of URL query strings. The existing GET endpoints remain available for API/CLI compatibility. This reduces plaintext query exposure in browser/proxy URL history, but HTTPS is still required to protect request bodies in transit.
+
 ## `auth`
 
 | Option | Default | Description |
