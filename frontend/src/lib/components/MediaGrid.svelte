@@ -148,7 +148,7 @@
   {/if}
   {#if pagedMode && files.length}
     <nav class="library-pager" aria-label="Library pages" data-testid="library-pager">
-      <button class="g-btn g-btn-sm" type="button" aria-label="Previous page" disabled={pageNumber <= 1 || isFetchingPreviousPage || isFetchingNextPage} onclick={() => selectPagedPage(pageNumber - 1)}>Previous</button>
+      <button class="g-btn g-btn-sm library-pager-step" type="button" aria-label="Previous page" title="Previous page" disabled={pageNumber <= 1 || isFetchingPreviousPage || isFetchingNextPage} onclick={() => selectPagedPage(pageNumber - 1)}>‹</button>
       <div class="library-pager-pages">
         {#each paginationWindow(pageNumber, pageCount) as control, index (`${control}-${index}`)}
           {#if control === 'ellipsis'}
@@ -165,7 +165,7 @@
           {/if}
         {/each}
       </div>
-      <button class="g-btn g-btn-sm" type="button" aria-label="Next page" disabled={pageNumber >= pageCount || isFetchingNextPage || isFetchingPreviousPage} onclick={() => selectPagedPage(pageNumber + 1)}>Next</button>
+      <button class="g-btn g-btn-sm library-pager-step" type="button" aria-label="Next page" title="Next page" disabled={pageNumber >= pageCount || isFetchingNextPage || isFetchingPreviousPage} onclick={() => selectPagedPage(pageNumber + 1)}>›</button>
     </nav>
   {:else if !pagedMode && (hasNextPage || isFetchingNextPage)}
     <div bind:this={loadMoreSentinel} class="infinite-sentinel" data-testid="infinite-scroll-sentinel"><span class="infinite-sentinel-content"><span class="infinite-sentinel-spinner" aria-hidden="true"></span>Loading more</span></div>
