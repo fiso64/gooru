@@ -173,7 +173,7 @@ describe('createUploadWorkflow', () => {
     expect(workflow.status).toContain('Upload in progress');
   });
 
-  it('applies each tracked import job independently', async () => {
+  it('applies each tracked import job independently while polling the batch together', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
     await workflow.submit(async (variables) => pendingJob(`job-${variables.files[0].name}`));
@@ -190,7 +190,23 @@ describe('createUploadWorkflow', () => {
       ['importing', 50],
       ['queued', 100]
     ]);
-    expect(workflow.activeJobID).toBe('job-first.jpg');
+    expect(workflow.activeJobID).toBe('job-first.jpg,job-second.jpg');
+  });
+
+  it('applies multiple completed jobs from one status response', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
+    await workflow.submit(async (variables) => pendingJob(`job-${variables.files[0].name}`));
+
+    const completed = (name: string) => ({
+      ...pendingJob(`job-${name}`),
+      status: 'completed',
+      result: { files: [{ name, size: 10, target_id: '', status: 'imported' }] }
+    }) as Job;
+
+    expect(workflow.applyJob({ items: [completed('first.jpg'), completed('second.jpg')] })).toEqual({ completed: true, changedFiles: true });
+    expect(workflow.activeJobIDs).toEqual([]);
+    expect(workflow.items.map((item) => item.status)).toEqual(['imported', 'imported']);
   });
 
   it('advances polling to the next job after one completes', async () => {
