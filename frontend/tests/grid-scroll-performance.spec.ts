@@ -13,7 +13,7 @@ function fileItem(index: number) {
   const [width, height] = aspectDimensions[index % aspectDimensions.length];
   return {
     id, content_id: `hash-${id}`, name: `perf-${index}.jpg`, safe_display_path: `library/${id}.jpg`,
-    size: 2048, modified_time: '2026-05-20T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo',
+    size: 2048, modified_time: '2026-05-20T00:00:00Z', media_type: index % 2 ? 'video/mp4' : 'image/jpeg', media_kind: index % 2 ? 'video' : 'photo',
     metadata: { image_width: width, image_height: height }, tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`,
