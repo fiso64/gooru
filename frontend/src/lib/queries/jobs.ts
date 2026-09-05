@@ -29,16 +29,14 @@ async function fetchJobBatch(ids: string[]) {
   return await response.json() as { items: Job[] };
 }
 
-export function createJobQuery(getCSRFToken: () => string, getJobID: () => string, getAuthScope: () => number) {
+export function createJobQuery(_getCSRFToken: () => string, getJobID: () => string, getAuthScope: () => number) {
   return createQuery(() => {
     const jobID = getJobID();
     const jobIDs = jobID.split(',').map((id) => id.trim()).filter(Boolean);
     return {
       queryKey: jobKeys.detail(getAuthScope(), jobID),
       enabled: jobIDs.length > 0,
-      queryFn: () => jobIDs.length === 1
-        ? new ApiClient(getCSRFToken()).getJob(jobIDs[0])
-        : fetchJobBatch(jobIDs),
+      queryFn: () => fetchJobBatch(jobIDs),
       refetchInterval: 700
     };
   });
