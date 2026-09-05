@@ -1,17 +1,18 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { preserveNativeViewerSize } from '$lib/utils/media';
-  import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerFitMode } from '$lib/utils/viewer';
+  import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerConfiguredFitMode, type ViewerFitMode } from '$lib/utils/viewer';
   import { preloadViewerMediaSource, viewerPreloadSource } from '$lib/utils/viewerPreload';
   import type { FileItem } from '$lib/api/types';
 
   let {
     file,
     imageSource,
+    initialFitMode = 'fit_window',
     onPrev,
     onNext,
     onPrimaryAction,
@@ -30,6 +31,7 @@
   } = $props<{
     file: FileItem;
     imageSource: string;
+    initialFitMode?: ViewerConfiguredFitMode;
     onPrev: () => void;
     onNext: () => void;
     onPrimaryAction?: () => void;
@@ -50,7 +52,7 @@
   const initialViewerPreferences = readViewerSessionPreferences({
     preferOriginal: false,
     rotation: 0,
-    fitMode: 'screen'
+    fitMode: untrack(() => initialFitMode)
   });
 
   let stageElement = $state<HTMLDivElement | undefined>();
@@ -70,6 +72,8 @@
   let transitionGeneration = 0;
   let rotation = $state<number>(initialViewerPreferences.rotation);
   let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);
+  let fitModeFeedback = $state('');
+  let fitModeFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
   let isFullscreen = $state(false);
   let keepViewerAfterFullscreenExit = false;
   let stageWidth = $state(0);
@@ -114,11 +118,11 @@
     viewportWidth: stageWidth,
     viewportHeight: stageHeight,
     rotation,
-    fitMode: 'screen',
+    fitMode: 'fit_window',
     inset: isFullscreen ? 0 : 36,
     maxScale: preserveNativeViewerSize(renderedFile) ? 1 : Number.POSITIVE_INFINITY
   }));
-  const minimumZoom = $derived(fitMode === 'screen' ? 1 : Math.min(1, fitGeometry.scale));
+  const minimumZoom = $derived(fitMode === 'actual' ? Math.min(1, fitGeometry.scale) : 1);
   const panLimits = $derived(viewerPanLimits(zoom));
   const panSurfaceStyle = $derived(`width:${stageWidth + panLimits.x * 2}px;height:${stageHeight + panLimits.y * 2}px`);
   const visualStyle = $derived(viewerMediaStyle(geometry, { zoom }));
@@ -159,6 +163,7 @@
       document.removeEventListener('fullscreenchange', syncFullscreen);
       if (playbackControlsTimer) clearTimeout(playbackControlsTimer);
       if (cursorIdleTimer) clearTimeout(cursorIdleTimer);
+      if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);
     };
   });
 
@@ -431,10 +436,31 @@
     queueMicrotask(syncNativePan);
   }
 
-  function setFitMode(mode: ViewerFitMode) {
+  const configuredFitModes: ViewerConfiguredFitMode[] = ['fit_window', 'fit_down_only', 'original_size_if_fit'];
+
+  function fitModeLabel(mode: ViewerFitMode) {
+    if (mode === 'fit_window') return 'Fit window';
+    if (mode === 'fit_down_only') return 'Fit down only';
+    if (mode === 'original_size_if_fit') return 'Original size if it fits';
+    return 'Actual size';
+  }
+
+  function announceFitMode() {
+    fitModeFeedback = fitModeLabel(fitMode);
+    if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);
+    fitModeFeedbackTimer = setTimeout(() => { fitModeFeedback = ''; fitModeFeedbackTimer = undefined; }, 1100);
+  }
+
+  function setFitMode(mode: ViewerFitMode, announce = false) {
     fitMode = mode;
     updateViewerSessionPreferences({ fitMode });
     resetViewerTransform();
+    if (announce) announceFitMode();
+  }
+
+  function cycleFitMode() {
+    const current = configuredFitModes.indexOf(fitMode as ViewerConfiguredFitMode);
+    setFitMode(configuredFitModes[(current + 1 + configuredFitModes.length) % configuredFitModes.length], true);
   }
 
   function handleViewerWheel(event: WheelEvent) {
@@ -536,6 +562,12 @@
     }
 
     const key = event.key.toLowerCase();
+    if (key === 'v') {
+      event.preventDefault();
+      event.stopPropagation();
+      cycleFitMode();
+      return;
+    }
     if (key === 'f') {
       event.preventDefault();
       event.stopPropagation();
@@ -557,13 +589,13 @@
     if (event.key === '1') {
       event.preventDefault();
       event.stopPropagation();
-      setFitMode('screen');
+      setFitMode('fit_window', true);
       return;
     }
     if (event.key === '2') {
       event.preventDefault();
       event.stopPropagation();
-      setFitMode('actual');
+      setFitMode('actual', true);
       return;
     }
     if (event.code === 'Space') {
@@ -711,9 +743,12 @@
     </div>
   {/if}
 
+  {#if fitModeFeedback}<div class="viewer-mode-feedback" role="status" aria-live="polite">{fitModeFeedback}</div>{/if}
+
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
-    <button type="button" class="viewer-mode-button" class:active={fitMode === 'screen'} aria-label="Fit to screen" title="Fit to screen (1)" onclick={(event) => { setFitMode('screen'); restoreStageFocusAfterPointer(event); }}>1</button>
-    <button type="button" class="viewer-mode-button" class:active={fitMode === 'actual'} aria-label="Actual size" title="Actual size (2)" onclick={(event) => { setFitMode('actual'); restoreStageFocusAfterPointer(event); }}>2</button>
+    <button type="button" class="viewer-mode-button" class:active={fitMode === 'fit_window'} aria-label="Fit to window" title="Fit to window (1)" onclick={(event) => { setFitMode('fit_window', true); restoreStageFocusAfterPointer(event); }}>1</button>
+    <button type="button" class="viewer-mode-button" aria-label="Cycle fit mode" title="Cycle fit mode (V)" onclick={(event) => { cycleFitMode(); restoreStageFocusAfterPointer(event); }}>V</button>
+    <button type="button" class="viewer-mode-button" class:active={fitMode === 'actual'} aria-label="Actual size" title="Actual size (2)" onclick={(event) => { setFitMode('actual', true); restoreStageFocusAfterPointer(event); }}>2</button>
     <button type="button" class="viewer-mode-button" aria-label="Rotate left" title="Rotate left (L)" onclick={(event) => { rotateViewerAndReconcile('left'); restoreStageFocusAfterPointer(event); }}>↺</button>
     <button type="button" class="viewer-mode-button" aria-label="Rotate right" title="Rotate right (R)" onclick={(event) => { rotateViewerAndReconcile('right'); restoreStageFocusAfterPointer(event); }}>↻</button>
     <button type="button" class="viewer-mode-button" class:active={isFullscreen} aria-label="Toggle fullscreen" title="Fullscreen (F)" onclick={(event) => { void toggleFullscreen(); restoreStageFocusAfterPointer(event); }}>F</button>
@@ -783,6 +818,21 @@
   :global(.viewer-stage.waiting .viewer-audio-stage) {
     filter: grayscale(1) brightness(0.65);
     opacity: 0.58;
+  }
+
+  .viewer-mode-feedback {
+    position: absolute;
+    z-index: 5;
+    left: 50%;
+    bottom: 54px;
+    transform: translateX(-50%);
+    padding: 7px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.76);
+    color: #fff;
+    font: 600 11px/1.2 var(--font-mono);
+    pointer-events: none;
   }
 
   .viewer-mode-controls {
