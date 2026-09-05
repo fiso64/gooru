@@ -9,14 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"gooru.local/internal/database"
 	"gooru.local/internal/query"
 	"gooru.local/types"
 )
 
 var (
-	ErrSavedSearchNotFound    = errors.New("saved search not found")
-	ErrInvalidSavedSearchOrder = database.ErrInvalidSavedSearchOrder
+	ErrSavedSearchNotFound     = errors.New("saved search not found")
+	ErrInvalidSavedSearchOrder = errInvalidSavedSearchOrder
 )
 
 func NormalizeSavedSearchSort(value string) string {
