@@ -6,7 +6,7 @@
   import { ApiClient } from '$lib/api/client';
   import { setOpaqueURLState, setProtectedReadTransport } from '$lib/api/privacy';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, normalizeGridType, normalizeThumbnailSizes, runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeThumbnailSizes, runtimeConfig, type GridType } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
   import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
@@ -34,12 +34,14 @@
   let runtimeAccent = $state<AccentTheme | null>(null);
   let runtimeFontStyle = $state<FontStyle>('editorial');
   let runtimeGridSize = $state(defaultGridSize);
+  let runtimeGridType = $state<GridType>('square');
   let faviconHref = $state('/favicon.svg');
 
   async function applyRuntimeConfig(config: UIConfig) {
     runtimeAccent = accentTheme(config.accent_color ?? '');
     runtimeFontStyle = config.font_style ?? 'editorial';
     runtimeGridSize = config.grid_size ?? defaultGridSize;
+    runtimeGridType = normalizeGridType(config.grid_type);
     setProtectedReadTransport(config.protected_mode ?? false);
     setOpaqueURLState(config.opaque_url_state ?? false);
     runtimeConfig.set({
@@ -48,7 +50,7 @@
       viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
       viewerScaling: config.viewer_scaling ?? 'smooth',
       gridSize: runtimeGridSize,
-      gridType: normalizeGridType(config.grid_type),
+      gridType: runtimeGridType,
       thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? [])
     });
     faviconHref = '/favicon.svg';
@@ -114,7 +116,7 @@
 
 <div
   class={`gooru-root gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
-  style={`--grid-cell:${runtimeGridSize}px;${runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
+  style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;${runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
 >
   {#if !$authState.checked}
     <SessionLoading />
