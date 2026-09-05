@@ -15,11 +15,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feat/251-viewer-fit-modes
-          fetch-depth: 2
+          fetch-depth: 4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Apply corrected implementation
         shell: bash
         run: |
-          git show HEAD^:.github/workflows/maintainer-251-patch.yml > /tmp/original-251.yml
+          git show e93ce35973472a0f57c501c6e64a4fdcf5161641:.github/workflows/maintainer-251-patch.yml > /tmp/original-251.yml
           python3 - <<'PY'
           from pathlib import Path
           source = Path('/tmp/original-251.yml').read_text()
