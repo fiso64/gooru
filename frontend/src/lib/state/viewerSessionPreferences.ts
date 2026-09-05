@@ -14,8 +14,14 @@ export interface ViewerSessionPreferences {
   scaling: ViewerScaling;
 }
 
-type StoredViewerSessionPreferences = Partial<ViewerSessionPreferences> & { version: 1 };
-type SessionStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+type StoredViewerSessionPreferences = {
+  version: 1;
+  preferOriginal?: boolean;
+  rotation?: ViewerRotation;
+  fitMode?: ViewerFitMode | 'screen';
+  scaling?: ViewerScaling;
+};
+type SessionStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 export const viewerSessionStorageKey = 'gooru.viewer.preferences.v1' as const;
 
