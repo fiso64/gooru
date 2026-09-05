@@ -34,7 +34,7 @@ type DatabaseOpenOptions struct {
 // must be an authenticated encrypted file and callers receive plaintext through
 // a random-access source instead of raw container bytes.
 type ContentSourceOptions struct {
-	EncryptionKey []byte
+	EncryptionKey  []byte
 	ProtectedRoots []string
 }
 
@@ -165,6 +165,7 @@ func NewWithOptions(dbPath string, verbose bool, options OpenOptions) (*Client, 
 			return nil, fmt.Errorf("configure logical file sources: %w", err)
 		}
 	}
+	hasher.SetSourceResolver(sources)
 
 	return &Client{store: store, hasher: hasher, sources: sources}, nil
 }
@@ -182,7 +183,7 @@ func openDatabaseStore(dbPath string, verbose bool, options DatabaseOpenOptions)
 			if err := database.MigratePlaintextDatabase(dbPath, options.EncryptionKey); err != nil {
 				return nil, fmt.Errorf("migrate database to encrypted storage: %w", err)
 			}
-	}
+		}
 	}
 	return database.NewEncryptedStore(dbPath, verbose, options.EncryptionKey)
 }
