@@ -111,6 +111,12 @@ test('rapid navigation keeps committed pixels until only the latest target can p
   const committed = await media.boundingBox();
   expect(committed).not.toBeNull();
 
+  await page.evaluate(() => {
+    const benchmark = (window as Window & { __gooruViewerBenchmark?: { enable: () => void } }).__gooruViewerBenchmark;
+    if (!benchmark) throw new Error('viewer benchmark controls unavailable');
+    benchmark.enable();
+  });
+
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
@@ -135,6 +141,15 @@ test('rapid navigation keeps committed pixels until only the latest target can p
   await expect(media).toHaveCSS('visibility', 'visible');
   await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(1800);
   await expect(page.getByRole('dialog', { name: 'd.jpg' })).toBeVisible();
+
+  const metrics = await page.evaluate(() => {
+    const benchmark = (window as Window & { __gooruViewerBenchmark?: { snapshot: () => { presentations: number; pending: number; requestToPresentMs: { p50: number } | null } } }).__gooruViewerBenchmark;
+    if (!benchmark) throw new Error('viewer benchmark controls unavailable');
+    return benchmark.snapshot();
+  });
+  expect(metrics.presentations).toBe(1);
+  expect(metrics.pending).toBe(0);
+  expect(metrics.requestToPresentMs?.p50).toBeGreaterThanOrEqual(0);
 });
 
 test('speculative neighbor preload waits for presentation and follows original-media mode', async ({ page }) => {
