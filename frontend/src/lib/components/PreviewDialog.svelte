@@ -6,16 +6,18 @@
   import { ApiClient } from '$lib/api/client';
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import { readViewerSessionPreferences, updateViewerSessionPreferences } from '$lib/state/viewerSessionPreferences';
-  import { adjacentComicPages, comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
+  import { comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
   import { errorMessage, formatBytes, groupTags, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { canUseOriginalInViewer, viewerImageSource } from '$lib/utils/media';
-  import { preloadViewerMediaSource } from '$lib/utils/viewerPreload';
+  import { clearViewerPreloadCache, preloadViewerMediaSource } from '$lib/utils/viewerPreload';
   import type { ComicManifest, FileItem } from '$lib/api/types';
 
   let {
     file,
+    preloadPrev,
+    preloadNext,
     tagDraft,
     tagBusy,
     tagError,
@@ -32,6 +34,8 @@
     onNestedNavigationChange = () => undefined
   } = $props<{
     file: FileItem;
+    preloadPrev?: FileItem;
+    preloadNext?: FileItem;
     tagDraft: string;
     tagBusy: boolean;
     tagError: string;
@@ -65,6 +69,7 @@
   let comicLoading = $state(false);
   let comicError = $state('');
   let comicController: AbortController | undefined;
+  let navigationDirection: -1 | 1 = 1;
 
   const originalAvailable = $derived(canUseOriginalInViewer(file));
   const comicAvailable = $derived(isComicFile(file));
@@ -96,12 +101,30 @@
   });
 
   $effect(() => {
-    if (!comicEntered || !comicManifest) return;
-    const targetFile = file;
-    for (const page of adjacentComicPages(comicManifest, comicPageIndex)) {
-      void preloadViewerMediaSource(targetFile, page.url).catch(() => undefined);
-    }
+    // Any requested source change invalidates speculative work immediately. The next neighbor
+    // is not primed until ViewerStage confirms that this exact target has been presented.
+    file.id;
+    imageSource;
+    comicEntered;
+    comicPageIndex;
+    clearViewerPreloadCache();
   });
+
+  function primeAfterPresentation(source: string) {
+    if (source !== imageSource) return;
+    clearViewerPreloadCache();
+
+    if (comicEntered && comicManifest) {
+      const targetIndex = comicPageIndex + navigationDirection;
+      const page = comicPageAt(comicManifest, targetIndex);
+      if (page) void preloadViewerMediaSource(file, page.url).catch(() => undefined);
+      return;
+    }
+
+    const neighbor = navigationDirection < 0 ? preloadPrev : preloadNext;
+    if (!neighbor) return;
+    void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, preferOriginal)).catch(() => undefined);
+  }
 
   function focusTagInput(mode: 'add' | 'remove' = 'add') {
     tagMode = mode;
@@ -202,15 +225,20 @@
 
   function movePage(delta: number) {
     const next = moveComicPage(comicPageIndex, delta, comicManifest?.pages.length ?? 0);
-    if (next !== comicPageIndex) comicPageIndex = next;
+    if (next !== comicPageIndex) {
+      navigationDirection = delta < 0 ? -1 : 1;
+      comicPageIndex = next;
+    }
   }
 
   function stagePrev() {
+    navigationDirection = -1;
     if (comicEntered) movePage(-1);
     else onPrev();
   }
 
   function stageNext() {
+    navigationDirection = 1;
     if (comicEntered) movePage(1);
     else onNext();
   }
@@ -322,7 +350,11 @@
     comicPages={comicManifest?.pages.length ?? 0}
     {comicError}
     onToggleComic={() => void toggleComic()}
-    onComicPageSelect={(index) => { comicPageIndex = index; }}
+    onComicPageSelect={(index) => {
+      navigationDirection = index < comicPageIndex ? -1 : 1;
+      comicPageIndex = index;
+    }}
+    onPresented={primeAfterPresentation}
   />
 
   <aside class="lightbox-rail">

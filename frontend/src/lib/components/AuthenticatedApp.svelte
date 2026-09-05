@@ -32,6 +32,7 @@
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
   import { appendSidebarKind, queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
+  import { previewNeighbor } from '$lib/utils/viewerNavigation';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { Job, SavedSearchRequest } from '$lib/api/types';
 
@@ -558,6 +559,8 @@
   {#if library.activeFile}
     <PreviewDialog
       file={library.activeFile}
+      preloadPrev={previewNeighbor(library.activeFile, files, -1) ?? undefined}
+      preloadNext={previewNeighbor(library.activeFile, files, 1) ?? undefined}
       tagDraft={tagWorkflow.drafts[library.activeFile.id] ?? ''}
       tagBusy={Boolean(tagWorkflow.busy[library.activeFile.id])}
       tagError={tagWorkflow.errors[library.activeFile.id] ?? ''}

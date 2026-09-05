@@ -5,6 +5,7 @@
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { preserveNativeViewerSize } from '$lib/utils/media';
+  import { recordViewerPresentation, recordViewerRequest } from '$lib/utils/viewerPerformance';
   import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerConfiguredFitMode, type ViewerFitMode } from '$lib/utils/viewer';
   import { preloadViewerMediaSource, viewerPreloadSource } from '$lib/utils/viewerPreload';
   import type { FileItem } from '$lib/api/types';
@@ -28,7 +29,8 @@
     comicPages = 0,
     comicError = '',
     onToggleComic,
-    onComicPageSelect
+    onComicPageSelect,
+    onPresented
   } = $props<{
     file: FileItem;
     imageSource: string;
@@ -49,6 +51,7 @@
     comicError?: string;
     onToggleComic?: () => void;
     onComicPageSelect?: (index: number) => void;
+    onPresented?: (source: string) => void;
   }>();
 
   const initialViewerPreferences = readViewerSessionPreferences({
@@ -72,6 +75,7 @@
   let displayedFile = $state<FileItem | undefined>();
   let displayedImageSource = $state('');
   let waitingForTarget = $state(false);
+  let waitingTimer: ReturnType<typeof setTimeout> | undefined;
   let transitionGeneration = 0;
   let rotation = $state<number>(initialViewerPreferences.rotation);
   let fitMode = $state<ViewerFitMode>(initialViewerPreferences.fitMode);
@@ -168,30 +172,44 @@
       if (playbackControlsTimer) clearTimeout(playbackControlsTimer);
       if (cursorIdleTimer) clearTimeout(cursorIdleTimer);
       if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);
+      if (waitingTimer) clearTimeout(waitingTimer);
     };
   });
+
+  function clearWaitingTimer() {
+    if (waitingTimer) clearTimeout(waitingTimer);
+    waitingTimer = undefined;
+  }
+
+  function armWaitingTimer(generation: number) {
+    clearWaitingTimer();
+    waitingTimer = setTimeout(() => {
+      if (generation === transitionGeneration) waitingForTarget = true;
+    }, 200);
+  }
 
   $effect(() => {
     const targetFile = file;
     const targetImageSource = imageSource;
     const generation = ++transitionGeneration;
+    recordViewerRequest(generation);
+    clearWaitingTimer();
     waitingForTarget = false;
 
     if (!displayedFile) {
       displayedFile = targetFile;
       displayedImageSource = targetImageSource;
-      return;
+      armWaitingTimer(generation);
+      return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
     }
     if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
 
     const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
-      // A single <img> cannot preserve both sides of an aspect-ratio handoff: keeping old geometry
-      // makes the first target pixels letterbox inside the old box, while applying target geometry
-      // can resize pixels the browser is still retaining from the old source. Freeze the already
-      // painted frame into a canvas before changing either property, then let the real foreground
-      // image enter the browser's native loading/presentation path immediately with target geometry.
-      freezePresentedImage();
+      // Once rapid navigation has frozen a committed frame, keep that exact snapshot until the
+      // latest requested target is presentable. Re-freezing from an in-flight <img> can capture
+      // obsolete pixels using newer geometry and reintroduce the #170 stretch/overlap artifact.
+      if (!freezeVisible) freezePresentedImage();
       const metadataWidth = targetFile.metadata?.image_width ?? 0;
       const metadataHeight = targetFile.metadata?.image_height ?? 0;
       if (metadataWidth > 0 && metadataHeight > 0) {
@@ -200,27 +218,28 @@
       }
       displayedFile = targetFile;
       displayedImageSource = targetImageSource;
-      return;
+      armWaitingTimer(generation);
+      return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
     }
 
-    const waitingTimer = setTimeout(() => {
-      if (generation === transitionGeneration) waitingForTarget = true;
-    }, 200);
+    armWaitingTimer(generation);
     const preloadSource = viewerPreloadSource(targetFile);
 
     void preloadViewerMediaSource(targetFile, preloadSource)
       .catch(() => undefined)
       .then(() => {
         if (generation !== transitionGeneration) return;
-        clearTimeout(waitingTimer);
+        clearWaitingTimer();
         displayedFile = targetFile;
         displayedImageSource = targetImageSource;
         waitingForTarget = false;
       });
 
     return () => {
-      clearTimeout(waitingTimer);
-      if (generation === transitionGeneration) transitionGeneration += 1;
+      if (generation === transitionGeneration) {
+        clearWaitingTimer();
+        transitionGeneration += 1;
+      }
     };
   });
 
@@ -271,23 +290,42 @@
     freezeVisible = true;
   }
 
+  function imageMatchesCurrentSource(image: HTMLImageElement) {
+    if (!renderedImageSource) return false;
+    try {
+      return image.currentSrc === new URL(renderedImageSource, document.baseURI).href;
+    } catch {
+      return image.currentSrc === renderedImageSource;
+    }
+  }
+
   function syncImage(event: Event) {
     const image = event.currentTarget;
-    if (!(image instanceof HTMLImageElement)) return;
+    if (!(image instanceof HTMLImageElement) || !imageMatchesCurrentSource(image)) return;
+    const generation = transitionGeneration;
+    const source = renderedImageSource;
     intrinsicWidth = image.naturalWidth;
     intrinsicHeight = image.naturalHeight;
-    // Keep the frozen old pixels until the next paint after target load. The target is already
-    // laid out at final geometry underneath, so changing both visibility states in the same
-    // animation-frame callback presents only one image while avoiding an extra frame of latency.
-    const generation = freezeGeneration;
+    clearWaitingTimer();
+    waitingForTarget = false;
+    // Keep the frozen old pixels until the next paint after the *latest* target load. Stale
+    // completions from sources superseded by rapid navigation must never release the freeze.
     requestAnimationFrame(() => {
-      if (generation === freezeGeneration) freezeVisible = false;
+      if (generation !== transitionGeneration || !imageMatchesCurrentSource(image)) return;
+      freezeGeneration += 1;
+      freezeVisible = false;
+      recordViewerPresentation(generation);
+      onPresented?.(source);
     });
   }
 
-  function syncImageError() {
-    // A failed/unsupported target has no paint event that can release the frozen frame.
+  function syncImageError(event: Event) {
+    const image = event.currentTarget;
+    if (!(image instanceof HTMLImageElement) || !imageMatchesCurrentSource(image)) return;
+    // A failed/unsupported latest target has no paint event that can release the frozen frame.
     // End this handoff explicitly so stale pixels never stand in for the current file.
+    clearWaitingTimer();
+    waitingForTarget = false;
     freezeGeneration += 1;
     freezeVisible = false;
     intrinsicWidth = 0;
@@ -762,6 +800,7 @@
     </div>
   {/if}
 
+  {#if waitingForTarget}<div class="viewer-loading-indicator" role="status" aria-live="polite">Loading latest…</div>{/if}
   {#if fitModeFeedback}<div class="viewer-mode-feedback" role="status" aria-live="polite">{fitModeFeedback}</div>{/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
@@ -842,6 +881,20 @@
   :global(.viewer-stage.waiting .viewer-audio-stage) {
     filter: grayscale(1) brightness(0.65);
     opacity: 0.58;
+  }
+
+  .viewer-loading-indicator {
+    position: absolute;
+    z-index: 5;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    padding: 7px 10px;
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.76);
+    color: #fff;
+    font: 600 11px/1.2 var(--font-mono);
+    pointer-events: none;
   }
 
   .viewer-mode-feedback {

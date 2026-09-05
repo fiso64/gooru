@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileItem } from '$lib/api/types';
 
-const { preloadViewerMedia } = vi.hoisted(() => ({ preloadViewerMedia: vi.fn(() => Promise.resolve()) }));
+const { clearViewerPreloadCache } = vi.hoisted(() => ({ clearViewerPreloadCache: vi.fn() }));
 vi.mock('$lib/utils/viewerPreload', () => ({
-  preloadViewerMedia,
-  clearViewerPreloadCache: vi.fn()
+  clearViewerPreloadCache
 }));
 
 import { createLibraryWorkflow } from './libraryWorkflow.svelte';
@@ -25,7 +24,7 @@ function file(id: string): FileItem {
   } as unknown as FileItem;
 }
 
-beforeEach(() => preloadViewerMedia.mockClear());
+beforeEach(() => clearViewerPreloadCache.mockClear());
 
 describe('tag search transition', () => {
   it('uses the canonical tag search state and closes the preview', () => {
@@ -44,7 +43,7 @@ describe('tag search transition', () => {
 });
 
 describe('preview navigation', () => {
-  it('primes the next item and remains deterministic during rapid right navigation', () => {
+  it('cancels speculative preload work while remaining deterministic during rapid right navigation', () => {
     const library = createLibraryWorkflow();
     const files = [file('a'), file('b'), file('c'), file('d')];
 
@@ -54,9 +53,6 @@ describe('preview navigation', () => {
     library.movePreview(1, files);
 
     expect(library.activeFile?.id).toBe('d');
-    expect(preloadViewerMedia).toHaveBeenCalledWith(files[1]);
-    expect(preloadViewerMedia).toHaveBeenCalledWith(files[2]);
-    expect(preloadViewerMedia).toHaveBeenCalledWith(files[3]);
-    expect(preloadViewerMedia).toHaveBeenCalledWith(files[0]);
+    expect(clearViewerPreloadCache).toHaveBeenCalledTimes(4);
   });
 });

@@ -16,7 +16,7 @@ import {
 import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 import { replaceSidebarKind } from '$lib/utils/sidebarKinds';
 import { previewNeighbor } from '$lib/utils/viewerNavigation';
-import { clearViewerPreloadCache, preloadViewerMedia } from '$lib/utils/viewerPreload';
+import { clearViewerPreloadCache } from '$lib/utils/viewerPreload';
 import {
   emptySelection,
   selectAllMatching,
@@ -306,16 +306,12 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
     return selectionCount(selection, totalCount);
   }
 
-  function primePreviewNeighbor(file: FileItem, files: FileItem[]) {
-    const next = previewNeighbor(file, files, 1);
-    if (next) void preloadViewerMedia(next).catch(() => undefined);
-  }
-
   function openPreview(file: FileItem, files: FileItem[] = []) {
+    void files;
+    clearViewerPreloadCache();
     activeFile = file;
     pendingPreviewID = file.id;
     route = 'library';
-    primePreviewNeighbor(file, files);
   }
 
   function closePreview() {
@@ -326,10 +322,11 @@ export function createLibraryWorkflow(initialRoute: AppRoute = browser ? appRout
   function movePreview(delta: number, files: FileItem[]) {
     const next = previewNeighbor(activeFile, files, delta);
     if (!next) return;
-    void preloadViewerMedia(next).catch(() => undefined);
+    // Rapid navigation is latest-wins: stale speculative decodes must not remain queued
+    // ahead of the browser's foreground request for the newly requested file.
+    clearViewerPreloadCache();
     activeFile = next;
     pendingPreviewID = next.id;
-    primePreviewNeighbor(next, files);
   }
 
   function handleKeydown(event: KeyboardEvent, files: FileItem[]) {

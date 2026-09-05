@@ -186,7 +186,10 @@ test('rapid navigation bounds expensive image predecodes', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'sixth.jpg' })).toBeVisible();
   await page.waitForTimeout(200);
 
-  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeMax?: number }).__viewerDecodeMax ?? 0)).toBe(2);
+  // Latest-wins navigation cancels speculative work on every move and only primes one
+  // direction-aware neighbor after the committed target presents, so image decode concurrency
+  // should never exceed one during this burst.
+  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeMax?: number }).__viewerDecodeMax ?? 0)).toBeLessThanOrEqual(1);
 });
 
 test('held navigation keeps image presentation advancing when full image decode is backlogged', async ({ page }) => {
