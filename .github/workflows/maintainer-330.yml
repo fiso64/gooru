@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  patch-and-validate:
+  validate:
     if: github.actor != 'github-actions[bot]'
     runs-on: [self-hosted, gooru]
     steps:
@@ -29,38 +29,21 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Add handler regression coverage
+      - name: Go tests with durable diagnostic
         shell: bash
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('internal/serve/uploads_test.go')
-          text = p.read_text()
-          old = 'server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"../evil.txt": "uploaded"}, []string{"reviewed"}))'
-          new = 'server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{"../evil.txt": "uploaded"}, []string{"reviewed"}, "", "rename"))'
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif new not in text:
-              raise SystemExit('traversal/conflict test request did not match expected source')
-
-          marker = 'func TestUploadRequestedConflictPolicySkipReturnsSkippedFile(t *testing.T) {'
-          addition = '''func TestUploadOmittedConflictPolicySkipsExistingName(t *testing.T) {\n\tdir := t.TempDir()\n\tif err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("existing"), 0600); err != nil {\n\t\tt.Fatalf("write existing file: %v", err)\n\t}\n\tlibrary := &recordingUploadLibrary{}\n\tserver := newUploadTestServer(t, dir, true, library)\n\trec := httptest.NewRecorder()\n\n\tserver.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"a.txt": "uploaded"}, nil))\n\n\tif rec.Code != http.StatusOK {\n\t\tt.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())\n\t}\n\tif got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "existing" {\n\t\tt.Fatalf("existing file was overwritten: %q", got)\n\t}\n\tvar response UploadImportResponse\n\tif err := json.NewDecoder(rec.Body).Decode(&response); err != nil {\n\t\tt.Fatalf("decode response: %v", err)\n\t}\n\tif len(response.Files) != 1 || response.Files[0].Status != "skipped" {\n\t\tt.Fatalf("expected skipped response, got %+v", response.Files)\n\t}\n}\n\n'''
-          if 'func TestUploadOmittedConflictPolicySkipsExistingName' not in text:
-              if text.count(marker) != 1:
-                  raise SystemExit('skip test marker mismatch')
-              text = text.replace(marker, addition + marker, 1)
-          p.write_text(text)
-          PY
-      - name: Commit regression update
-        run: |
-          if git diff --quiet; then exit 0; fi
-          git config user.name "chatgpt-codex-connector[bot]"
-          git config user.email "chatgpt-codex-connector[bot]@users.noreply.github.com"
-          git add internal/serve/uploads_test.go
-          git commit -m "test(upload): cover omitted conflict policy"
-          git push origin HEAD:fix/330-upload-conflict-default
-      - name: Go tests
-        run: go test ./...
+          set +e
+          go test ./... -count=1 2>&1 | tee .maintainer-330-go.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            git config user.name "chatgpt-codex-connector[bot]"
+            git config user.email "chatgpt-codex-connector[bot]@users.noreply.github.com"
+            git add -f .maintainer-330-go.log
+            git commit -m "chore: capture #330 Go test failure"
+            git push origin HEAD:fix/330-upload-conflict-default
+            exit "$status"
+          fi
+          rm -f .maintainer-330-go.log
       - name: Go build
         run: go build ./...
       - name: Frontend install
