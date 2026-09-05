@@ -758,28 +758,6 @@ paths:
                 $ref: "#/components/schemas/TagListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
-  /search/suggestions/private:
-    post:
-      summary: Return search suggestions with free-form query state in the request body.
-      security:
-        - sessionAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SuggestionRequest"
-      responses:
-        "200":
-          description: Search suggestions.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/SuggestionsResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
   /tags/namespaces:
     get:
       summary: List tag namespaces.
