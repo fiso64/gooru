@@ -37,61 +37,11 @@ The default database path is normally `~/.config/gooru/gooru.db`. `gooru serve -
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `encryption.enabled` | `false` | Enable protected storage for the SQLite database, managed uploads, and generated media derivatives. Requires exactly one encryption-key source described below. |
-| `encryption.key_file` | empty | Path to a regular file containing a base64-encoded 256-bit key. On non-Windows systems the file must not be readable or writable by group or others. Mutually exclusive with the environment key sources below. |
-| `encryption.opaque_url_state` | `true` | In protected mode, keep library query/sort/preview state out of browser-visible URLs by using encrypted, opaque state tokens. Disable only when deliberately accepting readable/self-contained URLs and their browser/proxy history leakage. |
+| `encryption.enabled` | `false` | Enable protected storage for the SQLite database and Gooru-managed upload contents. Requires exactly one supported key source. |
+| `encryption.key_file` | empty | Path to a regular file containing a base64-encoded 256-bit key. Mutually exclusive with the environment key sources. |
+| `encryption.opaque_url_state` | `true` | In protected mode, keep library query/sort/preview state out of browser-visible URLs by using authenticated opaque state tokens. |
 
-Encryption key **material** is never stored directly in YAML. When `encryption.enabled: true`, configure exactly one source: `encryption.key_file`, `GOORU_ENCRYPTION_KEY`, or `GOORU_ENCRYPTION_KEY_FILE`.
-
-| Environment variable | Value |
-| --- | --- |
-| `GOORU_ENCRYPTION_KEY` | Base64 encoding of exactly 32 random bytes (256 bits). |
-| `GOORU_ENCRYPTION_KEY_FILE` | Path to a regular file containing that same base64-encoded 32-byte key. On non-Windows systems the file must not be readable or writable by group or others. |
-
-For example, generate a key once and store it in an owner-only file:
-
-```bash
-umask 077
-openssl rand -base64 32 > /srv/gooru/encryption.key
-```
-
-Then choose one configuration source. To use the environment-variable path source:
-
-```bash
-export GOORU_ENCRYPTION_KEY_FILE=/srv/gooru/encryption.key
-go run ./cmd/gooru serve --config serve.yaml
-```
-
-with:
-
-```yaml
-encryption:
-  enabled: true
-```
-
-Alternatively, do not set either encryption-key environment variable and put only the key-file path in YAML:
-
-```yaml
-encryption:
-  enabled: true
-  key_file: /srv/gooru/encryption.key
-```
-
-This also composes directly with declarative secret managers. For example, a NixOS module configuration using agenix can pass the generated secret path without copying key material into the Nix store:
-
-```nix
-services.gooru.settings.encryption = {
-  enabled = true;
-  key_file = config.age.secrets."gooru-encryption-key".path;
-};
-```
-
-Keep the key backed up separately from the encrypted data. Starting protected mode without a valid key fails closed; using a different key cannot decrypt data encrypted with the original key.
-
-When protected mode starts, Gooru migrates its database and files registered under configured `uploads.targets` to encrypted storage before serving requests. Indexed media outside those managed upload roots is deliberately left unchanged because Gooru does not rewrite arbitrary external library files. New managed uploads and generated derivatives are encrypted while protected mode is enabled. Media responses that contain decrypted protected content use no-store cache policy to reduce plaintext traces in client/proxy caches.
-
-With `encryption.opaque_url_state` enabled (the default), protected-mode library query/sort/preview state is sealed into an authenticated `state` token before entering browser history. Tokens contain no readable query/file state, are bound to the authenticated user, expire after 30 days, survive server restarts while the same encryption key remains configured, and become unreadable after key rotation. Reload, back/forward, and bookmarks work while a token remains valid. Disable this option only if you deliberately prefer self-contained readable URLs and accept that arbitrary library/search state can then persist in browser history, copied URLs, and upstream request logs. The WebUI still sends free-form search expressions in POST request bodies while protected mode is enabled. HTTPS remains required to protect request and response contents in transit.
-
+When enabled, configure exactly one of `encryption.key_file`, `GOORU_ENCRYPTION_KEY`, or `GOORU_ENCRYPTION_KEY_FILE`. See [ENCRYPTION.md](ENCRYPTION.md) for setup and key generation, migration/cache behavior, the security boundary, browser limitations, recovery-critical key handling, and the supported disable/re-key lifecycle.
 
 ## `auth`
 
@@ -213,6 +163,7 @@ database:
 encryption:
   enabled: false
   key_file: ""
+  opaque_url_state: true
 
 auth:
   enabled: true
@@ -268,4 +219,3 @@ For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default
 ```bash
 go run ./cmd/gooru serve --print-default-config
 ```
-
