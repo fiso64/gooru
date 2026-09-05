@@ -38,6 +38,10 @@ type SearchLibrary interface {
 	FileMetadata(ctx context.Context, locationID int64) (MediaMetadata, error)
 }
 
+type QueryLibraryCount interface {
+	LibraryCountForQuery(ctx context.Context, query string) (int, error)
+}
+
 type PublicFileLibrary interface {
 	PublicFileID(file types.FileInfo) string
 	GetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error)
@@ -469,7 +473,11 @@ func (s *Server) handleListFilesRequest(w http.ResponseWriter, r *http.Request, 
 		if total, err := s.countFiles(r.Context(), queryText); err == nil {
 			response.TotalCount = total
 		}
-		if total, err := search.LibraryCount(r.Context()); err == nil {
+		if counter, ok := s.library.(QueryLibraryCount); ok {
+			if total, err := counter.LibraryCountForQuery(r.Context(), queryText); err == nil {
+				response.LibraryCount = total
+			}
+		} else if total, err := search.LibraryCount(r.Context()); err == nil {
 			response.LibraryCount = total
 		}
 		if kind, err := search.KindFacets(r.Context(), queryText); err == nil {

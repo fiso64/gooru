@@ -33,6 +33,9 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
+		if len(cfg.UI.HiddenTags) > 0 {
+			library = newHiddenTagLibrary(gooruLibrary, cfg.UI.HiddenTags)
+		}
 	}
 	managedFiles := managedfile.NewFilesystem()
 	if cfg.Encryption.Enabled {
