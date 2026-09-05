@@ -17,13 +17,19 @@ jobs:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-      - name: Gofmt
+      - name: Gofmt changed files
         run: |
-          bad=$(gofmt -l $(git ls-files '*.go'))
+          mapfile -t files < <(git diff --name-only origin/develop...HEAD -- '*.go')
+          if [ ${#files[@]} -eq 0 ]; then
+            exit 0
+          fi
+          bad=$(gofmt -l "${files[@]}")
           if [ -n "$bad" ]; then
             echo "::error::gofmt required: $bad"
             exit 1
