@@ -1,11 +1,17 @@
 import { createMutation, createQuery } from '@tanstack/svelte-query';
-import { ApiClient } from '$lib/api/client';
-import type { Job } from '$lib/api/types';
+import { ApiClient, ApiError } from '$lib/api/client';
+import type { ApiErrorResponse, Job } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
+
+export interface JobListPage {
+  items: Job[];
+  active_count: number;
+  next_page_token?: string;
+}
 
 export const jobKeys = {
   all: ['jobs'] as const,
-  list: (scope: number) => ['jobs', 'list', scope] as const,
+  list: (scope: number, limit: number, pageToken: string) => ['jobs', 'list', scope, limit, pageToken] as const,
   detail: (scope: number, id: string) => ['job', scope, id] as const
 };
 
@@ -17,16 +23,40 @@ export function jobsRefetchInterval(jobs: Job[] | undefined) {
   return jobs?.some(jobIsActive) ? 2000 : false;
 }
 
+export function jobsPageRefetchInterval(page: JobListPage | undefined) {
+  if (typeof page?.active_count === 'number') return page.active_count > 0 ? 2000 : false;
+  return jobsRefetchInterval(page?.items);
+}
+
 async function fetchJobBatch(ids: string[]) {
   const params = new URLSearchParams();
   for (const id of ids) params.append('id', id);
   const response = await fetch(`/api/v1/jobs?${params.toString()}`, {
+    credentials: 'same-origin',
     headers: { Accept: 'application/json' }
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch upload job status (${response.status})`);
   }
   return await response.json() as { items: Job[] };
+}
+
+async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (pageToken) params.set('page_token', pageToken);
+  const response = await fetch(`/api/v1/jobs?${params.toString()}`, {
+    credentials: 'same-origin',
+    headers: { Accept: 'application/json' }
+  });
+  const payload = await response.json().catch(() => undefined) as (JobListPage & Partial<ApiErrorResponse>) | undefined;
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      payload?.error?.code ?? 'http_error',
+      payload?.error?.message ?? `Request failed with HTTP ${response.status}`
+    );
+  }
+  return payload ?? { items: [], active_count: 0 };
 }
 
 export function createJobQuery(_getCSRFToken: () => string, getJobID: () => string, getAuthScope: () => number) {
@@ -42,13 +72,23 @@ export function createJobQuery(_getCSRFToken: () => string, getJobID: () => stri
   });
 }
 
-export function createJobsQuery(getAuthenticated: () => boolean, getAuthScope: () => number) {
-  return createQuery(() => ({
-    queryKey: jobKeys.list(getAuthScope()),
-    enabled: getAuthenticated(),
-    queryFn: () => new ApiClient().listJobs(),
-    refetchInterval: (query) => jobsRefetchInterval(query.state.data?.items)
-  }));
+export function createJobsQuery(
+  getAuthenticated: () => boolean,
+  getAuthScope: () => number,
+  getLimit: () => number = () => 20,
+  getPageToken: () => string = () => '',
+  getEnabled: () => boolean = getAuthenticated
+) {
+  return createQuery(() => {
+    const limit = getLimit();
+    const pageToken = getPageToken();
+    return {
+      queryKey: jobKeys.list(getAuthScope(), limit, pageToken),
+      enabled: getAuthenticated() && getEnabled(),
+      queryFn: () => fetchJobsPage(limit, pageToken),
+      refetchInterval: (query) => jobsPageRefetchInterval(query.state.data)
+    };
+  });
 }
 
 export function createCancelJobMutation(getCSRFToken: () => string, queryClient: QueryClient) {

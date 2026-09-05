@@ -1,5 +1,7 @@
 <script lang="ts">
   import JobRow from './JobRow.svelte';
+  import { authState } from '$lib/stores/auth';
+  import { createJobsQuery } from '$lib/queries/jobs';
   import type { Job } from '$lib/api/types';
 
   let {
@@ -12,7 +14,35 @@
     onClearCompleted: () => void;
   }>();
 
-  const hasCompleted = $derived(jobs.some((job: Job) => job.status === 'completed' || job.status === 'failed' || job.status === 'canceled'));
+  let pageIndex = $state(0);
+  let pageTokens = $state(['']);
+  const pageToken = $derived(pageTokens[pageIndex] ?? '');
+  const pageQuery = createJobsQuery(
+    () => Boolean($authState.user),
+    () => 0,
+    () => 50,
+    () => pageToken
+  );
+  const pageJobs = $derived(pageQuery.data?.items ?? jobs);
+  const hasCompleted = $derived(pageJobs.some((job: Job) => job.status === 'completed' || job.status === 'failed' || job.status === 'canceled'));
+  const hasNextPage = $derived(Boolean(pageQuery.data?.next_page_token));
+
+  function nextPage() {
+    const next = pageQuery.data?.next_page_token;
+    if (!next) return;
+    pageTokens = [...pageTokens.slice(0, pageIndex + 1), next];
+    pageIndex += 1;
+  }
+
+  function previousPage() {
+    if (pageIndex > 0) pageIndex -= 1;
+  }
+
+  function clearCompleted() {
+    pageTokens = [''];
+    pageIndex = 0;
+    onClearCompleted();
+  }
 </script>
 
 <main class="main">
@@ -22,17 +52,25 @@
       <h1>Background work</h1>
       <p>Completed jobs remain visible for 1 hour.</p>
       {#if hasCompleted}
-        <button class="g-btn g-btn-ghost g-btn-sm jobs-clear" type="button" onclick={onClearCompleted}>Clear completed</button>
+        <button class="g-btn g-btn-ghost g-btn-sm jobs-clear" type="button" onclick={clearCompleted}>Clear completed</button>
       {/if}
     </div>
 
-    <div class="g-card jobs-card">
-      {#each jobs as job (job.id)}
+    <div class="g-card jobs-card" aria-busy={pageQuery.isFetching}>
+      {#each pageJobs as job (job.id)}
         <JobRow {job} onCancel={onCancel} />
       {:else}
         <div class="jobs-empty">No jobs have been recorded.</div>
       {/each}
     </div>
+
+    {#if pageIndex > 0 || hasNextPage}
+      <nav class="jobs-pager" aria-label="Jobs pages">
+        <button class="g-btn g-btn-ghost g-btn-sm" type="button" disabled={pageIndex === 0 || pageQuery.isFetching} onclick={previousPage}>Previous</button>
+        <span>Page {pageIndex + 1}</span>
+        <button class="g-btn g-btn-ghost g-btn-sm" type="button" disabled={!hasNextPage || pageQuery.isFetching} onclick={nextPage}>Next</button>
+      </nav>
+    {/if}
   </div>
 </main>
 
@@ -73,6 +111,17 @@
     padding: 28px 16px;
     color: var(--text-3);
     text-align: left;
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .jobs-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 14px;
+    color: var(--text-3);
     font-family: var(--font-mono);
     font-size: 11px;
   }
