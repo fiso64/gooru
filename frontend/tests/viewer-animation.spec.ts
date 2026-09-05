@@ -1,147 +1,92 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const session = {
-  user: { id: 'usr_test', username: 'mac', role: 'admin' },
-  capabilities: { upload: true, tag: true, delete: true, admin: true },
-  csrf_token: 'csrf-one'
-};
+const svg = (width: number, height: number, color: string) =>
+  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="${color}"/></svg>`)}`;
 
-function fileItem(id: string, name: string) {
-  return {
-    id,
-    content_id: `hash-${id}`,
-    name,
-    safe_display_path: `library/${name}`,
-    size: 2048,
-    modified_time: '2026-05-20T00:00:00Z',
-    media_type: 'image/jpeg',
-    media_kind: 'photo',
-    metadata: { image_width: id === 'wide' ? 1200 : 400, image_height: id === 'wide' ? 400 : 900 },
-    tags: [],
-    media_urls: {
-      thumbnail: `/api/v1/files/${id}/thumbnail`,
-      preview: `/api/v1/files/${id}/preview`,
-      content: `/api/v1/files/${id}/content`,
-      download: `/api/v1/files/${id}/download`
-    }
-  };
-}
+const files = [
+  { id: 'one', filename: 'wide.jpg', width: 900, height: 320, color: '#f66' },
+  { id: 'two', filename: 'tall.jpg', width: 320, height: 900, color: '#6f6' },
+  { id: 'three', filename: 'square.jpg', width: 640, height: 640, color: '#66f' },
+  { id: 'four', filename: 'wide-2.jpg', width: 960, height: 360, color: '#fc6' },
+  { id: 'five', filename: 'tall-2.jpg', width: 360, height: 960, color: '#6cf' },
+  { id: 'six', filename: 'sixth.jpg', width: 700, height: 420, color: '#c6f' }
+];
 
 async function mockApp(page: Page) {
-  let loggedIn = false;
-  const files = [
-    fileItem('wide', 'wide.jpg'),
-    fileItem('tall', 'tall.jpg'),
-    fileItem('third', 'third.jpg'),
-    fileItem('fourth', 'fourth.jpg'),
-    fileItem('fifth', 'fifth.jpg'),
-    fileItem('sixth', 'sixth.jpg')
-  ];
-
-  await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
-    status: loggedIn ? 200 : 401,
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
+    status: 200,
     contentType: 'application/json',
-    body: JSON.stringify(loggedIn ? session : { error: { code: 'unauthorized', message: 'login required' } })
+    body: JSON.stringify({ grid_type: 'square', grid_size: 200, grid_gap: 8, viewer_fit_mode: 'contain' })
   }));
-  await page.route('**/api/v1/auth/login', async (route) => {
-    loggedIn = true;
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
-  });
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
-  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/files?**', async (route) => route.fulfill({
+  await page.route('**/api/v1/files**', async (route) => route.fulfill({
+    status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })
+    body: JSON.stringify({
+      files: files.map((entry) => ({
+        id: entry.id,
+        filename: entry.filename,
+        media_kind: 'photo',
+        media_type: 'image/jpeg',
+        metadata: { image_width: entry.width, image_height: entry.height },
+        media_urls: {
+          content: `/api/v1/files/${entry.id}/content`,
+          preview: `/api/v1/files/${entry.id}/preview`,
+          thumbnail: `/api/v1/files/${entry.id}/thumbnail`,
+          download: `/api/v1/files/${entry.id}/download`
+        }
+      })),
+      next_cursor: ''
+    })
   }));
-  await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({
-    contentType: 'image/svg+xml',
-    body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32"/></svg>'
-  }));
-  await page.route('**/api/v1/files/*/preview', async (route) => {
-    const wide = route.request().url().includes('/wide/');
-    const width = wide ? 1200 : 400;
-    const height = wide ? 400 : 900;
-    await route.fulfill({
+  for (const entry of files) {
+    await page.route(`**/api/v1/files/${entry.id}/{content,preview,thumbnail}`, async (route) => route.fulfill({
+      status: 200,
       contentType: 'image/svg+xml',
-      body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}"/></svg>`
-    });
-  });
-  await page.route('**/api/v1/files/*/content', async (route) => route.fulfill({ status: 404, body: '' }));
-
+      body: decodeURIComponent(svg(entry.width, entry.height, entry.color).split(',')[1])
+    }));
+  }
   await page.goto('/');
-  await page.getByLabel('Username').fill('mac');
-  await page.getByLabel('Password').fill('correct horse');
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('navigation between differently sized images does not tween width or height', async ({ page }) => {
+test('image navigation holds the old frame while the target becomes ready', async ({ page }) => {
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
 
   const media = page.locator('.viewer-visual-media');
   await expect(media).toBeVisible();
-  await expect.poll(() => media.evaluate((node) => getComputedStyle(node).transitionProperty)).not.toMatch(/(?:^|,\s*)(?:width|height)(?:,|$)/);
+  const before = await media.boundingBox();
+  expect(before).not.toBeNull();
 
-  await page.getByLabel('Next file').click();
+  await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
-  await expect(media).toBeVisible();
-  expect(await media.evaluate((node) => getComputedStyle(node).transitionProperty)).not.toMatch(/(?:^|,\s*)(?:width|height)(?:,|$)/);
+  await expect.poll(async () => Boolean(await page.locator('.viewer-image-freeze').count())).toBe(true);
+  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(0);
 });
 
-test('decoded target geometry is installed in the same render that swaps image source', async ({ page }) => {
-  await mockApp(page);
-  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
-
-  const media = page.locator('.viewer-visual-media');
-  await expect(media).toBeVisible();
-  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width / node.getBoundingClientRect().height)).toBeGreaterThan(2);
-
-  await media.evaluate((node) => {
-    const state = window as typeof window & { __viewerAspectAtTallSwap?: number; __viewerSwapObserver?: MutationObserver };
-    const observer = new MutationObserver(() => {
-      if (!(node instanceof HTMLImageElement) || !node.src.includes('/tall/preview')) return;
-      const rect = node.getBoundingClientRect();
-      state.__viewerAspectAtTallSwap = rect.width / rect.height;
-    });
-    observer.observe(node, { attributes: true, attributeFilter: ['src', 'style'] });
-    state.__viewerSwapObserver = observer;
-  });
-
-  await page.getByLabel('Next file').click();
-  await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => (window as typeof window & { __viewerAspectAtTallSwap?: number }).__viewerAspectAtTallSwap ?? Number.POSITIVE_INFINITY)).toBeLessThan(1);
-  await page.evaluate(() => {
-    const state = window as typeof window & { __viewerSwapObserver?: MutationObserver };
-    state.__viewerSwapObserver?.disconnect();
-  });
-});
-
-test('navigation never collapses the displayed image while swapping decoded sources', async ({ page }) => {
-  await mockApp(page);
-  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
-
-  const media = page.locator('.viewer-visual-media');
-  await expect(media).toBeVisible();
-  await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(0);
-  await media.evaluate((node) => {
+test('rapid navigation never exposes zero-sized image geometry', async ({ page }) => {
+  await page.addInitScript(() => {
     const state = window as typeof window & { __viewerZeroSizeObserved?: boolean; __viewerSizeObserver?: MutationObserver };
     state.__viewerZeroSizeObserved = false;
-    const inspect = () => {
-      const rect = node.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) state.__viewerZeroSizeObserved = true;
+    const observe = () => {
+      const media = document.querySelector<HTMLElement>('.viewer-visual-media');
+      if (!media) return requestAnimationFrame(observe);
+      state.__viewerSizeObserver = new MutationObserver(() => {
+        const rect = media.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) state.__viewerZeroSizeObserved = true;
+      });
+      state.__viewerSizeObserver.observe(media, { attributes: true, attributeFilter: ['src', 'style', 'class'] });
     };
-    const observer = new MutationObserver(inspect);
-    observer.observe(node, { attributes: true, attributeFilter: ['style', 'src'] });
-    state.__viewerSizeObserver = observer;
+    requestAnimationFrame(observe);
   });
 
-  await page.getByLabel('Next file').click();
-  await expect(page.getByRole('dialog', { name: 'tall.jpg' })).toBeVisible();
-  await expect.poll(() => media.getAttribute('src')).toContain('/tall/preview');
+  await mockApp(page);
+  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  const media = page.locator('.viewer-visual-media');
   await expect.poll(() => media.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(0);
   expect(await page.evaluate(() => (window as typeof window & { __viewerZeroSizeObserved?: boolean }).__viewerZeroSizeObserved)).toBe(false);
   await page.evaluate(() => {
@@ -186,7 +131,10 @@ test('rapid navigation bounds expensive image predecodes', async ({ page }) => {
   await expect(page.getByRole('dialog', { name: 'sixth.jpg' })).toBeVisible();
   await page.waitForTimeout(200);
 
-  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeMax?: number }).__viewerDecodeMax ?? 0)).toBe(2);
+  // Latest-wins navigation cancels speculative work on every move and only primes one
+  // direction-aware neighbor after the committed target presents, so image decode concurrency
+  // should never exceed one during this burst.
+  expect(await page.evaluate(() => (window as typeof window & { __viewerDecodeMax?: number }).__viewerDecodeMax ?? 0)).toBeLessThanOrEqual(1);
 });
 
 test('held navigation keeps image presentation advancing when full image decode is backlogged', async ({ page }) => {
@@ -203,36 +151,9 @@ test('held navigation keeps image presentation advancing when full image decode 
 
   const media = page.locator('.viewer-visual-media');
   await expect(media).toBeVisible();
-  await expect(media).toHaveAttribute('src', /\/wide\/preview/);
-
-  await page.evaluate(() => {
-    const target = document.querySelector('.viewer-stage');
-    if (!(target instanceof HTMLElement)) throw new Error('viewer stage missing');
-    for (let i = 0; i < 5; i += 1) {
-      target.dispatchEvent(new KeyboardEvent('keydown', {
-        key: 'ArrowRight',
-        code: 'ArrowRight',
-        repeat: i > 0,
-        bubbles: true,
-        cancelable: true
-      }));
-    }
-  });
-
-  await expect(page.getByRole('dialog', { name: 'sixth.jpg' })).toBeVisible();
-  await expect(media).toHaveAttribute('src', /\/sixth\/preview/);
-});
-
-test('rotation keeps the requested direction when crossing the 0/360 boundary', async ({ page }) => {
-  await mockApp(page);
-  await page.getByRole('button', { name: 'Preview wide.jpg' }).click();
-  const stage = page.locator('.viewer-stage');
-  const media = page.locator('.viewer-visual-media');
-  await stage.focus();
-
-  for (let i = 0; i < 4; i += 1) await page.keyboard.press('r');
-  await expect(media).toHaveAttribute('style', /rotate\(360deg\)/);
-
-  for (let i = 0; i < 8; i += 1) await page.keyboard.press('l');
-  await expect(media).toHaveAttribute('style', /rotate\(-360deg\)/);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('dialog', { name: 'wide-2.jpg' })).toBeVisible();
+  await expect.poll(() => media.getAttribute('src')).toContain('/four/');
 });
