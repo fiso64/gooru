@@ -66,16 +66,29 @@ async function mockProtectedApp(page: Page) {
   return { states, fileSearches, suggestionSearches };
 }
 
+async function commitSearchToken(page: Page, token: string) {
+  const search = page.getByLabel('Search library');
+  await search.fill(token);
+  await search.press('Enter');
+}
+
+async function expectCommittedTokens(page: Page, expected: string[]) {
+  await expect(page.locator('.searchbar-pill')).toHaveCount(expected.length);
+  await expect.poll(() => page.locator('.searchbar-pill').allTextContents()).toEqual(expected);
+}
+
 test('protected mode keeps free-form search out of request URLs and restores opaque browser history', async ({ page }) => {
   const traffic = await mockProtectedApp(page);
-  const firstQuery = 'person:alice @filename_contains:private diary.jpg';
-  const secondQuery = 'namespace:secret second private value';
+  const firstToken = 'person:alice';
+  const secondToken = 'namespace:secret-private-value';
+  const firstQuery = firstToken;
+  const secondQuery = `${firstToken} ${secondToken}`;
 
   await page.goto('/');
   const search = page.getByLabel('Search library');
   await expect(search).toBeVisible();
 
-  await search.fill(firstQuery);
+  await commitSearchToken(page, firstToken);
   await expect.poll(() => traffic.fileSearches.some((entry) => entry.body.query === firstQuery)).toBe(true);
   await expect.poll(() => new URL(page.url()).searchParams.get('state') ?? '').toMatch(/^opaque-/);
 
@@ -88,21 +101,22 @@ test('protected mode keeps free-form search out of request URLs and restores opa
   expect(traffic.suggestionSearches.every((entry) => !entry.url.includes('alice') && !entry.url.includes('private'))).toBe(true);
 
   await page.reload();
-  await expect(search).toHaveValue(firstQuery);
+  await expectCommittedTokens(page, [firstToken]);
   expect(page.url()).toBe(firstURL);
 
-  await search.fill(secondQuery);
+  await commitSearchToken(page, secondToken);
   await expect.poll(() => traffic.fileSearches.some((entry) => entry.body.query === secondQuery)).toBe(true);
   await expect.poll(() => page.url() !== firstURL && (new URL(page.url()).searchParams.get('state') ?? '').startsWith('opaque-')).toBe(true);
   const secondURL = page.url();
   expect(secondURL).not.toContain('secret');
   expect(secondURL).not.toContain('private');
+  await expectCommittedTokens(page, [firstToken, secondToken]);
 
   await page.goBack();
-  await expect(search).toHaveValue(firstQuery);
+  await expectCommittedTokens(page, [firstToken]);
   expect(page.url()).toBe(firstURL);
 
   await page.goForward();
-  await expect(search).toHaveValue(secondQuery);
+  await expectCommittedTokens(page, [firstToken, secondToken]);
   expect(page.url()).toBe(secondURL);
 });
