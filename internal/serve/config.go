@@ -115,6 +115,7 @@ type UIConfig struct {
 	GridSize                 int    `yaml:"grid_size"`
 	LoadFullMediaByDefault   bool   `yaml:"load_full_media_by_default"`
 	FullscreenMediaByDefault bool   `yaml:"fullscreen_media_by_default"`
+	ViewerFitMode            string `yaml:"viewer_fit_mode"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
@@ -171,7 +172,7 @@ func DefaultConfig(dbPath string) Config {
 		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
-		UI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize},
+		UI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, ViewerFitMode: "fit_window"},
 	}
 }
 
@@ -436,6 +437,15 @@ func (cfg *Config) Validate() error {
 	}
 	if cfg.UI.GridSize < MinGridSize || cfg.UI.GridSize > MaxGridSize {
 		errs = append(errs, fmt.Errorf("ui.grid_size must be between %d and %d pixels", MinGridSize, MaxGridSize))
+	}
+	cfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))
+	if cfg.UI.ViewerFitMode == "" {
+		cfg.UI.ViewerFitMode = "fit_window"
+	}
+	switch cfg.UI.ViewerFitMode {
+	case "fit_window", "fit_down_only", "original_size_if_fit":
+	default:
+		errs = append(errs, errors.New("ui.viewer_fit_mode must be one of: fit_window, fit_down_only, original_size_if_fit"))
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"

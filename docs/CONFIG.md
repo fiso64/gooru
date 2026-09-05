@@ -251,6 +251,7 @@ ui:
   accent_color: "#2f80ed"
   font_style: editorial
   grid_size: 180
+  viewer_fit_mode: fit_window
   load_full_media_by_default: false
   fullscreen_media_by_default: false
 ```
@@ -260,3 +261,7 @@ For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default
 ```bash
 go run ./cmd/gooru serve --print-default-config
 ```
+
+### Viewer fit mode
+
+`ui.viewer_fit_mode` controls the viewer default: `fit_window` (current contain behavior), `fit_down_only` (never upscale), or `original_size_if_fit` (use 1:1 when it fits, otherwise scale down). Press `V` in the viewer to cycle the configured fit policies for the current browser session.

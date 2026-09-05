@@ -305,6 +305,7 @@
   <ViewerStage
     {file}
     {imageSource}
+    initialFitMode={$runtimeConfig.viewerFitMode}
     onPrev={stagePrev}
     onNext={stageNext}
     onPrimaryAction={comicAvailable ? () => void toggleComic() : undefined}

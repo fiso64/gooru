@@ -16,7 +16,7 @@ describe('viewer geometry policy', () => {
       viewportWidth: 1000,
       viewportHeight: 800,
       rotation: 0,
-      fitMode: 'screen',
+      fitMode: 'fit_window',
       inset: 20
     });
     expect(geometry.width).toBeCloseTo(960);
@@ -30,7 +30,7 @@ describe('viewer geometry policy', () => {
       viewportWidth: 1000,
       viewportHeight: 800,
       rotation: 450,
-      fitMode: 'screen'
+      fitMode: 'fit_window'
     });
     expect(geometry.width).toBeCloseTo(800);
     expect(geometry.height).toBeCloseTo(450);
@@ -56,10 +56,24 @@ describe('viewer geometry policy', () => {
       viewportWidth: 1920,
       viewportHeight: 1080,
       rotation: 90,
-      fitMode: 'screen',
+      fitMode: 'fit_window',
       maxScale: 1
     });
     expect(geometry).toEqual({ width: 320, height: 200, rotation: 90, scale: 1 });
+  });
+
+  it('does not upscale small media in non-upscaling modes', () => {
+    for (const fitMode of ['fit_down_only', 'original_size_if_fit'] as const) {
+      const geometry = viewerGeometry({ intrinsicWidth: 320, intrinsicHeight: 200, viewportWidth: 1920, viewportHeight: 1080, rotation: 0, fitMode });
+      expect(geometry.scale).toBe(1);
+      expect(geometry.width).toBe(320);
+      expect(geometry.height).toBe(200);
+    }
+  });
+
+  it('still scales oversized media down in non-upscaling modes', () => {
+    const geometry = viewerGeometry({ intrinsicWidth: 2000, intrinsicHeight: 1000, viewportWidth: 1000, viewportHeight: 700, rotation: 0, fitMode: 'original_size_if_fit' });
+    expect(geometry.scale).toBeCloseTo(0.5);
   });
 
   it('renders geometry as a centered rotation transform', () => {

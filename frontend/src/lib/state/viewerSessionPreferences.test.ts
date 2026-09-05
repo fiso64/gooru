@@ -25,7 +25,7 @@ function memoryStorage(initial?: string) {
 const defaults: ViewerSessionPreferences = {
   preferOriginal: true,
   rotation: 0,
-  fitMode: 'screen'
+  fitMode: 'fit_window'
 };
 
 describe('viewer session preferences', () => {
@@ -64,7 +64,7 @@ describe('viewer session preferences', () => {
     expect(readViewerSessionPreferences(defaults, storage)).toEqual({
       preferOriginal: true,
       rotation: 90,
-      fitMode: 'screen'
+      fitMode: 'fit_window'
     });
   });
 
