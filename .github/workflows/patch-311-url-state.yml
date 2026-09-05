@@ -1,0 +1,48 @@
+name: Patch 311 URL state wiring
+
+on:
+  push:
+    branches:
+      - fix/311-pagination-overflow
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/311-pagination-overflow
+          fetch-depth: 0
+      - name: Wire page state into authenticated library
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          s = p.read_text()
+          replacements = [
+            ("  const library = createLibraryWorkflow();\n", "  const library = createLibraryWorkflow(undefined, $runtimeConfig.paginationMode === 'paged');\n"),
+            ("  let pagedPageIndex = $state(0);\n", "  let observedItemsPerPage = $state($runtimeConfig.itemsPerPage);\n"),
+            ("    () => pagedPageIndex\n", "    () => library.page - 1\n"),
+            ("  $effect(() => {\n    authScope;\n    $submittedSearch;\n    library.sort;\n    library.order;\n    $runtimeConfig.paginationMode;\n    $runtimeConfig.itemsPerPage;\n    pagedPageIndex = 0;\n  });\n", "  $effect(() => {\n    library.setPaginationEnabled($runtimeConfig.paginationMode === 'paged');\n    const itemsPerPage = $runtimeConfig.itemsPerPage;\n    if (itemsPerPage === observedItemsPerPage) return;\n    observedItemsPerPage = itemsPerPage;\n    library.page = 1;\n  });\n"),
+            ("    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);\n", "    const metadataPage = filesQuery.data?.pages.find((page) => page.facets) ?? filesQuery.data?.pages[0];\n"),
+            ("    if (!pagedMode || filesQuery.isFetching || pageIndex === pagedPageIndex) return;\n    pagedPageIndex = Math.min(Math.max(0, pageIndex), Math.max(0, pagedPageCount - 1));\n", "    const currentPageIndex = library.page - 1;\n    if (!pagedMode || filesQuery.isFetching || pageIndex === currentPageIndex) return;\n    library.page = Math.min(Math.max(0, pageIndex), Math.max(0, pagedPageCount - 1)) + 1;\n"),
+            ("        pageNumber={pagedPageIndex + 1}\n", "        pageNumber={library.page}\n")
+          ]
+          for old, new in replacements:
+            count = s.count(old)
+            if count != 1:
+              raise SystemExit(f'expected one replacement, found {count}: {old[:80]!r}')
+            s = s.replace(old, new)
+          p.write_text(s)
+          PY
+      - name: Remove one-shot workflow and commit
+        run: |
+          git rm .github/workflows/patch-311-url-state.yml
+          git add frontend/src/lib/components/AuthenticatedApp.svelte
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(ui): wire library page into navigation state"
+          git push origin HEAD:fix/311-pagination-overflow
