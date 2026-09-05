@@ -2,6 +2,15 @@ package serve
 
 import "gooru.local/internal/filesource"
 
+// newComposedMediaServiceFromConfig is the server composition boundary for
+// logical media access. Raw encryption key material is consumed here to build
+// the storage capability, then removed before the runtime config reaches media
+// feature code.
+func newComposedMediaServiceFromConfig(cfg Config) *MediaService {
+	resolver, resolverErr := newMediaSourceResolver(cfg)
+	return newComposedMediaService(cfg, resolver, resolverErr)
+}
+
 // newComposedMediaService constructs the media service from an already-resolved
 // logical source policy. The sanitized runtime config deliberately excludes raw
 // encryption key material so media feature code cannot acquire the master key
