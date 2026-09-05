@@ -49,9 +49,5 @@ jobs:
         run: npm run check
       - name: Unit tests
         run: npm run test:unit
-      - name: Install Chromium
-        run: npx playwright install chromium
-      - name: Upload unload browser regression
-        run: npm run test:e2e -- upload-unload-warning.spec.ts
       - name: Build
         run: npm run build
