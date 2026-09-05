@@ -67,7 +67,18 @@ var serveCmd = &cobra.Command{
 		if err := ensureStorageEncryptionReady(cfg, client); err != nil {
 			return err
 		}
-		server := serve.NewServerWithLibrary(cfg, serve.NewGooruLibrary(client, verbose))
+
+		serverCfg := cfg
+		if cfg.Encryption.Enabled {
+			keys, err := configuredEncryptionKeys(cfg)
+			if err != nil {
+				return err
+			}
+			// The HTTP/media composition layer receives only the media-domain
+			// subkey. The recovery-critical master remains at this CLI boundary.
+			serverCfg.Encryption.Key = keys.Media
+		}
+		server := serve.NewServerWithLibrary(serverCfg, serve.NewGooruLibrary(client, verbose))
 		if cfg.Auth.Enabled {
 			authStore, err := openConfiguredAuthStore(cfg, verbose)
 			if err != nil {

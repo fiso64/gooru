@@ -128,3 +128,60 @@ func TestEncryptFileInPlaceFailsClosedForEncryptedFileWithWrongKey(t *testing.T)
 		t.Fatal("wrong-key migration mutated encrypted file")
 	}
 }
+
+func TestReencryptFileInPlaceMigratesKeyWithoutPlaintextSibling(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret.bin")
+	oldKey := bytes.Repeat([]byte{0x71}, 32)
+	newKey := bytes.Repeat([]byte{0x72}, 32)
+	plaintext := bytes.Repeat([]byte("domain-separated-media"), 70000)
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Encrypt(file, bytes.NewReader(plaintext), int64(len(plaintext)), oldKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	originalTime := time.Unix(1_710_000_000, 0)
+	if err := os.Chtimes(path, originalTime, originalTime); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReencryptFileInPlace(path, oldKey, newKey); err != nil {
+		t.Fatalf("reencrypt file: %v", err)
+	}
+	if legacy, err := Open(path, oldKey); err == nil {
+		_ = legacy.Close()
+		t.Fatal("legacy key unexpectedly opened reencrypted media")
+	}
+	opened, err := Open(path, newKey)
+	if err != nil {
+		t.Fatalf("open with new key: %v", err)
+	}
+	got, err := io.ReadAll(opened)
+	if closeErr := opened.Close(); err == nil && closeErr != nil {
+		err = closeErr
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, plaintext) {
+		t.Fatal("reencrypted media plaintext changed")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.ModTime().Equal(originalTime) {
+		t.Fatalf("modtime = %v, want %v", info.ModTime(), originalTime)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".secret.bin.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("reencryption left sibling artifacts: %v", matches)
+	}
+}

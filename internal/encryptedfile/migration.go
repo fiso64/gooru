@@ -118,6 +118,83 @@ func EncryptFileInPlace(path string, key []byte) error {
 	return nil
 }
 
+// ReencryptFileInPlace atomically rewrites an existing encrypted file from
+// oldKey to newKey without materializing plaintext on disk. It is used for
+// internal encryption-format/key-domain migrations rather than user-driven key
+// rotation. The original file remains untouched until the replacement has been
+// fully written, synced, reopened, and authenticated with newKey.
+func ReencryptFileInPlace(path string, oldKey, newKey []byte) error {
+	if bytes.Equal(oldKey, newKey) {
+		opened, err := Open(path, newKey)
+		if err != nil {
+			return err
+		}
+		return opened.Close()
+	}
+
+	source, err := Open(path, oldKey)
+	if err != nil {
+		return fmt.Errorf("open encrypted source with legacy key: %w", err)
+	}
+	sourceClosed := false
+	defer func() {
+		if !sourceClosed {
+			_ = source.Close()
+		}
+	}()
+
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	tmp, err := os.CreateTemp(dir, "."+base+".rekeyed-")
+	if err != nil {
+		return fmt.Errorf("create rekeyed sibling: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanupTemp := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanupTemp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure rekeyed sibling: %w", err)
+	}
+	if err := Encrypt(tmp, source, source.Size(), newKey); err != nil {
+		return fmt.Errorf("reencrypt source: %w", err)
+	}
+	if err := source.Close(); err != nil {
+		return fmt.Errorf("close legacy-key source before replacement: %w", err)
+	}
+	sourceClosed = true
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync rekeyed sibling: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close rekeyed sibling: %w", err)
+	}
+
+	verified, err := Open(tmpPath, newKey)
+	if err != nil {
+		return fmt.Errorf("reopen rekeyed sibling: %w", err)
+	}
+	if _, err := io.Copy(io.Discard, verified); err != nil {
+		_ = verified.Close()
+		return fmt.Errorf("verify rekeyed sibling: %w", err)
+	}
+	if err := verified.Close(); err != nil {
+		return fmt.Errorf("close verified rekeyed sibling: %w", err)
+	}
+	if err := os.Chtimes(tmpPath, time.Now(), source.ModTime()); err != nil {
+		return fmt.Errorf("preserve source modification time: %w", err)
+	}
+	if err := replaceFile(tmpPath, path); err != nil {
+		return err
+	}
+	cleanupTemp = false
+	return nil
+}
+
 func replaceFile(replacement, target string) error {
 	if err := os.Rename(replacement, target); err == nil {
 		return syncDir(filepath.Dir(target))
