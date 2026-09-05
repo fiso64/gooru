@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"gooru.local/internal/encryptedfile"
+	"gooru.local/internal/encryptionkeys"
 	"gooru.local/internal/serve"
 	"gooru.local/types"
 )
@@ -22,6 +23,10 @@ type registeredFileLister interface {
 func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister) error {
 	if !cfg.Encryption.Enabled {
 		return nil
+	}
+	keys, err := encryptionkeys.Derive(cfg.Encryption.Key)
+	if err != nil {
+		return fmt.Errorf("derive protected-storage subkeys: %w", err)
 	}
 	if err := serve.CleanupPlaintextMediaCache(cfg.Media); err != nil {
 		return fmt.Errorf("clean plaintext media cache for protected mode: %w", err)
@@ -54,9 +59,19 @@ func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister)
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("refusing protected-mode migration of non-regular managed upload %q", path)
 		}
-		if err := encryptedfile.EncryptFileInPlace(path, cfg.Encryption.Key); err != nil && !errors.Is(err, encryptedfile.ErrAlreadyEncrypted) {
-			return fmt.Errorf("migrate managed upload to encrypted storage: %w", err)
+
+		err = encryptedfile.EncryptFileInPlace(path, keys.Media)
+		if err == nil || errors.Is(err, encryptedfile.ErrAlreadyEncrypted) {
+			continue
 		}
+		if errors.Is(err, encryptedfile.ErrAuthentication) {
+			if migrateErr := encryptedfile.ReencryptFileInPlace(path, cfg.Encryption.Key, keys.Media); migrateErr == nil {
+				continue
+			} else {
+				return fmt.Errorf("migrate managed upload to media-domain key: %w", migrateErr)
+			}
+		}
+		return fmt.Errorf("migrate managed upload to encrypted storage: %w", err)
 	}
 	return nil
 }
