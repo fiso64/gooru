@@ -34,18 +34,21 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
-      - name: Capture frontend check
-        id: frontend_check
+      - name: Validate frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Capture frontend unit tests
+        id: frontend_unit
         working-directory: frontend
         shell: bash
         run: |
           set +e
-          npm run check > ../.github/tmp-311-validation.log 2>&1
+          npm run test:unit > ../.github/tmp-311-validation.log 2>&1
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
-      - name: Persist frontend diagnostic
-        if: steps.frontend_check.outputs.status != '0'
+      - name: Persist frontend unit diagnostic
+        if: steps.frontend_unit.outputs.status != '0'
         shell: bash
         run: |
           git config user.name 'chatgpt-codex-connector[bot]'
@@ -53,14 +56,12 @@ jobs:
           git add .github/tmp-311-validation.log
           git commit -m 'ci: capture #311 frontend diagnostic' || true
           git push origin HEAD:feat/311-paged-library-ui
-      - name: Fail on frontend check error
-        if: steps.frontend_check.outputs.status != '0'
+      - name: Fail on frontend unit error
+        if: steps.frontend_unit.outputs.status != '0'
         run: exit 1
-      - name: Validate frontend
+      - name: Validate frontend build
         working-directory: frontend
-        run: |
-          npm run test:unit
-          npm run build
+        run: npm run build
       - name: Validate paged browsing in Chromium
         working-directory: frontend
         run: npx playwright test tests/paged-library.spec.ts --project=chromium
