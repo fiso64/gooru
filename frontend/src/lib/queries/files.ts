@@ -1,6 +1,7 @@
 import { createInfiniteQuery, createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
 import { libraryKeys } from './library';
+import { offsetPageToken } from '$lib/utils/pagination';
 import type { FileListResponse, FileRemovalRequest, FileRemovalResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
 import type { InfiniteData, QueryFunctionContext } from '@tanstack/query-core';
@@ -11,8 +12,8 @@ export type SortOrder = 'asc' | 'desc';
 
 export const fileKeys = {
   all: ['files'] as const,
-  pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder, limit: number, paged: boolean) =>
-    ['files', 'pages', scope, query, kind, sort, order, limit, paged ? 'paged' : 'infinite'] as const,
+  pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder, limit: number, paged: boolean, pageIndex: number) =>
+    ['files', 'pages', scope, query, kind, sort, order, limit, paged ? `paged:${pageIndex}` : 'infinite'] as const,
   count: (scope: number, query: string) => ['files', 'count', scope, query] as const,
   facets: (scope: number, query: string) => ['files', 'facets', scope, query] as const,
   suggestions: (scope: number, q: string, existing: string) => ['files', 'suggestions', scope, q, existing] as const
@@ -45,10 +46,11 @@ export function createFilesQuery(
   getAuthScope: () => number,
   getEnabled: () => boolean,
   getPageLimit: () => number = () => pageLimit,
-  getPaged: () => boolean = () => false
+  getPaged: () => boolean = () => false,
+  getPageIndex: () => number = () => 0
 ) {
   return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() => ({
-    ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope, getPageLimit, getPaged),
+    ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope, getPageLimit, getPaged, getPageIndex),
     enabled: getAuthenticated() && getEnabled()
   }));
 }
@@ -101,14 +103,16 @@ export function filesQueryOptions(
   getOrder: () => SortOrder,
   getAuthScope: () => number,
   getPageLimit: () => number = () => pageLimit,
-  getPaged: () => boolean = () => false
+  getPaged: () => boolean = () => false,
+  getPageIndex: () => number = () => 0
 ) {
   const limit = getPageLimit();
   const paged = getPaged();
+  const pageIndex = paged ? Math.max(0, Math.floor(getPageIndex())) : 0;
   return {
-    queryKey: fileKeys.pages(getAuthScope(), getSearch(), getKind(), getSort(), getOrder(), limit, paged),
+    queryKey: fileKeys.pages(getAuthScope(), getSearch(), getKind(), getSort(), getOrder(), limit, paged, pageIndex),
     enabled: getAuthenticated(),
-    initialPageParam: '',
+    initialPageParam: paged ? offsetPageToken(pageIndex, limit) : '',
     queryFn: ({ pageParam, signal }: QueryFunctionContext<ReturnType<typeof fileKeys.pages>, string>) =>
       new ApiClient().listFiles({
         query: queryWithKind(getSearch(), getKind()),

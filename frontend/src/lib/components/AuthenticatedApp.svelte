@@ -75,7 +75,8 @@
     () => authScope,
     () => library.route === 'library',
     () => $runtimeConfig.itemsPerPage,
-    () => $runtimeConfig.paginationMode === 'paged'
+    () => $runtimeConfig.paginationMode === 'paged',
+    () => pagedPageIndex
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
@@ -401,15 +402,18 @@
   }
 
   async function loadNextFilesPage() {
-    if (!filesQuery.hasNextPage || filesQuery.isFetchingNextPage) return;
-    const result = await filesQuery.fetchNextPage();
-    if (pagedMode && !result.isError) pagedPageIndex += 1;
+    if (pagedMode || !filesQuery.hasNextPage || filesQuery.isFetchingNextPage) return;
+    await filesQuery.fetchNextPage();
   }
 
   async function loadPreviousFilesPage() {
-    if (!filesQuery.hasPreviousPage || filesQuery.isFetchingPreviousPage) return;
-    const result = await filesQuery.fetchPreviousPage();
-    if (pagedMode && !result.isError) pagedPageIndex = Math.max(0, pagedPageIndex - 1);
+    if (pagedMode || !filesQuery.hasPreviousPage || filesQuery.isFetchingPreviousPage) return;
+    await filesQuery.fetchPreviousPage();
+  }
+
+  function selectFilesPage(pageIndex: number) {
+    if (!pagedMode || filesQuery.isFetching || pageIndex === pagedPageIndex) return;
+    pagedPageIndex = Math.min(Math.max(0, pageIndex), Math.max(0, pagedPageCount - 1));
   }
 
   async function logout() {
@@ -531,6 +535,7 @@
         onBulkDelete={bulkDeleteSelected}
         onLoadMore={loadNextFilesPage}
         onLoadPrevious={loadPreviousFilesPage}
+        onPage={selectFilesPage}
       >
         {#snippet actions()}
           <div class="library-head-actions">
