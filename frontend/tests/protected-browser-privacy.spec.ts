@@ -51,6 +51,7 @@ async function mockProtectedApp(page: Page) {
     if (path.startsWith('/api/v1/ui-state/') && request.method() === 'GET') {
       const token = decodeURIComponent(path.slice('/api/v1/ui-state/'.length));
       const state = states.get(token);
+      if (token === 'opaque-1') await new Promise((resolve) => setTimeout(resolve, 120));
       return state ? json(route, state) : json(route, { error: { code: 'not_found', message: 'not found' } }, 404);
     }
     if (path === '/api/v1/saved-searches') return json(route, { items: [] });
@@ -118,6 +119,14 @@ test('protected mode keeps free-form search out of request URLs and restores opa
   expect(page.url()).toBe(firstURL);
 
   await page.goForward();
+  await expectCommittedTokens(page, [firstToken, secondToken]);
+  expect(page.url()).toBe(secondURL);
+
+  // A slow restore for the older history entry must not overwrite a newer one.
+  await page.goBack({ waitUntil: 'commit' });
+  await page.goForward({ waitUntil: 'commit' });
+  await expectCommittedTokens(page, [firstToken, secondToken]);
+  await page.waitForTimeout(180);
   await expectCommittedTokens(page, [firstToken, secondToken]);
   expect(page.url()).toBe(secondURL);
 });
