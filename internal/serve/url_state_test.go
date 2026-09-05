@@ -25,7 +25,7 @@ func protectedURLConfig(t *testing.T) Config {
 
 func TestOpaqueURLStateRoundTripDoesNotExposePlaintext(t *testing.T) {
 	codec := newURLStateCodec(protectedURLConfig(t))
-	state := browserURLState{Query: "secret:girlfriend", Sort: "name", Order: "asc", FileID: "private-file"}
+	state := browserURLState{Query: "secret:girlfriend", Sort: "name", Order: "asc", FileID: "private-file", Page: 7}
 	token, err := codec.seal(state, "user-a")
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestOpaqueURLStateRejectsOversizedState(t *testing.T) {
 
 func TestOpaqueURLStateHTTPUsesOnlyOpaqueTokenInURL(t *testing.T) {
 	server := NewServerWithLibrary(protectedURLConfig(t), emptyLibrary{})
-	body := []byte(`{"query":"secret tag","sort":"added","order":"desc","file_id":"private-file"}`)
+	body := []byte(`{"query":"secret tag","sort":"added","order":"desc","file_id":"private-file","page":7}`)
 	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/ui-state", bytes.NewReader(body))
 	createRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(createRec, createReq)
@@ -98,6 +98,13 @@ func TestOpaqueURLStateHTTPUsesOnlyOpaqueTokenInURL(t *testing.T) {
 	}
 	if strings.Contains(resolveReq.URL.String(), "secret") || strings.Contains(resolveReq.URL.String(), "private") {
 		t.Fatalf("resolve URL leaked state: %q", resolveReq.URL.String())
+	}
+	var resolved browserURLState
+	if err := json.Unmarshal(resolveRec.Body.Bytes(), &resolved); err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Page != 7 {
+		t.Fatalf("resolved page = %d, want 7", resolved.Page)
 	}
 }
 
