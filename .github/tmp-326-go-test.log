@@ -1,5 +1,17 @@
-# gooru.local/cmd/gooru/cmd [gooru.local/cmd/gooru/cmd.test]
-cmd/gooru/cmd/user_test.go:40:37: cannot use dbPath (variable of type string) as serve.Config value in argument to prepareAdminDatabase
-cmd/gooru/cmd/user_test.go:63:37: cannot use dbPath (variable of type string) as serve.Config value in argument to prepareAdminDatabase
-FAIL	gooru.local/cmd/gooru/cmd [build failed]
+Error: required flag(s) "user" not set
+Usage:
+  saved-search list [flags]
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --user string   Username that owns the saved search
+
+--- FAIL: TestPrepareAdminDatabaseSupportsFreshPath (0.30s)
+    user_test.go:42: prepare admin database: failed to prepare configured database: could not read hashing strategy from initialized database: sql: no rows in result set
+--- FAIL: TestPrepareAdminDatabasePreservesExistingParentPermissions (0.32s)
+    user_test.go:65: prepare admin database: failed to prepare configured database: could not read hashing strategy from initialized database: sql: no rows in result set
+FAIL
+FAIL	gooru.local/cmd/gooru/cmd	3.240s
 FAIL
