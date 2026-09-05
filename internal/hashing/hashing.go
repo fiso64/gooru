@@ -57,7 +57,9 @@ func (h *Hasher) SetSourceResolver(resolver *filesource.Resolver) {
 	h.sources = resolver
 }
 
-// FileMetadata returns logical plaintext metadata for a path.
+// FileMetadata returns logical plaintext metadata for a path. With the ordinary
+// filesystem resolver this remains a stat-only operation so large scans do not
+// open every file simply to compare size and modification time.
 func (h *Hasher) FileMetadata(filePath string) (FileMetadata, error) {
 	if h.sources == nil {
 		info, err := os.Stat(filePath)
@@ -66,12 +68,11 @@ func (h *Hasher) FileMetadata(filePath string) (FileMetadata, error) {
 		}
 		return FileMetadata{Size: info.Size(), ModTime: info.ModTime()}, nil
 	}
-	source, err := h.sources.Open(filePath)
+	metadata, err := h.sources.Metadata(filePath)
 	if err != nil {
 		return FileMetadata{}, err
 	}
-	defer source.Close()
-	return FileMetadata{Size: source.Size(), ModTime: source.ModTime()}, nil
+	return FileMetadata{Size: metadata.Size, ModTime: metadata.ModTime}, nil
 }
 
 // HashFile computes a hash for the logical file at filePath using the configured
