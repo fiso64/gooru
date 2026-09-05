@@ -9,13 +9,25 @@ permissions:
   contents: write
 
 jobs:
-  implement-and-validate:
+  validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/311-paged-library-ui
           fetch-depth: 0
+      - name: Reconcile current develop
+        shell: bash
+        run: |
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin develop
+          before=$(git rev-parse HEAD)
+          git rebase origin/develop
+          after=$(git rev-parse HEAD)
+          if [ "$before" != "$after" ]; then
+            git push --force-with-lease origin HEAD:feat/311-paged-library-ui
+          fi
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -25,42 +37,6 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply implementation staged in companion workflow
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          source = Path('.github/workflows/tmp-311-implement.yml').read_text()
-          body = source.split("python3 <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
-          body = '\n'.join(line[10:] if line.startswith('          ') else line for line in body.splitlines())
-          exec(compile(body, 'tmp-311-implement.py', 'exec'))
-
-          media = Path('frontend/src/lib/components/MediaGrid.svelte')
-          text = media.read_text()
-          text = text.replace(
-              "const virtualTotalCount = $derived(pagedMode ? files.length : totalCount || files.length);",
-              "const virtualTotalCount = $derived.by(() => pagedMode ? files.length : (totalCount || files.length));"
-          ).replace(
-              "const virtualRetainedStartIndex = $derived(pagedMode ? 0 : retainedStartIndex);",
-              "const virtualRetainedStartIndex = $derived.by(() => pagedMode ? 0 : retainedStartIndex);"
-          )
-          media.write_text(text)
-
-          test = Path('frontend/tests/paged-library.spec.ts')
-          text = test.read_text().replace(
-              "import { expect, test, type Page } from '@playwright/test';",
-              "import { expect, test, type Page, type Route } from '@playwright/test';"
-          ).replace("async (route) =>", "async (route: Route) =>")
-          test.write_text(text)
-          PY
-          gofmt -w internal/serve/ui_config.go internal/serve/config_test.go
-          git config user.name 'chatgpt-codex-connector[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add internal/serve/ui_config.go internal/serve/config_test.go frontend/src/lib/queries/files.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/MediaGrid.svelte frontend/tests/paged-library.spec.ts docs/CONFIG.md
-          if ! git diff --cached --quiet; then
-            git commit -m 'fix(ui): satisfy paged library frontend checks'
-            git push origin HEAD:feat/311-paged-library-ui
-          fi
       - name: Validate Go
         run: |
           go test ./...
