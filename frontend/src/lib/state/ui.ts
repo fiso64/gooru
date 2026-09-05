@@ -21,6 +21,15 @@ export interface VirtualMediaItem {
   height: number;
 }
 
+export interface VirtualMediaGeometry {
+  placements: VirtualMediaItem[];
+  localHeight: number;
+  retainedStartIndex: number;
+  retainedEndIndex: number;
+  totalItems: number;
+  heightPerItem: number;
+}
+
 export interface VirtualMediaLayout {
   items: VirtualMediaItem[];
   totalHeight: number;
@@ -129,6 +138,81 @@ function tilePlacements(files: FileItem[], containerWidth: number, minCardWidth:
   return { placements, height: Math.max(gridInset * 2, y - gridGap + gridInset) };
 }
 
+// Geometry depends only on the logical media sequence and grid dimensions. Keeping it
+// separate from viewport selection means normal scroll events do not repack every loaded
+// tile; geometry is recomputed only when files or layout dimensions actually change.
+export function virtualMediaGeometry(
+  files: FileItem[],
+  containerWidth: number,
+  totalItems = files.length,
+  retainedStartIndex = 0,
+  minCardWidth = defaultGridSize
+): VirtualMediaGeometry {
+  const local = tilePlacements(files, containerWidth, minCardWidth);
+  const retainedCount = Math.max(1, files.length);
+  const localContentHeight = Math.max(1, local.height - gridPadding);
+  return {
+    placements: local.placements.map((item) => ({ ...item, index: retainedStartIndex + item.index })),
+    localHeight: local.height,
+    retainedStartIndex,
+    retainedEndIndex: retainedStartIndex + files.length,
+    totalItems,
+    heightPerItem: localContentHeight / retainedCount
+  };
+}
+
+function firstPlacementEndingAtOrAfter(placements: VirtualMediaItem[], y: number) {
+  let low = 0;
+  let high = placements.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const item = placements[mid];
+    if (item.y + item.height < y) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+function firstPlacementStartingAfter(placements: VirtualMediaItem[], y: number) {
+  let low = 0;
+  let high = placements.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (placements[mid].y <= y) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+export function virtualMediaWindow(
+  geometry: VirtualMediaGeometry,
+  viewportHeight: number,
+  scrollY: number,
+  gridTop: number,
+  minCardWidth = defaultGridSize
+): VirtualMediaLayout {
+  const prefixHeight = geometry.retainedStartIndex * geometry.heightPerItem;
+  const suffixCount = Math.max(0, geometry.totalItems - geometry.retainedEndIndex);
+  const totalHeight = Math.max(viewportHeight, prefixHeight + geometry.localHeight + suffixCount * geometry.heightPerItem);
+  const viewportStart = Math.max(0, scrollY - gridTop);
+  const overscan = Math.max(minCardWidth * 2, viewportHeight * variableOverscanScreens);
+  const startY = Math.max(0, viewportStart - overscan);
+  const endY = viewportStart + viewportHeight + overscan;
+  const retainedTop = prefixHeight;
+  const retainedBottom = prefixHeight + geometry.localHeight;
+  const localStartY = startY - retainedTop;
+  const localEndY = endY - retainedTop;
+  const first = firstPlacementEndingAtOrAfter(geometry.placements, localStartY);
+  const last = firstPlacementStartingAfter(geometry.placements, localEndY);
+  const items = geometry.placements.slice(first, last).map((item) => ({ ...item, y: retainedTop + item.y }));
+  return {
+    items,
+    totalHeight,
+    needsPrevious: geometry.retainedStartIndex > 0 && startY <= retainedTop + overscan,
+    needsNext: geometry.retainedEndIndex < geometry.totalItems && endY >= retainedBottom - overscan
+  };
+}
+
 export function virtualMediaLayout(
   files: FileItem[],
   containerWidth: number,
@@ -139,27 +223,11 @@ export function virtualMediaLayout(
   retainedStartIndex = 0,
   minCardWidth = defaultGridSize
 ): VirtualMediaLayout {
-  const local = tilePlacements(files, containerWidth, minCardWidth);
-  const retainedCount = Math.max(1, files.length);
-  const localContentHeight = Math.max(1, local.height - gridPadding);
-  const heightPerItem = localContentHeight / retainedCount;
-  const prefixHeight = retainedStartIndex * heightPerItem;
-  const retainedEndIndex = retainedStartIndex + files.length;
-  const suffixCount = Math.max(0, totalItems - retainedEndIndex);
-  const totalHeight = Math.max(viewportHeight, prefixHeight + local.height + suffixCount * heightPerItem);
-  const viewportStart = Math.max(0, scrollY - gridTop);
-  const overscan = Math.max(minCardWidth * 2, viewportHeight * variableOverscanScreens);
-  const startY = Math.max(0, viewportStart - overscan);
-  const endY = viewportStart + viewportHeight + overscan;
-  const retainedTop = prefixHeight;
-  const retainedBottom = prefixHeight + local.height;
-  const items = local.placements
-    .map((item) => ({ ...item, index: retainedStartIndex + item.index, y: retainedTop + item.y }))
-    .filter((item) => item.y + item.height >= startY && item.y <= endY);
-  return {
-    items,
-    totalHeight,
-    needsPrevious: retainedStartIndex > 0 && startY <= retainedTop + overscan,
-    needsNext: retainedEndIndex < totalItems && endY >= retainedBottom - overscan
-  };
+  return virtualMediaWindow(
+    virtualMediaGeometry(files, containerWidth, totalItems, retainedStartIndex, minCardWidth),
+    viewportHeight,
+    scrollY,
+    gridTop,
+    minCardWidth
+  );
 }

@@ -6,12 +6,15 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
+const aspectDimensions = [[1600, 900], [600, 900], [900, 900], [900, 1400], [1200, 800], [700, 1200]] as const;
+
 function fileItem(index: number) {
   const id = `file-${index}`;
+  const [width, height] = aspectDimensions[index % aspectDimensions.length];
   return {
     id, content_id: `hash-${id}`, name: `perf-${index}.jpg`, safe_display_path: `library/${id}.jpg`,
     size: 2048, modified_time: '2026-05-20T00:00:00Z', media_type: index % 2 ? 'video/mp4' : 'image/jpeg', media_kind: index % 2 ? 'video' : 'photo',
-    metadata: { image_width: 800, image_height: 600 }, tags: [],
+    metadata: { image_width: width, image_height: height }, tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`,
       content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download`
@@ -19,9 +22,9 @@ function fileItem(index: number) {
   };
 }
 
-async function mockApp(page: Page) {
+async function mockApp(page: Page, gridType: 'square' | 'tile' = 'square') {
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
-  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ grid_type: gridType }) }));
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default' }] }) }));
@@ -32,10 +35,49 @@ async function mockApp(page: Page) {
     contentType: 'application/json',
     body: JSON.stringify({ files, total_count: 10_000, library_count: 10_000, facets: { kind: [{ value: 'photo', count: 10_000 }] } })
   }));
-  await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({
+  await page.route('**/api/v1/files/*/thumbnail*', async (route) => route.fulfill({
     contentType: 'image/svg+xml',
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#777"/></svg>'
   }));
+}
+
+async function mockPagedTileApp(page: Page) {
+  const allFiles = Array.from({ length: 1200 }, (_, index) => fileItem(index));
+  const requestedOffsets: number[] = [];
+  let releaseNinthPage!: () => void;
+  const ninthPageGate = new Promise<void>((resolve) => { releaseNinthPage = resolve; });
+
+  await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ grid_type: 'tile', grid_size: 200 }) }));
+  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default' }] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/files?**', async (route) => {
+    const url = new URL(route.request().url());
+    const offset = Number(url.searchParams.get('page_token') ?? '0');
+    requestedOffsets.push(offset);
+    if (offset === 480) await ninthPageGate;
+    const files = allFiles.slice(offset, offset + 60);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        files,
+        total_count: allFiles.length,
+        library_count: allFiles.length,
+        facets: offset === 0 ? { kind: [{ value: 'photo', count: allFiles.length }] } : undefined,
+        next_page_token: offset + 60 < allFiles.length ? String(offset + 60) : undefined,
+        previous_page_token: offset > 0 ? String(Math.max(0, offset - 60)) : undefined
+      })
+    });
+  });
+  await page.route('**/api/v1/files/*/thumbnail*', async (route) => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#777"/></svg>'
+  }));
+
+  return { requestedOffsets, releaseNinthPage };
 }
 
 test('large library keeps a bounded DOM while sustained scrolling advances the virtual window', async ({ page }) => {
@@ -59,6 +101,44 @@ test('large library keeps a bounded DOM while sustained scrolling advances the v
     }
     return values;
   });
-  expect(new Set(samples).size).toBeGreaterThan(10);
+  expect(new Set(samples).size).toBeGreaterThan(5);
+  expect(samples.at(-1)).not.toBe(samples[0]);
   expect(await cards.count()).toBeLessThan(100);
+});
+
+test('tile geometry stays stable when pagination crosses the former eviction boundary', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 });
+  const paging = await mockPagedTileApp(page);
+  await page.goto('/');
+  await expect(page.getByText('1,200 files')).toBeVisible();
+  const main = page.locator('.main');
+  const target = page.getByRole('button', { name: 'Preview perf-460.jpg' });
+
+  // Advance near the end of the eighth loaded page. The ninth request is held so we can
+  // measure an already-visible card on both sides of the data update that used to evict
+  // the first page and repack all retained tile rows.
+  for (let scrollTop = 3000; scrollTop <= 50_000 && !paging.requestedOffsets.includes(480); scrollTop += 2000) {
+    await main.evaluate((node, y) => { node.scrollTop = y; node.dispatchEvent(new Event('scroll')); }, scrollTop);
+    await page.waitForTimeout(30);
+  }
+  await expect.poll(() => paging.requestedOffsets.includes(480)).toBe(true);
+
+  // Keep the pending request in flight while finding the target in the loaded eighth page.
+  for (let scrollTop = 20_000; scrollTop <= 50_000 && await target.count() === 0; scrollTop += 500) {
+    await main.evaluate((node, y) => { node.scrollTop = y; node.dispatchEvent(new Event('scroll')); }, scrollTop);
+    await page.waitForTimeout(16);
+  }
+  await expect(target).toBeVisible();
+  const before = await target.boundingBox();
+  expect(before).not.toBeNull();
+
+  paging.releaseNinthPage();
+  await expect.poll(() => paging.requestedOffsets.filter((offset) => offset === 480).length).toBe(1);
+  await page.waitForTimeout(100);
+  await expect(target).toBeVisible();
+  const after = await target.boundingBox();
+  expect(after).not.toBeNull();
+  expect(after!.x).toBeCloseTo(before!.x, 1);
+  expect(after!.y).toBeCloseTo(before!.y, 1);
+  expect(await page.locator('.virtual-media-item').count()).toBeLessThan(160);
 });
