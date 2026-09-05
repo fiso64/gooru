@@ -72,27 +72,29 @@ func (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Wr
 }
 
 type MediaService struct {
-	cfg                Config
-	thumbnailer        Thumbnailer
-	sourceResolver     *filesource.Resolver
-	sourceResolverErr  error
-	derivatives        derivativeStore
-	derivativeStoreErr error
-	comicMu            sync.Mutex
-	comicCache         map[string]*cachedComicArchive
-	comicTick          uint64
+	cfg                 Config
+	thumbnailer         Thumbnailer
+	thumbnailGeneration thumbnailGenerationPolicy
+	sourceResolver      *filesource.Resolver
+	sourceResolverErr   error
+	derivatives         derivativeStore
+	derivativeStoreErr  error
+	comicMu             sync.Mutex
+	comicCache          map[string]*cachedComicArchive
+	comicTick           uint64
 }
 
 func NewMediaService(cfg Config) *MediaService {
 	resolver, resolverErr := newMediaSourceResolver(cfg)
 	store, storeErr := newDerivativeStore(cfg)
 	return &MediaService{
-		cfg:                cfg,
-		thumbnailer:        NewMediaThumbnailer(cfg),
-		sourceResolver:     resolver,
-		sourceResolverErr:  resolverErr,
-		derivatives:        store,
-		derivativeStoreErr: storeErr,
+		cfg:                 cfg,
+		thumbnailer:         NewMediaThumbnailer(cfg),
+		thumbnailGeneration: newThumbnailGenerationPolicy(cfg.Encryption.Enabled),
+		sourceResolver:      resolver,
+		sourceResolverErr:   resolverErr,
+		derivatives:         store,
+		derivativeStoreErr:  storeErr,
 	}
 }
 
@@ -248,19 +250,10 @@ func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, siz
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
 		return m.thumbnailCBZFirstPage(file.Path, dst, size, format)
 	}
-	if m.cfg.Encryption.Enabled {
-		source, err := m.openMediaSource(file.Path)
-		if err != nil {
-			return err
-		}
-		defer source.Close()
-		sourceThumbnailer, ok := m.thumbnailer.(SourceThumbnailer)
-		if !ok {
-			return &UnsupportedMediaError{Backend: "media", Reason: "thumbnail backend cannot read protected media sources", Err: ErrUnsupportedMedia}
-		}
-		return sourceThumbnailer.ThumbnailSource(file.Path, source, dst, size, format)
+	if m.thumbnailGeneration == nil {
+		return errors.New("thumbnail generation policy is not configured")
 	}
-	return m.thumbnailer.Thumbnail(file.Path, dst, size, format)
+	return m.thumbnailGeneration(m, file, dst, size, format)
 }
 
 func (m *MediaService) derivativeSize(r *http.Request, kind string) (int, error) {

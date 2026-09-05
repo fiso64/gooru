@@ -12,19 +12,22 @@ func newComposedMediaServiceFromConfig(cfg Config) *MediaService {
 }
 
 // newComposedMediaService constructs the media service from already-resolved
-// logical source and derivative-persistence policies. The sanitized runtime
-// config deliberately excludes raw encryption key material so media feature
-// code cannot acquire the master key through its general-purpose config object.
+// logical source, derivative-persistence, and thumbnail-access policies. The
+// sanitized runtime config deliberately excludes raw encryption key material so
+// media feature code cannot acquire the master key through its general-purpose
+// config object.
 func newComposedMediaService(cfg Config, resolver *filesource.Resolver, resolverErr error) *MediaService {
 	store, storeErr := newDerivativeStore(cfg)
+	thumbnailGeneration := newThumbnailGenerationPolicy(cfg.Encryption.Enabled)
 	runtimeCfg := cfg
 	runtimeCfg.Encryption.Key = nil
 	return &MediaService{
-		cfg:                runtimeCfg,
-		thumbnailer:        NewMediaThumbnailer(runtimeCfg),
-		sourceResolver:     resolver,
-		sourceResolverErr:  resolverErr,
-		derivatives:        store,
-		derivativeStoreErr: storeErr,
+		cfg:                 runtimeCfg,
+		thumbnailer:         NewMediaThumbnailer(runtimeCfg),
+		thumbnailGeneration: thumbnailGeneration,
+		sourceResolver:      resolver,
+		sourceResolverErr:   resolverErr,
+		derivatives:         store,
+		derivativeStoreErr:  storeErr,
 	}
 }
