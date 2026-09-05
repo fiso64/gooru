@@ -107,6 +107,32 @@ test('paged mode uses centered numbered controls with direct page navigation', a
   await expect(page.getByRole('button', { name: 'Next page' })).toBeDisabled();
 });
 
+test('display-mode toggle overrides the configured mode and persists across reloads', async ({ page }) => {
+  const requests = await mockPagedLibrary(page);
+  await page.goto('/?page=3');
+  await expect(page.getByRole('button', { name: 'Page 3', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Paged', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Infinite', exact: true }).click();
+  await expect(page.getByTestId('library-pager')).toHaveCount(0);
+  await expect(page.getByTestId('infinite-scroll-sentinel')).toBeVisible();
+  await expect(page).not.toHaveURL(/[?&]page=/);
+  await expect(page.getByRole('button', { name: 'Infinite', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => requests.filter((request) => request.offset === 0 && request.limit === 25).length).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('gooru.preference.v1.library.pagination-mode'))).toBe('"infinite"');
+
+  await page.reload();
+  await expect(page.getByTestId('library-pager')).toHaveCount(0);
+  await expect(page.getByTestId('infinite-scroll-sentinel')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Infinite', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByRole('button', { name: 'Paged', exact: true }).click();
+  await expect(page.getByTestId('library-pager')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Paged', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('gooru.preference.v1.library.pagination-mode'))).toBe('"paged"');
+});
+
 test('paged mode restores a direct page URL and browser history', async ({ page }) => {
   const requests = await mockPagedLibrary(page);
   await page.goto('/?page=4');

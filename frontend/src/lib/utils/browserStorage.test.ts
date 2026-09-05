@@ -35,6 +35,19 @@ describe('browser preference storage', () => {
     expect(readBrowserPreference(key, false, isBoolean, storage)).toBe(true);
   });
 
+  it('stores the library pagination override as an allowlisted local preference', () => {
+    const storage = new MemoryStorage();
+    const key = browserPersistenceRegistry.libraryPaginationMode.key;
+    const isPaginationMode = (value: unknown): value is 'infinite' | 'paged' => value === 'infinite' || value === 'paged';
+
+    expect(writeBrowserPreference(key, 'infinite', storage)).toBe(true);
+    expect(storage.values.get('gooru.preference.v1.library.pagination-mode')).toBe('"infinite"');
+    expect(readBrowserPreference(key, 'paged', isPaginationMode, storage)).toBe('infinite');
+
+    storage.values.set('gooru.preference.v1.library.pagination-mode', '"invalid"');
+    expect(readBrowserPreference(key, 'paged', isPaginationMode, storage)).toBe('paged');
+  });
+
   it('falls back for missing, malformed, or type-invalid local values', () => {
     const storage = new MemoryStorage();
     const key = browserPersistenceRegistry.commonTagsCollapsed.key;
