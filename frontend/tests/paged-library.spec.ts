@@ -110,6 +110,9 @@ test('paged mode uses centered numbered controls with direct page navigation', a
 test('display-mode toggle overrides the configured mode and persists across reloads', async ({ page }) => {
   const requests = await mockPagedLibrary(page);
   await page.goto('/?page=3');
+  const actionGroups = page.locator('.library-head-actions > [aria-label]');
+  await expect(actionGroups.nth(0)).toHaveAttribute('aria-label', 'Library display mode');
+  await expect(actionGroups.nth(1)).toHaveAttribute('aria-label', 'Sort field');
   await expect(page.getByRole('button', { name: 'Page 3', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('button', { name: 'Paged', exact: true })).toHaveAttribute('aria-pressed', 'true');
 

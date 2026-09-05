@@ -559,6 +559,18 @@
       >
         {#snippet actions()}
           <div class="library-head-actions">
+            <div class="seg" aria-label="Library display mode">
+              {#each [{ value: 'infinite', label: 'Infinite' }, { value: 'paged', label: 'Paged' }] as option}
+                <button
+                  class:active={effectivePaginationMode === option.value}
+                  type="button"
+                  aria-pressed={effectivePaginationMode === option.value}
+                  onclick={() => setPaginationMode(option.value as PaginationMode)}
+                >
+                  {option.label}
+                </button>
+              {/each}
+            </div>
             <div class="seg" aria-label="Sort field">
               {#each [{ value: 'added', label: 'Added' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
                 <button
@@ -573,18 +585,6 @@
             <button class="g-btn g-btn-sm" type="button" title="Sort direction" onclick={() => (library.order = library.order === 'desc' ? 'asc' : 'desc')}>
               <Icon name="sort" size={14} /> {library.order === 'desc' ? 'Newest' : 'Oldest'}
             </button>
-            <div class="seg" aria-label="Library display mode">
-              {#each [{ value: 'infinite', label: 'Infinite' }, { value: 'paged', label: 'Paged' }] as option}
-                <button
-                  class:active={effectivePaginationMode === option.value}
-                  type="button"
-                  aria-pressed={effectivePaginationMode === option.value}
-                  onclick={() => setPaginationMode(option.value as PaginationMode)}
-                >
-                  {option.label}
-                </button>
-              {/each}
-            </div>
           </div>
         {/snippet}
       </MediaGrid>
