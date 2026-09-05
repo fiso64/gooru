@@ -32,6 +32,12 @@ type Source struct {
 func (s *Source) Size() int64        { return s.size }
 func (s *Source) ModTime() time.Time { return s.modTime }
 
+// Metadata describes a logical file without requiring callers to open it.
+type Metadata struct {
+	Size    int64
+	ModTime time.Time
+}
+
 // Resolver owns the policy for translating a tracked filesystem location into
 // its logical plaintext source. With an encryption key configured, encrypted
 // tracked files are authenticated/decrypted regardless of whether they remain
@@ -99,6 +105,42 @@ func (r *Resolver) IsProtectedPath(path string) bool {
 
 func startsWithParent(rel string) bool {
 	return rel == ".." || len(rel) > 3 && rel[:3] == ".."+string(filepath.Separator)
+}
+
+// Metadata returns logical plaintext metadata. Ordinary filesystem mode keeps
+// this path stat-only, which is important for relink scans over large libraries.
+// Protected mode authenticates encrypted containers to recover their plaintext
+// size and fails closed for unexpected plaintext beneath managed roots.
+func (r *Resolver) Metadata(path string) (Metadata, error) {
+	if r != nil && len(r.encryptionKey) > 0 {
+		encrypted, err := encryptedfile.IsEncryptedFile(path)
+		if err != nil {
+			return Metadata{}, err
+		}
+		if encrypted {
+			file, err := encryptedfile.Open(path, r.encryptionKey)
+			if err != nil {
+				return Metadata{}, err
+			}
+			defer file.Close()
+			return Metadata{Size: file.Size(), ModTime: file.ModTime()}, nil
+		}
+		if r.IsProtectedPath(path) {
+			return Metadata{}, fmt.Errorf("protected managed file is not encrypted: %w", encryptedfile.ErrInvalidFormat)
+		}
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return Metadata{}, err
+	}
+	if info.IsDir() {
+		return Metadata{}, fmt.Errorf("logical file source is a directory")
+	}
+	if !info.Mode().IsRegular() {
+		return Metadata{}, errors.New("logical file source is not a regular file")
+	}
+	return Metadata{Size: info.Size(), ModTime: info.ModTime()}, nil
 }
 
 // Open resolves path into its logical plaintext random-access source.
