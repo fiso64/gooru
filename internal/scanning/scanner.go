@@ -1,18 +1,16 @@
 package scanning
 
 import (
-	"io/fs"
 	"path/filepath"
 	"runtime"
 	"sync"
 
-	"gooru.local/types"
 	"gooru.local/internal/hashing"
+	"gooru.local/types"
 )
 
 type job struct {
 	path string
-	info fs.FileInfo
 }
 
 type result struct {
@@ -22,7 +20,9 @@ type result struct {
 	skipped bool
 }
 
-// DirsConcurrently intelligently scans directories, only hashing files whose size matches a known file.
+// DirsConcurrently intelligently scans directories, only hashing files whose
+// logical plaintext size matches a known file. Physical encrypted-container
+// size is never used for identity filtering.
 func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *hashing.Hasher) (map[string]types.LocationInfo, int) {
 	jobs := make(chan job)
 	results := make(chan result)
@@ -39,28 +39,23 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *ha
 		walkWg.Add(1)
 		go func(d string) {
 			defer walkWg.Done()
-			filepath.WalkDir(d, func(path string, de fs.DirEntry, err error) error {
+			_ = filepath.WalkDir(d, func(path string, de interface{ IsDir() bool }, err error) error {
 				if err != nil {
-					return nil // Skip files we can't access
+					return nil // Skip files we can't access.
 				}
 				if !de.IsDir() {
-					info, err := de.Info()
-					if err == nil {
-						jobs <- job{path: path, info: info}
-					}
+					jobs <- job{path: path}
 				}
 				return nil
 			})
 		}(dir)
 	}
 
-	// Close jobs channel once all directories have been walked.
 	go func() {
 		walkWg.Wait()
 		close(jobs)
 	}()
 
-	// Close results channel once all workers are finished.
 	go func() {
 		wg.Wait()
 		close(results)
@@ -73,32 +68,32 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *ha
 		if res.err == nil && !res.skipped {
 			foundFiles[res.path] = res.info
 		}
-		// Optionally log res.err if a file failed to hash
 	}
 
 	return foundFiles, filesScanned
 }
 
-// worker is a worker goroutine that processes scan jobs.
 func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHashes map[int64][]string, hasher *hashing.Hasher) {
 	defer wg.Done()
 	for job := range jobs {
-		fileSize := job.info.Size()
-		if _, ok := sizeToHashes[fileSize]; !ok {
-			// This file's size does not match any known file. Skip it entirely.
-			results <- result{path: job.path, err: nil, skipped: true}
+		metadata, err := hasher.FileMetadata(job.path)
+		if err != nil {
+			results <- result{path: job.path, err: err}
+			continue
+		}
+		if _, ok := sizeToHashes[metadata.Size]; !ok {
+			results <- result{path: job.path, skipped: true}
 			continue
 		}
 
-		// Use the provided hasher, which is configured according to the database's strategy.
 		hash, err := hasher.HashFile(job.path)
 		res := result{path: job.path, err: err}
 		if err == nil {
 			res.info = types.LocationInfo{
 				Path:      job.path,
 				Hash:      hash,
-				Size:      fileSize,
-				ModTime:   job.info.ModTime().Unix(),
+				Size:      metadata.Size,
+				ModTime:   metadata.ModTime.Unix(),
 				Extension: filepath.Ext(job.path),
 			}
 		}
