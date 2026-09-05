@@ -64,16 +64,18 @@ async function mockPagedApp(page: Page, gridType: 'square' | 'fit' | 'tile', gri
 }
 
 for (const scenario of [
-  { gridType: 'square' as const, gridSize: 120, width: 1050 },
-  { gridType: 'fit' as const, gridSize: 220, width: 1180 },
-  { gridType: 'tile' as const, gridSize: 120, width: 1050 },
-  { gridType: 'tile' as const, gridSize: 280, width: 1440 }
+  { gridType: 'square' as const, gridSize: 120, width: 1050, effectiveSize: 120 },
+  { gridType: 'fit' as const, gridSize: 220, width: 1180, effectiveSize: 260 },
+  { gridType: 'tile' as const, gridSize: 120, width: 1050, effectiveSize: 160 },
+  { gridType: 'tile' as const, gridSize: 280, width: 1440, effectiveSize: 320 }
 ]) {
   test(`${scenario.gridType} ${scenario.gridSize}px keeps viewport anchor stable across page append`, async ({ page }) => {
     await page.setViewportSize({ width: scenario.width, height: 820 });
     const paging = await mockPagedApp(page, scenario.gridType, scenario.gridSize);
     await page.goto('/');
     await expect(page.getByText('600 files')).toBeVisible();
+    const rootGridCell = await page.locator('.gooru-root').evaluate((node) => getComputedStyle(node).getPropertyValue('--grid-cell').trim());
+    expect(rootGridCell).toBe(`${scenario.effectiveSize}px`);
     const main = page.locator('.main');
 
     for (let scrollTop = 300; scrollTop <= 20_000 && !paging.requestedOffsets.includes(60); scrollTop += 250) {
