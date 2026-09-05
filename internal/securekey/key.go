@@ -1,6 +1,8 @@
 package securekey
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -24,6 +26,24 @@ var ErrInvalidKey = errors.New("encryption key must decode to exactly 32 bytes")
 type Source struct {
 	Env  string
 	File string
+}
+
+// Derive returns a purpose-bound 256-bit subkey from the process encryption key.
+// Feature code should prefer a derived subkey over using the master key directly
+// so compromise or misuse of one ciphertext domain cannot silently cross domains.
+func Derive(master []byte, purpose string) ([Size]byte, error) {
+	var derived [Size]byte
+	if len(master) != Size {
+		return derived, ErrInvalidKey
+	}
+	purpose = strings.TrimSpace(purpose)
+	if purpose == "" {
+		return derived, errors.New("encryption subkey purpose must not be empty")
+	}
+	mac := hmac.New(sha256.New, master)
+	_, _ = mac.Write([]byte(purpose))
+	copy(derived[:], mac.Sum(nil))
+	return derived, nil
 }
 
 // LoadProcess resolves Gooru's process-wide encryption key contract. Encryption
