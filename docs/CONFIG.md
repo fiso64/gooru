@@ -120,7 +120,6 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 
 Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `added_at_strategy`. The strategy defaults to `queue` and accepts `queue`, `reverse_queue`, or `modtime`.
 
-
 | Field | Description |
 | --- | --- |
 | `id` | Stable client-facing identifier. Required, unique, and limited to letters, numbers, `_`, and `-`; the first character must be alphanumeric. |
@@ -183,7 +182,8 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | --- | --- | --- |
 | `ui.accent_color` | empty | Optional runtime UI accent in six-digit hex form such as `#2f80ed`. When empty, the built-in yellow accent is used. The UI derives readable foreground and translucent accent tokens from this color. |
 | `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
-| `ui.grid_size` | `180` | Minimum media-grid cell width in pixels. Must be between `64` and `1024`. The grid remains fluid: cells expand to fill each row rather than becoming fixed-width. |
+| `ui.grid_size` | `200` | Base gallery cell size in pixels. Must be between `64` and `1024`. `fit` uses this value directly; `square` and `tile` receive a fixed 40px layout boost, so the default effective square width / tile row target is 240px. |
+| `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |
 | `ui.viewer_fit_mode` | `fit_window` | Default viewer fit policy: `fit_window` (legacy alias `screen`) fills the available viewer bounds, `fit_down_only` never enlarges smaller media, `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down, and `actual` starts at original size. Press `V` to cycle the fit policies for the current browser session. |
 | `ui.viewer_scaling` | `smooth` | Browser-side image interpolation: `smooth` uses normal browser filtering and `nearest` uses nearest-neighbor/pixelated scaling. Press `S` in the viewer to toggle it for the current browser session. |
 | `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |
@@ -256,7 +256,8 @@ logging:
 ui:
   accent_color: "#2f80ed"
   font_style: editorial
-  grid_size: 180
+  grid_size: 200
+  grid_type: square
   viewer_fit_mode: fit_window
   viewer_scaling: smooth
   load_full_media_by_default: false

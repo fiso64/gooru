@@ -6,7 +6,7 @@
   import { ApiClient } from '$lib/api/client';
   import { setOpaqueURLState, setProtectedReadTransport } from '$lib/api/privacy';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, normalizeThumbnailSizes, runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, normalizeGridType, normalizeThumbnailSizes, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
   import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
@@ -21,6 +21,7 @@
     viewer_fit_mode?: ViewerConfiguredFitMode;
     viewer_scaling?: ViewerScaling;
     grid_size?: number;
+    grid_type?: string;
     thumbnail_sizes?: number[];
     protected_mode?: boolean;
     opaque_url_state?: boolean;
@@ -47,6 +48,7 @@
       viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
       viewerScaling: config.viewer_scaling ?? 'smooth',
       gridSize: runtimeGridSize,
+      gridType: normalizeGridType(config.grid_type),
       thumbnailSizes: normalizeThumbnailSizes(config.thumbnail_sizes ?? [])
     });
     faviconHref = '/favicon.svg';

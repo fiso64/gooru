@@ -10,6 +10,7 @@ type UIConfigResponse struct {
 	ViewerFitMode            string `json:"viewer_fit_mode"`
 	ViewerScaling            string `json:"viewer_scaling"`
 	GridSize                 int    `json:"grid_size"`
+	GridType                 string `json:"grid_type"`
 	ThumbnailSizes           []int  `json:"thumbnail_sizes"`
 	ProtectedMode            bool   `json:"protected_mode"`
 	OpaqueURLState           bool   `json:"opaque_url_state"`
@@ -24,6 +25,7 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		ViewerFitMode:            s.cfg.UI.ViewerFitMode,
 		ViewerScaling:            s.cfg.UI.ViewerScaling,
 		GridSize:                 s.cfg.UI.GridSize,
+		GridType:                 s.cfg.UI.GridType,
 		ThumbnailSizes:           s.cfg.Media.ThumbnailSizes,
 		ProtectedMode:            s.cfg.Encryption.Enabled,
 		OpaqueURLState:           s.cfg.Encryption.Enabled && s.cfg.Encryption.OpaqueURLState,

@@ -251,7 +251,7 @@ func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (Medi
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return MediaMetadata{}, err
 	}
-	if haveStored && meta.PageCount != nil {
+	if haveStored && meta.PageCount != nil && meta.ImageWidth != nil && meta.ImageHeight != nil {
 		return mediaMetadataDTO(meta), nil
 	}
 
@@ -286,6 +286,8 @@ func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (Medi
 		}
 	}
 	meta.PageCount = derived.PageCount
+	meta.ImageWidth = derived.ImageWidth
+	meta.ImageHeight = derived.ImageHeight
 	if err := l.client.UpsertMediaMetadata(meta); err != nil {
 		return MediaMetadata{}, err
 	}
@@ -682,7 +684,7 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 			}
 		}
 	}
-	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") && dto.Metadata.PageCount == nil {
+	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") && (dto.Metadata.PageCount == nil || dto.Metadata.ImageWidth == nil || dto.Metadata.ImageHeight == nil) {
 		if search, ok := s.library.(SearchLibrary); ok {
 			if metadata, err := search.FileMetadata(ctx, file.ID); err == nil {
 				dto.Metadata = metadata

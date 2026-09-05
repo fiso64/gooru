@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"io"
 	"os"
@@ -61,8 +62,7 @@ func (p BasicMediaMetadataProvider) Metadata(ctx context.Context, file types.Fil
 			return MediaMetadata{}, err
 		}
 		defer archive.Close()
-		count := len(archive.pages)
-		return MediaMetadata{PageCount: &count}, nil
+		return comicArchiveMetadata(archive)
 	}
 	switch mediaKind {
 	case "photo", "gif":
@@ -87,8 +87,7 @@ func (p BasicMediaMetadataProvider) MetadataFromSource(ctx context.Context, file
 			return MediaMetadata{}, err
 		}
 		defer archive.Close()
-		count := len(archive.pages)
-		return MediaMetadata{PageCount: &count}, nil
+		return comicArchiveMetadata(archive)
 	}
 	reader := io.NewSectionReader(source, 0, size)
 	switch mediaKind {
@@ -105,6 +104,28 @@ func (p BasicMediaMetadataProvider) MetadataFromSource(ctx context.Context, file
 	default:
 		return MediaMetadata{}, nil
 	}
+}
+
+func comicArchiveMetadata(archive *comicArchive) (MediaMetadata, error) {
+	count := len(archive.pages)
+	meta := MediaMetadata{PageCount: &count}
+	if count == 0 {
+		return meta, nil
+	}
+	reader, _, err := archive.openPage(0)
+	if err != nil {
+		return MediaMetadata{}, err
+	}
+	defer reader.Close()
+	cfg, _, err := image.DecodeConfig(io.LimitReader(reader, maxComicPageBytes))
+	if err != nil {
+		return MediaMetadata{}, fmt.Errorf("decode comic cover metadata: %w", err)
+	}
+	width := cfg.Width
+	height := cfg.Height
+	meta.ImageWidth = &width
+	meta.ImageHeight = &height
+	return meta, nil
 }
 
 func (p BasicMediaMetadataProvider) imageMetadata(ctx context.Context, file types.FileInfo) (MediaMetadata, error) {
