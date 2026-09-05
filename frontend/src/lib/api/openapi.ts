@@ -996,7 +996,8 @@ export interface paths {
                         /** @description Configured upload target ID. Defaults to the first configured target. */
                         target_id?: string;
                         /**
-                         * @description How to handle uploaded filenames that already exist in the target.
+                         * @description How to handle uploaded filenames that already exist in the target; omitted values default to skip.
+                         * @default skip
                          * @enum {string}
                          */
                         conflict_policy?: "skip" | "rename" | "replace";
@@ -1380,6 +1381,8 @@ export interface paths {
                     /** @description Specific asynchronous job IDs to return. May be repeated; at most 64 unique IDs are accepted. */
                     id?: string[];
                     status?: "pending" | "running" | "completed" | "failed" | "canceled";
+                    limit?: number;
+                    page_token?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1663,6 +1666,9 @@ export interface components {
             error?: string;
         };
         JobListResponse: {
+            /** @description Total retained jobs currently pending or running, independent of the visible page. */
+            active_count: number;
+            next_page_token?: string;
             items: components["schemas"]["Job"][];
         };
         BrowserURLState: {

@@ -159,7 +159,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 type JobListResponse struct {
-	Items []*Job `json:"items"`
+	Items         []*Job `json:"items"`
+	ActiveCount   int    `json:"active_count"`
+	NextPageToken string `json:"next_page_token,omitempty"`
 }
 
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -176,10 +178,16 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		if len(ids) > 0 {
-			writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.ListIDs(ids, status)})
+			writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.ListIDs(ids, status), ActiveCount: s.jobs.ActiveCount()})
 			return
 		}
-		writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.List(status)})
+		page, err := ParsePage(r.URL.Query().Get("limit"), r.URL.Query().Get("page_token"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+			return
+		}
+		result, activeCount := s.jobs.ListPage(status, page)
+		writeJSON(w, http.StatusOK, JobListResponse{Items: result.Items, ActiveCount: activeCount, NextPageToken: result.NextPageToken})
 	case http.MethodDelete:
 		if len(ids) > 0 {
 			writeError(w, http.StatusBadRequest, "invalid_request", "job id filtering is only supported for GET", nil)
