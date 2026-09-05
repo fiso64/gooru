@@ -37,7 +37,7 @@ func TestReadLineSecretUsesSharedReader(t *testing.T) {
 
 func TestPrepareAdminDatabaseSupportsFreshPath(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "nested", "gooru.db")
-	store, err := prepareAdminDatabase(dbPath, false)
+	store, err := prepareAdminDatabase(serve.DefaultConfig(dbPath), false)
 	if err != nil {
 		t.Fatalf("prepare admin database: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestPrepareAdminDatabasePreservesExistingParentPermissions(t *testing.T) {
 		t.Fatalf("mkdir db parent: %v", err)
 	}
 	dbPath := filepath.Join(dir, "gooru.db")
-	store, err := prepareAdminDatabase(dbPath, false)
+	store, err := prepareAdminDatabase(serve.DefaultConfig(dbPath), false)
 	if err != nil {
 		t.Fatalf("prepare admin database: %v", err)
 	}

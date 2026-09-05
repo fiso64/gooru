@@ -16,7 +16,6 @@ import (
 )
 
 var serveFlags struct {
-	configPath   string
 	listen       string
 	publicURL    string
 	authToken    string
@@ -39,7 +38,7 @@ var serveCmd = &cobra.Command{
 			fmt.Print(string(data))
 			return nil
 		}
-		cfg, err := serve.LoadConfig(serveFlags.configPath, dbPath, serve.Overrides{
+		cfg, err := serve.LoadConfig(configPath, dbPath, serve.Overrides{
 			Listen:       serveFlags.listen,
 			PublicURL:    serveFlags.publicURL,
 			AuthToken:    serveFlags.authToken,
@@ -130,7 +129,6 @@ func startupURL(cfg serve.Config) string {
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	serveCmd.Flags().StringVar(&serveFlags.configPath, "config", "", "Path to YAML server config")
 	serveCmd.Flags().StringVar(&serveFlags.listen, "listen", "", "Override server.listen, for example 127.0.0.1:5678")
 	serveCmd.Flags().StringVar(&serveFlags.publicURL, "public-url", "", "Override server.public_url")
 	serveCmd.Flags().StringVar(&serveFlags.authToken, "auth-token", "", "Deprecated; DB-backed users replace token auth")

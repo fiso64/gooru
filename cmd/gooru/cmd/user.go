@@ -18,8 +18,7 @@ import (
 )
 
 var userCreateAdminFlags struct {
-	configPath string
-	username   string
+	username string
 }
 
 var userCmd = &cobra.Command{
@@ -38,11 +37,11 @@ var userCreateAdminCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get db path: %w", err)
 		}
-		cfg, err := serve.LoadConfig(userCreateAdminFlags.configPath, dbPath, serve.Overrides{DatabasePath: databasePath})
+		cfg, err := serve.LoadConfig(configPath, dbPath, serve.Overrides{DatabasePath: databasePath})
 		if err != nil {
 			return err
 		}
-		store, err := prepareAdminDatabase(cfg.Database.Path, verbose)
+		store, err := prepareAdminDatabase(cfg, verbose)
 		if err != nil {
 			return err
 		}
@@ -67,8 +66,9 @@ var userCreateAdminCmd = &cobra.Command{
 	},
 }
 
-func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) {
-	if strings.TrimSpace(dbPath) == "" {
+func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, error) {
+	dbPath := strings.TrimSpace(cfg.Database.Path)
+	if dbPath == "" {
 		return nil, errors.New("database.path is required")
 	}
 	if dir := filepath.Dir(dbPath); dir != "." && dir != "" {
@@ -84,30 +84,34 @@ func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) 
 			}
 		}
 	}
-	store, err := database.NewStore(dbPath, verbose)
+
+	// The admin path uses the same configured storage composition as serve and
+	// ordinary CLI commands. This keeps plaintext/encrypted SQLite selection and
+	// key handling out of feature code while still allowing create-admin to
+	// bootstrap a fresh database before a full Gooru client can be opened.
+	store, err := openConfiguredAuthStore(cfg, verbose)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to open configured admin database: %w", err)
 	}
-	if err := database.RunMigrations(store.DB); err != nil {
-		_ = store.Close()
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
-	}
-	if err := database.SecureDBFiles(dbPath); err != nil {
+	closeOnError := func(err error) (*database.Store, error) {
 		_ = store.Close()
 		return nil, err
 	}
+	if err := database.RunMigrations(store.DB); err != nil {
+		return closeOnError(fmt.Errorf("failed to migrate configured admin database: %w", err))
+	}
+	if err := database.SecureDBFiles(dbPath); err != nil {
+		return closeOnError(err)
+	}
 	if _, err := store.GetHashingStrategy(); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			_ = store.Close()
-			return nil, fmt.Errorf("failed to read hashing strategy: %w", err)
+			return closeOnError(fmt.Errorf("failed to read hashing strategy: %w", err))
 		}
 		if err := store.SetHashingStrategy(types.StrategyPartial); err != nil {
-			_ = store.Close()
-			return nil, fmt.Errorf("failed to save default hashing strategy: %w", err)
+			return closeOnError(fmt.Errorf("failed to save default hashing strategy: %w", err))
 		}
 		if err := database.SecureDBFiles(dbPath); err != nil {
-			_ = store.Close()
-			return nil, err
+			return closeOnError(err)
 		}
 	}
 	return store, nil
@@ -170,6 +174,5 @@ func readLineSecret(cmd *cobra.Command, reader *bufio.Reader, prompt string) (st
 func init() {
 	rootCmd.AddCommand(userCmd)
 	userCmd.AddCommand(userCreateAdminCmd)
-	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.configPath, "config", "", "Path to YAML server config")
 	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.username, "username", "", "Admin username")
 }
