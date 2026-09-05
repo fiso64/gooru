@@ -68,7 +68,7 @@ test('target defaults remain editable and explicit same-target selection reappli
   ]);
 
   const config = page.locator('.upload-config-card');
-  const targetPicker = config.getByLabel('Upload target');
+  const targetPicker = config.getByLabel('Upload target', { exact: true });
 
   await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toBeVisible();
   await expect(config.getByRole('button', { name: 'Remove source:upload' })).toBeVisible();
