@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
   import Icon from './Icon.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import UploadTargetPicker from './UploadTargetPicker.svelte';
+  import UploadMediaPreview from './UploadMediaPreview.svelte';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
@@ -62,40 +62,32 @@
   let dragActive = $state(false);
   let fileInput: HTMLInputElement | undefined;
   let tagDraft = $state('');
-  let previewURLs = $state<string[]>([]);
-  let activePreviewURLs: string[] = [];
+  let stagedPage = $state(0);
+  let queuePage = $state(0);
 
-  const stagedItems = $derived(uploadItems.filter((item: UploadItem) => item.status === 'staged'));
-  const queueItems = $derived(uploadItems.filter((item: UploadItem) => item.status !== 'staged'));
+  type IndexedUploadRow = { item: UploadItem; index: number };
+  const uploadListPageSize = 100;
+  const indexedItems = $derived(uploadItems.map((item: UploadItem, index: number) => ({ item, index })));
+  const stagedRows = $derived(indexedItems.filter((row: IndexedUploadRow) => row.item.status === 'staged'));
+  const queueRows = $derived(indexedItems.filter((row: IndexedUploadRow) => row.item.status !== 'staged'));
   const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
-  const queueBytes = $derived(queueItems.reduce((sum: number, item: UploadItem) => sum + item.size, 0));
+  const queueBytes = $derived(queueRows.reduce((sum: number, row: IndexedUploadRow) => sum + row.item.size, 0));
   const initialTags = $derived(parseTags(uploadTags));
   const selectedTargetID = $derived(effectiveUploadTargetID(targetID, targets));
+  const stagedPageCount = $derived(Math.max(1, Math.ceil(stagedRows.length / uploadListPageSize)));
+  const queuePageCount = $derived(Math.max(1, Math.ceil(queueRows.length / uploadListPageSize)));
+  const stagedVisibleRows = $derived.by(() => pageRows(stagedRows, stagedPage));
+  const queueVisibleRows = $derived.by(() => pageRows(queueRows, queuePage));
 
-  function clearPreviewURLs() {
-    for (const url of activePreviewURLs) if (url) URL.revokeObjectURL(url);
-    activePreviewURLs = [];
-    previewURLs = [];
-  }
-
-  function replacePreviewURLs(files: File[]) {
-    clearPreviewURLs();
-    activePreviewURLs = files.map((file: File) =>
-      file.type.startsWith('image/') || file.type.startsWith('video/') ? URL.createObjectURL(file) : ''
-    );
-    previewURLs = [...activePreviewURLs];
+  function pageRows(rows: IndexedUploadRow[], page: number) {
+    const start = Math.max(0, page) * uploadListPageSize;
+    return rows.slice(start, start + uploadListPageSize);
   }
 
   $effect(() => {
-    const files = uploadFiles;
-    if (files.length) {
-      replacePreviewURLs(files);
-      return;
-    }
-    if (!uploadItems.length) clearPreviewURLs();
+    if (stagedPage >= stagedPageCount) stagedPage = stagedPageCount - 1;
+    if (queuePage >= queuePageCount) queuePage = queuePageCount - 1;
   });
-
-  onDestroy(clearPreviewURLs);
 
   function chooseFiles() {
     fileInput?.click();
@@ -157,13 +149,6 @@
     return status.replace(/_/g, ' ');
   }
 
-  function stagedPreview(index: number) {
-    return previewURLs[index] ?? '';
-  }
-
-  function queuePreview(index: number) {
-    return previewURLs[index] ?? '';
-  }
 </script>
 
 <main class="main">
@@ -269,51 +254,49 @@
         </div>
       </section>
 
-      {#if stagedItems.length > 0}
+      {#if stagedRows.length > 0}
         <section>
           <div class="upload-list-head">
-            <div class="g-eyebrow">Staged · {stagedItems.length} {stagedItems.length === 1 ? 'file' : 'files'} · {formatBytes(stagedBytes)}</div>
+            <div class="g-eyebrow">Staged · {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'} · {formatBytes(stagedBytes)}</div>
             <div class="upload-list-actions">
               <button class="g-btn g-btn-sm" type="button" onclick={onClear}><Icon name="close" size={12} /> Clear staged</button>
               <button class="g-btn g-btn-primary g-btn-sm" type="submit" disabled={uploadBusy || Boolean(activeUploadJobID)}>
-                <Icon name="upload" size={12} /> Upload {stagedItems.length} {stagedItems.length === 1 ? 'file' : 'files'}
+                <Icon name="upload" size={12} /> Upload {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'}
               </button>
             </div>
           </div>
           <div class="g-card upload-list-card">
-            <div class="upload-list">
-              {#each stagedItems as item, index}
-                {@const preview = stagedPreview(index)}
+            <div class="upload-list" data-testid="staged-upload-list">
+              {#each stagedVisibleRows as row (row.index)}
+                {@const item = row.item}
                 <div class="upload-row upload-row-staged">
-                  <div class="thumb-tile">
-                    {#if preview && item.type?.startsWith('video/')}
-                      <!-- svelte-ignore a11y_media_has_caption -->
-                      <video src={preview} muted playsinline preload="metadata"></video>
-                    {:else if preview && item.type?.startsWith('image/')}
-                      <img src={preview} alt="" />
-                    {:else}
-                      <Icon name={itemIcon(item)} size={18} />
-                    {/if}
-                  </div>
+                  <UploadMediaPreview file={uploadFiles[row.index]} {item} />
                   <div><div class="name">{item.name}</div></div>
                   <div class="size">{formatBytes(item.size)}</div>
                   <div class="progress is-staged" aria-hidden="true"></div>
                   <div class="status">
-                    <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => onRemove(index)}>
+                    <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => onRemove(row.index)}>
                       <Icon name="close" size={11} />
                     </button>
                   </div>
                 </div>
               {/each}
             </div>
+            {#if stagedPageCount > 1}
+              <div class="upload-list-pager" aria-label="Staged upload pages">
+                <button class="g-btn g-btn-sm" type="button" disabled={stagedPage === 0} onclick={() => stagedPage -= 1}>Previous</button>
+                <span>Page {stagedPage + 1} of {stagedPageCount} · showing {stagedVisibleRows.length} at a time</span>
+                <button class="g-btn g-btn-sm" type="button" disabled={stagedPage + 1 >= stagedPageCount} onclick={() => stagedPage += 1}>Next</button>
+              </div>
+            {/if}
           </div>
         </section>
       {/if}
 
-      {#if queueItems.length > 0}
+      {#if queueRows.length > 0}
         <section class="upload-queue-section" aria-label={uploadStatus || 'Upload queue'}>
           <div class:has-active-job={Boolean(activeUploadJobID)} class="upload-list-head upload-queue-head">
-            <div class="g-eyebrow">Queue · {queueItems.length} {queueItems.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
+            <div class="g-eyebrow">Queue · {queueRows.length} {queueRows.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
             <div class="upload-list-actions upload-queue-actions">
               <button class="g-btn g-btn-sm" type="button" disabled title="Pause uploads coming soon"><Icon name="pause" size={12} /> Pause all</button>
               <button class="g-btn g-btn-sm" type="button" disabled={Boolean(activeUploadJobID)} onclick={onClear}><Icon name="close" size={12} /> Clear done</button>
@@ -330,20 +313,11 @@
             {/if}
           </div>
           <div class="g-card upload-list-card">
-            <div class="upload-list">
-              {#each queueItems as item, index}
-                {@const preview = queuePreview(index)}
+            <div class="upload-list" data-testid="upload-queue-list">
+              {#each queueVisibleRows as row (row.index)}
+                {@const item = row.item}
                 <div class="upload-row">
-                  <div class="thumb-tile">
-                    {#if preview && item.type?.startsWith('video/')}
-                      <!-- svelte-ignore a11y_media_has_caption -->
-                      <video src={preview} muted playsinline preload="metadata"></video>
-                    {:else if preview && item.type?.startsWith('image/')}
-                      <img src={preview} alt="" />
-                    {:else}
-                      <Icon name={itemIcon(item)} size={18} />
-                    {/if}
-                  </div>
+                  <UploadMediaPreview file={uploadFiles[row.index]} {item} />
                   <div>
                     <div class="name">{item.name}</div>
                     {#if item.error}<div class="upload-error">{item.error}</div>{/if}
@@ -356,9 +330,31 @@
                 </div>
               {/each}
             </div>
+            {#if queuePageCount > 1}
+              <div class="upload-list-pager" aria-label="Upload queue pages">
+                <button class="g-btn g-btn-sm" type="button" disabled={queuePage === 0} onclick={() => queuePage -= 1}>Previous</button>
+                <span>Page {queuePage + 1} of {queuePageCount} · showing {queueVisibleRows.length} at a time</span>
+                <button class="g-btn g-btn-sm" type="button" disabled={queuePage + 1 >= queuePageCount} onclick={() => queuePage += 1}>Next</button>
+              </div>
+            {/if}
           </div>
         </section>
       {/if}
     </form>
   </div>
 </main>
+
+
+<style>
+  .upload-list-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+</style>
