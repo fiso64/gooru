@@ -3,7 +3,6 @@ package cmd
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -12,14 +11,14 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
+	"gooru.local/gooru"
 	"gooru.local/internal/database"
 	"gooru.local/internal/serve"
 	"gooru.local/types"
 )
 
 var userCreateAdminFlags struct {
-	configPath string
-	username   string
+	username string
 }
 
 var userCmd = &cobra.Command{
@@ -38,11 +37,11 @@ var userCreateAdminCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get db path: %w", err)
 		}
-		cfg, err := serve.LoadConfig(userCreateAdminFlags.configPath, dbPath, serve.Overrides{DatabasePath: databasePath})
+		cfg, err := serve.LoadConfig(configPath, dbPath, serve.Overrides{DatabasePath: databasePath})
 		if err != nil {
 			return err
 		}
-		store, err := prepareAdminDatabase(cfg.Database.Path, verbose)
+		store, err := prepareAdminDatabase(cfg, verbose)
 		if err != nil {
 			return err
 		}
@@ -67,8 +66,9 @@ var userCreateAdminCmd = &cobra.Command{
 	},
 }
 
-func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) {
-	if strings.TrimSpace(dbPath) == "" {
+func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, error) {
+	dbPath := strings.TrimSpace(cfg.Database.Path)
+	if dbPath == "" {
 		return nil, errors.New("database.path is required")
 	}
 	if dir := filepath.Dir(dbPath); dir != "." && dir != "" {
@@ -84,31 +84,29 @@ func prepareAdminDatabase(dbPath string, verbose bool) (*database.Store, error) 
 			}
 		}
 	}
-	store, err := database.NewStore(dbPath, verbose)
+
+	// Initialize an absent/uninitialized database through the ordinary core
+	// initializer, then immediately reopen it through the configured storage
+	// policy. Protected mode therefore performs the same explicit plaintext ->
+	// encrypted migration as serve and normal CLI commands rather than letting
+	// this admin path choose a database implementation itself.
+	client, err := openConfiguredClient(cfg, verbose)
+	if errors.Is(err, gooru.ErrDBUninitialized) {
+		if err := gooru.Init(dbPath, types.StrategyPartial, verbose); err != nil {
+			return nil, fmt.Errorf("failed to initialize database: %w", err)
+		}
+		client, err = openConfiguredClient(cfg, verbose)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to prepare configured database: %w", err)
 	}
-	if err := database.RunMigrations(store.DB); err != nil {
-		_ = store.Close()
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+	if err := client.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close configured database client: %w", err)
 	}
-	if err := database.SecureDBFiles(dbPath); err != nil {
-		_ = store.Close()
-		return nil, err
-	}
-	if _, err := store.GetHashingStrategy(); err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			_ = store.Close()
-			return nil, fmt.Errorf("failed to read hashing strategy: %w", err)
-		}
-		if err := store.SetHashingStrategy(types.StrategyPartial); err != nil {
-			_ = store.Close()
-			return nil, fmt.Errorf("failed to save default hashing strategy: %w", err)
-		}
-		if err := database.SecureDBFiles(dbPath); err != nil {
-			_ = store.Close()
-			return nil, err
-		}
+
+	store, err := openConfiguredAuthStore(cfg, verbose)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open configured admin database: %w", err)
 	}
 	return store, nil
 }
@@ -170,6 +168,5 @@ func readLineSecret(cmd *cobra.Command, reader *bufio.Reader, prompt string) (st
 func init() {
 	rootCmd.AddCommand(userCmd)
 	userCmd.AddCommand(userCreateAdminCmd)
-	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.configPath, "config", "", "Path to YAML server config")
 	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.username, "username", "", "Admin username")
 }
