@@ -29,6 +29,18 @@ jobs:
         shell: bash
         run: |
           set +e
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/maintainer-28-opaque-url.py')
+          text = p.read_text()
+          bad = "''').write_text(Path('internal/serve/url_state_test.go').read_text().replace('\\\"encoding/json\\\"', '\\\"encoding/json\\\"\\n    \\\"errors\\\"'))"
+          if bad not in text:
+              bad = "''').write_text(Path('internal/serve/url_state_test.go').read_text().replace('\\\"encoding/json\\\"', '\\\"encoding/json\\\"\\\\n    \\\"errors\\\"'))"
+          replacement = "''')\np = Path('internal/serve/url_state_test.go')\np.write_text(p.read_text().replace('\\\"encoding/json\\\"', '\\\"encoding/json\\\"\\n    \\\"errors\\\"'))"
+          if bad not in text:
+              raise SystemExit('generator bug pattern not found')
+          p.write_text(text.replace(bad, replacement, 1))
+          PY
           python3 .github/maintainer-28-opaque-url.py > .github/maintainer-28-generator.log 2>&1
           status=$?
           if [ "$status" -ne 0 ]; then
