@@ -217,7 +217,6 @@ export function createLibraryWorkflow(
     selection = emptySelection();
     selectionAnchorID = '';
     activeFile = null;
-    resetPage();
     clearViewerPreloadCache();
   }
 
