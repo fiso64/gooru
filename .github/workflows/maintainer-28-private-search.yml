@@ -1,4 +1,4 @@
-name: Maintainer protected search integration
+name: Maintainer protected search validation
 
 on:
   push:
@@ -6,16 +6,13 @@ on:
       - fix/28-protected-browser-privacy
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  integrate:
-    if: github.actor != 'github-actions[bot]'
+  validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -25,81 +22,51 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply reviewed source corrections
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f'missing correction pattern in {path}: {old!r}')
-              p.write_text(text.replace(old, new, 1))
-
-          replace('frontend/src/lib/state/libraryWorkflow.svelte.ts',
-                  "import { get, writable } from 'svelte/store';",
-                  "import { writable } from 'svelte/store';")
-          replace('internal/serve/config.go',
-                  '\tOpaqueURLState bool   `yaml:"opaque_url_state"`\n', '')
-          replace('internal/serve/config.go',
-                  '\t\tDatabase:   DatabaseConfig{Path: dbPath},\n\t\tEncryption: EncryptionConfig{OpaqueURLState: true},\n',
-                  '\t\tDatabase: DatabaseConfig{Path: dbPath},\n')
-          replace('internal/serve/url_state.go',
-                  'const opaqueURLStateTTL = 24 * time.Hour',
-                  'const opaqueURLStateTTL = 30 * 24 * time.Hour')
-          replace('internal/serve/url_state.go',
-                  'if !cfg.Encryption.Enabled || !cfg.Encryption.OpaqueURLState || len(cfg.Encryption.Key) == 0 {',
-                  'if !cfg.Encryption.Enabled || len(cfg.Encryption.Key) == 0 {')
-          replace('internal/serve/url_state_test.go',
-                  '\tcfg.Encryption.OpaqueURLState = true\n', '')
-          replace('internal/serve/ui_config.go',
-                  '\t\tOpaqueURLState:           s.cfg.Encryption.Enabled && s.cfg.Encryption.OpaqueURLState,',
-                  '\t\tOpaqueURLState:           s.cfg.Encryption.Enabled,')
-
-          p = Path('docs/CONFIG.md')
-          text = p.read_text()
-          text = '\n'.join(line for line in text.splitlines() if '`encryption.opaque_url_state`' not in line) + '\n'
-          text = text.replace('With `encryption.opaque_url_state` enabled (the default), library query/sort/preview state is also sealed into an authenticated `state` token before entering browser history. Tokens contain no readable query/file state, are bound to the authenticated user, expire after 24 hours, survive server restarts while the same encryption key remains configured, and become unreadable after key rotation. Reload and back/forward work while a token remains valid; long-lived bookmarks intentionally do not have the same permanence as readable URLs.',
-                              'Library query/sort/preview state is also sealed into an authenticated `state` token before entering browser history. Tokens contain no readable query/file state, are bound to the authenticated user, expire after 30 days, survive server restarts while the same encryption key remains configured, and become unreadable after key rotation. Reload, back/forward, and ordinary bookmarks work while a token remains valid.')
-          p.write_text(text)
-          PY
-          rm -f .github/maintainer-28-generator.log
-          gofmt -w internal/serve/config.go internal/serve/ui_config.go internal/serve/url_state.go internal/serve/url_state_test.go
-      - name: Generate frontend API types
-        working-directory: frontend
-        run: |
-          npm ci --prefer-offline --no-audit
-          npm run generate:api
-      - name: Persist corrected source
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add internal/serve frontend/src/lib docs .github/maintainer-28-generator.log
-          git commit -m 'fix: harden protected WebUI URL state'
-          git push
       - name: Validate Go
-        id: go_test
+        id: go
         shell: bash
         run: |
           set -o pipefail
-          go test ./... 2>&1 | tee go-test.log
+          { go test ./... && go build ./...; } 2>&1 | tee go-validation.log
       - name: Upload Go diagnostics
-        if: failure() && steps.go_test.outcome == 'failure'
+        if: failure() && steps.go.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: go-test-diagnostics
-          path: go-test.log
+          name: go-validation-diagnostics
+          path: go-validation.log
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
       - name: Validate frontend
-        id: frontend_test
+        id: frontend
         shell: bash
         working-directory: frontend
         run: |
           set -o pipefail
-          { npm run check && npm run test:unit && npm run build; } 2>&1 | tee ../frontend-test.log
+          { npm run check && npm run test:unit && npm run build; } 2>&1 | tee ../frontend-validation.log
       - name: Upload frontend diagnostics
-        if: failure() && steps.frontend_test.outcome == 'failure'
+        if: failure() && steps.frontend.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-test-diagnostics
-          path: frontend-test.log
+          name: frontend-validation-diagnostics
+          path: frontend-validation.log
+      - name: Validate protected browser privacy
+        if: hashFiles('frontend/tests/protected-browser-privacy.spec.ts') != ''
+        id: browser
+        shell: bash
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          browser="$(command -v chromium || command -v chromium-browser || command -v google-chrome || command -v google-chrome-stable || true)"
+          if [ -z "$browser" ]; then
+            echo 'No Chromium executable found on self-hosted runner' | tee ../browser-validation.log
+            exit 1
+          fi
+          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$browser"
+          npx playwright test tests/protected-browser-privacy.spec.ts --project=chromium 2>&1 | tee ../browser-validation.log
+      - name: Upload browser diagnostics
+        if: failure() && steps.browser.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-validation-diagnostics
+          path: browser-validation.log
