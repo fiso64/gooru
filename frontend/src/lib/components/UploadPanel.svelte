@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import PageNav from './PageNav.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
@@ -7,6 +8,7 @@
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
+  import { partitionUploadRows, type IndexedUploadRow } from '$lib/state/uploadPanelRows';
 
   let {
     uploadFiles,
@@ -62,11 +64,17 @@
   let stagedPage = $state(0);
   let queuePage = $state(0);
 
-  type IndexedUploadRow = { item: UploadItem; index: number };
   const uploadListPageSize = 100;
   const indexedItems = $derived(uploadItems.map((item: UploadItem, index: number) => ({ item, index })));
-  const stagedRows = $derived(indexedItems.filter((row: IndexedUploadRow) => row.item.status === 'staged'));
-  const queueRows = $derived(indexedItems.filter((row: IndexedUploadRow) => row.item.status !== 'staged'));
+  const partitionedRows = $derived.by(() => {
+    const rows = indexedItems;
+    // Staged-vs-queue membership changes only when the workflow structurally
+    // replaces/adds/removes rows. Per-row status/progress changes should not
+    // make a 10K queue re-run its category filters.
+    return untrack(() => partitionUploadRows(rows));
+  });
+  const stagedRows = $derived(partitionedRows.staged);
+  const queueRows = $derived(partitionedRows.queue);
   const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
   const queueBytes = $derived(queueRows.reduce((sum: number, row: IndexedUploadRow) => sum + row.item.size, 0));
   const initialTags = $derived(parseTags(uploadTags));
