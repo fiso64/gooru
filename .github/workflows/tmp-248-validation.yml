@@ -1,0 +1,31 @@
+name: Temporary #248 validation
+
+on:
+  push:
+    branches:
+      - fix/248-upload-target-default-tag-regressions
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend check
+        run: npm run check
+      - name: Upload workflow unit tests
+        run: npm run test:unit -- uploadWorkflow.svelte.test.ts
+      - name: Focused upload browser regression
+        run: npm run test:e2e -- tests/upload-drop-control.spec.ts --project=chromium
