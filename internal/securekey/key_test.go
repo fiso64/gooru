@@ -1,6 +1,7 @@
 package securekey
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"os"
@@ -15,6 +16,40 @@ func encodedKey(fill byte) string {
 		key[i] = fill
 	}
 	return base64.StdEncoding.EncodeToString(key)
+}
+
+func TestDeriveBindsSubkeysToPurpose(t *testing.T) {
+	master := bytes.Repeat([]byte{0x42}, Size)
+	first, err := Derive(master, "gooru/test/first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := Derive(master, "gooru/test/first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Derive(master, "gooru/test/second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != again {
+		t.Fatal("same master and purpose must derive the same subkey")
+	}
+	if first == second {
+		t.Fatal("different purposes must derive different subkeys")
+	}
+	if bytes.Equal(first[:], master) {
+		t.Fatal("derived subkey must not equal the master key")
+	}
+}
+
+func TestDeriveRejectsInvalidInputs(t *testing.T) {
+	if _, err := Derive([]byte("short"), "gooru/test"); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("short master error = %v, want ErrInvalidKey", err)
+	}
+	if _, err := Derive(bytes.Repeat([]byte{0x11}, Size), "  "); err == nil {
+		t.Fatal("empty purpose must fail")
+	}
 }
 
 func TestLoadProcessIsOptIn(t *testing.T) {
