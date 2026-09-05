@@ -191,7 +191,12 @@ export function createUploadWorkflow() {
           const response = await mutate({
             files: [file],
             tags: parsedTags,
-            preferAsync: true,
+            // Each WebUI request already represents one file and is bounded by
+            // browserUploadConcurrency. Keep the request open through the
+            // typically short import so this row receives its final state as
+            // soon as the request finishes instead of creating a second,
+            // timer-driven job-status protocol for every file.
+            preferAsync: false,
             targetID: batchTargetID,
             conflictPolicy: batchConflictPolicy,
             addedAtStrategy: batchAddedAtStrategy,
@@ -206,6 +211,8 @@ export function createUploadWorkflow() {
             }
           });
           if ('id' in response) {
+            // Retain async-response compatibility for callers/servers that
+            // explicitly return jobs despite the WebUI's inline preference.
             trackedJobs = { ...trackedJobs, [response.id]: index };
             items = queuedItem(items, index);
             queued += 1;
