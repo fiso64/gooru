@@ -32,14 +32,19 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p = Path('.github/maintainer-28-opaque-url.py')
-          text = p.read_text()
-          bad = "''').write_text(Path('internal/serve/url_state_test.go').read_text().replace('\\\"encoding/json\\\"', '\\\"encoding/json\\\"\\n    \\\"errors\\\"'))"
-          if bad not in text:
-              bad = "''').write_text(Path('internal/serve/url_state_test.go').read_text().replace('\\\"encoding/json\\\"', '\\\"encoding/json\\\"\\\\n    \\\"errors\\\"'))"
-          replacement = "''')\np = Path('internal/serve/url_state_test.go')\np.write_text(p.read_text().replace('\\\"encoding/json\\\"', '\\\"encoding/json\\\"\\n    \\\"errors\\\"'))"
-          if bad not in text:
-              raise SystemExit('generator bug pattern not found')
-          p.write_text(text.replace(bad, replacement, 1))
+          lines = p.read_text().splitlines()
+          needle = "''').write_text(Path('internal/serve/url_state_test.go')"
+          for i, line in enumerate(lines):
+              if needle in line:
+                  lines[i:i+1] = [
+                      "''')",
+                      "p = Path('internal/serve/url_state_test.go')",
+                      "p.write_text(p.read_text().replace('\\\"encoding/json\\\"', '\\\"encoding/json\\\"\\n    \\\"errors\\\"'))",
+                  ]
+                  break
+          else:
+              raise SystemExit('generator bug line not found')
+          p.write_text('\n'.join(lines) + '\n')
           PY
           python3 .github/maintainer-28-opaque-url.py > .github/maintainer-28-generator.log 2>&1
           status=$?
