@@ -60,24 +60,33 @@ test('drop behavior control lives inside the drop zone without nested interactiv
   await expect(behavior.getByRole('button', { name: 'Auto-upload' })).toHaveClass(/is-active/);
 });
 
-test('target default tags pre-populate the upload form and remain editable', async ({ page }) => {
+test('target defaults remain editable and explicit same-target selection reapplies them', async ({ page }) => {
   await openUpload(page, [
-    { id: 'inbox', name: 'Inbox', default_tags: ['project:inbox', 'source:upload', '-project:archive'] },
-    { id: 'archive', name: 'Archive', default_tags: ['project:archive'] }
+    { id: 'inbox', name: 'Inbox', default_tags: ['project:inbox', 'source:upload'] },
+    { id: 'archive', name: 'Archive', default_tags: ['project:archive'] },
+    { id: 'plain', name: 'Plain' }
   ]);
 
   const config = page.locator('.upload-config-card');
-  await expect(config.getByText('project:', { exact: true })).toBeVisible();
-  await expect(config.getByText('inbox', { exact: true })).toBeVisible();
-  await expect(config.getByText('source:', { exact: true })).toBeVisible();
-  await expect(config.getByText('upload', { exact: true })).toBeVisible();
-  await expect(config.getByRole('button', { name: 'Remove -project:archive' })).toBeVisible();
+  const targetPicker = config.getByLabel('Upload target');
+
+  await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toBeVisible();
+  await expect(config.getByRole('button', { name: 'Remove source:upload' })).toBeVisible();
 
   await config.getByRole('button', { name: 'Remove project:inbox' }).click();
   await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toHaveCount(0);
+
+  await targetPicker.click();
+  await config.getByRole('option', { name: 'Inbox' }).click();
+  await expect(config.getByRole('button', { name: 'Remove project:inbox' })).toBeVisible();
   await expect(config.getByRole('button', { name: 'Remove source:upload' })).toBeVisible();
 
-  await config.getByRole('combobox').first().selectOption('archive');
+  await targetPicker.click();
+  await config.getByRole('option', { name: 'Archive' }).click();
   await expect(config.getByRole('button', { name: 'Remove source:upload' })).toHaveCount(0);
   await expect(config.getByRole('button', { name: 'Remove project:archive' })).toBeVisible();
+
+  await targetPicker.click();
+  await config.getByRole('option', { name: 'Plain' }).click();
+  await expect(config.getByRole('button', { name: 'Remove project:archive' })).toHaveCount(0);
 });
