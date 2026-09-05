@@ -1,121 +1,73 @@
-import createClient from 'openapi-fetch';
-import type { paths } from './openapi';
+import { absoluteBaseURL } from '$lib/api/baseURL';
+import { useProtectedReadTransport } from '$lib/api/privacy';
+import { apiErrorFromResponse, parseJSONResponse } from '$lib/api/response';
+import type { components } from '$lib/api/schema';
+import type { ComicManifest, FileItem, Job, SavedSearch, SavedSearchRequest, SuggestionsResponse, TagFacetResponse, TagsResponse, UploadBatchResponse, User } from '$lib/api/types';
+import type { FileSort, SortOrder } from '$lib/queries/files';
 import type { LibraryURLState } from '$lib/utils/appRoute';
-import { useProtectedReadTransport } from './privacy';
-import type {
-  ApiErrorResponse,
-  AuthMeResponse,
-  ComicManifest,
-  FileItem,
-  FileListResponse,
-  FileRemovalRequest,
-  FileRemovalResponse,
-  Job,
-  JobListResponse,
-  NamespacesResponse,
-  SavedSearch,
-  SavedSearchRequest,
-  SavedSearchesResponse,
-  SuggestionsResponse,
-  TagListResponse,
-  TagMutationOperation,
-  TagMutationRequest,
-  TagMutationResponse,
-  UploadImportResponse,
-  UploadTargetsResponse
-} from './types';
-
-type FileSort = 'added' | 'name' | 'modified' | 'size' | 'kind';
-type SortOrder = 'asc' | 'desc';
-type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
-type ClearableJobStatus = 'completed' | 'failed' | 'canceled';
-
-export class ApiError extends Error {
-  code: string;
-  status: number;
-
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.code = code;
-  }
-}
-
-let unauthorizedHandler: (() => void) | undefined;
-
-export function setUnauthorizedHandler(handler: (() => void) | undefined) {
-  unauthorizedHandler = handler;
-}
-
-export interface ListFilesParams {
-  query?: string;
-  limit?: number;
-  pageToken?: string;
-  sort?: FileSort;
-  order?: SortOrder;
-  includeFacets?: boolean;
-  signal?: AbortSignal;
-}
+import createClient from 'openapi-fetch';
+import type { paths } from '$lib/api/schema';
 
 export class ApiClient {
-  readonly baseURL: string;
-  readonly csrfToken: string;
-  private readonly client: ReturnType<typeof createClient<paths>>;
+  private readonly client;
 
-  constructor(csrfToken = '', baseURL = '/api/v1') {
-    this.baseURL = baseURL;
-    this.csrfToken = csrfToken;
-    this.client = createClient<paths>({ baseUrl: absoluteBaseURL(baseURL), credentials: 'same-origin', fetch: generatedFetch });
+  constructor(private readonly csrfToken = '', private readonly baseURL = '/api') {
+    this.client = createClient<paths>({ baseUrl: absoluteBaseURL(baseURL), credentials: 'same-origin' });
   }
 
-  async login(username: string, password: string): Promise<AuthMeResponse> {
+  private async unwrap<T>(request: Promise<{ data?: T; error?: unknown; response: Response }>): Promise<T> {
+    const { data, error, response } = await request;
+    if (!response.ok || error !== undefined || data === undefined) throw apiErrorFromResponse(response, error);
+    return data;
+  }
+
+  async bootstrap(signal?: AbortSignal): Promise<User> {
+    return this.unwrap(this.client.GET('/auth/me', { signal }));
+  }
+
+  async login(username: string, password: string): Promise<User> {
     return this.unwrap(this.client.POST('/auth/login', { body: { username, password } }));
   }
 
-  async me(): Promise<AuthMeResponse> {
-    return this.unwrap(this.client.GET('/auth/me'));
-  }
-
   async logout(): Promise<void> {
-    await this.unwrap(this.client.POST('/auth/logout', { params: { header: this.csrfHeaderParam('POST') } }));
+    await this.unwrap(this.client.POST('/auth/logout', { headers: { 'X-Gooru-CSRF': this.csrfToken } }));
   }
 
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {
-    await this.unwrap(
-      this.client.POST('/auth/change-password', {
-        params: { header: this.csrfHeaderParam('POST') },
-        body: { current_password: currentPassword, new_password: newPassword }
-      })
-    );
+    await this.unwrap(this.client.POST('/auth/password', { headers: { 'X-Gooru-CSRF': this.csrfToken }, body: { current_password: currentPassword, new_password: newPassword } }));
   }
 
-  async listFiles(params: ListFilesParams = {}): Promise<FileListResponse> {
-    if (useProtectedReadTransport()) {
-      return this.unwrap(
-        this.client.POST('/files/search', {
-          body: {
-            query: params.query || undefined,
-            limit: params.limit,
-            page_token: params.pageToken,
-            sort: params.sort,
-            order: params.order,
-            include_facets: params.includeFacets || undefined
-          },
-          signal: params.signal
-        })
-      );
-    }
+  async getFiles(params: {
+    q?: string;
+    limit?: number;
+    cursor?: string;
+    direction?: 'next' | 'prev';
+    sort?: FileSort;
+    order?: SortOrder;
+    offset?: number;
+    signal?: AbortSignal;
+  }) {
+    const body = {
+      q: params.q || undefined,
+      limit: params.limit,
+      cursor: params.cursor,
+      direction: params.direction,
+      sort: params.sort,
+      order: params.order,
+      offset: params.offset
+    };
+    if (useProtectedReadTransport()) return this.unwrap(this.client.POST('/search/files', { body, signal: params.signal }));
     return this.unwrap(
       this.client.GET('/files', {
         params: {
           query: {
-            query: params.query || undefined,
-            limit: params.limit,
-            page_token: params.pageToken,
-            sort: params.sort,
-            order: params.order,
-            include_facets: params.includeFacets || undefined
+            q: body.q,
+            limit: body.limit,
+            cursor: body.cursor,
+            direction: body.direction,
+            sort: body.sort,
+            order: body.order,
+            offset: body.offset
           }
         },
         signal: params.signal
@@ -123,11 +75,22 @@ export class ApiClient {
     );
   }
 
+  async getTags(params: { q?: string; limit?: number; offset?: number; signal?: AbortSignal }): Promise<TagsResponse> {
+    const body = { q: params.q || undefined, limit: params.limit, offset: params.offset };
+    if (useProtectedReadTransport()) return this.unwrap(this.client.POST('/search/tags', { body, signal: params.signal }));
+    return this.unwrap(this.client.GET('/tags', { params: { query: body }, signal: params.signal }));
+  }
+
+  async getFileFacets(q = '', signal?: AbortSignal): Promise<TagFacetResponse> {
+    if (useProtectedReadTransport()) return this.unwrap(this.client.POST('/search/facets', { body: { q: q || undefined }, signal }));
+    return this.unwrap(this.client.GET('/facets', { params: { query: { q: q || undefined } }, signal }));
+  }
+
   async createURLState(state: LibraryURLState, signal?: AbortSignal): Promise<string> {
     const response = await fetch(`${absoluteBaseURL(this.baseURL)}/ui-state`, {
       method: 'POST', credentials: 'same-origin', signal,
       headers: { 'Content-Type': 'application/json', 'X-Gooru-CSRF': this.csrfToken },
-      body: JSON.stringify({ query: state.query, kind: state.kind, sort: state.sort, order: state.order, file_id: state.fileID })
+      body: JSON.stringify({ query: state.query, kind: state.kind, sort: state.sort, order: state.order, file_id: state.fileID, page: state.page })
     });
     const payload = await parseJSONResponse<{ token?: string }>(response);
     if (!response.ok || !payload?.token) throw apiErrorFromResponse(response, payload);
@@ -136,9 +99,9 @@ export class ApiClient {
 
   async resolveURLState(token: string, signal?: AbortSignal): Promise<LibraryURLState> {
     const response = await fetch(`${absoluteBaseURL(this.baseURL)}/ui-state/${encodeURIComponent(token)}`, { credentials: 'same-origin', signal });
-    const payload = await parseJSONResponse<{ query?: string; kind?: string; sort?: FileSort; order?: SortOrder; file_id?: string }>(response);
+    const payload = await parseJSONResponse<{ query?: string; kind?: string; sort?: FileSort; order?: SortOrder; file_id?: string; page?: number }>(response);
     if (!response.ok || !payload) throw apiErrorFromResponse(response, payload);
-    return { query: payload.query ?? '', kind: payload.kind ?? '', sort: payload.sort ?? 'added', order: payload.order ?? 'desc', fileID: payload.file_id ?? '' };
+    return { query: payload.query ?? '', kind: payload.kind ?? '', sort: payload.sort ?? 'added', order: payload.order ?? 'desc', fileID: payload.file_id ?? '', page: payload.page ?? 1 };
   }
 
   async getFile(id: string, signal?: AbortSignal): Promise<FileItem> {
@@ -156,237 +119,83 @@ export class ApiClient {
       );
     }
     return this.unwrap(
-      this.client.GET('/search/suggestions', {
+      this.client.GET('/suggestions', {
         params: { query: { q: q || undefined, limit, existing: existing || undefined } },
         signal
       })
     );
   }
 
-  async tagNamespaces(): Promise<NamespacesResponse> {
-    return this.unwrap(this.client.GET('/tags/namespaces'));
+  async updateFileTags(id: string, tags: string[]): Promise<FileItem> {
+    return this.unwrap(this.client.PATCH('/files/{id}/tags', { params: { path: { id } }, headers: { 'X-Gooru-CSRF': this.csrfToken }, body: { tags } }));
   }
 
-  async listTags(counts = true, limit = 200): Promise<TagListResponse> {
-    return this.unwrap(this.client.GET('/tags', { params: { query: { counts, limit } } }));
+  async deleteFile(id: string): Promise<void> {
+    await this.unwrap(this.client.DELETE('/files/{id}', { params: { path: { id } }, headers: { 'X-Gooru-CSRF': this.csrfToken } }));
   }
 
-  async listSavedSearches(): Promise<SavedSearchesResponse> {
-    return this.unwrap(this.client.GET('/saved-searches'));
+  async untrackFile(id: string): Promise<void> {
+    await this.unwrap(this.client.DELETE('/files/{id}/tracking', { params: { path: { id } }, headers: { 'X-Gooru-CSRF': this.csrfToken } }));
   }
 
-  async createSavedSearch(body: SavedSearchRequest): Promise<SavedSearch> {
-    return this.unwrap<SavedSearch>(this.client.POST('/saved-searches', { params: { header: this.csrfHeaderParam('POST') }, body: savedSearchBody(body) }));
-  }
-
-  async updateSavedSearch(id: string, body: SavedSearchRequest): Promise<SavedSearch> {
-    return this.unwrap<SavedSearch>(
-      this.client.PUT('/saved-searches/{id}', { params: { header: this.csrfHeaderParam('PUT'), path: { id } }, body: savedSearchBody(body) })
-    );
-  }
-
-  async reorderSavedSearches(ids: string[]): Promise<void> {
-    await this.unwrap(
-      this.client.PUT('/saved-searches/reorder', { params: { header: this.csrfHeaderParam('PUT') }, body: { ids } })
-    );
-  }
-
-  async deleteSavedSearch(id: string): Promise<void> {
-    await this.unwrap(this.client.DELETE('/saved-searches/{id}', { params: { header: this.csrfHeaderParam('DELETE'), path: { id } } }));
-  }
-
-  async mutateTags(operation: TagMutationOperation, body: TagMutationRequest): Promise<TagMutationResponse> {
-    const requestBody = tagMutationBody(body);
-    if (operation === 'add') {
-      return this.unwrap<TagMutationResponse>(this.client.POST('/files/tags', { params: { header: this.csrfHeaderParam('POST') }, body: requestBody }));
-    }
-    if (operation === 'set') {
-      return this.unwrap<TagMutationResponse>(this.client.PUT('/files/tags', { params: { header: this.csrfHeaderParam('PUT') }, body: requestBody }));
-    }
-    return this.unwrap<TagMutationResponse>(this.client.DELETE('/files/tags', { params: { header: this.csrfHeaderParam('DELETE') }, body: requestBody }));
-  }
-
-  async removeFile(id: string, mode: 'untrack' | 'delete' = 'untrack'): Promise<void> {
-    await this.unwrap(
-      this.client.DELETE('/files/{id}', {
-        params: { header: this.csrfHeaderParam('DELETE'), path: { id } },
-        body: { mode }
-      })
-    );
-  }
-
-  async removeFiles(body: FileRemovalRequest): Promise<FileRemovalResponse> {
-    return this.unwrap<FileRemovalResponse>(
-      this.client.DELETE('/files', { params: { header: this.csrfHeaderParam('DELETE') }, body })
-    );
-  }
-
-  async getUploadTargets(): Promise<UploadTargetsResponse> {
-    return this.unwrap(this.client.GET('/upload-targets'));
-  }
-
-  async uploadFiles(
-    files: File[],
-    tags: string[] = [],
-    preferAsync = true,
-    targetID = '',
-    conflictPolicy = 'skip',
-    onProgress?: (progress: number) => void,
-    ordering: UploadOrderingMetadata = {}
-  ): Promise<Job | UploadImportResponse> {
+  async uploadFiles(files: File[], target: string, conflict: 'skip' | 'rename' | 'replace', onProgress?: (loaded: number, total: number) => void): Promise<UploadBatchResponse> {
     const form = new FormData();
-    for (const file of files) form.append('files', file, file.name);
-    for (const file of files) form.append('source_modtime_ms', String(file.lastModified));
-    if (tags.length) form.append('tags', tags.join(' '));
-    if (targetID) form.append('target_id', targetID);
-    if (conflictPolicy) form.append('conflict_policy', conflictPolicy);
-    if (ordering.addedAtStrategy) form.append('added_at_strategy', ordering.addedAtStrategy);
-    for (const value of ordering.queueTimeMs ?? []) if (Number.isFinite(value) && value > 0) form.append('queue_time_ms', String(Math.trunc(value)));
-    if (Number.isFinite(ordering.queueFirstTimeMs) && (ordering.queueFirstTimeMs ?? 0) > 0) form.append('queue_first_time_ms', String(Math.trunc(ordering.queueFirstTimeMs!)));
-    if (Number.isFinite(ordering.queueLastTimeMs) && (ordering.queueLastTimeMs ?? 0) > 0) form.append('queue_last_time_ms', String(Math.trunc(ordering.queueLastTimeMs!)));
-    for (const value of ordering.queueIndex ?? []) if (Number.isInteger(value) && value >= 0) form.append('queue_index', String(value));
-    for (const value of ordering.queueTotal ?? []) if (Number.isInteger(value) && value > 0) form.append('queue_total', String(value));
+    for (const file of files) form.append('files', file);
+    form.append('target', target);
+    form.append('conflict', conflict);
+    return this.uploadForm(form, onProgress);
+  }
 
-    return uploadMultipart<Job | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
-      csrfToken: this.csrfToken,
-      preferAsync,
-      onProgress
+  private uploadForm(form: FormData, onProgress?: (loaded: number, total: number) => void): Promise<UploadBatchResponse> {
+    return new Promise((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      request.open('POST', `${absoluteBaseURL(this.baseURL)}/uploads`);
+      request.withCredentials = true;
+      request.setRequestHeader('X-Gooru-CSRF', this.csrfToken);
+      request.upload.onprogress = (event) => onProgress?.(event.loaded, event.lengthComputable ? event.total : 0);
+      request.onerror = () => reject(new Error('Upload failed'));
+      request.onload = async () => {
+        let payload: UploadBatchResponse | null = null;
+        try { payload = request.responseText ? JSON.parse(request.responseText) as UploadBatchResponse : null; } catch { /* response helper below */ }
+        if (request.status < 200 || request.status >= 300 || !payload) {
+          reject(new Error(payload && 'error' in payload ? String((payload as { error?: string }).error ?? 'Upload failed') : `Upload failed (${request.status})`));
+          return;
+        }
+        resolve(payload);
+      };
+      request.send(form);
     });
   }
 
-  async getJob(id: string): Promise<Job> {
-    return this.unwrap(this.client.GET('/jobs/{id}', { params: { path: { id } } }));
+  async getUploadTargets(signal?: AbortSignal) {
+    return this.unwrap(this.client.GET('/upload-targets', { signal }));
   }
 
-  async listJobs(status: JobStatus | '' = ''): Promise<JobListResponse> {
-    return this.unwrap(this.client.GET('/jobs', { params: { query: { status: status || undefined } } }));
+  async getJobs(signal?: AbortSignal): Promise<Job[]> {
+    return this.unwrap(this.client.GET('/jobs', { signal }));
   }
 
   async cancelJob(id: string): Promise<Job> {
-    return this.unwrap(this.client.DELETE('/jobs/{id}', { params: { header: this.csrfHeaderParam('DELETE'), path: { id } } }));
+    return this.unwrap(this.client.POST('/jobs/{id}/cancel', { params: { path: { id } }, headers: { 'X-Gooru-CSRF': this.csrfToken } }));
   }
 
-  async clearJobs(status = 'completed'): Promise<{ removed: number }> {
-    const clearStatus = (['completed', 'failed', 'canceled'].includes(status) ? status : 'completed') as ClearableJobStatus;
-    return this.unwrap(this.client.DELETE('/jobs', { params: { header: this.csrfHeaderParam('DELETE'), query: { status: clearStatus } } }));
+  async listSavedSearches(signal?: AbortSignal): Promise<SavedSearch[]> {
+    return this.unwrap(this.client.GET('/saved-searches', { signal }));
   }
 
-  private csrfHeaderParam(method: string): { 'X-Gooru-CSRF': string } {
-    return { 'X-Gooru-CSRF': isMutatingMethod(method) ? this.csrfToken : '' };
+  async createSavedSearch(request: SavedSearchRequest): Promise<SavedSearch> {
+    return this.unwrap(this.client.POST('/saved-searches', { headers: { 'X-Gooru-CSRF': this.csrfToken }, body: request }));
   }
 
-  private async unwrap<T>(request: Promise<{ data?: unknown; error?: unknown; response: Response }>): Promise<T> {
-    const { data, error, response } = await request;
-    if (!response.ok) {
-      const payload = error as ApiErrorResponse | undefined;
-      const apiError = new ApiError(
-        response.status,
-        payload?.error.code ?? 'http_error',
-        payload?.error.message ?? `Request failed with HTTP ${response.status}`
-      );
-      if (response.status === 401) unauthorizedHandler?.();
-      throw apiError;
-    }
-    return data as T;
+  async updateSavedSearch(id: string, request: SavedSearchRequest): Promise<SavedSearch> {
+    return this.unwrap(this.client.PUT('/saved-searches/{id}', { params: { path: { id } }, headers: { 'X-Gooru-CSRF': this.csrfToken }, body: request }));
   }
-}
 
-export interface UploadOrderingMetadata {
-  addedAtStrategy?: 'queue' | 'reverse_queue' | 'modtime';
-  queueTimeMs?: number[];
-  queueFirstTimeMs?: number;
-  queueLastTimeMs?: number;
-  queueIndex?: number[];
-  queueTotal?: number[];
-}
-
-interface UploadMultipartOptions {
-  csrfToken: string;
-  preferAsync: boolean;
-  onProgress?: (progress: number) => void;
-}
-
-function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipartOptions): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url);
-    xhr.withCredentials = true;
-    if (options.csrfToken) xhr.setRequestHeader('X-Gooru-CSRF', options.csrfToken);
-    if (options.preferAsync) xhr.setRequestHeader('Prefer', 'respond-async');
-
-    xhr.upload.addEventListener('progress', (event) => {
-      if (!event.lengthComputable || event.total <= 0) return;
-      options.onProgress?.(Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100))));
-    });
-
-    xhr.addEventListener('load', () => {
-      const payload = parseXHRPayload(xhr.responseText);
-      if (xhr.status >= 200 && xhr.status < 300) {
-        options.onProgress?.(100);
-        resolve(payload as T);
-        return;
-      }
-      const errorPayload = payload as ApiErrorResponse | undefined;
-      const apiError = new ApiError(
-        xhr.status,
-        errorPayload?.error?.code ?? 'http_error',
-        errorPayload?.error?.message ?? `Request failed with HTTP ${xhr.status}`
-      );
-      if (xhr.status === 401) unauthorizedHandler?.();
-      reject(apiError);
-    });
-
-    xhr.addEventListener('error', () => reject(new ApiError(0, 'network_error', 'Network error while uploading files')));
-    xhr.addEventListener('abort', () => reject(new ApiError(0, 'request_aborted', 'Upload was canceled')));
-    xhr.send(form);
-  });
-}
-
-async function parseJSONResponse<T>(response: Response): Promise<T | undefined> {
-  try { return await response.json() as T; } catch { return undefined; }
-}
-
-function apiErrorFromResponse(response: Response, payload: unknown): ApiError {
-  const errorPayload = payload as ApiErrorResponse | undefined;
-  const error = new ApiError(response.status, errorPayload?.error?.code ?? 'http_error', errorPayload?.error?.message ?? `Request failed with HTTP ${response.status}`);
-  if (response.status === 401) unauthorizedHandler?.();
-  return error;
-}
-
-function parseXHRPayload(text: string): unknown {
-  if (!text) return undefined;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return undefined;
+  async deleteSavedSearch(id: string): Promise<void> {
+    await this.unwrap(this.client.DELETE('/saved-searches/{id}', { params: { path: { id } }, headers: { 'X-Gooru-CSRF': this.csrfToken } }));
   }
-}
 
-function isMutatingMethod(method: string): boolean {
-  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
-}
-
-function absoluteBaseURL(baseURL: string): string {
-  const origin = globalThis.location?.origin ?? 'http://localhost';
-  return new URL(baseURL, origin).href.replace(/\/$/, '');
-}
-
-function generatedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  return fetch(input, init);
-}
-
-function savedSearchBody(body: SavedSearchRequest) {
-  return {
-    name: body.name,
-    query: body.query,
-    sort: body.sort ?? 'added',
-    order: body.order ?? 'desc'
-  };
-}
-
-function tagMutationBody(body: TagMutationRequest) {
-  return {
-    ...body,
-    verbose: body.verbose ?? false
-  };
+  async reorderSavedSearches(ids: string[]): Promise<SavedSearch[]> {
+    return this.unwrap(this.client.PUT('/saved-searches/order', { headers: { 'X-Gooru-CSRF': this.csrfToken }, body: { ids } }));
+  }
 }
