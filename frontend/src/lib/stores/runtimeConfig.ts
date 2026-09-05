@@ -25,7 +25,7 @@ export function normalizeGridType(value: string | undefined): GridType {
 }
 
 export function effectiveGridSize(size: number, type: GridType) {
-  return size + (type === 'fit' ? 0 : denseGridSizeBoost);
+  return size + (type === 'square' ? 0 : denseGridSizeBoost);
 }
 
 export const runtimeConfig = writable<RuntimeConfig>({
