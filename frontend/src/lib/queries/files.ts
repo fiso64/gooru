@@ -11,8 +11,8 @@ export type SortOrder = 'asc' | 'desc';
 
 export const fileKeys = {
   all: ['files'] as const,
-  pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder) =>
-    ['files', 'pages', scope, query, kind, sort, order] as const,
+  pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder, limit: number, paged: boolean) =>
+    ['files', 'pages', scope, query, kind, sort, order, limit, paged ? 'paged' : 'infinite'] as const,
   count: (scope: number, query: string) => ['files', 'count', scope, query] as const,
   facets: (scope: number, query: string) => ['files', 'facets', scope, query] as const,
   suggestions: (scope: number, q: string, existing: string) => ['files', 'suggestions', scope, q, existing] as const
@@ -43,10 +43,12 @@ export function createFilesQuery(
   getSort: () => FileSort,
   getOrder: () => SortOrder,
   getAuthScope: () => number,
-  getEnabled: () => boolean
+  getEnabled: () => boolean,
+  getPageLimit: () => number = () => pageLimit,
+  getPaged: () => boolean = () => false
 ) {
   return createInfiniteQuery<FileListResponse, Error, InfiniteData<FileListResponse, string>, ReturnType<typeof fileKeys.pages>, string>(() => ({
-    ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope),
+    ...filesQueryOptions(getAuthenticated, getSearch, getKind, getSort, getOrder, getAuthScope, getPageLimit, getPaged),
     enabled: getAuthenticated() && getEnabled()
   }));
 }
@@ -97,16 +99,20 @@ export function filesQueryOptions(
   getKind: () => string,
   getSort: () => FileSort,
   getOrder: () => SortOrder,
-  getAuthScope: () => number
+  getAuthScope: () => number,
+  getPageLimit: () => number = () => pageLimit,
+  getPaged: () => boolean = () => false
 ) {
+  const limit = getPageLimit();
+  const paged = getPaged();
   return {
-    queryKey: fileKeys.pages(getAuthScope(), getSearch(), getKind(), getSort(), getOrder()),
+    queryKey: fileKeys.pages(getAuthScope(), getSearch(), getKind(), getSort(), getOrder(), limit, paged),
     enabled: getAuthenticated(),
     initialPageParam: '',
     queryFn: ({ pageParam, signal }: QueryFunctionContext<ReturnType<typeof fileKeys.pages>, string>) =>
       new ApiClient().listFiles({
         query: queryWithKind(getSearch(), getKind()),
-        limit: pageLimit,
+        limit,
         pageToken: pageParam || undefined,
         sort: getSort(),
         order: getOrder(),
@@ -115,9 +121,10 @@ export function filesQueryOptions(
       }),
     getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined,
     getPreviousPageParam: (firstPage: FileListResponse) => firstPage.previous_page_token || undefined,
-    // Keep fetched logical pages stable. Rendering is independently virtualized, so evicting
-    // query pages saves little DOM work but changes the logical prefix under the viewport and
-    // can repack already-visible grid items as the user scrolls.
+    // Paged mode deliberately retains one transport page. Infinite mode must keep its fetched
+    // logical prefix stable because rendering is independently virtualized and eviction can repack
+    // already-visible tile geometry.
+    ...(paged ? { maxPages: 1 } : {}),
     placeholderData: (previousData: InfiniteData<FileListResponse, string> | undefined) => previousData
   };
 }

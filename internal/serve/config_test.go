@@ -54,6 +54,24 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	}
 }
 
+func TestUIPaginationConfigDefaultsAndValidates(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	if cfg.UI.PaginationMode != "infinite" || cfg.UI.ItemsPerPage != 60 {
+		t.Fatalf("unexpected pagination defaults: mode=%q items=%d", cfg.UI.PaginationMode, cfg.UI.ItemsPerPage)
+	}
+	cfg.UI.PaginationMode = "paged"
+	cfg.UI.ItemsPerPage = MaxPageLimit
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate paged UI config: %v", err)
+	}
+	cfg.UI.PaginationMode = "pages"
+	cfg.UI.ItemsPerPage = MaxPageLimit + 1
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "ui.pagination_mode") || !strings.Contains(err.Error(), "ui.items_per_page") {
+		t.Fatalf("expected pagination validation errors, got %v", err)
+	}
+}
+
 func TestLoadConfigEncryptionKeyFile(t *testing.T) {
 	keyPath := filepath.Join(t.TempDir(), "encryption.key")
 	if err := os.WriteFile(keyPath, []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"), 0600); err != nil {

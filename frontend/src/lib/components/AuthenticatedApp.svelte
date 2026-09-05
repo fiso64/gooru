@@ -12,6 +12,7 @@
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient } from '$lib/api/client';
   import { authState } from '$lib/stores/auth';
+  import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import { createFileCountQuery, createFileFacetsQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
   import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
@@ -48,6 +49,7 @@
   let cancelRequestedJobID = $state('');
   let jobsDrawerOpen = $state(false);
   let nestedPreviewNavigation = $state(false);
+  let pagedPageIndex = $state(0);
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -70,7 +72,9 @@
     () => library.sort,
     () => library.order,
     () => authScope,
-    () => library.route === 'library'
+    () => library.route === 'library',
+    () => $runtimeConfig.itemsPerPage,
+    () => $runtimeConfig.paginationMode === 'paged'
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
@@ -93,11 +97,13 @@
   const updateSavedSearchMutation = createSavedSearchUpdateMutation(() => $authState.csrfToken, queryClient);
   const deleteSavedSearchMutation = createSavedSearchDeleteMutation(() => $authState.csrfToken, queryClient);
 
+  const pagedMode = $derived($runtimeConfig.paginationMode === 'paged');
   const loadedFiles = $derived(filesQuery.data?.pages.flatMap((page) => page.files) ?? []);
-  const retainedStartIndex = $derived(pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));
+  const retainedStartIndex = $derived(pagedMode ? 0 : pageTokenOffset(String(filesQuery.data?.pageParams[0] ?? '')));
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
   const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.sort}|${library.order}`);
   const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);
+  const pagedPageCount = $derived(Math.max(1, Math.ceil(currentTotalCount / $runtimeConfig.itemsPerPage)));
   const selectedCount = $derived(library.selectedCount(currentTotalCount));
 
   $effect(() => {
@@ -125,6 +131,16 @@
   $effect(() => {
     fileMetadataKey;
     fileMetadata = null;
+  });
+
+  $effect(() => {
+    authScope;
+    $submittedSearch;
+    library.sort;
+    library.order;
+    $runtimeConfig.paginationMode;
+    $runtimeConfig.itemsPerPage;
+    pagedPageIndex = 0;
   });
 
   $effect(() => {
@@ -383,6 +399,18 @@
     await new ApiClient($authState.csrfToken).changePassword(currentPassword, newPassword);
   }
 
+  async function loadNextFilesPage() {
+    if (!filesQuery.hasNextPage || filesQuery.isFetchingNextPage) return;
+    const result = await filesQuery.fetchNextPage();
+    if (pagedMode && !result.isError) pagedPageIndex += 1;
+  }
+
+  async function loadPreviousFilesPage() {
+    if (!filesQuery.hasPreviousPage || filesQuery.isFetchingPreviousPage) return;
+    const result = await filesQuery.fetchPreviousPage();
+    if (pagedMode && !result.isError) pagedPageIndex = Math.max(0, pagedPageIndex - 1);
+  }
+
   async function logout() {
     try {
       await new ApiClient($authState.csrfToken).logout();
@@ -490,6 +518,9 @@
         isFetchingNextPage={Boolean(filesQuery.isFetchingNextPage)}
         hasPreviousPage={Boolean(filesQuery.hasPreviousPage)}
         isFetchingPreviousPage={Boolean(filesQuery.isFetchingPreviousPage)}
+        {pagedMode}
+        pageNumber={pagedPageIndex + 1}
+        pageCount={pagedPageCount}
         bind:loadMoreSentinel
         onOpen={library.openPreview}
         onToggleSelect={library.toggleSelect}
@@ -499,8 +530,8 @@
         onBulkUntag={bulkUntagSelected}
         onBulkUntrack={bulkUntrackSelected}
         onBulkDelete={bulkDeleteSelected}
-        onLoadMore={() => { if (filesQuery.hasNextPage && !filesQuery.isFetchingNextPage) void filesQuery.fetchNextPage(); }}
-        onLoadPrevious={() => { if (filesQuery.hasPreviousPage && !filesQuery.isFetchingPreviousPage) void filesQuery.fetchPreviousPage(); }}
+        onLoadMore={loadNextFilesPage}
+        onLoadPrevious={loadPreviousFilesPage}
       >
         {#snippet actions()}
           <div class="library-head-actions">

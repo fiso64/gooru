@@ -133,6 +133,8 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
 | `ui.grid_size` | `200` | Base gallery cell size in pixels. Must be between `64` and `1024`. `fit` uses this value directly; `square` and `tile` receive a fixed 40px layout boost, so the default effective square width / tile row target is 240px. |
 | `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |
+| `ui.pagination_mode` | `infinite` | Library browsing mode: `infinite` incrementally appends results while scrolling; `paged` keeps only the current transport page in browser query state and shows Previous/Next controls. |
+| `ui.items_per_page` | `60` | Number of files requested per library page. Used by both modes as the transport page size; must be between `1` and `200`. In paged mode this is the visible page size. |
 | `ui.hidden_tags` | empty list | Tags whose files the WebUI excludes by default from library and filtered file views. If a query positively requests a hidden tag, that tag's default exclusion is lifted for the request while other hidden tags remain excluded. Library/result counts and kind facets follow the same visibility policy. Hidden tags remain available in tag browsing and search completions. This affects WebUI/API browsing only; it does not change core or CLI query semantics. |
 | `ui.viewer_fit_mode` | `fit_window` | Default viewer fit policy: `fit_window` (legacy alias `screen`) fills the available viewer bounds, `fit_down_only` never enlarges smaller media, `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down, and `actual` starts at original size. Press `V` to cycle the fit policies for the current browser session. |
 | `ui.viewer_scaling` | `smooth` | Browser-side image interpolation: `smooth` uses normal browser filtering and `nearest` uses nearest-neighbor/pixelated scaling. Press `S` in the viewer to toggle it for the current browser session. |
@@ -209,6 +211,8 @@ ui:
   font_style: editorial
   grid_size: 200
   grid_type: square
+  pagination_mode: infinite
+  items_per_page: 60
   hidden_tags: []
   viewer_fit_mode: fit_window
   viewer_scaling: smooth

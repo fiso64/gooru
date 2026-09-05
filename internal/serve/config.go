@@ -18,11 +18,13 @@ import (
 )
 
 const (
-	DefaultListenAddress = "127.0.0.1:5678"
-	DefaultGridSize      = 200
-	DefaultGridType      = "square"
-	MinGridSize          = 64
-	MaxGridSize          = 1024
+	DefaultListenAddress   = "127.0.0.1:5678"
+	DefaultGridSize        = 200
+	DefaultGridType        = "square"
+	DefaultPaginationMode  = "infinite"
+	DefaultItemsPerPage    = 60
+	MinGridSize            = 64
+	MaxGridSize            = 1024
 )
 
 type Config struct {
@@ -121,6 +123,8 @@ type UIConfig struct {
 	FullscreenMediaByDefault bool     `yaml:"fullscreen_media_by_default"`
 	ViewerFitMode            string   `yaml:"viewer_fit_mode"`
 	ViewerScaling            string   `yaml:"viewer_scaling"`
+	PaginationMode           string   `yaml:"pagination_mode"`
+	ItemsPerPage             int      `yaml:"items_per_page"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
@@ -178,7 +182,15 @@ func DefaultConfig(dbPath string) Config {
 		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
-		UI:      UIConfig{FontStyle: "editorial", GridSize: DefaultGridSize, GridType: DefaultGridType, ViewerFitMode: "fit_window", ViewerScaling: "smooth"},
+		UI: UIConfig{
+			FontStyle:       "editorial",
+			GridSize:        DefaultGridSize,
+			GridType:        DefaultGridType,
+			ViewerFitMode:   "fit_window",
+			ViewerScaling:   "smooth",
+			PaginationMode:  DefaultPaginationMode,
+			ItemsPerPage:    DefaultItemsPerPage,
+		},
 	}
 }
 
@@ -298,10 +310,8 @@ func (cfg *Config) Validate() error {
 	if cfg.Server.MaxRequestBodyBytes < 0 {
 		errs = append(errs, errors.New("server.max_request_body_bytes must be zero or greater"))
 	}
-	if cfg.Media.CacheDir != "" {
-		if !filepath.IsAbs(cfg.Media.CacheDir) {
-			errs = append(errs, errors.New("media.cache_dir must be absolute when set"))
-		}
+	if cfg.Media.CacheDir != "" && !filepath.IsAbs(cfg.Media.CacheDir) {
+		errs = append(errs, errors.New("media.cache_dir must be absolute when set"))
 	}
 	if len(cfg.Media.ThumbnailSizes) == 0 {
 		errs = append(errs, errors.New("media.thumbnail_sizes must contain at least one size"))
@@ -487,6 +497,18 @@ func (cfg *Config) Validate() error {
 	case "smooth", "nearest":
 	default:
 		errs = append(errs, errors.New("ui.viewer_scaling must be one of: smooth, nearest"))
+	}
+	cfg.UI.PaginationMode = strings.ToLower(strings.TrimSpace(cfg.UI.PaginationMode))
+	if cfg.UI.PaginationMode == "" {
+		cfg.UI.PaginationMode = DefaultPaginationMode
+	}
+	switch cfg.UI.PaginationMode {
+	case "infinite", "paged":
+	default:
+		errs = append(errs, errors.New("ui.pagination_mode must be one of: infinite, paged"))
+	}
+	if cfg.UI.ItemsPerPage <= 0 || cfg.UI.ItemsPerPage > MaxPageLimit {
+		errs = append(errs, fmt.Errorf("ui.items_per_page must be between 1 and %d", MaxPageLimit))
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"
