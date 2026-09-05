@@ -15,6 +15,17 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
+  min-width: 0;
+}
+
+.library-pager-step {
+  flex: 0 0 32px;
+  width: 32px;
+  min-width: 32px;
+  justify-content: center;
+  padding-inline: 0;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .library-page-button {
@@ -43,16 +54,26 @@
 
 @media (max-width: 720px) {
   .library-pager {
-    gap: 5px;
-    padding-inline: 12px;
+    gap: 4px;
+    padding-inline: 8px;
   }
 
   .library-pager-pages {
     gap: 2px;
   }
 
+  .library-pager-step,
   .library-page-button {
-    min-width: 30px;
-    padding-inline: 7px;
+    min-width: 28px;
+    width: 28px;
+    padding-inline: 0;
+  }
+
+  .library-pager-step {
+    flex-basis: 28px;
+  }
+
+  .library-pager-ellipsis {
+    min-width: 16px;
   }
 }
