@@ -84,19 +84,23 @@ export function createUploadWorkflow() {
     }
   }
 
-  function setTarget(value: string, defaultStrategy?: UploadAddedAtStrategy, defaultTags: string[] = []) {
+  function setTarget(value: string, defaultStrategy?: UploadAddedAtStrategy, defaultTags: string[] = [], explicitSelection = false) {
     const previousDefaults = new Set(managedDefaultTags);
-    const retained = parseTags(tags).filter((tag) => !previousDefaults.has(tag));
     const nextDefaults = Array.from(new Set(defaultTags.map((tag) => tag.trim()).filter(Boolean)));
-    const merged = [...retained];
-    const seen = new Set(merged);
-    for (const tag of nextDefaults) {
-      if (!seen.has(tag)) {
-        merged.push(tag);
-        seen.add(tag);
+    if ((explicitSelection || value === targetID) && nextDefaults.length > 0) {
+      tags = nextDefaults.join(' ');
+    } else {
+      const retained = parseTags(tags).filter((tag) => !previousDefaults.has(tag));
+      const merged = [...retained];
+      const seen = new Set(merged);
+      for (const tag of nextDefaults) {
+        if (!seen.has(tag)) {
+          merged.push(tag);
+          seen.add(tag);
+        }
       }
+      tags = merged.join(' ');
     }
-    tags = merged.join(' ');
     managedDefaultTags = nextDefaults;
     targetID = value;
     if (defaultStrategy) addedAtStrategy = defaultStrategy;
@@ -144,7 +148,6 @@ export function createUploadWorkflow() {
 
   function finishBatch() {
     files = [];
-    tags = '';
     status = uploadSummary(items) || 'Upload finished';
   }
 
