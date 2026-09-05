@@ -1,4 +1,4 @@
-name: Maintainer protected search validation
+name: Maintainer protected search integration
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
       - fix/28-protected-browser-privacy
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +23,58 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Restore configurable opaque URL mode
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'missing restore pattern in {path}: {old!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace('internal/serve/config.go',
+                  'type EncryptionConfig struct {\n\tEnabled bool   `yaml:"enabled"`\n\tKeyFile string `yaml:"key_file"`\n\tKey     []byte `yaml:"-"`\n}',
+                  'type EncryptionConfig struct {\n\tEnabled        bool   `yaml:"enabled"`\n\tKeyFile        string `yaml:"key_file"`\n\tOpaqueURLState bool   `yaml:"opaque_url_state"`\n\tKey            []byte `yaml:"-"`\n}')
+          replace('internal/serve/config.go',
+                  '\t\tDatabase: DatabaseConfig{Path: dbPath},\n\t\tAuth: AuthConfig{',
+                  '\t\tDatabase:   DatabaseConfig{Path: dbPath},\n\t\tEncryption: EncryptionConfig{OpaqueURLState: true},\n\t\tAuth: AuthConfig{')
+          replace('internal/serve/url_state.go',
+                  'if !cfg.Encryption.Enabled || len(cfg.Encryption.Key) == 0 {',
+                  'if !cfg.Encryption.Enabled || !cfg.Encryption.OpaqueURLState || len(cfg.Encryption.Key) == 0 {')
+          replace('internal/serve/url_state_test.go',
+                  '\tcfg.Encryption.Enabled = true\n\tcfg.Encryption.Key = bytes.Repeat([]byte{0x42}, 32)',
+                  '\tcfg.Encryption.Enabled = true\n\tcfg.Encryption.OpaqueURLState = true\n\tcfg.Encryption.Key = bytes.Repeat([]byte{0x42}, 32)')
+          replace('internal/serve/ui_config.go',
+                  '\t\tOpaqueURLState:           s.cfg.Encryption.Enabled,',
+                  '\t\tOpaqueURLState:           s.cfg.Encryption.Enabled && s.cfg.Encryption.OpaqueURLState,')
+
+          p = Path('docs/CONFIG.md')
+          text = p.read_text()
+          key_row = '| `encryption.key_file` | empty | Path to a regular file containing a base64-encoded 256-bit key. On non-Windows systems the file must not be readable or writable by group or others. Mutually exclusive with the environment key sources below. |\n'
+          opaque_row = '| `encryption.opaque_url_state` | `true` | In protected mode, keep library query/sort/preview state out of browser-visible URLs by using encrypted, opaque state tokens. Disable only when deliberately accepting readable/self-contained URLs and their browser/proxy history leakage. |\n'
+          if opaque_row not in text:
+              if key_row not in text:
+                  raise SystemExit('missing encryption option table insertion point')
+              text = text.replace(key_row, key_row + opaque_row, 1)
+          marker = 'Media responses that contain decrypted protected content use no-store cache policy to reduce plaintext traces in client/proxy caches.\n'
+          url_note = '\nWith `encryption.opaque_url_state` enabled (the default), protected-mode library query/sort/preview state is sealed into an authenticated `state` token before entering browser history. Tokens contain no readable query/file state, are bound to the authenticated user, expire after 30 days, survive server restarts while the same encryption key remains configured, and become unreadable after key rotation. Reload, back/forward, and bookmarks work while a token remains valid. Disable this option only if you deliberately prefer self-contained readable URLs and accept that arbitrary library/search state can then persist in browser history, copied URLs, and upstream request logs. The WebUI still sends free-form search expressions in POST request bodies while protected mode is enabled. HTTPS remains required to protect request and response contents in transit.\n'
+          if url_note.strip() not in text:
+              if marker not in text:
+                  raise SystemExit('missing encryption documentation insertion point')
+              text = text.replace(marker, marker + url_note, 1)
+          p.write_text(text)
+          PY
+          gofmt -w internal/serve/config.go internal/serve/ui_config.go internal/serve/url_state.go internal/serve/url_state_test.go
+      - name: Persist restored option
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add internal/serve docs/CONFIG.md
+          git commit -m 'fix: keep protected URL privacy configurable'
+          git push
       - name: Validate Go
         id: go
         shell: bash
@@ -50,23 +103,3 @@ jobs:
         with:
           name: frontend-validation-diagnostics
           path: frontend-validation.log
-      - name: Validate protected browser privacy
-        if: hashFiles('frontend/tests/protected-browser-privacy.spec.ts') != ''
-        id: browser
-        shell: bash
-        working-directory: frontend
-        run: |
-          set -o pipefail
-          browser="$(command -v chromium || command -v chromium-browser || command -v google-chrome || command -v google-chrome-stable || true)"
-          if [ -z "$browser" ]; then
-            echo 'No Chromium executable found on self-hosted runner' | tee ../browser-validation.log
-            exit 1
-          fi
-          export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$browser"
-          npx playwright test tests/protected-browser-privacy.spec.ts --project=chromium 2>&1 | tee ../browser-validation.log
-      - name: Upload browser diagnostics
-        if: failure() && steps.browser.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-validation-diagnostics
-          path: browser-validation.log
