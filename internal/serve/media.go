@@ -22,6 +22,7 @@ import (
 	_ "image/gif"
 
 	"golang.org/x/image/draw"
+	"gooru.local/internal/filesource"
 	"gooru.local/types"
 )
 
@@ -73,13 +74,15 @@ func (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Wr
 }
 
 type MediaService struct {
-	cfg         Config
-	thumbnailer Thumbnailer
-	cacheMu     sync.Mutex
-	cacheLocks  map[string]*cacheLock
-	comicMu     sync.Mutex
-	comicCache  map[string]*cachedComicArchive
-	comicTick   uint64
+	cfg               Config
+	thumbnailer       Thumbnailer
+	sourceResolver    *filesource.Resolver
+	sourceResolverErr error
+	cacheMu           sync.Mutex
+	cacheLocks        map[string]*cacheLock
+	comicMu           sync.Mutex
+	comicCache        map[string]*cachedComicArchive
+	comicTick         uint64
 }
 
 type cacheLock struct {
@@ -88,7 +91,24 @@ type cacheLock struct {
 }
 
 func NewMediaService(cfg Config) *MediaService {
-	return &MediaService{cfg: cfg, thumbnailer: NewMediaThumbnailer(cfg)}
+	resolver, resolverErr := newMediaSourceResolver(cfg)
+	return &MediaService{
+		cfg:               cfg,
+		thumbnailer:       NewMediaThumbnailer(cfg),
+		sourceResolver:    resolver,
+		sourceResolverErr: resolverErr,
+	}
+}
+
+func newMediaSourceResolver(cfg Config) (*filesource.Resolver, error) {
+	if !cfg.Encryption.Enabled {
+		return filesource.NewFilesystem(), nil
+	}
+	roots := make([]string, 0, len(cfg.Uploads.Targets))
+	for _, target := range cfg.Uploads.Targets {
+		roots = append(roots, target.Path)
+	}
+	return filesource.NewProtected(cfg.Encryption.Key, roots)
 }
 
 func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
