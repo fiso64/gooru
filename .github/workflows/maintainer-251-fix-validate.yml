@@ -1,0 +1,69 @@
+name: Maintainer 251 fix validate
+
+on:
+  push:
+    branches: [feat/251-viewer-fit-modes]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/251-viewer-fit-modes
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply self-review corrections
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          def change(path, old, new):
+              p = Path(path); text = p.read_text()
+              if old not in text: raise SystemExit('missing anchor: ' + path)
+              p.write_text(text.replace(old, new, 1))
+          change('frontend/src/lib/components/ViewerStage.svelte',
+              '      if (playbackControlsTimer) clearTimeout(playbackControlsTimer);\n      if (cursorIdleTimer) clearTimeout(cursorIdleTimer);\n    };',
+              '      if (playbackControlsTimer) clearTimeout(playbackControlsTimer);\n      if (cursorIdleTimer) clearTimeout(cursorIdleTimer);\n      if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);\n    };')
+          change('frontend/src/lib/state/viewerSessionPreferences.test.ts',
+              "  it('ignores malformed, stale, and invalid saved values', () => {",
+              "  it('migrates the legacy screen fit preference to fit_window', () => {\n    const storage = memoryStorage(JSON.stringify({ version: 1, fitMode: 'screen' }));\n    expect(readViewerSessionPreferences(defaults, storage).fitMode).toBe('fit_window');\n  });\n\n  it('ignores malformed, stale, and invalid saved values', () => {")
+          p = Path('docs/CONFIG.md'); text = p.read_text()
+          anchor = '| `ui.grid_size` | `180` | Minimum media-grid cell width in pixels. Must be between `64` and `1024`. The grid remains fluid: cells expand to fill each row rather than becoming fixed-width. |\n'
+          row = '| `ui.viewer_fit_mode` | `fit_window` | Default viewer scaling policy: `fit_window` fills the available viewer bounds, `fit_down_only` never enlarges smaller media, and `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down. Press `V` in the viewer to cycle these policies for the current browser session. |\n'
+          if '`ui.viewer_fit_mode` |' not in text:
+              if anchor not in text: raise SystemExit('missing config table anchor')
+              text = text.replace(anchor, anchor + row, 1)
+          marker = '\n### Viewer fit mode\n\n`ui.viewer_fit_mode` controls the viewer default: `fit_window` (current contain behavior), `fit_down_only` (never upscale), or `original_size_if_fit` (use 1:1 when it fits, otherwise scale down). Press `V` in the viewer to cycle the configured fit policies for the current browser session.\n'
+          text = text.replace(marker, '\n')
+          p.write_text(text)
+          Path('.github/workflows/maintainer-251-fix-validate.yml').unlink()
+          PY
+          git config user.name 'Gooru Maintainer'
+          git config user.email 'maintainer@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(webui): tighten viewer fit mode integration'
+          git push origin HEAD:feat/251-viewer-fit-modes
+      - name: Go tests
+        run: go test ./...
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend check and unit tests
+        working-directory: frontend
+        run: npm run check && npm run test:unit
+      - name: Focused Chromium regression
+        working-directory: frontend
+        run: |
+          chromium=$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)
+          test -n "$chromium"
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$chromium" npx playwright test tests/viewer-fit-mode.spec.ts --project=chromium
