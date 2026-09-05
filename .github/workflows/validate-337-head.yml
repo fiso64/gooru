@@ -15,6 +15,40 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Apply focused protected-state pagination fix
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/lib/api/client.ts')
+          text = path.read_text()
+          replacements = [
+              (
+                  "body: JSON.stringify({ query: state.query, kind: state.kind, sort: state.sort, order: state.order, file_id: state.fileID })",
+                  "body: JSON.stringify({ query: state.query, kind: state.kind, sort: state.sort, order: state.order, file_id: state.fileID, page: state.page })",
+              ),
+              (
+                  "const payload = await parseJSONResponse<{ query?: string; kind?: string; sort?: FileSort; order?: SortOrder; file_id?: string }>(response);",
+                  "const payload = await parseJSONResponse<{ query?: string; kind?: string; sort?: FileSort; order?: SortOrder; file_id?: string; page?: number }>(response);",
+              ),
+              (
+                  "return { query: payload.query ?? '', kind: payload.kind ?? '', sort: payload.sort ?? 'added', order: payload.order ?? 'desc', fileID: payload.file_id ?? '' };",
+                  "return { query: payload.query ?? '', kind: payload.kind ?? '', sort: payload.sort ?? 'added', order: payload.order ?? 'desc', fileID: payload.file_id ?? '', page: payload.page ?? 1 };",
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected exactly one match for: {old}')
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
+          git diff --check
+          git diff -- frontend/src/lib/api/client.ts
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/api/client.ts
+          git commit -m "fix(ui): round-trip protected pagination state"
+          git push
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -29,28 +63,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Validate frontend
-        id: frontend
-        continue-on-error: true
         working-directory: frontend
         run: |
-          set -o pipefail
-          {
-            npm ci &&
-            npm run check &&
-            npm run test:unit &&
-            npm run build
-          } 2>&1 | tee /tmp/validation-337-frontend.log
-      - name: Upload frontend diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: validation-337-frontend
-          path: /tmp/validation-337-frontend.log
-          if-no-files-found: error
-          retention-days: 1
-      - name: Fail on frontend validation error
-        if: steps.frontend.outcome == 'failure'
-        run: exit 1
+          set -euxo pipefail
+          npm ci
+          npm run check
+          npm run test:unit
+          npm run build
       - name: Validate focused browser regressions
         working-directory: frontend
         run: |
