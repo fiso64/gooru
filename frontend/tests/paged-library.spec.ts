@@ -44,10 +44,13 @@ async function mockPagedLibrary(page: Page, fileCount = 273) {
     const limit = Number(url.searchParams.get('limit') ?? '0');
     requests.push({ offset, limit });
     const files = allFiles.slice(offset, offset + limit);
+    const includeFacets = url.searchParams.get('include_facets') === 'true';
+    const hasNext = offset + limit < allFiles.length;
+    const totalCount = includeFacets ? allFiles.length : offset + files.length + (hasNext ? 1 : 0);
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
-      files, total_count: allFiles.length, library_count: allFiles.length,
-      facets: offset === 0 ? { kind: [{ value: 'photo', count: allFiles.length }] } : undefined,
-      next_page_token: offset + limit < allFiles.length ? String(offset + limit) : undefined,
+      files, total_count: totalCount, library_count: includeFacets ? allFiles.length : 0,
+      facets: includeFacets ? { kind: [{ value: 'photo', count: allFiles.length }] } : undefined,
+      next_page_token: hasNext ? String(offset + limit) : undefined,
       previous_page_token: offset > 0 ? String(Math.max(0, offset - limit)) : undefined
     }) });
   });
@@ -112,6 +115,7 @@ test('paged mode restores a direct page URL and browser history', async ({ page 
   await expect(page.getByText('273 files')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Page 4', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page).toHaveURL(/[?&]page=4(?:&|$)/);
+  await expect(page.getByRole('button', { name: 'Page 11', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Page 2', exact: true }).click();
   await expect(page).toHaveURL(/[?&]page=2(?:&|$)/);

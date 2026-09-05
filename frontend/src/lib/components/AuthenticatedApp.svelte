@@ -80,6 +80,7 @@
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
+  const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && $runtimeConfig.paginationMode === 'paged');
   const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
   const comicLibraryCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => library.route === 'library');
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
@@ -145,7 +146,9 @@
 
   $effect(() => {
     fileMetadataKey;
-    const metadataPage = filesQuery.data?.pages.find((page) => page.facets) ?? filesQuery.data?.pages[0];
+    const metadataPage = pagedMode
+      ? pagedMetadataQuery.data
+      : filesQuery.data?.pages.find((page) => page.facets);
     if (!metadataPage) return;
     fileMetadata = {
       total_count: metadataPage.total_count,
