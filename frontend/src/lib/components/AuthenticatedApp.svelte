@@ -23,7 +23,8 @@
     createSuggestionsQuery,
     createTagsQuery,
     createUploadMutation,
-    createUploadTargetsQuery
+    createUploadTargetsQuery,
+    refreshUploadQueries
   } from '$lib/queries/library';
   import { createLibraryWorkflow } from '$lib/state/libraryWorkflow.svelte';
   import { selectionRequest } from '$lib/state/selection';
@@ -92,7 +93,7 @@
   const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);
   const fileRemovalMutation = createFileRemovalMutation(() => $authState.csrfToken, queryClient);
   const filesRemovalMutation = createFilesRemovalMutation(() => $authState.csrfToken, queryClient);
-  const uploadMutation = createUploadMutation(() => $authState.csrfToken, queryClient);
+  const uploadMutation = createUploadMutation(() => $authState.csrfToken);
   const cancelJobMutation = createCancelJobMutation(() => $authState.csrfToken, queryClient);
   const clearJobsMutation = createClearJobsMutation(() => $authState.csrfToken, queryClient);
   const createSavedSearchMutation = createSavedSearchCreateMutation(() => $authState.csrfToken, queryClient);
@@ -158,6 +159,7 @@
     const job = uploadJobQuery.data;
     if (!job) return;
     const result = upload.applyJob(job);
+    if (result.changedFiles) void refreshUploadQueries(queryClient);
     if (result.completed) void jobsQuery.refetch();
   });
 
@@ -316,6 +318,7 @@
     cancelRequestedJobID = '';
     try {
       const result = await upload.submit((variables) => uploadMutation.mutateAsync(variables));
+      if (result.changedFiles) await refreshUploadQueries(queryClient);
       if (result.queued) void jobsQuery.refetch();
     } finally {
       uploadMutation.reset();
