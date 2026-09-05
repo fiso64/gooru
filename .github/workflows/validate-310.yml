@@ -14,103 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend:
+  validate:
     name: Page-turn regression
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply keyset pagination fix once
-        shell: bash
+      - name: Apply patch helper once
         run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          types = Path('types/types.go')
-          text = types.read_text()
-          old = '''type PageCursor struct {\n\tSort  string `json:"sort"`\n\tOrder string `json:"order"`\n\tID    int64  `json:"id"`\n}\n'''
-          new = '''type PageCursor struct {\n\tSort   string `json:"sort"`\n\tOrder  string `json:"order"`\n\tID     int64  `json:"id"`\n\tOffset int    `json:"offset,omitempty"`\n}\n'''
-          if old in text:
-              types.write_text(text.replace(old, new, 1))
-
-          pagination = Path('internal/serve/pagination.go')
-          text = pagination.read_text()
-          text = text.replace('return Page{Limit: limit, Cursor: &cursor}, nil', 'return Page{Limit: limit, Offset: cursor.Offset, Cursor: &cursor}, nil')
-          old = '''func CursorPageToken(sort string, order string, id int64) string {\n\tif id <= 0 {\n\t\treturn ""\n\t}\n\tpayload, err := json.Marshal(types.PageCursor{Sort: sort, Order: order, ID: id})\n\tif err != nil {\n\t\treturn ""\n\t}\n\treturn base64.RawURLEncoding.EncodeToString(payload)\n}\n'''
-          new = '''func CursorPageToken(sort string, order string, id int64) string {\n\treturn CursorPageTokenAtOffset(sort, order, id, 0)\n}\n\nfunc CursorPageTokenAtOffset(sort string, order string, id int64, offset int) string {\n\tif id <= 0 || offset < 0 {\n\t\treturn ""\n\t}\n\tpayload, err := json.Marshal(types.PageCursor{Sort: sort, Order: order, ID: id, Offset: offset})\n\tif err != nil {\n\t\treturn ""\n\t}\n\treturn base64.RawURLEncoding.EncodeToString(payload)\n}\n'''
-          if old in text:
-              text = text.replace(old, new, 1)
-          text = text.replace('''\tif cursor.ID <= 0 {\n\t\treturn nil, fmt.Errorf("page_token is invalid")\n\t}\n''', '''\tif cursor.ID <= 0 || cursor.Offset < 0 {\n\t\treturn nil, fmt.Errorf("page_token is invalid")\n\t}\n''', 1)
-          pagination.write_text(text)
-
-          browse = Path('internal/serve/browse.go')
-          text = browse.read_text()
-          old = '''\tif len(result.Items) > page.Limit {\n\t\tresult.Items = result.Items[:page.Limit]\n\t\tif cursor != nil {\n\t\t\tlast := result.Items[len(result.Items)-1]\n\t\t\tresult.NextPageToken = CursorPageToken(sort, order, last.ID)\n\t\t} else {\n\t\t\tresult.NextPageToken = NextPageToken(page.Offset, page.Limit, page.Limit)\n\t\t}\n\t}\n'''
-          new = '''\tif len(result.Items) > page.Limit {\n\t\tresult.Items = result.Items[:page.Limit]\n\t\tlast := result.Items[len(result.Items)-1]\n\t\tresult.NextPageToken = CursorPageTokenAtOffset(sort, order, last.ID, page.Offset+page.Limit)\n\t}\n'''
-          if old in text:
-              browse.write_text(text.replace(old, new, 1))
-
-          tests = Path('internal/serve/browse_test.go')
-          text = tests.read_text()
-          old = '''\tif !strings.HasPrefix(string(decodedToken), "offset:") {\n\t\tt.Fatalf("file search should use offset token for bidirectional UI paging, got %q", string(decodedToken))\n\t}\n'''
-          new = '''\tif strings.HasPrefix(string(decodedToken), "offset:") {\n\t\tt.Fatalf("file search should advance with a stable cursor token, got %q", string(decodedToken))\n\t}\n\tparsedPage, err := ParsePage("1", page.NextPageToken)\n\tif err != nil || parsedPage.Cursor == nil || parsedPage.Offset != 1 {\n\t\tt.Fatalf("expected cursor token with retained logical offset, page=%+v err=%v", parsedPage, err)\n\t}\n'''
-          if old in text:
-              text = text.replace(old, new, 1)
-          marker = 'func TestBrowseIncludesCountsFacetsAndCachedMetadata(t *testing.T) {'
-          if 'TestBrowseCursorRemainsStableWhenEarlierRowsAreInserted' not in text:
-              test = r'''func TestBrowseCursorRemainsStableWhenEarlierRowsAreInserted(t *testing.T) {
-\tserver, cleanup := newTestBrowseServer(t)
-\tdefer cleanup()
-
-\tfirstRec := httptest.NewRecorder()
-\tserver.Handler().ServeHTTP(firstRec, authedRequest(http.MethodGet, "/api/v1/files?sort=name&order=asc&limit=1"))
-\tif firstRec.Code != http.StatusOK {
-\t\tt.Fatalf("expected first page 200, got %d: %s", firstRec.Code, firstRec.Body.String())
-\t}
-\tvar first FileListResponse
-\tif err := json.Unmarshal(firstRec.Body.Bytes(), &first); err != nil {
-\t\tt.Fatalf("decode first page: %v", err)
-\t}
-\tif len(first.Files) != 1 || first.NextPageToken == "" {
-\t\tt.Fatalf("unexpected first page: %+v", first)
-\t}
-\tif first.Files[0].Name != "a.jpg" {
-\t\tt.Fatalf("expected a.jpg first, got %+v", first.Files)
-\t}
-
-\tclient := server.library.(*GooruLibrary).client
-\tinserted := writeTestFile(t, filepath.Dir(server.cfg.DatabasePath), "0-new.jpg", "new earlier file")
-\tif _, err := client.TagFiles([]string{inserted}, nil, nil, false); err != nil {
-\t\tt.Fatalf("insert file ahead of cursor: %v", err)
-\t}
-
-\tnextRec := httptest.NewRecorder()
-\tnextURL := "/api/v1/files?sort=name&order=asc&limit=1&page_token=" + url.QueryEscape(first.NextPageToken)
-\tserver.Handler().ServeHTTP(nextRec, authedRequest(http.MethodGet, nextURL))
-\tif nextRec.Code != http.StatusOK {
-\t\tt.Fatalf("expected next page 200, got %d: %s", nextRec.Code, nextRec.Body.String())
-\t}
-\tvar next FileListResponse
-\tif err := json.Unmarshal(nextRec.Body.Bytes(), &next); err != nil {
-\t\tt.Fatalf("decode next page: %v", err)
-\t}
-\tif len(next.Files) != 1 || next.Files[0].Name != "b.png" {
-\t\tt.Fatalf("expected stable cursor to continue at b.png after earlier insertion, first=%+v next=%+v", first.Files, next.Files)
-\t}
-\tif next.Files[0].ID == first.Files[0].ID {
-\t\tt.Fatalf("pagination duplicated the boundary row after earlier insertion: %+v", next.Files[0])
-\t}
-\tif next.PreviousPageToken == "" {
-\t\tt.Fatal("cursor page should retain offset metadata for backward navigation")
-\t}
-}
-
-'''
-              text = text.replace(marker, test + marker, 1)
-          tests.write_text(text)
-          PY
-
+          python scripts/patch_310_keyset.py
           if git diff --quiet; then
             exit 0
           fi
