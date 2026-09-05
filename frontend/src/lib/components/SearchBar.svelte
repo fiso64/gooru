@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import Icon from './Icon.svelte';
   import { specialSearchSuggestions } from '$lib/search/specialSuggestions';
   import { parseSearchQuery, parseSearchToken, searchTokensToQuery, searchTokenToString, type SearchToken } from '$lib/search/tokens';
   import { rankCompletionCandidates } from '$lib/utils/completionRanking';
   import { plainTagSuggestions } from '$lib/utils/tagSuggestions';
   import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
   type SuggestionLike = { name: string; value?: string; count?: number };
@@ -42,6 +44,7 @@
   let active = $state(0);
   let inputRef = $state<HTMLInputElement | undefined>();
   let rootRef = $state<HTMLDivElement | undefined>();
+  let suggestionsRef = $state<HTMLUListElement | undefined>();
   let lastSyncedValue = $state('');
 
   const tagItems = $derived(normalizeTags(tags, suggestions));
@@ -58,6 +61,12 @@
 
   $effect(() => {
     if (active >= flat.length) active = 0;
+  });
+
+  $effect(() => {
+    active;
+    if (!open) return;
+    void tick().then(() => keepActiveCompletionVisible(suggestionsRef));
   });
 
   $effect(() => {
@@ -323,7 +332,7 @@
   {/if}
 
   {#if open && draft.trim() && flat.length > 0}
-    <ul id="searchbar-suggestions" class="search-suggestions" role="listbox" aria-label="Search suggestions" onmousedown={(event) => event.preventDefault()}>
+    <ul bind:this={suggestionsRef} id="searchbar-suggestions" class="search-suggestions" role="listbox" aria-label="Search suggestions" onmousedown={(event) => event.preventDefault()}>
       {#each groups as group, groupIndex}
         {@const offset = groups.slice(0, groupIndex).reduce((sum, item) => sum + item.items.length, 0)}
         <li class="group-head">

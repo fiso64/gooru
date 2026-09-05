@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
+  import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
 
   let {
     id,
@@ -32,12 +34,19 @@
   let open = $state(false);
   let active = $state(0);
   let inputRef = $state<HTMLInputElement | undefined>();
+  let suggestionsRef = $state<HTMLUListElement | undefined>();
   let suppressBlurCommit = false;
   const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, tags, existing));
 
   $effect(() => {
     if (active >= suggestions.length) active = 0;
     if (!value.trim() || readOnly) open = false;
+  });
+
+  $effect(() => {
+    active;
+    if (!open) return;
+    void tick().then(() => keepActiveCompletionVisible(suggestionsRef));
   });
 
   function commit(raw: string) {
@@ -145,7 +154,7 @@
   />
 
   {#if open && suggestions.length > 0}
-    <ul class="tag-autocomplete-list" role="listbox" aria-label={`${ariaLabel} suggestions`} onmousedown={(event) => event.preventDefault()}>
+    <ul bind:this={suggestionsRef} class="tag-autocomplete-list" role="listbox" aria-label={`${ariaLabel} suggestions`} onmousedown={(event) => event.preventDefault()}>
       {#each suggestions as suggestion, index}
         <li role="presentation">
           <button
