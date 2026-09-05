@@ -956,6 +956,17 @@ paths:
       security:
         - sessionAuth: []
       parameters:
+        - name: id
+          in: query
+          required: false
+          description: Specific asynchronous job IDs to return. May be repeated; at most 64 unique IDs are accepted.
+          schema:
+            type: array
+            maxItems: 64
+            items:
+              type: string
+          style: form
+          explode: true
         - name: status
           in: query
           required: false

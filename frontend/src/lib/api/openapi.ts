@@ -1377,6 +1377,8 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    /** @description Specific asynchronous job IDs to return. May be repeated; at most 64 unique IDs are accepted. */
+                    id?: string[];
                     status?: "pending" | "running" | "completed" | "failed" | "canceled";
                 };
                 header?: never;
