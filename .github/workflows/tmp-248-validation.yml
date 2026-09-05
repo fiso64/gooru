@@ -24,19 +24,19 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit
       - name: Frontend check
-        id: check
-        continue-on-error: true
-        run: npm run check > ../tmp-248-check.log 2>&1
-      - name: Upload check diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tmp-248-check-log
-          path: tmp-248-check.log
-      - name: Fail on frontend check
-        if: steps.check.outcome == 'failure'
-        run: exit 1
+        run: npm run check
       - name: Upload workflow unit tests
         run: npm run test:unit -- uploadWorkflow.svelte.test.ts
       - name: Focused upload browser regression
-        run: npm run test:e2e -- tests/upload-drop-control.spec.ts --project=chromium
+        id: browser
+        continue-on-error: true
+        run: npm run test:e2e -- tests/upload-drop-control.spec.ts --project=chromium > ../tmp-248-browser.log 2>&1
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tmp-248-browser-log
+          path: tmp-248-browser.log
+      - name: Fail on browser regression
+        if: steps.browser.outcome == 'failure'
+        run: exit 1
