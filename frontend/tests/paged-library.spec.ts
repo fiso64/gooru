@@ -28,8 +28,8 @@ function pageOffset(token: string | null) {
   return match ? Number(match[1]) : 0;
 }
 
-async function mockPagedLibrary(page: Page) {
-  const allFiles = Array.from({ length: 273 }, (_, index) => fileItem(index));
+async function mockPagedLibrary(page: Page, fileCount = 273) {
+  const allFiles = Array.from({ length: fileCount }, (_, index) => fileItem(index));
   const requests: Array<{ offset: number; limit: number }> = [];
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ pagination_mode: 'paged', items_per_page: 25, grid_type: 'square', grid_size: 120 }) }));
@@ -98,4 +98,24 @@ test('paged mode uses centered numbered controls with direct page navigation', a
   await expect(page.getByRole('button', { name: 'Page 11', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Next page' })).toBeDisabled();
+});
+
+test('six-page pager keeps the last page reachable through middle pages on narrow screens', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 900 });
+  const requests = await mockPagedLibrary(page, 150);
+  await page.goto('/');
+  const pager = page.getByTestId('library-pager');
+  await expect(pager).toBeVisible();
+
+  for (const pageNumber of [2, 3, 4]) {
+    await page.getByRole('button', { name: `Page ${pageNumber}`, exact: true }).click();
+    await expect.poll(() => requests.some((request) => request.offset === (pageNumber - 1) * 25)).toBe(true);
+    const lastPage = page.getByRole('button', { name: 'Page 6', exact: true });
+    await expect(lastPage).toBeVisible();
+    const pagerBox = await pager.boundingBox();
+    const lastPageBox = await lastPage.boundingBox();
+    expect(pagerBox).not.toBeNull();
+    expect(lastPageBox).not.toBeNull();
+    expect(lastPageBox!.x + lastPageBox!.width).toBeLessThanOrEqual(pagerBox!.x + pagerBox!.width + 0.5);
+  }
 });
