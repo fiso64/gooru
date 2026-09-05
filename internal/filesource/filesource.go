@@ -33,10 +33,11 @@ func (s *Source) Size() int64        { return s.size }
 func (s *Source) ModTime() time.Time { return s.modTime }
 
 // Resolver owns the policy for translating a tracked filesystem location into
-// its logical plaintext source. Paths outside protected roots remain ordinary
-// filesystem files. Paths inside protected roots must be encrypted when a key
-// is configured, so callers cannot accidentally consume container bytes as
-// media.
+// its logical plaintext source. With an encryption key configured, encrypted
+// tracked files are authenticated/decrypted regardless of whether they remain
+// under a current managed root. Plaintext paths outside protected roots remain
+// ordinary filesystem files, while plaintext paths inside protected roots fail
+// closed so callers cannot accidentally consume an unencrypted managed file.
 type Resolver struct {
 	encryptionKey  []byte
 	protectedRoots []string
@@ -45,9 +46,9 @@ type Resolver struct {
 // NewFilesystem returns a resolver for ordinary plaintext libraries.
 func NewFilesystem() *Resolver { return &Resolver{} }
 
-// NewProtected returns a resolver that decrypts files beneath protectedRoots.
-// Roots are canonicalized once so the common Open path does not repeatedly do
-// expensive filesystem resolution.
+// NewProtected returns a resolver that can authenticate encrypted tracked files
+// and requires encryption beneath protectedRoots. Roots are canonicalized once
+// so the common Open path does not repeatedly resolve them.
 func NewProtected(encryptionKey []byte, protectedRoots []string) (*Resolver, error) {
 	if len(encryptionKey) != 32 {
 		return nil, encryptedfile.ErrInvalidKey
@@ -102,19 +103,21 @@ func startsWithParent(rel string) bool {
 
 // Open resolves path into its logical plaintext random-access source.
 func (r *Resolver) Open(path string) (*Source, error) {
-	if r != nil && r.IsProtectedPath(path) {
+	if r != nil && len(r.encryptionKey) > 0 {
 		encrypted, err := encryptedfile.IsEncryptedFile(path)
 		if err != nil {
 			return nil, err
 		}
-		if !encrypted {
+		if encrypted {
+			file, err := encryptedfile.Open(path, r.encryptionKey)
+			if err != nil {
+				return nil, err
+			}
+			return &Source{Reader: file, size: file.Size(), modTime: file.ModTime()}, nil
+		}
+		if r.IsProtectedPath(path) {
 			return nil, fmt.Errorf("protected managed file is not encrypted: %w", encryptedfile.ErrInvalidFormat)
 		}
-		file, err := encryptedfile.Open(path, r.encryptionKey)
-		if err != nil {
-			return nil, err
-		}
-		return &Source{Reader: file, size: file.Size(), modTime: file.ModTime()}, nil
 	}
 
 	file, err := os.Open(path)
