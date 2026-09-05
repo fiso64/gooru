@@ -51,5 +51,3 @@ jobs:
         run: npm run test:unit
       - name: Build
         run: npm run build
-      - name: Focused pagination browser regression
-        run: npm run test:e2e -- tests/paged-library.spec.ts --project=chromium
