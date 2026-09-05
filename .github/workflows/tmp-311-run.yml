@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - feat/311-paged-library-ui
+    paths-ignore:
+      - .github/tmp-311-validation.log
 
 permissions:
   contents: write
@@ -16,18 +18,6 @@ jobs:
         with:
           ref: feat/311-paged-library-ui
           fetch-depth: 0
-      - name: Reconcile current develop
-        shell: bash
-        run: |
-          git config user.name 'chatgpt-codex-connector[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin develop
-          before=$(git rev-parse HEAD)
-          git rebase origin/develop
-          after=$(git rev-parse HEAD)
-          if [ "$before" != "$after" ]; then
-            git push --force-with-lease origin HEAD:feat/311-paged-library-ui
-          fi
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -41,11 +31,34 @@ jobs:
         run: |
           go test ./...
           go build ./...
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Capture frontend check
+        id: frontend_check
+        working-directory: frontend
+        shell: bash
+        run: |
+          set +e
+          npm run check > ../.github/tmp-311-validation.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Persist frontend diagnostic
+        if: steps.frontend_check.outputs.status != '0'
+        shell: bash
+        run: |
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/tmp-311-validation.log
+          git commit -m 'ci: capture #311 frontend diagnostic' || true
+          git push origin HEAD:feat/311-paged-library-ui
+      - name: Fail on frontend check error
+        if: steps.frontend_check.outputs.status != '0'
+        run: exit 1
       - name: Validate frontend
         working-directory: frontend
         run: |
-          npm ci --prefer-offline --no-audit
-          npm run check
           npm run test:unit
           npm run build
       - name: Validate paged browsing in Chromium
