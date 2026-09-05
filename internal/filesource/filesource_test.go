@@ -65,6 +65,32 @@ func TestProtectedResolverKeepsExternalFilesPlaintext(t *testing.T) {
 	}
 }
 
+func TestProtectedResolverAuthenticatesEncryptedFileOutsideCurrentRoots(t *testing.T) {
+	root := t.TempDir()
+	externalRoot := t.TempDir()
+	path := filepath.Join(externalRoot, "previously-managed.bin")
+	plaintext := []byte("encrypted tracked content outside current root")
+	key := bytes.Repeat([]byte{0x66}, 32)
+	writeEncryptedTestFile(t, path, plaintext, key)
+
+	resolver, err := NewProtected(key, []string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := resolver.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	got, err := io.ReadAll(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, plaintext) {
+		t.Fatalf("contents = %q, want %q", got, plaintext)
+	}
+}
+
 func TestProtectedResolverRejectsPlaintextManagedFile(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "plaintext.bin")
