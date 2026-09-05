@@ -52,10 +52,13 @@ func TestProtectedContentReadsEncryptedOriginalWithRange(t *testing.T) {
 	}
 
 	service := NewMediaService(cfg)
+	handler := protectedAPICacheMiddleware(true, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		service.ServeContent(w, r, types.FileInfo{Path: path, Size: int64(len(plaintext))})
+	}))
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/content", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/files/file-id/content", nil)
 	request.Header.Set("Range", "bytes=8-12")
-	service.ServeContent(recorder, request, types.FileInfo{Path: path, Size: int64(len(plaintext))})
+	handler.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusPartialContent {
 		t.Fatalf("status = %d: %s", recorder.Code, recorder.Body.String())
@@ -63,8 +66,8 @@ func TestProtectedContentReadsEncryptedOriginalWithRange(t *testing.T) {
 	if got, want := recorder.Body.String(), string(plaintext[8:13]); got != want {
 		t.Fatalf("range body = %q, want %q", got, want)
 	}
-	if got := recorder.Header().Get("Cache-Control"); got != "private, no-store" {
-		t.Fatalf("Cache-Control = %q, want private, no-store", got)
+	if got := recorder.Header().Get("Cache-Control"); got != protectedAPICacheControl {
+		t.Fatalf("Cache-Control = %q, want %q", got, protectedAPICacheControl)
 	}
 }
 
