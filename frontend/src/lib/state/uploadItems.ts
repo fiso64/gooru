@@ -129,6 +129,18 @@ export function transitionUploadStatus(counts: UploadStatusCounts, previous: Upl
   counts[next] = (counts[next] ?? 0) + 1;
 }
 
+export function replaceUploadItemInPlace(
+  items: UploadItem[],
+  index: number,
+  next: UploadItem | undefined,
+  counts: UploadStatusCounts
+): void {
+  const previous = items[index];
+  if (!previous || !next) return;
+  items[index] = next;
+  transitionUploadStatus(counts, previous.status, next.status);
+}
+
 export function uploadSummaryFromCounts(counts: UploadStatusCounts): string {
   return Object.entries(counts)
     .filter(([, count]) => Boolean(count))
