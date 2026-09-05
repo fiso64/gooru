@@ -25,6 +25,7 @@
         { keys: ['u'], description: 'Focus tag input in untag mode' },
         { keys: ['q'], description: 'Toggle original / preview media' },
         { keys: ['v'], description: 'Cycle viewer fit mode' },
+        { keys: ['s'], description: 'Toggle smooth / nearest-neighbor scaling' },
         { keys: ['1'], description: 'Fit media to window' },
         { keys: ['2'], description: 'Show media at actual size' },
         { keys: ['d'], description: 'Download original' },

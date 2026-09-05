@@ -103,6 +103,7 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg.UI.LoadFullMediaByDefault = true
 	cfg.UI.FullscreenMediaByDefault = true
 	cfg.UI.ViewerFitMode = "original_size_if_fit"
+	cfg.UI.ViewerScaling = "nearest"
 	cfg.Media.ThumbnailSizes = []int{128, 384, 768}
 	cfg.UI.GridSize = 240
 	server := NewServer(cfg)
@@ -123,6 +124,9 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"viewer_fit_mode":"original_size_if_fit"`) {
 		t.Fatalf("response missing viewer fit mode: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"viewer_scaling":"nearest"`) {
+		t.Fatalf("response missing viewer scaling: %s", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"grid_size":240`) {
 		t.Fatalf("response missing grid size: %s", rec.Body.String())
@@ -148,5 +152,29 @@ func TestConfigLoadsAndValidatesViewerFitMode(t *testing.T) {
 	cfg.UI.ViewerFitMode = "stretch"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.viewer_fit_mode") {
 		t.Fatalf("expected invalid viewer fit mode error, got %v", err)
+	}
+}
+
+func TestViewerPresentationConfigAliasesAndScaling(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.UI.ViewerFitMode = "screen"
+	cfg.UI.ViewerScaling = "NEAREST"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate presentation config: %v", err)
+	}
+	if cfg.UI.ViewerFitMode != "fit_window" {
+		t.Fatalf("legacy screen alias normalized to %q", cfg.UI.ViewerFitMode)
+	}
+	if cfg.UI.ViewerScaling != "nearest" {
+		t.Fatalf("viewer scaling normalized to %q", cfg.UI.ViewerScaling)
+	}
+	cfg.UI.ViewerFitMode = "actual"
+	cfg.UI.ViewerScaling = "nearest"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("actual fit mode should be accepted: %v", err)
+	}
+	cfg.UI.ViewerScaling = "bicubic"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "ui.viewer_scaling") {
+		t.Fatalf("expected invalid viewer scaling error, got %v", err)
 	}
 }
