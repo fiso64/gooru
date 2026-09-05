@@ -19,6 +19,13 @@ function jobResponse(id: string, status: JobStatus) {
   };
 }
 
+function uploadResult(name: string) {
+  return {
+    files: [{ name, size: 10, target_id: 'default', status: 'imported' }],
+    affected_count: 1
+  };
+}
+
 async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBatchRequest?: (ids: string[]) => void) {
   let loggedIn = false;
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
@@ -68,16 +75,18 @@ async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Upload' }).click();
 }
 
-async function fulfillUpload(route: Route, id: number) {
+async function fulfillInlineUpload(route: Route, name: string) {
+  expect(route.request().headers()['prefer']).toBeUndefined();
   await route.fulfill({
-    status: 202,
+    status: 200,
     contentType: 'application/json',
-    body: JSON.stringify(jobResponse(`job-${id}`, 'pending'))
+    body: JSON.stringify(uploadResult(name))
   });
 }
 
-test('browser keeps at most four upload requests in flight and drains queued files', async ({ page }) => {
-  await mockApp(page);
+test('browser keeps at most four upload requests in flight and updates each row when its import completes', async ({ page }) => {
+  let statusBatchRequests = 0;
+  await mockApp(page, 'pending', () => statusBatchRequests += 1);
 
   let active = 0;
   let maxActive = 0;
@@ -110,43 +119,47 @@ test('browser keeps at most four upload requests in flight and drains queued fil
   const first = waiting.shift();
   expect(first).toBeDefined();
   active -= 1;
-  await fulfillUpload(first!.route, first!.id);
+  await fulfillInlineUpload(first!.route, `file-${first!.id}.jpg`);
   await expect.poll(() => requestCount).toBe(5);
+  await expect(page.locator('.upload-row').nth(first!.id - 1).locator('.status')).toContainText('imported');
   expect(active).toBe(4);
 
   const second = waiting.shift();
   expect(second).toBeDefined();
   active -= 1;
-  await fulfillUpload(second!.route, second!.id);
+  await fulfillInlineUpload(second!.route, `file-${second!.id}.jpg`);
   await expect.poll(() => requestCount).toBe(6);
+  await expect(page.locator('.upload-row').nth(second!.id - 1).locator('.status')).toContainText('imported');
   expect(active).toBe(4);
 
   const third = waiting.shift();
   expect(third).toBeDefined();
   active -= 1;
-  await fulfillUpload(third!.route, third!.id);
+  await fulfillInlineUpload(third!.route, `file-${third!.id}.jpg`);
   await expect.poll(() => requestCount).toBe(7);
+  await expect(page.locator('.upload-row').nth(third!.id - 1).locator('.status')).toContainText('imported');
   expect(active).toBe(4);
 
   while (waiting.length) {
     const next = waiting.shift()!;
     active -= 1;
-    await fulfillUpload(next.route, next.id);
+    await fulfillInlineUpload(next.route, `file-${next.id}.jpg`);
   }
 
   await expect.poll(() => active).toBe(0);
   expect(maxActive).toBe(4);
-  await expect(page.locator('.upload-row .status').filter({ hasText: /queued|importing/ })).toHaveCount(7);
+  await expect(page.locator('.upload-row .status').filter({ hasText: 'imported' })).toHaveCount(7);
+  expect(statusBatchRequests).toBe(0);
 });
 
-test('completed async imports reconcile in bounded batches instead of one job per poll interval', async ({ page }) => {
-  const batchSizes: number[] = [];
-  await mockApp(page, 'completed', (ids) => batchSizes.push(ids.length));
+test('large completed WebUI uploads do not wait for timer-driven job-status batches', async ({ page }) => {
+  let statusBatchRequests = 0;
+  await mockApp(page, 'completed', () => statusBatchRequests += 1);
 
   let requestCount = 0;
   await page.route('**/api/v1/uploads', async (route) => {
     requestCount += 1;
-    await fulfillUpload(route, requestCount);
+    await fulfillInlineUpload(route, `batch-${requestCount}.jpg`);
   });
 
   await signIn(page);
@@ -165,7 +178,5 @@ test('completed async imports reconcile in bounded batches instead of one job pe
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(30, { timeout: 5000 });
 
-  expect(batchSizes.length).toBeGreaterThan(0);
-  expect(Math.max(...batchSizes)).toBeLessThanOrEqual(64);
-  expect(batchSizes.length).toBeLessThan(20);
+  expect(statusBatchRequests).toBe(0);
 });
