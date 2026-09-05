@@ -7,12 +7,17 @@ import (
 )
 
 func openConfiguredClient(cfg serve.Config, verbose bool) (*gooru.Client, error) {
-	options := gooru.DatabaseOpenOptions{}
+	options := gooru.OpenOptions{}
 	if cfg.Encryption.Enabled {
-		options.EncryptionKey = cfg.Encryption.Key
-		options.MigratePlaintext = true
+		options.Database.EncryptionKey = cfg.Encryption.Key
+		options.Database.MigratePlaintext = true
+		options.Content.EncryptionKey = cfg.Encryption.Key
+		options.Content.ProtectedRoots = make([]string, 0, len(cfg.Uploads.Targets))
+		for _, target := range cfg.Uploads.Targets {
+			options.Content.ProtectedRoots = append(options.Content.ProtectedRoots, target.Path)
+		}
 	}
-	return gooru.NewWithDatabaseOptions(cfg.Database.Path, verbose, options)
+	return gooru.NewWithOptions(cfg.Database.Path, verbose, options)
 }
 
 func openConfiguredAuthStore(cfg serve.Config, verbose bool) (*database.Store, error) {
