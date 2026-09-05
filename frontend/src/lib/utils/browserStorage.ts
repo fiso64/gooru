@@ -5,6 +5,7 @@ type MutableStorage = ReadWriteStorage & Pick<Storage, 'removeItem'>;
 
 export const browserPersistenceRegistry = {
   commonTagsCollapsed: { scope: 'local', key: 'common-tags.collapsed' },
+  libraryPaginationMode: { scope: 'local', key: 'library.pagination-mode' },
   viewerSessionPreferences: { scope: 'session', key: 'gooru.viewer.preferences.v1' }
 } as const;
 
