@@ -345,11 +345,10 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if m.cfg.Encryption.Enabled {
-		m.applyProtectedMediaCachePolicy(w)
-	} else {
-		w.Header().Set("Cache-Control", "private, max-age=3600")
-	}
+	// Ordinary mode opts comic pages into a short private cache. Protected API
+	// middleware owns the stronger no-store policy and enforces it at commit,
+	// so this feature handler does not need to know whether protection is active.
+	w.Header().Set("Cache-Control", "private, max-age=3600")
 	_, _ = io.Copy(w, io.LimitReader(reader, maxComicPageBytes))
 }
 
