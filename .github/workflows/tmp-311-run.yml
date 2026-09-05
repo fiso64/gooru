@@ -34,13 +34,31 @@ jobs:
           body = source.split("python3 <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
           body = '\n'.join(line[10:] if line.startswith('          ') else line for line in body.splitlines())
           exec(compile(body, 'tmp-311-implement.py', 'exec'))
+
+          media = Path('frontend/src/lib/components/MediaGrid.svelte')
+          text = media.read_text()
+          text = text.replace(
+              "const virtualTotalCount = $derived(pagedMode ? files.length : totalCount || files.length);",
+              "const virtualTotalCount = $derived.by(() => pagedMode ? files.length : (totalCount || files.length));"
+          ).replace(
+              "const virtualRetainedStartIndex = $derived(pagedMode ? 0 : retainedStartIndex);",
+              "const virtualRetainedStartIndex = $derived.by(() => pagedMode ? 0 : retainedStartIndex);"
+          )
+          media.write_text(text)
+
+          test = Path('frontend/tests/paged-library.spec.ts')
+          text = test.read_text().replace(
+              "import { expect, test, type Page } from '@playwright/test';",
+              "import { expect, test, type Page, type Route } from '@playwright/test';"
+          ).replace("async (route) =>", "async (route: Route) =>")
+          test.write_text(text)
           PY
           gofmt -w internal/serve/ui_config.go internal/serve/config_test.go
           git config user.name 'chatgpt-codex-connector[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add internal/serve/ui_config.go internal/serve/config_test.go frontend/src/lib/queries/files.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/MediaGrid.svelte frontend/tests/paged-library.spec.ts docs/CONFIG.md
           if ! git diff --cached --quiet; then
-            git commit -m 'feat(ui): add paged library browsing mode'
+            git commit -m 'fix(ui): satisfy paged library frontend checks'
             git push origin HEAD:feat/311-paged-library-ui
           fi
       - name: Validate Go
