@@ -93,8 +93,13 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 
 	// Get FS state for "relevant" files in the given directories. Logical
 	// metadata is required here: encrypted containers have a different physical
-	// size from the plaintext identity stored in the database.
-	fsPaths := make(map[string]struct{})
+	// size from the plaintext identity stored in the database. Cache it during
+	// the walk so the common metadata-only path opens each source only once.
+	type logicalMetadata struct {
+		size    int64
+		modTime int64
+	}
+	fsPaths := make(map[string]logicalMetadata)
 	for _, dir := range absDirs {
 		walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -107,7 +112,7 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 				}
 				// The core filtering logic that must match Relink's scanner.
 				if _, ok := sizeToHashes[info.Size]; ok {
-					fsPaths[path] = struct{}{}
+					fsPaths[path] = logicalMetadata{size: info.Size, modTime: info.ModTime.Unix()}
 				}
 			}
 			return nil
@@ -127,14 +132,9 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 
 	// 2. Slower check: Compare metadata for each file the DB expects to be there.
 	for path, dbInfo := range dbLocations {
-		// If a path from the DB is not in our filtered FS map, something is wrong (e.g., deleted).
-		if _, ok := fsPaths[path]; !ok {
-			return true, nil
-		}
-
-		logicalInfo, err := c.hasher.FileMetadata(path)
-		if err != nil {
-			return true, nil // File vanished between walk and inspect, or source policy rejected it.
+		logicalInfo, ok := fsPaths[path]
+		if !ok {
+			return true, nil // A DB path is missing from the filtered filesystem set.
 		}
 
 		if alwaysVerifyHash {
@@ -145,10 +145,8 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 			if currentHash != dbInfo.Hash {
 				return true, nil // Content hash mismatch.
 			}
-		} else {
-			if logicalInfo.Size != dbInfo.Size || logicalInfo.ModTime.Unix() != dbInfo.ModTime {
-				return true, nil // Metadata mismatch.
-			}
+		} else if logicalInfo.size != dbInfo.Size || logicalInfo.modTime != dbInfo.ModTime {
+			return true, nil // Metadata mismatch.
 		}
 	}
 
