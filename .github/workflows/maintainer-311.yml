@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch-and-validate:
-    if: github.event.head_commit.message != 'fix(ui): keep authoritative paged library totals'
+    if: ${{ !contains(github.event.head_commit.message, 'keep authoritative paged library totals') }}
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
