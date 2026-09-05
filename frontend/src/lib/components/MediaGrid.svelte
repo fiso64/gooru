@@ -5,6 +5,7 @@
   import { errorMessage } from '$lib/utils/format';
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { paginationWindow } from '$lib/utils/pagination';
   import type { Snippet } from 'svelte';
   import { virtualGrid, virtualGridStartRow, virtualMediaGeometry, virtualMediaWindow } from '$lib/state/ui';
   import { effectiveGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';
@@ -16,7 +17,7 @@
     isFetchingPreviousPage, pagedMode = false, pageNumber = 1, pageCount = 1,
     loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,
     onToggleSelect, onSelectAll, onClearSelection, onBulkTag, onBulkUntag, onBulkUntrack,
-    onBulkDelete, onLoadMore, onLoadPrevious, actions
+    onBulkDelete, onLoadMore, onLoadPrevious, onPage, actions
   } = $props<{
     sessionActive: boolean; isLoading: boolean; isError: boolean; error: unknown; files: FileItem[];
     retainedStartIndex: number; totalCount: number; libraryCount: number; searchActive: boolean;
@@ -27,7 +28,7 @@
     onToggleSelect: (file: FileItem, files: FileItem[], range: boolean) => void; onSelectAll: () => void;
     onClearSelection: () => void; onBulkTag: () => void; onBulkUntag: () => void;
     onBulkUntrack: () => void; onBulkDelete: () => void; onLoadMore: () => void | Promise<void>;
-    onLoadPrevious: () => void | Promise<void>; actions?: Snippet;
+    onLoadPrevious: () => void | Promise<void>; onPage: (pageIndex: number) => void; actions?: Snippet;
   }>();
 
   let mainHost = $state<HTMLElement | undefined>();
@@ -112,9 +113,9 @@
     if (needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();
   });
 
-  async function movePaged(direction: 'previous' | 'next') {
-    if (direction === 'previous') await onLoadPrevious();
-    else await onLoadMore();
+  function selectPagedPage(page: number) {
+    if (page < 1 || page > pageCount || page === pageNumber || isFetchingNextPage || isFetchingPreviousPage) return;
+    onPage(page - 1);
     mainHost?.scrollTo({ top: 0 });
     paneScrollY = 0;
   }
@@ -132,14 +133,14 @@
   {:else if isError}<div class="empty-state error-state"><p>{errorMessage(error)}</p></div>
   {:else if !files.length}<div class="empty-state"><div class="empty-state-inner"><div class="empty-icon"><Icon name="search" size={24} /></div><h2>No results</h2><p>{#if searchActive}Nothing matches your filters. Try removing a pill, or check the tag spelling.{:else}Your library is empty. Drag files in, or run <code>gooru import</code> from a terminal.{/if}</p></div></div>
   {:else if !tileMode}
-    <div bind:this={gridHost} class="virtual-grid" style={`height: ${squareVirtual.totalHeight}px;`}>
+    <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${squareVirtual.totalHeight}px;`}>
       <div class={`grid${fitMode ? ' fit-media-grid' : ''}`} role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type={$runtimeConfig.gridType} style={`transform: translateY(${squareVirtual.offsetTop}px);`} onkeydown={handleGridKeydown}>
         {#if isFetchingPreviousPage}<div class="thumb skeleton"></div>{/if}
         {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} fitMedia={fitMode} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} />{/each}
       </div>
     </div>
   {:else}
-    <div bind:this={gridHost} class="virtual-grid" style={`height: ${tileVirtual.totalHeight}px;`}>
+    <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${tileVirtual.totalHeight}px;`}>
       <div class="grid variable-media-grid" role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type="tile" onkeydown={handleGridKeydown}>
         {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} /></div>{/each}
       </div>
@@ -147,9 +148,24 @@
   {/if}
   {#if pagedMode && files.length}
     <nav class="library-pager" aria-label="Library pages" data-testid="library-pager">
-      <button class="g-btn g-btn-sm" type="button" disabled={!hasPreviousPage || isFetchingPreviousPage || isFetchingNextPage} onclick={() => void movePaged('previous')}>Previous</button>
-      <span>Page {pageNumber.toLocaleString()} of {pageCount.toLocaleString()}</span>
-      <button class="g-btn g-btn-sm" type="button" disabled={!hasNextPage || isFetchingNextPage || isFetchingPreviousPage} onclick={() => void movePaged('next')}>Next</button>
+      <button class="g-btn g-btn-sm" type="button" aria-label="Previous page" disabled={pageNumber <= 1 || isFetchingPreviousPage || isFetchingNextPage} onclick={() => selectPagedPage(pageNumber - 1)}>Previous</button>
+      <div class="library-pager-pages">
+        {#each paginationWindow(pageNumber, pageCount) as control, index (`${control}-${index}`)}
+          {#if control === 'ellipsis'}
+            <span class="library-pager-ellipsis" aria-hidden="true">…</span>
+          {:else}
+            <button
+              class="g-btn g-btn-sm library-page-button"
+              type="button"
+              aria-label={`Page ${control}`}
+              aria-current={control === pageNumber ? 'page' : undefined}
+              disabled={isFetchingPreviousPage || isFetchingNextPage}
+              onclick={() => selectPagedPage(control)}
+            >{control.toLocaleString()}</button>
+          {/if}
+        {/each}
+      </div>
+      <button class="g-btn g-btn-sm" type="button" aria-label="Next page" disabled={pageNumber >= pageCount || isFetchingNextPage || isFetchingPreviousPage} onclick={() => selectPagedPage(pageNumber + 1)}>Next</button>
     </nav>
   {:else if !pagedMode && (hasNextPage || isFetchingNextPage)}
     <div bind:this={loadMoreSentinel} class="infinite-sentinel" data-testid="infinite-scroll-sentinel"><span class="infinite-sentinel-content"><span class="infinite-sentinel-spinner" aria-hidden="true"></span>Loading more</span></div>
