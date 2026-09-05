@@ -1,0 +1,96 @@
+name: Temporary #333 startup query churn fix
+
+on:
+  push:
+    branches:
+      - perf/333-initial-auth-query-churn
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-initial-auth-query-churn
+          fetch-depth: 0
+      - name: Apply fix and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = app.read_text()
+          old = "  let authScope = $state(0);\n  let observedCSRF = $state('');"
+          new = "  let authScope = $state(0);\n  let observedCSRF = $state($authState.csrfToken);"
+          if old not in text:
+              raise SystemExit('expected AuthenticatedApp initializer not found')
+          app.write_text(text.replace(old, new, 1))
+
+          ci = Path('.github/workflows/ci.yml')
+          text = ci.read_text()
+          old = 'npm run test:e2e -- upload-metadata-refresh.spec.ts upload-concurrency.spec.ts'
+          new = 'npm run test:e2e -- startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts'
+          if old not in text:
+              raise SystemExit('expected CI browser regression command not found')
+          ci.write_text(text.replace(old, new, 1))
+          PY
+          cat > frontend/tests/startup-query-churn.spec.ts <<'EOF'
+          import { expect, test, type Page } from '@playwright/test';
+
+          const session = {
+            user: { id: 'usr_test', username: 'mac', role: 'admin' },
+            capabilities: { upload: true, tag: true, delete: true, admin: true },
+            csrf_token: 'csrf-one'
+          };
+
+          test('authenticated startup does not refetch global queries after mount', async ({ page }) => {
+            const requests = { jobs: 0, tags: 0, savedSearches: 0, uploadTargets: 0 };
+
+            await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify(session)
+            }));
+            await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
+              contentType: 'application/json',
+              body: '{}'
+            }));
+            await page.route('**/api/v1/files?**', async (route) => route.fulfill({
+              contentType: 'application/json',
+              body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
+            }));
+            await page.route('**/api/v1/jobs?**', async (route) => {
+              requests.jobs += 1;
+              await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
+            });
+            await page.route('**/api/v1/tags?**', async (route) => {
+              requests.tags += 1;
+              await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [], library_count: 0 }) });
+            });
+            await page.route('**/api/v1/saved-searches', async (route) => {
+              requests.savedSearches += 1;
+              await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
+            });
+            await page.route('**/api/v1/upload-targets', async (route) => {
+              requests.uploadTargets += 1;
+              await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
+            });
+
+            await page.goto('/');
+            await expect.poll(() => Math.min(...Object.values(requests))).toBe(1);
+            await page.waitForTimeout(300);
+
+            expect(requests).toEqual({ jobs: 1, tags: 1, savedSearches: 1, uploadTargets: 1 });
+          });
+          EOF
+          rm .github/workflows/temp-333-initial-auth-query-churn.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/ci.yml frontend/src/lib/components/AuthenticatedApp.svelte frontend/tests/startup-query-churn.spec.ts .github/workflows/temp-333-initial-auth-query-churn.yml
+          git commit -m 'perf(webui): avoid duplicate authenticated startup queries'
+          git push origin HEAD:perf/333-initial-auth-query-churn
