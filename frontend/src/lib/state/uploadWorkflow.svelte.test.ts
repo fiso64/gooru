@@ -28,6 +28,19 @@ function pendingJob(id: string): Job {
 describe('createUploadWorkflow', () => {
   beforeEach(() => untrackSpy.mockClear());
 
+  it('defaults browser uploads to skip conflicts', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg')]);
+    let policy = '';
+
+    await workflow.submit(async (variables) => {
+      policy = variables.conflictPolicy;
+      return pendingJob('job-first');
+    });
+
+    expect(policy).toBe('skip');
+  });
+
   it('appends later file selections to the staged batch', () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg')]);

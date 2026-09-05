@@ -167,7 +167,7 @@ func DefaultConfig(dbPath string) Config {
 			CookieSecure:   "auto",
 			CookieSameSite: "lax",
 		},
-		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename", PreserveModTime: true},
+		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "skip", PreserveModTime: true},
 		Media: MediaConfig{
 			ThumbnailSizes:  []int{256, 512},
 			ThumbnailFormat: "jpeg",

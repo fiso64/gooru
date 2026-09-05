@@ -472,14 +472,12 @@
         activeUploadJobID={upload.activeJobID}
         targets={uploadTargetsQuery.data?.items ?? []}
         targetID={upload.targetID}
-        conflictPolicy={upload.conflictPolicy}
         addedAtStrategy={upload.addedAtStrategy}
         autoUpload={upload.autoUpload}
         tags={tagsQuery.data?.tags ?? []}
         onTargetInput={selectUploadTarget}
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
-        onConflictInput={(value) => (upload.conflictPolicy = value)}
         onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}
         onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}

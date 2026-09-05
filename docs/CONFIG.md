@@ -66,7 +66,7 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, `path`, and optional `added_at_strategy`. |
 | `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
 | `uploads.preserve_modtime` | `true` | Preserve each browser-uploaded file's source modification timestamp on the stored destination. Source timestamps are still carried through upload processing when disabled. |
-| `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
+| `uploads.conflict_policy` | `skip` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
 
 Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `added_at_strategy`. The strategy defaults to `queue` and accepts `queue`, `reverse_queue`, or `modtime`.
 
@@ -95,7 +95,7 @@ uploads:
         - source:upload
   max_file_size_bytes: 104857600
   preserve_modtime: true
-  conflict_policy: rename
+  conflict_policy: skip
 ```
 
 ## `media`
@@ -185,7 +185,7 @@ uploads:
       added_at_strategy: queue
   max_file_size_bytes: 104857600
   preserve_modtime: true
-  conflict_policy: rename
+  conflict_policy: skip
 
 media:
   cache_dir: /srv/gooru/cache/media

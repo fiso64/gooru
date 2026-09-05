@@ -18,14 +18,12 @@
     activeUploadJobID,
     targets,
     targetID,
-    conflictPolicy,
     addedAtStrategy,
     autoUpload,
     tags,
     onTargetInput,
     onFiles,
     onTagsInput,
-    onConflictInput,
     onAddedAtStrategyInput,
     onAutoUploadInput,
     onSubmit,
@@ -43,14 +41,12 @@
     activeUploadJobID: string;
     targets: UploadTargetOption[];
     targetID: string;
-    conflictPolicy: string;
     addedAtStrategy: 'queue' | 'reverse_queue' | 'modtime';
     autoUpload: boolean;
     tags: TagCandidate[];
     onTargetInput: (value: string) => void;
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
-    onConflictInput: (value: string) => void;
     onAddedAtStrategyInput: (value: 'queue' | 'reverse_queue' | 'modtime') => void;
     onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;
@@ -209,16 +205,6 @@
           </div>
         </div>
 
-        <div class="field-row">
-          <span>On conflict</span>
-          <div class="field-control">
-            <div class="seg" aria-label="Upload conflict policy">
-              {#each [{ value: 'skip', label: 'Skip' }, { value: 'rename', label: 'Rename' }, { value: 'replace', label: 'Replace' }] as option}
-                <button type="button" class={conflictPolicy === option.value ? 'is-active' : ''} onclick={() => onConflictInput(option.value)}>{option.label}</button>
-              {/each}
-            </div>
-          </div>
-        </div>
       </section>
 
       <section

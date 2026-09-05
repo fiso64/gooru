@@ -230,7 +230,7 @@ export class ApiClient {
     tags: string[] = [],
     preferAsync = true,
     targetID = '',
-    conflictPolicy = 'rename',
+    conflictPolicy = 'skip',
     onProgress?: (progress: number) => void,
     ordering: UploadOrderingMetadata = {}
   ): Promise<Job | UploadImportResponse> {
