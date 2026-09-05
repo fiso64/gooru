@@ -6,7 +6,20 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-async function mockApp(page: Page) {
+type JobStatus = 'pending' | 'completed';
+
+function jobResponse(id: string, status: JobStatus) {
+  return {
+    id,
+    type: 'upload_import',
+    status,
+    progress: status === 'completed' ? 1 : 0,
+    submitted_at: '2026-09-03T00:00:00Z',
+    ...(status === 'completed' ? { finished_at: '2026-09-03T00:00:01Z' } : {})
+  };
+}
+
+async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBatchRequest?: (ids: string[]) => void) {
   let loggedIn = false;
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -23,6 +36,14 @@ async function mockApp(page: Page) {
     body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
   }));
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/jobs?**', async (route) => {
+    const ids = new URL(route.request().url()).searchParams.getAll('id');
+    onBatchRequest?.(ids);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ items: ids.map((id) => jobResponse(id, uploadJobStatus)) })
+    });
+  });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({
     contentType: 'application/json',
@@ -34,7 +55,7 @@ async function mockApp(page: Page) {
     const id = route.request().url().split('/').at(-1) ?? '';
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ id, type: 'upload_import', status: 'pending', submitted_at: '2026-09-03T00:00:00Z' })
+      body: JSON.stringify(jobResponse(id, uploadJobStatus))
     });
   });
 }
@@ -51,7 +72,7 @@ async function fulfillUpload(route: Route, id: number) {
   await route.fulfill({
     status: 202,
     contentType: 'application/json',
-    body: JSON.stringify({ id: `job-${id}`, type: 'upload_import', status: 'pending', submitted_at: '2026-09-03T00:00:00Z' })
+    body: JSON.stringify(jobResponse(`job-${id}`, 'pending'))
   });
 }
 
@@ -116,4 +137,35 @@ test('browser keeps at most four upload requests in flight and drains queued fil
   await expect.poll(() => active).toBe(0);
   expect(maxActive).toBe(4);
   await expect(page.locator('.upload-row .status').filter({ hasText: /queued|importing/ })).toHaveCount(7);
+});
+
+test('completed async imports reconcile in bounded batches instead of one job per poll interval', async ({ page }) => {
+  const batchSizes: number[] = [];
+  await mockApp(page, 'completed', (ids) => batchSizes.push(ids.length));
+
+  let requestCount = 0;
+  await page.route('**/api/v1/uploads', async (route) => {
+    requestCount += 1;
+    await fulfillUpload(route, requestCount);
+  });
+
+  await signIn(page);
+  const total = 130;
+  await page.locator('input[type="file"]').setInputFiles(
+    Array.from({ length: total }, (_, index) => ({
+      name: `batch-${index + 1}.jpg`,
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from(`batch-${index + 1}`)
+    }))
+  );
+  await page.getByRole('button', { name: /Upload 130 files/ }).click();
+
+  await expect.poll(() => requestCount).toBe(total);
+  await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(100, { timeout: 5000 });
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(30, { timeout: 5000 });
+
+  expect(batchSizes.length).toBeGreaterThan(0);
+  expect(Math.max(...batchSizes)).toBeLessThanOrEqual(64);
+  expect(batchSizes.length).toBeLessThan(20);
 });

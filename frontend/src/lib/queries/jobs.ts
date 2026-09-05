@@ -17,13 +17,26 @@ export function jobsRefetchInterval(jobs: Job[] | undefined) {
   return jobs?.some(jobIsActive) ? 2000 : false;
 }
 
-export function createJobQuery(getCSRFToken: () => string, getJobID: () => string, getAuthScope: () => number) {
+async function fetchJobBatch(ids: string[]) {
+  const params = new URLSearchParams();
+  for (const id of ids) params.append('id', id);
+  const response = await fetch(`/api/v1/jobs?${params.toString()}`, {
+    headers: { Accept: 'application/json' }
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch upload job status (${response.status})`);
+  }
+  return await response.json() as { items: Job[] };
+}
+
+export function createJobQuery(_getCSRFToken: () => string, getJobID: () => string, getAuthScope: () => number) {
   return createQuery(() => {
     const jobID = getJobID();
+    const jobIDs = jobID.split(',').map((id) => id.trim()).filter(Boolean);
     return {
       queryKey: jobKeys.detail(getAuthScope(), jobID),
-      enabled: Boolean(jobID),
-      queryFn: () => new ApiClient(getCSRFToken()).getJob(jobID),
+      enabled: jobIDs.length > 0,
+      queryFn: () => fetchJobBatch(jobIDs),
       refetchInterval: 700
     };
   });

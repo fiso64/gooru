@@ -168,10 +168,23 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "status is invalid", nil)
 		return
 	}
+	ids, err := jobIDsFromQuery(r.URL.Query())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
+		if len(ids) > 0 {
+			writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.ListIDs(ids, status)})
+			return
+		}
 		writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.List(status)})
 	case http.MethodDelete:
+		if len(ids) > 0 {
+			writeError(w, http.StatusBadRequest, "invalid_request", "job id filtering is only supported for GET", nil)
+			return
+		}
 		if status == "" {
 			status = string(JobCompleted)
 		}
