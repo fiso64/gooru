@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
-	"gooru.local/gooru"
 	"gooru.local/internal/database"
 	"gooru.local/internal/serve"
 	"gooru.local/types"
@@ -85,28 +85,34 @@ func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, erro
 		}
 	}
 
-	// Initialize an absent/uninitialized database through the ordinary core
-	// initializer, then immediately reopen it through the configured storage
-	// policy. Protected mode therefore performs the same explicit plaintext ->
-	// encrypted migration as serve and normal CLI commands rather than letting
-	// this admin path choose a database implementation itself.
-	client, err := openConfiguredClient(cfg, verbose)
-	if errors.Is(err, gooru.ErrDBUninitialized) {
-		if err := gooru.Init(dbPath, types.StrategyPartial, verbose); err != nil {
-			return nil, fmt.Errorf("failed to initialize database: %w", err)
-		}
-		client, err = openConfiguredClient(cfg, verbose)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to prepare configured database: %w", err)
-	}
-	if err := client.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close configured database client: %w", err)
-	}
-
+	// The admin path uses the same configured storage composition as serve and
+	// ordinary CLI commands. This keeps plaintext/encrypted SQLite selection and
+	// key handling out of feature code while still allowing create-admin to
+	// bootstrap a fresh database before a full Gooru client can be opened.
 	store, err := openConfiguredAuthStore(cfg, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open configured admin database: %w", err)
+	}
+	closeOnError := func(err error) (*database.Store, error) {
+		_ = store.Close()
+		return nil, err
+	}
+	if err := database.RunMigrations(store.DB); err != nil {
+		return closeOnError(fmt.Errorf("failed to migrate configured admin database: %w", err))
+	}
+	if err := database.SecureDBFiles(dbPath); err != nil {
+		return closeOnError(err)
+	}
+	if _, err := store.GetHashingStrategy(); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return closeOnError(fmt.Errorf("failed to read hashing strategy: %w", err))
+		}
+		if err := store.SetHashingStrategy(types.StrategyPartial); err != nil {
+			return closeOnError(fmt.Errorf("failed to save default hashing strategy: %w", err))
+		}
+		if err := database.SecureDBFiles(dbPath); err != nil {
+			return closeOnError(err)
+		}
 	}
 	return store, nil
 }
