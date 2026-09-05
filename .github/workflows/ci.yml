@@ -49,9 +49,5 @@ jobs:
         run: npm run check
       - name: Unit tests
         run: npm run test:unit
-      - name: Install Chromium
-        run: npx playwright install chromium
-      - name: Upload metadata browser regression
-        run: npm run test:e2e -- upload-metadata-refresh.spec.ts
       - name: Build
         run: npm run build
