@@ -186,11 +186,15 @@ func TestThumbnailRouteSerializesConcurrentCacheMisses(t *testing.T) {
 	if got := thumbnailer.calls.Load(); got != 1 {
 		t.Fatalf("expected one thumbnail generation, got %d", got)
 	}
-	server.media.cacheMu.Lock()
-	locks := len(server.media.cacheLocks)
-	server.media.cacheMu.Unlock()
+	store, ok := server.media.derivatives.(*persistentDerivativeStore)
+	if !ok {
+		t.Fatalf("derivative store type = %T, want persistentDerivativeStore", server.media.derivatives)
+	}
+	store.mu.Lock()
+	locks := len(store.locks)
+	store.mu.Unlock()
 	if locks != 0 {
-		t.Fatalf("expected cache lock cleanup, got %d locks", locks)
+		t.Fatalf("expected derivative lock cleanup, got %d locks", locks)
 	}
 }
 
