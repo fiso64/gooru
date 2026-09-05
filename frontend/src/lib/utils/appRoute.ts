@@ -8,6 +8,7 @@ export interface LibraryURLState {
   sort: FileSort;
   order: SortOrder;
   fileID: string;
+  page: number;
 }
 
 export const defaultLibraryURLState: LibraryURLState = {
@@ -15,7 +16,8 @@ export const defaultLibraryURLState: LibraryURLState = {
   kind: '',
   sort: 'added',
   order: 'desc',
-  fileID: ''
+  fileID: '',
+  page: 1
 };
 
 const routePaths: Record<AppRoute, string> = {
@@ -33,6 +35,13 @@ const fileSorts = new Set<FileSort>(['added', 'modified', 'name', 'size', 'kind'
 
 function normalizeAppPath(pathname: string): string {
   return pathname !== '/' ? pathname.replace(/\/+$/, '') : '/';
+}
+
+function pageFromSearch(params: URLSearchParams): number {
+  const raw = params.get('page')?.trim() ?? '';
+  if (!/^\d+$/.test(raw)) return defaultLibraryURLState.page;
+  const page = Number(raw);
+  return Number.isSafeInteger(page) && page > 0 ? page : defaultLibraryURLState.page;
 }
 
 export function pathForAppRoute(route: string): string {
@@ -56,7 +65,8 @@ export function libraryURLStateFromSearch(search: string): LibraryURLState {
     kind: params.get('type')?.trim() ?? '',
     sort: sort && fileSorts.has(sort) ? sort : defaultLibraryURLState.sort,
     order: order === 'asc' || order === 'desc' ? order : defaultLibraryURLState.order,
-    fileID: params.get('file')?.trim() ?? ''
+    fileID: params.get('file')?.trim() ?? '',
+    page: pageFromSearch(params)
   };
 }
 
@@ -70,6 +80,7 @@ export function searchForLibraryURLState(state: LibraryURLState): string {
   if (state.sort !== defaultLibraryURLState.sort) params.set('sort', state.sort);
   if (state.order !== defaultLibraryURLState.order) params.set('order', state.order);
   if (fileID) params.set('file', fileID);
+  if (state.page > 1) params.set('page', String(Math.floor(state.page)));
   const encoded = params.toString();
   return encoded ? `?${encoded}` : '';
 }
