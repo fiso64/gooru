@@ -180,6 +180,7 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | `ui.accent_color` | empty | Optional runtime UI accent in six-digit hex form such as `#2f80ed`. When empty, the built-in yellow accent is used. The UI derives readable foreground and translucent accent tokens from this color. |
 | `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
 | `ui.grid_size` | `180` | Minimum media-grid cell width in pixels. Must be between `64` and `1024`. The grid remains fluid: cells expand to fill each row rather than becoming fixed-width. |
+| `ui.viewer_fit_mode` | `fit_window` | Default viewer scaling policy: `fit_window` fills the available viewer bounds, `fit_down_only` never enlarges smaller media, and `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down. Press `V` in the viewer to cycle these policies for the current browser session. |
 | `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |
 | `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |
 
@@ -262,6 +263,3 @@ For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default
 go run ./cmd/gooru serve --print-default-config
 ```
 
-### Viewer fit mode
-
-`ui.viewer_fit_mode` controls the viewer default: `fit_window` (current contain behavior), `fit_down_only` (never upscale), or `original_size_if_fit` (use 1:1 when it fits, otherwise scale down). Press `V` in the viewer to cycle the configured fit policies for the current browser session.

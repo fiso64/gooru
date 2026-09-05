@@ -163,6 +163,7 @@
       document.removeEventListener('fullscreenchange', syncFullscreen);
       if (playbackControlsTimer) clearTimeout(playbackControlsTimer);
       if (cursorIdleTimer) clearTimeout(cursorIdleTimer);
+      if (fitModeFeedbackTimer) clearTimeout(fitModeFeedbackTimer);
     };
   });
 

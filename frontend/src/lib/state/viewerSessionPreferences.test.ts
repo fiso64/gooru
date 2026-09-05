@@ -50,6 +50,11 @@ describe('viewer session preferences', () => {
     });
   });
 
+  it('migrates the legacy screen fit preference to fit_window', () => {
+    const storage = memoryStorage(JSON.stringify({ version: 1, fitMode: 'screen' }));
+    expect(readViewerSessionPreferences(defaults, storage).fitMode).toBe('fit_window');
+  });
+
   it('ignores malformed, stale, and invalid saved values', () => {
     expect(readViewerSessionPreferences(defaults, memoryStorage('{broken'))).toEqual(defaults);
     expect(readViewerSessionPreferences(defaults, memoryStorage(JSON.stringify({ version: 2, rotation: 90 })))).toEqual(defaults);
