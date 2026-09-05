@@ -1,15 +1,12 @@
 name: Fix 344 toggle order
 
-on:
-  push:
-    branches:
-      - fix/344-pagination-toggle-order
+on: [push]
 
 permissions:
   contents: write
 
 jobs:
-  fix-and-validate:
+  apply:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -21,53 +18,14 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply requested action order and regression assertion
+      - name: Apply fix
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
           text = app.read_text()
-          old = '''            <div class="seg" aria-label="Sort field">
-              {#each [{ value: 'added', label: 'Added' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
-                <button
-                  class:active={library.sort === option.value}
-                  type="button"
-                  onclick={() => (library.sort = option.value as FileSort)}
-                >
-                  {option.label}
-                </button>
-              {/each}
-            </div>
-            <button class="g-btn g-btn-sm" type="button" title="Sort direction" onclick={() => (library.order = library.order === 'desc' ? 'asc' : 'desc')}>
-              <Icon name="sort" size={14} /> {library.order === 'desc' ? 'Newest' : 'Oldest'}
-            </button>
-            <div class="seg" aria-label="Library display mode">
-              {#each [{ value: 'infinite', label: 'Infinite' }, { value: 'paged', label: 'Paged' }] as option}
-                <button
-                  class:active={effectivePaginationMode === option.value}
-                  type="button"
-                  aria-pressed={effectivePaginationMode === option.value}
-                  onclick={() => setPaginationMode(option.value as PaginationMode)}
-                >
-                  {option.label}
-                </button>
-              {/each}
-            </div>'''
-          new = '''            <div class="seg" aria-label="Library display mode">
-              {#each [{ value: 'infinite', label: 'Infinite' }, { value: 'paged', label: 'Paged' }] as option}
-                <button
-                  class:active={effectivePaginationMode === option.value}
-                  type="button"
-                  aria-pressed={effectivePaginationMode === option.value}
-                  onclick={() => setPaginationMode(option.value as PaginationMode)}
-                >
-                  {option.label}
-                </button>
-              {/each}
-            </div>
-            <div class="seg" aria-label="Sort field">
+          sort_block = '''            <div class="seg" aria-label="Sort field">
               {#each [{ value: 'added', label: 'Added' }, { value: 'name', label: 'Name' }, { value: 'size', label: 'Size' }] as option}
                 <button
                   class:active={library.sort === option.value}
@@ -81,41 +39,46 @@ jobs:
             <button class="g-btn g-btn-sm" type="button" title="Sort direction" onclick={() => (library.order = library.order === 'desc' ? 'asc' : 'desc')}>
               <Icon name="sort" size={14} /> {library.order === 'desc' ? 'Newest' : 'Oldest'}
             </button>'''
+          mode_block = '''            <div class="seg" aria-label="Library display mode">
+              {#each [{ value: 'infinite', label: 'Infinite' }, { value: 'paged', label: 'Paged' }] as option}
+                <button
+                  class:active={effectivePaginationMode === option.value}
+                  type="button"
+                  aria-pressed={effectivePaginationMode === option.value}
+                  onclick={() => setPaginationMode(option.value as PaginationMode)}
+                >
+                  {option.label}
+                </button>
+              {/each}
+            </div>'''
+          old = sort_block + '\n' + mode_block
+          new = mode_block + '\n' + sort_block
           if text.count(old) != 1:
-              raise SystemExit(f'action block marker count: {text.count(old)}')
+              raise SystemExit('library action ordering marker not unique')
           app.write_text(text.replace(old, new))
 
           spec = Path('frontend/tests/paged-library.spec.ts')
           text = spec.read_text()
-          marker = '''  await page.goto('/?page=3');
-  await expect(page.getByRole('button', { name: 'Page 3', exact: true })).toHaveAttribute('aria-current', 'page');'''
-          replacement = '''  await page.goto('/?page=3');
-  const displayMode = page.getByRole('group', { name: 'Library display mode' });
-  const sortField = page.getByRole('group', { name: 'Sort field' });
-  await expect(displayMode).toBeVisible();
-  await expect(sortField).toBeVisible();
-  expect(await displayMode.evaluate((node, sort) => Boolean(node.compareDocumentPosition(sort as Node) & Node.DOCUMENT_POSITION_FOLLOWING), await sortField.elementHandle())).toBe(true);
-  await expect(page.getByRole('button', { name: 'Page 3', exact: true })).toHaveAttribute('aria-current', 'page');'''
+          marker = "  await page.goto('/?page=3');\n  await expect(page.getByRole('button', { name: 'Page 3', exact: true })).toHaveAttribute('aria-current', 'page');"
+          replacement = "  await page.goto('/?page=3');\n  const actionGroups = page.locator('.library-head-actions > [aria-label]');\n  await expect(actionGroups.nth(0)).toHaveAttribute('aria-label', 'Library display mode');\n  await expect(actionGroups.nth(1)).toHaveAttribute('aria-label', 'Sort field');\n  await expect(page.getByRole('button', { name: 'Page 3', exact: true })).toHaveAttribute('aria-current', 'page');"
           if text.count(marker) != 1:
-              raise SystemExit(f'test marker count: {text.count(marker)}')
+              raise SystemExit('paged-library marker not unique')
           spec.write_text(text.replace(marker, replacement))
           PY
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci --prefer-offline --no-audit
       - name: Validate frontend
         working-directory: frontend
         run: |
+          npm ci --prefer-offline --no-audit
           npm run check
           npm run test:unit
           npm run build
           npx playwright test tests/paged-library.spec.ts --project=chromium
-      - name: Commit validated fix and remove temporary workflow
+      - name: Commit validated change
         shell: bash
         run: |
           rm .github/workflows/fix-344-toggle-order.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/tests/paged-library.spec.ts .github/workflows/fix-344-toggle-order.yml
+          git add -A
           git commit -m 'fix(ui): place pagination mode before sort controls'
           git push origin HEAD:fix/344-pagination-toggle-order
