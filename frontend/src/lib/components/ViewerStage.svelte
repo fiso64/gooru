@@ -5,6 +5,7 @@
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { preserveNativeViewerSize } from '$lib/utils/media';
+  import { recordViewerPresentation, recordViewerRequest } from '$lib/utils/viewerPerformance';
   import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerConfiguredFitMode, type ViewerFitMode } from '$lib/utils/viewer';
   import { preloadViewerMediaSource, viewerPreloadSource } from '$lib/utils/viewerPreload';
   import type { FileItem } from '$lib/api/types';
@@ -191,6 +192,7 @@
     const targetFile = file;
     const targetImageSource = imageSource;
     const generation = ++transitionGeneration;
+    recordViewerRequest(generation);
     clearWaitingTimer();
     waitingForTarget = false;
 
@@ -312,6 +314,7 @@
       if (generation !== transitionGeneration || !imageMatchesCurrentSource(image)) return;
       freezeGeneration += 1;
       freezeVisible = false;
+      recordViewerPresentation(generation);
       onPresented?.(source);
     });
   }
