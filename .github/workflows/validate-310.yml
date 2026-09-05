@@ -21,6 +21,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Apply patch helper once
         run: |
           python scripts/patch_310_keyset.py
@@ -33,10 +37,6 @@ jobs:
           git add types/types.go internal/serve/pagination.go internal/serve/browse.go internal/serve/browse_test.go
           git commit -m "fix: stabilize file pagination across library updates"
           git push origin HEAD:fix/310-viewport-anchor
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Go regression
         run: go test ./internal/serve ./gooru
       - uses: actions/setup-node@v4
