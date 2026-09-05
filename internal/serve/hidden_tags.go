@@ -97,78 +97,47 @@ func collectPositiveQueryTags(expr *query.Expression, negated bool, out map[stri
 }
 
 // hiddenTagLibrary decorates the concrete WebUI library so the policy stays at
-// the query boundary. Tag listing/suggestions deliberately pass through.
+// the query boundary. Embedding preserves every unrelated optional interface
+// already implemented by GooruLibrary. Tag listing/suggestions deliberately pass through.
 type hiddenTagLibrary struct {
-	inner  *GooruLibrary
+	*GooruLibrary
 	policy hiddenTagQueryPolicy
 }
 
 func newHiddenTagLibrary(inner *GooruLibrary, tags []string) *hiddenTagLibrary {
-	return &hiddenTagLibrary{inner: inner, policy: newHiddenTagQueryPolicy(tags)}
+	return &hiddenTagLibrary{GooruLibrary: inner, policy: newHiddenTagQueryPolicy(tags)}
 }
 
 func (l *hiddenTagLibrary) ListFiles(ctx context.Context, queryText string) ([]types.FileInfo, error) {
-	return l.inner.ListFiles(ctx, l.policy.apply(queryText))
+	return l.GooruLibrary.ListFiles(ctx, l.policy.apply(queryText))
 }
 
 func (l *hiddenTagLibrary) ListFilesPage(ctx context.Context, queryText string, page Page) (PageResult[types.FileInfo], error) {
-	return l.inner.ListFilesPage(ctx, l.policy.apply(queryText), page)
+	return l.GooruLibrary.ListFilesPage(ctx, l.policy.apply(queryText), page)
 }
 
 func (l *hiddenTagLibrary) ListFilesSearch(ctx context.Context, queryText string, page Page, sort string, order string) (PageResult[types.FileInfo], error) {
-	return l.inner.ListFilesSearch(ctx, l.policy.apply(queryText), page, sort, order)
+	return l.GooruLibrary.ListFilesSearch(ctx, l.policy.apply(queryText), page, sort, order)
 }
 
 func (l *hiddenTagLibrary) CountFiles(ctx context.Context, queryText string) (int, error) {
-	return l.inner.CountFiles(ctx, l.policy.apply(queryText))
+	return l.GooruLibrary.CountFiles(ctx, l.policy.apply(queryText))
 }
 
 func (l *hiddenTagLibrary) LibraryCount(ctx context.Context) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	return l.inner.client.CountFilesByQuery(l.policy.baselineFor(""), l.inner.verbose)
+	return l.client.CountFilesByQuery(l.policy.baselineFor(""), l.verbose)
 }
 
 func (l *hiddenTagLibrary) LibraryCountForQuery(ctx context.Context, queryText string) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	return l.inner.client.CountFilesByQuery(l.policy.baselineFor(queryText), l.inner.verbose)
+	return l.client.CountFilesByQuery(l.policy.baselineFor(queryText), l.verbose)
 }
 
 func (l *hiddenTagLibrary) KindFacets(ctx context.Context, queryText string) ([]FacetValueDTO, error) {
-	return l.inner.KindFacets(ctx, l.policy.apply(queryText))
-}
-
-func (l *hiddenTagLibrary) TagSuggestions(ctx context.Context, prefix string, existing string, limit int) ([]TagDTO, error) {
-	return l.inner.TagSuggestions(ctx, prefix, existing, limit)
-}
-
-func (l *hiddenTagLibrary) TagNamespaces(ctx context.Context) ([]string, error) {
-	return l.inner.TagNamespaces(ctx)
-}
-
-func (l *hiddenTagLibrary) FileMetadata(ctx context.Context, locationID int64) (MediaMetadata, error) {
-	return l.inner.FileMetadata(ctx, locationID)
-}
-
-func (l *hiddenTagLibrary) GetFile(ctx context.Context, locationID int64) (types.FileInfo, error) {
-	return l.inner.GetFile(ctx, locationID)
-}
-
-func (l *hiddenTagLibrary) ListTags(ctx context.Context, counts bool, limit int) ([]TagDTO, error) {
-	return l.inner.ListTags(ctx, counts, limit)
-}
-
-func (l *hiddenTagLibrary) PublicFileID(file types.FileInfo) string {
-	return l.inner.PublicFileID(file)
-}
-
-func (l *hiddenTagLibrary) GetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error) {
-	return l.inner.GetFileByPublicID(ctx, id)
-}
-
-func (l *hiddenTagLibrary) DeleteFileByPublicID(ctx context.Context, id string) (bool, error) {
-	return l.inner.DeleteFileByPublicID(ctx, id)
+	return l.GooruLibrary.KindFacets(ctx, l.policy.apply(queryText))
 }
