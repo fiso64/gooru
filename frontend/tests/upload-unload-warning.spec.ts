@@ -22,7 +22,7 @@ async function mockApp(page: Page) {
     contentType: 'application/json',
     body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
   }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({
+  await page.route('**/api/v1/jobs?**', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ items: [], active_count: 0 })
   }));
@@ -71,7 +71,7 @@ test('browser unload is guarded only while local upload transfers are active and
   await expect.poll(() => Boolean(pendingUpload)).toBe(true);
   expect(await unloadIsBlocked(page)).toEqual({ allowed: false, defaultPrevented: true });
 
-  await page.getByRole('button', { name: 'Library' }).click();
+  await page.locator('.sidebar button.sidebar-item').filter({ hasText: 'Library' }).click();
   await expect(page.locator('.sidebar-item.active')).toContainText('Library');
   expect(await unloadIsBlocked(page)).toEqual({ allowed: false, defaultPrevented: true });
 
