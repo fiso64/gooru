@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: tmp-310-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend:
     runs-on: [self-hosted, gooru]
