@@ -112,14 +112,15 @@ type LoggingConfig struct {
 }
 
 type UIConfig struct {
-	AccentColor              string `yaml:"accent_color"`
-	FontStyle                string `yaml:"font_style"`
-	GridSize                 int    `yaml:"grid_size"`
-	GridType                 string `yaml:"grid_type"`
-	LoadFullMediaByDefault   bool   `yaml:"load_full_media_by_default"`
-	FullscreenMediaByDefault bool   `yaml:"fullscreen_media_by_default"`
-	ViewerFitMode            string `yaml:"viewer_fit_mode"`
-	ViewerScaling            string `yaml:"viewer_scaling"`
+	AccentColor              string   `yaml:"accent_color"`
+	FontStyle                string   `yaml:"font_style"`
+	GridSize                 int      `yaml:"grid_size"`
+	GridType                 string   `yaml:"grid_type"`
+	HiddenTags               []string `yaml:"hidden_tags"`
+	LoadFullMediaByDefault   bool     `yaml:"load_full_media_by_default"`
+	FullscreenMediaByDefault bool     `yaml:"fullscreen_media_by_default"`
+	ViewerFitMode            string   `yaml:"viewer_fit_mode"`
+	ViewerScaling            string   `yaml:"viewer_scaling"`
 }
 
 func (cfg LoggingConfig) SlogLevel() slog.Level {
@@ -451,6 +452,21 @@ func (cfg *Config) Validate() error {
 	default:
 		errs = append(errs, errors.New("ui.grid_type must be one of: square, fit, tile"))
 	}
+	normalizedHiddenTags := make([]string, 0, len(cfg.UI.HiddenTags))
+	seenHiddenTags := make(map[string]struct{}, len(cfg.UI.HiddenTags))
+	for i, rawTag := range cfg.UI.HiddenTags {
+		tag := strings.TrimSpace(rawTag)
+		if err := query.ValidateTag(tag); err != nil {
+			errs = append(errs, fmt.Errorf("ui.hidden_tags[%d]: %w", i, err))
+			continue
+		}
+		if _, exists := seenHiddenTags[tag]; exists {
+			continue
+		}
+		seenHiddenTags[tag] = struct{}{}
+		normalizedHiddenTags = append(normalizedHiddenTags, tag)
+	}
+	cfg.UI.HiddenTags = normalizedHiddenTags
 	cfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))
 	if cfg.UI.ViewerFitMode == "" {
 		cfg.UI.ViewerFitMode = "fit_window"
