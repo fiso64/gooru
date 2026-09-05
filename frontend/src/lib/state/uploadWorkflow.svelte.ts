@@ -42,6 +42,16 @@ export function createUploadWorkflow() {
   let trackedJobs = $state<Record<string, number>>({});
   let statusCounts: UploadStatusCounts = {};
 
+  $effect(() => {
+    if (!busy) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  });
+
   function reset() {
     files = [];
     items = [];
