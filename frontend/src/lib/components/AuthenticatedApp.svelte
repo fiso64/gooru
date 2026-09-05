@@ -462,7 +462,7 @@
     route={library.route}
     libraryCount={page?.library_count ?? tagsQuery.data?.library_count ?? files.length}
     tagCount={tagsQuery.data?.tags.length ?? 0}
-    jobsActiveCount={activeJobs.length}
+    jobsActiveCount={jobsQuery.data?.active_count ?? activeJobs.length}
     jobs={jobsQuery.data?.items ?? []}
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
@@ -510,7 +510,7 @@
         onRemove={upload.removeAt}
       />
     {:else if library.route === 'jobs'}
-      <JobsView jobs={jobsQuery.data?.items ?? []} onCancel={cancelJob} onClearCompleted={clearCompletedJobs} />
+      <JobsView jobs={jobsQuery.data?.items ?? []} {authScope} onCancel={cancelJob} onClearCompleted={clearCompletedJobs} />
     {:else if library.route === 'settings'}
       <SettingsView username={$authState.user.username} onLogout={logout} onChangePassword={changePassword} />
     {:else if library.route === 'tags'}

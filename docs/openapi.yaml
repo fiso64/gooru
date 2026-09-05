@@ -974,6 +974,19 @@ paths:
           schema:
             type: string
             enum: [pending, running, completed, failed, canceled]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: page_token
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: Jobs matching the optional status filter.
@@ -1451,8 +1464,14 @@ components:
           type: string
     JobListResponse:
       type: object
-      required: [items]
+      required: [items, active_count]
       properties:
+        active_count:
+          type: integer
+          minimum: 0
+          description: Total retained jobs currently pending or running, independent of the visible page.
+        next_page_token:
+          type: string
         items:
           type: array
           items:

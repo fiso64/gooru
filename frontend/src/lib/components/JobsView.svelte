@@ -6,10 +6,12 @@
 
   let {
     jobs,
+    authScope,
     onCancel,
     onClearCompleted
   } = $props<{
     jobs: Job[];
+    authScope: number;
     onCancel: (job: Job) => void;
     onClearCompleted: () => void;
   }>();
@@ -19,7 +21,7 @@
   const pageToken = $derived(pageTokens[pageIndex] ?? '');
   const pageQuery = createJobsQuery(
     () => Boolean($authState.user),
-    () => 0,
+    () => authScope,
     () => 50,
     () => pageToken
   );

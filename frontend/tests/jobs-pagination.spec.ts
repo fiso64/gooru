@@ -46,7 +46,7 @@ async function mockApp(page: Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         items,
-        active_count: 0,
+        active_count: 7,
         next_page_token: nextOffset < jobs.length ? Buffer.from(`offset:${nextOffset}`).toString('base64url') : undefined
       })
     });
@@ -64,6 +64,7 @@ test('drawer stays bounded while jobs tab pages through large completed history'
   const drawer = page.locator('#jobs-drawer .jobs-drawer');
   await expect(drawer).toBeVisible();
   await expect(drawer.locator('.job-row')).toHaveCount(20);
+  await expect(topbarJobs).toContainText('7');
   await expect.poll(() => requests.some((request) => request.limit === 20 && request.offset === 0)).toBe(true);
 
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
