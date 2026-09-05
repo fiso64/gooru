@@ -1,0 +1,91 @@
+name: Validate 312
+
+on:
+  push:
+    branches:
+      - feat/312-hidden-ui-tags
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Apply focused integration edits
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if new in text:
+                  return
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one patch anchor, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "internal/serve/config.go",
+              '''type UIConfig struct {\n\tAccentColor              string `yaml:"accent_color"`\n\tFontStyle                string `yaml:"font_style"`\n\tGridSize                 int    `yaml:"grid_size"`\n\tGridType                 string `yaml:"grid_type"`\n\tLoadFullMediaByDefault   bool   `yaml:"load_full_media_by_default"`''',
+              '''type UIConfig struct {\n\tAccentColor              string   `yaml:"accent_color"`\n\tFontStyle                string   `yaml:"font_style"`\n\tGridSize                 int      `yaml:"grid_size"`\n\tGridType                 string   `yaml:"grid_type"`\n\tHiddenTags               []string `yaml:"hidden_tags"`\n\tLoadFullMediaByDefault   bool     `yaml:"load_full_media_by_default"`''')
+
+          replace_once(
+              "internal/serve/config.go",
+              '''\tswitch cfg.UI.GridType {\n\tcase "square", "fit", "tile":\n\tdefault:\n\t\terrs = append(errs, errors.New("ui.grid_type must be one of: square, fit, tile"))\n\t}\n\tcfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))''',
+              '''\tswitch cfg.UI.GridType {\n\tcase "square", "fit", "tile":\n\tdefault:\n\t\terrs = append(errs, errors.New("ui.grid_type must be one of: square, fit, tile"))\n\t}\n\tnormalizedHiddenTags := make([]string, 0, len(cfg.UI.HiddenTags))\n\tseenHiddenTags := make(map[string]struct{}, len(cfg.UI.HiddenTags))\n\tfor i, rawTag := range cfg.UI.HiddenTags {\n\t\ttag := strings.TrimSpace(rawTag)\n\t\tif err := query.ValidateTag(tag); err != nil {\n\t\t\terrs = append(errs, fmt.Errorf("ui.hidden_tags[%d]: %w", i, err))\n\t\t\tcontinue\n\t\t}\n\t\tif _, exists := seenHiddenTags[tag]; exists {\n\t\t\tcontinue\n\t\t}\n\t\tseenHiddenTags[tag] = struct{}{}\n\t\tnormalizedHiddenTags = append(normalizedHiddenTags, tag)\n\t}\n\tcfg.UI.HiddenTags = normalizedHiddenTags\n\tcfg.UI.ViewerFitMode = strings.ToLower(strings.TrimSpace(cfg.UI.ViewerFitMode))''')
+
+          replace_once(
+              "internal/serve/server.go",
+              '''\tif gooruLibrary, ok := library.(*GooruLibrary); ok {\n\t\tgooruLibrary.metadata = metadata\n\t\tgooruLibrary.encryption = cfg.Encryption\n\t}\n\tmanagedFiles := managedfile.NewFilesystem()''',
+              '''\tif gooruLibrary, ok := library.(*GooruLibrary); ok {\n\t\tgooruLibrary.metadata = metadata\n\t\tgooruLibrary.encryption = cfg.Encryption\n\t\tif len(cfg.UI.HiddenTags) > 0 {\n\t\t\tlibrary = newHiddenTagLibrary(gooruLibrary, cfg.UI.HiddenTags)\n\t\t}\n\t}\n\tmanagedFiles := managedfile.NewFilesystem()''')
+
+          replace_once(
+              "internal/serve/browse.go",
+              '''type SearchLibrary interface {\n\tListFilesSearch(ctx context.Context, query string, page Page, sort string, order string) (PageResult[types.FileInfo], error)\n\tLibraryCount(ctx context.Context) (int, error)\n\tKindFacets(ctx context.Context, query string) ([]FacetValueDTO, error)''',
+              '''type SearchLibrary interface {\n\tListFilesSearch(ctx context.Context, query string, page Page, sort string, order string) (PageResult[types.FileInfo], error)\n\tLibraryCount(ctx context.Context) (int, error)\n\tKindFacets(ctx context.Context, query string) ([]FacetValueDTO, error)''')
+          # Add the request-aware library count as a separate optional interface.
+          replace_once(
+              "internal/serve/browse.go",
+              '''type PublicFileLibrary interface {''',
+              '''type QueryLibraryCount interface {\n\tLibraryCountForQuery(ctx context.Context, query string) (int, error)\n}\n\ntype PublicFileLibrary interface {''')
+
+          replace_once(
+              "internal/serve/browse.go",
+              '''\t\tif total, err := search.LibraryCount(r.Context()); err == nil {\n\t\t\tresponse.LibraryCount = total\n\t\t}\n\t\tif kind, err := search.KindFacets(r.Context(), queryText); err == nil {''',
+              '''\t\tif counter, ok := s.library.(QueryLibraryCount); ok {\n\t\t\tif total, err := counter.LibraryCountForQuery(r.Context(), queryText); err == nil {\n\t\t\t\tresponse.LibraryCount = total\n\t\t\t}\n\t\t} else if total, err := search.LibraryCount(r.Context()); err == nil {\n\t\t\tresponse.LibraryCount = total\n\t\t}\n\t\tif kind, err := search.KindFacets(r.Context(), queryText); err == nil {''')
+
+          replace_once(
+              "docs/CONFIG.md",
+              '''| `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |\n| `ui.viewer_fit_mode`''',
+              '''| `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |\n| `ui.hidden_tags` | empty list | Tags whose files the WebUI excludes by default from library and filtered file views. If a query positively requests a hidden tag, that tag's default exclusion is lifted for the request while other hidden tags remain excluded. Library/result counts and kind facets follow the same visibility policy. Hidden tags remain available in tag browsing and search completions. This affects WebUI/API browsing only; it does not change core or CLI query semantics. |\n| `ui.viewer_fit_mode`''')
+
+          replace_once(
+              "docs/CONFIG.md",
+              '''  grid_size: 200\n  grid_type: square\n  viewer_fit_mode: fit_window''',
+              '''  grid_size: 200\n  grid_type: square\n  hidden_tags: []\n  viewer_fit_mode: fit_window''')
+          PY
+          gofmt -w internal/serve/config.go internal/serve/server.go internal/serve/browse.go internal/serve/hidden_tags.go internal/serve/hidden_tags_test.go
+          if ! git diff --quiet; then
+            git config user.name "chatgpt-codex-connector"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add internal/serve/config.go internal/serve/server.go internal/serve/browse.go docs/CONFIG.md internal/serve/hidden_tags.go internal/serve/hidden_tags_test.go
+            git commit -m "feat: apply hidden tags to WebUI browse queries"
+            git push origin HEAD:feat/312-hidden-ui-tags
+          fi
+      - name: Test hidden tag boundary
+        run: go test ./internal/serve -run 'HiddenTag|HiddenTags|ConfigNormalizesAndValidatesHiddenTags' -count=1
+      - name: Test all Go packages
+        run: go test ./...
+      - name: Build
+        run: go build ./...
