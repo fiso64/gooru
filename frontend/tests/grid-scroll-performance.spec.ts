@@ -8,7 +8,7 @@ const session = {
 
 const aspectDimensions = [[1600, 900], [600, 900], [900, 900], [900, 1400], [1200, 800], [700, 1200], [2000, 800]] as const;
 
-function fileItem(index: number, dimensions = aspectDimensions[index % aspectDimensions.length]) {
+function fileItem(index: number, dimensions: readonly [number, number] = aspectDimensions[index % aspectDimensions.length]) {
   const id = `file-${index}`;
   const [width, height] = dimensions;
   return {
@@ -27,8 +27,8 @@ function pagedFileItem(index: number) {
   // Force every transport page to end with an unmistakably incomplete tile row regardless
   // of the exact browser grid width. Item 56 is wide enough to close the preceding row;
   // items 57-59 are tiny portraits whose combined target width cannot close a normal row.
-  if (pageIndex === 56) return fileItem(index, [8000, 1000] as const);
-  if (pageIndex >= 57) return fileItem(index, [125, 1000] as const);
+  if (pageIndex === 56) return fileItem(index, [8000, 1000]);
+  if (pageIndex >= 57) return fileItem(index, [125, 1000]);
   return fileItem(index);
 }
 
