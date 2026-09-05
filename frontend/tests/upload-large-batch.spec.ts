@@ -45,8 +45,10 @@ test('dropping ten thousand images keeps rendered rows and blob previews bounded
 
   await expect(page.getByText(/Staged · 10000 files/)).toBeVisible({ timeout: 15_000 });
   const list = page.getByTestId('staged-upload-list');
+  const pager = page.getByRole('navigation', { name: 'Staged upload pages' });
   await expect(list.locator('.upload-row')).toHaveCount(100);
-  await expect(page.getByLabel('Staged upload pages')).toContainText('Page 1 of 100');
+  await expect(pager.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(pager.getByRole('button', { name: 'Page 100', exact: true })).toBeVisible();
   await expect(list.getByText('geom_00001.jpg')).toBeVisible();
   await expect(list.getByText('geom_00101.jpg')).toHaveCount(0);
 
@@ -54,7 +56,13 @@ test('dropping ten thousand images keeps rendered rows and blob previews bounded
   expect(stats.peak).toBeLessThan(30);
   expect(stats.created).toBeLessThan(50);
 
-  await page.getByLabel('Staged upload pages').getByRole('button', { name: 'Next' }).click();
+  await pager.getByRole('button', { name: 'Next page' }).click();
+  await expect(pager.getByRole('button', { name: 'Page 2', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(list.getByText('geom_00101.jpg')).toBeVisible();
+  await expect(list.locator('.upload-row')).toHaveCount(100);
+
+  await pager.getByRole('button', { name: 'Page 100', exact: true }).click();
+  await expect(pager.getByRole('button', { name: 'Page 100', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(list.getByText('geom_09901.jpg')).toBeVisible();
   await expect(list.locator('.upload-row')).toHaveCount(100);
 });
