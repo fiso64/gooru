@@ -38,7 +38,7 @@ func (s *Source) ModTime() time.Time { return s.modTime }
 // is configured, so callers cannot accidentally consume container bytes as
 // media.
 type Resolver struct {
-	encryptionKey []byte
+	encryptionKey  []byte
 	protectedRoots []string
 }
 
@@ -67,7 +67,7 @@ func NewProtected(encryptionKey []byte, protectedRoots []string) (*Resolver, err
 		roots = append(roots, abs)
 	}
 	return &Resolver{
-		encryptionKey: append([]byte(nil), encryptionKey...),
+		encryptionKey:  append([]byte(nil), encryptionKey...),
 		protectedRoots: roots,
 	}, nil
 }
