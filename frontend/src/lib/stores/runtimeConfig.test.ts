@@ -12,10 +12,10 @@ describe('grid layout sizing', () => {
     expect(defaultGridSize).toBe(200);
   });
 
-  it('boosts square and tile layouts while leaving fit at the configured size', () => {
+  it('keeps square-fill at the configured size and boosts square-fit and tile layouts', () => {
     expect(denseGridSizeBoost).toBe(40);
-    expect(effectiveGridSize(200, 'square')).toBe(240);
+    expect(effectiveGridSize(200, 'square')).toBe(200);
+    expect(effectiveGridSize(200, 'fit')).toBe(240);
     expect(effectiveGridSize(200, 'tile')).toBe(240);
-    expect(effectiveGridSize(200, 'fit')).toBe(200);
   });
 });
