@@ -54,3 +54,12 @@ BEGIN
 
     UPDATE tags SET files_count = files_count - 1 WHERE id = OLD.tag_id;
 END;
+
+-- Ensure even an explicit tag-row deletion routes association removal through
+-- the count-maintenance trigger while OLD.id/key are still queryable. Normal
+-- zero-count cleanup reaches this trigger with no associations and is a no-op.
+CREATE TRIGGER delete_tag_associations_before_tag_delete
+BEFORE DELETE ON tags
+BEGIN
+    DELETE FROM content_tags WHERE tag_id = OLD.id;
+END;
