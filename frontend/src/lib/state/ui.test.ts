@@ -16,7 +16,7 @@ describe('virtual grid scrolling', () => {
     expect(virtualGridStartRow(120 + rowHeight * 5.1, 120, rowHeight)).toBe(0);
     expect(virtualGridStartRow(120 + rowHeight * 7.1, 120, rowHeight)).toBe(3);
   });
-  it('changes the rendered slice only when the virtual start row changes', () => {
+  it('changes the rendered slice only when the virtual window crosses a row boundary', () => {
     const files = Array.from({ length: 240 }, (_, index) => ({ id: `file-${index}` })) as never[];
     const first = virtualGrid(files, 960, 800, 700, 100, 10_000, 0);
     const sameWindow = virtualGrid(files, 960, 800, 760, 100, 10_000, 0);
@@ -33,10 +33,11 @@ describe('virtual grid scrolling', () => {
     expect(configured.columns).toBe(3); expect(configured.cardWidth).toBeCloseTo(expectedCardWidth);
     expect(configured.rowHeight).toBeCloseTo(expectedCardWidth + 5); expect(configured.totalHeight).toBeCloseTo(configured.rowHeight * 10);
   });
-  it('does not use render overscan to fetch a second 60-item page on startup', () => {
+  it('bounds initial render overscan without using it to fetch page 2', () => {
     const files = Array.from({ length: 60 }, (_, index) => ({ id: `file-${index}` })) as never[];
     const initial = virtualGrid(files, 1440, 900, 0, 100, 10_000, 0, 200);
-    expect(initial.files.length).toBeGreaterThan(0);
+    expect(initial.columns).toBe(6);
+    expect(initial.files).toHaveLength(48);
     expect(initial.needsNext).toBe(false);
 
     const nearTailScroll = initial.rowHeight * 5;
