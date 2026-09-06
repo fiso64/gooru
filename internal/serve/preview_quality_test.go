@@ -49,7 +49,7 @@ func (t *previewQualityThumbnailer) ThumbnailQuality(_ string, dst io.Writer, si
 	}
 }
 
-func TestConfiguredPreviewJPEGQualityIsAppliedAfterLosslessGeneration(t *testing.T) {
+func TestConfiguredPreviewJPEGQualityIsAppliedDirectlyByBackend(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Media.PreviewJPEGQuality = 25
 	media := NewMediaService(cfg)
@@ -73,6 +73,9 @@ func TestConfiguredPreviewJPEGQualityIsAppliedAfterLosslessGeneration(t *testing
 	var high bytes.Buffer
 	if err := media.generateDerivative(types.FileInfo{Path: "sample.jpg"}, &high, 96, "jpeg", "preview"); err != nil {
 		t.Fatalf("generate high-quality preview: %v", err)
+	}
+	if !reflect.DeepEqual(thumbnailer.formats, []string{"jpeg"}) || !reflect.DeepEqual(thumbnailer.qualities, []int{90}) {
+		t.Fatalf("preview backend calls = formats %v qualities %v, want jpeg quality 90", thumbnailer.formats, thumbnailer.qualities)
 	}
 	if high.Len() <= low.Len() {
 		t.Fatalf("high-quality preview size = %d, low-quality = %d; expected quality setting to affect encoding", high.Len(), low.Len())
