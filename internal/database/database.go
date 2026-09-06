@@ -2320,3 +2320,46 @@ func (s *Store) RenameTag(oldTag, newTag types.ParsedTag) error {
 
 	return tx.Commit()
 }
+
+// ListAllPublicFileIDs returns stable public API identifiers without materializing full file metadata.
+func (s *Store) ListAllPublicFileIDs() ([]string, error) {
+	rows, err := s.Query("SELECT public_id FROM locations WHERE public_id IS NOT NULL AND public_id <> '' ORDER BY public_id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// GetPublicFileIDsByLocationQuery executes a location-ID subquery and projects only public IDs.
+func (s *Store) GetPublicFileIDsByLocationQuery(query string, args []interface{}) ([]string, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_locations(id) AS (%s)
+		SELECT l.public_id
+		FROM locations l
+		JOIN result_locations rl ON l.id = rl.id
+		WHERE l.public_id IS NOT NULL AND l.public_id <> ''
+		ORDER BY l.public_id`, query)
+	rows, err := s.Query(finalQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

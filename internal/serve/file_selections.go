@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	fileSelectionTTL             = 30 * time.Minute
-	maxFileSelectionSnapshots    = 256
-	maxFileSelectionRetainedIDs  = 2_000_000
+	fileSelectionTTL            = 30 * time.Minute
+	maxFileSelectionSnapshots   = 256
+	maxFileSelectionRetainedIDs = 2_000_000
 )
 
 var errFileSelectionNotFound = errors.New("file selection not found")
@@ -180,7 +180,8 @@ func (s *Server) handleFileSelections(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file library is not configured", nil)
 		return
 	}
-	if _, ok := s.library.(PublicFileLibrary); !ok {
+	selectionLibrary, ok := s.library.(FileSelectionLibrary)
+	if !ok {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file selection service is not configured", nil)
 		return
 	}
@@ -199,14 +200,10 @@ func (s *Server) handleFileSelections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	files, err := s.library.ListFiles(r.Context(), request.Query)
+	fileIDs, err := selectionLibrary.ListPublicFileIDs(r.Context(), request.Query)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
 		return
-	}
-	fileIDs := make([]string, 0, len(files))
-	for _, file := range files {
-		fileIDs = append(fileIDs, s.publicFileID(file))
 	}
 	id, count, err := s.fileSelections.create(fileSelectionOwnerID(r), fileIDs)
 	if err != nil {

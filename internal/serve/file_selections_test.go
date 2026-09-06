@@ -49,12 +49,24 @@ func (l *snapshotTestLibrary) ListFiles(_ context.Context, expression string) ([
 	return files, nil
 }
 
+func (l *snapshotTestLibrary) ListPublicFileIDs(ctx context.Context, expression string) ([]string, error) {
+	files, err := l.ListFiles(ctx, expression)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(files))
+	for _, file := range files {
+		ids = append(ids, file.PublicID)
+	}
+	return ids, nil
+}
+
 func (l *snapshotTestLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) {
 	return types.FileInfo{}, ErrNotFound
 }
 
 func (l *snapshotTestLibrary) ListTags(context.Context, bool, int) ([]TagDTO, error) { return nil, nil }
-func (l *snapshotTestLibrary) PublicFileID(file types.FileInfo) string                  { return file.PublicID }
+func (l *snapshotTestLibrary) PublicFileID(file types.FileInfo) string               { return file.PublicID }
 
 func (l *snapshotTestLibrary) GetFileByPublicID(_ context.Context, id string) (types.FileInfo, error) {
 	l.mu.Lock()
@@ -235,5 +247,57 @@ func TestExpiredFileSelectionFailsClosed(t *testing.T) {
 	assertAPIError(t, rec, http.StatusGone, "selection_expired")
 	if len(library.removed) != 0 {
 		t.Fatalf("expired selection must not mutate files: %v", library.removed)
+	}
+}
+
+func TestFileSelectionStoreRetainsOversizedSingleSnapshot(t *testing.T) {
+	store := newFileSelectionStore()
+	store.maxSnapshots = 10
+	store.maxRetainedIDs = 3
+	first, _, err := store.create("owner", []string{"a", "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := store.create("owner", []string{"c", "d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.resolve("owner", first); !errors.Is(err, errFileSelectionNotFound) {
+		t.Fatalf("expected oldest snapshot eviction, got %v", err)
+	}
+	if _, err := store.resolve("owner", second); err != nil {
+		t.Fatal(err)
+	}
+	oversized, _, err := store.create("owner", []string{"e", "f", "g", "h", "i"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.resolve("owner", second); !errors.Is(err, errFileSelectionNotFound) {
+		t.Fatalf("expected prior snapshot eviction for oversized selection, got %v", err)
+	}
+	ids, err := store.resolve("owner", oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 5 {
+		t.Fatalf("expected oversized snapshot to remain usable, got %d ids", len(ids))
+	}
+}
+
+func TestExpiredFileSelectionFailsClosedForTagMutation(t *testing.T) {
+	library := newSnapshotTestLibrary("a")
+	server := newSnapshotTestServer(t, library)
+	base := time.Now().UTC()
+	server.fileSelections.now = func() time.Time { return base }
+	snapshot := createSnapshotForTest(t, server, "hidden")
+	server.fileSelections.now = func() time.Time { return base.Add(fileSelectionTTL + time.Second) }
+	body := []byte(`{"selection_id":` + quoteJSON(snapshot.ID) + `,"tags":["reviewed"]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/tags", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	assertAPIError(t, rec, http.StatusGone, "selection_expired")
+	if len(library.lastTagRequest.FileIDs) != 0 {
+		t.Fatalf("expired selection must not reach tag mutator: %+v", library.lastTagRequest)
 	}
 }
