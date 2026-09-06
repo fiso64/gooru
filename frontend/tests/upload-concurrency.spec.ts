@@ -8,21 +8,25 @@ const session = {
 
 type JobStatus = 'pending' | 'completed';
 
+function uploadResult(name: string) {
+  return {
+    files: [{ name, size: 10, target_id: 'default', status: 'imported' }],
+    affected_count: 1
+  };
+}
+
 function jobResponse(id: string, status: JobStatus) {
+  const name = id.replace(/^job-/, '');
   return {
     id,
     type: 'upload_import',
     status,
     progress: status === 'completed' ? 1 : 0,
     submitted_at: '2026-09-03T00:00:00Z',
-    ...(status === 'completed' ? { finished_at: '2026-09-03T00:00:01Z' } : {})
-  };
-}
-
-function uploadResult(name: string) {
-  return {
-    files: [{ name, size: 10, target_id: 'default', status: 'imported' }],
-    affected_count: 1
+    ...(status === 'completed' ? {
+      finished_at: '2026-09-03T00:00:01Z',
+      result: uploadResult(name)
+    } : {})
   };
 }
 
@@ -83,16 +87,16 @@ async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Upload' }).click();
 }
 
-async function fulfillInlineUpload(route: Route, name: string) {
-  expect(route.request().headers()['prefer']).toBeUndefined();
+async function fulfillStagedUpload(route: Route, name: string) {
+  expect(route.request().headers()['prefer']).toBe('respond-async');
   await route.fulfill({
-    status: 200,
+    status: 202,
     contentType: 'application/json',
-    body: JSON.stringify(uploadResult(name))
+    body: JSON.stringify(jobResponse(`job-${name}`, 'pending'))
   });
 }
 
-test('browser keeps at most four upload requests in flight and updates each row when its import completes', async ({ page }) => {
+test('browser releases transfer slots after staging while import jobs remain pending', async ({ page }) => {
   let statusBatchRequests = 0;
   await mockApp(page, 'pending', () => statusBatchRequests += 1);
 
@@ -127,52 +131,47 @@ test('browser keeps at most four upload requests in flight and updates each row 
   const first = waiting.shift();
   expect(first).toBeDefined();
   active -= 1;
-  await fulfillInlineUpload(first!.route, `file-${first!.id}.jpg`);
+  await fulfillStagedUpload(first!.route, `file-${first!.id}.jpg`);
   await expect.poll(() => requestCount).toBe(5);
-  await expect(page.locator('.upload-row').nth(first!.id - 1).locator('.status')).toContainText('imported');
+  await expect(page.locator('.upload-row').nth(first!.id - 1).locator('.status')).toContainText('queued');
   expect(active).toBe(4);
 
   const second = waiting.shift();
   expect(second).toBeDefined();
   active -= 1;
-  await fulfillInlineUpload(second!.route, `file-${second!.id}.jpg`);
+  await fulfillStagedUpload(second!.route, `file-${second!.id}.jpg`);
   await expect.poll(() => requestCount).toBe(6);
-  await expect(page.locator('.upload-row').nth(second!.id - 1).locator('.status')).toContainText('imported');
+  await expect(page.locator('.upload-row').nth(second!.id - 1).locator('.status')).toContainText('queued');
   expect(active).toBe(4);
 
   const third = waiting.shift();
   expect(third).toBeDefined();
   active -= 1;
-  await fulfillInlineUpload(third!.route, `file-${third!.id}.jpg`);
+  await fulfillStagedUpload(third!.route, `file-${third!.id}.jpg`);
   await expect.poll(() => requestCount).toBe(7);
-  await expect(page.locator('.upload-row').nth(third!.id - 1).locator('.status')).toContainText('imported');
+  await expect(page.locator('.upload-row').nth(third!.id - 1).locator('.status')).toContainText('queued');
   expect(active).toBe(4);
 
   while (waiting.length) {
     const next = waiting.shift()!;
     active -= 1;
-    await fulfillInlineUpload(next.route, `file-${next.id}.jpg`);
+    await fulfillStagedUpload(next.route, `file-${next.id}.jpg`);
   }
 
   await expect.poll(() => active).toBe(0);
   expect(maxActive).toBe(4);
-  await expect(page.locator('.upload-row .status').filter({ hasText: 'imported' })).toHaveCount(7);
-  expect(statusBatchRequests).toBe(0);
+  await expect(page.locator('.upload-row .status').filter({ hasText: 'queued' })).toHaveCount(7);
+  await expect.poll(() => statusBatchRequests).toBeGreaterThan(0);
 });
 
-test('large completed WebUI uploads coalesce metadata refresh and do not wait for timer-driven job-status batches', async ({ page }) => {
+test('large staged WebUI uploads complete through bounded batched job polling', async ({ page }) => {
   let statusBatchRequests = 0;
-  let jobsListRequests = 0;
-  let tagsRequests = 0;
-  await mockApp(page, 'completed', () => statusBatchRequests += 1, (kind) => {
-    if (kind === 'jobs') jobsListRequests += 1;
-    else tagsRequests += 1;
-  });
+  await mockApp(page, 'completed', () => statusBatchRequests += 1);
 
   let requestCount = 0;
   await page.route('**/api/v1/uploads', async (route) => {
     requestCount += 1;
-    await fulfillInlineUpload(route, `batch-${requestCount}.jpg`);
+    await fulfillStagedUpload(route, `batch-${requestCount}.jpg`);
   });
 
   await signIn(page);
@@ -184,8 +183,6 @@ test('large completed WebUI uploads coalesce metadata refresh and do not wait fo
       buffer: Buffer.from(`batch-${index + 1}`)
     }))
   );
-  const jobsBeforeUpload = jobsListRequests;
-  const tagsBeforeUpload = tagsRequests;
   await page.getByRole('button', { name: /Upload 130 files/ }).click();
 
   await expect.poll(() => requestCount).toBe(total);
@@ -193,7 +190,6 @@ test('large completed WebUI uploads coalesce metadata refresh and do not wait fo
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(30, { timeout: 5000 });
 
-  expect(statusBatchRequests).toBe(0);
-  await expect.poll(() => jobsListRequests - jobsBeforeUpload).toBe(1);
-  await expect.poll(() => tagsRequests - tagsBeforeUpload).toBe(1);
+  expect(statusBatchRequests).toBeGreaterThan(0);
+  expect(statusBatchRequests).toBeLessThanOrEqual(Math.ceil(total / 64) + 1);
 });
