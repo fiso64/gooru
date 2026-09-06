@@ -1,6 +1,10 @@
 package gooru
 
-import "strings"
+import (
+	"strings"
+
+	"gooru.local/types"
+)
 
 // simpleKindFacetFilter recognizes the exact kind filters emitted by the
 // library sidebar. Keeping this deliberately narrow avoids changing semantics
