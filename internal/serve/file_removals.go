@@ -19,6 +19,7 @@ type FileRemovalRequest struct {
 	FileIDs        []string `json:"file_ids,omitempty"`
 	Query          string   `json:"query,omitempty"`
 	SelectionID    string   `json:"selection_id,omitempty"`
+	IncludeFileIDs []string `json:"include_file_ids,omitempty"`
 	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 }
 
@@ -26,6 +27,7 @@ type FileRemovalSelector struct {
 	FileIDs        []string `json:"file_ids,omitempty"`
 	Query          string   `json:"query,omitempty"`
 	SelectionID    string   `json:"selection_id,omitempty"`
+	IncludeFileIDs []string `json:"include_file_ids,omitempty"`
 	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 }
 
@@ -105,6 +107,7 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 			FileIDs:        request.FileIDs,
 			Query:          request.Query,
 			SelectionID:    request.SelectionID,
+			IncludeFileIDs: request.IncludeFileIDs,
 			ExcludeFileIDs: request.ExcludeFileIDs,
 		},
 		RemovedLocations: removed,
@@ -129,6 +132,7 @@ func decodeFileRemovalRequest(r *http.Request) (FileRemovalRequest, error) {
 	request.Query = strings.TrimSpace(request.Query)
 	request.SelectionID = strings.TrimSpace(request.SelectionID)
 	request.FileIDs = normalizeStrings(request.FileIDs)
+	request.IncludeFileIDs = normalizeStrings(request.IncludeFileIDs)
 	request.ExcludeFileIDs = normalizeStrings(request.ExcludeFileIDs)
 	return request, nil
 }
@@ -147,13 +151,22 @@ func validateFileRemovalRequest(request FileRemovalRequest) error {
 	if selectorCount != 1 {
 		return errors.New("provide exactly one selector: file_ids, query, or selection_id")
 	}
+	if len(request.IncludeFileIDs) > 0 && !hasSelection {
+		return errors.New("include_file_ids requires a selection_id selector")
+	}
 	if len(request.ExcludeFileIDs) > 0 && !hasQuery && !hasSelection {
 		return errors.New("exclude_file_ids requires a query or selection_id selector")
 	}
 	if err := rejectDuplicateFileIDs(request.FileIDs, "file id"); err != nil {
 		return err
 	}
+	if err := rejectDuplicateFileIDs(request.IncludeFileIDs, "included file id"); err != nil {
+		return err
+	}
 	if err := rejectDuplicateFileIDs(request.ExcludeFileIDs, "excluded file id"); err != nil {
+		return err
+	}
+	if err := rejectOverlappingFileIDs(request.IncludeFileIDs, request.ExcludeFileIDs); err != nil {
 		return err
 	}
 	if hasQuery {
@@ -179,6 +192,22 @@ func rejectDuplicateFileIDs(ids []string, label string) error {
 	return nil
 }
 
+func rejectOverlappingFileIDs(included, excluded []string) error {
+	if len(included) == 0 || len(excluded) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(included))
+	for _, id := range included {
+		seen[id] = struct{}{}
+	}
+	for _, id := range excluded {
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("file id %q cannot be both included and excluded", id)
+		}
+	}
+	return nil
+}
+
 func (s *Server) resolveFileRemovalSelection(ctx context.Context, ownerID string, request FileRemovalRequest) ([]types.FileInfo, error) {
 	if len(request.FileIDs) > 0 {
 		return s.resolveFileIDs(ctx, request.FileIDs, nil)
@@ -188,7 +217,7 @@ func (s *Server) resolveFileRemovalSelection(ctx context.Context, ownerID string
 		if err != nil {
 			return nil, err
 		}
-		return s.resolveFileIDs(ctx, fileIDs, request.ExcludeFileIDs)
+		return s.resolveSnapshotFileIDs(ctx, fileIDs, request.IncludeFileIDs, request.ExcludeFileIDs)
 	}
 
 	excluded := make(map[string]struct{}, len(request.ExcludeFileIDs))
@@ -210,6 +239,30 @@ func (s *Server) resolveFileRemovalSelection(ctx context.Context, ownerID string
 		selected = append(selected, file)
 	}
 	return selected, nil
+}
+
+func (s *Server) resolveSnapshotFileIDs(ctx context.Context, snapshotIDs, includedIDs, excludedIDs []string) ([]types.FileInfo, error) {
+	excluded := make(map[string]struct{}, len(excludedIDs))
+	for _, id := range excludedIDs {
+		excluded[id] = struct{}{}
+	}
+	selectedIDs := make([]string, 0, len(snapshotIDs)+len(includedIDs))
+	seen := make(map[string]struct{}, len(snapshotIDs)+len(includedIDs))
+	for _, id := range snapshotIDs {
+		if _, skip := excluded[id]; skip {
+			continue
+		}
+		selectedIDs = append(selectedIDs, id)
+		seen[id] = struct{}{}
+	}
+	for _, id := range includedIDs {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		selectedIDs = append(selectedIDs, id)
+		seen[id] = struct{}{}
+	}
+	return s.resolveFileIDs(ctx, selectedIDs, nil)
 }
 
 func (s *Server) resolveFileIDs(ctx context.Context, fileIDs, excludedFileIDs []string) ([]types.FileInfo, error) {
