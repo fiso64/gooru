@@ -1,0 +1,33 @@
+name: Temporary 385 validation
+
+on:
+  push:
+    branches: [perf/333-grid-prefetch]
+    paths:
+      - 'frontend/src/lib/state/ui.ts'
+      - 'frontend/src/lib/state/ui.test.ts'
+      - '.github/workflows/tmp-385-validation.yml'
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Check
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
