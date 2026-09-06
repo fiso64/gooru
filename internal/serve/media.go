@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -183,6 +184,10 @@ func isInlineOriginalMedia(contentType string) bool {
 }
 
 func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, file types.FileInfo, kind string) {
+	if kind == "preview" && !m.cfg.Media.PreviewEnabled {
+		m.ServeContent(w, r, file)
+		return
+	}
 	// A static image derivative necessarily discards GIF animation. The preview
 	// route is used by the full viewer, so preserve the original animated media
 	// there while thumbnails remain cheap static derivatives for grids/lists.
@@ -206,7 +211,7 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	}
 	relativePath := m.derivativeRelativePath(file, kind, size, format)
 	artifact, err := m.derivatives.GetOrGenerate(relativePath, func(dst io.Writer) error {
-		return m.generateThumbnail(file, dst, size, format)
+		return m.generateDerivative(file, dst, size, format, kind)
 	})
 	if err != nil {
 		m.writeThumbnailGenerationError(w, err)
@@ -234,6 +239,21 @@ func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err 
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "internal_error", "failed to generate thumbnail", nil)
+}
+
+func (m *MediaService) generateDerivative(file types.FileInfo, dst io.Writer, size int, format string, kind string) error {
+	if kind == "preview" && format == "jpeg" && m.cfg.Media.PreviewJPEGQuality != derivativeJPEGQuality {
+		var lossless bytes.Buffer
+		if err := m.generateThumbnail(file, &lossless, size, "png"); err != nil {
+			return err
+		}
+		img, _, err := image.Decode(&lossless)
+		if err != nil {
+			return fmt.Errorf("decode lossless preview intermediate: %w", err)
+		}
+		return jpeg.Encode(dst, img, &jpeg.Options{Quality: m.cfg.Media.PreviewJPEGQuality})
+	}
+	return m.generateThumbnail(file, dst, size, format)
 }
 
 func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {
@@ -274,12 +294,17 @@ func (m *MediaService) derivativeRelativePath(file types.FileInfo, kind string, 
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
 		backendVersion += "|cbz-cover-v1"
 	}
+	qualityKey := ""
+	if kind == "preview" && format == "jpeg" {
+		qualityKey = strconv.Itoa(m.cfg.Media.PreviewJPEGQuality)
+	}
 	key := strings.Join([]string{
 		file.Hash,
 		mediaKindForType(mediaTypeForPath(file.Path)),
 		kind,
 		strconv.Itoa(size),
 		format,
+		qualityKey,
 		backendVersion,
 	}, "|")
 	sum := sha256.Sum256([]byte(key))

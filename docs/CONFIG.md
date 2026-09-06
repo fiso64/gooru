@@ -106,6 +106,8 @@ uploads:
 | `media.thumbnail_sizes` | `[256, 512]` | Thumbnail dimensions to generate/cache. The list must be non-empty; each value must be between 1 and 4096. |
 | `media.thumbnail_format` | `jpeg` | Thumbnail output format: `jpeg` or `png`. |
 | `media.preview_size` | `1280` | Requested long-edge size for image previews. Must be greater than zero. |
+| `media.preview_enabled` | `true` | Generate and serve derived viewer previews. When disabled, preview requests fall back to original media and the WebUI treats original media as the only viewer source. Grid thumbnails remain enabled. |
+| `media.preview_jpeg_quality` | `92` | JPEG quality for generated viewer previews, from `1` to `100`. This does not change grid-thumbnail JPEG quality. |
 
 ## `jobs`
 
@@ -192,6 +194,8 @@ media:
   thumbnail_sizes: [256, 512]
   thumbnail_format: jpeg
   preview_size: 1280
+  preview_enabled: true
+  preview_jpeg_quality: 92
 
 jobs:
   completed_ttl: 1h

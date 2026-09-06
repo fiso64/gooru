@@ -4,7 +4,7 @@
   import TagEditor from './TagEditor.svelte';
   import ViewerStage from './ViewerStage.svelte';
   import { ApiClient } from '$lib/api/client';
-  import { runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { hasRuntimeCapability, runtimeCapability, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { readViewerSessionPreferences, updateViewerSessionPreferences } from '$lib/state/viewerSessionPreferences';
   import { comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
   import { errorMessage, formatBytes, groupTags, mediaDimensions, mediaDuration } from '$lib/utils/format';
@@ -72,9 +72,11 @@
   let navigationDirection: -1 | 1 = 1;
 
   const originalAvailable = $derived(canUseOriginalInViewer(file));
+  const previewAvailable = $derived(hasRuntimeCapability($runtimeConfig, runtimeCapability.previewImages));
+  const effectivePreferOriginal = $derived(!previewAvailable || preferOriginal);
   const comicAvailable = $derived(isComicFile(file));
   const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
-  const imageSource = $derived(comicEntered && currentComicPage ? currentComicPage.url : viewerImageSource(file, preferOriginal));
+  const imageSource = $derived(comicEntered && currentComicPage ? currentComicPage.url : viewerImageSource(file, effectivePreferOriginal));
 
   onMount(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -123,7 +125,7 @@
 
     const neighbor = navigationDirection < 0 ? preloadPrev : preloadNext;
     if (!neighbor) return;
-    void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, preferOriginal)).catch(() => undefined);
+    void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, effectivePreferOriginal)).catch(() => undefined);
   }
 
   function focusTagInput(mode: 'add' | 'remove' = 'add') {
@@ -132,7 +134,7 @@
   }
 
   function toggleOriginalMedia() {
-    if (!originalAvailable) return;
+    if (!previewAvailable || !originalAvailable) return;
     preferOriginal = !preferOriginal;
     updateViewerSessionPreferences({ preferOriginal });
   }
@@ -161,7 +163,7 @@
       focusTagInput(key === 'u' ? 'remove' : 'add');
       return;
     }
-    if (key === 'q' && originalAvailable) {
+    if (key === 'q' && previewAvailable && originalAvailable) {
       event.preventDefault();
       event.stopPropagation();
       toggleOriginalMedia();
@@ -359,7 +361,7 @@
 
   <aside class="lightbox-rail">
     <button class="g-btn g-btn-ghost" type="button" title="Add tag (T)" aria-label="Add tag" onclick={() => focusTagInput('add')}><Icon name="tag" size={16} /></button>
-    {#if originalAvailable}
+    {#if previewAvailable && originalAvailable}
       <button
         class="g-btn g-btn-ghost"
         type="button"

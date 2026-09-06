@@ -27,6 +27,7 @@
     items_per_page?: number;
     protected_mode?: boolean;
     opaque_url_state?: boolean;
+    capabilities?: string[];
   };
 
   let loginUsername = $state('');
@@ -47,6 +48,7 @@
     setProtectedReadTransport(config.protected_mode ?? false);
     setOpaqueURLState(config.opaque_url_state ?? false);
     runtimeConfig.set({
+      capabilities: Array.isArray(config.capabilities) ? config.capabilities : ['preview_images'],
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
       viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
