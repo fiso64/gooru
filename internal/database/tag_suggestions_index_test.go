@@ -57,6 +57,29 @@ func TestListTagSuggestionsPreservesPrefixSemantics(t *testing.T) {
 	}
 }
 
+func TestListTagSuggestionsPreservesWildcardCompatibility(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{DB: db, logger: log.New(io.Discard, "", 0)}
+
+	if _, err := db.Exec(`INSERT INTO tags (key, value, files_count) VALUES ('artist', 'alice', 7)`); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.ListTagSuggestions("%ice", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Tag != "artist:alice" {
+		t.Fatalf("ListTagSuggestions(%%ice) = %#v, want artist:alice", items)
+	}
+}
+
 func TestTagSuggestionPrefixPlansUseTagKeyIndex(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -98,14 +121,14 @@ func TestTagSuggestionPrefixPlansUseTagKeyIndex(t *testing.T) {
 	assertSearchPlan(`
 		SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
 		FROM tags
-		WHERE key >= ? AND key < ?
+		WHERE key LIKE ?
 		ORDER BY files_count DESC, tag_str ASC
-		LIMIT ?`, "art", "aru", 20)
+		LIMIT ?`, "art%", 20)
 
 	assertSearchPlan(`
 		SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
 		FROM tags
-		WHERE key = ? AND value >= ? AND value < ?
+		WHERE key = ? AND value LIKE ?
 		ORDER BY files_count DESC, tag_str ASC
-		LIMIT ?`, "artist", "a", "b", 20)
+		LIMIT ?`, "artist", "a%", 20)
 }
