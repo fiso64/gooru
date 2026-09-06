@@ -232,6 +232,19 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 	case "type":
 		b.buildMediaTypeQuery(parsed.Value)
 	default:
+		if parsed.Value != "" && parsed.Value != "*" {
+			// Exact tag associations are unique by (content_hash, tag_id). Resolve
+			// the tag once, then walk the covering tag_id/content_hash index instead
+			// of joining tags and locations only to DISTINCT the result again.
+			if b.target == "id" {
+				b.query.WriteString(`SELECT l.id as id FROM content_tags ct JOIN locations l ON l.content_hash = ct.content_hash WHERE ct.tag_id = (SELECT id FROM tags WHERE key = ? AND value = ?)`)
+			} else {
+				b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct WHERE ct.tag_id = (SELECT id FROM tags WHERE key = ? AND value = ?)`)
+			}
+			b.args = append(b.args, parsed.Key, parsed.Value)
+			return
+		}
+
 		queryPrefix := `SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
 		if b.target == "id" {
 			queryPrefix = `SELECT DISTINCT l.id as id FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
@@ -240,9 +253,6 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 		if parsed.Value == "*" {
 			b.query.WriteString(`t.key = ? AND t.value != ''`)
 			b.args = append(b.args, parsed.Key)
-		} else if parsed.Value != "" {
-			b.query.WriteString(`t.key = ? AND t.value = ?`)
-			b.args = append(b.args, parsed.Key, parsed.Value)
 		} else if strings.HasSuffix(tagStr, ":") {
 			b.query.WriteString(`t.key = ? AND t.value = ''`)
 			b.args = append(b.args, parsed.Key)
