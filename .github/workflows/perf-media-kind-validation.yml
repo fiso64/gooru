@@ -1,0 +1,31 @@
+name: Media-kind filter validation
+
+on:
+  push:
+    branches:
+      - perf/index-media-kind-filter
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Format check
+        run: test -z "$(gofmt -l internal/query/sqlbuilder.go internal/query/sqlbuilder_media_type_plan_test.go)"
+      - name: Query tests
+        run: go test ./internal/query
+      - name: Database tests
+        run: go test ./internal/database
+      - name: Core tests
+        run: go test ./gooru
+      - name: Server tests
+        run: go test ./internal/serve
+      - name: Build
+        run: go build ./...
