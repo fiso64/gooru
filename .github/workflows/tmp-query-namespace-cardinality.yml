@@ -17,6 +17,10 @@ jobs:
         with:
           ref: perf/333-query-namespace-cardinality
           fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Apply planner call-site patch
         shell: bash
         run: |
