@@ -125,3 +125,5 @@ jobs:
           name: gooru-391-waterfall
           path: gooru-391-waterfall.txt
           if-no-files-found: ignore
+
+# Temporary branch-only benchmark; remove before merge.
