@@ -101,6 +101,14 @@ func TestTagKeyCountsMigrationBackfillsAndTracksDistinctContents(t *testing.T) {
 	}
 	assertTagKeyCountsMatchRecomputed(t, db)
 	assertTagValueCountsMatchRecomputed(t, db)
+
+	// Direct tag deletion is not the normal cleanup path, but FK cascades must
+	// still route through count maintenance while the tag key is queryable.
+	if _, err := db.Exec(`DELETE FROM tags WHERE id = ?`, carolID); err != nil {
+		t.Fatal(err)
+	}
+	assertTagKeyCountsMatchRecomputed(t, db)
+	assertTagValueCountsMatchRecomputed(t, db)
 }
 
 func TestTagCountSummaryPlanDoesNotReadContentAssociations(t *testing.T) {
