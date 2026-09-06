@@ -12,7 +12,7 @@
   import type { FileItem } from '$lib/api/types';
 
   let {
-    sessionActive, isLoading, isError, error, files, retainedStartIndex, totalCount, libraryCount,
+    sessionActive, isLoading, isError, error, files, retainedStartIndex, totalCount, displayTotalCount = totalCount, libraryCount,
     searchActive, selectedCount, isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,
     isFetchingPreviousPage, pagedMode = false, pageNumber = 1, pageCount = 1,
     loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,
@@ -20,7 +20,7 @@
     onBulkDelete, onLoadMore, onLoadPrevious, onPage, actions
   } = $props<{
     sessionActive: boolean; isLoading: boolean; isError: boolean; error: unknown; files: FileItem[];
-    retainedStartIndex: number; totalCount: number; libraryCount: number; searchActive: boolean;
+    retainedStartIndex: number; totalCount: number; displayTotalCount?: number; libraryCount: number; searchActive: boolean;
     selectedCount: number; isSelected: (fileID: string) => boolean; hasNextPage: boolean;
     isFetchingNextPage: boolean; hasPreviousPage: boolean; isFetchingPreviousPage: boolean;
     pagedMode?: boolean; pageNumber?: number; pageCount?: number;
@@ -126,7 +126,7 @@
   {#if selectedCount > 0}
     <div class="selection-bar"><div class="selection-summary"><Icon name="check" size={14} active /><span><b>{selectedCount}</b> of <span>{totalCount || files.length}</span> selected</span>{#if selectedCount < (totalCount || files.length)}<button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}><span>Select</span><span style="margin-left: 0.3em"><u>a</u>ll {(totalCount || files.length).toLocaleString()}</span></button>{/if}</div><div class="sb-actions"><button class="g-btn g-btn-sm" type="button" disabled title="Export bundles are not supported yet"><Icon name="download" size={13} /> Export</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> <u>T</u>ag…</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="tag_remove" size={13} /> <u>U</u>ntag…</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkUntrack}><Icon name="untrack" size={13} /> Untrack</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkDelete}><Icon name="trash" size={13} /> Delete</button><button class="g-btn g-btn-sm g-btn-icon" type="button" title="Clear" aria-label="Clear selection" onclick={onClearSelection}><Icon name="close" size={13} /></button></div></div>
   {/if}
-  <div class="library-head"><div class="library-head-title"><h1>Library</h1><span class="library-head-meta">{(totalCount || files.length).toLocaleString()} file{(totalCount || files.length) === 1 ? '' : 's'}{#if searchActive && libraryCount} · filtered from {libraryCount.toLocaleString()}{/if}</span></div>{#if actions}{@render actions()}{/if}</div>
+  <div class="library-head"><div class="library-head-title"><h1>Library</h1><span class="library-head-meta" data-testid="library-header-count">{(displayTotalCount || files.length).toLocaleString()} file{(displayTotalCount || files.length) === 1 ? '' : 's'}{#if searchActive && libraryCount} · filtered from {libraryCount.toLocaleString()}{/if}</span></div>{#if actions}{@render actions()}{/if}</div>
 
   {#if !sessionActive}<div class="empty-state"><p>Sign in to browse this library.</p></div>
   {:else if isLoading}<div class="grid skeleton-grid">{#each Array(18) as _}<div class="thumb skeleton"></div>{/each}</div>
