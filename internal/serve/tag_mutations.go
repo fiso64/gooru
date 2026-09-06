@@ -29,6 +29,7 @@ type TagMutationLibrary interface {
 type TagMutationRequest struct {
 	FileIDs        []string `json:"file_ids,omitempty"`
 	Query          string   `json:"query,omitempty"`
+	SelectionID    string   `json:"selection_id,omitempty"`
 	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 	Tags           []string `json:"tags"`
 	Verbose        bool     `json:"verbose,omitempty"`
@@ -45,6 +46,7 @@ type TagMutationResponse struct {
 type TagMutationSelector struct {
 	FileIDs        []string `json:"file_ids,omitempty"`
 	Query          string   `json:"query,omitempty"`
+	SelectionID    string   `json:"selection_id,omitempty"`
 	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 }
 
@@ -81,7 +83,38 @@ func (s *Server) handleMutateTags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
-	if err := s.validateTagMutationFiles(r.Context(), request); err != nil {
+
+	selector := TagMutationSelector{
+		FileIDs:        request.FileIDs,
+		Query:          request.Query,
+		SelectionID:    request.SelectionID,
+		ExcludeFileIDs: request.ExcludeFileIDs,
+	}
+	resolvedRequest := request
+	if request.SelectionID != "" {
+		fileIDs, err := s.fileSelections.resolve(fileSelectionOwnerID(r), request.SelectionID)
+		if errors.Is(err, errFileSelectionNotFound) {
+			writeError(w, http.StatusGone, "selection_expired", "file selection has expired", nil)
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
+			return
+		}
+		excluded := make(map[string]struct{}, len(request.ExcludeFileIDs))
+		for _, id := range request.ExcludeFileIDs {
+			excluded[id] = struct{}{}
+		}
+		resolvedRequest.FileIDs = make([]string, 0, len(fileIDs))
+		for _, id := range fileIDs {
+			if _, skip := excluded[id]; !skip {
+				resolvedRequest.FileIDs = append(resolvedRequest.FileIDs, id)
+			}
+		}
+		resolvedRequest.Query = ""
+		resolvedRequest.SelectionID = ""
+		resolvedRequest.ExcludeFileIDs = nil
+	} else if err := s.validateTagMutationFiles(r.Context(), request); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 			return
@@ -91,7 +124,15 @@ func (s *Server) handleMutateTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job, err := s.jobs.Submit(r.Context(), "tag_mutation", PreferAsync(r), func(ctx context.Context) (interface{}, error) {
-		return mutator.MutateTags(ctx, operation, request)
+		if request.SelectionID != "" && len(resolvedRequest.FileIDs) == 0 {
+			return TagMutationResponse{Operation: operation, Selector: selector}, nil
+		}
+		response, err := mutator.MutateTags(ctx, operation, resolvedRequest)
+		if err != nil {
+			return TagMutationResponse{}, err
+		}
+		response.Selector = selector
+		return response, nil
 	})
 	if PreferAsync(r) && err == nil {
 		writeJSON(w, http.StatusAccepted, job)
@@ -147,6 +188,7 @@ func decodeTagMutationRequest(r *http.Request) (TagMutationRequest, error) {
 		return request, errors.New("request body must contain a single JSON object")
 	}
 	request.Query = strings.TrimSpace(request.Query)
+	request.SelectionID = strings.TrimSpace(request.SelectionID)
 	request.FileIDs = normalizeStrings(request.FileIDs)
 	request.ExcludeFileIDs = normalizeStrings(request.ExcludeFileIDs)
 	request.Tags = normalizeStrings(request.Tags)
@@ -156,8 +198,13 @@ func decodeTagMutationRequest(r *http.Request) (TagMutationRequest, error) {
 func validateTagMutationRequest(operation TagOperation, request TagMutationRequest) error {
 	hasIDs := len(request.FileIDs) > 0
 	hasQuery := strings.TrimSpace(request.Query) != ""
-	if hasIDs == hasQuery {
-		return errors.New("provide exactly one selector: file_ids or query")
+	hasSelection := strings.TrimSpace(request.SelectionID) != ""
+	selectorCount := 0
+	if hasIDs { selectorCount++ }
+	if hasQuery { selectorCount++ }
+	if hasSelection { selectorCount++ }
+	if selectorCount != 1 {
+		return errors.New("provide exactly one selector: file_ids, query, or selection_id")
 	}
 	if operation == TagOperationAdd && len(request.Tags) == 0 {
 		return errors.New("tags are required for add operations")
@@ -167,8 +214,8 @@ func validateTagMutationRequest(operation TagOperation, request TagMutationReque
 			return err
 		}
 	}
-	if len(request.ExcludeFileIDs) > 0 && !hasQuery {
-		return errors.New("exclude_file_ids requires a query selector")
+	if len(request.ExcludeFileIDs) > 0 && !hasQuery && !hasSelection {
+		return errors.New("exclude_file_ids requires a query or selection_id selector")
 	}
 	if hasIDs {
 		seen := map[string]struct{}{}
@@ -206,7 +253,12 @@ func (l *GooruLibrary) MutateTags(ctx context.Context, operation TagOperation, r
 	}
 	response := TagMutationResponse{
 		Operation: operation,
-		Selector:  TagMutationSelector{FileIDs: request.FileIDs, Query: request.Query, ExcludeFileIDs: request.ExcludeFileIDs},
+		Selector: TagMutationSelector{
+			FileIDs:        request.FileIDs,
+			Query:          request.Query,
+			SelectionID:    request.SelectionID,
+			ExcludeFileIDs: request.ExcludeFileIDs,
+		},
 	}
 	if len(request.FileIDs) > 0 {
 		paths := make([]string, 0, len(request.FileIDs))
