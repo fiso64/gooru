@@ -1,0 +1,37 @@
+name: autonomous-394-preview-options-v2
+
+on:
+  push:
+    branches:
+      - 'feat/394-preview-options'
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply preview options
+        run: |
+          python3 .github/autonomous-394.py
+          gofmt -w internal/serve/config.go internal/serve/ui_config.go internal/serve/media.go internal/serve/preview_options_test.go
+      - name: Validate Go
+        run: go test ./internal/serve
+      - name: Validate frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run check
+          npm run test:unit
+      - name: Commit implementation
+        run: |
+          rm -f .github/autonomous-394.py .github/workflows/autonomous-394-preview-options.yml .github/workflows/autonomous-394-preview-options-v2.yml
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: configure preview generation [394-generated]'
+          git push origin HEAD:feat/394-preview-options
