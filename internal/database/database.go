@@ -392,7 +392,7 @@ func (s *Store) ListAllFiles() ([]string, error) {
 // CountAllFiles counts all location records in the database.
 func (s *Store) CountAllFiles() (int, error) {
 	var count int
-	err := s.QueryRow("SELECT COUNT(*) FROM locations").Scan(&count)
+	err := s.QueryRow("SELECT COALESCE(SUM(files_count), 0) FROM kind_counts").Scan(&count)
 	return count, err
 }
 
