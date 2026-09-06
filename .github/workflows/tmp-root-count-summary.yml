@@ -1,0 +1,41 @@
+name: Temporary root count summary validation
+
+on:
+  push:
+    branches:
+      - perf/333-root-count-summary
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch root count query
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          old = 'err := s.QueryRow("SELECT COUNT(*) FROM locations").Scan(&count)'
+          new = 'err := s.QueryRow("SELECT COALESCE(SUM(files_count), 0) FROM kind_counts").Scan(&count)'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one root count query, found {text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+          gofmt -w internal/database/database.go internal/database/root_count_summary_test.go
+      - name: Validate database and browse paths
+        run: go test ./internal/database ./internal/serve
+      - name: Commit validated change and remove temporary workflow
+        if: success()
+        run: |
+          rm .github/workflows/tmp-root-count-summary.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add internal/database/database.go internal/database/root_count_summary_test.go .github/workflows/tmp-root-count-summary.yml
+          git commit -m 'perf(db): use maintained summary for root file count'
+          git push origin HEAD:perf/333-root-count-summary
