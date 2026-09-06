@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,6 +15,9 @@ type aggregateCountingLibrary struct {
 	countFilesCalls           int
 	libraryCountCalls         int
 	libraryCountForQueryCalls int
+	kindFacetsCalls           int
+	kindFacets                []FacetValueDTO
+	kindFacetsErr             error
 }
 
 func (l *aggregateCountingLibrary) ListFiles(context.Context, string) ([]types.FileInfo, error) {
@@ -48,7 +52,8 @@ func (l *aggregateCountingLibrary) CountFiles(context.Context, string) (int, err
 }
 
 func (l *aggregateCountingLibrary) KindFacets(context.Context, string) ([]FacetValueDTO, error) {
-	return nil, nil
+	l.kindFacetsCalls++
+	return l.kindFacets, l.kindFacetsErr
 }
 
 func (l *aggregateCountingLibrary) TagSuggestions(context.Context, string, string, int) ([]TagDTO, error) {
@@ -63,10 +68,10 @@ func (l *aggregateCountingLibrary) FileMetadata(context.Context, int64) (MediaMe
 	return MediaMetadata{}, nil
 }
 
-func TestBrowseUnfilteredAggregatesReuseExactFileCount(t *testing.T) {
+func TestBrowseUnfilteredAggregatesReuseKindFacetTotal(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Auth.Enabled = false
-	library := &aggregateCountingLibrary{}
+	library := &aggregateCountingLibrary{kindFacets: []FacetValueDTO{{Value: "photo", Count: 40}, {Value: "video", Count: 2}}}
 	server := NewServerWithLibrary(cfg, library)
 
 	rec := httptest.NewRecorder()
@@ -74,18 +79,18 @@ func TestBrowseUnfilteredAggregatesReuseExactFileCount(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if library.countFilesCalls != 1 {
-		t.Fatalf("expected one exact file count, got %d", library.countFilesCalls)
+	if library.kindFacetsCalls != 1 || library.countFilesCalls != 0 {
+		t.Fatalf("expected facet total without exact count query, facets=%d count=%d", library.kindFacetsCalls, library.countFilesCalls)
 	}
 	if library.libraryCountForQueryCalls != 0 || library.libraryCountCalls != 0 {
 		t.Fatalf("unfiltered browse repeated library count: query=%d global=%d", library.libraryCountForQueryCalls, library.libraryCountCalls)
 	}
 }
 
-func TestBrowseFilteredAggregatesKeepQueryLibraryCount(t *testing.T) {
+func TestBrowseFilteredAggregatesReuseKindFacetTotal(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Auth.Enabled = false
-	library := &aggregateCountingLibrary{}
+	library := &aggregateCountingLibrary{kindFacets: []FacetValueDTO{{Value: "photo", Count: 42}}}
 	server := NewServerWithLibrary(cfg, library)
 
 	rec := httptest.NewRecorder()
@@ -93,7 +98,23 @@ func TestBrowseFilteredAggregatesKeepQueryLibraryCount(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if library.countFilesCalls != 1 || library.libraryCountForQueryCalls != 1 {
-		t.Fatalf("filtered browse should retain both aggregate lookups, count=%d library=%d", library.countFilesCalls, library.libraryCountForQueryCalls)
+	if library.kindFacetsCalls != 1 || library.countFilesCalls != 0 || library.libraryCountForQueryCalls != 1 {
+		t.Fatalf("filtered browse should reuse facets and retain query library count, facets=%d count=%d library=%d", library.kindFacetsCalls, library.countFilesCalls, library.libraryCountForQueryCalls)
+	}
+}
+
+func TestBrowseAggregatesFallBackToExactCountWhenFacetsFail(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Enabled = false
+	library := &aggregateCountingLibrary{kindFacetsErr: errors.New("facet query failed")}
+	server := NewServerWithLibrary(cfg, library)
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/files?query=kind%3Aphoto&include_facets=true", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if library.kindFacetsCalls != 1 || library.countFilesCalls != 1 || library.libraryCountForQueryCalls != 1 {
+		t.Fatalf("facet failure should fall back to exact count, facets=%d count=%d library=%d", library.kindFacetsCalls, library.countFilesCalls, library.libraryCountForQueryCalls)
 	}
 }
