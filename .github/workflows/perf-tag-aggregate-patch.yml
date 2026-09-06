@@ -1,0 +1,51 @@
+name: Tag aggregate patch validation
+
+on:
+  push:
+    branches:
+      - perf/reuse-tag-root-facets
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/reuse-tag-root-facets
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Apply focused handler patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/serve/browse.go')
+          text = p.read_text()
+          old = '''\tresponse := TagListResponse{Tags: tags}\n\tif search, ok := s.library.(SearchLibrary); ok {\n\t\tif total, err := search.LibraryCount(r.Context()); err == nil {\n\t\t\tresponse.LibraryCount = total\n\t\t}\n\t\tif kind, err := search.KindFacets(r.Context(), ""); err == nil {\n\t\t\tresponse.Facets.Kind = kind\n\t\t}\n\t}\n'''
+          new = '''\tresponse := TagListResponse{Tags: tags}\n\tif search, ok := s.library.(SearchLibrary); ok {\n\t\tif kind, err := search.KindFacets(r.Context(), ""); err == nil {\n\t\t\tresponse.Facets.Kind = kind\n\t\t\tfor _, facet := range kind {\n\t\t\t\tresponse.LibraryCount += facet.Count\n\t\t\t}\n\t\t} else if total, err := search.LibraryCount(r.Context()); err == nil {\n\t\t\tresponse.LibraryCount = total\n\t\t}\n\t}\n'''
+          if old in text:
+              p.write_text(text.replace(old, new, 1))
+          elif new not in text:
+              raise SystemExit('expected handleListTags aggregate block not found')
+          PY
+          gofmt -w internal/serve/browse.go internal/serve/browse_aggregate_count_test.go
+      - name: Focused server tests
+        run: go test ./internal/serve
+      - name: Build
+        run: go build ./...
+      - name: Commit source patch
+        shell: bash
+        run: |
+          if git diff --quiet -- internal/serve/browse.go internal/serve/browse_aggregate_count_test.go; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/serve/browse.go internal/serve/browse_aggregate_count_test.go
+          git commit -m "perf(serve): reuse tag root facet total"
+          git push origin HEAD:perf/reuse-tag-root-facets
