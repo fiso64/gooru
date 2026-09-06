@@ -10,11 +10,20 @@ permissions:
 
 jobs:
   implement:
-    runs-on: self-hosted
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Apply preview options
         run: |
           python3 .github/autonomous-394.py
@@ -24,7 +33,7 @@ jobs:
       - name: Validate frontend
         run: |
           cd frontend
-          npm ci
+          npm ci --prefer-offline --no-audit
           npm run check
           npm run test:unit
       - name: Commit implementation
