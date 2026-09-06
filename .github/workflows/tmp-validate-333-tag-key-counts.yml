@@ -1,0 +1,86 @@
+name: Temporary validate 333 tag key counts
+
+on:
+  push:
+    branches:
+      - perf/333-tag-key-count-summary
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Switch tag counts to maintained key summary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          old = r'''query := `
+          \t\tWITH key_counts AS \(
+          \t\t\tSELECT
+          \t\t\t\tt\.key,
+          \t\t\t\tCOUNT\(DISTINCT ct\.content_hash\) as total_files
+          \t\t\tFROM
+          \t\t\t\ttags t
+          \t\t\tJOIN
+          \t\t\t\tcontent_tags ct ON t\.id = ct\.tag_id
+          \t\t\tGROUP BY
+          \t\t\t\tt\.key
+          \t\t\)
+          \t\tSELECT key as tag_str, total_files as final_count FROM key_counts
+          \t\tUNION ALL
+          \t\tSELECT key \|\| ':' \|\| value as tag_str, files_count as final_count
+          \t\tFROM tags
+          \t\tWHERE value != '' AND files_count > 0
+          \t\tORDER BY final_count DESC, tag_str ASC
+          \t` \+ limitSQL'''.replace('          ', '')
+          new = '''query := `
+          \t\tSELECT key AS tag_str, files_count AS final_count
+          \t\tFROM tag_key_counts
+          \t\tWHERE files_count > 0
+          \t\tUNION ALL
+          \t\tSELECT key || ':' || value AS tag_str, files_count AS final_count
+          \t\tFROM tags
+          \t\tWHERE value != '' AND files_count > 0
+          \t\tORDER BY final_count DESC, tag_str ASC
+          \t` + limitSQL'''.replace('          ', '')
+          text, count = re.subn(old, lambda _: new, text, count=1)
+          if count != 1:
+              raise SystemExit(f'GetTagsWithCounts replacement count={count}')
+          path.write_text(text)
+
+          path = Path('internal/database/migration_test.go')
+          text = path.read_text()
+          text, count = re.subn(
+              r'if version != 12 \|\| dirty \{\n\s*t\.Fatalf\("schema_migrations = \(%d, %t\), want \(12, false\)", version, dirty\)\n\s*\}',
+              'if version != 13 || dirty {\n\t\tt.Fatalf("schema_migrations = (%d, %t), want (13, false)", version, dirty)\n\t}',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'migration invariant replacement count={count}')
+          path.write_text(text)
+          PY
+          gofmt -w internal/database/database.go internal/database/migration_test.go internal/database/tag_key_counts_test.go
+      - name: Validate database package
+        run: go test ./internal/database
+      - name: Validate browse integration
+        run: go test ./internal/serve
+      - name: Commit validated source and remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-validate-333-tag-key-counts.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/database .github/workflows/tmp-validate-333-tag-key-counts.yml
+          git commit -m "perf(db): serve tag key counts from summary"
+          git push origin HEAD:perf/333-tag-key-count-summary
