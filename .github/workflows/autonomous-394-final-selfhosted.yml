@@ -1,0 +1,33 @@
+name: autonomous-394-final-selfhosted
+
+on:
+  push:
+    branches: [feat/394-preview-options]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/394-preview-options
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Validate final backend
+        run: |
+          go test ./internal/serve ./internal/filesource
+          go test ./...
+          go build ./...
+      - name: Remove temporary validation workflow
+        run: |
+          rm .github/workflows/autonomous-394-final-selfhosted.yml
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'ci: remove final preview validation workflow'
+          git push origin HEAD:feat/394-preview-options
