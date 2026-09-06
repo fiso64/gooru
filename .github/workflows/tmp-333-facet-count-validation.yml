@@ -1,4 +1,4 @@
-name: temporary #333 facet-count validation
+name: Validate #333 facet-count reuse
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
