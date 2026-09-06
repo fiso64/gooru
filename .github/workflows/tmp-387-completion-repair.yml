@@ -23,6 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sed -i "s/describe('plain tag suggestions'/describe('plainTagSuggestions'/" .github/tmp-387-repair.py
           python3 .github/tmp-387-repair.py
           gofmt -w internal/database/database_test.go
       - name: Validate Go suggestions
