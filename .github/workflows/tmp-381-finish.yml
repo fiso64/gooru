@@ -1,0 +1,205 @@
+name: Temporary PR 381 Finish Validation
+
+on:
+  push:
+    branches:
+      - fix/349-selection-snapshots
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/349-selection-snapshots
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Centralize bulk target resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          Path('internal/serve/bulk_file_targets.go').write_text('''package serve
+
+          import "context"
+
+          // bulkFileTarget is the canonical server-side boundary for bulk-action selectors.
+          // Snapshot selectors are resolved here so bulk handlers cannot accidentally fall
+          // back to a live query after a snapshot expires or changes underneath them.
+          type bulkFileTarget struct {
+          \tFileIDs        []string
+          \tQuery          string
+          \tSelectionID    string
+          \tIncludeFileIDs []string
+          \tExcludeFileIDs []string
+          }
+
+          func (s *Server) resolveBulkFileTarget(ctx context.Context, ownerID string, target bulkFileTarget) (bulkFileTarget, error) {
+          \tif err := ctx.Err(); err != nil {
+          \t\treturn bulkFileTarget{}, err
+          \t}
+          \tif target.SelectionID == "" {
+          \t\treturn target, nil
+          \t}
+          \tfileIDs, err := s.fileSelections.resolve(ownerID, target.SelectionID)
+          \tif err != nil {
+          \t\treturn bulkFileTarget{}, err
+          \t}
+          \ttarget.FileIDs = mergeSnapshotSelectionIDs(fileIDs, target.IncludeFileIDs, target.ExcludeFileIDs)
+          \ttarget.Query = ""
+          \ttarget.SelectionID = ""
+          \ttarget.IncludeFileIDs = nil
+          \ttarget.ExcludeFileIDs = nil
+          \treturn target, nil
+          }
+          ''')
+
+          p = Path('internal/serve/tag_mutations.go')
+          text = p.read_text()
+          old = '''\tresolvedRequest := request
+          \tif request.SelectionID != "" {
+          \t\tsnapshotIDs, err := s.fileSelections.resolve(fileSelectionOwnerID(r), request.SelectionID)
+          \t\tif errors.Is(err, errFileSelectionNotFound) {
+          \t\t\twriteError(w, http.StatusGone, "selection_expired", "file selection has expired", nil)
+          \t\t\treturn
+          \t\t}
+          \t\tif err != nil {
+          \t\t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
+          \t\t\treturn
+          \t\t}
+          \t\tresolvedRequest.FileIDs = mergeSnapshotSelectionIDs(snapshotIDs, request.IncludeFileIDs, request.ExcludeFileIDs)
+          \t\tresolvedRequest.Query = ""
+          \t\tresolvedRequest.SelectionID = ""
+          \t\tresolvedRequest.IncludeFileIDs = nil
+          \t\tresolvedRequest.ExcludeFileIDs = nil
+          \t} else if err := s.validateTagMutationFiles(r.Context(), request); err != nil {
+          \t\tif errors.Is(err, ErrNotFound) {
+          \t\t\twriteError(w, http.StatusNotFound, "not_found", "file not found", nil)
+          \t\t\treturn
+          \t\t}
+          \t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to load file", nil)
+          \t\treturn
+          \t}
+          '''
+          new = '''\ttarget, err := s.resolveBulkFileTarget(r.Context(), fileSelectionOwnerID(r), bulkFileTarget{
+          \t\tFileIDs:        request.FileIDs,
+          \t\tQuery:          request.Query,
+          \t\tSelectionID:    request.SelectionID,
+          \t\tIncludeFileIDs: request.IncludeFileIDs,
+          \t\tExcludeFileIDs: request.ExcludeFileIDs,
+          \t})
+          \tif errors.Is(err, errFileSelectionNotFound) {
+          \t\twriteError(w, http.StatusGone, "selection_expired", "file selection has expired", nil)
+          \t\treturn
+          \t}
+          \tif err != nil {
+          \t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
+          \t\treturn
+          \t}
+          \tresolvedRequest := request
+          \tresolvedRequest.FileIDs = target.FileIDs
+          \tresolvedRequest.Query = target.Query
+          \tresolvedRequest.SelectionID = target.SelectionID
+          \tresolvedRequest.IncludeFileIDs = target.IncludeFileIDs
+          \tresolvedRequest.ExcludeFileIDs = target.ExcludeFileIDs
+          \tif request.SelectionID == "" {
+          \t\tif err := s.validateTagMutationFiles(r.Context(), request); err != nil {
+          \t\t\tif errors.Is(err, ErrNotFound) {
+          \t\t\t\twriteError(w, http.StatusNotFound, "not_found", "file not found", nil)
+          \t\t\t\treturn
+          \t\t\t}
+          \t\t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to load file", nil)
+          \t\t\treturn
+          \t\t}
+          \t}
+          '''
+          if old not in text:
+              raise SystemExit('tag mutation selection block changed unexpectedly')
+          p.write_text(text.replace(old, new, 1))
+
+          p = Path('internal/serve/file_removals.go')
+          text = p.read_text()
+          start = text.index('func (s *Server) resolveFileRemovalSelection(')
+          end = text.index('func (s *Server) resolveFileIDs(', start)
+          replacement = '''func (s *Server) resolveFileRemovalSelection(ctx context.Context, ownerID string, request FileRemovalRequest) ([]types.FileInfo, error) {
+          \ttarget, err := s.resolveBulkFileTarget(ctx, ownerID, bulkFileTarget{
+          \t\tFileIDs:        request.FileIDs,
+          \t\tQuery:          request.Query,
+          \t\tSelectionID:    request.SelectionID,
+          \t\tIncludeFileIDs: request.IncludeFileIDs,
+          \t\tExcludeFileIDs: request.ExcludeFileIDs,
+          \t})
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif len(target.FileIDs) > 0 || request.SelectionID != "" {
+          \t\treturn s.resolveFileIDs(ctx, target.FileIDs, nil)
+          \t}
+
+          \texcluded := make(map[string]struct{}, len(target.ExcludeFileIDs))
+          \tfor _, id := range target.ExcludeFileIDs {
+          \t\tif _, err := s.getFileByPublicID(ctx, id); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\texcluded[id] = struct{}{}
+          \t}
+          \tfiles, err := s.library.ListFiles(ctx, target.Query)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tselected := make([]types.FileInfo, 0, len(files))
+          \tfor _, file := range files {
+          \t\tif _, skip := excluded[s.publicFileID(file)]; skip {
+          \t\t\tcontinue
+          \t\t}
+          \t\tselected = append(selected, file)
+          \t}
+          \treturn selected, nil
+          }
+
+          '''
+          p.write_text(text[:start] + replacement + text[end:])
+          PY
+          GOFMT="$(go env GOROOT)/bin/gofmt"
+          "$GOFMT" -w internal/serve/bulk_file_targets.go internal/serve/tag_mutations.go internal/serve/file_removals.go
+          git diff --check
+      - name: Go tests
+        run: go test ./internal/serve ./internal/database ./gooru/...
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Selection browser regression
+        working-directory: frontend
+        run: |
+          npx playwright install chromium
+          npm run test:e2e -- selection-ui-modal.spec.ts
+      - name: Commit validated repair and remove workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/tmp-381-finish.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo 'no changes to commit'; exit 2; }
+          git commit -m "refactor(selection): centralize bulk target resolution"
+          git push origin HEAD:fix/349-selection-snapshots
