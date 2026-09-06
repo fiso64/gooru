@@ -466,15 +466,24 @@ func (s *Server) handleListFilesRequest(w http.ResponseWriter, r *http.Request, 
 	}
 	includeAggregates := req.IncludeFacets
 	if search, ok := s.library.(SearchLibrary); ok && includeAggregates {
+		libraryCountKnown := false
 		if total, err := s.countFiles(r.Context(), queryText); err == nil {
 			response.TotalCount = total
+			if strings.TrimSpace(queryText) == "" {
+				// An unfiltered location count is the library count. Reuse the exact
+				// result instead of issuing the same COUNT(*) again on large libraries.
+				response.LibraryCount = total
+				libraryCountKnown = true
+			}
 		}
-		if counter, ok := s.library.(QueryLibraryCount); ok {
-			if total, err := counter.LibraryCountForQuery(r.Context(), queryText); err == nil {
+		if !libraryCountKnown {
+			if counter, ok := s.library.(QueryLibraryCount); ok {
+				if total, err := counter.LibraryCountForQuery(r.Context(), queryText); err == nil {
+					response.LibraryCount = total
+				}
+			} else if total, err := search.LibraryCount(r.Context()); err == nil {
 				response.LibraryCount = total
 			}
-		} else if total, err := search.LibraryCount(r.Context()); err == nil {
-			response.LibraryCount = total
 		}
 		if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
 			response.Facets.Kind = kind
