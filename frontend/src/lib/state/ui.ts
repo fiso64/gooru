@@ -83,8 +83,8 @@ export function virtualGrid(
   const totalRows = Math.ceil(Math.max(totalItems, retainedStartIndex + files.length) / columns);
   const viewportStart = Math.max(0, scrollY - gridTop);
   const startRow = virtualGridStartRow(scrollY, gridTop, rowHeight);
-  const visibleRows = Math.ceil(viewportHeight / rowHeight) + overscanRows * 2 + virtualWindowStrideRows - 1;
-  const endRow = Math.min(totalRows, startRow + visibleRows);
+  const viewportEndRow = Math.ceil((viewportStart + viewportHeight) / rowHeight);
+  const endRow = Math.min(totalRows, viewportEndRow + overscanRows);
   const retainedEndIndex = retainedStartIndex + files.length;
   const globalStartIndex = startRow * columns;
   const globalEndIndex = endRow * columns;
