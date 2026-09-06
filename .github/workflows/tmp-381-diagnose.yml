@@ -16,30 +16,40 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Apply pending bulk-target repair
+        id: apply
         shell: bash
         run: |
-          set -euo pipefail
-          awk '
-            /- name: Centralize bulk target resolution/ { found=1; next }
-            found && /run: \|/ { inrun=1; next }
-            inrun && /- name: Go tests/ { exit }
-            inrun { sub(/^          /, ""); print }
-          ' .github/workflows/tmp-381-finish.yml > /tmp/apply-381.sh
-          bash /tmp/apply-381.sh
+          set +e
+          sed -n "/python3 - <<'PY'/,/git diff --check/p" .github/workflows/tmp-381-finish.yml | sed 's/^          //' > /tmp/apply-381.sh
+          bash -x /tmp/apply-381.sh > /tmp/apply.log 2>&1
+          status=$?
+          cat /tmp/apply.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
       - name: Capture Go tests
         id: gotest
         shell: bash
         run: |
           set +e
+          if [ "${{ steps.apply.outputs.status }}" != "0" ]; then
+            echo "repair application failed" > /tmp/go-test.log
+            echo "status=99" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           go test ./internal/serve ./internal/database ./gooru/... > /tmp/go-test.log 2>&1
           status=$?
           cat /tmp/go-test.log
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: pr381-go-test
-          path: /tmp/go-test.log
+          name: pr381-diagnostic
+          path: |
+            /tmp/apply.log
+            /tmp/go-test.log
       - name: Preserve failure status
         shell: bash
-        run: exit "${{ steps.gotest.outputs.status }}"
+        run: |
+          test "${{ steps.apply.outputs.status }}" = "0"
+          exit "${{ steps.gotest.outputs.status }}"
