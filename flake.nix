@@ -29,8 +29,11 @@
             pname = "gooru";
             version = "0-unstable";
             src = ./.;
-            vendorHash = "sha256-VSaacPDyCakTmzkMrBODQeXU6jwtFw7Rln3oQC80CwE=";
+            vendorHash = "sha256-sZCEbsjFTNim3dOAW347LBjQRuQboA2ttXN8A3VWlFA=";
             subPackages = [ "cmd/gooru" ];
+            tags = [ "govips" ];
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.vips ];
 
             postInstall = ''
               mkdir -p $out/share/gooru/frontend
