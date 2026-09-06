@@ -15,29 +15,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/349-selection-snapshots
-      - name: Extract and run repair script
-        id: repair
+      - name: Exercise repair commands
         shell: bash
-        continue-on-error: true
         run: |
           set +e
+          : > repair.log
           awk '/python3 <<'"'"'PY'"'"'/{capture=1; next} /^          PY$/{capture=0} capture { sub(/^          /, ""); print }' .github/workflows/tmp-381-repair.yml > /tmp/pr381-repair.py
-          python3 -m py_compile /tmp/pr381-repair.py > repair.log 2>&1
-          compile_status=$?
-          if [ "$compile_status" -eq 0 ]; then
-            python3 /tmp/pr381-repair.py >> repair.log 2>&1
-            run_status=$?
-          else
-            run_status=$compile_status
-          fi
-          printf '\ncompile_status=%s run_status=%s\n' "$compile_status" "$run_status" >> repair.log
+          echo "extract=$?" >> repair.log
+          python3 -m py_compile /tmp/pr381-repair.py >> repair.log 2>&1
+          echo "compile=$?" >> repair.log
+          python3 /tmp/pr381-repair.py >> repair.log 2>&1
+          echo "repair=$?" >> repair.log
+          gofmt -w internal/serve/browse.go internal/serve/file_selections.go internal/serve/file_selections_test.go internal/serve/server.go gooru/query.go internal/database/database.go >> repair.log 2>&1
+          echo "gofmt=$?" >> repair.log
+          git diff --check >> repair.log 2>&1
+          echo "diff_check=$?" >> repair.log
+          git status --short >> repair.log 2>&1
+          echo "status=$?" >> repair.log
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/components/AuthenticatedApp.svelte internal/serve/server.go internal/serve/browse.go internal/serve/file_selections.go internal/serve/file_selections_test.go gooru/query.go internal/database/database.go >> repair.log 2>&1
+          echo "add=$?" >> repair.log
+          git diff --cached --quiet
+          echo "cached_quiet=$?" >> repair.log
           cat repair.log
-          exit "$run_status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pr381-repair-diagnostic
+          name: pr381-repair-command-diagnostic
           path: repair.log
-      - name: Fail if repair failed
-        if: steps.repair.outcome == 'failure'
-        run: exit 1
