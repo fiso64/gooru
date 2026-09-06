@@ -1,0 +1,31 @@
+name: Temporary validate 361 integration
+
+on:
+  push:
+    branches:
+      - perf/333-root-aggregate-dedup
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l internal/database/migration_test.go internal/database/performance_indexes_test.go)"
+      - name: Validate integrated database and browse packages
+        run: go test ./internal/database ./internal/serve
+      - name: Remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-validate-361-integration.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/tmp-validate-361-integration.yml
+          git commit -m "ci: remove temporary 361 integration workflow"
+          git push origin HEAD:perf/333-root-aggregate-dedup
