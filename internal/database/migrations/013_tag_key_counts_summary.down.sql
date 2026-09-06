@@ -1,3 +1,4 @@
+DROP TRIGGER IF EXISTS delete_tag_associations_before_tag_delete;
 DROP TRIGGER IF EXISTS decrement_tag_counts_on_delete;
 DROP TRIGGER IF EXISTS increment_tag_counts_on_insert;
 DROP TABLE IF EXISTS tag_key_counts;
