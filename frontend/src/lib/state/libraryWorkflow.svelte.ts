@@ -67,7 +67,6 @@ export function createLibraryWorkflow(
   let activeFile = $state<FileItem | null>(null);
   let pendingPreviewID = $state(initialLibraryState.fileID);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
-  let suggestionDebounce: ReturnType<typeof setTimeout> | undefined;
   let historyGeneration = 0;
   let restoreGeneration = 0;
   let restoredStateKey = opaqueURLState && !window.location.search ? stateKey(initialLibraryState) : '';
@@ -239,20 +238,17 @@ export function createLibraryWorkflow(
 
   function setSearch(value: string) {
     searchDraft.set(value);
+    suggestionSearch.set(value.trim());
     if (searchDebounce) clearTimeout(searchDebounce);
-    if (suggestionDebounce) clearTimeout(suggestionDebounce);
     searchDebounce = setTimeout(submitSearch, 280);
-    suggestionDebounce = setTimeout(() => suggestionSearch.set(value.trim()), 160);
   }
 
   function setSearchDraft(value: string) {
-    if (suggestionDebounce) clearTimeout(suggestionDebounce);
-    suggestionDebounce = setTimeout(() => suggestionSearch.set(value.trim()), 160);
+    suggestionSearch.set(value.trim());
   }
 
   function commitSearch(value: string) {
     if (searchDebounce) clearTimeout(searchDebounce);
-    if (suggestionDebounce) clearTimeout(suggestionDebounce);
     const query = value.trim();
     activeKind = '';
     searchDraft.set(query);

@@ -81,3 +81,33 @@ test('bare search uses the shared policy across tag and namespace candidates', a
   await expect(page.getByRole('listbox', { name: 'Search suggestions' })).toBeVisible();
   await expect(page.locator('#searchbar-suggestions [role="option"]').first()).toContainText('technology');
 });
+
+
+test('rapid completion typing keeps the popup stable and request responses bound to their exact query', async ({ page }) => {
+  await mockApp(page);
+  const seenQueries: string[] = [];
+  await page.unroute('**/api/v1/search/suggestions?**');
+  await page.route('**/api/v1/search/suggestions?**', async (route) => {
+    const q = new URL(route.request().url()).searchParams.get('q') ?? '';
+    seenQueries.push(q);
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: [],
+        meta_tags: [{ syntax: '@filename_contains:', hint: 'filename contains', requires_value: true }]
+      })
+    });
+  });
+
+  const search = page.getByLabel('Search library');
+  await search.fill('@f');
+  await expect(page.getByRole('listbox', { name: 'Search suggestions' })).toBeVisible();
+  for (const suffix of ['i', 'l', 'e', 'n', 'a', 'm', 'e']) {
+    await search.press(suffix);
+    await expect(page.getByRole('listbox', { name: 'Search suggestions' })).toBeVisible();
+    await expect(page.locator('#searchbar-suggestions [role="option"]').first()).toContainText('@filename_contains');
+  }
+  await expect.poll(() => seenQueries.at(-1)).toBe('@filename');
+  expect(seenQueries.every((query) => '@filename'.startsWith(query))).toBe(true);
+});
