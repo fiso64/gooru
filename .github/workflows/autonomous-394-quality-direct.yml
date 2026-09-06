@@ -1,0 +1,98 @@
+name: autonomous-394-quality-direct
+
+on:
+  push:
+    branches: [feat/394-preview-options]
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/394-preview-options
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Replace preview quality round-trip with direct backend quality
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('internal/serve/media.go')
+          s = p.read_text()
+          s = s.replace('\t"bytes"\n', '')
+          s = s.replace(
+          '''type SourceThumbnailer interface {\n\tThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error\n}\n''',
+          '''type SourceThumbnailer interface {\n\tThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error\n}\n\ntype QualityThumbnailer interface {\n\tThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error\n}\n\ntype SourceQualityThumbnailer interface {\n\tThumbnailSourceQuality(name string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error\n}\n''')
+          s = s.replace(
+          '''func (t GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {\n\tfile, err := os.Open(src)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\treturn t.ThumbnailSource(src, file, dst, size, format)\n}\n\nfunc (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writer, size int, format string) error {\n''',
+          '''func (t GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {\n\treturn t.ThumbnailQuality(src, dst, size, format, derivativeJPEGQuality)\n}\n\nfunc (t GoImageThumbnailer) ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error {\n\tfile, err := os.Open(src)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer file.Close()\n\treturn t.ThumbnailSourceQuality(src, file, dst, size, format, quality)\n}\n\nfunc (t GoImageThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error {\n\treturn t.ThumbnailSourceQuality(name, src, dst, size, format, derivativeJPEGQuality)\n}\n\nfunc (GoImageThumbnailer) ThumbnailSourceQuality(_ string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {\n''')
+          s = s.replace('return jpeg.Encode(dst, resized, &jpeg.Options{Quality: derivativeJPEGQuality})', 'return jpeg.Encode(dst, resized, &jpeg.Options{Quality: quality})', 1)
+          old = '''func (m *MediaService) generateDerivative(file types.FileInfo, dst io.Writer, size int, format string, kind string) error {\n\tif kind == "preview" && format == "jpeg" && m.cfg.Media.PreviewJPEGQuality != derivativeJPEGQuality {\n\t\tvar lossless bytes.Buffer\n\t\tif err := m.generateThumbnail(file, &lossless, size, "png"); err != nil {\n\t\t\treturn err\n\t\t}\n\t\timg, _, err := image.Decode(&lossless)\n\t\tif err != nil {\n\t\t\treturn fmt.Errorf("decode lossless preview intermediate: %w", err)\n\t\t}\n\t\treturn jpeg.Encode(dst, img, &jpeg.Options{Quality: m.cfg.Media.PreviewJPEGQuality})\n\t}\n\treturn m.generateThumbnail(file, dst, size, format)\n}\n'''
+          new = '''func (m *MediaService) generateDerivative(file types.FileInfo, dst io.Writer, size int, format string, kind string) error {\n\tif kind == "preview" && format == "jpeg" && m.cfg.Media.PreviewJPEGQuality != derivativeJPEGQuality {\n\t\tmediaKind := mediaKindForType(mediaTypeForPath(file.Path))\n\t\tif mediaKind == "photo" || mediaKind == "gif" {\n\t\t\tif m.cfg.Encryption.Enabled {\n\t\t\t\tsourceThumbnailer, ok := m.thumbnailer.(SourceQualityThumbnailer)\n\t\t\t\tif ok {\n\t\t\t\t\tsource, err := m.openMediaSource(file.Path)\n\t\t\t\t\tif err != nil {\n\t\t\t\t\t\treturn err\n\t\t\t\t\t}\n\t\t\t\t\tdefer source.Close()\n\t\t\t\t\treturn sourceThumbnailer.ThumbnailSourceQuality(file.Path, source, dst, size, format, m.cfg.Media.PreviewJPEGQuality)\n\t\t\t\t}\n\t\t\t} else if qualityThumbnailer, ok := m.thumbnailer.(QualityThumbnailer); ok {\n\t\t\t\treturn qualityThumbnailer.ThumbnailQuality(file.Path, dst, size, format, m.cfg.Media.PreviewJPEGQuality)\n\t\t\t}\n\t\t}\n\t}\n\treturn m.generateThumbnail(file, dst, size, format)\n}\n'''
+          if old not in s:
+              raise SystemExit('old generateDerivative block not found')
+          s = s.replace(old, new)
+          p.write_text(s)
+
+          p = Path('internal/serve/media_govips.go')
+          s = p.read_text()
+          s = s.replace(
+          '''func (GovipsImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {\n''',
+          '''func (t GovipsImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {\n\treturn t.ThumbnailQuality(src, dst, size, format, derivativeJPEGQuality)\n}\n\nfunc (GovipsImageThumbnailer) ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error {\n''')
+          s = s.replace('params.Quality = derivativeJPEGQuality', 'params.Quality = quality')
+          p.write_text(s)
+
+          p = Path('internal/serve/media_thumbnailers.go')
+          s = p.read_text()
+          needle = '''func (t *MediaThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {\n'''
+          insert = '''func (t *MediaThumbnailer) ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error {\n\tkind := mediaKindForType(mediaTypeForPath(src))\n\tif kind != "photo" && kind != "gif" {\n\t\treturn t.Thumbnail(src, dst, size, format)\n\t}\n\tif qualityThumbnailer, ok := t.imagePrimary.(QualityThumbnailer); ok {\n\t\tif err := qualityThumbnailer.ThumbnailQuality(src, dst, size, format, quality); err == nil {\n\t\t\treturn nil\n\t\t}\n\t}\n\tif qualityThumbnailer, ok := t.imageFallback.(QualityThumbnailer); ok {\n\t\treturn qualityThumbnailer.ThumbnailQuality(src, dst, size, format, quality)\n\t}\n\treturn &UnsupportedMediaError{Backend: "image", Reason: "no image thumbnail backend supports configured quality", Err: ErrUnsupportedMedia}\n}\n\n'''
+          if needle not in s:
+              raise SystemExit('Thumbnail insertion point not found')
+          s = s.replace(needle, insert + needle, 1)
+          source_needle = '''func (t *MediaThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error {\n'''
+          source_insert = '''func (t *MediaThumbnailer) ThumbnailSourceQuality(name string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {\n\tkind := mediaKindForType(mediaTypeForPath(name))\n\tif kind != "photo" && kind != "gif" {\n\t\treturn t.ThumbnailSource(name, src, dst, size, format)\n\t}\n\tif qualityThumbnailer, ok := t.imageFallback.(SourceQualityThumbnailer); ok {\n\t\treturn qualityThumbnailer.ThumbnailSourceQuality(name, src, dst, size, format, quality)\n\t}\n\treturn &UnsupportedMediaError{Backend: "image", Reason: "image backend cannot apply configured quality to logical media sources", Err: ErrUnsupportedMedia}\n}\n\n'''
+          if source_needle not in s:
+              raise SystemExit('ThumbnailSource insertion point not found')
+          s = s.replace(source_needle, source_insert + source_needle, 1)
+          p.write_text(s)
+
+          p = Path('internal/serve/preview_quality_test.go')
+          s = p.read_text()
+          s = s.replace('''type previewQualityThumbnailer struct {\n\tformats []string\n}\n''', '''type previewQualityThumbnailer struct {\n\tformats  []string\n\tqualities []int\n}\n''')
+          s = s.replace('''func (t *previewQualityThumbnailer) Thumbnail(_ string, dst io.Writer, size int, format string) error {\n\tt.formats = append(t.formats, format)\n''', '''func (t *previewQualityThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {\n\treturn t.ThumbnailQuality(src, dst, size, format, derivativeJPEGQuality)\n}\n\nfunc (t *previewQualityThumbnailer) ThumbnailQuality(_ string, dst io.Writer, size int, format string, quality int) error {\n\tt.formats = append(t.formats, format)\n\tt.qualities = append(t.qualities, quality)\n''')
+          s = s.replace('return jpeg.Encode(dst, img, &jpeg.Options{Quality: derivativeJPEGQuality})', 'return jpeg.Encode(dst, img, &jpeg.Options{Quality: quality})')
+          s = s.replace('''\tif !reflect.DeepEqual(thumbnailer.formats, []string{"png"}) {\n\t\tt.Fatalf("preview backend formats = %v, want lossless png intermediate", thumbnailer.formats)\n\t}\n''', '''\tif !reflect.DeepEqual(thumbnailer.formats, []string{"jpeg"}) || !reflect.DeepEqual(thumbnailer.qualities, []int{25}) {\n\t\tt.Fatalf("preview backend calls = formats %v qualities %v, want jpeg quality 25", thumbnailer.formats, thumbnailer.qualities)\n\t}\n''')
+          s = s.replace('\tthumbnailer.formats = nil\n', '\tthumbnailer.formats = nil\n\tthumbnailer.qualities = nil\n', 1)
+          p.write_text(s)
+      - name: Format and validate backend
+        run: |
+          gofmt -w internal/serve/media.go internal/serve/media_govips.go internal/serve/media_thumbnailers.go internal/serve/preview_quality_test.go
+          go test ./internal/serve ./internal/filesource
+          go test ./...
+          go build ./...
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run check
+          npm run test:unit -- --run
+          npm run build
+      - name: Commit repair and remove temporary workflow
+        run: |
+          rm .github/workflows/autonomous-394-quality-direct.yml
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'perf: apply preview JPEG quality in image backends [394-self-review]'
+          git push origin HEAD:feat/394-preview-options
