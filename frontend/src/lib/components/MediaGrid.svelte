@@ -136,13 +136,13 @@
     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${squareVirtual.totalHeight}px;`}>
       <div class={`grid${fitMode ? ' fit-media-grid' : ''}`} role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type={$runtimeConfig.gridType} style={`transform: translateY(${squareVirtual.offsetTop}px);`} onkeydown={handleGridKeydown}>
         {#if isFetchingPreviousPage}<div class="thumb skeleton"></div>{/if}
-        {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} fitMedia={fitMode} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} />{/each}
+        {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} viewportRoot={mainHost} fitMedia={fitMode} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} />{/each}
       </div>
     </div>
   {:else}
     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${tileVirtual.totalHeight}px;`}>
       <div class="grid variable-media-grid" role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type="tile" onkeydown={handleGridKeydown}>
-        {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} /></div>{/each}
+        {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} viewportRoot={mainHost} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} /></div>{/each}
       </div>
     </div>
   {/if}
