@@ -18,11 +18,19 @@ import { replaceSidebarKind } from '$lib/utils/sidebarKinds';
 import { previewNeighbor } from '$lib/utils/viewerNavigation';
 import { clearViewerPreloadCache } from '$lib/utils/viewerPreload';
 import {
+  applySelectionMembership,
+  applySelectionSnapshot,
   emptySelection,
+  failSelectionSnapshot,
   selectAllMatching,
   selectionActive,
   selectionCount,
+  selectionError,
   selectionHas,
+  selectionPending,
+  selectionRequestID,
+  selectionSnapshotID,
+  selectionUnknownIDs,
   setSelectionRange,
   toggleSelection,
   type LibrarySelection
@@ -55,6 +63,7 @@ export function createLibraryWorkflow(
   let paginationEnabled = $state(initialPaginationEnabled);
   let selection: LibrarySelection = $state(emptySelection());
   let selectionAnchorID = $state('');
+  let selectionGeneration = 0;
   let activeFile = $state<FileItem | null>(null);
   let pendingPreviewID = $state(initialLibraryState.fileID);
   let searchDebounce: ReturnType<typeof setTimeout> | undefined;
@@ -318,9 +327,27 @@ export function createLibraryWorkflow(
     else if (selectionAnchorID === file.id) selectionAnchorID = '';
   }
 
-  function selectAll() {
-    selection = selectAllMatching(filterQuery());
+  function selectAll(optimisticCount: number, files: FileItem[] = []) {
+    const requestID = ++selectionGeneration;
+    selection = selectAllMatching(filterQuery(), optimisticCount, files.map((file) => file.id), requestID);
     selectionAnchorID = '';
+    return requestID;
+  }
+
+  function applySnapshot(requestID: number, snapshotID: string, count: number) {
+    selection = applySelectionSnapshot(selection, requestID, snapshotID, count);
+  }
+
+  function failSnapshot(requestID: number, error: string) {
+    selection = failSelectionSnapshot(selection, requestID, error);
+  }
+
+  function applySnapshotMembership(snapshotID: string, candidates: string[], members: string[]) {
+    selection = applySelectionMembership(selection, snapshotID, candidates, members);
+  }
+
+  function unknownSnapshotIDs(fileIDs: string[]) {
+    return selectionUnknownIDs(selection, fileIDs);
   }
 
   function clearSelection() {
@@ -332,8 +359,8 @@ export function createLibraryWorkflow(
     return selectionHas(selection, fileID);
   }
 
-  function selectedCount(totalCount: number) {
-    return selectionCount(selection, totalCount);
+  function selectedCount() {
+    return selectionCount(selection);
   }
 
   function openPreview(file: FileItem, files: FileItem[] = []) {
@@ -403,6 +430,10 @@ export function createLibraryWorkflow(
     get page() { return page; },
     set page(value: number) { page = normalizePage(value); },
     get selection() { return selection; },
+    get selectionPending() { return selectionPending(selection); },
+    get selectionError() { return selectionError(selection); },
+    get selectionSnapshotID() { return selectionSnapshotID(selection); },
+    get selectionRequestID() { return selectionRequestID(selection); },
     get activeFile() { return activeFile; },
     get pendingPreviewID() { return pendingPreviewID; },
     setPaginationEnabled(value: boolean) { paginationEnabled = value; },
@@ -418,6 +449,10 @@ export function createLibraryWorkflow(
     applySuggestion,
     toggleSelect,
     selectAll,
+    applySnapshot,
+    failSnapshot,
+    applySnapshotMembership,
+    unknownSnapshotIDs,
     clearSelection,
     isSelected,
     selectedCount,

@@ -48,6 +48,10 @@ type PublicFileLibrary interface {
 	DeleteFileByPublicID(ctx context.Context, id string) (bool, error)
 }
 
+type FileSelectionLibrary interface {
+	ListPublicFileIDs(ctx context.Context, query string) ([]string, error)
+}
+
 type FileCountLibrary interface {
 	CountFiles(ctx context.Context, query string) (int, error)
 }
@@ -71,6 +75,13 @@ func (l *GooruLibrary) ListFiles(ctx context.Context, query string) ([]types.Fil
 		return l.client.GetAllFilesInfo()
 	}
 	return l.client.GetFilesInfoByQuery(query, l.verbose)
+}
+
+func (l *GooruLibrary) ListPublicFileIDs(ctx context.Context, query string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return l.client.ListPublicFileIDsByQuery(query, l.verbose)
 }
 
 func (l *GooruLibrary) ListFilesPage(ctx context.Context, query string, page Page) (PageResult[types.FileInfo], error) {

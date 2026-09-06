@@ -7,3 +7,15 @@
 @import './lib/styles/common-tags.css';
 @import './lib/styles/viewer.css';
 @import './lib/styles/font-style.css';
+
+.gooru-root [data-testid='refresh-upload-results'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+.gooru-root [data-testid='refresh-upload-results']:hover {
+  background: oklch(from var(--accent) calc(l - 0.04) c h);
+  border-color: oklch(from var(--accent) calc(l - 0.04) c h);
+  color: var(--accent-ink);
+}

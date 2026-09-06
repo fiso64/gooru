@@ -95,6 +95,90 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /file-selections:
+    post:
+      summary: Create an immutable snapshot of the files matching a library query.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileSelectionCreateRequest"
+      responses:
+        "201":
+          description: Immutable file selection snapshot created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileSelectionCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /file-selections/{id}:
+    delete:
+      summary: Release an immutable file selection snapshot.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CSRF"
+      responses:
+        "204":
+          description: Snapshot released or already absent.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /file-selections/{id}/members:
+    post:
+      summary: Return which candidate file IDs belong to an immutable selection snapshot.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileSelectionMembersRequest"
+      responses:
+        "200":
+          description: Candidate IDs that are members of the snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileSelectionMembersResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "410":
+          description: Selection snapshot expired or is no longer available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /files:
     get:
       summary: List tracked files for browser grids.
@@ -1268,6 +1352,37 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ComicPage"
+    FileSelectionCreateRequest:
+      type: object
+      properties:
+        query:
+          type: string
+          description: Library query to snapshot. Empty is treated as *.
+    FileSelectionCreateResponse:
+      type: object
+      required: [id, count]
+      properties:
+        id:
+          type: string
+        count:
+          type: integer
+          minimum: 0
+    FileSelectionMembersRequest:
+      type: object
+      required: [file_ids]
+      properties:
+        file_ids:
+          type: array
+          items:
+            type: string
+    FileSelectionMembersResponse:
+      type: object
+      required: [file_ids]
+      properties:
+        file_ids:
+          type: array
+          items:
+            type: string
     FileRemovalSelector:
       type: object
       properties:
@@ -1277,10 +1392,19 @@ components:
             type: string
         query:
           type: string
+        selection_id:
+          type: string
+          description: Immutable selection snapshot ID. Mutually exclusive with file_ids and query.
+        include_file_ids:
+          type: array
+          items:
+            type: string
+          description: Explicit additions to a selection snapshot. Valid only with selection_id.
         exclude_file_ids:
           type: array
           items:
             type: string
+          description: Explicit exclusions from a query or selection snapshot.
     FileRemovalRequest:
       allOf:
         - $ref: "#/components/schemas/FileRemovalSelector"
@@ -1314,11 +1438,19 @@ components:
         query:
           type: string
           description: Query selector. Exactly one of file_ids or query must be provided.
+        selection_id:
+          type: string
+          description: Immutable selection snapshot ID. Mutually exclusive with file_ids and query.
+        include_file_ids:
+          type: array
+          items:
+            type: string
+          description: Explicit additions to a selection snapshot. Valid only with selection_id.
         exclude_file_ids:
           type: array
           items:
             type: string
-          description: Opaque file IDs to exclude from a query selector. Only valid with query.
+          description: Explicit exclusions from a query or selection snapshot.
         tags:
           type: array
           items:

@@ -12,11 +12,24 @@
     onClose: () => void;
     onCancel: (job: Job) => void;
   }>();
+
+  let drawerElement: HTMLDivElement | undefined;
+
+  function handleWindowClick(event: MouseEvent) {
+    const target = event.target;
+    if (!(target instanceof Node)) return;
+    if (drawerElement?.contains(target)) return;
+    if (target instanceof Element && target.closest('[aria-controls="jobs-drawer"]')) return;
+    onClose();
+  }
 </script>
 
-<svelte:window onkeydown={(event) => { if (event.key === 'Escape') onClose(); }} />
+<svelte:window
+  onkeydown={(event) => { if (event.key === 'Escape') onClose(); }}
+  onclick={handleWindowClick}
+/>
 
-<div class="jobs-drawer" role="dialog" aria-modal="false" aria-labelledby="jobs-drawer-title" tabindex="-1">
+<div bind:this={drawerElement} class="jobs-drawer" role="dialog" aria-modal="false" aria-labelledby="jobs-drawer-title" tabindex="-1">
   <div class="jobs-drawer-head">
     <h3 id="jobs-drawer-title">Jobs</h3>
     <div class="jobs-drawer-actions">

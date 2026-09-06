@@ -205,6 +205,151 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/file-selections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create an immutable snapshot of the files matching a library query. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FileSelectionCreateRequest"];
+                };
+            };
+            responses: {
+                /** @description Immutable file selection snapshot created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FileSelectionCreateResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/file-selections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Release an immutable file selection snapshot. */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Snapshot released or already absent. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/file-selections/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Return which candidate file IDs belong to an immutable selection snapshot. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FileSelectionMembersRequest"];
+                };
+            };
+            responses: {
+                /** @description Candidate IDs that are members of the snapshot. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FileSelectionMembersResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                /** @description Selection snapshot expired or is no longer available. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files": {
         parameters: {
             query?: never;
@@ -1572,9 +1717,28 @@ export interface components {
         ComicManifest: {
             pages: components["schemas"]["ComicPage"][];
         };
+        FileSelectionCreateRequest: {
+            /** @description Library query to snapshot. Empty is treated as *. */
+            query?: string;
+        };
+        FileSelectionCreateResponse: {
+            id: string;
+            count: number;
+        };
+        FileSelectionMembersRequest: {
+            file_ids: string[];
+        };
+        FileSelectionMembersResponse: {
+            file_ids: string[];
+        };
         FileRemovalSelector: {
             file_ids?: string[];
             query?: string;
+            /** @description Immutable selection snapshot ID. Mutually exclusive with file_ids and query. */
+            selection_id?: string;
+            /** @description Explicit additions to a selection snapshot. Valid only with selection_id. */
+            include_file_ids?: string[];
+            /** @description Explicit exclusions from a query or selection snapshot. */
             exclude_file_ids?: string[];
         };
         FileRemovalRequest: components["schemas"]["FileRemovalSelector"] & {
@@ -1592,7 +1756,11 @@ export interface components {
             file_ids?: string[];
             /** @description Query selector. Exactly one of file_ids or query must be provided. */
             query?: string;
-            /** @description Opaque file IDs to exclude from a query selector. Only valid with query. */
+            /** @description Immutable selection snapshot ID. Mutually exclusive with file_ids and query. */
+            selection_id?: string;
+            /** @description Explicit additions to a selection snapshot. Valid only with selection_id. */
+            include_file_ids?: string[];
+            /** @description Explicit exclusions from a query or selection snapshot. */
             exclude_file_ids?: string[];
             tags: string[];
             /** @default false */

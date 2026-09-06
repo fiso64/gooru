@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-func TestTagMutationExclusionsRequireQuerySelector(t *testing.T) {
+func TestTagMutationExclusionsRequireQueryOrSelectionSelector(t *testing.T) {
 	err := validateTagMutationRequest(TagOperationAdd, TagMutationRequest{
 		FileIDs:        []string{"file-a"},
 		ExcludeFileIDs: []string{"file-b"},
 		Tags:           []string{"reviewed"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "exclude_file_ids requires a query selector") {
-		t.Fatalf("expected query-only exclusion error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "exclude_file_ids requires a query or selection_id selector") {
+		t.Fatalf("expected query-or-selection exclusion error, got %v", err)
 	}
 }
 
