@@ -1,10 +1,12 @@
 package gooru
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"gooru.local/internal/encryptedfile"
 	"gooru.local/types"
 )
 
@@ -71,6 +73,78 @@ func TestRecoverMissingManagedPathRequiresContentIdentity(t *testing.T) {
 			t.Fatalf("database path changed to %q despite hash mismatch", stored.Path)
 		}
 	})
+}
+
+func TestRecoverMissingManagedPathUsesProtectedLogicalContent(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "gooru.db")
+	if err := Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	oldRoot := filepath.Join(root, "old-uploads")
+	newRoot := filepath.Join(root, "new-uploads")
+	for _, dir := range []string{oldRoot, newRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	key := bytes.Repeat([]byte{0x73}, 32)
+	client, err := NewWithOptions(dbPath, false, OpenOptions{Content: ContentSourceOptions{
+		EncryptionKey:  key,
+		ProtectedRoots: []string{oldRoot, newRoot},
+	}})
+	if err != nil {
+		t.Fatalf("open protected client: %v", err)
+	}
+	defer client.Close()
+
+	payload := bytes.Repeat([]byte("relocated-protected-content-"), 512)
+	oldPath := filepath.Join(oldRoot, "move-me.bin")
+	out, err := os.OpenFile(oldPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := encryptedfile.Encrypt(out, bytes.NewReader(payload), int64(len(payload)), key); err != nil {
+		_ = out.Close()
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	hash, err := client.hasher.HashSource(bytes.NewReader(payload), int64(len(payload)))
+	if err != nil {
+		t.Fatalf("hash plaintext source: %v", err)
+	}
+	meta, err := client.hasher.FileMetadata(oldPath)
+	if err != nil {
+		t.Fatalf("protected metadata: %v", err)
+	}
+	if _, err := client.store.GetOrCreateContent(client.store, hash); err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+	if err := client.store.GetOrCreateLocation(client.store, hash, oldPath, meta.Size, meta.ModTime.Unix(), filepath.Ext(oldPath)); err != nil {
+		t.Fatalf("create location: %v", err)
+	}
+	file, err := client.GetFileInfoByPath(oldPath)
+	if err != nil {
+		t.Fatalf("load protected location: %v", err)
+	}
+
+	newPath := filepath.Join(newRoot, filepath.Base(oldPath))
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+	repaired, ok, err := client.RecoverMissingManagedPath(file, []string{newRoot})
+	if err != nil {
+		t.Fatalf("recover protected moved path: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected protected moved path to be recovered")
+	}
+	if repaired.Path != newPath || repaired.Hash != hash || repaired.Size != int64(len(payload)) {
+		t.Fatalf("protected repaired file = %+v", repaired)
+	}
 }
 
 func trackedTestFile(t *testing.T, payload []byte) (*Client, types.FileInfo, string) {
