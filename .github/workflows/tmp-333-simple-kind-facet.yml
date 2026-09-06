@@ -15,6 +15,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: perf/333-simple-type-facet-summary
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - name: Apply core fast path
         shell: bash
         run: |
