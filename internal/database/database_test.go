@@ -135,3 +135,56 @@ func TestBatchUpsertLocationsPersistsExplicitAddedAtWithoutRewritingExistingValu
 		t.Fatalf("default added_at=%d, want insertion timestamp", file.AddedAt)
 	}
 }
+
+func TestTagSuggestionsUseUniqueFileAggregatesForBaseAndNamespace(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	if err := CreateEmptyDB(dbPath); err != nil {
+		t.Fatalf("CreateEmptyDB: %v", err)
+	}
+	store, err := NewStore(dbPath, false)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+	if err := RunMigrations(store.DB); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+	if _, err := store.Exec(`INSERT INTO contents (hash) VALUES ('h1'), ('h2'), ('h3')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`INSERT INTO tags (key, value) VALUES ('animal',''),('animal','cat'),('animal','hamster'),('animal','horse'),('ai',''),('a','')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range [][3]string{
+		{"h1", "animal", ""}, {"h1", "animal", "cat"}, {"h1", "animal", "horse"},
+		{"h2", "animal", "hamster"}, {"h3", "animal", "horse"},
+		{"h1", "ai", ""}, {"h2", "ai", ""}, {"h3", "a", ""},
+	} {
+		if _, err := store.Exec(`INSERT INTO content_tags (content_hash, tag_id) SELECT ?, id FROM tags WHERE key = ? AND value = ?`, pair[0], pair[1], pair[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tags, err := store.ListTagSuggestions("a", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for _, tag := range tags {
+		counts[tag.Tag] = tag.Count
+	}
+	if counts["animal"] != 3 {
+		t.Fatalf("animal count=%d want 3: %#v", counts["animal"], tags)
+	}
+	if counts["ai"] != 2 || counts["a"] != 1 {
+		t.Fatalf("plain counts wrong: %#v", tags)
+	}
+
+	namespaces, err := store.ListNamespaceSuggestions("a", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(namespaces) != 1 || namespaces[0].Tag != "animal:" || namespaces[0].Count != 3 {
+		t.Fatalf("namespace suggestions=%#v want animal: count 3", namespaces)
+	}
+}

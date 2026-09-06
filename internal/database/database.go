@@ -1037,9 +1037,20 @@ func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCou
 	}
 	like := strings.ToLower(strings.TrimSpace(prefix)) + "%"
 	rows, err := s.Query(`
-		SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-		FROM tags
-		WHERE lower(key) LIKE ? OR lower(key || ':' || value) LIKE ?
+		WITH matching_keys AS (
+			SELECT t.key AS tag_str, COUNT(DISTINCT ct.content_hash) AS files_count
+			FROM tags t
+			JOIN content_tags ct ON ct.tag_id = t.id
+			WHERE lower(t.key) LIKE ?
+			GROUP BY t.key
+		), matching_values AS (
+			SELECT key || ':' || value AS tag_str, files_count
+			FROM tags
+			WHERE value != '' AND lower(key || ':' || value) LIKE ?
+		)
+		SELECT tag_str, files_count FROM matching_keys
+		UNION ALL
+		SELECT tag_str, files_count FROM matching_values
 		ORDER BY files_count DESC, tag_str ASC
 		LIMIT ?
 	`, like, like, limit)
@@ -1064,10 +1075,11 @@ func (s *Store) ListNamespaceSuggestions(prefix string, limit int) ([]types.TagW
 	}
 	like := strings.ToLower(strings.TrimSpace(prefix)) + "%"
 	rows, err := s.Query(`
-		SELECT key || ':' AS tag_str, SUM(files_count) AS total_files
-		FROM tags
-		WHERE value != '' AND lower(key) LIKE ?
-		GROUP BY key
+		SELECT t.key || ':' AS tag_str, COUNT(DISTINCT ct.content_hash) AS total_files
+		FROM tags t
+		JOIN content_tags ct ON ct.tag_id = t.id
+		WHERE t.value != '' AND lower(t.key) LIKE ?
+		GROUP BY t.key
 		ORDER BY total_files DESC, tag_str ASC
 		LIMIT ?
 	`, like, limit)
