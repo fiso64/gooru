@@ -19,30 +19,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Patch namespace suggestions
+      - name: Patch namespace suggestion query
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path('internal/database/database.go')
           text = path.read_text()
-          old = '''\trows, err := s.Query(`
-\t\tSELECT key || ':' AS tag_str, SUM(files_count) AS total_files
-\t\tFROM tags
-\t\tWHERE value != '' AND lower(key) LIKE ?
-\t\tGROUP BY key
-\t\tORDER BY total_files DESC, tag_str ASC
-\t\tLIMIT ?
-\t`, like, limit)'''
-          new = '''\trows, err := s.Query(`
-\t\tSELECT key || ':' AS tag_str, files_count
-\t\tFROM tag_key_counts
-\t\tWHERE files_count > 0 AND lower(key) LIKE ?
-\t\tORDER BY files_count DESC, tag_str ASC
-\t\tLIMIT ?
-\t`, like, limit)'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one namespace suggestion query, found {text.count(old)}')
-          path.write_text(text.replace(old, new))
+          start = text.index('func (s *Store) ListNamespaceSuggestions')
+          end = text.index('func (s *Store) ListTagValueSuggestions', start)
+          block = text[start:end]
+          old = "SELECT key || ':' AS tag_str, SUM(files_count) AS total_files\n\t\tFROM tags\n\t\tWHERE value != '' AND lower(key) LIKE ?\n\t\tGROUP BY key\n\t\tORDER BY total_files DESC, tag_str ASC"
+          new = "SELECT key || ':' AS tag_str, files_count\n\t\tFROM tag_key_counts\n\t\tWHERE files_count > 0 AND lower(key) LIKE ?\n\t\tORDER BY files_count DESC, tag_str ASC"
+          if block.count(old) != 1:
+              raise SystemExit('expected one namespace aggregation')
+          path.write_text(text[:start] + block.replace(old, new) + text[end:])
           PY
           gofmt -w internal/database/database.go internal/database/namespace_suggestions_test.go
       - name: Validate database package
