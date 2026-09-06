@@ -30,6 +30,7 @@ type TagMutationRequest struct {
 	FileIDs        []string `json:"file_ids,omitempty"`
 	Query          string   `json:"query,omitempty"`
 	SelectionID    string   `json:"selection_id,omitempty"`
+	IncludeFileIDs []string `json:"include_file_ids,omitempty"`
 	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 	Tags           []string `json:"tags"`
 	Verbose        bool     `json:"verbose,omitempty"`
@@ -47,6 +48,7 @@ type TagMutationSelector struct {
 	FileIDs        []string `json:"file_ids,omitempty"`
 	Query          string   `json:"query,omitempty"`
 	SelectionID    string   `json:"selection_id,omitempty"`
+	IncludeFileIDs []string `json:"include_file_ids,omitempty"`
 	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 }
 
@@ -88,11 +90,12 @@ func (s *Server) handleMutateTags(w http.ResponseWriter, r *http.Request) {
 		FileIDs:        request.FileIDs,
 		Query:          request.Query,
 		SelectionID:    request.SelectionID,
+		IncludeFileIDs: request.IncludeFileIDs,
 		ExcludeFileIDs: request.ExcludeFileIDs,
 	}
 	resolvedRequest := request
 	if request.SelectionID != "" {
-		fileIDs, err := s.fileSelections.resolve(fileSelectionOwnerID(r), request.SelectionID)
+		snapshotIDs, err := s.fileSelections.resolve(fileSelectionOwnerID(r), request.SelectionID)
 		if errors.Is(err, errFileSelectionNotFound) {
 			writeError(w, http.StatusGone, "selection_expired", "file selection has expired", nil)
 			return
@@ -101,18 +104,10 @@ func (s *Server) handleMutateTags(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
 			return
 		}
-		excluded := make(map[string]struct{}, len(request.ExcludeFileIDs))
-		for _, id := range request.ExcludeFileIDs {
-			excluded[id] = struct{}{}
-		}
-		resolvedRequest.FileIDs = make([]string, 0, len(fileIDs))
-		for _, id := range fileIDs {
-			if _, skip := excluded[id]; !skip {
-				resolvedRequest.FileIDs = append(resolvedRequest.FileIDs, id)
-			}
-		}
+		resolvedRequest.FileIDs = mergeSnapshotSelectionIDs(snapshotIDs, request.IncludeFileIDs, request.ExcludeFileIDs)
 		resolvedRequest.Query = ""
 		resolvedRequest.SelectionID = ""
+		resolvedRequest.IncludeFileIDs = nil
 		resolvedRequest.ExcludeFileIDs = nil
 	} else if err := s.validateTagMutationFiles(r.Context(), request); err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -190,6 +185,7 @@ func decodeTagMutationRequest(r *http.Request) (TagMutationRequest, error) {
 	request.Query = strings.TrimSpace(request.Query)
 	request.SelectionID = strings.TrimSpace(request.SelectionID)
 	request.FileIDs = normalizeStrings(request.FileIDs)
+	request.IncludeFileIDs = normalizeStrings(request.IncludeFileIDs)
 	request.ExcludeFileIDs = normalizeStrings(request.ExcludeFileIDs)
 	request.Tags = normalizeStrings(request.Tags)
 	return request, nil
@@ -214,26 +210,25 @@ func validateTagMutationRequest(operation TagOperation, request TagMutationReque
 			return err
 		}
 	}
+	if len(request.IncludeFileIDs) > 0 && !hasSelection {
+		return errors.New("include_file_ids requires a selection_id selector")
+	}
 	if len(request.ExcludeFileIDs) > 0 && !hasQuery && !hasSelection {
 		return errors.New("exclude_file_ids requires a query or selection_id selector")
 	}
 	if hasIDs {
-		seen := map[string]struct{}{}
-		for _, id := range request.FileIDs {
-			if _, ok := seen[id]; ok {
-				return fmt.Errorf("duplicate file id %q", id)
-			}
-			seen[id] = struct{}{}
+		if err := rejectDuplicateFileIDs(request.FileIDs, "file id"); err != nil {
+			return err
 		}
 	}
-	if len(request.ExcludeFileIDs) > 0 {
-		seen := map[string]struct{}{}
-		for _, id := range request.ExcludeFileIDs {
-			if _, ok := seen[id]; ok {
-				return fmt.Errorf("duplicate excluded file id %q", id)
-			}
-			seen[id] = struct{}{}
-		}
+	if err := rejectDuplicateFileIDs(request.IncludeFileIDs, "included file id"); err != nil {
+		return err
+	}
+	if err := rejectDuplicateFileIDs(request.ExcludeFileIDs, "excluded file id"); err != nil {
+		return err
+	}
+	if err := rejectOverlappingFileIDs(request.IncludeFileIDs, request.ExcludeFileIDs); err != nil {
+		return err
 	}
 	if hasQuery {
 		ast, err := query.Parse(request.Query)
@@ -247,6 +242,30 @@ func validateTagMutationRequest(operation TagOperation, request TagMutationReque
 	return nil
 }
 
+func mergeSnapshotSelectionIDs(snapshotIDs, includedIDs, excludedIDs []string) []string {
+	excluded := make(map[string]struct{}, len(excludedIDs))
+	for _, id := range excludedIDs {
+		excluded[id] = struct{}{}
+	}
+	selected := make([]string, 0, len(snapshotIDs)+len(includedIDs))
+	seen := make(map[string]struct{}, len(snapshotIDs)+len(includedIDs))
+	for _, id := range snapshotIDs {
+		if _, skip := excluded[id]; skip {
+			continue
+		}
+		selected = append(selected, id)
+		seen[id] = struct{}{}
+	}
+	for _, id := range includedIDs {
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		selected = append(selected, id)
+		seen[id] = struct{}{}
+	}
+	return selected
+}
+
 func (l *GooruLibrary) MutateTags(ctx context.Context, operation TagOperation, request TagMutationRequest) (TagMutationResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return TagMutationResponse{}, err
@@ -257,6 +276,7 @@ func (l *GooruLibrary) MutateTags(ctx context.Context, operation TagOperation, r
 			FileIDs:        request.FileIDs,
 			Query:          request.Query,
 			SelectionID:    request.SelectionID,
+			IncludeFileIDs: request.IncludeFileIDs,
 			ExcludeFileIDs: request.ExcludeFileIDs,
 		},
 	}
