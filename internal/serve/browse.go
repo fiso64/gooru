@@ -467,11 +467,23 @@ func (s *Server) handleListFilesRequest(w http.ResponseWriter, r *http.Request, 
 	includeAggregates := req.IncludeFacets
 	if search, ok := s.library.(SearchLibrary); ok && includeAggregates {
 		libraryCountKnown := false
-		if total, err := s.countFiles(r.Context(), queryText); err == nil {
+		if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
+			response.Facets.Kind = kind
+			total := 0
+			for _, facet := range kind {
+				total += facet.Count
+			}
 			response.TotalCount = total
 			if strings.TrimSpace(queryText) == "" {
-				// An unfiltered location count is the library count. Reuse the exact
-				// result instead of issuing the same COUNT(*) again on large libraries.
+				// Kind facets partition all locations, so their sum is also the
+				// exact unfiltered library count without another aggregate pass.
+				response.LibraryCount = total
+				libraryCountKnown = true
+			}
+		} else if total, err := s.countFiles(r.Context(), queryText); err == nil {
+			// Preserve the exact count when facet aggregation is unavailable.
+			response.TotalCount = total
+			if strings.TrimSpace(queryText) == "" {
 				response.LibraryCount = total
 				libraryCountKnown = true
 			}
@@ -484,9 +496,6 @@ func (s *Server) handleListFilesRequest(w http.ResponseWriter, r *http.Request, 
 			} else if total, err := search.LibraryCount(r.Context()); err == nil {
 				response.LibraryCount = total
 			}
-		}
-		if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
-			response.Facets.Kind = kind
 		}
 	}
 	for _, file := range pageResult.Items {
