@@ -33,6 +33,16 @@ describe('virtual grid scrolling', () => {
     expect(configured.columns).toBe(3); expect(configured.cardWidth).toBeCloseTo(expectedCardWidth);
     expect(configured.rowHeight).toBeCloseTo(expectedCardWidth + 5); expect(configured.totalHeight).toBeCloseTo(configured.rowHeight * 10);
   });
+  it('does not use render overscan to fetch a second 60-item page on startup', () => {
+    const files = Array.from({ length: 60 }, (_, index) => ({ id: `file-${index}` })) as never[];
+    const initial = virtualGrid(files, 1440, 900, 0, 100, 10_000, 0, 200);
+    expect(initial.files.length).toBeGreaterThan(0);
+    expect(initial.needsNext).toBe(false);
+
+    const nearTailScroll = initial.rowHeight * 5;
+    const nearTail = virtualGrid(files, 1440, 900, nearTailScroll, 100, 10_000, 0, 200);
+    expect(nearTail.needsNext).toBe(true);
+  });
 });
 
 describe('tile gallery layout', () => {
