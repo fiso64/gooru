@@ -28,19 +28,20 @@ async function mockApp(page: Page) {
     const params = new URL(route.request().url()).searchParams;
     const limit = Number(params.get('limit') ?? 0);
     const includeFacets = params.get('include_facets') === 'true';
+    const queryTotal = params.get('query') ? 12 : serverTotal;
     if (limit > 1) gridRequests += 1;
     else metadataRequests += 1;
     // Mirror the real files API: without aggregate metadata total_count is only
     // a pagination lower bound, not the authoritative query result count.
-    const lowerBoundTotal = serverTotal > limit ? limit + 1 : serverTotal;
+    const lowerBoundTotal = queryTotal > limit ? limit + 1 : queryTotal;
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         files: [],
-        total_count: includeFacets ? serverTotal : lowerBoundTotal,
+        total_count: includeFacets ? queryTotal : lowerBoundTotal,
         ...(includeFacets ? {
           library_count: serverTotal,
-          facets: { kind: serverTotal ? [{ value: 'image', count: serverTotal }] : [] }
+          facets: { kind: queryTotal ? [{ value: 'image', count: queryTotal }] : [] }
         } : {})
       })
     });
@@ -97,6 +98,14 @@ test('active uploads refresh authoritative counts without churning grid pages an
   await signIn(page);
   await expect(librarySidebar(page)).toContainText('75');
   await expect(page.getByTestId('library-header-count')).toHaveText('75 files');
+
+  const search = page.getByLabel('Search library');
+  await search.fill('alpha');
+  await search.press('Enter');
+  await expect(page.getByTestId('library-header-count')).toHaveText('12 matching · 75 files');
+  await page.getByLabel('Clear search').click();
+  await expect(page.getByTestId('library-header-count')).toHaveText('75 files');
+
   const initialGridRequests = server.gridRequests();
   const initialMetadataRequests = server.metadataRequests();
   const initialTagsRequests = server.tagsRequests();
@@ -124,9 +133,11 @@ test('active uploads refresh authoritative counts without churning grid pages an
   const [refreshBackground, accentBackground] = await Promise.all([
     refreshButton.evaluate((node) => getComputedStyle(node).backgroundColor),
     page.evaluate(() => {
+      const root = document.querySelector('.gooru-root');
+      if (!root) throw new Error('missing gooru root');
       const probe = document.createElement('div');
       probe.style.background = 'var(--accent)';
-      document.body.append(probe);
+      root.append(probe);
       const background = getComputedStyle(probe).backgroundColor;
       probe.remove();
       return background;
