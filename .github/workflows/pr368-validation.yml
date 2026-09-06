@@ -19,7 +19,11 @@ jobs:
           cache: true
       - name: Format check
         run: test -z "$(gofmt -l internal/database/performance_indexes_test.go)"
-      - name: Query and database tests
-        run: go test ./internal/query ./internal/database
+      - name: Extension planner regression
+        run: go test ./internal/database -run TestExtensionFilterUsesCaseInsensitiveExpressionIndex -v
+      - name: Query tests
+        run: go test ./internal/query
+      - name: Database tests
+        run: go test ./internal/database
       - name: Server tests
         run: go test ./internal/serve
