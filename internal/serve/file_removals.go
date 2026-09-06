@@ -18,12 +18,14 @@ type FileRemovalRequest struct {
 	Mode           string   `json:"mode"`
 	FileIDs        []string `json:"file_ids,omitempty"`
 	Query          string   `json:"query,omitempty"`
+	SelectionID    string   `json:"selection_id,omitempty"`
 	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 }
 
 type FileRemovalSelector struct {
 	FileIDs        []string `json:"file_ids,omitempty"`
 	Query          string   `json:"query,omitempty"`
+	SelectionID    string   `json:"selection_id,omitempty"`
 	ExcludeFileIDs []string `json:"exclude_file_ids,omitempty"`
 }
 
@@ -55,7 +57,11 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
-	files, err := s.resolveFileRemovalSelection(r.Context(), request)
+	files, err := s.resolveFileRemovalSelection(r.Context(), fileSelectionOwnerID(r), request)
+	if errors.Is(err, errFileSelectionNotFound) {
+		writeError(w, http.StatusGone, "selection_expired", "file selection has expired", nil)
+		return
+	}
 	if errors.Is(err, ErrNotFound) {
 		writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		return
@@ -94,8 +100,13 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, FileRemovalResponse{
-		Mode:             request.Mode,
-		Selector:         FileRemovalSelector{FileIDs: request.FileIDs, Query: request.Query, ExcludeFileIDs: request.ExcludeFileIDs},
+		Mode: request.Mode,
+		Selector: FileRemovalSelector{
+			FileIDs:        request.FileIDs,
+			Query:          request.Query,
+			SelectionID:    request.SelectionID,
+			ExcludeFileIDs: request.ExcludeFileIDs,
+		},
 		RemovedLocations: removed,
 	})
 }
@@ -116,6 +127,7 @@ func decodeFileRemovalRequest(r *http.Request) (FileRemovalRequest, error) {
 	}
 	request.Mode = strings.TrimSpace(request.Mode)
 	request.Query = strings.TrimSpace(request.Query)
+	request.SelectionID = strings.TrimSpace(request.SelectionID)
 	request.FileIDs = normalizeStrings(request.FileIDs)
 	request.ExcludeFileIDs = normalizeStrings(request.ExcludeFileIDs)
 	return request, nil
@@ -127,11 +139,16 @@ func validateFileRemovalRequest(request FileRemovalRequest) error {
 	}
 	hasIDs := len(request.FileIDs) > 0
 	hasQuery := request.Query != ""
-	if hasIDs == hasQuery {
-		return errors.New("provide exactly one selector: file_ids or query")
+	hasSelection := request.SelectionID != ""
+	selectorCount := 0
+	if hasIDs { selectorCount++ }
+	if hasQuery { selectorCount++ }
+	if hasSelection { selectorCount++ }
+	if selectorCount != 1 {
+		return errors.New("provide exactly one selector: file_ids, query, or selection_id")
 	}
-	if len(request.ExcludeFileIDs) > 0 && !hasQuery {
-		return errors.New("exclude_file_ids requires a query selector")
+	if len(request.ExcludeFileIDs) > 0 && !hasQuery && !hasSelection {
+		return errors.New("exclude_file_ids requires a query or selection_id selector")
 	}
 	if err := rejectDuplicateFileIDs(request.FileIDs, "file id"); err != nil {
 		return err
@@ -162,17 +179,16 @@ func rejectDuplicateFileIDs(ids []string, label string) error {
 	return nil
 }
 
-func (s *Server) resolveFileRemovalSelection(ctx context.Context, request FileRemovalRequest) ([]types.FileInfo, error) {
+func (s *Server) resolveFileRemovalSelection(ctx context.Context, ownerID string, request FileRemovalRequest) ([]types.FileInfo, error) {
 	if len(request.FileIDs) > 0 {
-		files := make([]types.FileInfo, 0, len(request.FileIDs))
-		for _, id := range request.FileIDs {
-			file, err := s.getFileByPublicID(ctx, id)
-			if err != nil {
-				return nil, err
-			}
-			files = append(files, file)
+		return s.resolveFileIDs(ctx, request.FileIDs, nil)
+	}
+	if request.SelectionID != "" {
+		fileIDs, err := s.fileSelections.resolve(ownerID, request.SelectionID)
+		if err != nil {
+			return nil, err
 		}
-		return files, nil
+		return s.resolveFileIDs(ctx, fileIDs, request.ExcludeFileIDs)
 	}
 
 	excluded := make(map[string]struct{}, len(request.ExcludeFileIDs))
@@ -194,4 +210,23 @@ func (s *Server) resolveFileRemovalSelection(ctx context.Context, request FileRe
 		selected = append(selected, file)
 	}
 	return selected, nil
+}
+
+func (s *Server) resolveFileIDs(ctx context.Context, fileIDs, excludedFileIDs []string) ([]types.FileInfo, error) {
+	excluded := make(map[string]struct{}, len(excludedFileIDs))
+	for _, id := range excludedFileIDs {
+		excluded[id] = struct{}{}
+	}
+	files := make([]types.FileInfo, 0, len(fileIDs))
+	for _, id := range fileIDs {
+		if _, skip := excluded[id]; skip {
+			continue
+		}
+		file, err := s.getFileByPublicID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
+	}
+	return files, nil
 }
