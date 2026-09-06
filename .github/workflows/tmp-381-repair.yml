@@ -1,0 +1,483 @@
+name: Temporary PR 381 Repair
+
+on:
+  push:
+    branches:
+      - fix/349-selection-snapshots
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/349-selection-snapshots
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply repair
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) < count:
+                  raise SystemExit(f"missing expected text in {path}: {old[:120]!r}")
+              text = text.replace(old, new, count)
+              p.write_text(text)
+
+          # Repair the malformed Svelte closing block first.
+          replace("frontend/src/lib/components/AuthenticatedApp.svelte", "{/if>", "{/if}")
+
+          # Selection snapshots back privileged bulk mutations, so do not expose their
+          # potentially expensive creation/membership endpoints to non-admin users.
+          replace(
+              "internal/serve/server.go",
+              'mux.Handle("/api/v1/file-selections/", s.protected(requestBodyLimitMiddleware(s.handleFileSelection, metadataRequestBodyLimit)))',
+              'mux.Handle("/api/v1/file-selections/", s.adminProtected(requestBodyLimitMiddleware(s.handleFileSelection, metadataRequestBodyLimit)))',
+          )
+          replace(
+              "internal/serve/server.go",
+              'mux.Handle("/api/v1/file-selections", s.protected(requestBodyLimitMiddleware(s.handleFileSelections, metadataRequestBodyLimit)))',
+              'mux.Handle("/api/v1/file-selections", s.adminProtected(requestBodyLimitMiddleware(s.handleFileSelections, metadataRequestBodyLimit)))',
+          )
+
+          # Give selection creation a narrow library capability that returns only public
+          # IDs instead of forcing full FileInfo materialization for every selected file.
+          replace(
+              "internal/serve/browse.go",
+              '''type PublicFileLibrary interface {
+          \tPublicFileID(file types.FileInfo) string
+          \tGetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error)
+          \tDeleteFileByPublicID(ctx context.Context, id string) (bool, error)
+          }
+          ''',
+              '''type PublicFileLibrary interface {
+          \tPublicFileID(file types.FileInfo) string
+          \tGetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error)
+          \tDeleteFileByPublicID(ctx context.Context, id string) (bool, error)
+          }
+
+          type FileSelectionLibrary interface {
+          \tListPublicFileIDs(ctx context.Context, query string) ([]string, error)
+          }
+          ''',
+          )
+          replace(
+              "internal/serve/browse.go",
+              '''func (l *GooruLibrary) ListFiles(ctx context.Context, query string) ([]types.FileInfo, error) {
+          \tif err := ctx.Err(); err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif strings.TrimSpace(query) == "" {
+          \t\treturn l.client.GetAllFilesInfo()
+          \t}
+          \treturn l.client.GetFilesInfoByQuery(query, l.verbose)
+          }
+          ''',
+              '''func (l *GooruLibrary) ListFiles(ctx context.Context, query string) ([]types.FileInfo, error) {
+          \tif err := ctx.Err(); err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif strings.TrimSpace(query) == "" {
+          \t\treturn l.client.GetAllFilesInfo()
+          \t}
+          \treturn l.client.GetFilesInfoByQuery(query, l.verbose)
+          }
+
+          func (l *GooruLibrary) ListPublicFileIDs(ctx context.Context, query string) ([]string, error) {
+          \tif err := ctx.Err(); err != nil {
+          \t\treturn nil, err
+          \t}
+          \treturn l.client.ListPublicFileIDsByQuery(query, l.verbose)
+          }
+          ''',
+          )
+
+          replace(
+              "gooru/query.go",
+              '''// GetFilesInfoByQueryPage parses and executes a query expression with bounded pagination.
+          ''',
+              '''// ListPublicFileIDsByQuery returns only stable public IDs for matching tracked locations.
+          // It deliberately avoids materializing FileInfo rows for large immutable selections.
+          func (c *Client) ListPublicFileIDsByQuery(expression string, verbose bool) ([]string, error) {
+          \tsqlQuery, args, err := c.buildLocationQuery(expression)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif sqlQuery == "" {
+          \t\treturn c.store.ListAllPublicFileIDs()
+          \t}
+          \tif verbose {
+          \t\tfmt.Fprintf(os.Stderr, "--- DEBUG ---\\nExpression: %s\\nBuilt SQL : %s\\nSQL Args  : %v\\n-------------\\n", expression, sqlQuery, args)
+          \t}
+          \treturn c.store.GetPublicFileIDsByLocationQuery(sqlQuery, args)
+          }
+
+          // GetFilesInfoByQueryPage parses and executes a query expression with bounded pagination.
+          ''',
+          )
+
+          db = Path("internal/database/database.go")
+          db_text = db.read_text()
+          db_methods = r'''
+
+          // ListAllPublicFileIDs returns stable public API identifiers without materializing
+          // full file metadata. This keeps immutable bulk-selection snapshots practical for
+          // very large libraries.
+          func (s *Store) ListAllPublicFileIDs() ([]string, error) {
+          \trows, err := s.Query("SELECT public_id FROM locations ORDER BY public_id")
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tdefer rows.Close()
+          \tids := make([]string, 0)
+          \tfor rows.Next() {
+          \t\tvar id string
+          \t\tif err := rows.Scan(&id); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tids = append(ids, id)
+          \t}
+          \treturn ids, rows.Err()
+          }
+
+          // GetPublicFileIDsByLocationQuery executes a location-ID subquery and projects
+          // only the stable public identifier needed by selection snapshots.
+          func (s *Store) GetPublicFileIDsByLocationQuery(query string, args []interface{}) ([]string, error) {
+          \tfinalQuery := fmt.Sprintf(`
+          \t\tWITH result_locations(id) AS (%s)
+          \t\tSELECT l.public_id
+          \t\tFROM locations l
+          \t\tJOIN result_locations rl ON l.id = rl.id
+          \t\tORDER BY l.public_id`, query)
+          \trows, err := s.Query(finalQuery, args...)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tdefer rows.Close()
+          \tids := make([]string, 0)
+          \tfor rows.Next() {
+          \t\tvar id string
+          \t\tif err := rows.Scan(&id); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tids = append(ids, id)
+          \t}
+          \treturn ids, rows.Err()
+          }
+          '''.replace('\\t', '\t')
+          marker = "func (s *Store) GetPublicFileIDsByLocationQuery("
+          if marker not in db_text:
+              db.write_text(db_text.rstrip() + db_methods + "\n")
+
+          p = Path("internal/serve/file_selections.go")
+          text = p.read_text()
+          text = text.replace('"net/http"\n\t"strings"', '"net/http"\n\t"sort"\n\t"strings"', 1)
+          text = text.replace(
+              '''\tfileSelectionTTL          = 30 * time.Minute
+          \tmaxFileSelectionSnapshots = 256
+          ''',
+              '''\tfileSelectionTTL          = 30 * time.Minute
+          \tmaxFileSelectionSnapshots = 256
+          \tmaxFileSelectionIDs       = 2_000_000
+          ''',
+              1,
+          )
+          text = text.replace(
+              '''type fileSelectionSnapshot struct {
+          \tOwnerID   string
+          \tFileIDs   []string
+          \tMembers   map[string]struct{}
+          \tExpiresAt time.Time
+          }
+
+          type fileSelectionStore struct {
+          \tmu        sync.Mutex
+          \tsnapshots map[string]fileSelectionSnapshot
+          \tnow       func() time.Time
+          }
+          ''',
+              '''type fileSelectionSnapshot struct {
+          \tOwnerID   string
+          \tFileIDs   []string
+          \tExpiresAt time.Time
+          }
+
+          type fileSelectionStore struct {
+          \tmu           sync.Mutex
+          \tsnapshots    map[string]fileSelectionSnapshot
+          \ttotalFileIDs int
+          \tmaxSnapshots int
+          \tmaxFileIDs   int
+          \tnow          func() time.Time
+          }
+          ''',
+              1,
+          )
+          text = text.replace(
+              '''\treturn &fileSelectionStore{
+          \t\tsnapshots: make(map[string]fileSelectionSnapshot),
+          \t\tnow:       func() time.Time { return time.Now().UTC() },
+          \t}
+          ''',
+              '''\treturn &fileSelectionStore{
+          \t\tsnapshots:    make(map[string]fileSelectionSnapshot),
+          \t\tmaxSnapshots: maxFileSelectionSnapshots,
+          \t\tmaxFileIDs:   maxFileSelectionIDs,
+          \t\tnow:          func() time.Time { return time.Now().UTC() },
+          \t}
+          ''',
+              1,
+          )
+          old_create = '''func (s *fileSelectionStore) create(ownerID string, fileIDs []string) (string, int, error) {
+          \tidBytes := make([]byte, 24)
+          \tif _, err := rand.Read(idBytes); err != nil {
+          \t\treturn "", 0, err
+          \t}
+          \tid := base64.RawURLEncoding.EncodeToString(idBytes)
+
+          \tids := append([]string(nil), fileIDs...)
+          \tmembers := make(map[string]struct{}, len(ids))
+          \tfor _, fileID := range ids {
+          \t\tmembers[fileID] = struct{}{}
+          \t}
+
+          \ts.mu.Lock()
+          \tdefer s.mu.Unlock()
+          \ts.sweepLocked()
+          \tif len(s.snapshots) >= maxFileSelectionSnapshots {
+          \t\ts.evictOldestLocked()
+          \t}
+          \ts.snapshots[id] = fileSelectionSnapshot{
+          \t\tOwnerID:   ownerID,
+          \t\tFileIDs:   ids,
+          \t\tMembers:   members,
+          \t\tExpiresAt: s.now().Add(fileSelectionTTL),
+          \t}
+          \treturn id, len(ids), nil
+          }
+          '''
+          new_create = '''func (s *fileSelectionStore) create(ownerID string, fileIDs []string) (string, int, error) {
+          \tidBytes := make([]byte, 24)
+          \tif _, err := rand.Read(idBytes); err != nil {
+          \t\treturn "", 0, err
+          \t}
+          \tid := base64.RawURLEncoding.EncodeToString(idBytes)
+
+          \tids := append([]string(nil), fileIDs...)
+          \tsort.Strings(ids)
+
+          \ts.mu.Lock()
+          \tdefer s.mu.Unlock()
+          \ts.sweepLocked()
+          \tfor len(s.snapshots) >= s.maxSnapshots || (s.totalFileIDs+len(ids) > s.maxFileIDs && len(s.snapshots) > 0) {
+          \t\ts.evictOldestLocked()
+          \t}
+          \ts.snapshots[id] = fileSelectionSnapshot{
+          \t\tOwnerID:   ownerID,
+          \t\tFileIDs:   ids,
+          \t\tExpiresAt: s.now().Add(fileSelectionTTL),
+          \t}
+          \ts.totalFileIDs += len(ids)
+          \treturn id, len(ids), nil
+          }
+          '''
+          if old_create not in text:
+              raise SystemExit("create block not found")
+          text = text.replace(old_create, new_create, 1)
+          text = text.replace(
+              '''\tfor _, candidate := range candidates {
+          \t\tif _, ok := snapshot.Members[candidate]; ok {
+          \t\t\tmatched = append(matched, candidate)
+          \t\t}
+          \t}
+          ''',
+              '''\tfor _, candidate := range candidates {
+          \t\tindex := sort.SearchStrings(snapshot.FileIDs, candidate)
+          \t\tif index < len(snapshot.FileIDs) && snapshot.FileIDs[index] == candidate {
+          \t\t\tmatched = append(matched, candidate)
+          \t\t}
+          \t}
+          ''',
+              1,
+          )
+          text = text.replace(
+              '''\tif ok && snapshot.OwnerID == ownerID {
+          \t\tdelete(s.snapshots, id)
+          \t}
+          ''',
+              '''\tif ok && snapshot.OwnerID == ownerID {
+          \t\ts.totalFileIDs -= len(snapshot.FileIDs)
+          \t\tdelete(s.snapshots, id)
+          \t}
+          ''',
+              1,
+          )
+          text = text.replace(
+              '''\tfor id, snapshot := range s.snapshots {
+          \t\tif !snapshot.ExpiresAt.After(now) {
+          \t\t\tdelete(s.snapshots, id)
+          \t\t}
+          \t}
+          ''',
+              '''\tfor id, snapshot := range s.snapshots {
+          \t\tif !snapshot.ExpiresAt.After(now) {
+          \t\t\ts.totalFileIDs -= len(snapshot.FileIDs)
+          \t\t\tdelete(s.snapshots, id)
+          \t\t}
+          \t}
+          ''',
+              1,
+          )
+          text = text.replace(
+              '''\tif oldestID != "" {
+          \t\tdelete(s.snapshots, oldestID)
+          \t}
+          ''',
+              '''\tif oldestID != "" {
+          \t\ts.totalFileIDs -= len(s.snapshots[oldestID].FileIDs)
+          \t\tdelete(s.snapshots, oldestID)
+          \t}
+          ''',
+              1,
+          )
+          text = text.replace(
+              '''\tif _, ok := s.library.(PublicFileLibrary); !ok {
+          \t\twriteError(w, http.StatusServiceUnavailable, "service_unavailable", "file selection service is not configured", nil)
+          \t\treturn
+          \t}
+          ''',
+              '''\tselectionLibrary, ok := s.library.(FileSelectionLibrary)
+          \tif !ok {
+          \t\twriteError(w, http.StatusServiceUnavailable, "service_unavailable", "file selection service is not configured", nil)
+          \t\treturn
+          \t}
+          ''',
+              1,
+          )
+          text = text.replace(
+              '''\tfiles, err := s.library.ListFiles(r.Context(), request.Query)
+          \tif err != nil {
+          \t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
+          \t\treturn
+          \t}
+          \tfileIDs := make([]string, 0, len(files))
+          \tfor _, file := range files {
+          \t\tfileIDs = append(fileIDs, s.publicFileID(file))
+          \t}
+          ''',
+              '''\tfileIDs, err := selectionLibrary.ListPublicFileIDs(r.Context(), request.Query)
+          \tif err != nil {
+          \t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
+          \t\treturn
+          \t}
+          ''',
+              1,
+          )
+          p.write_text(text)
+
+          # Keep the server-level fake on the narrow path and add a budget regression.
+          replace(
+              "internal/serve/file_selections_test.go",
+              '''func (l *snapshotTestLibrary) ListTags(context.Context, bool, int) ([]TagDTO, error) { return nil, nil }
+          ''',
+              '''func (l *snapshotTestLibrary) ListPublicFileIDs(ctx context.Context, expression string) ([]string, error) {
+          \tfiles, err := l.ListFiles(ctx, expression)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tids := make([]string, 0, len(files))
+          \tfor _, file := range files {
+          \t\tids = append(ids, file.PublicID)
+          \t}
+          \treturn ids, nil
+          }
+
+          func (l *snapshotTestLibrary) ListTags(context.Context, bool, int) ([]TagDTO, error) { return nil, nil }
+          ''',
+          )
+          test_path = Path("internal/serve/file_selections_test.go")
+          tests = test_path.read_text()
+          if "TestFileSelectionStoreEvictsOldestForIDBudget" not in tests:
+              tests += r'''
+
+          func TestFileSelectionStoreEvictsOldestForIDBudget(t *testing.T) {
+          \tstore := newFileSelectionStore()
+          \tstore.maxFileIDs = 3
+          \tbase := time.Date(2026, time.September, 6, 0, 0, 0, 0, time.UTC)
+          \tstore.now = func() time.Time { return base }
+
+          \toldID, _, err := store.create("owner", []string{"a", "b"})
+          \tif err != nil {
+          \t\tt.Fatalf("create old snapshot: %v", err)
+          \t}
+          \tbase = base.Add(time.Minute)
+          \tnewID, _, err := store.create("owner", []string{"c", "d"})
+          \tif err != nil {
+          \t\tt.Fatalf("create new snapshot: %v", err)
+          \t}
+          \tif _, err := store.resolve("owner", oldID); !errors.Is(err, errFileSelectionNotFound) {
+          \t\tt.Fatalf("expected oldest snapshot eviction, got %v", err)
+          \t}
+          \tids, err := store.resolve("owner", newID)
+          \tif err != nil {
+          \t\tt.Fatalf("resolve new snapshot: %v", err)
+          \t}
+          \tif len(ids) != 2 || ids[0] != "c" || ids[1] != "d" {
+          \t\tt.Fatalf("unexpected retained snapshot: %v", ids)
+          \t}
+          \tif store.totalFileIDs != 2 {
+          \t\tt.Fatalf("expected 2 retained IDs, got %d", store.totalFileIDs)
+          \t}
+          }
+          '''.replace('\\t', '\t')
+              test_path.write_text(tests)
+          PY
+
+          gofmt -w internal/serve/browse.go internal/serve/file_selections.go internal/serve/file_selections_test.go internal/serve/server.go gooru/query.go internal/database/database.go
+
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/components/AuthenticatedApp.svelte internal/serve/server.go internal/serve/browse.go internal/serve/file_selections.go internal/serve/file_selections_test.go gooru/query.go internal/database/database.go
+          git commit -m "fix(selection): bound immutable snapshot resources"
+          git push origin HEAD:fix/349-selection-snapshots
+
+      - name: Go tests
+        run: go test ./internal/database ./gooru ./internal/serve
+
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Remove temporary workflow
+        if: success()
+        shell: bash
+        run: |
+          git rm .github/workflows/tmp-381-repair.yml
+          git commit -m "ci: remove temporary PR 381 repair workflow"
+          git push origin HEAD:fix/349-selection-snapshots
