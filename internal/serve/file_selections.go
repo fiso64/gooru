@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,8 +17,9 @@ import (
 )
 
 const (
-	fileSelectionTTL          = 30 * time.Minute
-	maxFileSelectionSnapshots = 256
+	fileSelectionTTL             = 30 * time.Minute
+	maxFileSelectionSnapshots    = 256
+	maxFileSelectionRetainedIDs  = 2_000_000
 )
 
 var errFileSelectionNotFound = errors.New("file selection not found")
@@ -25,20 +27,24 @@ var errFileSelectionNotFound = errors.New("file selection not found")
 type fileSelectionSnapshot struct {
 	OwnerID   string
 	FileIDs   []string
-	Members   map[string]struct{}
 	ExpiresAt time.Time
 }
 
 type fileSelectionStore struct {
-	mu        sync.Mutex
-	snapshots map[string]fileSelectionSnapshot
-	now       func() time.Time
+	mu             sync.Mutex
+	snapshots      map[string]fileSelectionSnapshot
+	totalFileIDs   int
+	maxSnapshots   int
+	maxRetainedIDs int
+	now            func() time.Time
 }
 
 func newFileSelectionStore() *fileSelectionStore {
 	return &fileSelectionStore{
-		snapshots: make(map[string]fileSelectionSnapshot),
-		now:       func() time.Time { return time.Now().UTC() },
+		snapshots:      make(map[string]fileSelectionSnapshot),
+		maxSnapshots:   maxFileSelectionSnapshots,
+		maxRetainedIDs: maxFileSelectionRetainedIDs,
+		now:            func() time.Time { return time.Now().UTC() },
 	}
 }
 
@@ -50,23 +56,27 @@ func (s *fileSelectionStore) create(ownerID string, fileIDs []string) (string, i
 	id := base64.RawURLEncoding.EncodeToString(idBytes)
 
 	ids := append([]string(nil), fileIDs...)
-	members := make(map[string]struct{}, len(ids))
-	for _, fileID := range ids {
-		members[fileID] = struct{}{}
-	}
+	sort.Strings(ids)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepLocked()
-	if len(s.snapshots) >= maxFileSelectionSnapshots {
+	for len(s.snapshots) >= s.maxSnapshots && len(s.snapshots) > 0 {
+		s.evictOldestLocked()
+	}
+	// The aggregate budget limits amplification from many simultaneous large
+	// snapshots, but a single selection is always allowed to exceed it. That
+	// keeps Select all usable for libraries with several million files while
+	// bounding retained memory to the larger of one snapshot or the soft budget.
+	for s.totalFileIDs+len(ids) > s.maxRetainedIDs && len(s.snapshots) > 0 {
 		s.evictOldestLocked()
 	}
 	s.snapshots[id] = fileSelectionSnapshot{
 		OwnerID:   ownerID,
 		FileIDs:   ids,
-		Members:   members,
 		ExpiresAt: s.now().Add(fileSelectionTTL),
 	}
+	s.totalFileIDs += len(ids)
 	return id, len(ids), nil
 }
 
@@ -91,7 +101,8 @@ func (s *fileSelectionStore) members(ownerID, id string, candidates []string) ([
 	}
 	matched := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		if _, ok := snapshot.Members[candidate]; ok {
+		index := sort.SearchStrings(snapshot.FileIDs, candidate)
+		if index < len(snapshot.FileIDs) && snapshot.FileIDs[index] == candidate {
 			matched = append(matched, candidate)
 		}
 	}
@@ -103,7 +114,7 @@ func (s *fileSelectionStore) remove(ownerID, id string) {
 	defer s.mu.Unlock()
 	snapshot, ok := s.snapshots[id]
 	if ok && snapshot.OwnerID == ownerID {
-		delete(s.snapshots, id)
+		s.deleteLocked(id, snapshot)
 	}
 }
 
@@ -111,22 +122,30 @@ func (s *fileSelectionStore) sweepLocked() {
 	now := s.now()
 	for id, snapshot := range s.snapshots {
 		if !snapshot.ExpiresAt.After(now) {
-			delete(s.snapshots, id)
+			s.deleteLocked(id, snapshot)
 		}
 	}
 }
 
 func (s *fileSelectionStore) evictOldestLocked() {
 	var oldestID string
-	var oldestExpiry time.Time
+	var oldestSnapshot fileSelectionSnapshot
 	for id, snapshot := range s.snapshots {
-		if oldestID == "" || snapshot.ExpiresAt.Before(oldestExpiry) {
+		if oldestID == "" || snapshot.ExpiresAt.Before(oldestSnapshot.ExpiresAt) {
 			oldestID = id
-			oldestExpiry = snapshot.ExpiresAt
+			oldestSnapshot = snapshot
 		}
 	}
 	if oldestID != "" {
-		delete(s.snapshots, oldestID)
+		s.deleteLocked(oldestID, oldestSnapshot)
+	}
+}
+
+func (s *fileSelectionStore) deleteLocked(id string, snapshot fileSelectionSnapshot) {
+	delete(s.snapshots, id)
+	s.totalFileIDs -= len(snapshot.FileIDs)
+	if s.totalFileIDs < 0 {
+		s.totalFileIDs = 0
 	}
 }
 
