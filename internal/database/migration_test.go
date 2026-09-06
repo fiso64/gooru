@@ -46,8 +46,8 @@ func TestRunMigrationsPreservesGolangMigrateVersionLayout(t *testing.T) {
 	if err := db.QueryRow(`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty); err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if version != 16 || dirty {
-		t.Fatalf("schema_migrations = (%d, %t), want (16, false)", version, dirty)
+	if version != 17 || dirty {
+		t.Fatalf("schema_migrations = (%d, %t), want (17, false)", version, dirty)
 	}
 
 	if err := RunMigrations(db); err != nil {

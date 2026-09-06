@@ -160,13 +160,40 @@ func mediaTypeExpression() string {
 	END)`
 }
 
+func fallbackMediaTypeCondition(value string) string {
+	switch strings.ToLower(value) {
+	case "gif":
+		return `lower(l.extension) = '.gif'`
+	case "photo":
+		return `lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif')`
+	case "video":
+		return `lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
+	case "other":
+		return `lower(l.extension) NOT IN ('.gif', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
+	default:
+		return ""
+	}
+}
+
 func (b *SQLBuilder) buildMediaTypeQuery(value string) {
-	selectColumn := `DISTINCT l.content_hash as hash`
+	// Metadata-backed kinds and extension-derived fallback kinds are mutually
+	// exclusive for a location. Split them so SQLite can use the media-kind and
+	// extension indexes instead of evaluating a COALESCE/CASE over every row.
+	selectColumn := `l.content_hash as hash`
+	union := ` UNION `
 	if b.target == "id" {
 		selectColumn = `l.id as id`
+		union = ` UNION ALL `
 	}
-	b.query.WriteString(`SELECT ` + selectColumn + ` FROM locations l LEFT JOIN media_metadata mm ON mm.location_id = l.id WHERE lower(` + mediaTypeExpression() + `) = lower(?)`)
+
+	b.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(mm.media_kind) = lower(?)`)
 	b.args = append(b.args, value)
+
+	fallback := fallbackMediaTypeCondition(value)
+	if fallback == "" {
+		return
+	}
+	b.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE ` + fallback + ` AND NOT EXISTS (SELECT 1 FROM media_metadata mm WHERE mm.location_id = l.id)`)
 }
 
 func quoteFTS5Phrase(value string) string {
