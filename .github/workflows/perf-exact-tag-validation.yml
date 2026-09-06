@@ -1,0 +1,27 @@
+name: Exact tag fast-path validation
+
+on:
+  push:
+    branches:
+      - perf/exact-tag-query-fastpath
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Format check
+        run: test -z "$(gofmt -l internal/query/sqlbuilder.go internal/query/sqlbuilder_exact_tag_test.go)"
+      - name: Query tests
+        run: go test ./internal/query
+      - name: Go tests
+        run: go test ./...
+      - name: Build
+        run: go build ./...
