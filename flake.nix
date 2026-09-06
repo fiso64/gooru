@@ -31,6 +31,9 @@
             src = ./.;
             vendorHash = "sha256-VSaacPDyCakTmzkMrBODQeXU6jwtFw7Rln3oQC80CwE=";
             subPackages = [ "cmd/gooru" ];
+            tags = [ "govips" ];
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.vips ];
 
             postInstall = ''
               mkdir -p $out/share/gooru/frontend
