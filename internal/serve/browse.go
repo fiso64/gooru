@@ -57,10 +57,11 @@ type FileCountLibrary interface {
 }
 
 type GooruLibrary struct {
-	client     *core.Client
-	verbose    bool
-	metadata   MediaMetadataProvider
-	encryption EncryptionConfig
+	client       *core.Client
+	verbose      bool
+	metadata     MediaMetadataProvider
+	encryption   EncryptionConfig
+	managedRoots []string
 }
 
 func NewGooruLibrary(client *core.Client, verbose bool) *GooruLibrary {
@@ -142,7 +143,10 @@ func (l *GooruLibrary) GetFile(ctx context.Context, locationID int64) (types.Fil
 	if errors.Is(err, sql.ErrNoRows) {
 		return types.FileInfo{}, ErrNotFound
 	}
-	return file, err
+	if err != nil {
+		return types.FileInfo{}, err
+	}
+	return l.repairManagedPath(file)
 }
 
 func (l *GooruLibrary) ListTags(ctx context.Context, counts bool, limit int) ([]TagDTO, error) {
@@ -320,7 +324,10 @@ func (l *GooruLibrary) GetFileByPublicID(ctx context.Context, id string) (types.
 	if errors.Is(err, sql.ErrNoRows) {
 		return types.FileInfo{}, ErrNotFound
 	}
-	return file, err
+	if err != nil {
+		return types.FileInfo{}, err
+	}
+	return l.repairManagedPath(file)
 }
 
 type FileListResponse struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -34,6 +35,9 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
+		if err := gooruLibrary.configureManagedUploadRoots(cfg.Uploads.Targets); err != nil {
+			slog.Error("failed to reconcile managed upload roots", "error", err)
+		}
 		if len(cfg.UI.HiddenTags) > 0 {
 			library = newHiddenTagLibrary(gooruLibrary, cfg.UI.HiddenTags)
 		}
