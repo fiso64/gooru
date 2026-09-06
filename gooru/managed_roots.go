@@ -66,7 +66,7 @@ func (c *Client) ReconcileManagedRoots(roots map[string]string) (int, error) {
 
 		count, err := rebaseManagedRootTx(tx, oldRoot, newRoot)
 		if err != nil {
-			return 0, fmt.Errorf("rebase managed root %q from %q to %q: %w", id, oldRoot, newRoot, err)
+			return 0, fmt.Errorf("rebase managed root %q: %w", id, err)
 		}
 		if _, err := tx.Exec("UPDATE meta SET value = ? WHERE key = ?", newRoot, key); err != nil {
 			return 0, fmt.Errorf("update managed root %q: %w", id, err)
@@ -160,7 +160,7 @@ func (c *Client) RecoverMissingManagedPath(file types.FileInfo, roots []string) 
 	}
 	defer tx.Rollback()
 	res, err := tx.Exec(`UPDATE locations
-		SET path = ?, size = ?, mod_time = ?, extension = ?
+		SET path = ?, size_bytes = ?, mod_time = ?, extension = ?
 		WHERE id = ? AND path = ? AND content_hash = ?`,
 		candidate, meta.Size, meta.ModTime.Unix(), filepath.Ext(candidate), file.ID, file.Path, file.Hash)
 	if err != nil {
