@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  patch-and-validate:
+  validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -19,113 +19,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Patch tag suggestion query
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('internal/database/database.go')
-          text = path.read_text()
-          text = text.replace('\t"strings"\n', '\t"strings"\n\t"unicode/utf8"\n', 1)
-          start = text.index('func (s *Store) ListTagSuggestions')
-          end = text.index('func (s *Store) ListNamespaceSuggestions', start)
-          replacement = r'''func tagSuggestionPrefixEnd(prefix string) (string, bool) {
-	runes := []rune(prefix)
-	for i := len(runes) - 1; i >= 0; i-- {
-		next := runes[i] + 1
-		if next >= 0xD800 && next <= 0xDFFF {
-			next = 0xE000
-		}
-		if next <= utf8.MaxRune {
-			runes[i] = next
-			return string(runes[:i+1]), true
-		}
-	}
-	return "", false
-}
-
-func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	prefix = strings.TrimSpace(prefix)
-
-	var (
-		rows *sql.Rows
-		err  error
-	)
-	if prefix == "" {
-		rows, err = s.Query(`
-			SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-			FROM tags
-			ORDER BY files_count DESC, tag_str ASC
-			LIMIT ?
-		`, limit)
-	} else if colon := strings.IndexByte(prefix, ':'); colon >= 0 {
-		namespace := prefix[:colon]
-		valuePrefix := prefix[colon+1:]
-		if end, ok := tagSuggestionPrefixEnd(valuePrefix); ok {
-			rows, err = s.Query(`
-				SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-				FROM tags
-				WHERE key = ? AND value >= ? AND value < ?
-				ORDER BY files_count DESC, tag_str ASC
-				LIMIT ?
-			`, namespace, valuePrefix, end, limit)
-		} else {
-			rows, err = s.Query(`
-				SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-				FROM tags
-				WHERE key = ? AND value >= ?
-				ORDER BY files_count DESC, tag_str ASC
-				LIMIT ?
-			`, namespace, valuePrefix, limit)
-		}
-	} else if end, ok := tagSuggestionPrefixEnd(prefix); ok {
-		rows, err = s.Query(`
-			SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-			FROM tags
-			WHERE key >= ? AND key < ?
-			ORDER BY files_count DESC, tag_str ASC
-			LIMIT ?
-		`, prefix, end, limit)
-	} else {
-		rows, err = s.Query(`
-			SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-			FROM tags
-			WHERE key >= ?
-			ORDER BY files_count DESC, tag_str ASC
-			LIMIT ?
-		`, prefix, limit)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []types.TagWithCount
-	for rows.Next() {
-		var item types.TagWithCount
-		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
-}
-
-'''
-          text = text[:start] + replacement + text[end:]
-          path.write_text(text)
-          PY
-          gofmt -w internal/database/database.go internal/database/tag_suggestions_index_test.go
+      - name: Apply indexed tag suggestion patch
+        run: python3 scripts/tmp_patch_tag_suggestions.py
+      - name: Format
+        run: gofmt -w internal/database/database.go internal/database/tag_suggestions_index_test.go
       - name: Validate database package
         run: go test ./internal/database
       - name: Validate browse integration
         run: go test ./internal/serve
-      - name: Commit validated change and remove temporary workflow
+      - name: Commit validated change and remove temporary validation files
         run: |
-          rm .github/workflows/tmp-index-tag-suggestions.yml
+          rm scripts/tmp_patch_tag_suggestions.py .github/workflows/tmp-index-tag-suggestions.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add internal/database/database.go internal/database/tag_suggestions_index_test.go .github/workflows/tmp-index-tag-suggestions.yml
-          git commit -m "perf(db): range-search tag suggestions"
+          git add internal/database/database.go internal/database/tag_suggestions_index_test.go scripts/tmp_patch_tag_suggestions.py .github/workflows/tmp-index-tag-suggestions.yml
+          git commit -m "perf(db): index tag suggestion prefixes"
           git push origin HEAD:perf/333-index-tag-suggestions
