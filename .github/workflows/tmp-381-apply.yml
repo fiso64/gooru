@@ -1,0 +1,34 @@
+name: Temporary PR 381 Apply Repair
+
+on:
+  push:
+    branches:
+      - fix/349-selection-snapshots
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/349-selection-snapshots
+          fetch-depth: 0
+      - name: Apply and commit repair
+        shell: bash
+        run: |
+          set -euxo pipefail
+          awk '/python3 <<'"'"'PY'"'"'/{capture=1; next} /^          PY$/{capture=0} capture { sub(/^          /, ""); print }' .github/workflows/tmp-381-repair.yml > /tmp/pr381-repair.py
+          python3 /tmp/pr381-repair.py
+          gofmt -w internal/serve/browse.go internal/serve/file_selections.go internal/serve/file_selections_test.go internal/serve/server.go gooru/query.go internal/database/database.go
+          git diff --check
+          git status --short
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/components/AuthenticatedApp.svelte internal/serve/server.go internal/serve/browse.go internal/serve/file_selections.go internal/serve/file_selections_test.go gooru/query.go internal/database/database.go
+          git diff --cached --quiet && { echo 'repair produced no staged changes'; exit 2; }
+          git commit -m "fix(selection): bound immutable snapshot resources"
+          git push origin HEAD:fix/349-selection-snapshots
