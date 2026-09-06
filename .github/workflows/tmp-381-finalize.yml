@@ -1,0 +1,113 @@
+name: Temporary PR 381 Finalize
+
+on:
+  push:
+    branches:
+      - fix/349-selection-snapshots
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/349-selection-snapshots
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Synchronize OpenAPI contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+
+          if '/file-selections:' not in text:
+              anchor = '  /files:\n'
+              paths = '''  /file-selections:\n    post:\n      summary: Create an immutable snapshot of the files matching a library query.\n      security:\n        - sessionAuth: []\n      parameters:\n        - $ref: "#/components/parameters/CSRF"\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              $ref: "#/components/schemas/FileSelectionCreateRequest"\n      responses:\n        "201":\n          description: Immutable file selection snapshot created.\n          content:\n            application/json:\n              schema:\n                $ref: "#/components/schemas/FileSelectionCreateResponse"\n        "400":\n          $ref: "#/components/responses/BadRequest"\n        "401":\n          $ref: "#/components/responses/Unauthorized"\n        "403":\n          $ref: "#/components/responses/Forbidden"\n        "503":\n          $ref: "#/components/responses/ServiceUnavailable"\n  /file-selections/{id}:\n    delete:\n      summary: Release an immutable file selection snapshot.\n      security:\n        - sessionAuth: []\n      parameters:\n        - name: id\n          in: path\n          required: true\n          schema:\n            type: string\n        - $ref: "#/components/parameters/CSRF"\n      responses:\n        "204":\n          description: Snapshot released or already absent.\n        "401":\n          $ref: "#/components/responses/Unauthorized"\n        "403":\n          $ref: "#/components/responses/Forbidden"\n  /file-selections/{id}/members:\n    post:\n      summary: Return which candidate file IDs belong to an immutable selection snapshot.\n      security:\n        - sessionAuth: []\n      parameters:\n        - name: id\n          in: path\n          required: true\n          schema:\n            type: string\n        - $ref: "#/components/parameters/CSRF"\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              $ref: "#/components/schemas/FileSelectionMembersRequest"\n      responses:\n        "200":\n          description: Candidate IDs that are members of the snapshot.\n          content:\n            application/json:\n              schema:\n                $ref: "#/components/schemas/FileSelectionMembersResponse"\n        "400":\n          $ref: "#/components/responses/BadRequest"\n        "401":\n          $ref: "#/components/responses/Unauthorized"\n        "403":\n          $ref: "#/components/responses/Forbidden"\n        "410":\n          description: Selection snapshot expired or is no longer available.\n          content:\n            application/json:\n              schema:\n                $ref: "#/components/schemas/ErrorResponse"\n'''
+              if anchor not in text:
+                  raise SystemExit('files path anchor missing')
+              text = text.replace(anchor, paths + anchor, 1)
+
+          removal_start = text.index('    FileRemovalSelector:')
+          removal_end = text.index('    FileRemovalRequest:', removal_start)
+          block = text[removal_start:removal_end]
+          if 'selection_id:' not in block:
+              needle = '''        exclude_file_ids:\n          type: array\n          items:\n            type: string\n'''
+              replacement = '''        selection_id:\n          type: string\n          description: Immutable selection snapshot ID. Mutually exclusive with file_ids and query.\n        include_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit additions to a selection snapshot. Valid only with selection_id.\n        exclude_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit exclusions from a query or selection snapshot.\n'''
+              if needle not in block:
+                  raise SystemExit('file removal selector anchor missing')
+              block = block.replace(needle, replacement, 1)
+              text = text[:removal_start] + block + text[removal_end:]
+
+          tag_start = text.index('    TagMutationRequest:')
+          tag_end = text.index('    TagMutationResponse:', tag_start)
+          block = text[tag_start:tag_end]
+          if 'selection_id:' not in block:
+              needle = '''        exclude_file_ids:\n          type: array\n          items:\n            type: string\n          description: Opaque file IDs to exclude from a query selector. Only valid with query.\n'''
+              replacement = '''        selection_id:\n          type: string\n          description: Immutable selection snapshot ID. Mutually exclusive with file_ids and query.\n        include_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit additions to a selection snapshot. Valid only with selection_id.\n        exclude_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit exclusions from a query or selection snapshot.\n'''
+              if needle not in block:
+                  raise SystemExit('tag mutation selector anchor missing')
+              block = block.replace(needle, replacement, 1)
+              text = text[:tag_start] + block + text[tag_end:]
+
+          if '    FileSelectionCreateRequest:' not in text:
+              anchor = '    FileRemovalSelector:\n'
+              schemas = '''    FileSelectionCreateRequest:\n      type: object\n      properties:\n        query:\n          type: string\n          description: Library query to snapshot. Empty is treated as *.\n    FileSelectionCreateResponse:\n      type: object\n      required: [id, count]\n      properties:\n        id:\n          type: string\n        count:\n          type: integer\n          minimum: 0\n    FileSelectionMembersRequest:\n      type: object\n      required: [file_ids]\n      properties:\n        file_ids:\n          type: array\n          items:\n            type: string\n    FileSelectionMembersResponse:\n      type: object\n      required: [file_ids]\n      properties:\n        file_ids:\n          type: array\n          items:\n            type: string\n'''
+              if anchor not in text:
+                  raise SystemExit('selection schema anchor missing')
+              text = text.replace(anchor, schemas + anchor, 1)
+
+          p.write_text(text)
+          PY
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Generate API client
+        working-directory: frontend
+        run: npm run generate:api
+      - name: Normalize generated aliases
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/src/lib/api/types.ts')
+          text = p.read_text()
+          text = text.replace("export type FileRemovalRequest = components['schemas']['FileRemovalRequest'] & {\n  selection_id?: string;\n  include_file_ids?: string[];\n};", "export type FileRemovalRequest = components['schemas']['FileRemovalRequest'];")
+          text = text.replace("export type TagMutationRequest = Omit<components['schemas']['TagMutationRequest'], 'verbose'> &\n  Partial<Pick<components['schemas']['TagMutationRequest'], 'verbose'>> & {\n    selection_id?: string;\n    include_file_ids?: string[];\n  };", "export type TagMutationRequest = Omit<components['schemas']['TagMutationRequest'], 'verbose'> &\n  Partial<Pick<components['schemas']['TagMutationRequest'], 'verbose'>>;")
+          p.write_text(text)
+          PY
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit
+      - name: Validate Go
+        run: go test ./...
+      - name: Validate diff
+        run: git diff --check
+      - name: Commit finalized branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/tmp-381-openapi.yml .github/workflows/tmp-381-finalize.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo 'no changes to commit'; exit 2; }
+          git commit -m "docs(api): finalize immutable bulk selection contract"
+          git push origin HEAD:fix/349-selection-snapshots
