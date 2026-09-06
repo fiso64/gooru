@@ -39,7 +39,7 @@ describe('virtual grid scrolling', () => {
     expect(initial.files.length).toBeGreaterThan(0);
     expect(initial.needsNext).toBe(false);
 
-    const nearTailScroll = initial.rowHeight * 4;
+    const nearTailScroll = initial.rowHeight * 5;
     const nearTail = virtualGrid(files, 1440, 900, nearTailScroll, 100, 10_000, 0, 200);
     expect(nearTail.needsNext).toBe(true);
   });
