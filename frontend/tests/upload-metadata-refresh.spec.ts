@@ -8,7 +8,7 @@ const session = {
 
 async function mockApp(page: Page) {
   let loggedIn = false;
-  let serverTotal = 0;
+  let serverTotal = 75;
   let gridRequests = 0;
   let metadataRequests = 0;
   let tagsRequests = 0;
@@ -27,15 +27,21 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/files?**', async (route) => {
     const params = new URL(route.request().url()).searchParams;
     const limit = Number(params.get('limit') ?? 0);
+    const includeFacets = params.get('include_facets') === 'true';
     if (limit > 1) gridRequests += 1;
     else metadataRequests += 1;
+    // Mirror the real files API: without aggregate metadata total_count is only
+    // a pagination lower bound, not the authoritative query result count.
+    const lowerBoundTotal = serverTotal > limit ? limit + 1 : serverTotal;
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         files: [],
-        total_count: serverTotal,
-        library_count: serverTotal,
-        facets: { kind: serverTotal ? [{ value: 'image', count: serverTotal }] : [] }
+        total_count: includeFacets ? serverTotal : lowerBoundTotal,
+        ...(includeFacets ? {
+          library_count: serverTotal,
+          facets: { kind: serverTotal ? [{ value: 'image', count: serverTotal }] : [] }
+        } : {})
       })
     });
   });
@@ -81,7 +87,7 @@ function librarySidebar(page: Page) {
   return page.locator('.sidebar button.sidebar-item').filter({ hasText: 'Library' });
 }
 
-test('active uploads refresh server metadata without churning grid pages and expose an explicit results refresh', async ({ page }) => {
+test('active uploads refresh authoritative counts without churning grid pages and expose an explicit results refresh', async ({ page }) => {
   const server = await mockApp(page);
   let pendingUpload: Route | undefined;
   await page.route('**/api/v1/uploads', async (route) => {
@@ -89,8 +95,8 @@ test('active uploads refresh server metadata without churning grid pages and exp
   });
 
   await signIn(page);
-  await expect(librarySidebar(page)).toContainText('0');
-  await expect(page.getByTestId('library-header-count')).toHaveText('0 files');
+  await expect(librarySidebar(page)).toContainText('75');
+  await expect(page.getByTestId('library-header-count')).toHaveText('75 files');
   const initialGridRequests = server.gridRequests();
   const initialMetadataRequests = server.metadataRequests();
   const initialTagsRequests = server.tagsRequests();
@@ -105,14 +111,14 @@ test('active uploads refresh server metadata without churning grid pages and exp
   await page.getByRole('button', { name: /Upload 1 file/ }).click();
   await expect.poll(() => Boolean(pendingUpload)).toBe(true);
 
-  server.setServerTotal(1);
+  server.setServerTotal(76);
   await librarySidebar(page).click();
 
   await expect.poll(() => server.tagsRequests(), { timeout: 5_500 }).toBeGreaterThan(initialTagsRequests);
   await expect.poll(() => server.jobsRequests(), { timeout: 5_500 }).toBeGreaterThan(initialJobsRequests);
   await expect.poll(() => server.metadataRequests(), { timeout: 5_500 }).toBeGreaterThan(initialMetadataRequests);
-  await expect(librarySidebar(page)).toContainText('1');
-  await expect(page.getByTestId('library-header-count')).toHaveText('1 file');
+  await expect(librarySidebar(page)).toContainText('76');
+  await expect(page.getByTestId('library-header-count')).toHaveText('76 files');
   await expect(page.getByTestId('refresh-upload-results')).toHaveText('1 new item · Refresh results');
   expect(server.gridRequests()).toBe(initialGridRequests);
 
@@ -120,7 +126,7 @@ test('active uploads refresh server metadata without churning grid pages and exp
   await page.getByTestId('refresh-upload-results').click();
   await expect.poll(() => server.gridRequests()).toBeGreaterThan(gridBeforeExplicitRefresh);
   await expect(page.getByTestId('refresh-upload-results')).toHaveCount(0);
-  await expect(page.getByTestId('library-header-count')).toHaveText('1 file');
+  await expect(page.getByTestId('library-header-count')).toHaveText('76 files');
 
   await pendingUpload!.fulfill({
     status: 200,

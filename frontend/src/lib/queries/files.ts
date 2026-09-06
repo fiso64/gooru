@@ -84,12 +84,15 @@ export function createFileCountQuery(
   return createQuery(() => ({
     queryKey: fileKeys.count(getAuthScope(), getQuery()),
     enabled: getAuthenticated() && getEnabled(),
+    // The files API only guarantees an exact total when aggregate metadata is
+    // requested. Without it, total_count is deliberately only a pagination
+    // lower bound (limit=1 therefore reports at most 2 for larger result sets).
     queryFn: ({ signal }) => new ApiClient().listFiles({
       query: getQuery(),
       limit: 1,
       sort: 'added',
       order: 'desc',
-      includeFacets: false,
+      includeFacets: true,
       signal
     })
   }));
