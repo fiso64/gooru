@@ -17,7 +17,16 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Database tests
+      - name: New extension-sort plan regression
+        continue-on-error: true
+        run: go test ./internal/database -run '^TestExtensionFilterDefaultSortUsesCoveringOrderIndex$' -count=1
+      - name: Existing extension-filter plan regression
+        continue-on-error: true
+        run: go test ./internal/database -run '^TestExtensionFilterUsesCaseInsensitiveExpressionIndex$' -count=1
+      - name: Existing default-sort plan regression
+        continue-on-error: true
+        run: go test ./internal/database -run '^TestDefaultLibrarySortUsesExactDirectionIndex$' -count=1
+      - name: Database suite
         run: go test ./internal/database
       - name: Core query tests
         run: go test ./gooru
