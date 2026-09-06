@@ -1,0 +1,127 @@
+name: Temporary 333 pane thumbnail waterfall
+
+on:
+  push:
+    branches: [perf/333-pane-thumbnail-activation]
+    paths:
+      - '.github/workflows/tmp-333-pane-thumbnail-waterfall.yml'
+
+jobs:
+  benchmark:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build
+        run: |
+          cd frontend
+          npm ci --prefer-offline --no-audit
+          npm run build
+          cd ..
+          go build -o gooru-bench ./cmd/gooru
+          if command -v chromium >/dev/null 2>&1; then CHROMIUM=$(command -v chromium); elif command -v chromium-browser >/dev/null 2>&1; then CHROMIUM=$(command -v chromium-browser); else CHROMIUM="$(nix build --no-link --print-out-paths 'nixpkgs#chromium')/bin/chromium"; fi
+          echo "BENCH_CHROMIUM=$CHROMIUM" >> "$GITHUB_ENV"
+      - name: Create 10K fixture
+        shell: bash
+        run: |
+          ROOT="${RUNNER_TEMP:-/tmp}/gooru-333-${GITHUB_RUN_ID}"
+          rm -rf "$ROOT"; mkdir -p "$ROOT/media"
+          echo "GOORU_333_ROOT=$ROOT" >> "$GITHUB_ENV"
+          printf '1\n' | ./gooru-bench --database "$ROOT/library.db" init
+          python3 - "$ROOT/library.db" "$ROOT/media" <<'PY'
+          import binascii,os,sqlite3,struct,sys,zlib
+          from pathlib import Path
+          db,media=sys.argv[1],Path(sys.argv[2])
+          sig=b'\x89PNG\r\n\x1a\n'
+          def chunk(k,d): return struct.pack('>I',len(d))+k+d+struct.pack('>I',binascii.crc32(k+d)&0xffffffff)
+          png=sig+chunk(b'IHDR',struct.pack('>IIBBBBB',32,32,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b''.join([b'\x00'+b'\x44\x88\xcc'*32 for _ in range(32)])))+chunk(b'IEND',b'')
+          template=media/'template.png'; template.write_bytes(png)
+          for i in range(10000): os.link(template,media/f'img-{i:05d}.png')
+          c=sqlite3.connect(db); c.execute('PRAGMA foreign_keys=ON'); c.execute('PRAGMA synchronous=OFF'); c.execute('PRAGMA journal_mode=MEMORY')
+          triggers=c.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND sql IS NOT NULL").fetchall()
+          c.executescript('\n'.join(f'DROP TRIGGER IF EXISTS "{n.replace(chr(34),chr(34)*2)}";' for n,_ in triggers))
+          nums="WITH d(n) AS (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)), nums(n) AS (SELECT a.n+10*b.n+100*c.n+1000*d.n FROM d a CROSS JOIN d b CROSS JOIN d c CROSS JOIN d d)"
+          has_public=any(r[1]=='public_id' for r in c.execute('PRAGMA table_info(locations)'))
+          c.execute('BEGIN IMMEDIATE'); c.execute(nums+" INSERT INTO contents(hash) SELECT printf('%064x',n+1) FROM nums")
+          if has_public:
+              c.execute(nums+" INSERT INTO locations(content_hash,path,size_bytes,mod_time,extension,tags_cache,public_id) SELECT printf('%064x',n+1),?||'/img-'||printf('%05d',n)||'.png',?,1788696000,'.png','artist:fixture bench','bench_'||printf('%032x',n+1) FROM nums",(str(media),len(png)))
+          else:
+              c.execute(nums+" INSERT INTO locations(content_hash,path,size_bytes,mod_time,extension,tags_cache) SELECT printf('%064x',n+1),?||'/img-'||printf('%05d',n)||'.png',?,1788696000,'.png','artist:fixture bench' FROM nums",(str(media),len(png)))
+          c.execute("INSERT INTO tags(key,value) VALUES ('bench',''),('artist','fixture')")
+          c.execute("INSERT INTO content_tags(content_hash,tag_id) SELECT x.hash,t.id FROM contents x CROSS JOIN tags t")
+          c.execute("UPDATE tags SET files_count=10000"); c.execute("DELETE FROM tag_key_counts"); c.execute("INSERT INTO tag_key_counts(key,files_count) VALUES ('bench',10000),('artist',10000)")
+          c.execute("DELETE FROM kind_counts"); c.execute("INSERT INTO kind_counts(kind,files_count) VALUES ('photo',10000)"); c.commit()
+          for _,sql in triggers: c.execute(sql)
+          c.commit(); c.close()
+          PY
+      - name: Measure browser startup and scroll
+        shell: bash
+        run: |
+          ROOT="$GOORU_333_ROOT"; DB="$ROOT/library.db"; PORT=$((20000 + GITHUB_RUN_ID % 20000)); BASE="http://127.0.0.1:$PORT"; PASS=$(python3 -c 'import secrets;print(secrets.token_urlsafe(24))')
+          cat > "$ROOT/serve.yaml" <<EOF
+          server:
+            listen: 127.0.0.1:$PORT
+            frontend_dir: $PWD/frontend/build
+          database:
+            path: $DB
+          auth:
+            enabled: true
+          logging:
+            level: warn
+          EOF
+          GOORU_ADMIN_PASSWORD="$PASS" ./gooru-bench --config "$ROOT/serve.yaml" user create-admin --username benchmark
+          ./gooru-bench --config "$ROOT/serve.yaml" serve >"$ROOT/server.log" 2>&1 & PID=$!
+          trap 'kill "$PID" 2>/dev/null || true; rm -rf "$ROOT"' EXIT
+          python3 - "$PORT" "$PID" <<'PY'
+          import http.client,os,sys,time
+          port,pid=map(int,sys.argv[1:]); start=time.monotonic()
+          for _ in range(300):
+              try: os.kill(pid,0)
+              except ProcessLookupError: raise SystemExit('server exited before readiness')
+              try:
+                  c=http.client.HTTPConnection('127.0.0.1',port,timeout=.5); c.request('GET','/api/v1/health'); r=c.getresponse(); r.read(); c.close()
+                  if r.status==200: print(f'READY_MS={(time.monotonic()-start)*1000:.0f}'); break
+              except Exception: pass
+              time.sleep(.1)
+          else: raise SystemExit('server readiness timeout')
+          PY
+          cat > frontend/.tmp-waterfall.mjs <<'JS'
+          import { chromium } from 'playwright'; import { writeFile } from 'node:fs/promises';
+          const base=process.env.BASE, pass=process.env.PASS, executablePath=process.env.BENCH_CHROMIUM;
+          const browser=await chromium.launch({headless:true,executablePath});
+          try {
+            const context=await browser.newContext({viewport:{width:1440,height:1000}});
+            const login=await context.request.post(base+'/api/v1/auth/login',{data:{username:'benchmark',password:pass}}); if(!login.ok()) throw new Error('login failed '+login.status());
+            const page=await context.newPage(); const rows=[];
+            page.on('response',r=>{const u=new URL(r.url()); if(u.pathname.startsWith('/api/v1/')) rows.push({path:u.pathname+u.search,bytes:Number(r.headers()['content-length']||0)});});
+            const files=page.waitForResponse(r=>r.url().includes('/api/v1/files')&&r.status()===200,{timeout:15000});
+            await page.goto(base+'/',{waitUntil:'domcontentloaded',timeout:15000}); await files; await page.waitForTimeout(1500);
+            const snap=()=>({api_requests:rows.length,api_bytes:rows.reduce((n,r)=>n+r.bytes,0),thumbnail_requests:rows.filter(r=>r.path.includes('/thumbnail?')).length,file_list_requests:rows.filter(r=>r.path.startsWith('/api/v1/files?')).map(r=>r.path)});
+            const startup=snap();
+            const scrollState=await page.locator('main.main').evaluate(el=>{el.scrollTop=2200; return {scrollTop:el.scrollTop,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight};});
+            await page.waitForTimeout(1200); const after_scroll=snap();
+            const result={startup,scrollState,after_scroll,additional_thumbnails_after_scroll:after_scroll.thumbnail_requests-startup.thumbnail_requests};
+            const line='GOORU_RENDER_RESULT='+JSON.stringify(result); console.log(line); await writeFile(process.env.RESULT_FILE,line+'\n');
+            if(scrollState.scrollTop<=0) throw new Error('library pane did not scroll');
+            if(startup.thumbnail_requests>40) throw new Error('startup thumbnail fan-out regressed beyond clean #386 baseline: '+startup.thumbnail_requests);
+            if(result.additional_thumbnails_after_scroll<=0) throw new Error('real pane scroll did not activate additional thumbnails');
+          } finally { await browser.close(); }
+          JS
+          RESULT_FILE="$GITHUB_WORKSPACE/gooru-391-waterfall.txt" BASE="$BASE" PASS="$PASS" BENCH_CHROMIUM="$BENCH_CHROMIUM" node frontend/.tmp-waterfall.mjs
+      - name: Final benchmark result
+        if: always()
+        run: cat gooru-391-waterfall.txt 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gooru-391-waterfall
+          path: gooru-391-waterfall.txt
+          if-no-files-found: ignore
