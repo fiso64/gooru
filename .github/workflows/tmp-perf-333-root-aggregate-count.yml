@@ -1,0 +1,175 @@
+name: Temporary perf 333 root aggregate edit
+
+on:
+  push:
+    branches:
+      - perf/333-root-aggregate-count
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply focused edit and regression coverage
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/serve/browse.go')
+          text = path.read_text()
+          old = '''\tincludeAggregates := req.IncludeFacets
+\tif search, ok := s.library.(SearchLibrary); ok && includeAggregates {
+\t\tif total, err := s.countFiles(r.Context(), queryText); err == nil {
+\t\t\tresponse.TotalCount = total
+\t\t}
+\t\tif counter, ok := s.library.(QueryLibraryCount); ok {
+\t\t\tif total, err := counter.LibraryCountForQuery(r.Context(), queryText); err == nil {
+\t\t\t\tresponse.LibraryCount = total
+\t\t\t}
+\t\t} else if total, err := search.LibraryCount(r.Context()); err == nil {
+\t\t\tresponse.LibraryCount = total
+\t\t}
+\t\tif kind, err := search.KindFacets(r.Context(), queryText); err == nil {
+\t\t\tresponse.Facets.Kind = kind
+\t\t}
+\t}
+'''
+          new = '''\tincludeAggregates := req.IncludeFacets
+\tif search, ok := s.library.(SearchLibrary); ok && includeAggregates {
+\t\tlibraryCountKnown := false
+\t\tif total, err := s.countFiles(r.Context(), queryText); err == nil {
+\t\t\tresponse.TotalCount = total
+\t\t\tif strings.TrimSpace(queryText) == "" {
+\t\t\t\t// An unfiltered location count is the library count. Reuse the exact
+\t\t\t\t// result instead of issuing the same COUNT(*) again on large libraries.
+\t\t\t\tresponse.LibraryCount = total
+\t\t\t\tlibraryCountKnown = true
+\t\t\t}
+\t\t}
+\t\tif !libraryCountKnown {
+\t\t\tif counter, ok := s.library.(QueryLibraryCount); ok {
+\t\t\t\tif total, err := counter.LibraryCountForQuery(r.Context(), queryText); err == nil {
+\t\t\t\t\tresponse.LibraryCount = total
+\t\t\t\t}
+\t\t\t} else if total, err := search.LibraryCount(r.Context()); err == nil {
+\t\t\t\tresponse.LibraryCount = total
+\t\t\t}
+\t\t}
+\t\tif kind, err := search.KindFacets(r.Context(), queryText); err == nil {
+\t\t\tresponse.Facets.Kind = kind
+\t\t}
+\t}
+'''
+          if old not in text:
+              raise SystemExit('target aggregate block not found')
+          path.write_text(text.replace(old, new, 1))
+
+          Path('internal/serve/browse_aggregate_count_test.go').write_text(r'''package serve
+
+import (
+    "context"
+    "net/http"
+    "net/http/httptest"
+    "path/filepath"
+    "testing"
+
+    "gooru.local/types"
+)
+
+type aggregateCountingLibrary struct {
+    countFilesCalls            int
+    libraryCountCalls          int
+    libraryCountForQueryCalls  int
+}
+
+func (l *aggregateCountingLibrary) ListFiles(context.Context, string) ([]types.FileInfo, error) {
+    return nil, nil
+}
+func (l *aggregateCountingLibrary) GetFile(context.Context, int64) (types.FileInfo, error) {
+    return types.FileInfo{}, ErrNotFound
+}
+func (l *aggregateCountingLibrary) ListTags(context.Context, bool, int) ([]TagDTO, error) {
+    return nil, nil
+}
+func (l *aggregateCountingLibrary) ListFilesSearch(context.Context, string, Page, string, string) (PageResult[types.FileInfo], error) {
+    return PageResult[types.FileInfo]{}, nil
+}
+func (l *aggregateCountingLibrary) LibraryCount(context.Context) (int, error) {
+    l.libraryCountCalls++
+    return 99, nil
+}
+func (l *aggregateCountingLibrary) LibraryCountForQuery(context.Context, string) (int, error) {
+    l.libraryCountForQueryCalls++
+    return 99, nil
+}
+func (l *aggregateCountingLibrary) CountFiles(context.Context, string) (int, error) {
+    l.countFilesCalls++
+    return 42, nil
+}
+func (l *aggregateCountingLibrary) KindFacets(context.Context, string) ([]FacetValueDTO, error) {
+    return nil, nil
+}
+func (l *aggregateCountingLibrary) TagSuggestions(context.Context, string, string, int) ([]TagDTO, error) {
+    return nil, nil
+}
+func (l *aggregateCountingLibrary) TagNamespaces(context.Context) ([]string, error) {
+    return nil, nil
+}
+func (l *aggregateCountingLibrary) FileMetadata(context.Context, int64) (MediaMetadata, error) {
+    return MediaMetadata{}, nil
+}
+
+func TestBrowseUnfilteredAggregatesReuseExactFileCount(t *testing.T) {
+    cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+    cfg.Auth.Enabled = false
+    library := &aggregateCountingLibrary{}
+    server := NewServerWithLibrary(cfg, library)
+
+    rec := httptest.NewRecorder()
+    server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/files?include_facets=true", nil))
+    if rec.Code != http.StatusOK {
+        t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+    }
+    if library.countFilesCalls != 1 {
+        t.Fatalf("expected one exact file count, got %d", library.countFilesCalls)
+    }
+    if library.libraryCountForQueryCalls != 0 || library.libraryCountCalls != 0 {
+        t.Fatalf("unfiltered browse repeated library count: query=%d global=%d", library.libraryCountForQueryCalls, library.libraryCountCalls)
+    }
+}
+
+func TestBrowseFilteredAggregatesKeepQueryLibraryCount(t *testing.T) {
+    cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+    cfg.Auth.Enabled = false
+    library := &aggregateCountingLibrary{}
+    server := NewServerWithLibrary(cfg, library)
+
+    rec := httptest.NewRecorder()
+    server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/files?query=kind%3Aphoto&include_facets=true", nil))
+    if rec.Code != http.StatusOK {
+        t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+    }
+    if library.countFilesCalls != 1 || library.libraryCountForQueryCalls != 1 {
+        t.Fatalf("filtered browse should retain both aggregate lookups, count=%d library=%d", library.countFilesCalls, library.libraryCountForQueryCalls)
+    }
+}
+''')
+          PY
+          gofmt -w internal/serve/browse.go internal/serve/browse_aggregate_count_test.go
+          go test ./internal/serve
+      - name: Commit validated change and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/tmp-perf-333-root-aggregate-count.yml
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/serve/browse.go internal/serve/browse_aggregate_count_test.go .github/workflows/tmp-perf-333-root-aggregate-count.yml
+          git commit -m "perf(browse): reuse unfiltered aggregate count"
+          git push origin HEAD:perf/333-root-aggregate-count
