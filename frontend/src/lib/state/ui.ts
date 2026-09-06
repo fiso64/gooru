@@ -197,7 +197,7 @@ function firstPlacementStartingAfter(placements: VirtualMediaItem[], y: number) 
   let low = 0;
   let high = placements.length;
   while (low < high) {
-    const mid = Math.floor((low + high) / 2;
+    const mid = Math.floor((low + high) / 2);
     if (placements[mid].y <= y) low = mid + 1;
     else high = mid;
   }
