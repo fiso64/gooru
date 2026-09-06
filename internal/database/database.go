@@ -1131,13 +1131,12 @@ func (s *Store) ListTagNamespaces() ([]string, error) {
 }
 
 func (s *Store) KindFacets() ([]types.TagWithCount, error) {
-	rows, err := s.Query(fmt.Sprintf(`
-		SELECT %s AS kind, COUNT(*)
-		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
-		GROUP BY kind
-		ORDER BY COUNT(*) DESC, kind ASC
-	`, fileKindExpression()))
+	rows, err := s.Query(`
+		SELECT kind, files_count
+		FROM kind_counts
+		WHERE files_count > 0
+		ORDER BY files_count DESC, kind ASC
+	`)
 	if err != nil {
 		return nil, err
 	}
