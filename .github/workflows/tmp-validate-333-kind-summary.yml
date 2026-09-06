@@ -21,33 +21,11 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('internal/database/database.go')
           text = path.read_text()
-          old = '''func (s *Store) KindFacets() ([]types.TagWithCount, error) {
-          \trows, err := s.Query(fmt.Sprintf(`
-          \t\tSELECT %s AS kind, COUNT(*)
-          \t\tFROM locations l
-          \t\tLEFT JOIN media_metadata mm ON mm.location_id = l.id
-          \t\tGROUP BY kind
-          \t\tORDER BY COUNT(*) DESC, kind ASC
-          \t`, fileKindExpression()))
-          \tif err != nil {
-          \t\treturn nil, err
-          \t}
-          \tdefer rows.Close()
-          \tvar out []types.TagWithCount
-          \tfor rows.Next() {
-          \t\tvar item types.TagWithCount
-          \t\tif err := rows.Scan(&item.Tag, &item.Count); err != nil {
-          \t\t\treturn nil, err
-          \t\t}
-          \t\tout = append(out, item)
-          \t}
-          \treturn out, rows.Err()
-          }
-          '''.replace('          ', '')
-          new = '''func (s *Store) KindFacets() ([]types.TagWithCount, error) {
+          replacement = '''func (s *Store) KindFacets() ([]types.TagWithCount, error) {
           \trows, err := s.Query(`
           \t\tSELECT kind, files_count
           \t\tFROM kind_counts
@@ -68,22 +46,25 @@ jobs:
           \t}
           \treturn out, rows.Err()
           }
+
           '''.replace('          ', '')
-          if old not in text:
-              raise SystemExit('KindFacets source block did not match expected performance head')
-          path.write_text(text.replace(old, new, 1))
+          pattern = r'func \(s \*Store\) KindFacets\(\) \(\[\]types\.TagWithCount, error\) \{.*?\n\}\n\n(?=func \(s \*Store\) KindFacetsByLocationQuery)'
+          text, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f'KindFacets structural replacement count={count}')
+          path.write_text(text)
 
           path = Path('internal/database/migration_test.go')
           text = path.read_text()
-          old = '''\tif version != 11 || dirty {
-          \t\tt.Fatalf("schema_migrations = (%d, %t), want (11, false)", version, dirty)
-          }'''.replace('          ', '')
-          new = '''\tif version != 12 || dirty {
-          \t\tt.Fatalf("schema_migrations = (%d, %t), want (12, false)", version, dirty)
-          }'''.replace('          ', '')
-          if old not in text:
-              raise SystemExit('migration version invariant did not match expected v11 head')
-          path.write_text(text.replace(old, new, 1))
+          text, count = re.subn(
+              r'if version != 11 \|\| dirty \{\n\s*t\.Fatalf\("schema_migrations = \(%d, %t\), want \(11, false\)", version, dirty\)\n\s*\}',
+              'if version != 12 || dirty {\n\t\tt.Fatalf("schema_migrations = (%d, %t), want (12, false)", version, dirty)\n\t}',
+              text,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit(f'migration invariant replacement count={count}')
+          path.write_text(text)
           PY
           gofmt -w internal/database/database.go internal/database/migration_test.go internal/database/kind_counts_test.go
       - name: Validate database package
