@@ -496,6 +496,22 @@ func (c *Client) GetFilesInfoByQuery(expression string, verbose bool) ([]types.F
 	return c.store.GetFilesInfoByContentQuery(sqlQuery, args)
 }
 
+// ListPublicFileIDsByQuery returns only stable public IDs for matching tracked locations.
+// It deliberately avoids materializing FileInfo rows for large immutable selections.
+func (c *Client) ListPublicFileIDsByQuery(expression string, verbose bool) ([]string, error) {
+	sqlQuery, args, err := c.buildLocationQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return c.store.ListAllPublicFileIDs()
+	}
+	if verbose {
+		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
+	}
+	return c.store.GetPublicFileIDsByLocationQuery(sqlQuery, args)
+}
+
 // GetFilesInfoByQueryPage parses and executes a query expression with bounded pagination.
 func (c *Client) GetFilesInfoByQueryPage(expression string, limit int, offset int, verbose bool) ([]types.FileInfo, error) {
 	sqlQuery, args, err := c.buildQuery(expression)
