@@ -19,10 +19,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Validate database index slice
-        run: |
-          test -z "$(gofmt -l internal/database/performance_indexes_test.go)"
-          go test ./internal/database
+      - name: Check formatting
+        run: test -z "$(gofmt -l internal/database/performance_indexes_test.go)"
+      - name: Validate default-sort index plan
+        run: go test -v ./internal/database -run '^TestDefaultLibrarySortUsesExactDirectionIndex$'
+      - name: Validate database package
+        run: go test ./internal/database
       - name: Remove temporary workflow
         run: |
           rm .github/workflows/tmp-validate-333-sort-index.yml
