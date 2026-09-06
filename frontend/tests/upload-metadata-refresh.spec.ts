@@ -90,6 +90,7 @@ test('active uploads refresh server metadata without churning grid pages and exp
 
   await signIn(page);
   await expect(librarySidebar(page)).toContainText('0');
+  await expect(page.getByTestId('library-header-count')).toHaveText('0 files');
   const initialGridRequests = server.gridRequests();
   const initialMetadataRequests = server.metadataRequests();
   const initialTagsRequests = server.tagsRequests();
@@ -111,6 +112,7 @@ test('active uploads refresh server metadata without churning grid pages and exp
   await expect.poll(() => server.jobsRequests(), { timeout: 5_500 }).toBeGreaterThan(initialJobsRequests);
   await expect.poll(() => server.metadataRequests(), { timeout: 5_500 }).toBeGreaterThan(initialMetadataRequests);
   await expect(librarySidebar(page)).toContainText('1');
+  await expect(page.getByTestId('library-header-count')).toHaveText('1 file');
   await expect(page.getByTestId('refresh-upload-results')).toHaveText('1 new item · Refresh results');
   expect(server.gridRequests()).toBe(initialGridRequests);
 
@@ -118,6 +120,7 @@ test('active uploads refresh server metadata without churning grid pages and exp
   await page.getByTestId('refresh-upload-results').click();
   await expect.poll(() => server.gridRequests()).toBeGreaterThan(gridBeforeExplicitRefresh);
   await expect(page.getByTestId('refresh-upload-results')).toHaveCount(0);
+  await expect(page.getByTestId('library-header-count')).toHaveText('1 file');
 
   await pendingUpload!.fulfill({
     status: 200,
