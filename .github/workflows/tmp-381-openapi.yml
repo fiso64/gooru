@@ -26,7 +26,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Update canonical API contract
+      - name: Add selection API paths
         shell: bash
         run: |
           set -euo pipefail
@@ -40,46 +40,76 @@ jobs:
               if anchor not in text:
                   raise SystemExit('files path anchor missing')
               text = text.replace(anchor, paths + anchor, 1)
+          p.write_text(text)
+          PY
 
-          selector_anchor = '''        exclude_file_ids:\n          type: array\n          items:\n            type: string\n    FileRemovalRequest:\n'''
-          removal_start = text.index('    FileRemovalSelector:')
-          removal_end = text.index('    FileRemovalRequest:')
-          if 'selection_id:' not in text[removal_start:removal_end]:
-              replacement = '''        selection_id:\n          type: string\n          description: Immutable selection snapshot ID. Mutually exclusive with file_ids and query.\n        include_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit additions to a selection snapshot. Valid only with selection_id.\n        exclude_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit exclusions from a query or selection snapshot.\n    FileRemovalRequest:\n'''
-              if selector_anchor not in text:
-                  raise SystemExit('file removal selector anchor missing')
-              text = text.replace(selector_anchor, replacement, 1)
-
-          tag_start = text.index('    TagMutationRequest:')
-          tag_tail = text[tag_start:]
-          next_schema = tag_tail.find('\n    ', len('\n    TagMutationRequest:'))
-          tag_end = len(text) if next_schema < 0 else tag_start + next_schema
-          block = text[tag_start:tag_end]
+      - name: Extend removal selector contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+          start = text.index('    FileRemovalSelector:')
+          end = text.index('    FileRemovalRequest:')
+          block = text[start:end]
           if 'selection_id:' not in block:
               needle = '''        exclude_file_ids:\n          type: array\n          items:\n            type: string\n'''
               replacement = '''        selection_id:\n          type: string\n          description: Immutable selection snapshot ID. Mutually exclusive with file_ids and query.\n        include_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit additions to a selection snapshot. Valid only with selection_id.\n        exclude_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit exclusions from a query or selection snapshot.\n'''
               if needle not in block:
+                  raise SystemExit('file removal selector anchor missing')
+              block = block.replace(needle, replacement, 1)
+              text = text[:start] + block + text[end:]
+          p.write_text(text)
+          PY
+
+      - name: Extend tag selector contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+          start = text.index('    TagMutationRequest:')
+          tail = text[start:]
+          next_schema = tail.find('\n    ', len('\n    TagMutationRequest:'))
+          end = len(text) if next_schema < 0 else start + next_schema
+          block = text[start:end]
+          if 'selection_id:' not in block:
+              needle = '''        exclude_file_ids:\n          type: array\n          items:\n            type: string\n          description: Opaque file IDs to exclude from a query selector. Only valid with query.\n'''
+              replacement = '''        selection_id:\n          type: string\n          description: Immutable selection snapshot ID. Mutually exclusive with file_ids and query.\n        include_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit additions to a selection snapshot. Valid only with selection_id.\n        exclude_file_ids:\n          type: array\n          items:\n            type: string\n          description: Explicit exclusions from a query or selection snapshot.\n'''
+              if needle not in block:
                   raise SystemExit('tag mutation selector anchor missing')
               block = block.replace(needle, replacement, 1)
-              text = text[:tag_start] + block + text[tag_end:]
+              text = text[:start] + block + text[end:]
+          p.write_text(text)
+          PY
 
+      - name: Add selection API schemas
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
           if '    FileSelectionCreateRequest:' not in text:
-              schema_anchor = '    FileRemovalSelector:\n'
+              anchor = '    FileRemovalSelector:\n'
               schemas = '''    FileSelectionCreateRequest:\n      type: object\n      properties:\n        query:\n          type: string\n          description: Library query to snapshot. Empty is treated as *.\n    FileSelectionCreateResponse:\n      type: object\n      required: [id, count]\n      properties:\n        id:\n          type: string\n        count:\n          type: integer\n          minimum: 0\n    FileSelectionMembersRequest:\n      type: object\n      required: [file_ids]\n      properties:\n        file_ids:\n          type: array\n          items:\n            type: string\n    FileSelectionMembersResponse:\n      type: object\n      required: [file_ids]\n      properties:\n        file_ids:\n          type: array\n          items:\n            type: string\n'''
-              if schema_anchor not in text:
+              if anchor not in text:
                   raise SystemExit('schema anchor missing')
-              text = text.replace(schema_anchor, schemas + schema_anchor, 1)
+              text = text.replace(anchor, schemas + anchor, 1)
           p.write_text(text)
           PY
 
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
-
       - name: Generate API client
         working-directory: frontend
         run: npm run generate:api
-
       - name: Normalize generated API aliases
         shell: bash
         run: |
@@ -92,21 +122,16 @@ jobs:
           text = text.replace("export type TagMutationRequest = Omit<components['schemas']['TagMutationRequest'], 'verbose'> &\n  Partial<Pick<components['schemas']['TagMutationRequest'], 'verbose'>> & {\n    selection_id?: string;\n    include_file_ids?: string[];\n  };", "export type TagMutationRequest = Omit<components['schemas']['TagMutationRequest'], 'verbose'> &\n  Partial<Pick<components['schemas']['TagMutationRequest'], 'verbose'>>;")
           p.write_text(text)
           PY
-
       - name: Frontend typecheck
         working-directory: frontend
         run: npm run check
-
       - name: Frontend unit tests
         working-directory: frontend
         run: npm run test:unit
-
       - name: Serve tests
         run: go test ./internal/serve
-
       - name: Diff hygiene
         run: git diff --check
-
       - name: Commit synchronized contract
         shell: bash
         run: |
