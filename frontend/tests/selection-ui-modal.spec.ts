@@ -48,6 +48,21 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/file-selections', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'selection-one', count: files.length }) });
+  });
+  await page.route('**/api/v1/file-selections/*/members', async (route) => {
+    const body = route.request().postDataJSON() as { file_ids?: string[] };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ file_ids: body.file_ids ?? [] }) });
+  });
+  await page.route('**/api/v1/file-selections/*', async (route) => {
+    if (route.request().method() === 'DELETE') {
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    await route.fallback();
+  });
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })
@@ -63,10 +78,29 @@ async function mockApp(page: Page) {
 
 async function selectFirstFile(page: Page) {
   await page.keyboard.press('a');
-  await expect(page.getByText('3 of 3 selected')).toBeVisible();
+  await expect(page.getByText('3 selected')).toBeVisible();
   await page.getByRole('checkbox', { name: 'Deselect one.jpg' }).click();
-  await expect(page.getByText('2 of 3 selected')).toBeVisible();
+  await expect(page.getByText('2 selected')).toBeVisible();
 }
+
+test('select all is immediate while snapshot count hydrates independently', async ({ page }) => {
+  await mockApp(page);
+  let releaseSnapshot!: () => void;
+  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve; });
+
+  await page.route('**/api/v1/file-selections', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    await snapshotGate;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'selection-delayed', count: 5 }) });
+  });
+
+  await page.keyboard.press('a');
+  await expect(page.getByText('3 selected')).toBeVisible();
+  await expect(page.locator('.thumb.is-selected')).toHaveCount(3);
+
+  releaseSnapshot();
+  await expect(page.getByText('5 selected')).toBeVisible();
+});
 
 test('selection toolbar exposes Select all with a real visible gap', async ({ page }) => {
   await mockApp(page);
@@ -131,7 +165,7 @@ test('plain Enter confirms no-input Untrack and Delete dialogs even when Cancel 
   await page.keyboard.press('Enter');
 
   await expect.poll(() => removals.length).toBe(1);
-  expect(removals[0]).toEqual({ mode: 'untrack', query: '*', exclude_file_ids: ['one'] });
+  expect(removals[0]).toEqual({ mode: 'untrack', selection_id: 'selection-one', exclude_file_ids: ['one'] });
   await expect(dialog).toHaveCount(0);
 
   await selectFirstFile(page);
@@ -142,6 +176,6 @@ test('plain Enter confirms no-input Untrack and Delete dialogs even when Cancel 
   await page.keyboard.press('Enter');
 
   await expect.poll(() => removals.length).toBe(2);
-  expect(removals[1]).toEqual({ mode: 'delete', query: '*', exclude_file_ids: ['one'] });
+  expect(removals[1]).toEqual({ mode: 'delete', selection_id: 'selection-one', exclude_file_ids: ['one'] });
   await expect(dialog).toHaveCount(0);
 });
