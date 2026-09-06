@@ -17,160 +17,17 @@ jobs:
         with:
           ref: perf/333-query-namespace-cardinality
           fetch-depth: 0
-      - name: Apply focused planner change
-        shell: bash
+      - name: Apply planner call-site patch
         run: |
-          set -euxo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('gooru/query.go')
-          s = p.read_text()
-          s = s.replace(
-              '\tparsedTags := query.ToParsedTags(userTags)\n\ttagCounts, err := c.store.BatchGetTagCounts(parsedTags)',
-              '\ttagCounts, err := c.store.BatchGetQueryTagCounts(userTags)',
-              1,
-          )
-          s = s.replace(
-              '\tparsedTags := query.ToParsedTags(query.ExtractTags(ast))\n\ttagCounts, err := c.store.BatchGetTagCounts(parsedTags)',
-              '\tuserTags := query.ExtractTags(ast)\n\ttagCounts, err := c.store.BatchGetQueryTagCounts(userTags)',
-              1,
-          )
-          if s.count('BatchGetQueryTagCounts(userTags)') != 2:
-              raise SystemExit('expected both query-building paths to use query-aware counts')
-          p.write_text(s)
-          PY
-
-          cat > internal/database/query_tag_counts.go <<'EOF'
-          package database
-
-          import (
-          	"strings"
-
-          	"gooru.local/types"
-          )
-
-          // BatchGetQueryTagCounts returns cardinality estimates keyed by exact query spelling.
-          // Exact tags use tags.files_count; explicit namespace-only filters such as "artist:"
-          // use the distinct-file aggregate maintained in tag_key_counts.
-          func (s *Store) BatchGetQueryTagCounts(tagStrings []string) (map[string]int, error) {
-          	counts := make(map[string]int)
-          	if len(tagStrings) == 0 {
-          		return counts, nil
-          	}
-
-          	exact := make([]types.ParsedTag, 0, len(tagStrings))
-          	namespaceKeys := make([]string, 0, len(tagStrings))
-          	seenNamespaces := make(map[string]struct{})
-          	for _, tagStr := range tagStrings {
-          		key, value, hasColon := strings.Cut(tagStr, ":")
-          		if hasColon && value == "" {
-          			if key != "" {
-          				if _, seen := seenNamespaces[key]; !seen {
-          					seenNamespaces[key] = struct{}{}
-          					namespaceKeys = append(namespaceKeys, key)
-          				}
-          			}
-          			continue
-          		}
-          		if !hasColon {
-          			key = tagStr
-          		}
-          		exact = append(exact, types.ParsedTag{Key: key, Value: value})
-          	}
-
-          	exactCounts, err := s.BatchGetTagCounts(exact)
-          	if err != nil {
-          		return nil, err
-          	}
-          	for tag, count := range exactCounts {
-          		counts[tag] = count
-          	}
-          	if len(namespaceKeys) == 0 {
-          		return counts, nil
-          	}
-
-          	placeholders := strings.Repeat("?,", len(namespaceKeys)-1) + "?"
-          	args := make([]interface{}, len(namespaceKeys))
-          	for i, key := range namespaceKeys {
-          		args[i] = key
-          	}
-          	rows, err := s.Query("SELECT key, files_count FROM tag_key_counts WHERE key IN ("+placeholders+")", args...)
-          	if err != nil {
-          		return nil, err
-          	}
-          	defer rows.Close()
-          	for rows.Next() {
-          		var key string
-          		var count int
-          		if err := rows.Scan(&key, &count); err != nil {
-          			return nil, err
-          		}
-          		counts[key+":"] = count
-          	}
-          	return counts, rows.Err()
-          }
-          EOF
-
-          cat > internal/database/query_tag_counts_test.go <<'EOF'
-          package database
-
-          import (
-          	"database/sql"
-          	"io"
-          	"log"
-          	"testing"
-          )
-
-          func TestBatchGetQueryTagCountsUsesNamespaceSummary(t *testing.T) {
-          	db, err := sql.Open("sqlite3", ":memory:")
-          	if err != nil { t.Fatal(err) }
-          	defer db.Close()
-          	if err := RunMigrations(db); err != nil { t.Fatal(err) }
-          	store := &Store{DB: db, logger: log.New(io.Discard, "", 0)}
-
-          	for _, hash := range []string{"a", "b"} {
-          		if _, err := db.Exec(`INSERT INTO contents (hash) VALUES (?)`, hash); err != nil { t.Fatal(err) }
-          	}
-          	insertTag := func(key, value string) int64 {
-          		t.Helper()
-          		res, err := db.Exec(`INSERT INTO tags (key, value) VALUES (?, ?)`, key, value)
-          		if err != nil { t.Fatal(err) }
-          		id, err := res.LastInsertId()
-          		if err != nil { t.Fatal(err) }
-          		return id
-          	}
-          	associate := func(hash string, tagID int64) {
-          		t.Helper()
-          		if _, err := db.Exec(`INSERT INTO content_tags (content_hash, tag_id) VALUES (?, ?)`, hash, tagID); err != nil { t.Fatal(err) }
-          	}
-
-          	alice := insertTag("artist", "alice")
-          	bob := insertTag("artist", "bob")
-          	favorite := insertTag("favorite", "")
-          	associate("a", alice)
-          	associate("a", bob)
-          	associate("b", alice)
-          	associate("a", favorite)
-
-          	counts, err := store.BatchGetQueryTagCounts([]string{"artist:", "artist:alice", "favorite"})
-          	if err != nil { t.Fatal(err) }
-          	if got := counts["artist:"]; got != 2 { t.Fatalf("artist: count = %d, want 2", got) }
-          	if got := counts["artist:alice"]; got != 2 { t.Fatalf("artist:alice count = %d, want 2", got) }
-          	if got := counts["favorite"]; got != 1 { t.Fatalf("favorite count = %d, want 1", got) }
-          }
-          EOF
-
+          python3 .github/tmp_patch_query_namespace.py
           gofmt -w gooru/query.go internal/database/query_tag_counts.go internal/database/query_tag_counts_test.go
       - name: Validate
-        shell: bash
         run: |
-          set -euxo pipefail
           go test ./internal/database ./internal/query ./gooru -count=1
           go test ./internal/serve -count=1
-      - name: Commit validated change and remove temporary workflow
-        shell: bash
+      - name: Commit validated change and remove temporary machinery
         run: |
-          rm .github/workflows/tmp-query-namespace-cardinality.yml
+          rm .github/workflows/tmp-query-namespace-cardinality.yml .github/tmp_patch_query_namespace.py
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
