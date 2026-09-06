@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -116,5 +117,51 @@ func TestBrowseAggregatesFallBackToExactCountWhenFacetsFail(t *testing.T) {
 	}
 	if library.kindFacetsCalls != 1 || library.countFilesCalls != 1 || library.libraryCountForQueryCalls != 1 {
 		t.Fatalf("facet failure should fall back to exact count, facets=%d count=%d library=%d", library.kindFacetsCalls, library.countFilesCalls, library.libraryCountForQueryCalls)
+	}
+}
+
+func TestTagsAggregatesReuseKindFacetTotal(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Enabled = false
+	library := &aggregateCountingLibrary{kindFacets: []FacetValueDTO{{Value: "photo", Count: 40}, {Value: "video", Count: 2}}}
+	server := NewServerWithLibrary(cfg, library)
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/tags?counts=true", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if library.kindFacetsCalls != 1 || library.libraryCountCalls != 0 {
+		t.Fatalf("tags should reuse root kind facets without a second library count, facets=%d library=%d", library.kindFacetsCalls, library.libraryCountCalls)
+	}
+	var response TagListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.LibraryCount != 42 {
+		t.Fatalf("library_count = %d, want 42 from facet partition", response.LibraryCount)
+	}
+}
+
+func TestTagsAggregatesFallBackToLibraryCountWhenFacetsFail(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Enabled = false
+	library := &aggregateCountingLibrary{kindFacetsErr: errors.New("facet query failed")}
+	server := NewServerWithLibrary(cfg, library)
+
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/tags?counts=true", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if library.kindFacetsCalls != 1 || library.libraryCountCalls != 1 {
+		t.Fatalf("facet failure should fall back to one library count, facets=%d library=%d", library.kindFacetsCalls, library.libraryCountCalls)
+	}
+	var response TagListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.LibraryCount != 99 {
+		t.Fatalf("library_count = %d, want fallback 99", response.LibraryCount)
 	}
 }
