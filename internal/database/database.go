@@ -1055,11 +1055,10 @@ func (s *Store) ListNamespaceSuggestions(prefix string, limit int) ([]types.TagW
 	}
 	like := strings.ToLower(strings.TrimSpace(prefix)) + "%"
 	rows, err := s.Query(`
-		SELECT key || ':' AS tag_str, SUM(files_count) AS total_files
-		FROM tags
-		WHERE value != '' AND lower(key) LIKE ?
-		GROUP BY key
-		ORDER BY total_files DESC, tag_str ASC
+		SELECT key || ':' AS tag_str, files_count
+		FROM tag_key_counts
+		WHERE files_count > 0 AND lower(key) LIKE ?
+		ORDER BY files_count DESC, tag_str ASC
 		LIMIT ?
 	`, like, limit)
 	if err != nil {
