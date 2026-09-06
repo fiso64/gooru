@@ -122,11 +122,16 @@
   const activeJobs = $derived((jobsQuery.data?.items ?? []).filter((job) => job.status === 'pending' || job.status === 'running'));
   const fileMetadataKey = $derived(`${authScope}|${$submittedSearch}|${library.sort}|${library.order}|${effectivePaginationMode}`);
   const uploadResultQueryKey = $derived(`${authScope}|${$submittedSearch}`);
-  const currentTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);
-  const liveUploadResultCount = $derived(uploadResultsCountQuery.data?.total_count ?? currentTotalCount);
-  const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveUploadResultCount - Math.max(currentTotalCount, uploadResultsFloor)) : 0);
-  const pagedPageCount = $derived(Math.max(1, Math.ceil(currentTotalCount / $runtimeConfig.itemsPerPage)));
-  const selectedCount = $derived(library.selectedCount(currentTotalCount));
+  // Keep the grid snapshot separate from server-refreshed counts. Upload-time metadata can
+  // update visible counts without changing the rows/virtual geometry until Refresh results.
+  const gridSnapshotTotalCount = $derived(fileMetadata?.total_count ?? loadedFiles.length);
+  const liveCurrentQueryCount = $derived(trackUploadResults
+    ? (uploadResultsCountQuery.data?.total_count ?? gridSnapshotTotalCount)
+    : gridSnapshotTotalCount);
+  const liveLibraryCount = $derived(tagsQuery.data?.library_count ?? fileMetadata?.library_count ?? loadedFiles.length);
+  const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveCurrentQueryCount - uploadResultsFloor) : 0);
+  const pagedPageCount = $derived(Math.max(1, Math.ceil(gridSnapshotTotalCount / $runtimeConfig.itemsPerPage)));
+  const selectedCount = $derived(library.selectedCount(gridSnapshotTotalCount));
 
   $effect(() => {
     const targets = uploadTargetsQuery.data?.items ?? [];
@@ -163,7 +168,7 @@
     if (key === observedUploadResultQueryKey) return;
     observedUploadResultQueryKey = key;
     trackUploadResults = upload.busy;
-    uploadResultsFloor = currentTotalCount;
+    uploadResultsFloor = gridSnapshotTotalCount;
   });
 
   $effect(() => {
@@ -194,7 +199,7 @@
     if (result.changedFiles) {
       if (!trackUploadResults) {
         trackUploadResults = true;
-        uploadResultsFloor = currentTotalCount;
+        uploadResultsFloor = gridSnapshotTotalCount;
       }
       void refreshUploadMetadata(true);
     }
@@ -355,7 +360,7 @@
   function beginTrackingUploadResults() {
     if (trackUploadResults) return;
     trackUploadResults = true;
-    uploadResultsFloor = currentTotalCount;
+    uploadResultsFloor = gridSnapshotTotalCount;
   }
 
   async function refreshUploadMetadata(forceAfterCurrent = false) {
@@ -413,7 +418,7 @@
     } finally {
       stopUploadMetadataRefresh();
       const finalTotal = await refreshUploadMetadata(true);
-      if (!upload.busy && finalTotal != null && finalTotal <= Math.max(currentTotalCount, uploadResultsFloor)) {
+      if (!upload.busy && finalTotal != null && finalTotal <= uploadResultsFloor) {
         trackUploadResults = false;
       }
       uploadMutation.reset();
@@ -421,7 +426,7 @@
   }
 
   async function refreshUploadResults() {
-    uploadResultsFloor = Math.max(uploadResultsFloor, liveUploadResultCount);
+    uploadResultsFloor = Math.max(uploadResultsFloor, liveCurrentQueryCount);
     if (!upload.busy) trackUploadResults = false;
     await refreshUploadQueries(queryClient);
   }
@@ -550,7 +555,7 @@
   <AppShell
     username={$authState.user.username}
     route={library.route}
-    libraryCount={tagsQuery.data?.library_count ?? page?.library_count ?? files.length}
+    libraryCount={liveLibraryCount}
     tagCount={tagsQuery.data?.tags.length ?? 0}
     jobsActiveCount={jobsQuery.data?.active_count ?? activeJobs.length}
     jobs={jobsQuery.data?.items ?? []}
@@ -606,7 +611,7 @@
     {:else if library.route === 'tags'}
       <TagsView
         tags={tagsQuery.data?.tags ?? []}
-        libraryCount={tagsQuery.data?.library_count ?? page?.library_count ?? files.length}
+        libraryCount={liveLibraryCount}
         loading={tagsQuery.isLoading}
         error={tagsQuery.isError ? errorMessage(tagsQuery.error) : ''}
         onTag={library.runTagSearch}
@@ -622,8 +627,9 @@
         error={filesQuery.error}
         {files}
         retainedStartIndex={retainedStartIndex}
-        totalCount={page?.total_count ?? files.length}
-        libraryCount={page?.library_count ?? files.length}
+        totalCount={gridSnapshotTotalCount}
+        displayTotalCount={liveCurrentQueryCount}
+        libraryCount={liveLibraryCount}
         searchActive={Boolean($submittedSearch)}
         selectedCount={selectedCount}
         isSelected={library.isSelected}
