@@ -996,20 +996,11 @@ func (s *Store) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
 		args = append(args, limit)
 	}
 	query := `
-		WITH key_counts AS (
-			SELECT
-				t.key,
-				COUNT(DISTINCT ct.content_hash) as total_files
-			FROM
-				tags t
-			JOIN
-				content_tags ct ON t.id = ct.tag_id
-			GROUP BY
-				t.key
-		)
-		SELECT key as tag_str, total_files as final_count FROM key_counts
+		SELECT key AS tag_str, files_count AS final_count
+		FROM tag_key_counts
+		WHERE files_count > 0
 		UNION ALL
-		SELECT key || ':' || value as tag_str, files_count as final_count
+		SELECT key || ':' || value AS tag_str, files_count AS final_count
 		FROM tags
 		WHERE value != '' AND files_count > 0
 		ORDER BY final_count DESC, tag_str ASC
