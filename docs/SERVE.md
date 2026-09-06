@@ -11,6 +11,7 @@ For every YAML field and default, see [CONFIG.md](CONFIG.md). For endpoint-level
 ```bash
 cd frontend
 npm ci
+npm run build
 cd ..
 ```
 
