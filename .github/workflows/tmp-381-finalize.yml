@@ -1,0 +1,125 @@
+name: Temporary PR 381 Finalize
+
+on:
+  push:
+    branches:
+      - fix/349-selection-snapshots
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/349-selection-snapshots
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply final bulk-target architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -n "/python3 - <<'PY'/,/git diff --check/p" .github/workflows/tmp-381-finish.yml | sed 's/^          //' > /tmp/apply-381.sh
+          bash /tmp/apply-381.sh
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('internal/serve/file_selections_test.go')
+          text = p.read_text()
+          if '"errors"' not in text:
+              text = text.replace('"encoding/json"\n', '"encoding/json"\n\t"errors"\n', 1)
+          text = text.replace('containsString(file.Tags, expression)', 'snapshotContainsString(file.Tags, expression)')
+          text = text.replace('func containsString(values []string, wanted string) bool {', 'func snapshotContainsString(values []string, wanted string) bool {')
+          p.write_text(text)
+
+          p = Path('internal/serve/tag_mutation_exclusions_test.go')
+          text = p.read_text()
+          text = text.replace('TestTagMutationExclusionsRequireQuerySelector', 'TestTagMutationExclusionsRequireQueryOrSelectionSelector')
+          text = text.replace('exclude_file_ids requires a query selector', 'exclude_file_ids requires a query or selection_id selector')
+          text = text.replace('expected query-only exclusion error', 'expected query-or-selection exclusion error')
+          p.write_text(text)
+
+          p = Path('internal/serve/tag_mutations.go')
+          text = p.read_text()
+          if '"sort"' not in text:
+              text = text.replace('"net/http"\n', '"net/http"\n\t"sort"\n', 1)
+          start = text.index('func mergeSnapshotSelectionIDs(')
+          end = text.index('func (l *GooruLibrary) MutateTags(', start)
+          helper = '''func mergeSnapshotSelectionIDs(snapshotIDs, includedIDs, excludedIDs []string) []string {
+          \t// Snapshot IDs are sorted by fileSelectionStore. Avoid constructing a
+          \t// second million-entry membership map for the common no-override path,
+          \t// and use binary search for the small explicit include set.
+          \tif len(includedIDs) == 0 && len(excludedIDs) == 0 {
+          \t\treturn snapshotIDs
+          \t}
+          \texcluded := make(map[string]struct{}, len(excludedIDs))
+          \tfor _, id := range excludedIDs {
+          \t\texcluded[id] = struct{}{}
+          \t}
+          \tselected := make([]string, 0, len(snapshotIDs)+len(includedIDs))
+          \tfor _, id := range snapshotIDs {
+          \t\tif _, skip := excluded[id]; skip {
+          \t\t\tcontinue
+          \t\t}
+          \t\tselected = append(selected, id)
+          \t}
+          \tfor _, id := range includedIDs {
+          \t\tif _, skip := excluded[id]; skip {
+          \t\t\tcontinue
+          \t\t}
+          \t\tindex := sort.SearchStrings(snapshotIDs, id)
+          \t\tif index < len(snapshotIDs) && snapshotIDs[index] == id {
+          \t\t\tcontinue
+          \t\t}
+          \t\tselected = append(selected, id)
+          \t}
+          \treturn selected
+          }
+
+          '''
+          p.write_text(text[:start] + helper + text[end:])
+          PY
+          "$(go env GOROOT)/bin/gofmt" -w internal/serve/bulk_file_targets.go internal/serve/tag_mutations.go internal/serve/file_removals.go internal/serve/file_selections_test.go internal/serve/tag_mutation_exclusions_test.go
+          git diff --check
+      - name: Go test
+        run: go test ./...
+      - name: Go build
+        run: go build ./...
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Selection browser regression
+        working-directory: frontend
+        run: |
+          npx playwright install chromium
+          npm run test:e2e -- selection-ui-modal.spec.ts
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+      - name: Commit validated final architecture
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/tmp-381-finish.yml .github/workflows/tmp-381-diagnose.yml .github/workflows/tmp-381-fix-tests.yml .github/workflows/tmp-381-finalize.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo 'no changes to commit'; exit 2; }
+          git commit -m "refactor(selection): centralize immutable bulk targets"
+          git push origin HEAD:fix/349-selection-snapshots
