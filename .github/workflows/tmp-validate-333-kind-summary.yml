@@ -1,0 +1,100 @@
+name: Temporary validate 333 kind summary
+
+on:
+  push:
+    branches:
+      - perf/333-root-kind-facet-summary
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Switch root kind facets to maintained summary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          old = '''func (s *Store) KindFacets() ([]types.TagWithCount, error) {
+          \trows, err := s.Query(fmt.Sprintf(`
+          \t\tSELECT %s AS kind, COUNT(*)
+          \t\tFROM locations l
+          \t\tLEFT JOIN media_metadata mm ON mm.location_id = l.id
+          \t\tGROUP BY kind
+          \t\tORDER BY COUNT(*) DESC, kind ASC
+          \t`, fileKindExpression()))
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tdefer rows.Close()
+          \tvar out []types.TagWithCount
+          \tfor rows.Next() {
+          \t\tvar item types.TagWithCount
+          \t\tif err := rows.Scan(&item.Tag, &item.Count); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tout = append(out, item)
+          \t}
+          \treturn out, rows.Err()
+          }
+          '''.replace('          ', '')
+          new = '''func (s *Store) KindFacets() ([]types.TagWithCount, error) {
+          \trows, err := s.Query(`
+          \t\tSELECT kind, files_count
+          \t\tFROM kind_counts
+          \t\tWHERE files_count > 0
+          \t\tORDER BY files_count DESC, kind ASC
+          \t`)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tdefer rows.Close()
+          \tvar out []types.TagWithCount
+          \tfor rows.Next() {
+          \t\tvar item types.TagWithCount
+          \t\tif err := rows.Scan(&item.Tag, &item.Count); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tout = append(out, item)
+          \t}
+          \treturn out, rows.Err()
+          }
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('KindFacets source block did not match expected performance head')
+          path.write_text(text.replace(old, new, 1))
+
+          path = Path('internal/database/migration_test.go')
+          text = path.read_text()
+          old = '''\tif version != 11 || dirty {
+          \t\tt.Fatalf("schema_migrations = (%d, %t), want (11, false)", version, dirty)
+          }'''.replace('          ', '')
+          new = '''\tif version != 12 || dirty {
+          \t\tt.Fatalf("schema_migrations = (%d, %t), want (12, false)", version, dirty)
+          }'''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('migration version invariant did not match expected v11 head')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/database/database.go internal/database/migration_test.go internal/database/kind_counts_test.go
+      - name: Validate database package
+        run: go test ./internal/database
+      - name: Validate browse integration
+        run: go test ./internal/serve
+      - name: Commit validated source and remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-validate-333-kind-summary.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/database .github/workflows/tmp-validate-333-kind-summary.yml
+          git commit -m "perf(db): serve root kind facets from summary"
+          git push origin HEAD:perf/333-root-kind-facet-summary
