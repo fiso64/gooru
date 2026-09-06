@@ -3,7 +3,7 @@ name: Auto-lock fiso64 threads
 on:
   issues:
     types: [opened]
-  pull_request:
+  pull_request_target:
     types: [opened]
 
 permissions:
@@ -13,10 +13,16 @@ permissions:
 jobs:
   lock:
     if: github.event.issue.user.login == 'fiso64' || github.event.pull_request.user.login == 'fiso64'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     steps:
       - name: Lock conversation
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           THREAD_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        run: gh api --method PUT "repos/${{ github.repository }}/issues/${THREAD_NUMBER}/lock"
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request PUT \
+            --url "https://api.github.com/repos/${{ github.repository }}/issues/${THREAD_NUMBER}/lock" \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28"
