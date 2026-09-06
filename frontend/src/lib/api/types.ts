@@ -4,7 +4,10 @@ export type MediaUrls = components['schemas']['MediaURLs'];
 export type MediaMetadata = components['schemas']['MediaMetadata'];
 export type FileItem = components['schemas']['File'];
 export type FileListResponse = components['schemas']['FileListResponse'];
-export type FileRemovalRequest = components['schemas']['FileRemovalRequest'];
+export type FileRemovalRequest = components['schemas']['FileRemovalRequest'] & {
+  selection_id?: string;
+  include_file_ids?: string[];
+};
 export type FileRemovalResponse = components['schemas']['FileRemovalResponse'];
 export type ComicPage = components['schemas']['ComicPage'];
 export type ComicManifest = components['schemas']['ComicManifest'];
@@ -29,4 +32,7 @@ export type SavedSearchRequest = Omit<components['schemas']['SavedSearchRequest'
   Partial<Pick<components['schemas']['SavedSearchRequest'], 'sort' | 'order'>>;
 
 export type TagMutationRequest = Omit<components['schemas']['TagMutationRequest'], 'verbose'> &
-  Partial<Pick<components['schemas']['TagMutationRequest'], 'verbose'>>;
+  Partial<Pick<components['schemas']['TagMutationRequest'], 'verbose'>> & {
+    selection_id?: string;
+    include_file_ids?: string[];
+  };
