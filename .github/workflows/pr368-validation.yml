@@ -1,0 +1,25 @@
+name: PR 368 validation
+
+on:
+  push:
+    branches:
+      - perf/333-extension-filter-index
+
+permissions:
+  contents: read
+
+jobs:
+  database:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Format check
+        run: test -z "$(gofmt -l internal/database/performance_indexes_test.go)"
+      - name: Query and database tests
+        run: go test ./internal/query ./internal/database
+      - name: Server tests
+        run: go test ./internal/serve
