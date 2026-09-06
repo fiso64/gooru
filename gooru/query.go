@@ -550,6 +550,13 @@ func (c *Client) KindFacets() ([]types.TagWithCount, error) {
 }
 
 func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
+	if kind, ok := simpleKindFacetFilter(expression); ok {
+		facets, err := c.store.KindFacets()
+		if err != nil {
+			return nil, err
+		}
+		return filterKindFacet(facets, kind), nil
+	}
 	sqlQuery, args, err := c.buildLocationQuery(expression)
 	if err != nil {
 		return nil, err
