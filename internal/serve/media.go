@@ -1,7 +1,6 @@
 package serve
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -38,6 +37,14 @@ type SourceThumbnailer interface {
 	ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error
 }
 
+type QualityThumbnailer interface {
+	ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error
+}
+
+type SourceQualityThumbnailer interface {
+	ThumbnailSourceQuality(name string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error
+}
+
 type GoImageThumbnailer struct{}
 
 func (GoImageThumbnailer) BackendVersion() string {
@@ -45,15 +52,23 @@ func (GoImageThumbnailer) BackendVersion() string {
 }
 
 func (t GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
+	return t.ThumbnailQuality(src, dst, size, format, derivativeJPEGQuality)
+}
+
+func (t GoImageThumbnailer) ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error {
 	file, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	return t.ThumbnailSource(src, file, dst, size, format)
+	return t.ThumbnailSourceQuality(src, file, dst, size, format, quality)
 }
 
-func (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writer, size int, format string) error {
+func (t GoImageThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error {
+	return t.ThumbnailSourceQuality(name, src, dst, size, format, derivativeJPEGQuality)
+}
+
+func (GoImageThumbnailer) ThumbnailSourceQuality(_ string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -64,7 +79,7 @@ func (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Wr
 	resized := scaleImage(img, size)
 	switch format {
 	case "jpeg":
-		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: derivativeJPEGQuality})
+		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: quality})
 	case "png":
 		return png.Encode(dst, resized)
 	default:
@@ -243,15 +258,22 @@ func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err 
 
 func (m *MediaService) generateDerivative(file types.FileInfo, dst io.Writer, size int, format string, kind string) error {
 	if kind == "preview" && format == "jpeg" && m.cfg.Media.PreviewJPEGQuality != derivativeJPEGQuality {
-		var lossless bytes.Buffer
-		if err := m.generateThumbnail(file, &lossless, size, "png"); err != nil {
-			return err
+		mediaKind := mediaKindForType(mediaTypeForPath(file.Path))
+		if mediaKind == "photo" || mediaKind == "gif" {
+			if m.cfg.Encryption.Enabled {
+				sourceThumbnailer, ok := m.thumbnailer.(SourceQualityThumbnailer)
+				if ok {
+					source, err := m.openMediaSource(file.Path)
+					if err != nil {
+						return err
+					}
+					defer source.Close()
+					return sourceThumbnailer.ThumbnailSourceQuality(file.Path, source, dst, size, format, m.cfg.Media.PreviewJPEGQuality)
+				}
+			} else if qualityThumbnailer, ok := m.thumbnailer.(QualityThumbnailer); ok {
+				return qualityThumbnailer.ThumbnailQuality(file.Path, dst, size, format, m.cfg.Media.PreviewJPEGQuality)
+			}
 		}
-		img, _, err := image.Decode(&lossless)
-		if err != nil {
-			return fmt.Errorf("decode lossless preview intermediate: %w", err)
-		}
-		return jpeg.Encode(dst, img, &jpeg.Options{Quality: m.cfg.Media.PreviewJPEGQuality})
 	}
 	return m.generateThumbnail(file, dst, size, format)
 }

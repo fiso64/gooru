@@ -15,13 +15,19 @@ import (
 )
 
 type previewQualityThumbnailer struct {
-	formats []string
+	formats   []string
+	qualities []int
 }
 
 func (t *previewQualityThumbnailer) BackendVersion() string { return "preview-quality-test-v1" }
 
-func (t *previewQualityThumbnailer) Thumbnail(_ string, dst io.Writer, size int, format string) error {
+func (t *previewQualityThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
+	return t.ThumbnailQuality(src, dst, size, format, derivativeJPEGQuality)
+}
+
+func (t *previewQualityThumbnailer) ThumbnailQuality(_ string, dst io.Writer, size int, format string, quality int) error {
 	t.formats = append(t.formats, format)
+	t.qualities = append(t.qualities, quality)
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
@@ -37,7 +43,7 @@ func (t *previewQualityThumbnailer) Thumbnail(_ string, dst io.Writer, size int,
 	case "png":
 		return png.Encode(dst, img)
 	case "jpeg":
-		return jpeg.Encode(dst, img, &jpeg.Options{Quality: derivativeJPEGQuality})
+		return jpeg.Encode(dst, img, &jpeg.Options{Quality: quality})
 	default:
 		return ErrUnsupportedMedia
 	}
@@ -54,14 +60,15 @@ func TestConfiguredPreviewJPEGQualityIsAppliedAfterLosslessGeneration(t *testing
 	if err := media.generateDerivative(types.FileInfo{Path: "sample.jpg"}, &low, 96, "jpeg", "preview"); err != nil {
 		t.Fatalf("generate low-quality preview: %v", err)
 	}
-	if !reflect.DeepEqual(thumbnailer.formats, []string{"png"}) {
-		t.Fatalf("preview backend formats = %v, want lossless png intermediate", thumbnailer.formats)
+	if !reflect.DeepEqual(thumbnailer.formats, []string{"jpeg"}) || !reflect.DeepEqual(thumbnailer.qualities, []int{25}) {
+		t.Fatalf("preview backend calls = formats %v qualities %v, want jpeg quality 25", thumbnailer.formats, thumbnailer.qualities)
 	}
 	if _, err := jpeg.Decode(bytes.NewReader(low.Bytes())); err != nil {
 		t.Fatalf("configured preview is not a JPEG: %v", err)
 	}
 
 	thumbnailer.formats = nil
+	thumbnailer.qualities = nil
 	media.cfg.Media.PreviewJPEGQuality = 90
 	var high bytes.Buffer
 	if err := media.generateDerivative(types.FileInfo{Path: "sample.jpg"}, &high, 96, "jpeg", "preview"); err != nil {
