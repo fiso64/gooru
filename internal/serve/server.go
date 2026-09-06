@@ -14,14 +14,15 @@ import (
 const metadataRequestBodyLimit int64 = 1 << 20
 
 type Server struct {
-	cfg          Config
-	jobs         *JobManager
-	library      Library
-	media        *MediaService
-	meta         MediaMetadataProvider
-	auth         *AuthStore
-	urlState     *urlStateCodec
-	managedFiles *managedfile.Writer
+	cfg            Config
+	jobs           *JobManager
+	library        Library
+	media          *MediaService
+	meta           MediaMetadataProvider
+	auth           *AuthStore
+	urlState       *urlStateCodec
+	fileSelections *fileSelectionStore
+	managedFiles   *managedfile.Writer
 }
 
 func NewServer(cfg Config) *Server {
@@ -42,13 +43,14 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		managedFiles = managedfile.NewProtected(cfg.Encryption.Key)
 	}
 	return &Server{
-		cfg:          cfg,
-		jobs:         NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
-		library:      library,
-		media:        newComposedMediaServiceFromConfig(cfg),
-		meta:         metadata,
-		urlState:     newURLStateCodec(cfg),
-		managedFiles: managedFiles,
+		cfg:            cfg,
+		jobs:           NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
+		library:        library,
+		media:          newComposedMediaServiceFromConfig(cfg),
+		meta:           metadata,
+		urlState:       newURLStateCodec(cfg),
+		fileSelections: newFileSelectionStore(),
+		managedFiles:   managedFiles,
 	}
 }
 
@@ -78,6 +80,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/ui-state", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleUIState))))
 	mux.Handle("/api/v1/upload-targets", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleUploadTargets)))
 	mux.Handle("/api/v1/uploads", s.adminProtected(http.HandlerFunc(s.handleUpload)))
+	mux.Handle("/api/v1/file-selections/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileSelection))))
+	mux.Handle("/api/v1/file-selections", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileSelections))))
 	mux.Handle("/api/v1/files/tags", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleMutateTags))))
 	mux.Handle("/api/v1/files/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFile))))
 	mux.Handle("/api/v1/files", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFiles))))
