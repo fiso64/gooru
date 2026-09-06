@@ -1,0 +1,512 @@
+name: maintainer-388-library-relocation
+
+on:
+  push:
+    branches:
+      - fix/388-library-relocation
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: ${{ !contains(github.event.head_commit.message, '[skip relocation patch]') }}
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/388-library-relocation
+          fetch-depth: 0
+      - name: Apply relocation repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > gooru/managed_roots.go <<'EOF'
+          package gooru
+
+          import (
+          	"database/sql"
+          	"fmt"
+          	"os"
+          	"path/filepath"
+          	"sort"
+          	"strings"
+
+          	"gooru.local/types"
+          )
+
+          const managedRootMetaPrefix = "managed_upload_root:"
+
+          // ReconcileManagedRoots remembers the filesystem root associated with each
+          // stable managed-upload target ID and rebases tracked locations atomically
+          // when that root changes. The range predicate keeps a million-file move on
+          // the indexed locations.path column instead of walking every row in Go.
+          func (c *Client) ReconcileManagedRoots(roots map[string]string) (int, error) {
+          	ids := make([]string, 0, len(roots))
+          	normalized := make(map[string]string, len(roots))
+          	for id, root := range roots {
+          		id = strings.TrimSpace(id)
+          		root = strings.TrimSpace(root)
+          		if id == "" || root == "" {
+          			continue
+          		}
+          		abs, err := filepath.Abs(root)
+          		if err != nil {
+          			return 0, fmt.Errorf("resolve managed root %q: %w", id, err)
+          		}
+          		ids = append(ids, id)
+          		normalized[id] = filepath.Clean(abs)
+          	}
+          	sort.Strings(ids)
+          	if len(ids) == 0 {
+          		return 0, nil
+          	}
+
+          	tx, err := c.store.Begin()
+          	if err != nil {
+          		return 0, err
+          	}
+          	defer tx.Rollback()
+
+          	moved := 0
+          	for _, id := range ids {
+          		key := managedRootMetaPrefix + id
+          		newRoot := normalized[id]
+          		var oldRoot string
+          		err := tx.QueryRow("SELECT value FROM meta WHERE key = ?", key).Scan(&oldRoot)
+          		if err == sql.ErrNoRows {
+          			if _, err := tx.Exec("INSERT INTO meta (key, value) VALUES (?, ?)", key, newRoot); err != nil {
+          				return 0, fmt.Errorf("remember managed root %q: %w", id, err)
+          			}
+          			continue
+          		}
+          		if err != nil {
+          			return 0, fmt.Errorf("read managed root %q: %w", id, err)
+          		}
+          		oldRoot = filepath.Clean(oldRoot)
+          		if oldRoot == newRoot {
+          			continue
+          		}
+
+          		count, err := rebaseManagedRootTx(tx, oldRoot, newRoot)
+          		if err != nil {
+          			return 0, fmt.Errorf("rebase managed root %q from %q to %q: %w", id, oldRoot, newRoot, err)
+          		}
+          		if _, err := tx.Exec("UPDATE meta SET value = ? WHERE key = ?", newRoot, key); err != nil {
+          			return 0, fmt.Errorf("update managed root %q: %w", id, err)
+          		}
+          		moved += count
+          	}
+          	if err := tx.Commit(); err != nil {
+          		return 0, err
+          	}
+          	return moved, nil
+          }
+
+          func rebaseManagedRootTx(tx interface {
+          	Exec(query string, args ...interface{}) (sql.Result, error)
+          }, oldRoot, newRoot string) (int, error) {
+          	if oldRoot == newRoot {
+          		return 0, nil
+          	}
+          	sep := string(os.PathSeparator)
+          	prefix := oldRoot
+          	if !strings.HasSuffix(prefix, sep) {
+          		prefix += sep
+          	}
+          	// filepath separators are single-byte ASCII on supported platforms. The
+          	// immediate successor creates an exact indexed lexical prefix range.
+          	upper := prefix[:len(prefix)-1] + string(os.PathSeparator+1)
+          	res, err := tx.Exec(`
+          		UPDATE locations
+          		SET path = CASE
+          			WHEN path = ? THEN ?
+          			ELSE ? || substr(path, length(?) + 1)
+          		END
+          		WHERE path = ? OR (path >= ? AND path < ?)`,
+          		oldRoot, newRoot, newRoot, oldRoot, oldRoot, prefix, upper)
+          	if err != nil {
+          		return 0, err
+          	}
+          	n, err := res.RowsAffected()
+          	return int(n), err
+          }
+
+          // RecoverMissingManagedPath safely heals a pre-metadata library that was
+          // already moved. Uploads are stored directly under target roots, so a stale
+          // basename can identify candidates; content hashing is the authority and an
+          // ambiguous match is deliberately left untouched.
+          func (c *Client) RecoverMissingManagedPath(file types.FileInfo, roots []string) (types.FileInfo, bool, error) {
+          	if _, err := os.Lstat(file.Path); err == nil || !os.IsNotExist(err) {
+          		return file, false, nil
+          	}
+
+          	matches := make([]string, 0, 1)
+          	seen := make(map[string]struct{})
+          	for _, root := range roots {
+          		root = strings.TrimSpace(root)
+          		if root == "" {
+          			continue
+          		}
+          		abs, err := filepath.Abs(root)
+          		if err != nil {
+          			continue
+          		}
+          		candidate := filepath.Join(filepath.Clean(abs), filepath.Base(file.Path))
+          		if _, ok := seen[candidate]; ok {
+          			continue
+          		}
+          		seen[candidate] = struct{}{}
+          		if _, err := os.Lstat(candidate); err != nil {
+          			continue
+          		}
+          		hash, err := c.hasher.HashFile(candidate)
+          		if err != nil || hash != file.Hash {
+          			continue
+          		}
+          		matches = append(matches, candidate)
+          		if len(matches) > 1 {
+          			return file, false, nil
+          		}
+          	}
+          	if len(matches) != 1 {
+          		return file, false, nil
+          	}
+
+          	candidate := matches[0]
+          	meta, err := c.hasher.FileMetadata(candidate)
+          	if err != nil {
+          		return file, false, err
+          	}
+          	tx, err := c.store.Begin()
+          	if err != nil {
+          		return file, false, err
+          	}
+          	defer tx.Rollback()
+          	res, err := tx.Exec(`UPDATE locations
+          		SET path = ?, size = ?, mod_time = ?, extension = ?
+          		WHERE id = ? AND path = ? AND content_hash = ?`,
+          		candidate, meta.Size, meta.ModTime.Unix(), filepath.Ext(candidate), file.ID, file.Path, file.Hash)
+          	if err != nil {
+          		return file, false, err
+          	}
+          	n, err := res.RowsAffected()
+          	if err != nil {
+          		return file, false, err
+          	}
+          	if n != 1 {
+          		return file, false, nil
+          	}
+          	if err := tx.Commit(); err != nil {
+          		return file, false, err
+          	}
+          	repaired, err := c.GetFileInfoByLocationID(file.ID)
+          	if err != nil {
+          		return file, false, err
+          	}
+          	return repaired, true, nil
+          }
+          EOF
+
+          cat > internal/serve/library_relocation.go <<'EOF'
+          package serve
+
+          import (
+          	"os"
+          	"path/filepath"
+          	"strings"
+
+          	"gooru.local/types"
+          )
+
+          func (l *GooruLibrary) configureManagedUploadRoots(targets []UploadTarget) error {
+          	byID := make(map[string]string, len(targets))
+          	roots := make([]string, 0, len(targets))
+          	for _, target := range targets {
+          		id := strings.TrimSpace(target.ID)
+          		path := strings.TrimSpace(target.Path)
+          		if id == "" || path == "" {
+          			continue
+          		}
+          		abs, err := filepath.Abs(path)
+          		if err != nil {
+          			return err
+          		}
+          		abs = filepath.Clean(abs)
+          		byID[id] = abs
+          		roots = append(roots, abs)
+          	}
+          	l.managedRoots = roots
+          	_, err := l.client.ReconcileManagedRoots(byID)
+          	return err
+          }
+
+          func (l *GooruLibrary) repairManagedPath(file types.FileInfo) (types.FileInfo, error) {
+          	if len(l.managedRoots) == 0 {
+          		return file, nil
+          	}
+          	if _, err := os.Lstat(file.Path); err == nil || !os.IsNotExist(err) {
+          		return file, nil
+          	}
+          	repaired, ok, err := l.client.RecoverMissingManagedPath(file, l.managedRoots)
+          	if err != nil || !ok {
+          		return file, err
+          	}
+          	return repaired, nil
+          }
+          EOF
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path('internal/serve/browse.go')
+          s = p.read_text()
+          old = '''type GooruLibrary struct {
+          \tclient     *core.Client
+          \tverbose    bool
+          \tmetadata   MediaMetadataProvider
+          \tencryption EncryptionConfig
+          }'''
+          new = '''type GooruLibrary struct {
+          \tclient       *core.Client
+          \tverbose      bool
+          \tmetadata     MediaMetadataProvider
+          \tencryption   EncryptionConfig
+          \tmanagedRoots []string
+          }'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\tfile, err := l.client.GetFileInfoByLocationID(locationID)
+          \tif errors.Is(err, sql.ErrNoRows) {
+          \t\treturn types.FileInfo{}, ErrNotFound
+          \t}
+          \treturn file, err
+          }'''
+          new = '''\tfile, err := l.client.GetFileInfoByLocationID(locationID)
+          \tif errors.Is(err, sql.ErrNoRows) {
+          \t\treturn types.FileInfo{}, ErrNotFound
+          \t}
+          \tif err != nil {
+          \t\treturn types.FileInfo{}, err
+          \t}
+          \treturn l.repairManagedPath(file)
+          }'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '''\tfile, err := l.client.GetFileInfoByPublicID(id)
+          \tif errors.Is(err, sql.ErrNoRows) {
+          \t\treturn types.FileInfo{}, ErrNotFound
+          \t}
+          \treturn file, err
+          }'''
+          new = '''\tfile, err := l.client.GetFileInfoByPublicID(id)
+          \tif errors.Is(err, sql.ErrNoRows) {
+          \t\treturn types.FileInfo{}, ErrNotFound
+          \t}
+          \tif err != nil {
+          \t\treturn types.FileInfo{}, err
+          \t}
+          \treturn l.repairManagedPath(file)
+          }'''
+          assert old in s
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+
+          p = Path('internal/serve/server.go')
+          s = p.read_text()
+          old = '''import (
+          \t"context"
+          \t"errors"
+          \t"io"'''
+          new = '''import (
+          \t"context"
+          \t"errors"
+          \t"io"
+          \t"log/slog"'''
+          assert old in s
+          s = s.replace(old, new, 1)
+          old = '''\t\tgooruLibrary.metadata = metadata
+          \t\tgooruLibrary.encryption = cfg.Encryption
+          \t\tif len(cfg.UI.HiddenTags) > 0 {'''
+          new = '''\t\tgooruLibrary.metadata = metadata
+          \t\tgooruLibrary.encryption = cfg.Encryption
+          \t\tif err := gooruLibrary.configureManagedUploadRoots(cfg.Uploads.Targets); err != nil {
+          \t\t\tslog.Error("failed to reconcile managed upload roots", "error", err)
+          \t\t}
+          \t\tif len(cfg.UI.HiddenTags) > 0 {'''
+          assert old in s
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+
+          cat > internal/serve/library_relocation_test.go <<'EOF'
+          package serve
+
+          import (
+          	"bytes"
+          	"image/color"
+          	"net/http"
+          	"net/http/httptest"
+          	"os"
+          	"path/filepath"
+          	"testing"
+          	"time"
+
+          	core "gooru.local/gooru"
+          	"gooru.local/types"
+          )
+
+          func TestManagedLibraryMovePreservesOriginalAndDerivativeCache(t *testing.T) {
+          	parent := t.TempDir()
+          	oldRoot := filepath.Join(parent, "library")
+          	if err := os.MkdirAll(oldRoot, 0o755); err != nil {
+          		t.Fatal(err)
+          	}
+          	oldDB := filepath.Join(oldRoot, "gooru.db")
+          	if err := core.Init(oldDB, types.StrategyFull, false); err != nil {
+          		t.Fatalf("init db: %v", err)
+          	}
+          	client, err := core.New(oldDB, false)
+          	if err != nil {
+          		t.Fatalf("open client: %v", err)
+          	}
+
+          	oldUploads := filepath.Join(oldRoot, "uploads")
+          	oldCache := filepath.Join(oldRoot, "cache")
+          	cfg := DefaultConfig(oldDB)
+          	cfg.Auth.Enabled = false
+          	cfg.Uploads.Enabled = true
+          	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: oldUploads}}
+          	cfg.Media.CacheDir = oldCache
+          	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+
+          	payload := tinyPNG(t, 7, 5, color.RGBA{R: 31, G: 101, B: 211, A: 255})
+          	rec := httptest.NewRecorder()
+          	server.Handler().ServeHTTP(rec, uploadBinaryRequestWithSourceModTime(t, "move-me.png", payload, time.Unix(1_700_000_000, 0)))
+          	if rec.Code != http.StatusOK {
+          		t.Fatalf("upload status=%d body=%s", rec.Code, rec.Body.String())
+          	}
+          	oldPath := filepath.Join(oldUploads, "move-me.png")
+          	file, err := client.GetFileInfoByPath(oldPath)
+          	if err != nil {
+          		t.Fatalf("lookup upload: %v", err)
+          	}
+
+          	thumb := httptest.NewRecorder()
+          	server.Handler().ServeHTTP(thumb, httptest.NewRequest(http.MethodGet, "/api/v1/files/"+file.PublicID+"/thumbnail?size=256", nil))
+          	if thumb.Code != http.StatusOK {
+          		t.Fatalf("warm thumbnail status=%d body=%s", thumb.Code, thumb.Body.String())
+          	}
+          	cacheFiles := derivativeFiles(t, oldCache)
+          	if len(cacheFiles) == 0 {
+          		t.Fatal("warm thumbnail did not create a persistent derivative")
+          	}
+          	before, err := os.Stat(cacheFiles[0])
+          	if err != nil {
+          		t.Fatal(err)
+          	}
+          	if err := client.Close(); err != nil {
+          		t.Fatalf("close before move: %v", err)
+          	}
+
+          	newRoot := filepath.Join(parent, "lib1")
+          	if err := os.MkdirAll(newRoot, 0o755); err != nil {
+          		t.Fatal(err)
+          	}
+          	for _, path := range mustGlob(t, oldDB+"*") {
+          		if err := os.Rename(path, filepath.Join(newRoot, filepath.Base(path))); err != nil {
+          			t.Fatalf("move database file %s: %v", path, err)
+          		}
+          	}
+          	newUploads := filepath.Join(newRoot, "uploads")
+          	newCache := filepath.Join(newRoot, "cache")
+          	if err := os.Rename(oldUploads, newUploads); err != nil {
+          		t.Fatalf("move uploads: %v", err)
+          	}
+          	if err := os.Rename(oldCache, newCache); err != nil {
+          		t.Fatalf("move cache: %v", err)
+          	}
+
+          	newDB := filepath.Join(newRoot, "gooru.db")
+          	client2, err := core.New(newDB, false)
+          	if err != nil {
+          		t.Fatalf("reopen moved db: %v", err)
+          	}
+          	defer client2.Close()
+          	cfg.Database.Path = newDB
+          	cfg.Uploads.Targets[0].Path = newUploads
+          	cfg.Media.CacheDir = newCache
+          	server2 := NewServerWithLibrary(cfg, NewGooruLibrary(client2, false))
+
+          	content := httptest.NewRecorder()
+          	server2.Handler().ServeHTTP(content, httptest.NewRequest(http.MethodGet, "/api/v1/files/"+file.PublicID+"/content", nil))
+          	if content.Code != http.StatusOK {
+          		t.Fatalf("content after move status=%d body=%s", content.Code, content.Body.String())
+          	}
+          	if !bytes.Equal(content.Body.Bytes(), payload) {
+          		t.Fatal("content after move differs from uploaded original")
+          	}
+          	relocated, err := client2.GetFileInfoByPublicID(file.PublicID)
+          	if err != nil {
+          		t.Fatalf("lookup relocated record: %v", err)
+          	}
+          	if relocated.Path != filepath.Join(newUploads, "move-me.png") {
+          		t.Fatalf("relocated path=%q", relocated.Path)
+          	}
+
+          	thumb2 := httptest.NewRecorder()
+          	server2.Handler().ServeHTTP(thumb2, httptest.NewRequest(http.MethodGet, "/api/v1/files/"+file.PublicID+"/thumbnail?size=256", nil))
+          	if thumb2.Code != http.StatusOK {
+          		t.Fatalf("thumbnail after move status=%d body=%s", thumb2.Code, thumb2.Body.String())
+          	}
+          	afterFiles := derivativeFiles(t, newCache)
+          	if len(afterFiles) != len(cacheFiles) {
+          		t.Fatalf("derivative count changed after move: before=%d after=%d", len(cacheFiles), len(afterFiles))
+          	}
+          	after, err := os.Stat(afterFiles[0])
+          	if err != nil {
+          		t.Fatal(err)
+          	}
+          	if !after.ModTime().Equal(before.ModTime()) {
+          		t.Fatalf("cached derivative was rewritten after move: before=%v after=%v", before.ModTime(), after.ModTime())
+          	}
+          }
+
+          func derivativeFiles(t *testing.T, root string) []string {
+          	t.Helper()
+          	var out []string
+          	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+          		if err != nil {
+          			return err
+          		}
+          		if !entry.IsDir() {
+          			out = append(out, path)
+          		}
+          		return nil
+          	})
+          	if err != nil {
+          		t.Fatalf("walk derivatives: %v", err)
+          	}
+          	return out
+          }
+
+          func mustGlob(t *testing.T, pattern string) []string {
+          	t.Helper()
+          	paths, err := filepath.Glob(pattern)
+          	if err != nil {
+          		t.Fatal(err)
+          	}
+          	return paths
+          }
+          EOF
+
+          gofmt -w gooru/managed_roots.go internal/serve/library_relocation.go internal/serve/library_relocation_test.go internal/serve/browse.go internal/serve/server.go
+          go test ./gooru ./internal/serve
+          go test ./...
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gooru/managed_roots.go internal/serve/library_relocation.go internal/serve/library_relocation_test.go internal/serve/browse.go internal/serve/server.go
+          git commit -m "fix: preserve managed media across library relocation [skip relocation patch]"
+          git push origin HEAD:fix/388-library-relocation
