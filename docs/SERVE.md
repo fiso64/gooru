@@ -11,9 +11,6 @@ For every YAML field and default, see [CONFIG.md](CONFIG.md). For endpoint-level
 ```bash
 cd frontend
 npm ci
-npm run check
-npm run test:unit
-npm run build
 cd ..
 ```
 
@@ -44,7 +41,6 @@ For local use, the most important defaults are already conservative:
 - listen on `127.0.0.1:5678`;
 - authentication enabled;
 - uploads disabled;
-- protected/encrypted storage disabled until a key is configured.
 
 ### 5. Create the first admin
 
