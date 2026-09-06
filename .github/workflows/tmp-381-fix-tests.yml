@@ -1,0 +1,49 @@
+name: Temporary PR 381 Test Build Repair
+
+on:
+  push:
+    branches:
+      - fix/349-selection-snapshots
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/349-selection-snapshots
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Repair test build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/serve/file_selections_test.go')
+          text = p.read_text()
+          if '"errors"' not in text:
+              text = text.replace('"encoding/json"\n', '"encoding/json"\n\t"errors"\n', 1)
+          text = text.replace('containsString(file.Tags, expression)', 'snapshotContainsString(file.Tags, expression)')
+          text = text.replace('func containsString(values []string, wanted string) bool {', 'func snapshotContainsString(values []string, wanted string) bool {')
+          p.write_text(text)
+          PY
+          "$(go env GOROOT)/bin/gofmt" -w internal/serve/file_selections_test.go
+          go test ./internal/serve
+          git diff --check
+      - name: Commit repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/serve/file_selections_test.go
+          git diff --cached --quiet && exit 0
+          git commit -m "test(selection): fix snapshot regression build"
+          git push origin HEAD:fix/349-selection-snapshots
