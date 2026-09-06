@@ -7,7 +7,6 @@
   import { preserveNativeViewerSize } from '$lib/utils/media';
   import { recordViewerPresentation, recordViewerRequest } from '$lib/utils/viewerPerformance';
   import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerConfiguredFitMode, type ViewerFitMode } from '$lib/utils/viewer';
-  import { preloadViewerMediaSource, viewerPreloadSource } from '$lib/utils/viewerPreload';
   import type { FileItem } from '$lib/api/types';
 
   let {
@@ -216,31 +215,15 @@
         intrinsicWidth = metadataWidth;
         intrinsicHeight = metadataHeight;
       }
-      displayedFile = targetFile;
-      displayedImageSource = targetImageSource;
-      armWaitingTimer(generation);
-      return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
     }
 
+    // Speculative media preload must never gate navigation. The actual video/audio element owns
+    // readiness and error reporting, so install every target immediately and let its native media
+    // lifecycle clear the short loading state just as image load/error does below.
+    displayedFile = targetFile;
+    displayedImageSource = targetImageSource;
     armWaitingTimer(generation);
-    const preloadSource = viewerPreloadSource(targetFile);
-
-    void preloadViewerMediaSource(targetFile, preloadSource)
-      .catch(() => undefined)
-      .then(() => {
-        if (generation !== transitionGeneration) return;
-        clearWaitingTimer();
-        displayedFile = targetFile;
-        displayedImageSource = targetImageSource;
-        waitingForTarget = false;
-      });
-
-    return () => {
-      if (generation === transitionGeneration) {
-        clearWaitingTimer();
-        transitionGeneration += 1;
-      }
-    };
+    return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
   });
 
   $effect(() => {
@@ -332,6 +315,25 @@
     intrinsicHeight = 0;
   }
 
+  function playableMatchesCurrentSource(media: HTMLMediaElement) {
+    const source = renderedFile.media_urls.content;
+    if (!source) return false;
+    try {
+      return media.currentSrc === new URL(source, document.baseURI).href;
+    } catch {
+      return media.currentSrc === source;
+    }
+  }
+
+  function markPlayablePresented(media: HTMLMediaElement) {
+    if (!playableMatchesCurrentSource(media)) return;
+    const generation = transitionGeneration;
+    clearWaitingTimer();
+    waitingForTarget = false;
+    recordViewerPresentation(generation);
+    onPresented?.(renderedImageSource);
+  }
+
   function syncVideo() {
     const video = videoElement;
     if (!video) return;
@@ -342,6 +344,24 @@
     videoPaused = video.paused;
     videoTime = video.currentTime;
     videoLength = Number.isFinite(video.duration) ? video.duration : 0;
+  }
+
+  function syncVideoPresented(event: Event) {
+    syncVideo();
+    const media = event.currentTarget;
+    if (media instanceof HTMLVideoElement) markPlayablePresented(media);
+  }
+
+  function syncAudioPresented(event: Event) {
+    const media = event.currentTarget;
+    if (media instanceof HTMLAudioElement) markPlayablePresented(media);
+  }
+
+  function syncPlayableError(event: Event) {
+    const media = event.currentTarget;
+    if (!(media instanceof HTMLMediaElement) || !playableMatchesCurrentSource(media)) return;
+    clearWaitingTimer();
+    waitingForTarget = false;
   }
 
   function revealPlaybackControls() {
@@ -729,7 +749,8 @@
           autoplay
           loop
           onclick={(event) => { void togglePlayback(); restoreStageFocusAfterPointer(event); }}
-          onloadedmetadata={syncVideo}
+          onloadedmetadata={syncVideoPresented}
+          onerror={syncPlayableError}
           ontimeupdate={syncVideo}
           onplay={syncVideo}
           onpause={syncVideo}
@@ -738,7 +759,7 @@
       {:else if renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')}
         <div class="audio-stage viewer-audio-stage" style={`transform: rotate(${rotation}deg);`}>
           <div class="audio-art"><Icon name="audio" size={42} /></div>
-          <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto"></audio>
+          <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto" onloadedmetadata={syncAudioPresented} onerror={syncPlayableError}></audio>
         </div>
       {:else}
         <canvas
@@ -800,7 +821,7 @@
     </div>
   {/if}
 
-  {#if waitingForTarget}<div class="viewer-loading-indicator" role="status" aria-live="polite">Loading latest…</div>{/if}
+  {#if waitingForTarget}<div class="viewer-loading-indicator" role="status" aria-live="polite">Loading media…</div>{/if}
   {#if fitModeFeedback}<div class="viewer-mode-feedback" role="status" aria-live="polite">{fitModeFeedback}</div>{/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
