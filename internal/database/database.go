@@ -1137,7 +1137,16 @@ func (s *Store) ListTagValueSuggestions(namespace string, valuePrefix string, li
 }
 
 func (s *Store) ListTagNamespaces() ([]string, error) {
-	rows, err := s.Query(`SELECT DISTINCT key FROM tags WHERE value != '' ORDER BY key`)
+	rows, err := s.Query(`
+		SELECT tk.key
+		FROM tag_key_counts tk
+		WHERE EXISTS (
+			SELECT 1
+			FROM tags t
+			WHERE t.key = tk.key AND t.value != ''
+		)
+		ORDER BY tk.key
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -1220,16 +1229,10 @@ func (s *Store) GetCountForTag(key, value string) (int, error) {
 	return count, err
 }
 
-// GetCountForKey gets the count of distinct files for all tags with a given key.
+// GetCountForKey gets the maintained distinct-file count for a tag key.
 func (s *Store) GetCountForKey(key string) (int, error) {
 	var count int
-	query := `
-		SELECT COUNT(DISTINCT ct.content_hash)
-		FROM content_tags ct
-		JOIN tags t ON ct.tag_id = t.id
-		WHERE t.key = ?
-	`
-	err := s.QueryRow(query, key).Scan(&count)
+	err := s.QueryRow("SELECT files_count FROM tag_key_counts WHERE key = ?", key).Scan(&count)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
