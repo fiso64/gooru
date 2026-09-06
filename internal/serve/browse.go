@@ -599,11 +599,13 @@ func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
 	}
 	response := TagListResponse{Tags: tags}
 	if search, ok := s.library.(SearchLibrary); ok {
-		if total, err := search.LibraryCount(r.Context()); err == nil {
-			response.LibraryCount = total
-		}
 		if kind, err := search.KindFacets(r.Context(), ""); err == nil {
 			response.Facets.Kind = kind
+			for _, facet := range kind {
+				response.LibraryCount += facet.Count
+			}
+		} else if total, err := search.LibraryCount(r.Context()); err == nil {
+			response.LibraryCount = total
 		}
 	}
 	writeJSON(w, http.StatusOK, response)
