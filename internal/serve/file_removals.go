@@ -145,9 +145,15 @@ func validateFileRemovalRequest(request FileRemovalRequest) error {
 	hasQuery := request.Query != ""
 	hasSelection := request.SelectionID != ""
 	selectorCount := 0
-	if hasIDs { selectorCount++ }
-	if hasQuery { selectorCount++ }
-	if hasSelection { selectorCount++ }
+	if hasIDs {
+		selectorCount++
+	}
+	if hasQuery {
+		selectorCount++
+	}
+	if hasSelection {
+		selectorCount++
+	}
 	if selectorCount != 1 {
 		return errors.New("provide exactly one selector: file_ids, query, or selection_id")
 	}
@@ -209,25 +215,28 @@ func rejectOverlappingFileIDs(included, excluded []string) error {
 }
 
 func (s *Server) resolveFileRemovalSelection(ctx context.Context, ownerID string, request FileRemovalRequest) ([]types.FileInfo, error) {
-	if len(request.FileIDs) > 0 {
-		return s.resolveFileIDs(ctx, request.FileIDs, nil)
+	target, err := s.resolveBulkFileTarget(ctx, ownerID, bulkFileTarget{
+		FileIDs:        request.FileIDs,
+		Query:          request.Query,
+		SelectionID:    request.SelectionID,
+		IncludeFileIDs: request.IncludeFileIDs,
+		ExcludeFileIDs: request.ExcludeFileIDs,
+	})
+	if err != nil {
+		return nil, err
 	}
-	if request.SelectionID != "" {
-		fileIDs, err := s.fileSelections.resolve(ownerID, request.SelectionID)
-		if err != nil {
-			return nil, err
-		}
-		return s.resolveSnapshotFileIDs(ctx, fileIDs, request.IncludeFileIDs, request.ExcludeFileIDs)
+	if len(target.FileIDs) > 0 || request.SelectionID != "" {
+		return s.resolveFileIDs(ctx, target.FileIDs, nil)
 	}
 
-	excluded := make(map[string]struct{}, len(request.ExcludeFileIDs))
-	for _, id := range request.ExcludeFileIDs {
+	excluded := make(map[string]struct{}, len(target.ExcludeFileIDs))
+	for _, id := range target.ExcludeFileIDs {
 		if _, err := s.getFileByPublicID(ctx, id); err != nil {
 			return nil, err
 		}
 		excluded[id] = struct{}{}
 	}
-	files, err := s.library.ListFiles(ctx, request.Query)
+	files, err := s.library.ListFiles(ctx, target.Query)
 	if err != nil {
 		return nil, err
 	}
@@ -239,30 +248,6 @@ func (s *Server) resolveFileRemovalSelection(ctx context.Context, ownerID string
 		selected = append(selected, file)
 	}
 	return selected, nil
-}
-
-func (s *Server) resolveSnapshotFileIDs(ctx context.Context, snapshotIDs, includedIDs, excludedIDs []string) ([]types.FileInfo, error) {
-	excluded := make(map[string]struct{}, len(excludedIDs))
-	for _, id := range excludedIDs {
-		excluded[id] = struct{}{}
-	}
-	selectedIDs := make([]string, 0, len(snapshotIDs)+len(includedIDs))
-	seen := make(map[string]struct{}, len(snapshotIDs)+len(includedIDs))
-	for _, id := range snapshotIDs {
-		if _, skip := excluded[id]; skip {
-			continue
-		}
-		selectedIDs = append(selectedIDs, id)
-		seen[id] = struct{}{}
-	}
-	for _, id := range includedIDs {
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		selectedIDs = append(selectedIDs, id)
-		seen[id] = struct{}{}
-	}
-	return s.resolveFileIDs(ctx, selectedIDs, nil)
 }
 
 func (s *Server) resolveFileIDs(ctx context.Context, fileIDs, excludedFileIDs []string) ([]types.FileInfo, error) {

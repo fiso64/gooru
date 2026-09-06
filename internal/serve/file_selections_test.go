@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -40,7 +41,7 @@ func (l *snapshotTestLibrary) ListFiles(_ context.Context, expression string) ([
 	defer l.mu.Unlock()
 	files := make([]types.FileInfo, 0, len(l.files))
 	for _, file := range l.files {
-		if expression != "*" && !containsString(file.Tags, expression) {
+		if expression != "*" && !snapshotContainsString(file.Tags, expression) {
 			continue
 		}
 		files = append(files, file)
@@ -96,7 +97,7 @@ func (l *snapshotTestLibrary) MutateTags(_ context.Context, operation TagOperati
 	return TagMutationResponse{Operation: operation, MatchedFiles: len(request.FileIDs), AffectedCount: len(request.FileIDs)}, nil
 }
 
-func containsString(values []string, wanted string) bool {
+func snapshotContainsString(values []string, wanted string) bool {
 	for _, value := range values {
 		if value == wanted {
 			return true

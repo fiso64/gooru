@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	core "gooru.local/gooru"
@@ -93,29 +94,36 @@ func (s *Server) handleMutateTags(w http.ResponseWriter, r *http.Request) {
 		IncludeFileIDs: request.IncludeFileIDs,
 		ExcludeFileIDs: request.ExcludeFileIDs,
 	}
-	resolvedRequest := request
-	if request.SelectionID != "" {
-		snapshotIDs, err := s.fileSelections.resolve(fileSelectionOwnerID(r), request.SelectionID)
-		if errors.Is(err, errFileSelectionNotFound) {
-			writeError(w, http.StatusGone, "selection_expired", "file selection has expired", nil)
-			return
-		}
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
-			return
-		}
-		resolvedRequest.FileIDs = mergeSnapshotSelectionIDs(snapshotIDs, request.IncludeFileIDs, request.ExcludeFileIDs)
-		resolvedRequest.Query = ""
-		resolvedRequest.SelectionID = ""
-		resolvedRequest.IncludeFileIDs = nil
-		resolvedRequest.ExcludeFileIDs = nil
-	} else if err := s.validateTagMutationFiles(r.Context(), request); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load file", nil)
+	target, err := s.resolveBulkFileTarget(r.Context(), fileSelectionOwnerID(r), bulkFileTarget{
+		FileIDs:        request.FileIDs,
+		Query:          request.Query,
+		SelectionID:    request.SelectionID,
+		IncludeFileIDs: request.IncludeFileIDs,
+		ExcludeFileIDs: request.ExcludeFileIDs,
+	})
+	if errors.Is(err, errFileSelectionNotFound) {
+		writeError(w, http.StatusGone, "selection_expired", "file selection has expired", nil)
 		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to resolve file selection", nil)
+		return
+	}
+	resolvedRequest := request
+	resolvedRequest.FileIDs = target.FileIDs
+	resolvedRequest.Query = target.Query
+	resolvedRequest.SelectionID = target.SelectionID
+	resolvedRequest.IncludeFileIDs = target.IncludeFileIDs
+	resolvedRequest.ExcludeFileIDs = target.ExcludeFileIDs
+	if request.SelectionID == "" {
+		if err := s.validateTagMutationFiles(r.Context(), request); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load file", nil)
+			return
+		}
 	}
 
 	job, err := s.jobs.Submit(r.Context(), "tag_mutation", PreferAsync(r), func(ctx context.Context) (interface{}, error) {
@@ -196,9 +204,15 @@ func validateTagMutationRequest(operation TagOperation, request TagMutationReque
 	hasQuery := strings.TrimSpace(request.Query) != ""
 	hasSelection := strings.TrimSpace(request.SelectionID) != ""
 	selectorCount := 0
-	if hasIDs { selectorCount++ }
-	if hasQuery { selectorCount++ }
-	if hasSelection { selectorCount++ }
+	if hasIDs {
+		selectorCount++
+	}
+	if hasQuery {
+		selectorCount++
+	}
+	if hasSelection {
+		selectorCount++
+	}
 	if selectorCount != 1 {
 		return errors.New("provide exactly one selector: file_ids, query, or selection_id")
 	}
@@ -243,25 +257,32 @@ func validateTagMutationRequest(operation TagOperation, request TagMutationReque
 }
 
 func mergeSnapshotSelectionIDs(snapshotIDs, includedIDs, excludedIDs []string) []string {
+	// Snapshot IDs are sorted by fileSelectionStore. Avoid constructing a
+	// second million-entry membership map for the common no-override path,
+	// and use binary search for the small explicit include set.
+	if len(includedIDs) == 0 && len(excludedIDs) == 0 {
+		return snapshotIDs
+	}
 	excluded := make(map[string]struct{}, len(excludedIDs))
 	for _, id := range excludedIDs {
 		excluded[id] = struct{}{}
 	}
 	selected := make([]string, 0, len(snapshotIDs)+len(includedIDs))
-	seen := make(map[string]struct{}, len(snapshotIDs)+len(includedIDs))
 	for _, id := range snapshotIDs {
 		if _, skip := excluded[id]; skip {
 			continue
 		}
 		selected = append(selected, id)
-		seen[id] = struct{}{}
 	}
 	for _, id := range includedIDs {
-		if _, exists := seen[id]; exists {
+		if _, skip := excluded[id]; skip {
+			continue
+		}
+		index := sort.SearchStrings(snapshotIDs, id)
+		if index < len(snapshotIDs) && snapshotIDs[index] == id {
 			continue
 		}
 		selected = append(selected, id)
-		seen[id] = struct{}{}
 	}
 	return selected
 }
