@@ -6,7 +6,7 @@
   import { ApiClient } from '$lib/api/client';
   import { setOpaqueURLState, setProtectedReadTransport } from '$lib/api/privacy';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, runtimeConfig, type GridType } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, runtimeCapability, runtimeConfig, type GridType } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
   import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
@@ -48,7 +48,7 @@
     setProtectedReadTransport(config.protected_mode ?? false);
     setOpaqueURLState(config.opaque_url_state ?? false);
     runtimeConfig.set({
-      capabilities: Array.isArray(config.capabilities) ? config.capabilities : ['preview_images'],
+      capabilities: Array.isArray(config.capabilities) ? config.capabilities : [runtimeCapability.previewImages],
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
       viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
