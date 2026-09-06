@@ -10,7 +10,8 @@
   import ShortcutsView from '$lib/components/ShortcutsView.svelte';
   import TagsView from '$lib/components/TagsView.svelte';
   import UploadPanel from '$lib/components/UploadPanel.svelte';
-  import { ApiClient } from '$lib/api/client';
+  import { ApiClient, ApiError } from '$lib/api/client';
+  import { createFileSelection, deleteFileSelection, fileSelectionMembers } from '$lib/api/fileSelections';
   import { authState } from '$lib/stores/auth';
   import { runtimeConfig, type PaginationMode } from '$lib/stores/runtimeConfig';
   import { createFileCountQuery, createFileFacetsQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
@@ -65,8 +66,12 @@
   let trackUploadResults = $state(false);
   let uploadResultsFloor = $state(0);
   let observedUploadResultQueryKey = $state('');
+  let observedSelectionSnapshotID = $state('');
   let uploadMetadataRefreshTimer: number | undefined;
   let uploadMetadataRefreshPromise: Promise<number | undefined> | null = null;
+  let selectionSnapshotPromise: Promise<void> | null = null;
+  const selectionMembershipPending = new Set<string>();
+  const selectionMembershipRuns = new Set<Promise<void>>();
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -131,7 +136,7 @@
   const liveLibraryCount = $derived(tagsQuery.data?.library_count ?? fileMetadata?.library_count ?? loadedFiles.length);
   const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveCurrentQueryCount - uploadResultsFloor) : 0);
   const pagedPageCount = $derived(Math.max(1, Math.ceil(gridSnapshotTotalCount / $runtimeConfig.itemsPerPage)));
-  const selectedCount = $derived(library.selectedCount(gridSnapshotTotalCount));
+  const selectedCount = $derived(library.selectedCount());
 
   $effect(() => {
     const targets = uploadTargetsQuery.data?.items ?? [];
@@ -214,6 +219,21 @@
     if (!library.activeFile) nestedPreviewNavigation = false;
   });
 
+  $effect(() => {
+    const nextSnapshotID = library.selectionSnapshotID;
+    const csrf = $authState.csrfToken;
+    if (nextSnapshotID === observedSelectionSnapshotID) return;
+    const previousSnapshotID = observedSelectionSnapshotID;
+    observedSelectionSnapshotID = nextSnapshotID;
+    if (previousSnapshotID) void deleteFileSelection(csrf, previousSnapshotID).catch(() => undefined);
+  });
+
+  $effect(() => {
+    library.selection;
+    loadedFiles;
+    syncSelectionMembership();
+  });
+
   function savedSearchContext() {
     return {
       query: library.filterQuery(),
@@ -240,7 +260,7 @@
       const action = libraryShortcutAction(event.key, selectedCount, event.shiftKey);
       if (action) {
         event.preventDefault();
-        if (action === 'select-all') library.selectAll();
+        if (action === 'select-all') selectAllFiles();
         else if (action === 'tag-selected') bulkTagSelected();
         else if (action === 'untag-selected') bulkUntagSelected();
         else if (action === 'untrack-selected') bulkUntrackSelected();
@@ -251,6 +271,62 @@
 
     if (nestedPreviewNavigation && library.activeFile && (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'j' || event.key === 'k')) return;
     library.handleKeydown(event, loadedFiles);
+  }
+
+  function selectAllFiles() {
+    const requestID = library.selectAll(gridSnapshotTotalCount, loadedFiles);
+    const query = library.filterQuery();
+    const csrf = $authState.csrfToken;
+    const run = createFileSelection(csrf, query)
+      .then(async (snapshot) => {
+        library.applySnapshot(requestID, snapshot.id, snapshot.count);
+        if (library.selectionSnapshotID !== snapshot.id) {
+          await deleteFileSelection(csrf, snapshot.id).catch(() => undefined);
+          return;
+        }
+        syncSelectionMembership();
+      })
+      .catch((error) => library.failSnapshot(requestID, errorMessage(error)));
+    selectionSnapshotPromise = run;
+    void run.finally(() => {
+      if (selectionSnapshotPromise === run) selectionSnapshotPromise = null;
+    });
+  }
+
+  function syncSelectionMembership() {
+    const snapshotID = library.selectionSnapshotID;
+    if (!snapshotID) return;
+    const candidates = library.unknownSnapshotIDs(loadedFiles.map((file) => file.id)).filter((fileID) => {
+      const key = `${snapshotID}:${fileID}`;
+      if (selectionMembershipPending.has(key)) return false;
+      selectionMembershipPending.add(key);
+      return true;
+    });
+    if (!candidates.length) return;
+
+    const csrf = $authState.csrfToken;
+    const run = fileSelectionMembers(csrf, snapshotID, candidates)
+      .then((members) => library.applySnapshotMembership(snapshotID, candidates, members))
+      .catch((error) => {
+        if (error instanceof ApiError && error.code === 'selection_expired' && library.selectionSnapshotID === snapshotID) {
+          library.failSnapshot(library.selectionRequestID, errorMessage(error));
+        }
+      })
+      .finally(() => {
+        for (const fileID of candidates) selectionMembershipPending.delete(`${snapshotID}:${fileID}`);
+        selectionMembershipRuns.delete(run);
+      });
+    selectionMembershipRuns.add(run);
+  }
+
+  async function ensureSelectionReady() {
+    if (library.selectionPending && selectionSnapshotPromise) await selectionSnapshotPromise;
+    if (library.selectionError) throw new Error(library.selectionError);
+    if (library.selectionPending) throw new Error('Selection snapshot is still loading.');
+    syncSelectionMembership();
+    if (selectionMembershipRuns.size) await Promise.allSettled([...selectionMembershipRuns]);
+    if (library.selectionError) throw new Error(library.selectionError);
+    return selectionRequest(library.selection);
   }
 
   function setRoute(route: string) {
@@ -336,14 +412,17 @@
       } else if (actionDialog.kind === 'save-delete') {
         await ctx.remove(actionDialog.id);
       } else if (actionDialog.kind === 'bulk-selected') {
-        const changed = await tagWorkflow.bulkSelected(library.selection, value, 'add', (variables) => tagMutation.mutateAsync(variables));
+        const selector = await ensureSelectionReady();
+        const changed = await tagWorkflow.bulkSelected(selector, value, 'add', (variables) => tagMutation.mutateAsync(variables));
         if (changed) library.clearSelection();
       } else if (actionDialog.kind === 'bulk-remove-selected') {
-        const changed = await tagWorkflow.bulkSelected(library.selection, value, 'remove', (variables) => tagMutation.mutateAsync(variables));
+        const selector = await ensureSelectionReady();
+        const changed = await tagWorkflow.bulkSelected(selector, value, 'remove', (variables) => tagMutation.mutateAsync(variables));
         if (changed) library.clearSelection();
       } else if (actionDialog.kind === 'bulk-untrack-selected' || actionDialog.kind === 'bulk-delete-selected') {
+        const selector = await ensureSelectionReady();
         await filesRemovalMutation.mutateAsync({
-          ...selectionRequest(library.selection),
+          ...selector,
           mode: actionDialog.kind === 'bulk-delete-selected' ? 'delete' : 'untrack'
         });
         library.clearSelection();
@@ -643,7 +722,7 @@
         bind:loadMoreSentinel
         onOpen={library.openPreview}
         onToggleSelect={library.toggleSelect}
-        onSelectAll={library.selectAll}
+        onSelectAll={selectAllFiles}
         onClearSelection={library.clearSelection}
         onBulkTag={bulkTagSelected}
         onBulkUntag={bulkUntagSelected}
@@ -734,4 +813,4 @@
       onConfirm={submitActionDialog}
     />
   {/if}
-{/if}
+{/if>
