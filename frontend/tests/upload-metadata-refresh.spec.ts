@@ -119,13 +119,26 @@ test('active uploads refresh authoritative counts without churning grid pages an
   await expect.poll(() => server.metadataRequests(), { timeout: 5_500 }).toBeGreaterThan(initialMetadataRequests);
   await expect(librarySidebar(page)).toContainText('76');
   await expect(page.getByTestId('library-header-count')).toHaveText('76 files');
-  await expect(page.getByTestId('refresh-upload-results')).toHaveText('1 new item · Refresh results');
+  const refreshButton = page.getByTestId('refresh-upload-results');
+  await expect(refreshButton).toHaveText('1 new item · Refresh results');
+  const [refreshBackground, accentBackground] = await Promise.all([
+    refreshButton.evaluate((node) => getComputedStyle(node).backgroundColor),
+    page.evaluate(() => {
+      const probe = document.createElement('div');
+      probe.style.background = 'var(--accent)';
+      document.body.append(probe);
+      const background = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return background;
+    })
+  ]);
+  expect(refreshBackground).toBe(accentBackground);
   expect(server.gridRequests()).toBe(initialGridRequests);
 
   const gridBeforeExplicitRefresh = server.gridRequests();
-  await page.getByTestId('refresh-upload-results').click();
+  await refreshButton.click();
   await expect.poll(() => server.gridRequests()).toBeGreaterThan(gridBeforeExplicitRefresh);
-  await expect(page.getByTestId('refresh-upload-results')).toHaveCount(0);
+  await expect(refreshButton).toHaveCount(0);
   await expect(page.getByTestId('library-header-count')).toHaveText('76 files');
 
   await pendingUpload!.fulfill({
