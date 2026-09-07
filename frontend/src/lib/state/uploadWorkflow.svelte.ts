@@ -15,6 +15,7 @@ import {
   type UploadItem,
   type UploadStatusCounts
 } from './uploadItems';
+import { ApiError } from '$lib/api/client';
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
 import type { UploadVariables } from '$lib/queries/library';
@@ -26,6 +27,15 @@ type JobApplyResult = { completed: boolean; changedFiles: boolean };
 
 export const browserUploadConcurrency = 4;
 export const uploadJobStatusBatchSize = 64;
+const uploadAdmissionRetryMs = 250;
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function isJobQueueFull(error: unknown) {
+  return error instanceof ApiError && error.code === 'job_queue_full';
+}
 
 export function createUploadWorkflow() {
   let files = $state<File[]>([]);
@@ -40,6 +50,7 @@ export function createUploadWorkflow() {
   let cancelBusy = $state(false);
   let status = $state('');
   let trackedJobs = $state<Record<string, number>>({});
+  let admissionBackpressured = $state(false);
   let statusCounts: UploadStatusCounts = {};
 
   $effect(() => {
@@ -64,6 +75,7 @@ export function createUploadWorkflow() {
     cancelBusy = false;
     status = '';
     trackedJobs = {};
+    admissionBackpressured = false;
     statusCounts = {};
   }
 
@@ -87,7 +99,7 @@ export function createUploadWorkflow() {
 
   function pollJobID() {
     const ids = Object.keys(trackedJobs);
-    if (busy && ids.length < uploadJobStatusBatchSize) return '';
+    if (busy && ids.length < uploadJobStatusBatchSize && !admissionBackpressured) return '';
     return ids.slice(0, uploadJobStatusBatchSize).join(',');
   }
 
@@ -186,13 +198,22 @@ export function createUploadWorkflow() {
 
   function finishBatch() {
     files = [];
+    admissionBackpressured = false;
     status = uploadSummaryFromCounts(statusCounts) || 'Upload finished';
+  }
+
+  async function waitForJobAdmissionSlot() {
+    while (Object.keys(trackedJobs).length >= uploadJobStatusBatchSize) {
+      admissionBackpressured = true;
+      await delay(uploadAdmissionRetryMs);
+    }
   }
 
   async function submit(mutate: UploadMutate) {
     if (!files.length || busy || hasActiveJobs()) return { queued: false, changedFiles: false };
     busy = true;
     trackedJobs = {};
+    admissionBackpressured = false;
     items = waitingUploadItems(items.length ? items : stagedUploadItems(files, targetID));
     statusCounts = countUploadStatuses(items);
     const batchFiles = files;
@@ -218,27 +239,39 @@ export function createUploadWorkflow() {
         replaceItem(index, current ? uploadingItem([current], 0)[0] : undefined);
         refreshStatus();
         try {
-          const response = await mutate({
-            files: [file],
-            tags: parsedTags,
-            // Release the browser transfer slot as soon as the server has
-            // durably staged the file and accepted its import job. Import,
-            // hashing, and database work continue through the job queue and
-            // are reflected back into the row by the batched job poller.
-            preferAsync: true,
-            targetID: batchTargetID,
-            conflictPolicy: batchConflictPolicy,
-            addedAtStrategy: batchAddedAtStrategy,
-            queueTimeMs: batchQueueTimes[index],
-            queueFirstTimeMs: batchQueueFirstTimeMs,
-            queueLastTimeMs: batchQueueLastTimeMs,
-            queueIndex: index,
-            queueTotal: batchQueueTotal,
-            onProgress: (progress) => {
-              const progressItem = items[index];
-              replaceItem(index, progressItem ? uploadProgressItem([progressItem], 0, progress)[0] : undefined);
+          let response: Job | UploadImportResponse;
+          for (;;) {
+            await waitForJobAdmissionSlot();
+            admissionBackpressured = false;
+            try {
+              response = await mutate({
+                files: [file],
+                tags: parsedTags,
+                // Release browser transfer capacity once the server has staged
+                // the file and accepted its import job, but bound the number of
+                // accepted unfinished imports to one batched status window.
+                // This keeps large batches from outrunning the server job queue.
+                preferAsync: true,
+                targetID: batchTargetID,
+                conflictPolicy: batchConflictPolicy,
+                addedAtStrategy: batchAddedAtStrategy,
+                queueTimeMs: batchQueueTimes[index],
+                queueFirstTimeMs: batchQueueFirstTimeMs,
+                queueLastTimeMs: batchQueueLastTimeMs,
+                queueIndex: index,
+                queueTotal: batchQueueTotal,
+                onProgress: (progress) => {
+                  const progressItem = items[index];
+                  replaceItem(index, progressItem ? uploadProgressItem([progressItem], 0, progress)[0] : undefined);
+                }
+              });
+              break;
+            } catch (error) {
+              if (!isJobQueueFull(error)) throw error;
+              admissionBackpressured = true;
+              await delay(uploadAdmissionRetryMs);
             }
-          });
+          }
           if ('id' in response) {
             trackedJobs = { ...trackedJobs, [response.id]: index };
             const queuedItemState = items[index];
@@ -262,6 +295,7 @@ export function createUploadWorkflow() {
     await Promise.all(Array.from({ length: workerCount }, () => uploadNext()));
 
     busy = false;
+    admissionBackpressured = false;
     if (hasActiveJobs()) refreshStatus();
     else finishBatch();
     return { queued: queued > 0, changedFiles };
