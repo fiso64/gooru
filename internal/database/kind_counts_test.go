@@ -56,8 +56,8 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 	videoID := insertLocation("video", "file_video", "/clip.mp4", ".mp4")
 	if _, err := db.Exec(`
 		INSERT INTO media_metadata (location_id, media_kind, mime_type)
-		VALUES (?, 'photo', 'image/jpeg')
-	`, videoID); err != nil {
+		VALUES (?, 'photo', 'image/jpeg'), (?, 'other', 'application/vnd.comicbook+zip')
+	`, videoID, comicID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,20 +66,7 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 	}
 	assertKindCountsMatchRecomputed(t, db)
 
-	if _, err := db.Exec(`
-		INSERT INTO media_metadata (location_id, media_kind, mime_type)
-		VALUES (?, 'other', 'application/vnd.comicbook+zip')
-	`, comicID); err != nil {
-		t.Fatal(err)
-	}
-	assertKindCountsMatchRecomputed(t, db)
-
 	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'photo' WHERE location_id = ?`, comicID); err != nil {
-		t.Fatal(err)
-	}
-	assertKindCountsMatchRecomputed(t, db)
-
-	if _, err := db.Exec(`UPDATE locations SET extension = '.cbz' WHERE id = ?`, comicID); err != nil {
 		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
@@ -103,6 +90,11 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 	assertKindCountsMatchRecomputed(t, db)
 
 	if _, err := db.Exec(`UPDATE locations SET extension = '.zip' WHERE id = ?`, comicID); err != nil {
+		t.Fatal(err)
+	}
+	assertKindCountsMatchRecomputed(t, db)
+
+	if _, err := db.Exec(`UPDATE locations SET extension = '.cbz' WHERE id = ?`, comicID); err != nil {
 		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
