@@ -3,7 +3,10 @@ name: Temporary 333 comic authority repair
 on:
   push:
     branches: [perf/333-comic-kind-facet]
-    paths: [.github/workflows/tmp-333-comic-kind-authority.yml, .github/workflows/tmp-333-comic-authority.yml]
+    paths:
+      - .github/workflows/tmp-333-comic-authority.yml
+      - .github/scripts/tmp_333_comic_authority.py
+      - .github/scripts/tmp_333_comic_path.py
 
 permissions:
   contents: write
@@ -21,12 +24,13 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Apply repair
-        run: python3 .github/scripts/tmp_333_comic_authority.py
+        run: |
+          python3 .github/scripts/tmp_333_comic_authority.py
+          python3 .github/scripts/tmp_333_comic_path.py
       - name: Format and inspect
         run: |
           gofmt -w internal/serve/browse.go internal/serve/comic_kind_test.go internal/database/database.go internal/database/kind_counts_test.go internal/query/sqlbuilder.go
           git diff --check
-          nl -ba internal/database/kind_counts_test.go | sed -n '112,132p'
       - name: Narrow database regression
         run: go test ./internal/database -run TestKindCountsMigrationBackfillsAndTracksMutations -count=1 -v
       - name: Focused Go validation
