@@ -1,7 +1,0 @@
---- FAIL: TestCoreStorageArchitectureBoundaries (0.01s)
-    architecture_test.go:43: /var/cache/github-runner-work-gooru-3/gooru/gooru/gooru/query_tag_exclusion_facets.go imports the database implementation directly; keep DB implementation types behind the composition boundary
-FAIL
-FAIL	gooru.local/gooru	20.176s
-ok  	gooru.local/internal/database	(cached)
-ok  	gooru.local/internal/serve	74.199s
-FAIL
