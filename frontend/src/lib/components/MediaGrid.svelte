@@ -49,6 +49,15 @@
 
   onMount(() => { pixelRatio = Math.max(1, window.devicePixelRatio || 1); });
 
+  function squareScrollWindowKey(scrollY: number) {
+    const rowHeight = squareVirtual.rowHeight;
+    if (!Number.isFinite(rowHeight) || rowHeight <= 0) return '0:0';
+    const viewportStart = Math.max(0, scrollY - gridTop);
+    const startRow = virtualGridStartRow(scrollY, gridTop, rowHeight);
+    const endRow = Math.ceil((viewportStart + paneHeight) / rowHeight);
+    return `${startRow}:${endRow}`;
+  }
+
   function handleScroll() {
     const nextScrollY = mainHost?.scrollTop ?? 0;
     if (tileMode) {
@@ -57,7 +66,10 @@
       paneScrollY = nextScrollY;
       return;
     }
-    if (virtualGridStartRow(nextScrollY, gridTop, squareVirtual.rowHeight) === virtualGridStartRow(paneScrollY, gridTop, squareVirtual.rowHeight)) return;
+    // The rendered end and transport look-ahead move before the overscanned start row does.
+    // Keying only on the start row left short paged tails and infinite prefetch state stale
+    // while the viewport advanced through those rows.
+    if (squareScrollWindowKey(nextScrollY) === squareScrollWindowKey(paneScrollY)) return;
     paneScrollY = nextScrollY;
   }
 

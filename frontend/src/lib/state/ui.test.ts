@@ -33,16 +33,17 @@ describe('virtual grid scrolling', () => {
     expect(configured.columns).toBe(3); expect(configured.cardWidth).toBeCloseTo(expectedCardWidth);
     expect(configured.rowHeight).toBeCloseTo(expectedCardWidth + 5); expect(configured.totalHeight).toBeCloseTo(configured.rowHeight * 10);
   });
-  it('bounds initial render overscan without using it to fetch page 2', () => {
+  it('keeps startup on one page but requests page 2 four rows ahead of the retained tail', () => {
     const files = Array.from({ length: 60 }, (_, index) => ({ id: `file-${index}` })) as never[];
     const initial = virtualGrid(files, 1440, 900, 0, 100, 10_000, 0, 200);
     expect(initial.columns).toBe(6);
     expect(initial.files).toHaveLength(48);
     expect(initial.needsNext).toBe(false);
 
-    const nearTailScroll = initial.rowHeight * 5;
-    const nearTail = virtualGrid(files, 1440, 900, nearTailScroll, 100, 10_000, 0, 200);
-    expect(nearTail.needsNext).toBe(true);
+    const twoRowsDown = virtualGrid(files, 1440, 900, initial.rowHeight * 2, 100, 10_000, 0, 200);
+    expect(twoRowsDown.needsNext).toBe(false);
+    const threeRowsDown = virtualGrid(files, 1440, 900, initial.rowHeight * 3, 100, 10_000, 0, 200);
+    expect(threeRowsDown.needsNext).toBe(true);
   });
 });
 
@@ -65,8 +66,6 @@ describe('tile gallery layout', () => {
     });
     const firstPage = virtualMediaGeometry(pagedFiles.slice(0, 60), 1200, 120, 0, 200);
 
-    // This aspect sequence makes items 57-59 an incomplete transport-page tail. Publishing
-    // that row before page 2 arrives would make those visible cards move on the append.
     expect(firstPage.placements.at(-1)?.index).toBe(56);
 
     const twoPages = virtualMediaGeometry(pagedFiles, 1200, 120, 0, 200);

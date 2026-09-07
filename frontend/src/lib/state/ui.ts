@@ -42,7 +42,7 @@ const gridInset = 16;
 const gridGap = 5;
 const overscanRows = 4;
 const virtualWindowStrideRows = 3;
-const transportLoadAheadRows = 2;
+const transportLoadAheadRows = 4;
 const variableOverscanScreens = 1;
 
 export function gridColumns(containerWidth: number, minCardWidth = defaultGridSize) {
@@ -102,8 +102,8 @@ export function virtualGrid(
     needsPrevious: globalStartIndex < retainedStartIndex,
     // DOM overscan intentionally spans several rows to keep scrolling smooth, but using that
     // same window as a transport trigger eagerly fetched page 2 on a normal 60-item startup.
-    // Keep a much smaller network look-ahead so the next page arrives before the viewport
-    // reaches the retained tail without doubling initial list payload and thumbnail work.
+    // Keep network look-ahead independent so the next page is requested several rows before
+    // the viewport reaches the retained tail without doubling initial list or thumbnail work.
     needsNext: transportEndIndex > retainedEndIndex
   };
 }
