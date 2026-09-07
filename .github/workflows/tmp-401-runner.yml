@@ -5,14 +5,18 @@ on:
     branches:
       - refactor/401-durable-runner
 
+permissions:
+  contents: read
+
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Focused runner tests
         run: go test ./internal/background ./internal/database
       - name: Full Go tests
