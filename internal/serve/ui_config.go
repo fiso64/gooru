@@ -9,6 +9,8 @@ type UIConfigResponse struct {
 	FontStyle                string   `json:"font_style"`
 	LoadFullMediaByDefault   bool     `json:"load_full_media_by_default"`
 	FullscreenMediaByDefault bool     `json:"fullscreen_media_by_default"`
+	HoverPlayVideos          bool     `json:"hover_play_videos"`
+	HoverPlayGIFs            bool     `json:"hover_play_gifs"`
 	ViewerFitMode            string   `json:"viewer_fit_mode"`
 	ViewerScaling            string   `json:"viewer_scaling"`
 	GridSize                 int      `json:"grid_size"`
@@ -31,6 +33,8 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		FontStyle:                s.cfg.UI.FontStyle,
 		LoadFullMediaByDefault:   s.cfg.UI.LoadFullMediaByDefault,
 		FullscreenMediaByDefault: s.cfg.UI.FullscreenMediaByDefault,
+		HoverPlayVideos:          s.cfg.UI.HoverPlayVideos,
+		HoverPlayGIFs:            s.cfg.UI.HoverPlayGIFs,
 		ViewerFitMode:            s.cfg.UI.ViewerFitMode,
 		ViewerScaling:            s.cfg.UI.ViewerScaling,
 		GridSize:                 s.cfg.UI.GridSize,

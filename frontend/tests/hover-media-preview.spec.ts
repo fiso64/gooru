@@ -1,0 +1,115 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const session = {
+  user: { id: 'usr_test', username: 'mac', role: 'admin' },
+  capabilities: { upload: true, tag: true, delete: true, admin: true },
+  csrf_token: 'csrf-one'
+};
+
+function mediaFile(id: string, kind: 'video' | 'gif') {
+  const gif = kind === 'gif';
+  const extension = gif ? 'gif' : 'mp4';
+  return {
+    id,
+    content_id: `hash-${id}`,
+    name: `${id}.${extension}`,
+    safe_display_path: `library/${id}.${extension}`,
+    size: 2048,
+    modified_time: '2026-09-07T00:00:00Z',
+    media_type: gif ? 'image/gif' : 'video/mp4',
+    media_kind: kind,
+    metadata: gif ? { image_width: 320, image_height: 180 } : { video_width: 320, video_height: 180, duration_seconds: 4 },
+    tags: [],
+    media_urls: {
+      thumbnail: `/api/v1/files/${id}/thumbnail`,
+      preview: `/api/v1/files/${id}/preview`,
+      content: `/api/v1/files/${id}/content`,
+      download: `/api/v1/files/${id}/download`
+    }
+  };
+}
+
+async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
+  const files = [mediaFile('video-one', 'video'), mediaFile('gif-one', 'gif'), mediaFile('video-two', 'video')];
+  let loggedIn = false;
+
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ hover_play_videos: true, hover_play_gifs: true, grid_size: 200, grid_type: 'square', thumbnail_sizes: [256], ...uiConfig })
+  }));
+  await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
+    status: loggedIn ? 200 : 401,
+    contentType: 'application/json',
+    body: JSON.stringify(loggedIn ? session : { error: { code: 'unauthorized', message: 'login required' } })
+  }));
+  await page.route('**/api/v1/auth/login', async (route) => {
+    loggedIn = true;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
+  });
+  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [{ value: 'video', count: 2 }, { value: 'gif', count: 1 }] } })
+  }));
+  await page.route('**/api/v1/files/*/thumbnail?**', async (route) => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#fff"/></svg>'
+  }));
+  await page.route('**/api/v1/files/*/content', async (route) => route.fulfill({ status: 204 }));
+
+  await page.goto('/');
+  await page.getByLabel('Username').fill('mac');
+  await page.getByLabel('Password').fill('correct horse');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+}
+
+test('video and gif previews start after dwell, stop on leave, and only one is active', async ({ page }) => {
+  await mockLibrary(page);
+
+  const firstVideo = page.getByRole('button', { name: 'Preview video-one.mp4' });
+  await firstVideo.hover();
+  await page.waitForTimeout(80);
+  await expect(page.getByTestId('hover-video-preview')).toHaveCount(0);
+  await expect(page.getByTestId('hover-video-preview')).toHaveCount(1, { timeout: 500 });
+  const video = page.getByTestId('hover-video-preview');
+  await expect(video).toHaveAttribute('loop', '');
+  await expect(video).toHaveAttribute('playsinline', '');
+  await expect(page.getByTestId('hover-video-progress')).toHaveCount(1);
+
+  const gif = page.getByRole('button', { name: 'Preview gif-one.gif' });
+  await gif.hover();
+  await expect(page.getByTestId('hover-gif-preview')).toHaveCount(1, { timeout: 500 });
+  await expect(page.getByTestId('hover-video-preview')).toHaveCount(0);
+
+  await page.getByRole('heading', { name: 'Library' }).hover();
+  await expect(page.getByTestId('hover-gif-preview')).toHaveCount(0);
+});
+
+test('reduced motion and disabled media options suppress hover playback', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await mockLibrary(page, { hover_play_gifs: false });
+
+  await page.getByRole('button', { name: 'Preview video-one.mp4' }).hover();
+  await page.waitForTimeout(250);
+  await expect(page.getByTestId('hover-video-preview')).toHaveCount(0);
+
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.getByRole('button', { name: 'Preview gif-one.gif' }).hover();
+  await page.waitForTimeout(250);
+  await expect(page.getByTestId('hover-gif-preview')).toHaveCount(0);
+});
+
+test('square grid preview keeps the card box geometry stable', async ({ page }) => {
+  await mockLibrary(page);
+  const card = page.getByRole('button', { name: 'Preview video-one.mp4' });
+  const before = await card.boundingBox();
+  await card.hover();
+  await expect(page.getByTestId('hover-video-preview')).toHaveCount(1, { timeout: 500 });
+  const after = await card.boundingBox();
+  expect(after).toEqual(before);
+});
