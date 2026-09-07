@@ -1,3 +1,4 @@
+# validation head: case-insensitive key-summary fix
 name: Temporary 333 final tag facet validation
 on:
   push:
@@ -37,7 +38,6 @@ jobs:
               triggers = c.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND sql IS NOT NULL").fetchall()
               c.executescript('\n'.join(f'DROP TRIGGER IF EXISTS "{name.replace(chr(34), chr(34)*2)}";' for name,_ in triggers))
               c.execute('BEGIN IMMEDIATE')
-              # Match the owner repro shape: exactly 40 total tags, every file carrying bare `hidden`.
               c.execute("INSERT INTO tags(key,value) VALUES ('hidden','')")
               hidden_id = c.execute("SELECT id FROM tags WHERE key='hidden' AND value='' ").fetchone()[0]
               for i in range(39): c.execute("INSERT INTO tags(key,value) VALUES (?,?)", ('filler', f'v{i:02d}'))
@@ -53,7 +53,6 @@ jobs:
                       [(h, f'/fixture/{i:05d}.png', 1, 1788696000, '.png', 'hidden') for i,(h,) in enumerate(rows)])
               c.executemany('INSERT INTO content_tags(content_hash,tag_id) VALUES (?,?)', [(h, hidden_id) for (h,) in rows])
               c.execute('UPDATE tags SET files_count=? WHERE id=?', (n, hidden_id))
-              # Populate every maintained aggregate used by the current browse path exactly as migrations/triggers would.
               if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tag_key_counts'").fetchone():
                   c.execute('DELETE FROM tag_key_counts'); c.execute("INSERT INTO tag_key_counts(key,files_count) VALUES ('hidden',?)", (n,))
               if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kind_counts'").fetchone():
@@ -112,7 +111,6 @@ jobs:
 
           print('GOORU_TAG_FACET_RESULT=' + json.dumps(results, sort_keys=True))
           (root/'tag-facet-profile.json').write_text(json.dumps(results, indent=2, sort_keys=True))
-          # Guard the regression asymptotically: the 10K hidden request should no longer scale tens of ms with library size.
           h100, h10k = results[0]['hidden'], results[-1]['hidden']
           if h10k > max(8.0, h100 * 5.0):
               raise SystemExit(f'hidden facet path still scales with library size: 100={h100:.3f}ms 10k={h10k:.3f}ms')
