@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSimpleUserTagFacetFilter(t *testing.T) {
@@ -36,5 +37,22 @@ func TestSimpleUserTagFacetFilter(t *testing.T) {
 			assert.Equal(t, tc.value, got.Tag.Value)
 			assert.Equal(t, tc.keyOnly, got.KeyOnly)
 		})
+	}
+}
+
+func TestSimpleUserTagFacetExclusions(t *testing.T) {
+	t.Parallel()
+	filters, ok := parseSimpleUserTagFacetExclusions(`-hidden -"secret:private"`)
+	require.True(t, ok)
+	require.Len(t, filters, 2)
+	assert.Equal(t, "hidden", filters[0].Tag.Key)
+	assert.True(t, filters[0].KeyOnly)
+	assert.Equal(t, "secret", filters[1].Tag.Key)
+	assert.Equal(t, "private", filters[1].Tag.Value)
+	assert.False(t, filters[1].KeyOnly)
+
+	for _, query := range []string{"hidden", "-hidden visible", "-hidden | -secret", "-@tagged", "-hid*", "-(hidden | secret)"} {
+		_, ok := parseSimpleUserTagFacetExclusions(query)
+		assert.False(t, ok, query)
 	}
 }
