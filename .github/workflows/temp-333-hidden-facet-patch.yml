@@ -30,38 +30,31 @@ jobs:
           anchor = '\n\tsqlQuery, args, err := c.buildLocationQuery(expression)'
           if anchor not in rest:
               raise SystemExit('KindFacetsByQuery fallback anchor not found')
-          block = '''
-\tif exclusions, ok := parseSimpleUserTagFacetExclusions(expression); ok {
-\t\tall, err := c.store.KindFacets()
-\t\tif err != nil {
-\t\t\treturn nil, err
-\t\t}
-
-\t\tvar excluded []types.TagWithCount
-\t\tif len(exclusions) == 1 {
-\t\t\tfilter := exclusions[0]
-\t\t\tif filter.KeyOnly {
-\t\t\t\texcluded, err = c.store.KindFacetsForTagKey(filter.Tag.Key)
-\t\t\t} else {
-\t\t\t\texcluded, err = c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
-\t\t\t}
-\t\t} else {
-\t\t\tdbExclusions := make([]tagFacetExclusion, 0, len(exclusions))
-\t\t\tfor _, filter := range exclusions {
-\t\t\t\tdbExclusions = append(dbExclusions, tagFacetExclusion{
-\t\t\t\t\tKey:     filter.Tag.Key,
-\t\t\t\t\tValue:   filter.Tag.Value,
-\t\t\t\t\tKeyOnly: filter.KeyOnly,
-\t\t\t\t})
-\t\t\t}
-\t\t\texcluded, err = c.store.KindFacetsForTagExclusions(dbExclusions)
-\t\t}
-\t\tif err != nil {
-\t\t\treturn nil, err
-\t\t}
-\t\treturn subtractKindFacets(all, excluded), nil
-\t}
-'''
+          block = (
+              '\n\tif exclusions, ok := parseSimpleUserTagFacetExclusions(expression); ok {\n'
+              '\t\tall, err := c.store.KindFacets()\n'
+              '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\n'
+              '\t\tvar excluded []types.TagWithCount\n'
+              '\t\tif len(exclusions) == 1 {\n'
+              '\t\t\tfilter := exclusions[0]\n'
+              '\t\t\tif filter.KeyOnly {\n'
+              '\t\t\t\texcluded, err = c.store.KindFacetsForTagKey(filter.Tag.Key)\n'
+              '\t\t\t} else {\n'
+              '\t\t\t\texcluded, err = c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)\n'
+              '\t\t\t}\n'
+              '\t\t} else {\n'
+              '\t\t\tdbExclusions := make([]tagFacetExclusion, 0, len(exclusions))\n'
+              '\t\t\tfor _, filter := range exclusions {\n'
+              '\t\t\t\tdbExclusions = append(dbExclusions, tagFacetExclusion{\n'
+              '\t\t\t\t\tKey: filter.Tag.Key, Value: filter.Tag.Value, KeyOnly: filter.KeyOnly,\n'
+              '\t\t\t\t})\n'
+              '\t\t\t}\n'
+              '\t\t\texcluded, err = c.store.KindFacetsForTagExclusions(dbExclusions)\n'
+              '\t\t}\n'
+              '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
+              '\t\treturn subtractKindFacets(all, excluded), nil\n'
+              '\t}\n'
+          )
           rest = rest.replace(anchor, block + anchor, 1)
           path.write_text(prefix + marker + rest)
           PY
