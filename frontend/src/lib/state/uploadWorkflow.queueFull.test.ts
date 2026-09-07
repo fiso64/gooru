@@ -33,11 +33,15 @@ describe('server upload queue backpressure', () => {
       return pendingJob('job-one');
     });
 
-    await vi.waitFor(() => expect(calls).toBe(1));
+    // Flush the initial async submission without advancing fake wall-clock time.
+    // vi.waitFor advances fake timers while polling, which made this exact
+    // fallback-boundary assertion consume part of the 250 ms timeout itself.
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toBe(1);
     await vi.advanceTimersByTimeAsync(uploadAdmissionFallbackMs - 1);
     expect(calls).toBe(1);
     await vi.advanceTimersByTimeAsync(1);
-    await vi.waitFor(() => expect(calls).toBe(2));
+    expect(calls).toBe(2);
     await submission;
   });
 });
