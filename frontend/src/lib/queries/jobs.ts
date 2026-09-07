@@ -2,6 +2,11 @@ import { createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient, ApiError } from '$lib/api/client';
 import type { ApiErrorResponse, Job } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
+import {
+  uploadBackpressuredJobStatusRefetchMs,
+  uploadJobStatusBatchSize,
+  uploadJobStatusRefetchMs
+} from '$lib/uploadBackpressure';
 
 export interface JobListPage {
   items: Job[];
@@ -26,6 +31,12 @@ export function jobsRefetchInterval(jobs: Job[] | undefined) {
 export function jobsPageRefetchInterval(page: JobListPage | undefined) {
   if (typeof page?.active_count === 'number') return page.active_count > 0 ? 2000 : false;
   return jobsRefetchInterval(page?.items);
+}
+
+export function uploadJobRefetchInterval(jobIDs: string[]) {
+  return jobIDs.length >= uploadJobStatusBatchSize
+    ? uploadBackpressuredJobStatusRefetchMs
+    : uploadJobStatusRefetchMs;
 }
 
 async function fetchJobBatch(ids: string[]) {
@@ -67,7 +78,7 @@ export function createJobQuery(_getCSRFToken: () => string, getJobID: () => stri
       queryKey: jobKeys.detail(getAuthScope(), jobID),
       enabled: jobIDs.length > 0,
       queryFn: () => fetchJobBatch(jobIDs),
-      refetchInterval: 700
+      refetchInterval: uploadJobRefetchInterval(jobIDs)
     };
   });
 }
