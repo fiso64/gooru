@@ -1,0 +1,53 @@
+name: Temporary apply #333 fixes
+
+on:
+  push:
+    branches:
+      - perf/333-pagination-regressions
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-pagination-regressions
+      - name: Apply focused source edits
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          app = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = app.read_text()
+          replacements = {
+              'const uploadMetadataRefreshIntervalMs = 3_000;': 'const uploadMetadataRefreshIntervalMs = 700;',
+              "  const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && pagedMode);\n": '',
+              "    const metadataPage = pagedMode\n      ? pagedMetadataQuery.data\n      : filesQuery.data?.pages.find((page) => page.facets);": "    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);",
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'missing expected AuthenticatedApp source fragment: {old!r}')
+              text = text.replace(old, new, 1)
+          app.write_text(text)
+
+          files = Path('frontend/src/lib/queries/files.ts')
+          text = files.read_text()
+          old = '        includeFacets: !pageParam,'
+          new = '        includeFacets: paged || !pageParam,'
+          if old not in text:
+              raise SystemExit('missing expected files query facet fragment')
+          files.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit source edits
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/queries/files.ts
+          git commit -m 'fix(web): coalesce upload metadata at poll cadence'
+          git push origin HEAD:perf/333-pagination-regressions
