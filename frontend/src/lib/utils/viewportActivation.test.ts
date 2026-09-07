@@ -47,7 +47,7 @@ describe('activateNearViewport', () => {
     expect(FakeIntersectionObserver.instances).toHaveLength(1);
     const observer = FakeIntersectionObserver.instances[0];
     expect(observer.root).toBe(root);
-    expect(observer.rootMargin).toBe('250px 0px');
+    expect(observer.rootMargin).toBe('96px 0px');
     expect(observer.observed).toEqual(new Set([first, second]));
 
     observer.intersect(first);
