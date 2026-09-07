@@ -1,0 +1,33 @@
+name: Temporary upload backpressure validation
+
+on:
+  push:
+    branches:
+      - fix/333-upload-job-backpressure
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tmp-upload-backpressure-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefer-offline --no-audit
+      - run: npm run check
+      - run: npx playwright install chromium
+      - run: npm run test:e2e -- upload-backpressure.spec.ts upload-concurrency.spec.ts
+      - run: npm run test:unit
+      - run: npm run build
