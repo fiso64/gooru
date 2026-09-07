@@ -16,36 +16,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: perf/333-hidden-tag-facet-exclusions
-      - name: Patch or persist diagnostic
+      - name: Check function marker
+        run: grep -Fq 'func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {' gooru/query.go
+      - name: Check fallback anchor
+        run: grep -Fq $'\tsqlQuery, args, err := c.buildLocationQuery(expression)' gooru/query.go
+      - name: Decode insertion
+        run: echo 'CWlmIGV4Y2x1c2lvbnMsIG9rIDo9IHBhcnNlU2ltcGxlVXNlclRhZ0ZhY2V0RXhjbHVzaW9ucyhleHByZXNzaW9uKTsgb2sgewoJCWFsbCwgZXJyIDo9IGMuc3RvcmUuS2luZEZhY2V0cygpCgkJaWYgZXJyICE9IG5pbCB7CgkJCXJldHVybiBuaWwsIGVycgoJCX0KCgkJdmFyIGV4Y2x1ZGVkIFtddHlwZXMuVGFnV2l0aENvdW50CgkJaWYgbGVuKGV4Y2x1c2lvbnMpID09IDEgewoJCQlmaWx0ZXIgOj0gZXhjbHVzaW9uc1swXQoJCQlpZiBmaWx0ZXIuS2V5T25seSB7CgkJCQlleGNsdWRlZCwgZXJyID0gYy5zdG9yZS5LaW5kRmFjZXRzRm9yVGFnS2V5KGZpbHRlci5UYWcuS2V5KQoJCQl9IGVsc2UgewoJCQkJZXhjbHVkZWQsIGVyciA9IGMuc3RvcmUuS2luZEZhY2V0c0ZvclRhZyhmaWx0ZXIuVGFnLktleSwgZmlsdGVyLlRhZy5WYWx1ZSkKCQkJfQoJCX0gZWxzZSB7CgkJCWRiRXhjbHVzaW9ucyA6PSBtYWtlKFtddGFnRmFjZXRFeGNsdXNpb24sIDAsIGxlbihleGNsdXNpb25zKSkKCQkJZm9yIF8sIGZpbHRlciA6PSByYW5nZSBleGNsdXNpb25zIHsKCQkJCWRiRXhjbHVzaW9ucyA9IGFwcGVuZChkYkV4Y2x1c2lvbnMsIHRhZ0ZhY2V0RXhjbHVzaW9uewoJCQkJCUtleTogICAgIGZpbHRlci5UYWcuS2V5LAoJCQkJCVZhbHVlOiAgIGZpbHRlci5UYWcuVmFsdWUsCgkJCQkJS2V5T25seTogZmlsdGVyLktleU9ubHksCgkJCQl9KQoJCQl9CgkJCWV4Y2x1ZGVkLCBlcnIgPSBjLnN0b3JlLktpbmRGYWNldHNGb3JUYWdFeGNsdXNpb25zKGRiRXhjbHVzaW9ucykKCQl9CgkJaWYgZXJyICE9IG5pbCB7CgkJCXJldHVybiBuaWwsIGVycgoJCX0KCQlyZXR1cm4gc3VidHJhY3RLaW5kRmFjZXRzKGFsbCwgZXhjbHVkZWQpLCBuaWwKCX0K' | base64 -d >/tmp/hidden-block.go
+      - name: Insert exclusion fast path
         shell: bash
         run: |
-          set +e
-          python3 - <<'PY' > /tmp/patch.log 2>&1
-          import base64
+          python3 - <<'PY'
           from pathlib import Path
           path = Path('gooru/query.go')
           text = path.read_text()
           marker = 'func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {'
-          anchor_text = '\n\tsqlQuery, args, err := c.buildLocationQuery(expression)'
-          print('marker_index', text.find(marker))
           start = text.index(marker)
-          print('anchor_index_after_marker', text.find(anchor_text, start))
+          anchor_text = '\n\tsqlQuery, args, err := c.buildLocationQuery(expression)'
           anchor = text.index(anchor_text, start)
-          block = base64.b64decode('CWlmIGV4Y2x1c2lvbnMsIG9rIDo9IHBhcnNlU2ltcGxlVXNlclRhZ0ZhY2V0RXhjbHVzaW9ucyhleHByZXNzaW9uKTsgb2sgewoJCWFsbCwgZXJyIDo9IGMuc3RvcmUuS2luZEZhY2V0cygpCgkJaWYgZXJyICE9IG5pbCB7CgkJCXJldHVybiBuaWwsIGVycgoJCX0KCgkJdmFyIGV4Y2x1ZGVkIFtddHlwZXMuVGFnV2l0aENvdW50CgkJaWYgbGVuKGV4Y2x1c2lvbnMpID09IDEgewoJCQlmaWx0ZXIgOj0gZXhjbHVzaW9uc1swXQoJCQlpZiBmaWx0ZXIuS2V5T25seSB7CgkJCQlleGNsdWRlZCwgZXJyID0gYy5zdG9yZS5LaW5kRmFjZXRzRm9yVGFnS2V5KGZpbHRlci5UYWcuS2V5KQoJCQl9IGVsc2UgewoJCQkJZXhjbHVkZWQsIGVyciA9IGMuc3RvcmUuS2luZEZhY2V0c0ZvclRhZyhmaWx0ZXIuVGFnLktleSwgZmlsdGVyLlRhZy5WYWx1ZSkKCQkJfQoJCX0gZWxzZSB7CgkJCWRiRXhjbHVzaW9ucyA6PSBtYWtlKFtddGFnRmFjZXRFeGNsdXNpb24sIDAsIGxlbihleGNsdXNpb25zKSkKCQkJZm9yIF8sIGZpbHRlciA6PSByYW5nZSBleGNsdXNpb25zIHsKCQkJCWRiRXhjbHVzaW9ucyA9IGFwcGVuZChkYkV4Y2x1c2lvbnMsIHRhZ0ZhY2V0RXhjbHVzaW9uewoJCQkJCUtleTogICAgIGZpbHRlci5UYWcuS2V5LAoJCQkJCVZhbHVlOiAgIGZpbHRlci5UYWcuVmFsdWUsCgkJCQkJS2V5T25seTogZmlsdGVyLktleU9ubHksCgkJCQl9KQoJCQl9CgkJCWV4Y2x1ZGVkLCBlcnIgPSBjLnN0b3JlLktpbmRGYWNldHNGb3JUYWdFeGNsdXNpb25zKGRiRXhjbHVzaW9ucykKCQl9CgkJaWYgZXJyICE9IG5pbCB7CgkJCXJldHVybiBuaWwsIGVycgoJCX0KCQlyZXR1cm4gc3VidHJhY3RLaW5kRmFjZXRzKGFsbCwgZXhjbHVkZWQpLCBuaWwKCX0K').decode()
+          block = Path('/tmp/hidden-block.go').read_text()
           path.write_text(text[:anchor] + '\n' + block + text[anchor:])
           PY
-          status=$?
-          set -e
+      - name: Format source
+        run: gofmt -w gooru/query.go
+      - name: Commit source patch
+        shell: bash
+        run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          if [ "$status" -ne 0 ]; then
-            cp /tmp/patch.log .github/temp-333-patch-diagnostic.txt
-            git add .github/temp-333-patch-diagnostic.txt
-            git commit -m 'ci: capture hidden facet patch diagnostic'
-            git push origin HEAD:perf/333-hidden-tag-facet-exclusions
-            exit 0
-          fi
-          gofmt -w gooru/query.go
           git add gooru/query.go
           git commit -m 'perf: use summaries for hidden tag facet exclusions'
           git push origin HEAD:perf/333-hidden-tag-facet-exclusions
