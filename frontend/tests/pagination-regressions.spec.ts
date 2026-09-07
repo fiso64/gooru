@@ -6,7 +6,7 @@ const session = {
   csrf_token: 'csrf-one'
 };
 const aspects = [[1600, 900], [600, 900], [900, 900], [900, 1400], [1200, 800], [700, 1200], [2000, 800]] as const;
-
+type GridType = 'square' | 'fit' | 'tile';
 type FileRequest = { offset: number; limit: number; includeFacets: boolean };
 
 function fileItem(index: number) {
@@ -32,7 +32,7 @@ function fileItem(index: number) {
   };
 }
 
-async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gridType: 'square' | 'tile' = 'square') {
+async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gridType: GridType = 'square') {
   const allFiles = Array.from({ length: 180 }, (_, index) => fileItem(index));
   const requests: FileRequest[] = [];
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
@@ -70,11 +70,11 @@ async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gri
   return { requests };
 }
 
-for (const gridType of ['square', 'tile'] as const) {
+for (const gridType of ['square', 'fit', 'tile'] as const) {
   test(`${gridType} paged mode renders partial final rows and reuses page aggregates`, async ({ page }) => {
-    // 1600px yields seven square columns at the default 200px size, so a 60-item page has
-    // a four-item partial final row. This catches page-tail clipping that a 6x10 page hides.
-    await page.setViewportSize({ width: 1600, height: 820 });
+    // 1800px makes both square and fit layouts end a 60-item page on a partial row,
+    // avoiding the false confidence of a page size that happens to divide the column count.
+    await page.setViewportSize({ width: 1800, height: 820 });
     const library = await mockLibrary(page, 'paged', gridType);
     await page.goto('/');
     await expect(page.getByText('180 files')).toBeVisible();
@@ -92,8 +92,8 @@ for (const gridType of ['square', 'tile'] as const) {
   });
 }
 
-for (const gridType of ['square', 'tile'] as const) {
-  test(`${gridType} infinite mode requests page 2 before the retained tail reaches mid-viewport`, async ({ page }) => {
+for (const gridType of ['square', 'fit', 'tile'] as const) {
+  test(`${gridType} infinite mode requests page 2 before the retained tail is exhausted`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 820 });
     const library = await mockLibrary(page, 'infinite', gridType);
     await page.goto('/');
