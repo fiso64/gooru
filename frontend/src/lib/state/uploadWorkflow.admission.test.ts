@@ -10,7 +10,7 @@ vi.mock('svelte', async () => {
   return { ...actual, untrack: untrackSpy };
 });
 
-import { createUploadWorkflow, uploadJobStatusBatchSize } from './uploadWorkflow.svelte';
+import { browserUploadConcurrency, createUploadWorkflow, uploadJobStatusBatchSize } from './uploadWorkflow.svelte';
 
 function uploadFile(index: number): File {
   return { name: `file-${index}.jpg`, size: 10, type: 'image/jpeg', lastModified: 0 } as File;
@@ -37,9 +37,9 @@ function completedJob(id: string): Job {
 describe('upload admission backpressure', () => {
   beforeEach(() => untrackSpy.mockClear());
 
-  it('wakes a blocked browser worker as soon as a tracked job completes', async () => {
+  it('wakes blocked browser workers as soon as tracked jobs complete', async () => {
     const workflow = createUploadWorkflow();
-    const total = uploadJobStatusBatchSize + 1;
+    const total = uploadJobStatusBatchSize + browserUploadConcurrency + 2;
     workflow.select(Array.from({ length: total }, (_, index) => uploadFile(index + 1)));
     let calls = 0;
 
@@ -48,13 +48,25 @@ describe('upload admission backpressure', () => {
       return pendingJob(`job-${variables.files[0].name}`);
     });
 
-    await vi.waitFor(() => expect(workflow.activeJobIDs).toHaveLength(uploadJobStatusBatchSize));
-    expect(calls).toBe(uploadJobStatusBatchSize);
+    await vi.waitFor(() => {
+      expect(workflow.activeJobIDs.length).toBeGreaterThanOrEqual(uploadJobStatusBatchSize);
+      expect(calls).toBeLessThan(total);
+    });
+    // Let already-admitted browser transfers settle before measuring the block.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const blockedCalls = calls;
+    const active = workflow.activeJobIDs;
+    expect(blockedCalls).toBeLessThan(total);
 
-    workflow.applyJob(completedJob(workflow.activeJobIDs[0]));
+    // Up to four transfers can already be in flight when the accepted-job
+    // window reaches 64, so release exactly enough tracked jobs to reopen it.
+    const releases = Math.max(1, active.length - uploadJobStatusBatchSize + 1);
+    for (const id of active.slice(0, releases)) workflow.applyJob(completedJob(id));
 
     // The previous fixed 250 ms admission sleep cannot satisfy this bound.
-    await vi.waitFor(() => expect(calls).toBe(total), { timeout: 150 });
+    await vi.waitFor(() => expect(calls).toBeGreaterThan(blockedCalls), { timeout: 150 });
+
+    for (const id of [...workflow.activeJobIDs]) workflow.applyJob(completedJob(id));
     await submission;
   });
 });
