@@ -165,15 +165,19 @@
 
 <style>
   :global(.thumb-open:focus-visible) { outline: none; }
-  :global(.thumb-open:focus-visible::after) { content: ''; position: absolute; z-index: 5; inset: 6px; border: 2px dashed #fff; border-radius: 2px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; pointer-events: none; }
+  :global(.thumb-open:focus-visible::after) { content: ''; position: absolute; z-index: 6; inset: 6px; border: 2px dashed #fff; border-radius: 2px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; pointer-events: none; }
   .hover-preview-media { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; }
   .hover-preview-media.is-ready { opacity: 1; }
   .hover-preview-media.contain-preview { object-fit: contain; }
-  .hover-video-progress { position: absolute; z-index: 4; left: 7px; right: 7px; bottom: 5px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.28); opacity: 0; pointer-events: none; }
+  .thumb-overlay { z-index: 2; }
+  .thumb-badges, .thumb-meta { z-index: 3; }
+  .hover-video-progress { position: absolute; z-index: 3; left: 7px; right: 7px; bottom: 5px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.28); opacity: 0; pointer-events: none; }
   .hover-video-progress.is-ready { opacity: 1; }
   .hover-video-progress > span { display: block; width: 100%; height: 100%; transform-origin: left center; background: rgba(255, 255, 255, 0.9); }
+  .thumb-checkbox { z-index: 4; }
+  :global(.thumb.is-selected)::after { z-index: 5; }
   .thumb-badge-extension { background: var(--accent); color: var(--accent-ink); }
-  .thumb-preview { position: absolute; z-index: 3; right: 7px; bottom: 7px; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 5px; background: rgba(0, 0, 0, 0.78); color: #fff; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .12s, background .12s, border-color .12s; }
+  .thumb-preview { position: absolute; z-index: 4; right: 7px; bottom: 7px; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 5px; background: rgba(0, 0, 0, 0.78); color: #fff; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .12s, background .12s, border-color .12s; }
   :global(.thumb:hover) .thumb-preview { opacity: 1; pointer-events: auto; }
   .thumb-preview:hover, .thumb-preview:focus-visible { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); outline: none; }
 </style>
