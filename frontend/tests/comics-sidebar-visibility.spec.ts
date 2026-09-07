@@ -8,6 +8,7 @@ const session = {
 
 async function mockApp(page: Page) {
   let loggedIn = false;
+  let dedicatedComicCountRequests = 0;
 
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -23,7 +24,7 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ tags: [], library_count: 3, facets: { kind: [] } })
+    body: JSON.stringify({ tags: [], library_count: 3, facets: { kind: [{ value: 'comic', count: 2 }] } })
   }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ items: [], meta_tags: [] })
@@ -35,6 +36,7 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/files?**', async (route) => {
     const url = new URL(route.request().url());
     const query = url.searchParams.get('query') ?? '';
+    if (query === 'ext:cbz' && url.searchParams.get('limit') === '1') dedicatedComicCountRequests += 1;
     const includeFacets = url.searchParams.get('include_facets') === 'true';
     const total = query === 'ext:cbz' ? 2 : query.includes('tag:no-comics') ? 0 : 3;
     await route.fulfill({
@@ -43,7 +45,7 @@ async function mockApp(page: Page) {
         files: [],
         total_count: total,
         library_count: 3,
-        facets: includeFacets ? { kind: [] } : undefined
+        facets: includeFacets ? { kind: total > 0 && !query.includes('tag:no-comics') ? [{ value: 'comic', count: 2 }] : [] } : undefined
       })
     });
   });
@@ -53,10 +55,11 @@ async function mockApp(page: Page) {
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  return () => dedicatedComicCountRequests;
 }
 
 test('comics entry stays visible while its count follows the active saved search', async ({ page }) => {
-  await mockApp(page);
+  const dedicatedComicCountRequests = await mockApp(page);
 
   const comics = page.locator('.sidebar-item[data-sidebar-shortcut]').filter({ hasText: 'Comics' });
   await expect(comics).toBeVisible();
@@ -66,4 +69,5 @@ test('comics entry stays visible while its count follows the active saved search
 
   await expect(comics).toBeVisible();
   await expect(comics.locator('.count')).toHaveText('0');
+  expect(dedicatedComicCountRequests()).toBe(0);
 });

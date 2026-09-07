@@ -34,7 +34,7 @@
   import { browserPersistenceRegistry, readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
-  import { appendSidebarKind, queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
+  import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
   import { previewNeighbor } from '$lib/utils/viewerNavigation';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { Job, SavedSearchRequest } from '$lib/api/types';
@@ -102,8 +102,6 @@
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library' && sidebarBaseQuery !== $submittedSearch);
   const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && pagedMode);
-  const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
-  const comicLibraryCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => library.route === 'library');
   const uploadResultsCountQuery = createFileCountQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && trackUploadResults);
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
@@ -137,6 +135,13 @@
   const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveCurrentQueryCount - uploadResultsFloor) : 0);
   const pagedPageCount = $derived(Math.max(1, Math.ceil(gridSnapshotTotalCount / $runtimeConfig.itemsPerPage)));
   const selectedCount = $derived(library.selectedCount());
+  const sidebarKindCounts = $derived(
+    sidebarBaseQuery !== $submittedSearch
+      ? (kindFacetsQuery.data?.facets?.kind ?? [])
+      : (fileMetadata?.facets?.kind ?? [])
+  );
+  const comicCount = $derived(sidebarKindCounts.find((item) => item.value === 'comic')?.count ?? 0);
+  const comicAvailable = $derived((tagsQuery.data?.facets?.kind ?? []).some((item) => item.value === 'comic' && item.count > 0));
 
   $effect(() => {
     const targets = uploadTargetsQuery.data?.items ?? [];
@@ -453,8 +458,6 @@
       const requests: Promise<unknown>[] = [
         tagsQuery.refetch(),
         kindFacetsQuery.refetch(),
-        comicCountQuery.refetch(),
-        comicLibraryCountQuery.refetch(),
         jobsQuery.refetch()
       ];
       if (trackUploadResults) {
@@ -640,8 +643,8 @@
     jobs={jobsQuery.data?.items ?? []}
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
-    comicCount={comicCountQuery.data?.total_count ?? 0}
-    comicAvailable={(comicLibraryCountQuery.data?.total_count ?? 0) > 0}
+    comicCount={comicCount}
+    comicAvailable={comicAvailable}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     metaTags={suggestionsQuery.data?.meta_tags ?? []}

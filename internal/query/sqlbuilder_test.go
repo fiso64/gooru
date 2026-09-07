@@ -23,7 +23,8 @@ func TestBuildLocationsMediaType(t *testing.T) {
 			(2, 'video', '.bin'),
 			(3, 'gif', '.gif'),
 			(4, 'metadata-wins', '.mp4'),
-			(5, 'other', '.txt')`,
+			(5, 'other', '.txt'),
+			(6, 'comic', '.cbz')`,
 		`INSERT INTO media_metadata (location_id, media_kind) VALUES
 			(2, 'video'),
 			(4, 'audio')`,
@@ -40,6 +41,7 @@ func TestBuildLocationsMediaType(t *testing.T) {
 		{query: "type:photo", want: []int64{1}},
 		{query: "type:video", want: []int64{2}},
 		{query: "type:gif", want: []int64{3}},
+		{query: "type:comic", want: []int64{6}},
 		{query: "type:audio", want: []int64{4}},
 		{query: "type:other", want: []int64{5}},
 	} {

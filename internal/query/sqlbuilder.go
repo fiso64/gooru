@@ -153,6 +153,7 @@ func (b *SQLBuilder) buildFactor(factor *Factor) {
 
 func mediaTypeExpression() string {
 	return `coalesce(mm.media_kind, CASE
+		WHEN lower(l.extension) = '.cbz' THEN 'comic'
 		WHEN lower(l.extension) = '.gif' THEN 'gif'
 		WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
 		WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
@@ -162,6 +163,8 @@ func mediaTypeExpression() string {
 
 func fallbackMediaTypeCondition(value string) string {
 	switch strings.ToLower(value) {
+	case "comic":
+		return `lower(l.extension) = '.cbz'`
 	case "gif":
 		return `lower(l.extension) = '.gif'`
 	case "photo":
@@ -169,7 +172,7 @@ func fallbackMediaTypeCondition(value string) string {
 	case "video":
 		return `lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
 	case "other":
-		return `lower(l.extension) NOT IN ('.gif', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
+		return `lower(l.extension) NOT IN ('.cbz', '.gif', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
 	default:
 		return ""
 	}
