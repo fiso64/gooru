@@ -29,7 +29,17 @@ jobs:
         run: npm run test:unit -- --run
       - name: Production build
         run: npm run build
-      - name: Pagination regressions
-        run: npm run test:e2e -- pagination-regressions.spec.ts
+      - name: Square paged regression
+        run: npm run test:e2e -- pagination-regressions.spec.ts --grep "square paged"
+      - name: Fit paged regression
+        run: npm run test:e2e -- pagination-regressions.spec.ts --grep "fit paged"
+      - name: Tile paged regression
+        run: npm run test:e2e -- pagination-regressions.spec.ts --grep "tile paged"
+      - name: Square infinite regression
+        run: npm run test:e2e -- pagination-regressions.spec.ts --grep "square infinite"
+      - name: Fit infinite regression
+        run: npm run test:e2e -- pagination-regressions.spec.ts --grep "fit infinite"
+      - name: Tile infinite regression
+        run: npm run test:e2e -- pagination-regressions.spec.ts --grep "tile infinite"
       - name: Upload metadata refresh regression
         run: npm run test:e2e -- upload-metadata-refresh.spec.ts
