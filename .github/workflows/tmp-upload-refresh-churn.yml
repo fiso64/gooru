@@ -26,86 +26,106 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+
           path = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
           text = path.read_text()
-          old_effect = '''  $effect(() => {
-            const job = uploadJobQuery.data;
-            if (!job) return;
-            const result = upload.applyJob(job);
-            if (result.changedFiles) {
-              if (!trackUploadResults) {
-                trackUploadResults = true;
-                uploadResultsFloor = gridSnapshotTotalCount;
-              }
-              void refreshUploadMetadata(true);
-            }
-            if (result.completed) void jobsQuery.refetch();
-          });'''
-          new_effect = '''  $effect(() => {
-            const job = uploadJobQuery.data;
-            if (!job) return;
-            const result = upload.applyJob(job);
-            if (result.changedFiles && !trackUploadResults) {
-              trackUploadResults = true;
-              uploadResultsFloor = gridSnapshotTotalCount;
-            }
-            if (result.completed && !upload.busy && !upload.activeJobIDs.length) {
-              void finishUploadMetadataRefresh();
-            }
-          });'''
-          old_start = '''  function startUploadMetadataRefresh() {
-            beginTrackingUploadResults();
-            if (uploadMetadataRefreshTimer) return;
-            uploadMetadataRefreshTimer = window.setInterval(() => void refreshUploadMetadata(), uploadMetadataRefreshIntervalMs);
-          }'''
-          new_start = '''  async function finishUploadMetadataRefresh() {
-            stopUploadMetadataRefresh();
-            const finalTotal = await refreshUploadMetadata(true);
-            if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsFloor) {
-              trackUploadResults = false;
-            }
-            return finalTotal;
-          }
 
-          function startUploadMetadataRefresh() {
-            beginTrackingUploadResults();
-            if (uploadMetadataRefreshTimer) return;
-            uploadMetadataRefreshTimer = window.setInterval(() => void refreshUploadMetadata(), uploadMetadataRefreshIntervalMs);
-          }'''
-          old_finally = '''    } finally {
-              stopUploadMetadataRefresh();
-              const finalTotal = await refreshUploadMetadata(true);
-              if (!upload.busy && finalTotal != null && finalTotal <= uploadResultsFloor) {
-                trackUploadResults = false;
-              }
-              uploadMutation.reset();
-            }'''
-          new_finally = '''    } finally {
-              if (!upload.activeJobIDs.length) await finishUploadMetadataRefresh();
-              uploadMutation.reset();
-            }'''
-          old_cancel = '''  async function cancelUploadJob(jobID = upload.activeJobID) {
-            cancelRequestedJobID = jobID;
-            const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);
-            if (result.changed) void jobsQuery.refetch();
-          }'''
-          new_cancel = '''  async function cancelUploadJob(jobID = upload.activeJobID) {
-            cancelRequestedJobID = jobID;
-            const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);
-            if (result.changed) {
-              void jobsQuery.refetch();
-              if (!upload.busy && !upload.activeJobIDs.length) void finishUploadMetadataRefresh();
-            }
-          }'''
-          for old, new, label in [
-              (old_effect, new_effect, 'job effect'),
-              (old_start, new_start, 'refresh lifecycle'),
-              (old_finally, new_finally, 'submit finally'),
-              (old_cancel, new_cancel, 'cancel lifecycle'),
-          ]:
-              if old not in text:
-                  raise SystemExit(f'missing expected {label} block')
-              text = text.replace(old, new, 1)
+          def replace_between(source, start_marker, end_marker, replacement, label):
+              start = source.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f'missing expected {label} start')
+              end = source.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit(f'missing expected {label} end')
+              return source[:start] + replacement + source[end:]
+
+          new_effect = "\n".join([
+              "  $effect(() => {",
+              "    const job = uploadJobQuery.data;",
+              "    if (!job) return;",
+              "    const result = upload.applyJob(job);",
+              "    if (result.changedFiles && !trackUploadResults) {",
+              "      trackUploadResults = true;",
+              "      uploadResultsFloor = gridSnapshotTotalCount;",
+              "    }",
+              "    if (result.completed && !upload.busy && !upload.activeJobIDs.length) {",
+              "      void finishUploadMetadataRefresh();",
+              "    }",
+              "  });",
+          ])
+          text = replace_between(
+              text,
+              "  $effect(() => {\n    const job = uploadJobQuery.data;",
+              "\n\n  $effect(() => {\n    if (uploadJobQuery.isError)",
+              new_effect,
+              "job effect",
+          )
+
+          new_refresh_lifecycle = "\n".join([
+              "  async function finishUploadMetadataRefresh() {",
+              "    stopUploadMetadataRefresh();",
+              "    const finalTotal = await refreshUploadMetadata(true);",
+              "    if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsFloor) {",
+              "      trackUploadResults = false;",
+              "    }",
+              "    return finalTotal;",
+              "  }",
+              "",
+              "  function startUploadMetadataRefresh() {",
+              "    beginTrackingUploadResults();",
+              "    if (uploadMetadataRefreshTimer) return;",
+              "    uploadMetadataRefreshTimer = window.setInterval(() => void refreshUploadMetadata(), uploadMetadataRefreshIntervalMs);",
+              "  }",
+          ])
+          text = replace_between(
+              text,
+              "  function startUploadMetadataRefresh() {",
+              "\n\n  function stopUploadMetadataRefresh()",
+              new_refresh_lifecycle,
+              "refresh lifecycle",
+          )
+
+          old_finally = "\n".join([
+              "    } finally {",
+              "      stopUploadMetadataRefresh();",
+              "      const finalTotal = await refreshUploadMetadata(true);",
+              "      if (!upload.busy && finalTotal != null && finalTotal <= uploadResultsFloor) {",
+              "        trackUploadResults = false;",
+              "      }",
+              "      uploadMutation.reset();",
+              "    }",
+          ])
+          new_finally = "\n".join([
+              "    } finally {",
+              "      if (!upload.activeJobIDs.length) await finishUploadMetadataRefresh();",
+              "      uploadMutation.reset();",
+              "    }",
+          ])
+          if old_finally not in text:
+              raise SystemExit('missing expected submit finally block')
+          text = text.replace(old_finally, new_finally, 1)
+
+          old_cancel = "\n".join([
+              "  async function cancelUploadJob(jobID = upload.activeJobID) {",
+              "    cancelRequestedJobID = jobID;",
+              "    const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);",
+              "    if (result.changed) void jobsQuery.refetch();",
+              "  }",
+          ])
+          new_cancel = "\n".join([
+              "  async function cancelUploadJob(jobID = upload.activeJobID) {",
+              "    cancelRequestedJobID = jobID;",
+              "    const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);",
+              "    if (result.changed) {",
+              "      void jobsQuery.refetch();",
+              "      if (!upload.busy && !upload.activeJobIDs.length) void finishUploadMetadataRefresh();",
+              "    }",
+              "  }",
+          ])
+          if old_cancel not in text:
+              raise SystemExit('missing expected cancel block')
+          text = text.replace(old_cancel, new_cancel, 1)
+
           path.write_text(text)
           PY
       - name: Install dependencies
