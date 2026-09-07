@@ -1,0 +1,108 @@
+name: Temporary 333 comic kind repair 2
+on:
+  push:
+    branches: [perf/333-comic-kind-facet]
+    paths: ['.github/workflows/tmp-333-comic-kind-repair2.yml']
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-comic-kind-facet
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Apply semantic repair
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          def repl(path, old, new):
+              p=Path(path); s=p.read_text()
+              if old not in s: raise SystemExit(f'missing snippet: {path}')
+              p.write_text(s.replace(old,new,1))
+
+          repl('internal/serve/browse.go', '''func mediaKindForType(mediaType string) string {
+           switch {
+           case mediaType == "image/gif":'''.replace('           ','\t'), '''func mediaKindForType(mediaType string) string {
+           switch {
+           case strings.EqualFold(strings.TrimSpace(strings.SplitN(mediaType, ";", 2)[0]), "application/vnd.comicbook+zip"):
+                   return "comic"
+           case mediaType == "image/gif":'''.replace('           ','\t').replace('                   ','\t\t'))
+
+          repl('internal/database/database.go', '''func fileKindExpression() string {
+           return `coalesce(mm.media_kind, CASE
+                   WHEN lower(l.extension) = '.cbz' THEN 'comic'
+                   WHEN lower(l.extension) = '.gif' THEN 'gif'
+                   WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+                   WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+                   ELSE 'other'
+           END)`
+}'''.replace('           ','\t').replace('                   ','\t\t'), '''func fileKindExpression() string {
+           return `CASE
+                   WHEN lower(l.extension) = '.cbz' THEN 'comic'
+                   ELSE coalesce(mm.media_kind, CASE
+                           WHEN lower(l.extension) = '.gif' THEN 'gif'
+                           WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+                           WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+                           ELSE 'other'
+                   END)
+           END`
+}'''.replace('           ','\t').replace('                   ','\t\t').replace('                           ','\t\t\t'))
+
+          p=Path('internal/query/sqlbuilder.go'); s=p.read_text()
+          old='''func mediaTypeExpression() string {
+           return `coalesce(mm.media_kind, CASE
+                   WHEN lower(l.extension) = '.cbz' THEN 'comic'
+                   WHEN lower(l.extension) = '.gif' THEN 'gif'
+                   WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+                   WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+                   ELSE 'other'
+           END)`
+}'''.replace('           ','\t').replace('                   ','\t\t')
+          new='''func mediaTypeExpression() string {
+           return `CASE
+                   WHEN lower(l.extension) = '.cbz' THEN 'comic'
+                   ELSE coalesce(mm.media_kind, CASE
+                           WHEN lower(l.extension) = '.gif' THEN 'gif'
+                           WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+                           WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+                           ELSE 'other'
+                   END)
+           END`
+}'''.replace('           ','\t').replace('                   ','\t\t').replace('                           ','\t\t\t')
+          if old not in s: raise SystemExit('missing mediaTypeExpression')
+          s=s.replace(old,new,1)
+          old='''           b.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(mm.media_kind) = lower(?)`)
+           b.args = append(b.args, value)
+
+           fallback := fallbackMediaTypeCondition(value)'''.replace('           ','\t')
+          new='''           b.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(l.extension) <> '.cbz' AND lower(mm.media_kind) = lower(?)`)
+           b.args = append(b.args, value)
+
+           if strings.EqualFold(value, "comic") {
+                   b.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE lower(l.extension) = '.cbz'`)
+                   return
+           }
+
+           fallback := fallbackMediaTypeCondition(value)'''.replace('           ','\t').replace('                   ','\t\t')
+          if old not in s: raise SystemExit('missing buildMediaTypeQuery')
+          p.write_text(s.replace(old,new,1))
+          PY
+          gofmt -w internal/serve/browse.go internal/database/database.go internal/query/sqlbuilder.go
+          git diff --check
+      - name: Validate focused packages
+        run: go test ./internal/database ./internal/query ./internal/serve ./gooru/...
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name chatgpt-codex-connector
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add internal/serve/browse.go internal/database/database.go internal/query/sqlbuilder.go
+          git commit -m 'fix: keep CBZ kind authoritative over metadata'
+          git push origin HEAD:perf/333-comic-kind-facet
