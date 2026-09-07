@@ -62,7 +62,25 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 	}
 
 	if err := RunMigrations(db); err != nil {
-		t.Fatalf("RunMigrations through v12: %v", err)
+		t.Fatalf("RunMigrations: %v", err)
+	}
+	assertKindCountsMatchRecomputed(t, db)
+
+	if _, err := db.Exec(`
+		INSERT INTO media_metadata (location_id, media_kind, mime_type)
+		VALUES (?, 'other', 'application/vnd.comicbook+zip')
+	`, comicID); err != nil {
+		t.Fatal(err)
+	}
+	assertKindCountsMatchRecomputed(t, db)
+
+	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'photo' WHERE location_id = ?`, comicID); err != nil {
+		t.Fatal(err)
+	}
+	assertKindCountsMatchRecomputed(t, db)
+
+	if _, err := db.Exec(`UPDATE locations SET extension = '.cbz' WHERE id = ?`, comicID); err != nil {
+		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
 
@@ -169,13 +187,15 @@ func assertKindCountsMatchRecomputed(t *testing.T, db *sql.DB) {
 	}
 
 	want := readCounts(`
-		SELECT coalesce(mm.media_kind, CASE
+		SELECT CASE
 			WHEN lower(l.extension) = '.cbz' THEN 'comic'
-			WHEN lower(l.extension) = '.gif' THEN 'gif'
-			WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
-			WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
-			ELSE 'other'
-		END) AS kind, COUNT(*)
+			ELSE coalesce(mm.media_kind, CASE
+				WHEN lower(l.extension) = '.gif' THEN 'gif'
+				WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+				WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+				ELSE 'other'
+			END)
+		END AS kind, COUNT(*)
 		FROM locations l
 		LEFT JOIN media_metadata mm ON mm.location_id = l.id
 		GROUP BY kind
