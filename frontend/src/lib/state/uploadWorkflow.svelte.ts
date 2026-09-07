@@ -209,7 +209,7 @@ export function createUploadWorkflow() {
     status = uploadSummaryFromCounts(statusCounts) || 'Upload finished';
   }
 
-  function waitForAdmissionChange() {
+  function waitForAdmissionChange(skipIfCapacityAvailable = true) {
     return new Promise<void>((resolve) => {
       let timeout: ReturnType<typeof setTimeout> | undefined;
       const wake = () => {
@@ -219,8 +219,10 @@ export function createUploadWorkflow() {
       };
       admissionWaiters.add(wake);
       // Avoid sleeping through a completion that raced between the caller's
-      // capacity check and registering this waiter.
-      if (Object.keys(trackedJobs).length < uploadJobStatusBatchSize) {
+      // local-window capacity check and registering this waiter. A server-side
+      // queue-full response cannot use this shortcut because its saturation may
+      // come from work outside this browser's tracked window.
+      if (skipIfCapacityAvailable && Object.keys(trackedJobs).length < uploadJobStatusBatchSize) {
         wake();
         return;
       }
@@ -295,7 +297,7 @@ export function createUploadWorkflow() {
             } catch (error) {
               if (!isJobQueueFull(error)) throw error;
               admissionBackpressured = true;
-              await waitForAdmissionChange();
+              await waitForAdmissionChange(false);
             }
           }
           if ('id' in response) {
