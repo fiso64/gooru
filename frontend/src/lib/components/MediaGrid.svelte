@@ -38,6 +38,7 @@
   let paneScrollY = $state(0);
   let gridTop = $state(0);
   let pixelRatio = $state(1);
+  let initialViewportFocusDone = false;
   const tileMode = $derived($runtimeConfig.gridType === 'tile');
   const fitMode = $derived($runtimeConfig.gridType === 'fit');
   const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));
@@ -98,6 +99,20 @@
   }
 
   $effect(() => {
+    const main = mainHost;
+    if (initialViewportFocusDone || !main || !sessionActive || isLoading) return;
+    const frame = requestAnimationFrame(() => {
+      if (initialViewportFocusDone) return;
+      const active = document.activeElement;
+      if (active === document.body || active === document.documentElement || active === null) {
+        main.focus({ preventScroll: true });
+      }
+      initialViewportFocusDone = true;
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  $effect(() => {
     const main = mainHost; const grid = gridHost; if (!main || !grid) return;
     let frame = 0;
     const measure = () => { frame = 0; gridWidth = grid.getBoundingClientRect().width; paneHeight = main.clientHeight; paneScrollY = main.scrollTop; gridTop = grid.offsetTop; };
@@ -134,7 +149,7 @@
 </script>
 
 <svelte:window onkeydown={focusFirstGridItem} />
-<main bind:this={mainHost} class="main" onscroll={handleScroll}>
+<main bind:this={mainHost} class="main" tabindex="-1" data-testid="library-viewport" onscroll={handleScroll}>
   {#if selectedCount > 0}
     <div class="selection-bar"><div class="selection-summary"><Icon name="check" size={14} active /><span><b>{selectedCount}</b> selected</span>{#if selectedCount < (totalCount || files.length)}<button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}><span>Select</span><span style="margin-left: 0.3em"><u>a</u>ll {(totalCount || files.length).toLocaleString()}</span></button>{/if}</div><div class="sb-actions"><button class="g-btn g-btn-sm" type="button" disabled title="Export bundles are not supported yet"><Icon name="download" size={13} /> Export</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> <u>T</u>ag…</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="tag_remove" size={13} /> <u>U</u>ntag…</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkUntrack}><Icon name="untrack" size={13} /> Untrack</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkDelete}><Icon name="trash" size={13} /> Delete</button><button class="g-btn g-btn-sm g-btn-icon" type="button" title="Clear" aria-label="Clear selection" onclick={onClearSelection}><Icon name="close" size={13} /></button></div></div>
   {/if}
