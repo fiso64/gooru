@@ -49,7 +49,14 @@ jobs:
       - name: Query unit group
         continue-on-error: true
         run: npm run test:unit -- src/lib/queries
-      - name: Unit tests
+      - name: Component unit group
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/components
+      - name: Utility unit group
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/utils
+      - name: Full unit suite
+        continue-on-error: true
         run: npm run test:unit
       - name: Install Chromium
         run: npx playwright install chromium
