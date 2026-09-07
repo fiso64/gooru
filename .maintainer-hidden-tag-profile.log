@@ -1,0 +1,5 @@
+=== RUN   TestMaintainerHiddenTagScale
+    maintainer_hidden_tag_scale_test.go:96: hidden-tag handler means: 1K tags=280.804µs files=1.497263ms; 10K tags=270.545µs files=6.071891ms
+--- PASS: TestMaintainerHiddenTagScale (4.45s)
+PASS
+ok  	gooru.local/internal/serve	4.457s
