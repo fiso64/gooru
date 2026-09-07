@@ -24,6 +24,8 @@
   let previewNearViewport = $state(false);
   let reducedMotion = $state(false);
   let hoverTimer: number | undefined;
+  let hoverSession = $state(0);
+  let previewReady = $state(false);
   let videoProgress = $state(0);
   const extensionLabel = $derived(fileExtension(file.name));
   const mediaWidth = $derived(file.metadata.image_width ?? file.metadata.video_width ?? 0);
@@ -32,6 +34,7 @@
   const videoFile = $derived(file.media_kind === 'video');
   const hoverEnabled = $derived((videoFile && $runtimeConfig.hoverPlayVideos) || (gifFile && $runtimeConfig.hoverPlayGifs));
   const hoverPreviewActive = $derived($activeHoverPreviewID === file.id && hoverEnabled && previewNearViewport && !reducedMotion);
+  const gifPreviewSource = $derived(withHoverSession(file.media_urls.content, hoverSession));
   const thumbnailSource = $derived(thumbnailURL(file.media_urls.thumbnail, $runtimeConfig.thumbnailSizes,
     cardWidth || $runtimeConfig.gridSize, cardHeight || cardWidth || $runtimeConfig.gridSize,
     pixelRatio, mediaWidth, mediaHeight, fitMedia));
@@ -70,7 +73,12 @@
     if (hoverTimer !== undefined) window.clearTimeout(hoverTimer);
     hoverTimer = window.setTimeout(() => {
       hoverTimer = undefined;
-      if (hoverEnabled && !reducedMotion && previewNearViewport) activeHoverPreviewID.set(file.id);
+      if (hoverEnabled && !reducedMotion && previewNearViewport) {
+        previewReady = false;
+        videoProgress = 0;
+        hoverSession += 1;
+        activeHoverPreviewID.set(file.id);
+      }
     }, hoverDwellMs);
   }
 
@@ -79,13 +87,23 @@
       window.clearTimeout(hoverTimer);
       hoverTimer = undefined;
     }
+    previewReady = false;
     videoProgress = 0;
     if ($activeHoverPreviewID === file.id) activeHoverPreviewID.set('');
+  }
+
+  function markPreviewReady() {
+    previewReady = true;
   }
 
   function updateVideoProgress(event: Event) {
     const video = event.currentTarget as HTMLVideoElement;
     videoProgress = Number.isFinite(video.duration) && video.duration > 0 ? Math.min(1, Math.max(0, video.currentTime / video.duration)) : 0;
+  }
+
+  function withHoverSession(source: string, session: number) {
+    if (!source) return source;
+    return `${source.split('#', 1)[0]}#gooru-hover-${session}`;
   }
 
   function fileExtension(name: string) {
@@ -132,10 +150,10 @@
   <button class="thumb-open" type="button" aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeyboardAction}>
     {#if thumbnailActive}<img src={thumbnailSource} alt={file.name} decoding="async" draggable="false" />{/if}
     {#if hoverPreviewActive && videoFile}
-      <video class:contain-preview={fitMedia} class="hover-preview-media" data-testid="hover-video-preview" src={file.media_urls.content} muted autoplay loop playsinline preload="metadata" ontimeupdate={updateVideoProgress} ondurationchange={updateVideoProgress}></video>
-      <span class="hover-video-progress" data-testid="hover-video-progress" aria-hidden="true"><span style={`transform:scaleX(${videoProgress})`}></span></span>
+      <video class:contain-preview={fitMedia} class:is-ready={previewReady} class="hover-preview-media" data-testid="hover-video-preview" src={file.media_urls.content} muted autoplay loop playsinline preload="metadata" onloadeddata={markPreviewReady} ontimeupdate={updateVideoProgress} ondurationchange={updateVideoProgress}></video>
+      <span class:is-ready={previewReady} class="hover-video-progress" data-testid="hover-video-progress" aria-hidden="true"><span style={`transform:scaleX(${videoProgress})`}></span></span>
     {:else if hoverPreviewActive && gifFile}
-      <img class:contain-preview={fitMedia} class="hover-preview-media" data-testid="hover-gif-preview" src={file.media_urls.content} alt="" draggable="false" />
+      <img class:contain-preview={fitMedia} class:is-ready={previewReady} class="hover-preview-media" data-testid="hover-gif-preview" src={gifPreviewSource} onload={markPreviewReady} alt="" draggable="false" />
     {/if}
     <span class="thumb-overlay"></span>
     <span class="thumb-badges">{#if file.media_kind === 'video'}<span class="thumb-badge"><Icon name="play" size={9} /> {mediaDuration(file) || 'video'}</span>{:else if file.media_kind === 'gif'}<span class="thumb-badge">GIF{mediaDuration(file) ? ` · ${mediaDuration(file)}` : ''}</span>{:else if file.media_kind !== 'photo' && extensionLabel}<span class="thumb-badge thumb-badge-extension">{extensionLabel}</span>{/if}</span>
@@ -148,9 +166,11 @@
 <style>
   :global(.thumb-open:focus-visible) { outline: none; }
   :global(.thumb-open:focus-visible::after) { content: ''; position: absolute; z-index: 5; inset: 6px; border: 2px dashed #fff; border-radius: 2px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; pointer-events: none; }
-  .hover-preview-media { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; pointer-events: none; }
+  .hover-preview-media { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; }
+  .hover-preview-media.is-ready { opacity: 1; }
   .hover-preview-media.contain-preview { object-fit: contain; }
-  .hover-video-progress { position: absolute; z-index: 4; left: 7px; right: 7px; bottom: 5px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.28); pointer-events: none; }
+  .hover-video-progress { position: absolute; z-index: 4; left: 7px; right: 7px; bottom: 5px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.28); opacity: 0; pointer-events: none; }
+  .hover-video-progress.is-ready { opacity: 1; }
   .hover-video-progress > span { display: block; width: 100%; height: 100%; transform-origin: left center; background: rgba(255, 255, 255, 0.9); }
   .thumb-badge-extension { background: var(--accent); color: var(--accent-ink); }
   .thumb-preview { position: absolute; z-index: 3; right: 7px; bottom: 7px; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 5px; background: rgba(0, 0, 0, 0.78); color: #fff; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .12s, background .12s, border-color .12s; }
