@@ -3,7 +3,6 @@ package gooru
 import (
 	"sort"
 
-	"gooru.local/internal/database"
 	"gooru.local/types"
 )
 
@@ -55,9 +54,9 @@ func (c *Client) kindFacetsForUserTagExclusions(filters []simpleUserTagFacetFilt
 			excluded, err = c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
 		}
 	} else {
-		exclusions := make([]database.TagFacetExclusion, 0, len(filters))
+		exclusions := make([]types.TagFacetExclusion, 0, len(filters))
 		for _, filter := range filters {
-			exclusions = append(exclusions, database.TagFacetExclusion{Tag: filter.Tag, KeyOnly: filter.KeyOnly})
+			exclusions = append(exclusions, types.TagFacetExclusion{Tag: filter.Tag, KeyOnly: filter.KeyOnly})
 		}
 		excluded, err = c.store.KindFacetsForExcludedTags(exclusions)
 	}
