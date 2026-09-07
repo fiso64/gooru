@@ -5,9 +5,11 @@ const session = {
   capabilities: { upload: true, tag: true, delete: true, admin: true },
   csrf_token: 'csrf-one'
 };
+const aspects = [[1600, 900], [600, 900], [900, 900], [900, 1400], [1200, 800], [700, 1200], [2000, 800]] as const;
 
 function fileItem(index: number) {
   const id = `file-${index}`;
+  const [width, height] = aspects[index % aspects.length];
   return {
     id,
     content_id: `hash-${id}`,
@@ -17,7 +19,7 @@ function fileItem(index: number) {
     modified_time: '2026-05-20T00:00:00Z',
     media_type: 'image/jpeg',
     media_kind: 'photo',
-    metadata: { image_width: 1200, image_height: 800 },
+    metadata: { image_width: width, image_height: height },
     tags: [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`,
@@ -28,13 +30,13 @@ function fileItem(index: number) {
   };
 }
 
-async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged') {
+async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gridType: 'square' | 'tile' = 'square') {
   const allFiles = Array.from({ length: 180 }, (_, index) => fileItem(index));
   const requests: number[] = [];
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ grid_type: 'square', grid_size: 200, pagination_mode: paginationMode, items_per_page: 60 })
+    body: JSON.stringify({ grid_type: gridType, grid_size: 200, pagination_mode: paginationMode, items_per_page: 60 })
   }));
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
@@ -64,38 +66,42 @@ async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged') {
   return { requests };
 }
 
-test('paged mode renders the final row of every 60-item page', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 820 });
-  await mockLibrary(page, 'paged');
-  await page.goto('/');
-  await expect(page.getByText('180 files')).toBeVisible();
-  const main = page.locator('.main');
-  await main.evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event('scroll')); });
-  await expect(page.getByRole('button', { name: 'Open page-59.jpg' })).toBeVisible();
+for (const gridType of ['square', 'tile'] as const) {
+  test(`${gridType} paged mode renders the final row of every 60-item page`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 820 });
+    await mockLibrary(page, 'paged', gridType);
+    await page.goto('/');
+    await expect(page.getByText('180 files')).toBeVisible();
+    const main = page.locator('.main');
+    await main.evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event('scroll')); });
+    await expect(page.getByRole('button', { name: 'Open page-59.jpg' })).toBeVisible();
 
-  await page.getByTestId('library-pager').getByRole('button', { name: 'Page 2' }).click();
-  await expect(page.getByRole('button', { name: 'Open page-60.jpg' })).toBeVisible();
-  await main.evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event('scroll')); });
-  await expect(page.getByRole('button', { name: 'Open page-119.jpg' })).toBeVisible();
-});
+    await page.getByTestId('library-pager').getByRole('button', { name: 'Page 2' }).click();
+    await expect(page.getByRole('button', { name: 'Open page-60.jpg' })).toBeVisible();
+    await main.evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event('scroll')); });
+    await expect(page.getByRole('button', { name: 'Open page-119.jpg' })).toBeVisible();
+  });
+}
 
-test('infinite mode requests page 2 before the retained tail reaches mid-viewport', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 820 });
-  const library = await mockLibrary(page, 'infinite');
-  await page.goto('/');
-  await expect(page.getByText('180 files')).toBeVisible();
-  const main = page.locator('.main');
-  const grid = page.locator('.virtual-grid');
-  for (let i = 0; i < 20 && !library.requests.includes(60); i += 1) {
-    const metrics = await Promise.all([
-      main.evaluate((node) => ({ top: node.scrollTop, height: node.clientHeight })),
-      grid.evaluate((node) => ({ top: (node as HTMLElement).offsetTop, height: (node as HTMLElement).offsetHeight }))
-    ]);
-    const viewport = metrics[0];
-    const retainedBottom = metrics[1].top + metrics[1].height;
-    expect(retainedBottom - viewport.top).toBeGreaterThan(viewport.height / 2);
-    await main.evaluate((node) => { node.scrollTop += 120; node.dispatchEvent(new Event('scroll')); });
-    await page.waitForTimeout(20);
-  }
-  await expect.poll(() => library.requests.includes(60)).toBe(true);
-});
+for (const gridType of ['square', 'tile'] as const) {
+  test(`${gridType} infinite mode requests page 2 before the retained tail reaches mid-viewport`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 820 });
+    const library = await mockLibrary(page, 'infinite', gridType);
+    await page.goto('/');
+    await expect(page.getByText('180 files')).toBeVisible();
+    const main = page.locator('.main');
+    const grid = page.locator('.virtual-grid');
+    for (let i = 0; i < 20 && !library.requests.includes(60); i += 1) {
+      const metrics = await Promise.all([
+        main.evaluate((node) => ({ top: node.scrollTop, height: node.clientHeight })),
+        grid.evaluate((node) => ({ top: (node as HTMLElement).offsetTop, height: (node as HTMLElement).offsetHeight }))
+      ]);
+      const viewport = metrics[0];
+      const retainedBottom = metrics[1].top + metrics[1].height;
+      expect(retainedBottom - viewport.top).toBeGreaterThan(viewport.height / 2);
+      await main.evaluate((node) => { node.scrollTop += 120; node.dispatchEvent(new Event('scroll')); });
+      await page.waitForTimeout(20);
+    }
+    await expect.poll(() => library.requests.includes(60)).toBe(true);
+  });
+}
