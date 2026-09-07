@@ -19,6 +19,9 @@ import { ApiError } from '$lib/api/client';
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
 import type { UploadVariables } from '$lib/queries/library';
+import { uploadAdmissionFallbackMs, uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
+
+export { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
 type UploadMutate = (variables: UploadVariables) => Promise<Job | UploadImportResponse>;
 type CancelJob = (jobID: string) => Promise<Job>;
@@ -26,12 +29,6 @@ type JobBatch = { items: Job[] };
 type JobApplyResult = { completed: boolean; changedFiles: boolean };
 
 export const browserUploadConcurrency = 4;
-export const uploadJobStatusBatchSize = 64;
-const uploadAdmissionRetryMs = 250;
-
-function delay(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
 
 function isJobQueueFull(error: unknown) {
   return error instanceof ApiError && error.code === 'job_queue_full';
@@ -52,6 +49,7 @@ export function createUploadWorkflow() {
   let trackedJobs = $state<Record<string, number>>({});
   let admissionBackpressured = $state(false);
   let statusCounts: UploadStatusCounts = {};
+  let admissionWaiters = new Set<() => void>();
 
   $effect(() => {
     if (!busy) return;
@@ -62,6 +60,12 @@ export function createUploadWorkflow() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   });
+
+  function wakeAdmissionWaiters() {
+    const waiters = admissionWaiters;
+    admissionWaiters = new Set();
+    for (const wake of waiters) wake();
+  }
 
   function reset() {
     files = [];
@@ -77,6 +81,7 @@ export function createUploadWorkflow() {
     trackedJobs = {};
     admissionBackpressured = false;
     statusCounts = {};
+    wakeAdmissionWaiters();
   }
 
   function clear() {
@@ -166,6 +171,7 @@ export function createUploadWorkflow() {
       const nextTrackedJobs = { ...trackedJobs };
       delete nextTrackedJobs[job.id];
       trackedJobs = nextTrackedJobs;
+      wakeAdmissionWaiters();
       const changedFiles = job.status === 'completed';
       if (!busy && !hasActiveJobs()) finishBatch();
       else refreshStatus();
@@ -199,13 +205,35 @@ export function createUploadWorkflow() {
   function finishBatch() {
     files = [];
     admissionBackpressured = false;
+    wakeAdmissionWaiters();
     status = uploadSummaryFromCounts(statusCounts) || 'Upload finished';
+  }
+
+  function waitForAdmissionChange(skipIfCapacityAvailable = true) {
+    return new Promise<void>((resolve) => {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const wake = () => {
+        if (timeout !== undefined) clearTimeout(timeout);
+        admissionWaiters.delete(wake);
+        resolve();
+      };
+      admissionWaiters.add(wake);
+      // Avoid sleeping through a completion that raced between the caller's
+      // local-window capacity check and registering this waiter. A server-side
+      // queue-full response cannot use this shortcut because its saturation may
+      // come from work outside this browser's tracked window.
+      if (skipIfCapacityAvailable && Object.keys(trackedJobs).length < uploadJobStatusBatchSize) {
+        wake();
+        return;
+      }
+      timeout = setTimeout(wake, uploadAdmissionFallbackMs);
+    });
   }
 
   async function waitForJobAdmissionSlot() {
     while (Object.keys(trackedJobs).length >= uploadJobStatusBatchSize) {
       admissionBackpressured = true;
-      await delay(uploadAdmissionRetryMs);
+      await waitForAdmissionChange();
     }
   }
 
@@ -269,7 +297,7 @@ export function createUploadWorkflow() {
             } catch (error) {
               if (!isJobQueueFull(error)) throw error;
               admissionBackpressured = true;
-              await delay(uploadAdmissionRetryMs);
+              await waitForAdmissionChange(false);
             }
           }
           if ('id' in response) {
@@ -318,6 +346,7 @@ export function createUploadWorkflow() {
             const nextTrackedJobs = { ...trackedJobs };
             delete nextTrackedJobs[jobID];
             trackedJobs = nextTrackedJobs;
+            wakeAdmissionWaiters();
           }
           changed = true;
         } catch (error) {
