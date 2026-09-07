@@ -20,43 +20,15 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
+          import base64
           from pathlib import Path
           path = Path('gooru/query.go')
           text = path.read_text()
           marker = 'func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {'
-          if marker not in text:
-              raise SystemExit('KindFacetsByQuery marker not found')
-          prefix, rest = text.split(marker, 1)
-          anchor = '\n\tsqlQuery, args, err := c.buildLocationQuery(expression)'
-          if anchor not in rest:
-              raise SystemExit('KindFacetsByQuery fallback anchor not found')
-          block = (
-              '\n\tif exclusions, ok := parseSimpleUserTagFacetExclusions(expression); ok {\n'
-              '\t\tall, err := c.store.KindFacets()\n'
-              '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\n'
-              '\t\tvar excluded []types.TagWithCount\n'
-              '\t\tif len(exclusions) == 1 {\n'
-              '\t\t\tfilter := exclusions[0]\n'
-              '\t\t\tif filter.KeyOnly {\n'
-              '\t\t\t\texcluded, err = c.store.KindFacetsForTagKey(filter.Tag.Key)\n'
-              '\t\t\t} else {\n'
-              '\t\t\t\texcluded, err = c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)\n'
-              '\t\t\t}\n'
-              '\t\t} else {\n'
-              '\t\t\tdbExclusions := make([]tagFacetExclusion, 0, len(exclusions))\n'
-              '\t\t\tfor _, filter := range exclusions {\n'
-              '\t\t\t\tdbExclusions = append(dbExclusions, tagFacetExclusion{\n'
-              '\t\t\t\t\tKey: filter.Tag.Key, Value: filter.Tag.Value, KeyOnly: filter.KeyOnly,\n'
-              '\t\t\t\t})\n'
-              '\t\t\t}\n'
-              '\t\t\texcluded, err = c.store.KindFacetsForTagExclusions(dbExclusions)\n'
-              '\t\t}\n'
-              '\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n'
-              '\t\treturn subtractKindFacets(all, excluded), nil\n'
-              '\t}\n'
-          )
-          rest = rest.replace(anchor, block + anchor, 1)
-          path.write_text(prefix + marker + rest)
+          start = text.index(marker)
+          anchor = text.index('\n\tsqlQuery, args, err := c.buildLocationQuery(expression)', start)
+          block = base64.b64decode('CWlmIGV4Y2x1c2lvbnMsIG9rIDo9IHBhcnNlU2ltcGxlVXNlclRhZ0ZhY2V0RXhjbHVzaW9ucyhleHByZXNzaW9uKTsgb2sgewoJCWFsbCwgZXJyIDo9IGMuc3RvcmUuS2luZEZhY2V0cygpCgkJaWYgZXJyICE9IG5pbCB7CgkJCXJldHVybiBuaWwsIGVycgoJCX0KCgkJdmFyIGV4Y2x1ZGVkIFtddHlwZXMuVGFnV2l0aENvdW50CgkJaWYgbGVuKGV4Y2x1c2lvbnMpID09IDEgewoJCQlmaWx0ZXIgOj0gZXhjbHVzaW9uc1swXQoJCQlpZiBmaWx0ZXIuS2V5T25seSB7CgkJCQlleGNsdWRlZCwgZXJyID0gYy5zdG9yZS5LaW5kRmFjZXRzRm9yVGFnS2V5KGZpbHRlci5UYWcuS2V5KQoJCQl9IGVsc2UgewoJCQkJZXhjbHVkZWQsIGVyciA9IGMuc3RvcmUuS2luZEZhY2V0c0ZvclRhZyhmaWx0ZXIuVGFnLktleSwgZmlsdGVyLlRhZy5WYWx1ZSkKCQkJfQoJCX0gZWxzZSB7CgkJCWRiRXhjbHVzaW9ucyA6PSBtYWtlKFtddGFnRmFjZXRFeGNsdXNpb24sIDAsIGxlbihleGNsdXNpb25zKSkKCQkJZm9yIF8sIGZpbHRlciA6PSByYW5nZSBleGNsdXNpb25zIHsKCQkJCWRiRXhjbHVzaW9ucyA9IGFwcGVuZChkYkV4Y2x1c2lvbnMsIHRhZ0ZhY2V0RXhjbHVzaW9uewoJCQkJCUtleTogICAgIGZpbHRlci5UYWcuS2V5LAoJCQkJCVZhbHVlOiAgIGZpbHRlci5UYWcuVmFsdWUsCgkJCQkJS2V5T25seTogZmlsdGVyLktleU9ubHksCgkJCQl9KQoJCQl9CgkJCWV4Y2x1ZGVkLCBlcnIgPSBjLnN0b3JlLktpbmRGYWNldHNGb3JUYWdFeGNsdXNpb25zKGRiRXhjbHVzaW9ucykKCQl9CgkJaWYgZXJyICE9IG5pbCB7CgkJCXJldHVybiBuaWwsIGVycgoJCX0KCQlyZXR1cm4gc3VidHJhY3RLaW5kRmFjZXRzKGFsbCwgZXhjbHVkZWQpLCBuaWwKCX0K').decode()
+          path.write_text(text[:anchor] + '\n' + block + text[anchor:])
           PY
           gofmt -w gooru/query.go
       - name: Commit patch
