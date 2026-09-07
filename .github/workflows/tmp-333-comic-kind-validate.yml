@@ -1,3 +1,4 @@
+# final validation trigger after authoritative-CBZ repair
 name: Temporary 333 comic facet validation
 on:
   push:
