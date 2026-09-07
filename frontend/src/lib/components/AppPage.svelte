@@ -18,6 +18,8 @@
     font_style?: FontStyle;
     load_full_media_by_default?: boolean;
     fullscreen_media_by_default?: boolean;
+    hover_play_videos?: boolean;
+    hover_play_gifs?: boolean;
     viewer_fit_mode?: ViewerConfiguredFitMode;
     viewer_scaling?: ViewerScaling;
     grid_size?: number;
@@ -51,6 +53,8 @@
       capabilities: Array.isArray(config.capabilities) ? config.capabilities : [runtimeCapability.previewImages],
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
+      hoverPlayVideos: config.hover_play_videos ?? true,
+      hoverPlayGifs: config.hover_play_gifs ?? true,
       viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
       viewerScaling: config.viewer_scaling ?? 'smooth',
       gridSize: runtimeGridSize,
