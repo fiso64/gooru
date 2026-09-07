@@ -7,5 +7,6 @@ import "gooru.local/internal/database"
 // these package-local names rather than importing internal/database directly.
 type databaseTx = database.Tx
 type contentTagPair = database.ContentTagPair
+type tagFacetExclusion = database.TagFacetExclusion
 
 var errInvalidSavedSearchOrder = database.ErrInvalidSavedSearchOrder
