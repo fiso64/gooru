@@ -3,8 +3,12 @@
   import Icon from './Icon.svelte';
   import { mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { activateNearViewport } from '$lib/utils/viewportActivation';
+  import { activeHoverPreviewID } from '$lib/stores/hoverPreview';
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
+  import { isAnimatedGif } from '$lib/utils/media';
   import type { FileItem } from '$lib/api/types';
+
+  const hoverDwellMs = 150;
 
   let {
     file, cardWidth, cardHeight = cardWidth, fitMedia = false, pixelRatio, viewportRoot, selected,
@@ -17,17 +21,72 @@
 
   let cardHost = $state<HTMLElement | undefined>();
   let thumbnailActive = $state(false);
+  let previewNearViewport = $state(false);
+  let reducedMotion = $state(false);
+  let hoverTimer: number | undefined;
+  let videoProgress = $state(0);
   const extensionLabel = $derived(fileExtension(file.name));
   const mediaWidth = $derived(file.metadata.image_width ?? file.metadata.video_width ?? 0);
   const mediaHeight = $derived(file.metadata.image_height ?? file.metadata.video_height ?? 0);
+  const gifFile = $derived(file.media_kind === 'gif' || isAnimatedGif(file));
+  const videoFile = $derived(file.media_kind === 'video');
+  const hoverEnabled = $derived((videoFile && $runtimeConfig.hoverPlayVideos) || (gifFile && $runtimeConfig.hoverPlayGifs));
+  const hoverPreviewActive = $derived($activeHoverPreviewID === file.id && hoverEnabled && previewNearViewport && !reducedMotion);
   const thumbnailSource = $derived(thumbnailURL(file.media_urls.thumbnail, $runtimeConfig.thumbnailSizes,
     cardWidth || $runtimeConfig.gridSize, cardHeight || cardWidth || $runtimeConfig.gridSize,
     pixelRatio, mediaWidth, mediaHeight, fitMedia));
 
   onMount(() => {
     if (!cardHost) return;
-    return activateNearViewport(cardHost, viewportRoot ?? null, () => { thumbnailActive = true; });
+    const stopThumbnailActivation = activateNearViewport(cardHost, viewportRoot ?? null, () => { thumbnailActive = true; });
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updateMotion = () => {
+      reducedMotion = motionQuery.matches;
+      if (reducedMotion) stopHoverPreview();
+    };
+    updateMotion();
+    motionQuery.addEventListener('change', updateMotion);
+
+    const previewObserver = typeof IntersectionObserver === 'undefined'
+      ? undefined
+      : new IntersectionObserver((entries) => {
+          previewNearViewport = entries.some((entry) => entry.isIntersecting);
+          if (!previewNearViewport) stopHoverPreview();
+        }, { root: viewportRoot ?? null, rootMargin: '96px 0px' });
+    if (previewObserver) previewObserver.observe(cardHost);
+    else previewNearViewport = true;
+
+    return () => {
+      stopThumbnailActivation();
+      if (hoverTimer !== undefined) window.clearTimeout(hoverTimer);
+      if ($activeHoverPreviewID === file.id) activeHoverPreviewID.set('');
+      motionQuery.removeEventListener('change', updateMotion);
+      previewObserver?.disconnect();
+    };
   });
+
+  function startHoverPreview() {
+    if (!hoverEnabled || reducedMotion || !previewNearViewport || !file.media_urls.content) return;
+    if (hoverTimer !== undefined) window.clearTimeout(hoverTimer);
+    hoverTimer = window.setTimeout(() => {
+      hoverTimer = undefined;
+      if (hoverEnabled && !reducedMotion && previewNearViewport) activeHoverPreviewID.set(file.id);
+    }, hoverDwellMs);
+  }
+
+  function stopHoverPreview() {
+    if (hoverTimer !== undefined) {
+      window.clearTimeout(hoverTimer);
+      hoverTimer = undefined;
+    }
+    videoProgress = 0;
+    if ($activeHoverPreviewID === file.id) activeHoverPreviewID.set('');
+  }
+
+  function updateVideoProgress(event: Event) {
+    const video = event.currentTarget as HTMLVideoElement;
+    videoProgress = Number.isFinite(video.duration) && video.duration > 0 ? Math.min(1, Math.max(0, video.currentTime / video.duration)) : 0;
+  }
 
   function fileExtension(name: string) {
     const baseName = name.split(/[\\/]/).pop() ?? name;
@@ -69,9 +128,15 @@
   }
 </script>
 
-<article bind:this={cardHost} class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''}>
+<article bind:this={cardHost} class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''} onpointerenter={startHoverPreview} onpointerleave={stopHoverPreview}>
   <button class="thumb-open" type="button" aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeyboardAction}>
     {#if thumbnailActive}<img src={thumbnailSource} alt={file.name} decoding="async" draggable="false" />{/if}
+    {#if hoverPreviewActive && videoFile}
+      <video class:contain-preview={fitMedia} class="hover-preview-media" data-testid="hover-video-preview" src={file.media_urls.content} muted autoplay loop playsinline preload="metadata" ontimeupdate={updateVideoProgress} ondurationchange={updateVideoProgress}></video>
+      <span class="hover-video-progress" data-testid="hover-video-progress" aria-hidden="true"><span style={`transform:scaleX(${videoProgress})`}></span></span>
+    {:else if hoverPreviewActive && gifFile}
+      <img class:contain-preview={fitMedia} class="hover-preview-media" data-testid="hover-gif-preview" src={file.media_urls.content} alt="" draggable="false" />
+    {/if}
     <span class="thumb-overlay"></span>
     <span class="thumb-badges">{#if file.media_kind === 'video'}<span class="thumb-badge"><Icon name="play" size={9} /> {mediaDuration(file) || 'video'}</span>{:else if file.media_kind === 'gif'}<span class="thumb-badge">GIF{mediaDuration(file) ? ` · ${mediaDuration(file)}` : ''}</span>{:else if file.media_kind !== 'photo' && extensionLabel}<span class="thumb-badge thumb-badge-extension">{extensionLabel}</span>{/if}</span>
     <span class="thumb-meta"><span class="thumb-meta-name">{file.name}</span><span>{mediaDimensions(file)}</span></span>
@@ -83,6 +148,10 @@
 <style>
   :global(.thumb-open:focus-visible) { outline: none; }
   :global(.thumb-open:focus-visible::after) { content: ''; position: absolute; z-index: 5; inset: 6px; border: 2px dashed #fff; border-radius: 2px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; pointer-events: none; }
+  .hover-preview-media { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; pointer-events: none; }
+  .hover-preview-media.contain-preview { object-fit: contain; }
+  .hover-video-progress { position: absolute; z-index: 4; left: 7px; right: 7px; bottom: 5px; height: 2px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.28); pointer-events: none; }
+  .hover-video-progress > span { display: block; width: 100%; height: 100%; transform-origin: left center; background: rgba(255, 255, 255, 0.9); }
   .thumb-badge-extension { background: var(--accent); color: var(--accent-ink); }
   .thumb-preview { position: absolute; z-index: 3; right: 7px; bottom: 7px; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 5px; background: rgba(0, 0, 0, 0.78); color: #fff; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .12s, background .12s, border-color .12s; }
   :global(.thumb:hover) .thumb-preview { opacity: 1; pointer-events: auto; }
