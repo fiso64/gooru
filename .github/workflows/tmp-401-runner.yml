@@ -1,0 +1,21 @@
+name: tmp-401-durable-runner
+
+on:
+  push:
+    branches:
+      - refactor/401-durable-runner
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Focused runner tests
+        run: go test ./internal/background ./internal/database
+      - name: Full Go tests
+        run: go test ./...
+      - name: Build
+        run: go build ./...
