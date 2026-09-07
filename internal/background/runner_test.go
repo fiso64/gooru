@@ -184,14 +184,14 @@ func TestRunnerRenewsLeaseDuringLongHandler(t *testing.T) {
 	}
 }
 
-func TestRunnerDoesNotWriteOutcomeAfterLeaseLoss(t *testing.T) {
-	store := &fakeTaskStore{renewErr: database.ErrBackgroundTaskLeaseLost, renewedCh: make(chan struct{})}
+func TestRunnerCancelsHandlerAndDoesNotWriteOutcomeAfterLeaseLoss(t *testing.T) {
+	store := &fakeTaskStore{renewErr: database.ErrBackgroundTaskLeaseLost}
 	runner := newTestRunner(t, store, map[string]Handler{"thumbnail": func(ctx context.Context, _ database.BackgroundTask) error {
 		select {
-		case <-store.renewedCh:
-			return nil
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-time.After(time.Second):
+			return errors.New("handler was not canceled after lease loss")
 		}
 	}})
 	if err := runner.runClaimed(context.Background(), database.BackgroundTask{ID: "task-5", Kind: "thumbnail"}); err != nil {
@@ -199,6 +199,9 @@ func TestRunnerDoesNotWriteOutcomeAfterLeaseLoss(t *testing.T) {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	if store.renewed == 0 {
+		t.Fatal("expected lease renewal attempt")
+	}
 	if len(store.completed) != 0 || len(store.failed) != 0 {
 		t.Fatalf("outcome written after lease loss: completed=%#v failed=%#v", store.completed, store.failed)
 	}
