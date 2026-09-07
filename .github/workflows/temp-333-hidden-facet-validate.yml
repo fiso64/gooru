@@ -1,0 +1,26 @@
+name: temp-333-hidden-facet-validate
+
+on:
+  push:
+    branches:
+      - perf/333-hidden-tag-facet-exclusions
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Focused tests
+        run: go test ./gooru ./internal/database
+      - name: Full tests
+        run: go test ./...
+      - name: Build
+        run: go build ./...
