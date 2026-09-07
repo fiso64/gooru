@@ -37,6 +37,18 @@ jobs:
       - name: Poll cadence unit
         continue-on-error: true
         run: npm run test:unit -- src/lib/queries/jobs.admission.test.ts
+      - name: Existing upload workflow unit
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/state/uploadWorkflow.svelte.test.ts
+      - name: Existing jobs unit
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/queries/jobs.test.ts
+      - name: State unit group
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/state
+      - name: Query unit group
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/queries
       - name: Unit tests
         run: npm run test:unit
       - name: Install Chromium
