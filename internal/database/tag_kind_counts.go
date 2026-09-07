@@ -1,6 +1,18 @@
 package database
 
-import "gooru.local/types"
+import (
+	"fmt"
+	"strings"
+
+	"gooru.local/types"
+)
+
+// TagFacetExclusion describes one simple user-tag exclusion. KeyOnly matches
+// every value in the namespace; otherwise Tag is an exact key/value match.
+type TagFacetExclusion struct {
+	Tag     types.ParsedTag
+	KeyOnly bool
+}
 
 func scanKindFacets(rows interface {
 	Next() bool
@@ -45,6 +57,50 @@ func (s *Store) KindFacetsForTagKey(key string) ([]types.TagWithCount, error) {
 		WHERE key = ? AND files_count > 0
 		ORDER BY files_count DESC, kind ASC
 	`, key)
+	if err != nil {
+		return nil, err
+	}
+	return scanKindFacets(rows)
+}
+
+// KindFacetsForExcludedTags returns the kind partition of the union of content
+// carrying any exclusion. It starts from indexed tag associations and only
+// joins locations for excluded content, so work scales with the hidden subset
+// instead of the visible library. DISTINCT preserves union semantics when a
+// content item carries more than one excluded tag.
+func (s *Store) KindFacetsForExcludedTags(exclusions []TagFacetExclusion) ([]types.TagWithCount, error) {
+	if len(exclusions) == 0 {
+		return nil, nil
+	}
+
+	conditions := make([]string, 0, len(exclusions))
+	args := make([]interface{}, 0, len(exclusions)*2)
+	for _, exclusion := range exclusions {
+		if exclusion.KeyOnly {
+			conditions = append(conditions, "t.key = ?")
+			args = append(args, exclusion.Tag.Key)
+			continue
+		}
+		conditions = append(conditions, "(t.key = ? AND t.value = ?)")
+		args = append(args, exclusion.Tag.Key, exclusion.Tag.Value)
+	}
+
+	query := fmt.Sprintf(`
+		WITH excluded_contents(content_hash) AS (
+			SELECT DISTINCT ct.content_hash
+			FROM tags t
+			JOIN content_tags ct ON ct.tag_id = t.id
+			WHERE %s
+		)
+		SELECT %s AS kind, COUNT(*) AS files_count
+		FROM excluded_contents ec
+		JOIN locations l ON l.content_hash = ec.content_hash
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		GROUP BY kind
+		ORDER BY files_count DESC, kind ASC
+	`, strings.Join(conditions, " OR "), fileKindExpression())
+
+	rows, err := s.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

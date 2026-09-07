@@ -578,6 +578,9 @@ func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.Tag
 		}
 		return c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
 	}
+	if exclusions, ok := parseSimpleUserTagFacetExclusions(expression); ok {
+		return c.kindFacetsForUserTagExclusions(exclusions)
+	}
 	sqlQuery, args, err := c.buildLocationQuery(expression)
 	if err != nil {
 		return nil, err
