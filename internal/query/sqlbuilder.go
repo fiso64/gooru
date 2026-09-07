@@ -152,16 +152,21 @@ func (b *SQLBuilder) buildFactor(factor *Factor) {
 }
 
 func mediaTypeExpression() string {
-	return `coalesce(mm.media_kind, CASE
-		WHEN lower(l.extension) = '.gif' THEN 'gif'
-		WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
-		WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
-		ELSE 'other'
-	END)`
+	return `CASE
+		WHEN lower(l.extension) = '.cbz' THEN 'comic'
+		ELSE coalesce(mm.media_kind, CASE
+			WHEN lower(l.extension) = '.gif' THEN 'gif'
+			WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+			WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+			ELSE 'other'
+		END)
+	END`
 }
 
 func fallbackMediaTypeCondition(value string) string {
 	switch strings.ToLower(value) {
+	case "comic":
+		return `lower(l.extension) = '.cbz'`
 	case "gif":
 		return `lower(l.extension) = '.gif'`
 	case "photo":
@@ -169,7 +174,7 @@ func fallbackMediaTypeCondition(value string) string {
 	case "video":
 		return `lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
 	case "other":
-		return `lower(l.extension) NOT IN ('.gif', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
+		return `lower(l.extension) NOT IN ('.cbz', '.gif', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
 	default:
 		return ""
 	}
@@ -186,8 +191,13 @@ func (b *SQLBuilder) buildMediaTypeQuery(value string) {
 		union = ` UNION ALL `
 	}
 
-	b.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(mm.media_kind) = lower(?)`)
+	b.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(l.extension) <> '.cbz' AND lower(mm.media_kind) = lower(?)`)
 	b.args = append(b.args, value)
+
+	if strings.EqualFold(value, "comic") {
+		b.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE lower(l.extension) = '.cbz'`)
+		return
+	}
 
 	fallback := fallbackMediaTypeCondition(value)
 	if fallback == "" {

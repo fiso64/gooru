@@ -1981,12 +1981,15 @@ func fileSortExpression(sort string) string {
 }
 
 func fileKindExpression() string {
-	return `coalesce(mm.media_kind, CASE
-		WHEN lower(l.extension) = '.gif' THEN 'gif'
-		WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
-		WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
-		ELSE 'other'
-	END)`
+	return `CASE
+		WHEN lower(l.extension) = '.cbz' THEN 'comic'
+		ELSE coalesce(mm.media_kind, CASE
+			WHEN lower(l.extension) = '.gif' THEN 'gif'
+			WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+			WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+			ELSE 'other'
+		END)
+	END`
 }
 
 func (s *Store) fileCursorClause(cursor *types.PageCursor, sort string, order string) (string, []interface{}, error) {

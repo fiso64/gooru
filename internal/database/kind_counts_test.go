@@ -52,16 +52,22 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 	photoID := insertLocation("photo", "file_photo", "/photo.jpg", ".jpg")
 	gifID := insertLocation("gif", "file_gif", "/anim.gif", ".gif")
 	otherID := insertLocation("other", "file_other", "/notes.txt", ".txt")
+	comicID := insertLocation("comic", "file_comic", "/book.cbz", ".cbz")
 	videoID := insertLocation("video", "file_video", "/clip.mp4", ".mp4")
 	if _, err := db.Exec(`
 		INSERT INTO media_metadata (location_id, media_kind, mime_type)
-		VALUES (?, 'photo', 'image/jpeg')
-	`, videoID); err != nil {
+		VALUES (?, 'photo', 'image/jpeg'), (?, 'other', 'application/vnd.comicbook+zip')
+	`, videoID, comicID); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := RunMigrations(db); err != nil {
-		t.Fatalf("RunMigrations through v12: %v", err)
+		t.Fatalf("RunMigrations: %v", err)
+	}
+	assertKindCountsMatchRecomputed(t, db)
+
+	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'photo' WHERE location_id = ?`, comicID); err != nil {
+		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
 
@@ -79,6 +85,16 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 	assertKindCountsMatchRecomputed(t, db)
 
 	if _, err := db.Exec(`UPDATE locations SET extension = '.png' WHERE id = ?`, otherID); err != nil {
+		t.Fatal(err)
+	}
+	assertKindCountsMatchRecomputed(t, db)
+
+	if _, err := db.Exec(`UPDATE locations SET extension = '.zip' WHERE id = ?`, comicID); err != nil {
+		t.Fatal(err)
+	}
+	assertKindCountsMatchRecomputed(t, db)
+
+	if _, err := db.Exec(`UPDATE locations SET extension = '.cbz' WHERE id = ?`, comicID); err != nil {
 		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
@@ -163,12 +179,15 @@ func assertKindCountsMatchRecomputed(t *testing.T, db *sql.DB) {
 	}
 
 	want := readCounts(`
-		SELECT coalesce(mm.media_kind, CASE
-			WHEN lower(l.extension) = '.gif' THEN 'gif'
-			WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
-			WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
-			ELSE 'other'
-		END) AS kind, COUNT(*)
+		SELECT CASE
+			WHEN lower(l.extension) = '.cbz' THEN 'comic'
+			ELSE coalesce(mm.media_kind, CASE
+				WHEN lower(l.extension) = '.gif' THEN 'gif'
+				WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+				WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+				ELSE 'other'
+			END)
+		END AS kind, COUNT(*)
 		FROM locations l
 		LEFT JOIN media_metadata mm ON mm.location_id = l.id
 		GROUP BY kind

@@ -843,14 +843,21 @@ func normalizeSortOrder(value string) string {
 }
 
 func mediaTypeForPath(path string) string {
-	if typ := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); typ != "" {
+	extension := strings.ToLower(filepath.Ext(path))
+	if extension == ".cbz" {
+		return "application/vnd.comicbook+zip"
+	}
+	if typ := mime.TypeByExtension(extension); typ != "" {
 		return typ
 	}
 	return "application/octet-stream"
 }
 
 func mediaKindForType(mediaType string) string {
+	baseType := strings.TrimSpace(strings.SplitN(mediaType, ";", 2)[0])
 	switch {
+	case strings.EqualFold(baseType, "application/vnd.comicbook+zip"):
+		return "comic"
 	case mediaType == "image/gif":
 		return "gif"
 	case strings.HasPrefix(mediaType, "image/"):

@@ -78,14 +78,17 @@ func TestBuildLocationsMediaTypeUsesSelectiveIndexes(t *testing.T) {
 	}
 }
 
-func TestBuildMediaTypeUnknownKindOnlyUsesMetadata(t *testing.T) {
+func TestBuildMediaTypeUnknownKindUsesMetadataWithCBZOverride(t *testing.T) {
 	expr, err := Parse("type:audio")
 	if err != nil {
 		t.Fatal(err)
 	}
 	query, args := BuildLocations(expr, nil)
-	if strings.Contains(query, "UNION") || strings.Contains(query, "extension") {
-		t.Fatalf("metadata-only kind should not scan extension fallbacks: %s", query)
+	if strings.Contains(query, "UNION") {
+		t.Fatalf("metadata-only kind should not add an extension fallback branch: %s", query)
+	}
+	if !strings.Contains(query, "lower(l.extension) <> '.cbz'") {
+		t.Fatalf("metadata-only kind must exclude authoritative CBZ comic rows: %s", query)
 	}
 	if len(args) != 1 || args[0] != "audio" {
 		t.Fatalf("args = %#v", args)
