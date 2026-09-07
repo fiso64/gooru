@@ -1,0 +1,40 @@
+name: Temporary #401 final schema validation
+
+on:
+  push:
+    branches:
+      - refactor/401-durable-work-schema
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temporary-401-final
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refactor/401-durable-work-schema
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Database package tests
+        run: go test ./internal/database
+      - name: Full Go tests
+        run: go test ./...
+      - name: Build
+        run: go build ./...
+      - name: Remove temporary workflow
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/tmp-401-final.yml
+          git commit -m "chore(ci): remove temporary #401 final validation workflow"
+          git push origin HEAD:refactor/401-durable-work-schema
