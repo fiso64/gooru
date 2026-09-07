@@ -1,0 +1,49 @@
+name: tmp-333-key-kind-validate
+
+on:
+  push:
+    branches:
+      - perf/333-exact-tag-kind-summary
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-exact-tag-kind-summary
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Wire key-wide and exact facet paths
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('gooru/query.go')
+          s = p.read_text()
+          old = '''\tif tag, ok := simpleExactUserTagFilter(expression); ok {\n\t\treturn c.store.KindFacetsForTag(tag.Key, tag.Value)\n\t}\n'''
+          new = '''\tif filter, ok := parseSimpleUserTagFacetFilter(expression); ok {\n\t\tif filter.KeyOnly {\n\t\t\treturn c.store.KindFacetsForTagKey(filter.Tag.Key)\n\t\t}\n\t\treturn c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)\n\t}\n'''
+          if old not in s:
+              raise SystemExit('KindFacetsByQuery exact-tag anchor not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          gofmt -w gooru/query.go gooru/query_tag_fastpath.go gooru/query_tag_fastpath_test.go internal/database/tag_kind_counts.go internal/database/tag_key_kind_counts_test.go internal/database/tag_kind_counts_test.go
+      - name: Focused regressions
+        run: go test ./gooru ./internal/database ./internal/serve
+      - name: Full Go suite
+        run: go test ./...
+      - name: Commit validated wiring and remove temporary workflow
+        if: success()
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add gooru/query.go gooru/query_tag_fastpath.go gooru/query_tag_fastpath_test.go internal/database/tag_kind_counts.go internal/database/tag_key_kind_counts_test.go internal/database/tag_kind_counts_test.go internal/database/migrations/021_tag_key_kind_counts.up.sql internal/database/migrations/021_tag_key_kind_counts.down.sql
+          git rm .github/workflows/tmp-333-key-kind-validate.yml
+          git commit -m 'perf: use maintained kind summaries for simple tag facets'
+          git push origin HEAD:perf/333-exact-tag-kind-summary
