@@ -18,7 +18,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Go regression suites
-        run: go test ./internal/database ./internal/query ./gooru/...
+        run: go test ./internal/database ./internal/query ./internal/serve ./gooru/... && go build ./...
       - name: Frontend install
         run: cd frontend && npm ci --prefer-offline --no-audit
       - name: Frontend static and unit validation
