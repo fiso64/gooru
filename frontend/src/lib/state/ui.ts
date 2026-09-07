@@ -42,6 +42,7 @@ const gridInset = 16;
 const gridGap = 5;
 const overscanRows = 4;
 const virtualWindowStrideRows = 3;
+const transportLoadAheadRows = 4;
 const variableOverscanScreens = 1;
 
 export function gridColumns(containerWidth: number, minCardWidth = defaultGridSize) {
@@ -80,12 +81,15 @@ export function virtualGrid(
   const cardWidth = gridCardWidth(containerWidth, minCardWidth, columns);
   const rowHeight = cardWidth + gridGap;
   const totalRows = Math.ceil(Math.max(totalItems, retainedStartIndex + files.length) / columns);
+  const viewportStart = Math.max(0, scrollY - gridTop);
   const startRow = virtualGridStartRow(scrollY, gridTop, rowHeight);
-  const visibleRows = Math.ceil(viewportHeight / rowHeight) + overscanRows * 2 + virtualWindowStrideRows - 1;
-  const endRow = Math.min(totalRows, startRow + visibleRows);
+  const viewportEndRow = Math.ceil((viewportStart + viewportHeight) / rowHeight);
+  const endRow = Math.min(totalRows, viewportEndRow + overscanRows);
   const retainedEndIndex = retainedStartIndex + files.length;
   const globalStartIndex = startRow * columns;
   const globalEndIndex = endRow * columns;
+  const transportEndRow = Math.min(totalRows, Math.ceil((viewportStart + viewportHeight) / rowHeight) + transportLoadAheadRows);
+  const transportEndIndex = transportEndRow * columns;
   const startIndex = Math.max(retainedStartIndex, globalStartIndex);
   const endIndex = Math.min(retainedEndIndex, globalEndIndex);
   return {
@@ -96,7 +100,11 @@ export function virtualGrid(
     cardWidth,
     rowHeight,
     needsPrevious: globalStartIndex < retainedStartIndex,
-    needsNext: globalEndIndex > retainedEndIndex
+    // DOM overscan intentionally spans several rows to keep scrolling smooth, but using that
+    // same window as a transport trigger eagerly fetched page 2 on a normal 60-item startup.
+    // Keep network look-ahead independent so the next page is requested several rows before
+    // the viewport reaches the retained tail without doubling initial list or thumbnail work.
+    needsNext: transportEndIndex > retainedEndIndex
   };
 }
 

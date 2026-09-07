@@ -152,21 +152,58 @@ func (b *SQLBuilder) buildFactor(factor *Factor) {
 }
 
 func mediaTypeExpression() string {
-	return `coalesce(mm.media_kind, CASE
-		WHEN lower(l.extension) = '.gif' THEN 'gif'
-		WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
-		WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
-		ELSE 'other'
-	END)`
+	return `CASE
+		WHEN lower(l.extension) = '.cbz' THEN 'comic'
+		ELSE coalesce(mm.media_kind, CASE
+			WHEN lower(l.extension) = '.gif' THEN 'gif'
+			WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+			WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+			ELSE 'other'
+		END)
+	END`
+}
+
+func fallbackMediaTypeCondition(value string) string {
+	switch strings.ToLower(value) {
+	case "comic":
+		return `lower(l.extension) = '.cbz'`
+	case "gif":
+		return `lower(l.extension) = '.gif'`
+	case "photo":
+		return `lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif')`
+	case "video":
+		return `lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
+	case "other":
+		return `lower(l.extension) NOT IN ('.cbz', '.gif', '.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg')`
+	default:
+		return ""
+	}
 }
 
 func (b *SQLBuilder) buildMediaTypeQuery(value string) {
-	selectColumn := `DISTINCT l.content_hash as hash`
+	// Metadata-backed kinds and extension-derived fallback kinds are mutually
+	// exclusive for a location. Split them so SQLite can use the media-kind and
+	// extension indexes instead of evaluating a COALESCE/CASE over every row.
+	selectColumn := `l.content_hash as hash`
+	union := ` UNION `
 	if b.target == "id" {
 		selectColumn = `l.id as id`
+		union = ` UNION ALL `
 	}
-	b.query.WriteString(`SELECT ` + selectColumn + ` FROM locations l LEFT JOIN media_metadata mm ON mm.location_id = l.id WHERE lower(` + mediaTypeExpression() + `) = lower(?)`)
+
+	b.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(l.extension) <> '.cbz' AND lower(mm.media_kind) = lower(?)`)
 	b.args = append(b.args, value)
+
+	if strings.EqualFold(value, "comic") {
+		b.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE lower(l.extension) = '.cbz'`)
+		return
+	}
+
+	fallback := fallbackMediaTypeCondition(value)
+	if fallback == "" {
+		return
+	}
+	b.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE ` + fallback + ` AND NOT EXISTS (SELECT 1 FROM media_metadata mm WHERE mm.location_id = l.id)`)
 }
 
 func quoteFTS5Phrase(value string) string {
@@ -232,6 +269,30 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 	case "type":
 		b.buildMediaTypeQuery(parsed.Value)
 	default:
+		if parsed.Value != "" && parsed.Value != "*" {
+			// Exact tag associations are unique by (content_hash, tag_id). Resolve
+			// the tag once, then walk the covering tag_id/content_hash index instead
+			// of joining tags and locations only to DISTINCT the result again.
+			if b.target == "id" {
+				b.query.WriteString(`SELECT l.id as id FROM content_tags ct JOIN locations l ON l.content_hash = ct.content_hash WHERE ct.tag_id = (SELECT id FROM tags WHERE key = ? AND value = ?)`)
+			} else {
+				b.query.WriteString(`SELECT ct.content_hash as hash FROM content_tags ct WHERE ct.tag_id = (SELECT id FROM tags WHERE key = ? AND value = ?)`)
+			}
+			b.args = append(b.args, parsed.Key, parsed.Value)
+			return
+		}
+
+		// Bare key-wide location queries are frequently high-cardinality (for
+		// example the UI's `hidden` filter). Driving from locations and probing the
+		// tag association lets the outer browse query preserve its requested
+		// location ordering and stop at the page limit instead of materializing a
+		// DISTINCT set of every matching location before sorting it.
+		if b.target == "id" && parsed.Value == "" && !strings.HasSuffix(tagStr, ":") {
+			b.query.WriteString(`SELECT l.id as id FROM locations l WHERE EXISTS (SELECT 1 FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE ct.content_hash = l.content_hash AND t.key = ?)`)
+			b.args = append(b.args, parsed.Key)
+			return
+		}
+
 		queryPrefix := `SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
 		if b.target == "id" {
 			queryPrefix = `SELECT DISTINCT l.id as id FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
@@ -240,9 +301,6 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 		if parsed.Value == "*" {
 			b.query.WriteString(`t.key = ? AND t.value != ''`)
 			b.args = append(b.args, parsed.Key)
-		} else if parsed.Value != "" {
-			b.query.WriteString(`t.key = ? AND t.value = ?`)
-			b.args = append(b.args, parsed.Key, parsed.Value)
 		} else if strings.HasSuffix(tagStr, ":") {
 			b.query.WriteString(`t.key = ? AND t.value = ''`)
 			b.args = append(b.args, parsed.Key)

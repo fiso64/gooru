@@ -34,13 +34,13 @@
   import { browserPersistenceRegistry, readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
-  import { appendSidebarKind, queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
+  import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
   import { previewNeighbor } from '$lib/utils/viewerNavigation';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { Job, SavedSearchRequest } from '$lib/api/types';
 
   const paginationPreferenceKey = browserPersistenceRegistry.libraryPaginationMode.key;
-  const uploadMetadataRefreshIntervalMs = 3_000;
+  const uploadMetadataRefreshIntervalMs = 700;
   const isPaginationMode = (value: unknown): value is PaginationMode => value === 'infinite' || value === 'paged';
   let paginationModeOverride = $state<PaginationMode | undefined>(
     readBrowserPreference<PaginationMode | undefined>(paginationPreferenceKey, undefined, isPaginationMode)
@@ -57,7 +57,7 @@
   const upload = createUploadWorkflow();
 
   let authScope = $state(0);
-  let observedCSRF = $state('');
+  let observedCSRF = $state($authState.csrfToken);
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let cancelRequestedJobID = $state('');
   let jobsDrawerOpen = $state(false);
@@ -100,10 +100,7 @@
     () => library.page - 1
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
-  const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library');
-  const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && pagedMode);
-  const comicCountQuery = createFileCountQuery(() => Boolean($authState.user), () => appendSidebarKind(sidebarBaseQuery, 'ext:cbz'), () => authScope, () => library.route === 'library');
-  const comicLibraryCountQuery = createFileCountQuery(() => Boolean($authState.user), () => 'ext:cbz', () => authScope, () => library.route === 'library');
+  const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library' && sidebarBaseQuery !== $submittedSearch);
   const uploadResultsCountQuery = createFileCountQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && trackUploadResults);
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
@@ -137,6 +134,13 @@
   const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveCurrentQueryCount - uploadResultsFloor) : 0);
   const pagedPageCount = $derived(Math.max(1, Math.ceil(gridSnapshotTotalCount / $runtimeConfig.itemsPerPage)));
   const selectedCount = $derived(library.selectedCount());
+  const sidebarKindCounts = $derived(
+    sidebarBaseQuery !== $submittedSearch
+      ? (kindFacetsQuery.data?.facets?.kind ?? [])
+      : (fileMetadata?.facets?.kind ?? [])
+  );
+  const comicCount = $derived(sidebarKindCounts.find((item) => item.value === 'comic')?.count ?? 0);
+  const comicAvailable = $derived((tagsQuery.data?.facets?.kind ?? []).some((item) => item.value === 'comic' && item.count > 0));
 
   $effect(() => {
     const targets = uploadTargetsQuery.data?.items ?? [];
@@ -186,9 +190,7 @@
 
   $effect(() => {
     fileMetadataKey;
-    const metadataPage = pagedMode
-      ? pagedMetadataQuery.data
-      : filesQuery.data?.pages.find((page) => page.facets);
+    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);
     if (!metadataPage) return;
     fileMetadata = {
       total_count: metadataPage.total_count,
@@ -201,14 +203,13 @@
     const job = uploadJobQuery.data;
     if (!job) return;
     const result = upload.applyJob(job);
-    if (result.changedFiles) {
-      if (!trackUploadResults) {
-        trackUploadResults = true;
-        uploadResultsFloor = gridSnapshotTotalCount;
-      }
-      void refreshUploadMetadata(true);
+    if (result.changedFiles && !trackUploadResults) {
+      trackUploadResults = true;
+      uploadResultsFloor = gridSnapshotTotalCount;
     }
-    if (result.completed) void jobsQuery.refetch();
+    if (result.completed && !upload.busy && !upload.activeJobIDs.length) {
+      void finishUploadMetadataRefresh();
+    }
   });
 
   $effect(() => {
@@ -453,8 +454,6 @@
       const requests: Promise<unknown>[] = [
         tagsQuery.refetch(),
         kindFacetsQuery.refetch(),
-        comicCountQuery.refetch(),
-        comicLibraryCountQuery.refetch(),
         jobsQuery.refetch()
       ];
       if (trackUploadResults) {
@@ -472,6 +471,15 @@
     } finally {
       if (uploadMetadataRefreshPromise === run) uploadMetadataRefreshPromise = null;
     }
+  }
+
+  async function finishUploadMetadataRefresh() {
+    stopUploadMetadataRefresh();
+    const finalTotal = await refreshUploadMetadata(true);
+    if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsFloor) {
+      trackUploadResults = false;
+    }
+    return finalTotal;
   }
 
   function startUploadMetadataRefresh() {
@@ -495,11 +503,7 @@
       if (result.changedFiles) beginTrackingUploadResults();
       if (result.queued) void jobsQuery.refetch();
     } finally {
-      stopUploadMetadataRefresh();
-      const finalTotal = await refreshUploadMetadata(true);
-      if (!upload.busy && finalTotal != null && finalTotal <= uploadResultsFloor) {
-        trackUploadResults = false;
-      }
+      if (!upload.activeJobIDs.length) await finishUploadMetadataRefresh();
       uploadMutation.reset();
     }
   }
@@ -525,7 +529,10 @@
   async function cancelUploadJob(jobID = upload.activeJobID) {
     cancelRequestedJobID = jobID;
     const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);
-    if (result.changed) void jobsQuery.refetch();
+    if (result.changed) {
+      void jobsQuery.refetch();
+      if (!upload.busy && !upload.activeJobIDs.length) void finishUploadMetadataRefresh();
+    }
   }
 
   async function cancelJob(job: Job) {
@@ -640,8 +647,8 @@
     jobs={jobsQuery.data?.items ?? []}
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
-    comicCount={comicCountQuery.data?.total_count ?? 0}
-    comicAvailable={(comicLibraryCountQuery.data?.total_count ?? 0) > 0}
+    comicCount={comicCount}
+    comicAvailable={comicAvailable}
     savedSearches={savedSearchesQuery.data?.items ?? []}
     suggestions={suggestionsQuery.data?.items ?? []}
     metaTags={suggestionsQuery.data?.meta_tags ?? []}

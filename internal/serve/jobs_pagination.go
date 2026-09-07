@@ -25,8 +25,10 @@ func (h *jobPageHeap) Pop() any {
 
 // ListPage returns only the requested newest retained jobs. It keeps at most
 // offset+limit+1 lightweight pointers while scanning, then clones only the
-// returned rows. The common first-page poll therefore avoids the previous
-// clone-all + sort-all cost when completed-job history is large.
+// returned rows. List rows intentionally omit Result: callers that need a job's
+// potentially large result payload must fetch that job by ID instead. The
+// common history poll therefore cannot retransmit retained upload/import result
+// blobs that the jobs list UI never consumes.
 //
 // activeCount is computed in the same pass so callers can keep activity badges
 // and polling exact even when an older active job is outside the visible page.
@@ -73,13 +75,21 @@ func (m *JobManager) ListPage(status string, page Page) (result PageResult[*Job]
 	}
 	items := make([]*Job, 0, end-page.Offset)
 	for _, job := range selected[page.Offset:end] {
-		items = append(items, cloneJob(job))
+		items = append(items, cloneJobListItem(job))
 	}
 	result.Items = items
 	if hasNext {
 		result.NextPageToken = PageOffsetToken(page.Offset + len(items))
 	}
 	return result, activeCount
+}
+
+func cloneJobListItem(job *Job) *Job {
+	item := cloneJob(job)
+	if item != nil {
+		item.Result = nil
+	}
+	return item
 }
 
 func (m *JobManager) ActiveCount() int {

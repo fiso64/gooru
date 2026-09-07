@@ -37,6 +37,15 @@ func TestRunMigrationsPreservesGolangMigrateVersionLayout(t *testing.T) {
 	}
 	defer db.Close()
 
+	migrations, err := loadEmbeddedMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) == 0 {
+		t.Fatal("no embedded migrations")
+	}
+	latestVersion := migrations[len(migrations)-1].version
+
 	if err := RunMigrations(db); err != nil {
 		t.Fatalf("RunMigrations: %v", err)
 	}
@@ -46,8 +55,8 @@ func TestRunMigrationsPreservesGolangMigrateVersionLayout(t *testing.T) {
 	if err := db.QueryRow(`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&version, &dirty); err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if version != 10 || dirty {
-		t.Fatalf("schema_migrations = (%d, %t), want (10, false)", version, dirty)
+	if version != latestVersion || dirty {
+		t.Fatalf("schema_migrations = (%d, %t), want (%d, false)", version, dirty, latestVersion)
 	}
 
 	if err := RunMigrations(db); err != nil {

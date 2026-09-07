@@ -16,7 +16,7 @@ describe('virtual grid scrolling', () => {
     expect(virtualGridStartRow(120 + rowHeight * 5.1, 120, rowHeight)).toBe(0);
     expect(virtualGridStartRow(120 + rowHeight * 7.1, 120, rowHeight)).toBe(3);
   });
-  it('changes the rendered slice only when the virtual start row changes', () => {
+  it('changes the rendered slice only when the virtual window crosses a row boundary', () => {
     const files = Array.from({ length: 240 }, (_, index) => ({ id: `file-${index}` })) as never[];
     const first = virtualGrid(files, 960, 800, 700, 100, 10_000, 0);
     const sameWindow = virtualGrid(files, 960, 800, 760, 100, 10_000, 0);
@@ -32,6 +32,18 @@ describe('virtual grid scrolling', () => {
     const configured = virtualGrid([], 960, 800, 0, 0, 30, 0, 240);
     expect(configured.columns).toBe(3); expect(configured.cardWidth).toBeCloseTo(expectedCardWidth);
     expect(configured.rowHeight).toBeCloseTo(expectedCardWidth + 5); expect(configured.totalHeight).toBeCloseTo(configured.rowHeight * 10);
+  });
+  it('keeps startup on one page but requests page 2 four rows ahead of the retained tail', () => {
+    const files = Array.from({ length: 60 }, (_, index) => ({ id: `file-${index}` })) as never[];
+    const initial = virtualGrid(files, 1440, 900, 0, 100, 10_000, 0, 200);
+    expect(initial.columns).toBe(6);
+    expect(initial.files).toHaveLength(48);
+    expect(initial.needsNext).toBe(false);
+
+    const twoRowsDown = virtualGrid(files, 1440, 900, initial.rowHeight * 2, 100, 10_000, 0, 200);
+    expect(twoRowsDown.needsNext).toBe(false);
+    const threeRowsDown = virtualGrid(files, 1440, 900, initial.rowHeight * 3, 100, 10_000, 0, 200);
+    expect(threeRowsDown.needsNext).toBe(true);
   });
 });
 
@@ -54,8 +66,6 @@ describe('tile gallery layout', () => {
     });
     const firstPage = virtualMediaGeometry(pagedFiles.slice(0, 60), 1200, 120, 0, 200);
 
-    // This aspect sequence makes items 57-59 an incomplete transport-page tail. Publishing
-    // that row before page 2 arrives would make those visible cards move on the append.
     expect(firstPage.placements.at(-1)?.index).toBe(56);
 
     const twoPages = virtualMediaGeometry(pagedFiles, 1200, 120, 0, 200);

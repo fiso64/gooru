@@ -1,0 +1,100 @@
+package database
+
+import (
+	"database/sql"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func explainPlan(t *testing.T, db *sql.DB, query string, args ...any) string {
+	t.Helper()
+	rows, err := db.Query("EXPLAIN QUERY PLAN "+query, args...)
+	if err != nil {
+		t.Fatalf("explain query: %v", err)
+	}
+	defer rows.Close()
+
+	var details []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatalf("scan query plan: %v", err)
+		}
+		details = append(details, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read query plan: %v", err)
+	}
+	return strings.Join(details, "\n")
+}
+
+func migratedPerformanceDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "gooru.db"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := RunMigrations(db); err != nil {
+		db.Close()
+		t.Fatalf("run migrations: %v", err)
+	}
+	return db
+}
+
+func TestDefaultLibrarySortUsesExactDirectionIndex(t *testing.T) {
+	db := migratedPerformanceDB(t)
+	defer db.Close()
+
+	plan := explainPlan(t, db, `
+		SELECT l.id, l.path
+		FROM locations l
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		ORDER BY l.added_at DESC, l.id ASC
+		LIMIT 61 OFFSET 0
+	`)
+	if !strings.Contains(plan, "idx_locations_added_at_desc_id_asc") {
+		t.Fatalf("default library query did not use mixed-direction index:\n%s", plan)
+	}
+	if strings.Contains(plan, "USE TEMP B-TREE FOR ORDER BY") {
+		t.Fatalf("default library query still spills into a temporary ORDER BY sort:\n%s", plan)
+	}
+}
+
+func TestExtensionFilterUsesCaseInsensitiveExpressionIndex(t *testing.T) {
+	db := migratedPerformanceDB(t)
+	defer db.Close()
+
+	plan := explainPlan(t, db, `
+		SELECT id
+		FROM locations
+		WHERE lower(extension) = lower(?)
+	`, ".CBZ")
+	if !strings.Contains(plan, "idx_locations_extension_lower") {
+		t.Fatalf("case-insensitive extension filter did not use expression index:\n%s", plan)
+	}
+	if strings.Contains(plan, "SCAN locations") {
+		t.Fatalf("case-insensitive extension filter still scans locations:\n%s", plan)
+	}
+}
+
+func TestExtensionFilterDefaultSortUsesCoveringOrderIndex(t *testing.T) {
+	db := migratedPerformanceDB(t)
+	defer db.Close()
+
+	plan := explainPlan(t, db, `
+		SELECT l.id, l.path
+		FROM locations l
+		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		WHERE lower(l.extension) = lower(?)
+		ORDER BY l.added_at DESC, l.id ASC
+		LIMIT 61 OFFSET 0
+	`, ".CBZ")
+	if !strings.Contains(plan, "idx_locations_extension_lower_added_at_desc_id_asc") {
+		t.Fatalf("extension-filtered default library query did not use composite index:\n%s", plan)
+	}
+	if strings.Contains(plan, "USE TEMP B-TREE FOR ORDER BY") {
+		t.Fatalf("extension-filtered default library query still spills into a temporary ORDER BY sort:\n%s", plan)
+	}
+}

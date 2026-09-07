@@ -1,24 +1,33 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { mediaDimensions, mediaDuration } from '$lib/utils/format';
+  import { activateNearViewport } from '$lib/utils/viewportActivation';
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import type { FileItem } from '$lib/api/types';
 
   let {
-    file, cardWidth, cardHeight = cardWidth, fitMedia = false, pixelRatio, selected,
+    file, cardWidth, cardHeight = cardWidth, fitMedia = false, pixelRatio, viewportRoot, selected,
     selectionActive, onOpen, onToggleSelect
   } = $props<{
-    file: FileItem; cardWidth: number; cardHeight?: number; fitMedia?: boolean; pixelRatio: number;
+    file: FileItem; cardWidth: number; cardHeight?: number; fitMedia?: boolean; pixelRatio: number; viewportRoot?: Element;
     selected: boolean; selectionActive: boolean; onOpen: (file: FileItem) => void;
     onToggleSelect: (file: FileItem, range: boolean) => void;
   }>();
 
+  let cardHost = $state<HTMLElement | undefined>();
+  let thumbnailActive = $state(false);
   const extensionLabel = $derived(fileExtension(file.name));
   const mediaWidth = $derived(file.metadata.image_width ?? file.metadata.video_width ?? 0);
   const mediaHeight = $derived(file.metadata.image_height ?? file.metadata.video_height ?? 0);
   const thumbnailSource = $derived(thumbnailURL(file.media_urls.thumbnail, $runtimeConfig.thumbnailSizes,
     cardWidth || $runtimeConfig.gridSize, cardHeight || cardWidth || $runtimeConfig.gridSize,
     pixelRatio, mediaWidth, mediaHeight, fitMedia));
+
+  onMount(() => {
+    if (!cardHost) return;
+    return activateNearViewport(cardHost, viewportRoot ?? null, () => { thumbnailActive = true; });
+  });
 
   function fileExtension(name: string) {
     const baseName = name.split(/[\\/]/).pop() ?? name;
@@ -60,9 +69,9 @@
   }
 </script>
 
-<article class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''}>
+<article bind:this={cardHost} class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''}>
   <button class="thumb-open" type="button" aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeyboardAction}>
-    <img src={thumbnailSource} alt={file.name} loading="lazy" decoding="async" draggable="false" />
+    {#if thumbnailActive}<img src={thumbnailSource} alt={file.name} decoding="async" draggable="false" />{/if}
     <span class="thumb-overlay"></span>
     <span class="thumb-badges">{#if file.media_kind === 'video'}<span class="thumb-badge"><Icon name="play" size={9} /> {mediaDuration(file) || 'video'}</span>{:else if file.media_kind === 'gif'}<span class="thumb-badge">GIF{mediaDuration(file) ? ` · ${mediaDuration(file)}` : ''}</span>{:else if file.media_kind !== 'photo' && extensionLabel}<span class="thumb-badge thumb-badge-extension">{extensionLabel}</span>{/if}</span>
     <span class="thumb-meta"><span class="thumb-meta-name">{file.name}</span><span>{mediaDimensions(file)}</span></span>

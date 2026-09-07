@@ -51,6 +51,32 @@ func TestJobManagerListPageKeepsLatestRowsAndActiveCount(t *testing.T) {
 	}
 }
 
+func TestJobManagerListPageOmitsRetainedResults(t *testing.T) {
+	m := NewJobManagerWithLimits(8, 1, 0, time.Hour)
+	job := &Job{
+		ID:          "job-result",
+		Type:        "upload_import",
+		Status:      JobCompleted,
+		SubmittedAt: time.Date(2026, 9, 5, 20, 0, 0, 0, time.UTC),
+		Result:      map[string]any{"files": []string{"a", "b", "c"}},
+	}
+
+	m.mu.Lock()
+	m.jobs[job.ID] = job
+	m.mu.Unlock()
+
+	page, _ := m.ListPage("", Page{Limit: 20})
+	if len(page.Items) != 1 {
+		t.Fatalf("page length = %d, want 1", len(page.Items))
+	}
+	if page.Items[0].Result != nil {
+		t.Fatalf("history result = %#v, want nil", page.Items[0].Result)
+	}
+	if got, ok := m.Get(job.ID); !ok || got.Result == nil {
+		t.Fatalf("detail result = %#v, ok=%v; want retained result", got, ok)
+	}
+}
+
 func TestJobManagerListPageFiltersBeforePaging(t *testing.T) {
 	m := NewJobManagerWithLimits(8, 1, 0, time.Hour)
 	base := time.Date(2026, 9, 5, 20, 0, 0, 0, time.UTC)

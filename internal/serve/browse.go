@@ -484,18 +484,36 @@ func (s *Server) handleListFilesRequest(w http.ResponseWriter, r *http.Request, 
 	}
 	includeAggregates := req.IncludeFacets
 	if search, ok := s.library.(SearchLibrary); ok && includeAggregates {
-		if total, err := s.countFiles(r.Context(), queryText); err == nil {
-			response.TotalCount = total
-		}
-		if counter, ok := s.library.(QueryLibraryCount); ok {
-			if total, err := counter.LibraryCountForQuery(r.Context(), queryText); err == nil {
-				response.LibraryCount = total
-			}
-		} else if total, err := search.LibraryCount(r.Context()); err == nil {
-			response.LibraryCount = total
-		}
+		libraryCountKnown := false
 		if kind, err := search.KindFacets(r.Context(), queryText); err == nil {
 			response.Facets.Kind = kind
+			total := 0
+			for _, facet := range kind {
+				total += facet.Count
+			}
+			response.TotalCount = total
+			if strings.TrimSpace(queryText) == "" {
+				// Kind facets partition all locations, so their sum is also the
+				// exact unfiltered library count without another aggregate pass.
+				response.LibraryCount = total
+				libraryCountKnown = true
+			}
+		} else if total, err := s.countFiles(r.Context(), queryText); err == nil {
+			// Preserve the exact count when facet aggregation is unavailable.
+			response.TotalCount = total
+			if strings.TrimSpace(queryText) == "" {
+				response.LibraryCount = total
+				libraryCountKnown = true
+			}
+		}
+		if !libraryCountKnown {
+			if counter, ok := s.library.(QueryLibraryCount); ok {
+				if total, err := counter.LibraryCountForQuery(r.Context(), queryText); err == nil {
+					response.LibraryCount = total
+				}
+			} else if total, err := search.LibraryCount(r.Context()); err == nil {
+				response.LibraryCount = total
+			}
 		}
 	}
 	for _, file := range pageResult.Items {
@@ -599,11 +617,13 @@ func (s *Server) handleListTags(w http.ResponseWriter, r *http.Request) {
 	}
 	response := TagListResponse{Tags: tags}
 	if search, ok := s.library.(SearchLibrary); ok {
-		if total, err := search.LibraryCount(r.Context()); err == nil {
-			response.LibraryCount = total
-		}
 		if kind, err := search.KindFacets(r.Context(), ""); err == nil {
 			response.Facets.Kind = kind
+			for _, facet := range kind {
+				response.LibraryCount += facet.Count
+			}
+		} else if total, err := search.LibraryCount(r.Context()); err == nil {
+			response.LibraryCount = total
 		}
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -823,14 +843,21 @@ func normalizeSortOrder(value string) string {
 }
 
 func mediaTypeForPath(path string) string {
-	if typ := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); typ != "" {
+	extension := strings.ToLower(filepath.Ext(path))
+	if extension == ".cbz" {
+		return "application/vnd.comicbook+zip"
+	}
+	if typ := mime.TypeByExtension(extension); typ != "" {
 		return typ
 	}
 	return "application/octet-stream"
 }
 
 func mediaKindForType(mediaType string) string {
+	baseType := strings.TrimSpace(strings.SplitN(mediaType, ";", 2)[0])
 	switch {
+	case strings.EqualFold(baseType, "application/vnd.comicbook+zip"):
+		return "comic"
 	case mediaType == "image/gif":
 		return "gif"
 	case strings.HasPrefix(mediaType, "image/"):

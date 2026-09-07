@@ -35,8 +35,7 @@ func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 	userTags := query.ExtractTags(ast)
 
 	// 2. Batch-fetch the usage counts for these tags from the database.
-	parsedTags := query.ToParsedTags(userTags)
-	tagCounts, err := c.store.BatchGetTagCounts(parsedTags)
+	tagCounts, err := c.store.BatchGetQueryTagCounts(userTags)
 	if err != nil {
 		return "", nil, fmt.Errorf("could not fetch tag statistics for query optimization: %w", err)
 	}
@@ -59,8 +58,8 @@ func (c *Client) buildLocationQuery(expression string) (string, []interface{}, e
 	if err := query.ValidateAST(ast); err != nil {
 		return "", nil, fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
 	}
-	parsedTags := query.ToParsedTags(query.ExtractTags(ast))
-	tagCounts, err := c.store.BatchGetTagCounts(parsedTags)
+	userTags := query.ExtractTags(ast)
+	tagCounts, err := c.store.BatchGetQueryTagCounts(userTags)
 	if err != nil {
 		return "", nil, fmt.Errorf("could not fetch tag statistics for query optimization: %w", err)
 	}
@@ -566,6 +565,22 @@ func (c *Client) KindFacets() ([]types.TagWithCount, error) {
 }
 
 func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
+	if kind, ok := simpleKindFacetFilter(expression); ok {
+		facets, err := c.store.KindFacets()
+		if err != nil {
+			return nil, err
+		}
+		return filterKindFacet(facets, kind), nil
+	}
+	if filter, ok := parseSimpleUserTagFacetFilter(expression); ok {
+		if filter.KeyOnly {
+			return c.store.KindFacetsForTagKey(filter.Tag.Key)
+		}
+		return c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
+	}
+	if exclusions, ok := parseSimpleUserTagFacetExclusions(expression); ok {
+		return c.kindFacetsForUserTagExclusions(exclusions)
+	}
 	sqlQuery, args, err := c.buildLocationQuery(expression)
 	if err != nil {
 		return nil, err

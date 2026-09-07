@@ -392,7 +392,7 @@ func (s *Store) ListAllFiles() ([]string, error) {
 // CountAllFiles counts all location records in the database.
 func (s *Store) CountAllFiles() (int, error) {
 	var count int
-	err := s.QueryRow("SELECT COUNT(*) FROM locations").Scan(&count)
+	err := s.QueryRow("SELECT COALESCE(SUM(files_count), 0) FROM kind_counts").Scan(&count)
 	return count, err
 }
 
@@ -996,20 +996,11 @@ func (s *Store) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
 		args = append(args, limit)
 	}
 	query := `
-		WITH key_counts AS (
-			SELECT
-				t.key,
-				COUNT(DISTINCT ct.content_hash) as total_files
-			FROM
-				tags t
-			JOIN
-				content_tags ct ON t.id = ct.tag_id
-			GROUP BY
-				t.key
-		)
-		SELECT key as tag_str, total_files as final_count FROM key_counts
+		SELECT key AS tag_str, files_count AS final_count
+		FROM tag_key_counts
+		WHERE files_count > 0
 		UNION ALL
-		SELECT key || ':' || value as tag_str, files_count as final_count
+		SELECT key || ':' || value AS tag_str, files_count AS final_count
 		FROM tags
 		WHERE value != '' AND files_count > 0
 		ORDER BY final_count DESC, tag_str ASC
@@ -1035,25 +1026,57 @@ func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCou
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	like := strings.ToLower(strings.TrimSpace(prefix)) + "%"
-	rows, err := s.Query(`
-		WITH matching_keys AS (
-			SELECT t.key AS tag_str, COUNT(DISTINCT ct.content_hash) AS files_count
-			FROM tags t
-			JOIN content_tags ct ON ct.tag_id = t.id
-			WHERE lower(t.key) LIKE ?
-			GROUP BY t.key
-		), matching_values AS (
+	prefix = strings.TrimSpace(prefix)
+	like := prefix + "%"
+
+	var rows *sql.Rows
+	var err error
+	switch {
+	case strings.ContainsAny(prefix, "%_"):
+		// Preserve historical raw-LIKE wildcard behavior. Key aggregates use
+		// the maintained distinct-per-content summary, while direct plain-tag
+		// rows remain a compatibility fallback for callers with synthetic data.
+		rows, err = s.Query(`
+			SELECT tag_str, files_count FROM (
+				SELECT key AS tag_str, files_count FROM tag_key_counts
+				WHERE files_count > 0 AND key LIKE ?
+				UNION ALL
+				SELECT t.key AS tag_str, t.files_count FROM tags t
+				WHERE t.value = '' AND t.files_count > 0 AND t.key LIKE ?
+				  AND NOT EXISTS (SELECT 1 FROM tag_key_counts k WHERE k.key = t.key AND k.files_count > 0)
+				UNION ALL
+				SELECT key || ':' || value AS tag_str, files_count FROM tags
+				WHERE value != '' AND key || ':' || value LIKE ?
+			)
+			ORDER BY files_count DESC, tag_str ASC
+			LIMIT ?
+		`, like, like, like, limit)
+	case strings.Contains(prefix, ":"):
+		namespace, valuePrefix, _ := strings.Cut(prefix, ":")
+		rows, err = s.Query(`
 			SELECT key || ':' || value AS tag_str, files_count
 			FROM tags
-			WHERE value != '' AND lower(key || ':' || value) LIKE ?
-		)
-		SELECT tag_str, files_count FROM matching_keys
-		UNION ALL
-		SELECT tag_str, files_count FROM matching_values
-		ORDER BY files_count DESC, tag_str ASC
-		LIMIT ?
-	`, like, like, limit)
+			WHERE value != '' AND key = ? AND value LIKE ?
+			ORDER BY files_count DESC, tag_str ASC
+			LIMIT ?
+		`, strings.TrimSpace(namespace), strings.TrimSpace(valuePrefix)+"%", limit)
+	default:
+		rows, err = s.Query(`
+			SELECT tag_str, files_count FROM (
+				SELECT key AS tag_str, files_count FROM tag_key_counts
+				WHERE files_count > 0 AND key LIKE ?
+				UNION ALL
+				SELECT t.key AS tag_str, t.files_count FROM tags t
+				WHERE t.value = '' AND t.files_count > 0 AND t.key LIKE ?
+				  AND NOT EXISTS (SELECT 1 FROM tag_key_counts k WHERE k.key = t.key AND k.files_count > 0)
+				UNION ALL
+				SELECT key || ':' || value AS tag_str, files_count FROM tags
+				WHERE value != '' AND key LIKE ?
+			)
+			ORDER BY files_count DESC, tag_str ASC
+			LIMIT ?
+		`, like, like, like, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1073,14 +1096,12 @@ func (s *Store) ListNamespaceSuggestions(prefix string, limit int) ([]types.TagW
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	like := strings.ToLower(strings.TrimSpace(prefix)) + "%"
+	like := strings.TrimSpace(prefix) + "%"
 	rows, err := s.Query(`
-		SELECT t.key || ':' AS tag_str, COUNT(DISTINCT ct.content_hash) AS total_files
-		FROM tags t
-		JOIN content_tags ct ON ct.tag_id = t.id
-		WHERE t.value != '' AND lower(t.key) LIKE ?
-		GROUP BY t.key
-		ORDER BY total_files DESC, tag_str ASC
+		SELECT key || ':' AS tag_str, files_count
+		FROM tag_namespace_counts
+		WHERE files_count > 0 AND key LIKE ?
+		ORDER BY files_count DESC, tag_str ASC
 		LIMIT ?
 	`, like, limit)
 	if err != nil {
@@ -1102,11 +1123,11 @@ func (s *Store) ListTagValueSuggestions(namespace string, valuePrefix string, li
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	like := strings.ToLower(strings.TrimSpace(valuePrefix)) + "%"
+	like := strings.TrimSpace(valuePrefix) + "%"
 	rows, err := s.Query(`
 		SELECT key || ':' || value AS tag_str, files_count
 		FROM tags
-		WHERE value != '' AND lower(key) = lower(?) AND lower(value) LIKE ?
+		WHERE value != '' AND key = ? AND value LIKE ?
 		ORDER BY files_count DESC, tag_str ASC
 		LIMIT ?
 	`, strings.TrimSpace(namespace), like, limit)
@@ -1126,7 +1147,16 @@ func (s *Store) ListTagValueSuggestions(namespace string, valuePrefix string, li
 }
 
 func (s *Store) ListTagNamespaces() ([]string, error) {
-	rows, err := s.Query(`SELECT DISTINCT key FROM tags WHERE value != '' ORDER BY key`)
+	rows, err := s.Query(`
+		SELECT tk.key
+		FROM tag_key_counts tk
+		WHERE EXISTS (
+			SELECT 1
+			FROM tags t
+			WHERE t.key = tk.key AND t.value != ''
+		)
+		ORDER BY tk.key
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -1143,13 +1173,12 @@ func (s *Store) ListTagNamespaces() ([]string, error) {
 }
 
 func (s *Store) KindFacets() ([]types.TagWithCount, error) {
-	rows, err := s.Query(fmt.Sprintf(`
-		SELECT %s AS kind, COUNT(*)
-		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
-		GROUP BY kind
-		ORDER BY COUNT(*) DESC, kind ASC
-	`, fileKindExpression()))
+	rows, err := s.Query(`
+		SELECT kind, files_count
+		FROM kind_counts
+		WHERE files_count > 0
+		ORDER BY files_count DESC, kind ASC
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -1210,16 +1239,10 @@ func (s *Store) GetCountForTag(key, value string) (int, error) {
 	return count, err
 }
 
-// GetCountForKey gets the count of distinct files for all tags with a given key.
+// GetCountForKey gets the maintained distinct-file count for a tag key.
 func (s *Store) GetCountForKey(key string) (int, error) {
 	var count int
-	query := `
-		SELECT COUNT(DISTINCT ct.content_hash)
-		FROM content_tags ct
-		JOIN tags t ON ct.tag_id = t.id
-		WHERE t.key = ?
-	`
-	err := s.QueryRow(query, key).Scan(&count)
+	err := s.QueryRow("SELECT files_count FROM tag_key_counts WHERE key = ?", key).Scan(&count)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -1958,12 +1981,15 @@ func fileSortExpression(sort string) string {
 }
 
 func fileKindExpression() string {
-	return `coalesce(mm.media_kind, CASE
-		WHEN lower(l.extension) = '.gif' THEN 'gif'
-		WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
-		WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
-		ELSE 'other'
-	END)`
+	return `CASE
+		WHEN lower(l.extension) = '.cbz' THEN 'comic'
+		ELSE coalesce(mm.media_kind, CASE
+			WHEN lower(l.extension) = '.gif' THEN 'gif'
+			WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'
+			WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'
+			ELSE 'other'
+		END)
+	END`
 }
 
 func (s *Store) fileCursorClause(cursor *types.PageCursor, sort string, order string) (string, []interface{}, error) {
