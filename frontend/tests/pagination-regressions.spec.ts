@@ -71,6 +71,14 @@ async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gri
   return { requests };
 }
 
+async function intersectsScrollViewport(page: Page, accessibleName: string) {
+  const card = page.getByRole('button', { name: accessibleName });
+  if (await card.count() === 0) return false;
+  const [cardBox, mainBox] = await Promise.all([card.boundingBox(), page.locator('.main').boundingBox()]);
+  if (!cardBox || !mainBox) return false;
+  return cardBox.y + cardBox.height > mainBox.y && cardBox.y < mainBox.y + mainBox.height;
+}
+
 for (const gridType of ['square', 'fit', 'tile'] as const) {
   test(`${gridType} paged mode renders partial final rows and reuses page aggregates`, async ({ page }) => {
     // 1800px makes both square and fit layouts end a 60-item page on a partial row,
@@ -102,12 +110,12 @@ for (const gridType of ['square', 'fit', 'tile'] as const) {
     const main = page.locator('.main');
     // Different grid modes have different row heights/column counts. Scroll until transport
     // prefetch fires rather than imposing an arbitrary pixel budget, then assert the trigger
-    // still happened before the last card of the retained page reached the viewport.
+    // still happened before the last card of the retained page entered the scroll viewport.
     for (let i = 0; i < 50 && !library.requests.some((request) => request.offset === 60); i += 1) {
       await main.evaluate((node) => { node.scrollTop += 120; node.dispatchEvent(new Event('scroll')); });
       await page.waitForTimeout(20);
     }
     await expect.poll(() => library.requests.some((request) => request.offset === 60)).toBe(true);
-    expect(await page.getByRole('button', { name: 'Preview page-59.jpg' }).isVisible()).toBe(false);
+    expect(await intersectsScrollViewport(page, 'Preview page-59.jpg')).toBe(false);
   });
 }
