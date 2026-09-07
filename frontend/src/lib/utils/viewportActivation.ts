@@ -22,7 +22,7 @@ function createObserver(root: Element | null): ObserverState | undefined {
         state.observer.unobserve(entry.target);
         activate();
       }
-    }, { root, rootMargin: '250px 0px' })
+    }, { root, rootMargin: '96px 0px' })
   };
   return state;
 }
