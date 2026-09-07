@@ -2,7 +2,9 @@ name: Temporary 333 upload contention profile
 on:
   push:
     branches: [perf/333-upload-contention-profile]
-    paths: ['.github/workflows/tmp-333-upload-contention-profile.yml']
+    paths:
+      - '.github/workflows/tmp-333-upload-contention-profile.yml'
+      - 'internal/query/**'
 jobs:
   profile:
     runs-on: [self-hosted, gooru]
@@ -11,14 +13,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: {go-version-file: go.mod}
-      - name: Build server
-        run: go build -o gooru-profile ./cmd/gooru
+      - name: Focused tests and build
+        run: go test ./internal/query ./gooru ./internal/serve && go build -o gooru-profile ./cmd/gooru
       - name: Profile browse latency under real async uploads
         shell: bash
         run: |
           set -euo pipefail
           ROOT="${RUNNER_TEMP:-/tmp}/gooru-333-upload-${GITHUB_RUN_ID}"
-          rm -rf "$ROOT"; mkdir -p "$ROOT/library" "$ROOT/uploads" "$ROOT/source"
+          rm -rf "$ROOT"; mkdir -p "$ROOT/uploads" "$ROOT/source"
           DB="$ROOT/library.db"
           printf '1\n' | ./gooru-profile --database "$DB" init >/dev/null
           python3 - "$DB" <<'PY'
@@ -78,7 +80,7 @@ jobs:
           cleanup() { kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; }
           trap cleanup EXIT
           python3 - "$PORT" "$ROOT" <<'PY'
-          import concurrent.futures, json, os, pathlib, statistics, sys, threading, time, urllib.request
+          import concurrent.futures, json, pathlib, statistics, sys, time, urllib.request
           port=int(sys.argv[1]); root=pathlib.Path(sys.argv[2]); base=f'http://127.0.0.1:{port}'
           for _ in range(200):
               try:
@@ -97,19 +99,22 @@ jobs:
               out += f'--{boundary}--\r\n'.encode(); return bytes(out)
           batches=[files[i:i+50] for i in range(0,len(files),50)]
           def upload(idx,paths):
-              boundary=f'gooru333{idx}'
-              body=multipart(paths,boundary)
+              boundary=f'gooru333{idx}'; body=multipart(paths,boundary)
               req=urllib.request.Request(base+'/api/v1/uploads',data=body,method='POST',headers={'Content-Type':f'multipart/form-data; boundary={boundary}','Prefer':'respond-async'})
               t=time.perf_counter()
               try:
-                  with urllib.request.urlopen(req,timeout=20) as r: return {'status':r.status,'ms':(time.perf_counter()-t)*1000,'body':r.read(200).decode(errors='replace')}
+                  with urllib.request.urlopen(req,timeout=20) as r: return {'status':r.status,'ms':(time.perf_counter()-t)*1000}
               except Exception as e: return {'status':'error','ms':(time.perf_counter()-t)*1000,'body':str(e)}
-          paths={'tags':'/api/v1/tags?counts=true','root':'/api/v1/files?include_facets=true&limit=60','hidden':'/api/v1/files?query=hidden&include_facets=true&limit=60'}
+          paths={
+              'tags':'/api/v1/tags?counts=true',
+              'root':'/api/v1/files?include_facets=true&limit=60',
+              'hidden_no_facets':'/api/v1/files?query=hidden&limit=60',
+              'hidden':'/api/v1/files?query=hidden&include_facets=true&limit=60',
+          }
           samples={k:[] for k in paths}
-          stop=time.monotonic()+12
-          upload_results=[]
           with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
               futs=[ex.submit(upload,i,b) for i,b in enumerate(batches)]
+              stop=time.monotonic()+12
               while time.monotonic()<stop:
                   for name,path in paths.items():
                       t=time.perf_counter()
@@ -126,6 +131,8 @@ jobs:
           (root/'profile.json').write_text(json.dumps(result,indent=2,sort_keys=True))
           bad=[u for u in upload_results if u['status'] != 202]
           if bad: raise SystemExit('upload requests failed: '+json.dumps(bad[:3]))
+          if result['requests']['hidden']['p95_ms'] > 12:
+              raise SystemExit('key-wide filtered browse remains too slow under upload contention: '+json.dumps(result['requests']['hidden']))
           PY
       - uses: actions/upload-artifact@v4
         if: always()
