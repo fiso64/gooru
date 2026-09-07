@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -78,13 +79,7 @@ func TestListenAndServeWithBackgroundRuntimeRejectsUnexpectedCleanExit(t *testin
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	err := server.ListenAndServeWithBackgroundRuntime(ctx, runtime)
-	if err == nil || !errors.Is(err, errors.Unwrap(err)) && err.Error() != "background runtime stopped unexpectedly" {
-		if err == nil || !containsErrorText(err, "background runtime stopped unexpectedly") {
-			t.Fatalf("expected unexpected-runtime-exit error, got %v", err)
-		}
+	if err == nil || !strings.Contains(err.Error(), "background runtime stopped unexpectedly") {
+		t.Fatalf("expected unexpected-runtime-exit error, got %v", err)
 	}
-}
-
-func containsErrorText(err error, want string) bool {
-	return err != nil && (err.Error() == want || len(err.Error()) > len(want) && err.Error()[:len(want)] == want)
 }
