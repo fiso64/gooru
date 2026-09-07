@@ -148,7 +148,7 @@
 
 <article bind:this={cardHost} class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''} onpointerenter={startHoverPreview} onpointerleave={stopHoverPreview}>
   <button class="thumb-open" type="button" aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeyboardAction}>
-    {#if thumbnailActive}<img src={thumbnailSource} alt={file.name} decoding="async" draggable="false" />{/if}
+    {#if thumbnailActive}<img class:preview-covered={hoverPreviewActive && previewReady} src={thumbnailSource} alt={file.name} decoding="async" draggable="false" />{/if}
     {#if hoverPreviewActive && videoFile}
       <video class:contain-preview={fitMedia} class:is-ready={previewReady} class="hover-preview-media" data-testid="hover-video-preview" src={file.media_urls.content} muted autoplay loop playsinline preload="metadata" onloadeddata={markPreviewReady} ontimeupdate={updateVideoProgress} ondurationchange={updateVideoProgress}></video>
       <span class:is-ready={previewReady} class="hover-video-progress" data-testid="hover-video-progress" aria-hidden="true"><span style={`transform:scaleX(${videoProgress})`}></span></span>
@@ -166,6 +166,7 @@
 <style>
   :global(.thumb-open:focus-visible) { outline: none; }
   :global(.thumb-open:focus-visible::after) { content: ''; position: absolute; z-index: 6; inset: 6px; border: 2px dashed #fff; border-radius: 2px; box-shadow: 0 0 0 2px #000, inset 0 0 0 1px #000; pointer-events: none; }
+  :global(.thumb-open > img.preview-covered) { opacity: 0; }
   .hover-preview-media { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; pointer-events: none; }
   .hover-preview-media.is-ready { opacity: 1; }
   .hover-preview-media.contain-preview { object-fit: contain; }
