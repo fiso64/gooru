@@ -28,6 +28,15 @@ jobs:
       - run: npm ci --prefer-offline --no-audit
       - name: Check
         run: npm run check
+      - name: Admission wake unit
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/state/uploadWorkflow.admission.test.ts
+      - name: Queue-full fallback unit
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/state/uploadWorkflow.queueFull.test.ts
+      - name: Poll cadence unit
+        continue-on-error: true
+        run: npm run test:unit -- src/lib/queries/jobs.admission.test.ts
       - name: Unit tests
         run: npm run test:unit
       - name: Install Chromium
