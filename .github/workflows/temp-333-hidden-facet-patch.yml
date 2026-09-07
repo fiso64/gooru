@@ -1,0 +1,122 @@
+name: temp-333-hidden-facet-patch
+
+on:
+  push:
+    branches:
+      - perf/333-hidden-tag-facet-exclusions
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-hidden-tag-facet-exclusions
+      - name: Patch KindFacetsByQuery
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('gooru/query.go')
+          text = path.read_text()
+          old = '''func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
+          \tif kind, ok := simpleKindFacetFilter(expression); ok {
+          \t\tfacets, err := c.store.KindFacets()
+          \t\tif err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\treturn filterKindFacet(facets, kind), nil
+          \t}
+          \tif filter, ok := parseSimpleUserTagFacetFilter(expression); ok {
+          \t\tif filter.KeyOnly {
+          \t\t\treturn c.store.KindFacetsForTagKey(filter.Tag.Key)
+          \t\t}
+          \t\treturn c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
+          \t}
+          \tsqlQuery, args, err := c.buildLocationQuery(expression)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif sqlQuery == "" {
+          \t\treturn c.store.KindFacets()
+          \t}
+          \tif verbose {
+          \t\tfmt.Fprintf(os.Stderr, "--- DEBUG ---\\nExpression: %s\\nBuilt SQL : %s\\nSQL Args  : %v\\n-------------\\n", expression, sqlQuery, args)
+          \t}
+          \treturn c.store.KindFacetsByLocationQuery(sqlQuery, args)
+          }
+          '''
+          new = '''func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
+          \tif kind, ok := simpleKindFacetFilter(expression); ok {
+          \t\tfacets, err := c.store.KindFacets()
+          \t\tif err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\treturn filterKindFacet(facets, kind), nil
+          \t}
+          \tif filter, ok := parseSimpleUserTagFacetFilter(expression); ok {
+          \t\tif filter.KeyOnly {
+          \t\t\treturn c.store.KindFacetsForTagKey(filter.Tag.Key)
+          \t\t}
+          \t\treturn c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
+          \t}
+          \tif exclusions, ok := parseSimpleUserTagFacetExclusions(expression); ok {
+          \t\tall, err := c.store.KindFacets()
+          \t\tif err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+
+          \t\tvar excluded []types.TagWithCount
+          \t\tif len(exclusions) == 1 {
+          \t\t\tfilter := exclusions[0]
+          \t\t\tif filter.KeyOnly {
+          \t\t\t\texcluded, err = c.store.KindFacetsForTagKey(filter.Tag.Key)
+          \t\t\t} else {
+          \t\t\t\texcluded, err = c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
+          \t\t\t}
+          \t\t} else {
+          \t\t\tdbExclusions := make([]tagFacetExclusion, 0, len(exclusions))
+          \t\t\tfor _, filter := range exclusions {
+          \t\t\t\tdbExclusions = append(dbExclusions, tagFacetExclusion{
+          \t\t\t\t\tKey:     filter.Tag.Key,
+          \t\t\t\t\tValue:   filter.Tag.Value,
+          \t\t\t\t\tKeyOnly: filter.KeyOnly,
+          \t\t\t\t})
+          \t\t\t}
+          \t\t\texcluded, err = c.store.KindFacetsForTagExclusions(dbExclusions)
+          \t\t}
+          \t\tif err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\treturn subtractKindFacets(all, excluded), nil
+          \t}
+          \tsqlQuery, args, err := c.buildLocationQuery(expression)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif sqlQuery == "" {
+          \t\treturn c.store.KindFacets()
+          \t}
+          \tif verbose {
+          \t\tfmt.Fprintf(os.Stderr, "--- DEBUG ---\\nExpression: %s\\nBuilt SQL : %s\\nSQL Args  : %v\\n-------------\\n", expression, sqlQuery, args)
+          \t}
+          \treturn c.store.KindFacetsByLocationQuery(sqlQuery, args)
+          }
+          '''
+          if old not in text:
+              raise SystemExit('target KindFacetsByQuery body not found exactly')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w gooru/query.go
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add gooru/query.go
+          git commit -m 'perf: use summaries for hidden tag facet exclusions'
+          git push origin HEAD:perf/333-hidden-tag-facet-exclusions
