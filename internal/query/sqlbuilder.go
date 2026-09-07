@@ -282,6 +282,17 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 			return
 		}
 
+		// Bare key-wide location queries are frequently high-cardinality (for
+		// example the UI's `hidden` filter). Driving from locations and probing the
+		// tag association lets the outer browse query preserve its requested
+		// location ordering and stop at the page limit instead of materializing a
+		// DISTINCT set of every matching location before sorting it.
+		if b.target == "id" && parsed.Value == "" && !strings.HasSuffix(tagStr, ":") {
+			b.query.WriteString(`SELECT l.id as id FROM locations l WHERE EXISTS (SELECT 1 FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE ct.content_hash = l.content_hash AND t.key = ?)`)
+			b.args = append(b.args, parsed.Key)
+			return
+		}
+
 		queryPrefix := `SELECT DISTINCT l.content_hash as hash FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
 		if b.target == "id" {
 			queryPrefix = `SELECT DISTINCT l.id as id FROM locations l JOIN content_tags ct ON l.content_hash = ct.content_hash JOIN tags t ON ct.tag_id = t.id WHERE `
