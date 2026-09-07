@@ -222,6 +222,8 @@ ui:
   viewer_scaling: smooth
   load_full_media_by_default: false
   fullscreen_media_by_default: false
+  hover_play_videos: true
+  hover_play_gifs: true
 ```
 
 For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default remains the quickest way to verify defaults for the exact binary being run:

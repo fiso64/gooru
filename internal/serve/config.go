@@ -123,6 +123,8 @@ type UIConfig struct {
 	HiddenTags               []string `yaml:"hidden_tags"`
 	LoadFullMediaByDefault   bool     `yaml:"load_full_media_by_default"`
 	FullscreenMediaByDefault bool     `yaml:"fullscreen_media_by_default"`
+	HoverPlayVideos          bool     `yaml:"hover_play_videos"`
+	HoverPlayGIFs            bool     `yaml:"hover_play_gifs"`
 	ViewerFitMode            string   `yaml:"viewer_fit_mode"`
 	ViewerScaling            string   `yaml:"viewer_scaling"`
 	PaginationMode           string   `yaml:"pagination_mode"`
@@ -187,8 +189,10 @@ func DefaultConfig(dbPath string) Config {
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
 		UI: UIConfig{
-			FontStyle:      "editorial",
-			GridSize:       DefaultGridSize,
+			FontStyle:        "editorial",
+			HoverPlayVideos: true,
+			HoverPlayGIFs:   true,
+			GridSize:         DefaultGridSize,
 			GridType:       DefaultGridType,
 			ViewerFitMode:  "fit_window",
 			ViewerScaling:  "smooth",
