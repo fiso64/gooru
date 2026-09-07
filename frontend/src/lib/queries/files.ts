@@ -123,7 +123,7 @@ export function filesQueryOptions(
         pageToken: pageParam || undefined,
         sort: getSort(),
         order: getOrder(),
-        includeFacets: !pageParam,
+        includeFacets: paged || !pageParam,
         signal
       }),
     getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined,

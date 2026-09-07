@@ -40,7 +40,7 @@
   import type { Job, SavedSearchRequest } from '$lib/api/types';
 
   const paginationPreferenceKey = browserPersistenceRegistry.libraryPaginationMode.key;
-  const uploadMetadataRefreshIntervalMs = 3_000;
+  const uploadMetadataRefreshIntervalMs = 700;
   const isPaginationMode = (value: unknown): value is PaginationMode => value === 'infinite' || value === 'paged';
   let paginationModeOverride = $state<PaginationMode | undefined>(
     readBrowserPreference<PaginationMode | undefined>(paginationPreferenceKey, undefined, isPaginationMode)
@@ -101,7 +101,6 @@
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library' && sidebarBaseQuery !== $submittedSearch);
-  const pagedMetadataQuery = createFileFacetsQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && pagedMode);
   const uploadResultsCountQuery = createFileCountQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && trackUploadResults);
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
   const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
@@ -191,9 +190,7 @@
 
   $effect(() => {
     fileMetadataKey;
-    const metadataPage = pagedMode
-      ? pagedMetadataQuery.data
-      : filesQuery.data?.pages.find((page) => page.facets);
+    const metadataPage = filesQuery.data?.pages.find((page) => page.facets);
     if (!metadataPage) return;
     fileMetadata = {
       total_count: metadataPage.total_count,
