@@ -20,67 +20,24 @@ jobs:
       - name: Repair CBZ classification
         shell: bash
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          p = Path('internal/serve/browse.go')
-          s = p.read_text()
-          old = '''func mediaKindForType(mediaType string) string {
-\tswitch {
-\tcase mediaType == "image/gif":'''
-          new = '''func mediaKindForType(mediaType string) string {
-\tswitch {
-\tcase strings.EqualFold(strings.TrimSpace(strings.SplitN(mediaType, ";", 2)[0]), "application/vnd.comicbook+zip"):
-\t\treturn "comic"
-\tcase mediaType == "image/gif":'''
-          if old not in s:
-              raise SystemExit('mediaKindForType snippet not found')
-          p.write_text(s.replace(old, new, 1))
-
-          p = Path('internal/database/migrations/019_comic_kind_summary.up.sql')
-          s = p.read_text()
-          marker = '''DROP TRIGGER IF EXISTS kind_counts_metadata_delete;
-
-DELETE FROM kind_counts;'''
-          replacement = '''DROP TRIGGER IF EXISTS kind_counts_metadata_delete;
-
--- Older CBZ imports were classified from their application/* MIME as `other`.
--- Normalize those persisted rows before rebuilding the aggregate so the
--- existing metadata-first kind semantics remain consistent with CBZ fallback.
-UPDATE media_metadata
-SET media_kind = 'comic'
-WHERE location_id IN (
-    SELECT id FROM locations WHERE lower(extension) = '.cbz'
-)
-  AND media_kind <> 'comic';
-
-DELETE FROM kind_counts;'''
-          if marker not in s:
-              raise SystemExit('migration insertion point not found')
-          p.write_text(s.replace(marker, replacement, 1))
-          PY
+          python3 -c 'from pathlib import Path; p=Path("internal/serve/browse.go"); s=p.read_text(); old="func mediaKindForType(mediaType string) string {\n\tswitch {\n\tcase mediaType == \"image/gif\":"; new="func mediaKindForType(mediaType string) string {\n\tswitch {\n\tcase strings.EqualFold(strings.TrimSpace(strings.SplitN(mediaType, \";\", 2)[0]), \"application/vnd.comicbook+zip\"):\n\t\treturn \"comic\"\n\tcase mediaType == \"image/gif\":"; assert old in s; p.write_text(s.replace(old,new,1))'
+          python3 -c 'from pathlib import Path; p=Path("internal/database/migrations/019_comic_kind_summary.up.sql"); s=p.read_text(); old="DROP TRIGGER IF EXISTS kind_counts_metadata_delete;\n\nDELETE FROM kind_counts;"; new="DROP TRIGGER IF EXISTS kind_counts_metadata_delete;\n\n-- Older CBZ imports were classified from their application/* MIME as other.\n-- Normalize persisted rows before rebuilding the aggregate.\nUPDATE media_metadata SET media_kind = '\''comic'\'' WHERE location_id IN (SELECT id FROM locations WHERE lower(extension) = '\''.cbz'\'') AND media_kind <> '\''comic'\'';\n\nDELETE FROM kind_counts;"; assert old in s; p.write_text(s.replace(old,new,1))'
           gofmt -w internal/serve/browse.go
-          git diff --check
-      - name: Add focused regressions
-        shell: bash
-        run: |
           cat > internal/serve/comic_kind_test.go <<'EOF'
           package serve
 
           import "testing"
 
           func TestMediaKindForComicBookZip(t *testing.T) {
-              for _, mediaType := range []string{
-                  "application/vnd.comicbook+zip",
-                  "application/vnd.comicbook+zip; charset=binary",
-              } {
-                  if got := mediaKindForType(mediaType); got != "comic" {
-                      t.Fatalf("mediaKindForType(%q) = %q, want comic", mediaType, got)
-                  }
-              }
+          	for _, mediaType := range []string{"application/vnd.comicbook+zip", "application/vnd.comicbook+zip; charset=binary"} {
+          		if got := mediaKindForType(mediaType); got != "comic" {
+          			t.Fatalf("mediaKindForType(%q) = %q, want comic", mediaType, got)
+          		}
+          	}
           }
           EOF
           gofmt -w internal/serve/comic_kind_test.go
+          git diff --check
       - name: Validate focused packages
         run: go test ./internal/database ./internal/query ./internal/serve ./gooru/...
       - name: Commit durable repair
