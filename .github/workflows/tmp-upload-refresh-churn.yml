@@ -1,0 +1,135 @@
+name: Temporary upload refresh churn repair
+
+on:
+  push:
+    branches:
+      - fix/333-upload-refresh-churn
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tmp-upload-refresh-churn-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repair-and-validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Coalesce upload metadata refreshes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = path.read_text()
+          old_effect = '''  $effect(() => {
+            const job = uploadJobQuery.data;
+            if (!job) return;
+            const result = upload.applyJob(job);
+            if (result.changedFiles) {
+              if (!trackUploadResults) {
+                trackUploadResults = true;
+                uploadResultsFloor = gridSnapshotTotalCount;
+              }
+              void refreshUploadMetadata(true);
+            }
+            if (result.completed) void jobsQuery.refetch();
+          });'''
+          new_effect = '''  $effect(() => {
+            const job = uploadJobQuery.data;
+            if (!job) return;
+            const result = upload.applyJob(job);
+            if (result.changedFiles && !trackUploadResults) {
+              trackUploadResults = true;
+              uploadResultsFloor = gridSnapshotTotalCount;
+            }
+            if (result.completed && !upload.busy && !upload.activeJobIDs.length) {
+              void finishUploadMetadataRefresh();
+            }
+          });'''
+          old_start = '''  function startUploadMetadataRefresh() {
+            beginTrackingUploadResults();
+            if (uploadMetadataRefreshTimer) return;
+            uploadMetadataRefreshTimer = window.setInterval(() => void refreshUploadMetadata(), uploadMetadataRefreshIntervalMs);
+          }'''
+          new_start = '''  async function finishUploadMetadataRefresh() {
+            stopUploadMetadataRefresh();
+            const finalTotal = await refreshUploadMetadata(true);
+            if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsFloor) {
+              trackUploadResults = false;
+            }
+            return finalTotal;
+          }
+
+          function startUploadMetadataRefresh() {
+            beginTrackingUploadResults();
+            if (uploadMetadataRefreshTimer) return;
+            uploadMetadataRefreshTimer = window.setInterval(() => void refreshUploadMetadata(), uploadMetadataRefreshIntervalMs);
+          }'''
+          old_finally = '''    } finally {
+              stopUploadMetadataRefresh();
+              const finalTotal = await refreshUploadMetadata(true);
+              if (!upload.busy && finalTotal != null && finalTotal <= uploadResultsFloor) {
+                trackUploadResults = false;
+              }
+              uploadMutation.reset();
+            }'''
+          new_finally = '''    } finally {
+              if (!upload.activeJobIDs.length) await finishUploadMetadataRefresh();
+              uploadMutation.reset();
+            }'''
+          old_cancel = '''  async function cancelUploadJob(jobID = upload.activeJobID) {
+            cancelRequestedJobID = jobID;
+            const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);
+            if (result.changed) void jobsQuery.refetch();
+          }'''
+          new_cancel = '''  async function cancelUploadJob(jobID = upload.activeJobID) {
+            cancelRequestedJobID = jobID;
+            const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);
+            if (result.changed) {
+              void jobsQuery.refetch();
+              if (!upload.busy && !upload.activeJobIDs.length) void finishUploadMetadataRefresh();
+            }
+          }'''
+          for old, new, label in [
+              (old_effect, new_effect, 'job effect'),
+              (old_start, new_start, 'refresh lifecycle'),
+              (old_finally, new_finally, 'submit finally'),
+              (old_cancel, new_cancel, 'cancel lifecycle'),
+          ]:
+              if old not in text:
+                  raise SystemExit(f'missing expected {label} block')
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Check
+        working-directory: frontend
+        run: npm run check
+      - name: Browser regressions
+        working-directory: frontend
+        run: |
+          npx playwright install chromium
+          npm run test:e2e -- upload-refresh-throttle.spec.ts upload-metadata-refresh.spec.ts upload-backpressure.spec.ts upload-concurrency.spec.ts
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      - name: Commit repaired source and remove temporary workflow
+        run: |
+          rm .github/workflows/tmp-upload-refresh-churn.yml
+          git config user.name "Gooru Maintainer"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add frontend/src/lib/components/AuthenticatedApp.svelte .github/workflows/tmp-upload-refresh-churn.yml
+          git commit -m "fix(upload): throttle metadata refreshes"
+          git push
