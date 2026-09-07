@@ -1,3 +1,4 @@
+# rerun after stale migration/media-type assertion repair
 name: Temporary 333 Go diagnostics
 on:
   push:
