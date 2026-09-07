@@ -2,7 +2,7 @@
 -- `hidden`. A content contributes each tracked location once per key, regardless
 -- of how many values it has in that namespace.
 CREATE TABLE tag_key_kind_counts (
-    key TEXT NOT NULL,
+    key TEXT NOT NULL COLLATE NOCASE,
     kind TEXT NOT NULL,
     files_count INTEGER NOT NULL,
     PRIMARY KEY (key, kind)
