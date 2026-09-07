@@ -1,0 +1,15 @@
+name: temp tag rank validation
+on:
+  push:
+    branches: [perf/333-tag-query-aggregates]
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Database tests
+        run: go test ./internal/database -count=1
+      - name: Core query tests
+        run: go test ./gooru ./internal/query -count=1
