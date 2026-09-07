@@ -70,19 +70,6 @@ async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-async function currentImagePixel(page: Page) {
-  return page.getByTestId('hover-gif-preview').evaluate((node) => {
-    const image = node as HTMLImageElement;
-    const canvas = document.createElement('canvas');
-    canvas.width = 1;
-    canvas.height = 1;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('missing canvas context');
-    context.drawImage(image, 0, 0, 1, 1);
-    return Array.from(context.getImageData(0, 0, 1, 1).data.slice(0, 3));
-  });
-}
-
 test('video and gif previews start after dwell, stop on leave, and only one is active', async ({ page }) => {
   await mockLibrary(page);
 
@@ -140,18 +127,21 @@ test('gif playback visibly restarts from the first frame after leave and re-entr
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
   await gifCard.hover();
-  const gif = page.getByTestId('hover-gif-preview');
+  let gif = page.getByTestId('hover-gif-preview');
   await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
-  expect(await currentImagePixel(page)).toEqual([255, 0, 0]);
+  const firstFrame = await gif.screenshot();
 
   await page.waitForTimeout(1150);
-  expect(await currentImagePixel(page)).toEqual([0, 255, 0]);
+  const secondFrame = await gif.screenshot();
+  expect(secondFrame.equals(firstFrame)).toBe(false);
 
   await page.getByRole('heading', { name: 'Library' }).hover();
   await expect(gif).toHaveCount(0);
   await gifCard.hover();
-  await expect(page.getByTestId('hover-gif-preview')).toHaveClass(/is-ready/, { timeout: 500 });
-  expect(await currentImagePixel(page)).toEqual([255, 0, 0]);
+  gif = page.getByTestId('hover-gif-preview');
+  await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
+  const restartedFrame = await gif.screenshot();
+  expect(restartedFrame.equals(firstFrame)).toBe(true);
 });
 
 test('reduced motion and disabled media options suppress hover playback', async ({ page }) => {
