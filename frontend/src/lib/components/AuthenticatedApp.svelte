@@ -206,14 +206,13 @@
     const job = uploadJobQuery.data;
     if (!job) return;
     const result = upload.applyJob(job);
-    if (result.changedFiles) {
-      if (!trackUploadResults) {
-        trackUploadResults = true;
-        uploadResultsFloor = gridSnapshotTotalCount;
-      }
-      void refreshUploadMetadata(true);
+    if (result.changedFiles && !trackUploadResults) {
+      trackUploadResults = true;
+      uploadResultsFloor = gridSnapshotTotalCount;
     }
-    if (result.completed) void jobsQuery.refetch();
+    if (result.completed && !upload.busy && !upload.activeJobIDs.length) {
+      void finishUploadMetadataRefresh();
+    }
   });
 
   $effect(() => {
@@ -477,6 +476,15 @@
     }
   }
 
+  async function finishUploadMetadataRefresh() {
+    stopUploadMetadataRefresh();
+    const finalTotal = await refreshUploadMetadata(true);
+    if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsFloor) {
+      trackUploadResults = false;
+    }
+    return finalTotal;
+  }
+
   function startUploadMetadataRefresh() {
     beginTrackingUploadResults();
     if (uploadMetadataRefreshTimer) return;
@@ -498,11 +506,7 @@
       if (result.changedFiles) beginTrackingUploadResults();
       if (result.queued) void jobsQuery.refetch();
     } finally {
-      stopUploadMetadataRefresh();
-      const finalTotal = await refreshUploadMetadata(true);
-      if (!upload.busy && finalTotal != null && finalTotal <= uploadResultsFloor) {
-        trackUploadResults = false;
-      }
+      if (!upload.activeJobIDs.length) await finishUploadMetadataRefresh();
       uploadMutation.reset();
     }
   }
@@ -528,7 +532,10 @@
   async function cancelUploadJob(jobID = upload.activeJobID) {
     cancelRequestedJobID = jobID;
     const result = await upload.cancel((id) => cancelJobMutation.mutateAsync(id), jobID);
-    if (result.changed) void jobsQuery.refetch();
+    if (result.changed) {
+      void jobsQuery.refetch();
+      if (!upload.busy && !upload.activeJobIDs.length) void finishUploadMetadataRefresh();
+    }
   }
 
   async function cancelJob(job: Job) {
