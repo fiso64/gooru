@@ -54,9 +54,9 @@ func (c *Client) kindFacetsForUserTagExclusions(filters []simpleUserTagFacetFilt
 			excluded, err = c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
 		}
 	} else {
-		exclusions := make([]types.TagFacetExclusion, 0, len(filters))
+		exclusions := make([]tagFacetExclusion, 0, len(filters))
 		for _, filter := range filters {
-			exclusions = append(exclusions, types.TagFacetExclusion{Tag: filter.Tag, KeyOnly: filter.KeyOnly})
+			exclusions = append(exclusions, tagFacetExclusion{Tag: filter.Tag, KeyOnly: filter.KeyOnly})
 		}
 		excluded, err = c.store.KindFacetsForExcludedTags(exclusions)
 	}
