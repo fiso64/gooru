@@ -1,0 +1,43 @@
+name: Temporary 333 comic kind implementation retry
+on:
+  push:
+    branches: [perf/333-comic-kind-facet]
+    paths: ['.github/workflows/tmp-333-comic-kind-retry.yml']
+permissions:
+  contents: write
+jobs:
+  implement:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-comic-kind-facet
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Reuse guarded implementation script and clean temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/tmp-333-comic-kind-implement.yml')
+          text=p.read_text()
+          marker='        run: |\n'
+          body=text.split(marker,1)[1]
+          lines=[]
+          for line in body.splitlines():
+              if line.startswith('          '): lines.append(line[10:])
+              elif line.strip(): raise SystemExit(f'unexpected workflow indentation: {line!r}')
+              else: lines.append('')
+          Path('/tmp/gooru-333-apply.sh').write_text('\n'.join(lines)+'\n')
+          PY
+          bash /tmp/gooru-333-apply.sh
+          git fetch origin perf/333-comic-kind-facet
+          git reset --hard origin/perf/333-comic-kind-facet
+          git rm .github/workflows/tmp-333-comic-kind-retry.yml
+          git config user.name 'Gooru Maintainer'
+          git config user.email 'maintainer@users.noreply.github.com'
+          git commit -m 'chore: remove temporary comic-kind workflow'
+          git push origin HEAD:perf/333-comic-kind-facet
