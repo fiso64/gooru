@@ -7,6 +7,7 @@ const session = {
 };
 
 const twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAZAAAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');
+const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
 function mediaFile(id: string, kind: 'video' | 'gif') {
   const gif = kind === 'gif';
@@ -119,6 +120,26 @@ test('hover previews keep the thumbnail visible until media is ready and restart
   expect(secondSource).toContain('#gooru-hover-2');
   expect(secondSource).not.toBe(firstSource);
   expect(secondSource?.split('#')[0]).toBe(firstSource?.split('#')[0]);
+});
+
+test('ready transparent gif replaces the thumbnail backing layer', async ({ page }) => {
+  await mockLibrary(page);
+  await page.route('**/api/v1/files/gif-one/content', async (route) => route.fulfill({ contentType: 'image/gif', body: transparentGif }));
+
+  const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
+  const thumbnail = gifCard.locator('img').first();
+  await expect(thumbnail).toHaveCSS('opacity', '1');
+
+  await gifCard.hover();
+  const gif = page.getByTestId('hover-gif-preview');
+  await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
+  await expect(gif).toHaveCSS('opacity', '1');
+  await expect(thumbnail).toHaveClass(/preview-covered/);
+  await expect(thumbnail).toHaveCSS('opacity', '0');
+
+  await page.getByRole('heading', { name: 'Library' }).hover();
+  await expect(gif).toHaveCount(0);
+  await expect(thumbnail).toHaveCSS('opacity', '1');
 });
 
 test('gif playback visibly restarts and leaves the normal card affordances above playback', async ({ page }) => {
