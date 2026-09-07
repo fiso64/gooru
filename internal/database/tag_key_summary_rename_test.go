@@ -71,15 +71,23 @@ func assertAllKeySummariesMatchRecomputed(t *testing.T, db *sql.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	var keys []string
 	for rows.Next() {
 		var key string
 		if err := rows.Scan(&key); err != nil {
+			rows.Close()
 			t.Fatal(err)
 		}
-		assertTagKeyKindCountsMatchRecomputed(t, db, key)
+		keys = append(keys, key)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range keys {
+		assertTagKeyKindCountsMatchRecomputed(t, db, key)
 	}
 }
