@@ -31,10 +31,6 @@ jobs:
         run: |
           gofmt -w internal/serve/browse.go internal/serve/comic_kind_test.go internal/database/database.go internal/database/kind_counts_test.go internal/query/sqlbuilder.go
           git diff --check
-      - name: Narrow database regression
-        run: go test ./internal/database -run TestKindCountsMigrationBackfillsAndTracksMutations -count=1 -v
-      - name: Focused Go validation
-        run: go test ./internal/database ./internal/query ./internal/serve ./gooru/...
       - name: Commit repair
         run: |
           git config user.name chatgpt-codex-connector
@@ -43,3 +39,7 @@ jobs:
           git diff --cached --check
           git commit -m 'fix: keep CBZ kind authoritative'
           git push origin HEAD:perf/333-comic-kind-facet
+      - name: Narrow database regression
+        run: go test ./internal/database -run TestKindCountsMigrationBackfillsAndTracksMutations -count=1 -v
+      - name: Focused Go validation
+        run: go test ./internal/database ./internal/query ./internal/serve ./gooru/...
