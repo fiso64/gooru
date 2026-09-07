@@ -23,7 +23,7 @@ func TestClaimNextBackgroundTaskOrdersAndRecordsAttempt(t *testing.T) {
 
 	for _, task := range []NewBackgroundTask{
 		{ID: "low", DedupeKey: "low", Kind: "thumbnail", ResourceClass: "image", Priority: 1, CreatedAt: now},
-		{ID: "high", DedupeKey: "high", Kind: "thumbnail", ResourceClass: "image", Priority: 20, CreatedAt: now.Add(time.Second)},
+		{ID: "high", DedupeKey: "high", Kind: "thumbnail", ResourceClass: "image", Priority: 20, CreatedAt: now},
 		{ID: "future", DedupeKey: "future", Kind: "thumbnail", ResourceClass: "image", Priority: 100, CreatedAt: now, AvailableAt: now.Add(time.Hour)},
 		{ID: "other", DedupeKey: "other", Kind: "embedding", ResourceClass: "ml", Priority: 100, CreatedAt: now},
 	} {
