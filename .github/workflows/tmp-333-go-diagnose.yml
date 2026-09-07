@@ -1,0 +1,33 @@
+name: Temporary 333 Go diagnostics
+on:
+  push:
+    branches: [perf/333-comic-kind-facet]
+    paths: ['.github/workflows/tmp-333-go-diagnose.yml']
+jobs:
+  diagnose:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - name: Database tests
+        continue-on-error: true
+        shell: bash
+        run: set -o pipefail; go test -v ./internal/database 2>&1 | tee validation-database.log
+      - name: Query tests
+        continue-on-error: true
+        shell: bash
+        run: set -o pipefail; go test -v ./internal/query 2>&1 | tee validation-query.log
+      - name: Serve tests
+        continue-on-error: true
+        shell: bash
+        run: set -o pipefail; go test -v ./internal/serve 2>&1 | tee validation-serve.log
+      - name: Gooru tests
+        continue-on-error: true
+        shell: bash
+        run: set -o pipefail; go test -v ./gooru/... 2>&1 | tee validation-gooru.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go-diagnostics
+          path: validation-*.log
