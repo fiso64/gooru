@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS rebuild_tag_key_summaries_on_tag_rename;
