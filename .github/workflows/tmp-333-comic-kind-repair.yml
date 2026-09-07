@@ -1,0 +1,76 @@
+name: Temporary 333 comic kind repair
+on:
+  push:
+    branches: [perf/333-comic-kind-facet]
+    paths: ['.github/workflows/tmp-333-comic-kind-repair.yml']
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-comic-kind-facet
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - name: Repair CBZ effective-kind semantics
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p=Path(path); s=p.read_text()
+              if old not in s: raise SystemExit(f'missing replacement in {path}: {old[:80]!r}')
+              p.write_text(s.replace(old,new))
+
+          # Runtime/UI classification: CBZ MIME is first-class comic, including persisted metadata on new imports.
+          replace('internal/serve/browse.go',
+          '''func mediaKindForType(mediaType string) string {\n\tswitch {\n\tcase mediaType == "image/gif":''',
+          '''func mediaKindForType(mediaType string) string {\n\tswitch {\n\tcase strings.EqualFold(strings.TrimSpace(strings.SplitN(mediaType, ";", 2)[0]), "application/vnd.comicbook+zip"):\n\t\treturn "comic"\n\tcase mediaType == "image/gif":''')
+
+          # Effective DB kind: CBZ extension is authoritative over legacy persisted media_kind='other'.
+          replace('internal/database/database.go',
+          '''func fileKindExpression() string {\n\treturn `coalesce(mm.media_kind, CASE\n\t\tWHEN lower(l.extension) = '.cbz' THEN 'comic'\n\t\tWHEN lower(l.extension) = '.gif' THEN 'gif'\n\t\tWHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n\t\tWHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n\t\tELSE 'other'\n\tEND)`\n}''',
+          '''func fileKindExpression() string {\n\treturn `CASE\n\t\tWHEN lower(l.extension) = '.cbz' THEN 'comic'\n\t\tELSE coalesce(mm.media_kind, CASE\n\t\t\tWHEN lower(l.extension) = '.gif' THEN 'gif'\n\t\t\tWHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n\t\t\tWHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n\t\t\tELSE 'other'\n\t\tEND)\n\tEND`\n}''')
+
+          replace('internal/query/sqlbuilder.go',
+          '''func mediaTypeExpression() string {\n\treturn `coalesce(mm.media_kind, CASE\n\t\tWHEN lower(l.extension) = '.cbz' THEN 'comic'\n\t\tWHEN lower(l.extension) = '.gif' THEN 'gif'\n\t\tWHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n\t\tWHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n\t\tELSE 'other'\n\tEND)`\n}''',
+          '''func mediaTypeExpression() string {\n\treturn `CASE\n\t\tWHEN lower(l.extension) = '.cbz' THEN 'comic'\n\t\tELSE coalesce(mm.media_kind, CASE\n\t\t\tWHEN lower(l.extension) = '.gif' THEN 'gif'\n\t\t\tWHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n\t\t\tWHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n\t\t\tELSE 'other'\n\t\tEND)\n\tEND`\n}''')
+
+          old='''\tb.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(mm.media_kind) = lower(?)`)\n\tb.args = append(b.args, value)\n\n\tfallback := fallbackMediaTypeCondition(value)\n\tif fallback == "" {\n\t\treturn\n\t}\n\tb.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE ` + fallback + ` AND NOT EXISTS (SELECT 1 FROM media_metadata mm WHERE mm.location_id = l.id)`)'''
+          new='''\tb.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(l.extension) <> '.cbz' AND lower(mm.media_kind) = lower(?)`)\n\tb.args = append(b.args, value)\n\n\tif strings.EqualFold(value, "comic") {\n\t\tb.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE lower(l.extension) = '.cbz'`)\n\t\treturn\n\t}\n\tfallback := fallbackMediaTypeCondition(value)\n\tif fallback == "" {\n\t\treturn\n\t}\n\tb.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE ` + fallback + ` AND NOT EXISTS (SELECT 1 FROM media_metadata mm WHERE mm.location_id = l.id)`)'''
+          replace('internal/query/sqlbuilder.go', old, new)
+
+          # Migration/triggers: compute the same effective kind and keep metadata mutations neutral for CBZ.
+          p=Path('internal/database/migrations/019_comic_kind_summary.up.sql')
+          p.write_text('''-- Treat CBZ archives as the existing first-class `comic` media kind so root\n-- kind facets can answer comics availability without an extra browse query.\nDROP TRIGGER IF EXISTS kind_counts_location_insert;\nDROP TRIGGER IF EXISTS kind_counts_location_delete;\nDROP TRIGGER IF EXISTS kind_counts_location_extension_update;\nDROP TRIGGER IF EXISTS kind_counts_metadata_insert;\nDROP TRIGGER IF EXISTS kind_counts_metadata_update;\nDROP TRIGGER IF EXISTS kind_counts_metadata_delete;\n\nDELETE FROM kind_counts;\nINSERT INTO kind_counts (kind, files_count)\nSELECT CASE\n        WHEN lower(l.extension) = '.cbz' THEN 'comic'\n        ELSE coalesce(mm.media_kind, CASE\n            WHEN lower(l.extension) = '.gif' THEN 'gif'\n            WHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n            WHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n            ELSE 'other'\n        END)\n    END AS kind,\n    COUNT(*)\nFROM locations l\nLEFT JOIN media_metadata mm ON mm.location_id = l.id\nGROUP BY kind;\n\nCREATE TRIGGER kind_counts_location_insert\nAFTER INSERT ON locations\nBEGIN\n    INSERT INTO kind_counts (kind, files_count)\n    VALUES (CASE\n        WHEN lower(NEW.extension) = '.cbz' THEN 'comic'\n        WHEN lower(NEW.extension) = '.gif' THEN 'gif'\n        WHEN lower(NEW.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n        WHEN lower(NEW.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n        ELSE 'other'\n    END, 1)\n    ON CONFLICT(kind) DO UPDATE SET files_count = files_count + 1;\nEND;\n\nCREATE TRIGGER kind_counts_location_delete\nBEFORE DELETE ON locations\nBEGIN\n    UPDATE kind_counts SET files_count = files_count - 1\n    WHERE kind = CASE\n        WHEN lower(OLD.extension) = '.cbz' THEN 'comic'\n        ELSE coalesce((SELECT media_kind FROM media_metadata WHERE location_id = OLD.id), CASE\n            WHEN lower(OLD.extension) = '.gif' THEN 'gif'\n            WHEN lower(OLD.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n            WHEN lower(OLD.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n            ELSE 'other'\n        END)\n    END;\nEND;\n\nCREATE TRIGGER kind_counts_location_extension_update\nAFTER UPDATE OF extension ON locations\nWHEN OLD.extension IS NOT NEW.extension\nBEGIN\n    UPDATE kind_counts SET files_count = files_count - 1\n    WHERE kind = CASE\n        WHEN lower(OLD.extension) = '.cbz' THEN 'comic'\n        ELSE coalesce((SELECT media_kind FROM media_metadata WHERE location_id = NEW.id), CASE\n            WHEN lower(OLD.extension) = '.gif' THEN 'gif'\n            WHEN lower(OLD.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n            WHEN lower(OLD.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n            ELSE 'other'\n        END)\n    END;\n\n    INSERT INTO kind_counts (kind, files_count)\n    VALUES (CASE\n        WHEN lower(NEW.extension) = '.cbz' THEN 'comic'\n        ELSE coalesce((SELECT media_kind FROM media_metadata WHERE location_id = NEW.id), CASE\n            WHEN lower(NEW.extension) = '.gif' THEN 'gif'\n            WHEN lower(NEW.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n            WHEN lower(NEW.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n            ELSE 'other'\n        END)\n    END, 1)\n    ON CONFLICT(kind) DO UPDATE SET files_count = files_count + 1;\nEND;\n\nCREATE TRIGGER kind_counts_metadata_insert\nAFTER INSERT ON media_metadata\nWHEN lower((SELECT extension FROM locations WHERE id = NEW.location_id)) <> '.cbz'\nBEGIN\n    UPDATE kind_counts SET files_count = files_count - 1\n    WHERE kind = (SELECT CASE\n        WHEN lower(extension) = '.gif' THEN 'gif'\n        WHEN lower(extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n        WHEN lower(extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n        ELSE 'other' END FROM locations WHERE id = NEW.location_id);\n    INSERT INTO kind_counts (kind, files_count) VALUES (NEW.media_kind, 1)\n    ON CONFLICT(kind) DO UPDATE SET files_count = files_count + 1;\nEND;\n\nCREATE TRIGGER kind_counts_metadata_update\nAFTER UPDATE OF media_kind ON media_metadata\nWHEN OLD.media_kind IS NOT NEW.media_kind\n AND lower((SELECT extension FROM locations WHERE id = NEW.location_id)) <> '.cbz'\nBEGIN\n    UPDATE kind_counts SET files_count = files_count - 1 WHERE kind = OLD.media_kind;\n    INSERT INTO kind_counts (kind, files_count) VALUES (NEW.media_kind, 1)\n    ON CONFLICT(kind) DO UPDATE SET files_count = files_count + 1;\nEND;\n\nCREATE TRIGGER kind_counts_metadata_delete\nAFTER DELETE ON media_metadata\nWHEN EXISTS (SELECT 1 FROM locations WHERE id = OLD.location_id)\n AND lower((SELECT extension FROM locations WHERE id = OLD.location_id)) <> '.cbz'\nBEGIN\n    UPDATE kind_counts SET files_count = files_count - 1 WHERE kind = OLD.media_kind;\n    INSERT INTO kind_counts (kind, files_count)\n    SELECT CASE\n        WHEN lower(extension) = '.gif' THEN 'gif'\n        WHEN lower(extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n        WHEN lower(extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n        ELSE 'other' END, 1\n    FROM locations WHERE id = OLD.location_id\n    ON CONFLICT(kind) DO UPDATE SET files_count = files_count + 1;\nEND;\n''')
+
+          # Strengthen regressions: a legacy CBZ metadata row saying `other` must still classify as comic.
+          replace('internal/query/sqlbuilder_test.go',
+          '''\t\t`INSERT INTO media_metadata (location_id, media_kind) VALUES\n\t\t\t(2, 'video'),\n\t\t\t(4, 'audio')`,''',
+          '''\t\t`INSERT INTO media_metadata (location_id, media_kind) VALUES\n\t\t\t(2, 'video'),\n\t\t\t(4, 'audio'),\n\t\t\t(6, 'other')`,''')
+
+          replace('internal/database/kind_counts_test.go',
+          '''\tif _, err := db.Exec(`\n\t\tINSERT INTO media_metadata (location_id, media_kind, mime_type)\n\t\tVALUES (?, 'photo', 'image/jpeg')\n\t`, videoID); err != nil {\n\t\tt.Fatal(err)\n\t}\n''',
+          '''\tif _, err := db.Exec(`\n\t\tINSERT INTO media_metadata (location_id, media_kind, mime_type)\n\t\tVALUES (?, 'photo', 'image/jpeg')\n\t`, videoID); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Legacy CBZ metadata was classified from its application/* MIME as `other`.\n\t// Extension semantics must remain authoritative so migration 019 repairs this.\n\tif _, err := db.Exec(`\n\t\tINSERT INTO media_metadata (location_id, media_kind, mime_type)\n\t\tVALUES (?, 'other', 'application/vnd.comicbook+zip')\n\t`, comicID); err != nil {\n\t\tt.Fatal(err)\n\t}\n''')
+
+          replace('internal/database/kind_counts_test.go',
+          '''\twant := readCounts(`\n\t\tSELECT coalesce(mm.media_kind, CASE\n\t\t\tWHEN lower(l.extension) = '.cbz' THEN 'comic'\n\t\t\tWHEN lower(l.extension) = '.gif' THEN 'gif'\n\t\t\tWHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n\t\t\tWHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n\t\t\tELSE 'other'\n\t\tEND) AS kind, COUNT(*)''',
+          '''\twant := readCounts(`\n\t\tSELECT CASE\n\t\t\tWHEN lower(l.extension) = '.cbz' THEN 'comic'\n\t\t\tELSE coalesce(mm.media_kind, CASE\n\t\t\t\tWHEN lower(l.extension) = '.gif' THEN 'gif'\n\t\t\t\tWHEN lower(l.extension) IN ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif') THEN 'photo'\n\t\t\t\tWHEN lower(l.extension) IN ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.mpeg', '.mpg') THEN 'video'\n\t\t\t\tELSE 'other'\n\t\t\tEND)\n\t\tEND AS kind, COUNT(*)''')
+          PY
+          gofmt -w internal/serve/browse.go internal/database/database.go internal/query/sqlbuilder.go internal/query/sqlbuilder_test.go internal/database/kind_counts_test.go
+      - name: Validate repaired semantics
+        run: go test ./internal/database ./internal/query ./internal/serve ./gooru/...
+      - name: Commit repaired branch
+        shell: bash
+        run: |
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/serve/browse.go internal/database/database.go internal/database/kind_counts_test.go internal/database/migrations/019_comic_kind_summary.up.sql internal/query/sqlbuilder.go internal/query/sqlbuilder_test.go
+          git diff --cached --check
+          git commit -m 'fix: keep CBZ classification authoritative'
+          git push origin HEAD:perf/333-comic-kind-facet
