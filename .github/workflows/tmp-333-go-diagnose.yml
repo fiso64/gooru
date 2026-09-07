@@ -11,23 +11,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: {go-version-file: go.mod}
-      - name: Database tests
+      - name: Combined Go regression command
         continue-on-error: true
         shell: bash
-        run: set -o pipefail; go test -v ./internal/database 2>&1 | tee validation-database.log
-      - name: Query tests
+        run: |
+          set -o pipefail
+          go test -json ./internal/database ./internal/query ./internal/serve ./gooru/... 2>&1 | tee validation-combined.jsonl
+      - name: Combined verbose fallback
         continue-on-error: true
         shell: bash
-        run: set -o pipefail; go test -v ./internal/query 2>&1 | tee validation-query.log
-      - name: Serve tests
-        continue-on-error: true
-        shell: bash
-        run: set -o pipefail; go test -v ./internal/serve 2>&1 | tee validation-serve.log
-      - name: Gooru tests
-        continue-on-error: true
-        shell: bash
-        run: set -o pipefail; go test -v ./gooru/... 2>&1 | tee validation-gooru.log
+        run: |
+          set -o pipefail
+          go test -count=1 -v ./internal/database ./internal/query ./internal/serve ./gooru/... 2>&1 | tee validation-combined-verbose.log
       - uses: actions/upload-artifact@v4
         with:
-          name: go-diagnostics
-          path: validation-*.log
+          name: go-combined-diagnostics
+          path: validation-combined*
