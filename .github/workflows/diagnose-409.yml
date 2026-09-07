@@ -1,0 +1,43 @@
+name: Diagnose 409 hover preview
+
+on:
+  push:
+    branches:
+      - fix/409-hover-preview-regressions
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefer-offline --no-audit
+      - run: npx playwright install chromium
+      - id: focused
+        continue-on-error: true
+        run: npm run test:e2e -- hover-media-preview.spec.ts --grep "gif playback visibly" --reporter=line > /tmp/hover-409.log 2>&1
+      - name: Publish focused diagnostic
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '<!-- autonomous-maintainer-diagnostic-409 -->'
+            echo 'Focused #409 browser diagnostic:'
+            echo '```text'
+            tail -n 80 /tmp/hover-409.log
+            echo '```'
+          } | gh pr comment 414 --body-file -
+      - if: steps.focused.outcome == 'failure'
+        run: exit 1
