@@ -1,0 +1,67 @@
+name: tmp-333-wire-tag-kind
+
+on:
+  push:
+    branches:
+      - perf/333-exact-tag-kind-summary
+
+permissions:
+  contents: write
+
+jobs:
+  wire-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/333-exact-tag-kind-summary
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Wire exact-tag kind facets
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('gooru/query.go')
+          s = p.read_text()
+          old = '''func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
+          \tif kind, ok := simpleKindFacetFilter(expression); ok {
+          \t\tfacets, err := c.store.KindFacets()
+          \t\tif err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\treturn filterKindFacet(facets, kind), nil
+          \t}
+          \tsqlQuery, args, err := c.buildLocationQuery(expression)
+          '''
+          new = '''func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {
+          \tif kind, ok := simpleKindFacetFilter(expression); ok {
+          \t\tfacets, err := c.store.KindFacets()
+          \t\tif err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\treturn filterKindFacet(facets, kind), nil
+          \t}
+          \tif tag, ok := simpleExactUserTagFilter(expression); ok {
+          \t\treturn c.store.KindFacetsForTag(tag.Key, tag.Value)
+          \t}
+          \tsqlQuery, args, err := c.buildLocationQuery(expression)
+          '''
+          if old not in s:
+              raise SystemExit('KindFacetsByQuery anchor not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          gofmt -w gooru/query.go gooru/query_tag_fastpath.go internal/database/tag_kind_counts.go
+      - name: Validate focused Go suites
+        run: go test ./gooru ./internal/database
+      - name: Commit validated wiring and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add gooru/query.go gooru/query_tag_fastpath.go internal/database/tag_kind_counts.go
+          git rm .github/workflows/tmp-333-wire-tag-kind.yml
+          git commit -m 'perf: use tag kind summaries for exact facets'
+          git push origin HEAD:perf/333-exact-tag-kind-summary
