@@ -18,6 +18,8 @@ export type RuntimeConfig = {
   capabilities: string[];
   loadFullMediaByDefault: boolean;
   fullscreenMediaByDefault: boolean;
+  hoverPlayVideos: boolean;
+  hoverPlayGifs: boolean;
   viewerFitMode: ViewerConfiguredFitMode;
   viewerScaling: ViewerScaling;
   gridSize: number;
@@ -56,6 +58,8 @@ export const runtimeConfig = writable<RuntimeConfig>({
   capabilities: [runtimeCapability.previewImages],
   loadFullMediaByDefault: false,
   fullscreenMediaByDefault: false,
+  hoverPlayVideos: true,
+  hoverPlayGifs: true,
   viewerFitMode: 'fit_window',
   viewerScaling: 'smooth',
   gridSize: defaultGridSize,
