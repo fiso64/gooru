@@ -55,8 +55,6 @@ jobs:
               raise SystemExit('missing #416 wheel clamp anchor')
           p.write_text(text.replace(old, new, 1))
 
-          # The historical temporary patch used a raw Python string for its appended E2E block,
-          # so its escaped newlines were written literally. Normalize only that appended block.
           p = Path('frontend/tests/viewer-fit-mode.spec.ts')
           text = p.read_text()
           marker = r'\n\nasync function openOversizedActualViewer'
@@ -103,6 +101,9 @@ jobs:
             frontend-unit.log
             frontend-build.log
           if-no-files-found: ignore
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
       - name: Focused Chromium viewer regression
         working-directory: frontend
         shell: bash
