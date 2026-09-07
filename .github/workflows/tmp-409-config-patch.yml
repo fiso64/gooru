@@ -7,14 +7,14 @@ permissions:
   contents: write
 jobs:
   patch:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/409-hover-media-previews
       - name: Patch UI config and docs
-        shell: python
         run: |
+          python3 <<'PY'
           from pathlib import Path
 
           p = Path('internal/serve/config.go')
@@ -25,7 +25,7 @@ jobs:
               raise SystemExit('UIConfig field anchor not found')
           text = text.replace(old, new, 1)
           old = '''\t\tUI: UIConfig{\n\t\t\tFontStyle:      "editorial",\n\t\t\tGridSize:       DefaultGridSize,'''
-          new = '''\t\tUI: UIConfig{\n\t\t\tFontStyle:       "editorial",\n\t\t\tHoverPlayVideos: true,\n\t\t\tHoverPlayGIFs:   true,\n\t\t\tGridSize:        DefaultGridSize,'''
+          new = '''\t\tUI: UIConfig{\n\t\t\tFontStyle:        "editorial",\n\t\t\tHoverPlayVideos: true,\n\t\t\tHoverPlayGIFs:   true,\n\t\t\tGridSize:         DefaultGridSize,'''
           if old not in text:
               raise SystemExit('DefaultConfig UI anchor not found')
           text = text.replace(old, new, 1)
@@ -38,6 +38,7 @@ jobs:
           if old not in text:
               raise SystemExit('CONFIG.md UI anchor not found')
           p.write_text(text.replace(old, new, 1))
+          PY
       - name: Commit patch
         run: |
           git config user.name "chatgpt-codex-connector[bot]"
