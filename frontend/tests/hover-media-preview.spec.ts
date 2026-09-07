@@ -121,14 +121,21 @@ test('hover previews keep the thumbnail visible until media is ready and restart
   expect(secondSource?.split('#')[0]).toBe(firstSource?.split('#')[0]);
 });
 
-test('gif playback visibly restarts from the first frame after leave and re-entry', async ({ page }) => {
+test('gif playback visibly restarts and leaves the normal card affordances above playback', async ({ page }) => {
   await mockLibrary(page);
   await page.route('**/api/v1/files/gif-one/content', async (route) => route.fulfill({ contentType: 'image/gif', body: twoFrameGif }));
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
+  const card = gifCard.locator('..');
   await gifCard.hover();
   let gif = page.getByTestId('hover-gif-preview');
   await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
+  await expect(gif).toHaveCSS('z-index', '1');
+  await expect(gifCard.locator('.thumb-overlay')).toHaveCSS('z-index', '2');
+  await expect(gifCard.locator('.thumb-meta')).toHaveCSS('z-index', '3');
+  await expect(gifCard.locator('.thumb-badges')).toHaveCSS('z-index', '3');
+  await expect(card.locator('.thumb-checkbox')).toHaveCSS('z-index', '4');
+  await expect(card.locator('.thumb-checkbox')).toHaveCSS('opacity', '1');
   const firstFrame = await gif.screenshot();
 
   await page.waitForTimeout(1150);
