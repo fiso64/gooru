@@ -1,0 +1,46 @@
+name: Maintainer hidden-tag final validation
+
+on:
+  push:
+    branches:
+      - perf/333-hidden-tag-facets-v2
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Validate final source
+        shell: bash
+        run: |
+          set -euo pipefail
+          gofmt -w gooru/database_boundary.go gooru/query.go gooru/query_tag_fastpath.go gooru/query_tag_exclusion_facets.go gooru/query_tag_exclusion_facets_test.go internal/database/tag_kind_counts.go
+          set +e
+          timeout 420s go test ./... > /tmp/test.log 2>&1
+          test_status=$?
+          timeout 180s go build ./... > /tmp/build.log 2>&1
+          build_status=$?
+          set -e
+          git config user.name "Gooru autonomous maintainer"
+          git config user.email "actions@users.noreply.github.com"
+          rm .github/workflows/maintainer-hidden-tag-final.yml
+          if [ "$test_status" -ne 0 ] || [ "$build_status" -ne 0 ]; then
+            { echo '=== go test ./... ==='; cat /tmp/test.log; echo '=== go build ./... ==='; cat /tmp/build.log; } > .maintainer-hidden-tag-final.log
+            git add -A
+            git commit -m "ci: capture final hidden-tag validation failure"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          git add -A
+          git commit -m "ci: remove temporary final hidden-tag validation"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
