@@ -21,6 +21,7 @@
     hover_play_videos?: boolean;
     hover_play_gifs?: boolean;
     viewer_fit_mode?: ViewerConfiguredFitMode;
+    viewer_actual_size_fit_cap?: boolean;
     viewer_scaling?: ViewerScaling;
     grid_size?: number;
     grid_type?: string;
@@ -56,6 +57,7 @@
       hoverPlayVideos: config.hover_play_videos ?? true,
       hoverPlayGifs: config.hover_play_gifs ?? true,
       viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
+      viewerActualSizeFitCap: config.viewer_actual_size_fit_cap ?? true,
       viewerScaling: config.viewer_scaling ?? 'smooth',
       gridSize: runtimeGridSize,
       gridType: runtimeGridType,

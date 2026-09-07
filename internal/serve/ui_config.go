@@ -12,6 +12,7 @@ type UIConfigResponse struct {
 	HoverPlayVideos          bool     `json:"hover_play_videos"`
 	HoverPlayGIFs            bool     `json:"hover_play_gifs"`
 	ViewerFitMode            string   `json:"viewer_fit_mode"`
+	ViewerActualSizeFitCap   bool     `json:"viewer_actual_size_fit_cap"`
 	ViewerScaling            string   `json:"viewer_scaling"`
 	GridSize                 int      `json:"grid_size"`
 	GridType                 string   `json:"grid_type"`
@@ -36,6 +37,7 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		HoverPlayVideos:          s.cfg.UI.HoverPlayVideos,
 		HoverPlayGIFs:            s.cfg.UI.HoverPlayGIFs,
 		ViewerFitMode:            s.cfg.UI.ViewerFitMode,
+		ViewerActualSizeFitCap:   s.cfg.UI.ViewerActualSizeFitCap,
 		ViewerScaling:            s.cfg.UI.ViewerScaling,
 		GridSize:                 s.cfg.UI.GridSize,
 		GridType:                 s.cfg.UI.GridType,

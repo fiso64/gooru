@@ -138,7 +138,8 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | `ui.pagination_mode` | `infinite` | Library browsing mode: `infinite` incrementally appends results while scrolling; `paged` keeps only the current transport page in browser query state and shows Previous/Next controls. |
 | `ui.items_per_page` | `60` | Number of files requested per library page. Used by both modes as the transport page size; must be between `1` and `200`. In paged mode this is the visible page size. |
 | `ui.hidden_tags` | empty list | Tags whose files the WebUI excludes by default from library and filtered file views. If a query positively requests a hidden tag, that tag's default exclusion is lifted for the request while other hidden tags remain excluded. Library/result counts and kind facets follow the same visibility policy. Hidden tags remain available in tag browsing and search completions. This affects WebUI/API browsing only; it does not change core or CLI query semantics. |
-| `ui.viewer_fit_mode` | `fit_window` | Default viewer fit policy: `fit_window` (legacy alias `screen`) fills the available viewer bounds, `fit_down_only` never enlarges smaller media, `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down, and `actual` starts at original size. Press `V` to cycle the fit policies for the current browser session. |
+| `ui.viewer_fit_mode` | `fit_window` | Default viewer fit policy: `fit_window` (legacy alias `screen`) fills the available viewer bounds, `fit_down_only` never enlarges smaller media, `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down, and `actual` starts from 1:1 semantics. Press `V` to cycle the fit policies for the current browser session. |
+| `ui.viewer_actual_size_fit_cap` | `true` | When enabled, `actual`/1:1 mode starts no larger than fit-window size for oversized media. Manual zoom remains available above that fitted baseline. Disable this to preserve an uncapped intrinsic 1:1 starting size. |
 | `ui.viewer_scaling` | `smooth` | Browser-side image interpolation: `smooth` uses normal browser filtering and `nearest` uses nearest-neighbor/pixelated scaling. Press `S` in the viewer to toggle it for the current browser session. |
 | `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |
 | `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |
@@ -219,6 +220,7 @@ ui:
   items_per_page: 60
   hidden_tags: []
   viewer_fit_mode: fit_window
+  viewer_actual_size_fit_cap: true
   viewer_scaling: smooth
   load_full_media_by_default: false
   fullscreen_media_by_default: false

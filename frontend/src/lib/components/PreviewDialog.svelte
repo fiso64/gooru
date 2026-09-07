@@ -337,6 +337,7 @@
     {file}
     {imageSource}
     initialFitMode={$runtimeConfig.viewerFitMode}
+    boundActualSizeToFit={$runtimeConfig.viewerActualSizeFitCap}
     initialScaling={$runtimeConfig.viewerScaling}
     onPrev={stagePrev}
     onNext={stageNext}
