@@ -1,0 +1,125 @@
+name: Temporary 333 final tag facet validation
+on:
+  push:
+    branches: [perf/333-exact-tag-kind-summary]
+    paths: ['.github/workflows/tmp-333-final-tag-facet-validate.yml']
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version-file: go.mod}
+      - name: Full Go validation
+        run: go test ./... && go build ./...
+      - name: Build benchmark server
+        run: go build -o gooru-bench ./cmd/gooru
+      - name: Measure hidden facet handler scaling
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${RUNNER_TEMP:-/tmp}/gooru-333-final-${GITHUB_RUN_ID}"; rm -rf "$ROOT"; mkdir -p "$ROOT"; trap 'rm -rf "$ROOT"' EXIT
+          python3 - "$PWD/gooru-bench" "$ROOT" <<'PY'
+          import json, os, sqlite3, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+          from pathlib import Path
+
+          binary = Path(sys.argv[1]); root = Path(sys.argv[2])
+          sizes = [100, 7000, 10000]
+          results = []
+
+          def make_fixture(n):
+              work = root / str(n); work.mkdir(parents=True, exist_ok=True)
+              db = work / 'library.db'
+              subprocess.run([str(binary), '--database', str(db), 'init'], input='1\n', text=True, check=True, stdout=subprocess.DEVNULL)
+              c = sqlite3.connect(db)
+              c.execute('PRAGMA foreign_keys=ON'); c.execute('PRAGMA synchronous=OFF'); c.execute('PRAGMA journal_mode=MEMORY')
+              triggers = c.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND sql IS NOT NULL").fetchall()
+              c.executescript('\n'.join(f'DROP TRIGGER IF EXISTS "{name.replace(chr(34), chr(34)*2)}";' for name,_ in triggers))
+              c.execute('BEGIN IMMEDIATE')
+              # Match the owner repro shape: exactly 40 total tags, every file carrying bare `hidden`.
+              c.execute("INSERT INTO tags(key,value) VALUES ('hidden','')")
+              hidden_id = c.execute("SELECT id FROM tags WHERE key='hidden' AND value='' ").fetchone()[0]
+              for i in range(39): c.execute("INSERT INTO tags(key,value) VALUES (?,?)", ('filler', f'v{i:02d}'))
+              rows = [(f'{i+1:064x}',) for i in range(n)]
+              c.executemany('INSERT INTO contents(hash) VALUES (?)', rows)
+              loc_cols = [r[1] for r in c.execute('PRAGMA table_info(locations)')]
+              has_public = 'public_id' in loc_cols
+              if has_public:
+                  c.executemany("INSERT INTO locations(content_hash,path,size_bytes,mod_time,extension,tags_cache,public_id) VALUES (?,?,?,?,?,?,?)",
+                      [(h, f'/fixture/{i:05d}.png', 1, 1788696000, '.png', 'hidden', f'bench_{i:032x}') for i,(h,) in enumerate(rows)])
+              else:
+                  c.executemany("INSERT INTO locations(content_hash,path,size_bytes,mod_time,extension,tags_cache) VALUES (?,?,?,?,?,?)",
+                      [(h, f'/fixture/{i:05d}.png', 1, 1788696000, '.png', 'hidden') for i,(h,) in enumerate(rows)])
+              c.executemany('INSERT INTO content_tags(content_hash,tag_id) VALUES (?,?)', [(h, hidden_id) for (h,) in rows])
+              c.execute('UPDATE tags SET files_count=? WHERE id=?', (n, hidden_id))
+              # Populate every maintained aggregate used by the current browse path exactly as migrations/triggers would.
+              if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tag_key_counts'").fetchone():
+                  c.execute('DELETE FROM tag_key_counts'); c.execute("INSERT INTO tag_key_counts(key,files_count) VALUES ('hidden',?)", (n,))
+              if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='kind_counts'").fetchone():
+                  c.execute('DELETE FROM kind_counts'); c.execute("INSERT INTO kind_counts(kind,files_count) VALUES ('photo',?)", (n,))
+              if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tag_kind_counts'").fetchone():
+                  c.execute('DELETE FROM tag_kind_counts'); c.execute("INSERT INTO tag_kind_counts(tag_id,kind,files_count) VALUES (?,'photo',?)", (hidden_id,n))
+              if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tag_key_kind_counts'").fetchone():
+                  c.execute('DELETE FROM tag_key_kind_counts'); c.execute("INSERT INTO tag_key_kind_counts(key,kind,files_count) VALUES ('hidden','photo',?)", (n,))
+              c.commit()
+              for _,sql in triggers: c.execute(sql)
+              c.commit(); c.close()
+              return work, db
+
+          def request(url, token=None):
+              req = urllib.request.Request(url)
+              if token: req.add_header('Authorization', 'Bearer ' + token)
+              with urllib.request.urlopen(req, timeout=5) as r: return r.read()
+
+          for idx,n in enumerate(sizes):
+              work, db = make_fixture(n)
+              port = 21000 + (os.getpid() + idx * 97) % 15000
+              cfg = work / 'serve.yaml'
+              cfg.write_text(f'''server:\n  listen: 127.0.0.1:{port}\ndatabase:\n  path: {db}\nauth:\n  enabled: false\nlogging:\n  level: warn\n''')
+              log = open(work/'server.log','wb')
+              proc = subprocess.Popen([str(binary), '--config', str(cfg), 'serve'], stdout=log, stderr=subprocess.STDOUT)
+              base = f'http://127.0.0.1:{port}'
+              try:
+                  for _ in range(200):
+                      try:
+                          request(base + '/api/v1/health'); break
+                      except Exception: time.sleep(.05)
+                  else: raise RuntimeError(f'readiness timeout for {n}')
+                  paths = {
+                      'tags': '/api/v1/tags?counts=true',
+                      'root': '/api/v1/files?include_facets=true&limit=60',
+                      'hidden': '/api/v1/files?query=hidden&include_facets=true&limit=60',
+                  }
+                  sample = {}
+                  for name,path in paths.items():
+                      for _ in range(5): request(base+path)
+                      times=[]
+                      for _ in range(30):
+                          t=time.perf_counter(); body=request(base+path); times.append((time.perf_counter()-t)*1000)
+                      sample[name] = sum(times)/len(times)
+                      if name == 'hidden':
+                          payload=json.loads(body)
+                          facets=payload.get('facets',{}).get('kind',[]) if isinstance(payload,dict) else []
+                          if not facets or facets[0].get('value')!='photo' or facets[0].get('count')!=n:
+                              raise RuntimeError(f'wrong hidden facets for {n}: {facets!r}')
+                  results.append({'files':n, **sample})
+              finally:
+                  proc.terminate()
+                  try: proc.wait(timeout=5)
+                  except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+                  log.close()
+
+          print('GOORU_TAG_FACET_RESULT=' + json.dumps(results, sort_keys=True))
+          (root/'tag-facet-profile.json').write_text(json.dumps(results, indent=2, sort_keys=True))
+          # Guard the regression asymptotically: the 10K hidden request should no longer scale tens of ms with library size.
+          h100, h10k = results[0]['hidden'], results[-1]['hidden']
+          if h10k > max(8.0, h100 * 5.0):
+              raise SystemExit(f'hidden facet path still scales with library size: 100={h100:.3f}ms 10k={h10k:.3f}ms')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tag-facet-profile
+          path: ${{ runner.temp }}/gooru-333-final-${{ github.run_id }}/tag-facet-profile.json
+          if-no-files-found: ignore
