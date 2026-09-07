@@ -23,6 +23,8 @@ type TaskStore interface {
 	FailBackgroundTask(taskID, workerID string, finishedAt, retryAt time.Time, errorCode, errorMessage string) (bool, error)
 }
 
+// Handler executes one claimed task. Handlers must honor context cancellation promptly:
+// the runner cancels the context when lease renewal fails so stale workers stop side effects.
 type Handler func(context.Context, database.BackgroundTask) error
 
 type Runner struct {
@@ -133,7 +135,7 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 	defer cancel()
 	stopRenew := make(chan struct{})
 	renewDone := make(chan error, 1)
-	go r.renewLease(handlerCtx, task.ID, stopRenew, renewDone)
+	go r.renewLease(handlerCtx, cancel, task.ID, stopRenew, renewDone)
 
 	err := handler(handlerCtx, task)
 	close(stopRenew)
@@ -171,7 +173,7 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 	return nil
 }
 
-func (r *Runner) renewLease(ctx context.Context, taskID string, stop <-chan struct{}, done chan<- error) {
+func (r *Runner) renewLease(ctx context.Context, cancel context.CancelFunc, taskID string, stop <-chan struct{}, done chan<- error) {
 	interval := r.leaseDuration / 3
 	if interval <= 0 {
 		interval = time.Millisecond
@@ -188,6 +190,7 @@ func (r *Runner) renewLease(ctx context.Context, taskID string, stop <-chan stru
 			return
 		case <-ticker.C:
 			if _, err := r.store.RenewBackgroundTaskLease(taskID, r.workerID, r.now(), r.leaseDuration); err != nil {
+				cancel()
 				done <- err
 				return
 			}
