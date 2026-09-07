@@ -7,6 +7,13 @@ import (
 	"gooru.local/types"
 )
 
+// TagFacetExclusion describes one simple user-tag exclusion. KeyOnly matches
+// every value in the namespace; otherwise Tag is an exact key/value match.
+type TagFacetExclusion struct {
+	Tag     types.ParsedTag
+	KeyOnly bool
+}
+
 func scanKindFacets(rows interface {
 	Next() bool
 	Scan(...interface{}) error
@@ -61,7 +68,7 @@ func (s *Store) KindFacetsForTagKey(key string) ([]types.TagWithCount, error) {
 // joins locations for excluded content, so work scales with the hidden subset
 // instead of the visible library. DISTINCT preserves union semantics when a
 // content item carries more than one excluded tag.
-func (s *Store) KindFacetsForExcludedTags(exclusions []types.TagFacetExclusion) ([]types.TagWithCount, error) {
+func (s *Store) KindFacetsForExcludedTags(exclusions []TagFacetExclusion) ([]types.TagWithCount, error) {
 	if len(exclusions) == 0 {
 		return nil, nil
 	}
