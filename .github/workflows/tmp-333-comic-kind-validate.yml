@@ -1,4 +1,4 @@
-# final validation trigger after authoritative-CBZ repair and coverage hardening
+# final validation rerun after migration/media-type assertion repair
 name: Temporary 333 comic facet validation
 on:
   push:
