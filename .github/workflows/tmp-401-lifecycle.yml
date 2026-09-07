@@ -24,6 +24,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Compile database package
+        run: go test ./internal/database -run '^$'
+      - name: Claim ordering and attempt test
+        run: go test ./internal/database -run '^TestClaimNextBackgroundTaskOrdersAndRecordsAttempt$' -count=1
+      - name: Retry and terminal failure test
+        run: go test ./internal/database -run '^TestBackgroundTaskFailureRetriesThenBecomesTerminal$' -count=1
+      - name: Stale worker completion test
+        run: go test ./internal/database -run '^TestCompleteBackgroundTaskRejectsStaleWorker$' -count=1
+      - name: Expired lease recovery test
+        run: go test ./internal/database -run '^TestRecoverExpiredBackgroundTaskLeasesRetriesThenExhausts$' -count=1
+      - name: Concurrent claim test
+        run: go test ./internal/database -run '^TestClaimNextBackgroundTaskAllowsOnlyOneConcurrentWorker$' -count=1
       - name: Database package tests
         run: go test ./internal/database
       - name: Full Go tests
