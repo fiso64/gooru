@@ -10,6 +10,26 @@ const tags = [
 ];
 
 describe('plainTagSuggestions', () => {
+  it('uses the base unique-file count for a real namespace and never invents namespaces for plain tags', () => {
+    const candidates = [
+      { name: 'animal', count: 3 },
+      { name: 'animal:cat', namespace: 'animal', value: 'cat', count: 1 },
+      { name: 'animal:hamster', namespace: 'animal', value: 'hamster', count: 1 },
+      { name: 'animal:horse', namespace: 'animal', value: 'horse', count: 1 },
+      { name: 'ai', count: 2 },
+      { name: 'a', count: 1 }
+    ];
+
+    const suggestions = plainTagSuggestions('a', candidates, [], 10);
+    expect(suggestions.slice(0, 4)).toEqual([
+      { name: 'animal', count: 3, kind: 'tag' },
+      { name: 'animal:', count: 3, kind: 'namespace' },
+      { name: 'ai', count: 2, kind: 'tag' },
+      { name: 'a', count: 1, kind: 'tag' }
+    ]);
+    expect(suggestions.some(({ name }) => name === 'a:' || name === 'ai:')).toBe(false);
+  });
+
   it('matches namespace values and excludes existing tags', () => {
     expect(plainTagSuggestions('artist:a', tags, ['artist:bob']).map((item) => item.name)).toEqual(['artist:alice']);
   });

@@ -11,8 +11,6 @@ For every YAML field and default, see [CONFIG.md](CONFIG.md). For endpoint-level
 ```bash
 cd frontend
 npm ci
-npm run check
-npm run test:unit
 npm run build
 cd ..
 ```
@@ -44,7 +42,6 @@ For local use, the most important defaults are already conservative:
 - listen on `127.0.0.1:5678`;
 - authentication enabled;
 - uploads disabled;
-- protected/encrypted storage disabled until a key is configured.
 
 ### 5. Create the first admin
 
@@ -143,7 +140,7 @@ See [CONFIG.md#encryption](CONFIG.md#encryption) for the complete rules.
 
 ## Media tooling
 
-A default build includes a pure-Go image thumbnail path. Video thumbnails require `ffmpeg`; `ffprobe` is also used for media inspection/cache versioning.
+A default source build includes a pure-Go image thumbnail path. Video thumbnails require `ffmpeg`; `ffprobe` is also used for media inspection/cache versioning.
 
 To build with libvips as the primary image thumbnail backend:
 
@@ -151,7 +148,7 @@ To build with libvips as the primary image thumbnail backend:
 go build -tags govips -o gooru ./cmd/gooru
 ```
 
-That build requires libvips development files at build time and the shared library at runtime.
+That build requires libvips development files at build time and the shared library at runtime. The repository's Nix package enables this libvips backend by default because Nix supplies and tracks the native dependency reproducibly.
 
 If an optional media tool is missing, core browse/tag/upload/original-media functionality remains available; derivative requests can return `unsupported_media`.
 
@@ -168,7 +165,7 @@ When packaging outside the source tree, ship the built frontend directory too an
 
 ## NixOS
 
-The repository flake exports a NixOS module under `gooru.nixosModules.default`. The module maps `services.gooru.settings` directly to the normal YAML configuration, so [CONFIG.md](CONFIG.md) remains the option reference.
+The repository flake exports a NixOS module under `gooru.nixosModules.default`. The module maps `services.gooru.settings` directly to the normal YAML configuration, so [CONFIG.md](CONFIG.md) remains the option reference. Its default `services.gooru.package` is the flake package, which is built with libvips image thumbnail support enabled.
 
 Example:
 

@@ -53,6 +53,15 @@ export function plainTagSuggestions(
     seenTags.set(name, { name, count: candidate.count ?? previous?.count ?? 0, kind: 'tag' });
   }
 
+  // The base key count is the unique-file aggregate for both the plain key and
+  // its namespace completion. Promote derived namespace counts to that same
+  // aggregate when the base candidate is present; a plain-only key still never
+  // creates a namespace candidate.
+  for (const [namespaceName, item] of seenNamespaces) {
+    const base = seenTags.get(namespaceName.slice(0, -1));
+    if (base) seenNamespaces.set(namespaceName, { ...item, count: base.count });
+  }
+
   const colon = query.indexOf(':');
   const namespace = colon >= 0 ? query.slice(0, colon) : '';
   const value = colon >= 0 ? query.slice(colon + 1) : query;

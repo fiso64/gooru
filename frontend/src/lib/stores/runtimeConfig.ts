@@ -8,7 +8,14 @@ export const defaultItemsPerPage = 60;
 export type GridType = 'square' | 'fit' | 'tile';
 export type PaginationMode = 'infinite' | 'paged';
 
+export const runtimeCapability = {
+  previewImages: 'preview_images'
+} as const;
+
+export type RuntimeCapability = (typeof runtimeCapability)[keyof typeof runtimeCapability];
+
 export type RuntimeConfig = {
+  capabilities: string[];
   loadFullMediaByDefault: boolean;
   fullscreenMediaByDefault: boolean;
   viewerFitMode: ViewerConfiguredFitMode;
@@ -41,7 +48,12 @@ export function effectiveGridSize(size: number, gridType: GridType): number {
   return gridType === 'square' ? size : size + denseGridSizeBoost;
 }
 
+export function hasRuntimeCapability(config: RuntimeConfig, capability: RuntimeCapability): boolean {
+  return config.capabilities.includes(capability);
+}
+
 export const runtimeConfig = writable<RuntimeConfig>({
+  capabilities: [runtimeCapability.previewImages],
   loadFullMediaByDefault: false,
   fullscreenMediaByDefault: false,
   viewerFitMode: 'fit_window',

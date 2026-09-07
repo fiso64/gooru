@@ -6,15 +6,14 @@ Files are identified by content rather than only by path. This allows Gooru to r
 
 Gooru is intended primarily for personal and private multi-user libraries rather than public imageboard-style communities.
 
-This project is fully maintained by an LLM.
-
 ## Features
 
 - Browser-based library with search, tags, tag namespaces, saved searches, and bulk actions.
-- Thumbnails and in-browser previews for supported media, including images, videos, gifs, and basic support for `.cbz` comic archives. 
-- Uploads and imports with background job tracking.
+- View supported media, including images, videos, gifs, and `.cbz` comic archives. 
+- Upload files quickly to configurable upload target dirs, with per-target default tags.
 - Content-based file identity that survives renames and moves.
 - Optional encryption for the database, managed uploads, and generated media.
+- Choose between different grid layouts and infinite scrolling or traditional paged navigation.
 - HTTP API, CLI, and Go packages for automation and integration. 
 
 ## Getting started
@@ -37,7 +36,11 @@ The complete server configuration is documented in [docs/CONFIG.md](docs/CONFIG.
 
 ## Project status
 
-Gooru is under active development. Treat the CLI, configuration schema, and HTTP API as evolving unless a release explicitly documents compatibility guarantees.
+Gooru is under active development. The CLI, configuration schema, and HTTP API are actively evolving. No compatibility guarantees!
+
+This project is fully maintained by an LLM (aka vibecoded); don't be surprised if there are rough edges. I only request features, test, and report bugs. Of course, if you decide to contribute with a bug report or any PR, I will look at it and ensure the bug is fixed/the feature is working correctly before replying myself (you will **never** get an automated response). 
+
+My unironic proudest contribution is probably the name Gooru, which sounds like the word "guru", and is also for a booru written in go.
 
 ## License
 

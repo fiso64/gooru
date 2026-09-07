@@ -1027,45 +1027,55 @@ func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCou
 		limit = 20
 	}
 	prefix = strings.TrimSpace(prefix)
+	like := prefix + "%"
 
 	var rows *sql.Rows
 	var err error
 	switch {
-	case prefix == "":
-		rows, err = s.Query(`
-			SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-			FROM tags
-			ORDER BY files_count DESC, tag_str ASC
-			LIMIT ?
-		`, limit)
 	case strings.ContainsAny(prefix, "%_"):
-		// Preserve the historical raw-LIKE wildcard behavior for direct callers.
-		// Normal interactive prefixes take the indexed paths below.
-		like := strings.ToLower(prefix) + "%"
+		// Preserve historical raw-LIKE wildcard behavior. Key aggregates use
+		// the maintained distinct-per-content summary, while direct plain-tag
+		// rows remain a compatibility fallback for callers with synthetic data.
 		rows, err = s.Query(`
-			SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-			FROM tags
-			WHERE lower(key) LIKE ? OR lower(key || ':' || value) LIKE ?
+			SELECT tag_str, files_count FROM (
+				SELECT key AS tag_str, files_count FROM tag_key_counts
+				WHERE files_count > 0 AND key LIKE ?
+				UNION ALL
+				SELECT t.key AS tag_str, t.files_count FROM tags t
+				WHERE t.value = '' AND t.files_count > 0 AND t.key LIKE ?
+				  AND NOT EXISTS (SELECT 1 FROM tag_key_counts k WHERE k.key = t.key AND k.files_count > 0)
+				UNION ALL
+				SELECT key || ':' || value AS tag_str, files_count FROM tags
+				WHERE value != '' AND key || ':' || value LIKE ?
+			)
 			ORDER BY files_count DESC, tag_str ASC
 			LIMIT ?
-		`, like, like, limit)
+		`, like, like, like, limit)
 	case strings.Contains(prefix, ":"):
 		namespace, valuePrefix, _ := strings.Cut(prefix, ":")
 		rows, err = s.Query(`
-			SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
+			SELECT key || ':' || value AS tag_str, files_count
 			FROM tags
-			WHERE key = ? AND value LIKE ?
+			WHERE value != '' AND key = ? AND value LIKE ?
 			ORDER BY files_count DESC, tag_str ASC
 			LIMIT ?
-		`, namespace, valuePrefix+"%", limit)
+		`, strings.TrimSpace(namespace), strings.TrimSpace(valuePrefix)+"%", limit)
 	default:
 		rows, err = s.Query(`
-			SELECT CASE WHEN value = '' THEN key ELSE key || ':' || value END AS tag_str, files_count
-			FROM tags
-			WHERE key LIKE ?
+			SELECT tag_str, files_count FROM (
+				SELECT key AS tag_str, files_count FROM tag_key_counts
+				WHERE files_count > 0 AND key LIKE ?
+				UNION ALL
+				SELECT t.key AS tag_str, t.files_count FROM tags t
+				WHERE t.value = '' AND t.files_count > 0 AND t.key LIKE ?
+				  AND NOT EXISTS (SELECT 1 FROM tag_key_counts k WHERE k.key = t.key AND k.files_count > 0)
+				UNION ALL
+				SELECT key || ':' || value AS tag_str, files_count FROM tags
+				WHERE value != '' AND key LIKE ?
+			)
 			ORDER BY files_count DESC, tag_str ASC
 			LIMIT ?
-		`, prefix+"%", limit)
+		`, like, like, like, limit)
 	}
 	if err != nil {
 		return nil, err
@@ -1086,11 +1096,11 @@ func (s *Store) ListNamespaceSuggestions(prefix string, limit int) ([]types.TagW
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	like := strings.ToLower(strings.TrimSpace(prefix)) + "%"
+	like := strings.TrimSpace(prefix) + "%"
 	rows, err := s.Query(`
 		SELECT key || ':' AS tag_str, files_count
-		FROM tag_key_counts
-		WHERE files_count > 0 AND lower(key) LIKE ?
+		FROM tag_namespace_counts
+		WHERE files_count > 0 AND key LIKE ?
 		ORDER BY files_count DESC, tag_str ASC
 		LIMIT ?
 	`, like, limit)

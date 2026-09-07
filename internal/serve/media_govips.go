@@ -28,7 +28,11 @@ func (GovipsImageThumbnailer) BackendVersion() string {
 	return "govips:" + sanitizeVersion(vips.Version)
 }
 
-func (GovipsImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
+func (t GovipsImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
+	return t.ThumbnailQuality(src, dst, size, format, derivativeJPEGQuality)
+}
+
+func (GovipsImageThumbnailer) ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error {
 	if err := ensureGovipsStarted(); err != nil {
 		return &UnsupportedMediaError{Backend: "govips", Reason: "govips startup failed", Err: err}
 	}
@@ -42,7 +46,7 @@ func (GovipsImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, for
 	switch format {
 	case "jpeg":
 		params := vips.NewDefaultJPEGExportParams()
-		params.Quality = derivativeJPEGQuality
+		params.Quality = quality
 		params.StripMetadata = true
 		data, _, err = image.Export(params)
 	case "png":

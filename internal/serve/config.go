@@ -18,13 +18,13 @@ import (
 )
 
 const (
-	DefaultListenAddress   = "127.0.0.1:5678"
-	DefaultGridSize        = 200
-	DefaultGridType        = "square"
-	DefaultPaginationMode  = "infinite"
-	DefaultItemsPerPage    = 60
-	MinGridSize            = 64
-	MaxGridSize            = 1024
+	DefaultListenAddress  = "127.0.0.1:5678"
+	DefaultGridSize       = 200
+	DefaultGridType       = "square"
+	DefaultPaginationMode = "infinite"
+	DefaultItemsPerPage   = 60
+	MinGridSize           = 64
+	MaxGridSize           = 1024
 )
 
 type Config struct {
@@ -90,10 +90,12 @@ type UploadTarget struct {
 }
 
 type MediaConfig struct {
-	CacheDir        string `yaml:"cache_dir"`
-	ThumbnailSizes  []int  `yaml:"thumbnail_sizes"`
-	ThumbnailFormat string `yaml:"thumbnail_format"`
-	PreviewSize     int    `yaml:"preview_size"`
+	CacheDir           string `yaml:"cache_dir"`
+	ThumbnailSizes     []int  `yaml:"thumbnail_sizes"`
+	ThumbnailFormat    string `yaml:"thumbnail_format"`
+	PreviewSize        int    `yaml:"preview_size"`
+	PreviewEnabled     bool   `yaml:"preview_enabled"`
+	PreviewJPEGQuality int    `yaml:"preview_jpeg_quality"`
 }
 
 type JobsConfig struct {
@@ -169,9 +171,11 @@ func DefaultConfig(dbPath string) Config {
 		},
 		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "skip", PreserveModTime: true},
 		Media: MediaConfig{
-			ThumbnailSizes:  []int{256, 512},
-			ThumbnailFormat: "jpeg",
-			PreviewSize:     1280,
+			ThumbnailSizes:     []int{256, 512},
+			ThumbnailFormat:    "jpeg",
+			PreviewSize:        1280,
+			PreviewEnabled:     true,
+			PreviewJPEGQuality: derivativeJPEGQuality,
 		},
 		Jobs: JobsConfig{
 			CompletedTTLRaw: "1h",
@@ -183,13 +187,13 @@ func DefaultConfig(dbPath string) Config {
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
 		UI: UIConfig{
-			FontStyle:       "editorial",
-			GridSize:        DefaultGridSize,
-			GridType:        DefaultGridType,
-			ViewerFitMode:   "fit_window",
-			ViewerScaling:   "smooth",
-			PaginationMode:  DefaultPaginationMode,
-			ItemsPerPage:    DefaultItemsPerPage,
+			FontStyle:      "editorial",
+			GridSize:       DefaultGridSize,
+			GridType:       DefaultGridType,
+			ViewerFitMode:  "fit_window",
+			ViewerScaling:  "smooth",
+			PaginationMode: DefaultPaginationMode,
+			ItemsPerPage:   DefaultItemsPerPage,
 		},
 	}
 }
@@ -323,6 +327,9 @@ func (cfg *Config) Validate() error {
 	}
 	if cfg.Media.PreviewSize <= 0 {
 		errs = append(errs, errors.New("media.preview_size must be greater than zero"))
+	}
+	if cfg.Media.PreviewJPEGQuality < 1 || cfg.Media.PreviewJPEGQuality > 100 {
+		errs = append(errs, errors.New("media.preview_jpeg_quality must be between 1 and 100"))
 	}
 	if cfg.Media.ThumbnailFormat != "jpeg" && cfg.Media.ThumbnailFormat != "png" {
 		errs = append(errs, errors.New("media.thumbnail_format must be one of: jpeg, png"))

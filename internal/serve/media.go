@@ -37,6 +37,14 @@ type SourceThumbnailer interface {
 	ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error
 }
 
+type QualityThumbnailer interface {
+	ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error
+}
+
+type SourceQualityThumbnailer interface {
+	ThumbnailSourceQuality(name string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error
+}
+
 type GoImageThumbnailer struct{}
 
 func (GoImageThumbnailer) BackendVersion() string {
@@ -44,15 +52,23 @@ func (GoImageThumbnailer) BackendVersion() string {
 }
 
 func (t GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
+	return t.ThumbnailQuality(src, dst, size, format, derivativeJPEGQuality)
+}
+
+func (t GoImageThumbnailer) ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error {
 	file, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	return t.ThumbnailSource(src, file, dst, size, format)
+	return t.ThumbnailSourceQuality(src, file, dst, size, format, quality)
 }
 
-func (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writer, size int, format string) error {
+func (t GoImageThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error {
+	return t.ThumbnailSourceQuality(name, src, dst, size, format, derivativeJPEGQuality)
+}
+
+func (GoImageThumbnailer) ThumbnailSourceQuality(_ string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -63,7 +79,7 @@ func (GoImageThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Wr
 	resized := scaleImage(img, size)
 	switch format {
 	case "jpeg":
-		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: derivativeJPEGQuality})
+		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: quality})
 	case "png":
 		return png.Encode(dst, resized)
 	default:
@@ -183,6 +199,10 @@ func isInlineOriginalMedia(contentType string) bool {
 }
 
 func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, file types.FileInfo, kind string) {
+	if kind == "preview" && !m.cfg.Media.PreviewEnabled {
+		m.ServeContent(w, r, file)
+		return
+	}
 	// A static image derivative necessarily discards GIF animation. The preview
 	// route is used by the full viewer, so preserve the original animated media
 	// there while thumbnails remain cheap static derivatives for grids/lists.
@@ -206,7 +226,7 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 	}
 	relativePath := m.derivativeRelativePath(file, kind, size, format)
 	artifact, err := m.derivatives.GetOrGenerate(relativePath, func(dst io.Writer) error {
-		return m.generateThumbnail(file, dst, size, format)
+		return m.generateDerivative(file, dst, size, format, kind)
 	})
 	if err != nil {
 		m.writeThumbnailGenerationError(w, err)
@@ -234,6 +254,28 @@ func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err 
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "internal_error", "failed to generate thumbnail", nil)
+}
+
+func (m *MediaService) generateDerivative(file types.FileInfo, dst io.Writer, size int, format string, kind string) error {
+	if kind == "preview" && format == "jpeg" && m.cfg.Media.PreviewJPEGQuality != derivativeJPEGQuality {
+		mediaKind := mediaKindForType(mediaTypeForPath(file.Path))
+		if mediaKind == "photo" || mediaKind == "gif" {
+			if m.cfg.Encryption.Enabled {
+				sourceThumbnailer, ok := m.thumbnailer.(SourceQualityThumbnailer)
+				if ok {
+					source, err := m.openMediaSource(file.Path)
+					if err != nil {
+						return err
+					}
+					defer source.Close()
+					return sourceThumbnailer.ThumbnailSourceQuality(file.Path, source, dst, size, format, m.cfg.Media.PreviewJPEGQuality)
+				}
+			} else if qualityThumbnailer, ok := m.thumbnailer.(QualityThumbnailer); ok {
+				return qualityThumbnailer.ThumbnailQuality(file.Path, dst, size, format, m.cfg.Media.PreviewJPEGQuality)
+			}
+		}
+	}
+	return m.generateThumbnail(file, dst, size, format)
 }
 
 func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {
@@ -274,12 +316,17 @@ func (m *MediaService) derivativeRelativePath(file types.FileInfo, kind string, 
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
 		backendVersion += "|cbz-cover-v1"
 	}
+	qualityKey := ""
+	if kind == "preview" && format == "jpeg" {
+		qualityKey = strconv.Itoa(m.cfg.Media.PreviewJPEGQuality)
+	}
 	key := strings.Join([]string{
 		file.Hash,
 		mediaKindForType(mediaTypeForPath(file.Path)),
 		kind,
 		strconv.Itoa(size),
 		format,
+		qualityKey,
 		backendVersion,
 	}, "|")
 	sum := sha256.Sum256([]byte(key))

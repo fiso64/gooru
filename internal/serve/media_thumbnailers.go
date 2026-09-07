@@ -74,6 +74,22 @@ func (t *MediaThumbnailer) BackendVersion() string {
 	return t.version
 }
 
+func (t *MediaThumbnailer) ThumbnailQuality(src string, dst io.Writer, size int, format string, quality int) error {
+	kind := mediaKindForType(mediaTypeForPath(src))
+	if kind != "photo" && kind != "gif" {
+		return t.Thumbnail(src, dst, size, format)
+	}
+	if qualityThumbnailer, ok := t.imagePrimary.(QualityThumbnailer); ok {
+		if err := qualityThumbnailer.ThumbnailQuality(src, dst, size, format, quality); err == nil {
+			return nil
+		}
+	}
+	if qualityThumbnailer, ok := t.imageFallback.(QualityThumbnailer); ok {
+		return qualityThumbnailer.ThumbnailQuality(src, dst, size, format, quality)
+	}
+	return &UnsupportedMediaError{Backend: "image", Reason: "no image thumbnail backend supports configured quality", Err: ErrUnsupportedMedia}
+}
+
 func (t *MediaThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
 	kind := mediaKindForType(mediaTypeForPath(src))
 	switch kind {
@@ -95,6 +111,17 @@ func (t *MediaThumbnailer) Thumbnail(src string, dst io.Writer, size int, format
 	default:
 		return &UnsupportedMediaError{Backend: "media", Reason: "media kind " + kind + " is not thumbnailable", Err: ErrUnsupportedMedia}
 	}
+}
+
+func (t *MediaThumbnailer) ThumbnailSourceQuality(name string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {
+	kind := mediaKindForType(mediaTypeForPath(name))
+	if kind != "photo" && kind != "gif" {
+		return t.ThumbnailSource(name, src, dst, size, format)
+	}
+	if qualityThumbnailer, ok := t.imageFallback.(SourceQualityThumbnailer); ok {
+		return qualityThumbnailer.ThumbnailSourceQuality(name, src, dst, size, format, quality)
+	}
+	return &UnsupportedMediaError{Backend: "image", Reason: "image backend cannot apply configured quality to logical media sources", Err: ErrUnsupportedMedia}
 }
 
 func (t *MediaThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst io.Writer, size int, format string) error {

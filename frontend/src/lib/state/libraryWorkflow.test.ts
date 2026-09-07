@@ -56,3 +56,23 @@ describe('preview navigation', () => {
     expect(clearViewerPreloadCache).toHaveBeenCalledTimes(4);
   });
 });
+
+
+describe('completion responsiveness', () => {
+  it('publishes suggestion drafts immediately while keeping library submission debounced', () => {
+    vi.useFakeTimers();
+    try {
+      const library = createLibraryWorkflow();
+      library.setSearchDraft('animal');
+      expect(storeValue(library.suggestionSearch)).toBe('animal');
+
+      library.setSearch('animal:cat');
+      expect(storeValue(library.suggestionSearch)).toBe('animal:cat');
+      expect(storeValue(library.submittedSearch)).toBe('');
+      vi.advanceTimersByTime(280);
+      expect(storeValue(library.submittedSearch)).toBe('animal:cat');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

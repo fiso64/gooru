@@ -54,12 +54,12 @@ func TestListNamespaceSuggestionsUsesDistinctPerKeyCounts(t *testing.T) {
 	associate("b", alice)
 	associate("a", series)
 
-	items, err := store.ListNamespaceSuggestions("art", 20)
+	items, err := store.ListNamespaceSuggestions("ArT", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(items) != 1 || items[0].Tag != "artist:" || items[0].Count != 2 {
-		t.Fatalf("ListNamespaceSuggestions(art) = %#v, want artist: count 2", items)
+		t.Fatalf("ListNamespaceSuggestions(ArT) = %#v, want artist: count 2", items)
 	}
 }
 
@@ -75,8 +75,8 @@ func TestNamespaceSuggestionPlanDoesNotReadTagsOrAssociations(t *testing.T) {
 
 	rows, err := db.Query(`EXPLAIN QUERY PLAN
 		SELECT key || ':' AS tag_str, files_count
-		FROM tag_key_counts
-		WHERE files_count > 0 AND lower(key) LIKE ?
+		FROM tag_namespace_counts
+		WHERE files_count > 0 AND key LIKE ?
 		ORDER BY files_count DESC, tag_str ASC
 		LIMIT ?`, "art%", 20)
 	if err != nil {
@@ -99,7 +99,7 @@ func TestNamespaceSuggestionPlanDoesNotReadTagsOrAssociations(t *testing.T) {
 	if strings.Contains(plan, "content_tags") || strings.Contains(plan, "scan tags") {
 		t.Fatalf("namespace suggestion query still reads tag-value/association tables:\n%s", plan)
 	}
-	if !strings.Contains(plan, "tag_key_counts") {
-		t.Fatalf("namespace suggestion query does not use tag_key_counts:\n%s", plan)
+	if strings.Contains(plan, "scan tag_namespace_counts") || !strings.Contains(plan, "search tag_namespace_counts") {
+		t.Fatalf("namespace suggestion query does not range-search tag_namespace_counts:\n%s", plan)
 	}
 }
