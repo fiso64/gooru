@@ -18,6 +18,8 @@ const (
 	BackgroundWorkCanceled  BackgroundWorkStatus = "canceled"
 )
 
+const backgroundTaskEnqueueRaceRetries = 8
+
 // BackgroundOperation is a user-visible (or deliberately hidden) logical unit of work.
 type BackgroundOperation struct {
 	ID                string
@@ -86,8 +88,6 @@ type NewBackgroundTask struct {
 	MaxAttempts   int
 }
 
-var ErrBackgroundTaskNotFound = errors.New("background task not found")
-
 // CreateBackgroundOperation inserts a logical operation. It accepts a Querier so callers
 // can compose operation creation and task enqueueing in one transaction.
 func (s *Store) CreateBackgroundOperation(q Querier, op NewBackgroundOperation) (BackgroundOperation, error) {
@@ -129,7 +129,8 @@ func (s *Store) CreateBackgroundOperation(q Querier, op NewBackgroundOperation) 
 // EnqueueBackgroundTask inserts a pending task unless the same dedupe key already has
 // active work. In that case it returns the existing active task and created=false. The
 // database partial unique index remains the concurrency authority; this method does not
-// use a racy read-before-insert check.
+// use a racy read-before-insert check. If the conflicting task becomes terminal before
+// it can be read back, enqueueing retries so the requested work is not spuriously lost.
 func (s *Store) EnqueueBackgroundTask(q Querier, task NewBackgroundTask) (result BackgroundTask, created bool, err error) {
 	if q == nil {
 		return BackgroundTask{}, false, errors.New("background task querier is required")
@@ -163,55 +164,57 @@ func (s *Store) EnqueueBackgroundTask(q Querier, task NewBackgroundTask) (result
 	if task.OperationID != "" {
 		operationID = task.OperationID
 	}
-	res, err := q.Exec(`
-		INSERT INTO background_tasks
-			(id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
-			 resource_class, priority, status, available_at, created_at, max_attempts)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-		ON CONFLICT(dedupe_key) WHERE status IN ('pending', 'running') DO NOTHING
-	`, task.ID, operationID, task.DedupeKey, task.Kind, task.SubjectKind, task.SubjectID, task.InputKey,
-		task.ResourceClass, task.Priority, workTimeValue(task.AvailableAt), workTimeValue(task.CreatedAt), task.MaxAttempts)
-	if err != nil {
-		return BackgroundTask{}, false, fmt.Errorf("enqueue background task: %w", err)
-	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return BackgroundTask{}, false, fmt.Errorf("enqueue background task rows affected: %w", err)
-	}
-	if rows == 1 {
-		return BackgroundTask{
-			ID:            task.ID,
-			OperationID:   task.OperationID,
-			DedupeKey:     task.DedupeKey,
-			Kind:          task.Kind,
-			SubjectKind:   task.SubjectKind,
-			SubjectID:     task.SubjectID,
-			InputKey:      task.InputKey,
-			ResourceClass: task.ResourceClass,
-			Priority:      task.Priority,
-			Status:        BackgroundWorkPending,
-			AvailableAt:   task.AvailableAt,
-			CreatedAt:     task.CreatedAt,
-			MaxAttempts:   task.MaxAttempts,
-		}, true, nil
-	}
-
-	existing, err := scanBackgroundTask(q.QueryRow(`
-		SELECT id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
-		       resource_class, priority, status, available_at, lease_owner, lease_expires_at,
-		       created_at, started_at, finished_at, attempt_count, max_attempts,
-		       last_error_code, last_error_message
-		FROM background_tasks
-		WHERE dedupe_key = ? AND status IN ('pending', 'running')
-		LIMIT 1
-	`, task.DedupeKey))
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return BackgroundTask{}, false, fmt.Errorf("enqueue background task dedupe conflict disappeared: %w", ErrBackgroundTaskNotFound)
+	for attempt := 0; attempt < backgroundTaskEnqueueRaceRetries; attempt++ {
+		res, err := q.Exec(`
+			INSERT INTO background_tasks
+				(id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
+				 resource_class, priority, status, available_at, created_at, max_attempts)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+			ON CONFLICT(dedupe_key) WHERE status IN ('pending', 'running') DO NOTHING
+		`, task.ID, operationID, task.DedupeKey, task.Kind, task.SubjectKind, task.SubjectID, task.InputKey,
+			task.ResourceClass, task.Priority, workTimeValue(task.AvailableAt), workTimeValue(task.CreatedAt), task.MaxAttempts)
+		if err != nil {
+			return BackgroundTask{}, false, fmt.Errorf("enqueue background task: %w", err)
 		}
-		return BackgroundTask{}, false, fmt.Errorf("read active background task after dedupe conflict: %w", err)
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return BackgroundTask{}, false, fmt.Errorf("enqueue background task rows affected: %w", err)
+		}
+		if rows == 1 {
+			return BackgroundTask{
+				ID:            task.ID,
+				OperationID:   task.OperationID,
+				DedupeKey:     task.DedupeKey,
+				Kind:          task.Kind,
+				SubjectKind:   task.SubjectKind,
+				SubjectID:     task.SubjectID,
+				InputKey:      task.InputKey,
+				ResourceClass: task.ResourceClass,
+				Priority:      task.Priority,
+				Status:        BackgroundWorkPending,
+				AvailableAt:   task.AvailableAt,
+				CreatedAt:     task.CreatedAt,
+				MaxAttempts:   task.MaxAttempts,
+			}, true, nil
+		}
+
+		existing, err := scanBackgroundTask(q.QueryRow(`
+			SELECT id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
+			       resource_class, priority, status, available_at, lease_owner, lease_expires_at,
+			       created_at, started_at, finished_at, attempt_count, max_attempts,
+			       last_error_code, last_error_message
+			FROM background_tasks
+			WHERE dedupe_key = ? AND status IN ('pending', 'running')
+			LIMIT 1
+		`, task.DedupeKey))
+		if err == nil {
+			return existing, false, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return BackgroundTask{}, false, fmt.Errorf("read active background task after dedupe conflict: %w", err)
+		}
 	}
-	return existing, false, nil
+	return BackgroundTask{}, false, errors.New("enqueue background task: active dedupe state kept changing")
 }
 
 func scanBackgroundTask(row *sql.Row) (BackgroundTask, error) {
