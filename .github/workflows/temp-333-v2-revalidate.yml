@@ -1,0 +1,21 @@
+name: Temporary #333 v2 revalidation
+
+on:
+  push:
+    branches:
+      - perf/333-hidden-tag-facets-v2
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Focused hidden-facet tests
+        run: go test ./gooru ./internal/database ./internal/serve
+      - name: Full Go test
+        run: go test ./...
+      - name: Build
+        run: go build ./...
