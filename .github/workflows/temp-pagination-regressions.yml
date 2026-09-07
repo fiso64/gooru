@@ -11,6 +11,7 @@ permissions:
 jobs:
   frontend:
     runs-on: [self-hosted, gooru]
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: frontend
