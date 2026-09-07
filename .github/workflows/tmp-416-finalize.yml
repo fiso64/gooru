@@ -60,14 +60,40 @@ jobs:
         run: |
           gofmt -w internal/serve/config.go internal/serve/ui_config.go internal/serve/ui_config_test.go
           go test ./internal/serve
-      - name: Frontend validation
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend type and Svelte checks
+        id: frontend_check
         working-directory: frontend
         shell: bash
         run: |
-          npm ci
-          npm run check
-          npm test -- --run
-          npm run build
+          set -o pipefail
+          npm run check 2>&1 | tee ../frontend-check.log
+      - name: Frontend unit tests
+        if: success()
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test -- --run 2>&1 | tee ../frontend-unit.log
+      - name: Frontend build
+        if: success()
+        working-directory: frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../frontend-build.log
+      - name: Upload frontend validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-validation-logs
+          path: |
+            frontend-check.log
+            frontend-unit.log
+            frontend-build.log
+          if-no-files-found: ignore
       - name: Focused Chromium viewer regression
         working-directory: frontend
         shell: bash
