@@ -1,4 +1,4 @@
-name: Temporary pagination regressions
+name: Temporary #333 frontend validation
 
 on:
   push:
@@ -23,9 +23,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --prefer-offline --no-audit
       - run: npx playwright install chromium
-      - name: Paged final row reproduction
-        continue-on-error: true
-        run: npm run test:e2e -- pagination-regressions.spec.ts --grep "paged mode renders"
-      - name: Infinite prefetch reproduction
-        continue-on-error: true
-        run: npm run test:e2e -- pagination-regressions.spec.ts --grep "infinite mode requests"
+      - name: Type and Svelte checks
+        run: npm run check
+      - name: Unit tests
+        run: npm run test:unit -- --run
+      - name: Production build
+        run: npm run build
+      - name: Pagination regressions
+        run: npm run test:e2e -- pagination-regressions.spec.ts
+      - name: Upload metadata refresh regression
+        run: npm run test:e2e -- upload-metadata-refresh.spec.ts
