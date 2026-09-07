@@ -54,6 +54,16 @@ jobs:
           if old not in text:
               raise SystemExit('missing #416 wheel clamp anchor')
           p.write_text(text.replace(old, new, 1))
+
+          # The historical temporary patch used a raw Python string for its appended E2E block,
+          # so its escaped newlines were written literally. Normalize only that appended block.
+          p = Path('frontend/tests/viewer-fit-mode.spec.ts')
+          text = p.read_text()
+          marker = r'\n\nasync function openOversizedActualViewer'
+          if marker not in text:
+              raise SystemExit('missing #416 generated E2E marker')
+          prefix, suffix = text.split(marker, 1)
+          p.write_text(prefix + '\n\nasync function openOversizedActualViewer' + suffix.replace(r'\n', '\n'))
           PY
       - name: Format and focused Go validation
         shell: bash
@@ -64,7 +74,6 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Frontend type and Svelte checks
-        id: frontend_check
         working-directory: frontend
         shell: bash
         run: |
