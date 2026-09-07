@@ -16,6 +16,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: perf/333-hidden-tag-facet-exclusions
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Check function marker
         run: grep -Fq 'func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.TagWithCount, error) {' gooru/query.go
       - name: Check fallback anchor
