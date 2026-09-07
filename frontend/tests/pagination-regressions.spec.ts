@@ -100,10 +100,14 @@ for (const gridType of ['square', 'fit', 'tile'] as const) {
     await page.goto('/');
     await expect(page.getByText('180 files')).toBeVisible();
     const main = page.locator('.main');
-    for (let i = 0; i < 20 && !library.requests.some((request) => request.offset === 60); i += 1) {
+    // Different grid modes have different row heights/column counts. Scroll until transport
+    // prefetch fires rather than imposing an arbitrary pixel budget, then assert the trigger
+    // still happened before the last card of the retained page reached the viewport.
+    for (let i = 0; i < 50 && !library.requests.some((request) => request.offset === 60); i += 1) {
       await main.evaluate((node) => { node.scrollTop += 120; node.dispatchEvent(new Event('scroll')); });
       await page.waitForTimeout(20);
     }
     await expect.poll(() => library.requests.some((request) => request.offset === 60)).toBe(true);
+    expect(await page.getByRole('button', { name: 'Preview page-59.jpg' }).isVisible()).toBe(false);
   });
 }
