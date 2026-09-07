@@ -78,8 +78,8 @@ func (s *Store) ClaimNextBackgroundTask(resourceClass, workerID string, now time
 }
 
 // CompleteBackgroundTask completes a task and its currently running attempt iff workerID
-// still owns the task lease. A stale worker receives ErrBackgroundTaskLeaseLost instead
-// of overwriting recovery or a newer attempt.
+// still owns a live task lease. A stale or expired worker receives
+// ErrBackgroundTaskLeaseLost instead of overwriting recovery or a newer attempt.
 func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.Time) error {
 	if s == nil || s.DB == nil {
 		return errors.New("background task store is required")
@@ -104,9 +104,13 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 		    lease_expires_at = NULL,
 		    last_error_code = '',
 		    last_error_message = ''
-		WHERE id = ? AND status = 'running' AND lease_owner = ?
+		WHERE id = ?
+		  AND status = 'running'
+		  AND lease_owner = ?
+		  AND lease_expires_at IS NOT NULL
+		  AND lease_expires_at > ?
 		RETURNING attempt_count
-	`, workTimeValue(finishedAt), taskID, workerID).Scan(&attemptNumber); err != nil {
+	`, workTimeValue(finishedAt), taskID, workerID, workTimeValue(finishedAt)).Scan(&attemptNumber); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrBackgroundTaskLeaseLost
 		}
@@ -130,8 +134,9 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 	return nil
 }
 
-// FailBackgroundTask closes the current attempt as failed. When retry capacity remains,
-// the task returns to pending at retryAt; otherwise it becomes terminally failed.
+// FailBackgroundTask closes the current attempt as failed iff workerID still owns a live
+// task lease. When retry capacity remains, the task returns to pending at retryAt;
+// otherwise it becomes terminally failed.
 func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt time.Time, errorCode, errorMessage string) (bool, error) {
 	if s == nil || s.DB == nil {
 		return false, errors.New("background task store is required")
@@ -163,9 +168,13 @@ func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt 
 		    lease_expires_at = NULL,
 		    last_error_code = ?,
 		    last_error_message = ?
-		WHERE id = ? AND status = 'running' AND lease_owner = ?
+		WHERE id = ?
+		  AND status = 'running'
+		  AND lease_owner = ?
+		  AND lease_expires_at IS NOT NULL
+		  AND lease_expires_at > ?
 		RETURNING attempt_count, max_attempts, status
-	`, workTimeValue(retryAt), workTimeValue(finishedAt), errorCode, errorMessage, taskID, workerID).Scan(&attemptNumber, &maxAttempts, &status); err != nil {
+	`, workTimeValue(retryAt), workTimeValue(finishedAt), errorCode, errorMessage, taskID, workerID, workTimeValue(finishedAt)).Scan(&attemptNumber, &maxAttempts, &status); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, ErrBackgroundTaskLeaseLost
 		}
