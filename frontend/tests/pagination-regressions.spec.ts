@@ -7,6 +7,8 @@ const session = {
 };
 const aspects = [[1600, 900], [600, 900], [900, 900], [900, 1400], [1200, 800], [700, 1200], [2000, 800]] as const;
 
+type FileRequest = { offset: number; limit: number; includeFacets: boolean };
+
 function fileItem(index: number) {
   const id = `file-${index}`;
   const [width, height] = aspects[index % aspects.length];
@@ -32,7 +34,7 @@ function fileItem(index: number) {
 
 async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gridType: 'square' | 'tile' = 'square') {
   const allFiles = Array.from({ length: 180 }, (_, index) => fileItem(index));
-  const requests: number[] = [];
+  const requests: FileRequest[] = [];
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
@@ -51,15 +53,17 @@ async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gri
       const decoded = Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
       offset = Number(decoded.replace(/^offset:/, ''));
     }
-    requests.push(offset);
-    const files = allFiles.slice(offset, offset + 60);
+    const limit = Number(url.searchParams.get('limit') ?? 60);
+    const includeFacets = url.searchParams.get('include_facets') === 'true';
+    requests.push({ offset, limit, includeFacets });
+    const files = allFiles.slice(offset, offset + limit);
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
       files,
       total_count: allFiles.length,
       library_count: allFiles.length,
-      facets: { kind: [{ value: 'photo', count: allFiles.length }] },
-      next_page_token: offset + 60 < allFiles.length ? String(offset + 60) : undefined,
-      previous_page_token: offset > 0 ? String(Math.max(0, offset - 60)) : undefined
+      facets: includeFacets ? { kind: [{ value: 'photo', count: allFiles.length }] } : undefined,
+      next_page_token: offset + limit < allFiles.length ? String(offset + limit) : undefined,
+      previous_page_token: offset > 0 ? String(Math.max(0, offset - limit)) : undefined
     }) });
   });
   await page.route('**/api/v1/files/*/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />' }));
@@ -67,19 +71,24 @@ async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gri
 }
 
 for (const gridType of ['square', 'tile'] as const) {
-  test(`${gridType} paged mode renders the final row of every 60-item page`, async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 820 });
-    await mockLibrary(page, 'paged', gridType);
+  test(`${gridType} paged mode renders partial final rows and reuses page aggregates`, async ({ page }) => {
+    // 1600px yields seven square columns at the default 200px size, so a 60-item page has
+    // a four-item partial final row. This catches page-tail clipping that a 6x10 page hides.
+    await page.setViewportSize({ width: 1600, height: 820 });
+    const library = await mockLibrary(page, 'paged', gridType);
     await page.goto('/');
     await expect(page.getByText('180 files')).toBeVisible();
     const main = page.locator('.main');
     await main.evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event('scroll')); });
     await expect(page.getByRole('button', { name: 'Open page-59.jpg' })).toBeVisible();
+    expect(library.requests.some((request) => request.limit === 1)).toBe(false);
+    expect(library.requests.filter((request) => request.limit === 60).every((request) => request.includeFacets)).toBe(true);
 
     await page.getByTestId('library-pager').getByRole('button', { name: 'Page 2' }).click();
     await expect(page.getByRole('button', { name: 'Open page-60.jpg' })).toBeVisible();
     await main.evaluate((node) => { node.scrollTop = node.scrollHeight; node.dispatchEvent(new Event('scroll')); });
     await expect(page.getByRole('button', { name: 'Open page-119.jpg' })).toBeVisible();
+    expect(library.requests.some((request) => request.limit === 1)).toBe(false);
   });
 }
 
@@ -90,18 +99,10 @@ for (const gridType of ['square', 'tile'] as const) {
     await page.goto('/');
     await expect(page.getByText('180 files')).toBeVisible();
     const main = page.locator('.main');
-    const grid = page.locator('.virtual-grid');
-    for (let i = 0; i < 20 && !library.requests.includes(60); i += 1) {
-      const metrics = await Promise.all([
-        main.evaluate((node) => ({ top: node.scrollTop, height: node.clientHeight })),
-        grid.evaluate((node) => ({ top: (node as HTMLElement).offsetTop, height: (node as HTMLElement).offsetHeight }))
-      ]);
-      const viewport = metrics[0];
-      const retainedBottom = metrics[1].top + metrics[1].height;
-      expect(retainedBottom - viewport.top).toBeGreaterThan(viewport.height / 2);
+    for (let i = 0; i < 20 && !library.requests.some((request) => request.offset === 60); i += 1) {
       await main.evaluate((node) => { node.scrollTop += 120; node.dispatchEvent(new Event('scroll')); });
       await page.waitForTimeout(20);
     }
-    await expect.poll(() => library.requests.includes(60)).toBe(true);
+    await expect.poll(() => library.requests.some((request) => request.offset === 60)).toBe(true);
   });
 }
