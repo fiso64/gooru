@@ -27,7 +27,8 @@ func TestBuildLocationsMediaType(t *testing.T) {
 			(6, 'comic', '.cbz')`,
 		`INSERT INTO media_metadata (location_id, media_kind) VALUES
 			(2, 'video'),
-			(4, 'audio')`,
+			(4, 'audio'),
+			(6, 'other')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("exec %q: %v", statement, err)
