@@ -90,6 +90,35 @@ test('video and gif previews start after dwell, stop on leave, and only one is a
   await expect(page.getByTestId('hover-gif-preview')).toHaveCount(0);
 });
 
+test('hover previews keep the thumbnail visible until media is ready and restart gif sessions', async ({ page }) => {
+  await mockLibrary(page);
+
+  const videoCard = page.getByRole('button', { name: 'Preview video-one.mp4' });
+  await videoCard.hover();
+  const video = page.getByTestId('hover-video-preview');
+  await expect(video).toHaveCount(1, { timeout: 500 });
+  await expect(video).toHaveCSS('opacity', '0');
+  await expect(page.getByTestId('hover-video-progress')).toHaveCSS('opacity', '0');
+
+  const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
+  await gifCard.hover();
+  const firstGif = page.getByTestId('hover-gif-preview');
+  await expect(firstGif).toHaveCount(1, { timeout: 500 });
+  await expect(firstGif).toHaveCSS('opacity', '0');
+  const firstSource = await firstGif.getAttribute('src');
+  expect(firstSource).toContain('#gooru-hover-1');
+
+  await page.getByRole('heading', { name: 'Library' }).hover();
+  await expect(page.getByTestId('hover-gif-preview')).toHaveCount(0);
+  await gifCard.hover();
+  const secondGif = page.getByTestId('hover-gif-preview');
+  await expect(secondGif).toHaveCount(1, { timeout: 500 });
+  const secondSource = await secondGif.getAttribute('src');
+  expect(secondSource).toContain('#gooru-hover-2');
+  expect(secondSource).not.toBe(firstSource);
+  expect(secondSource?.split('#')[0]).toBe(firstSource?.split('#')[0]);
+});
+
 test('reduced motion and disabled media options suppress hover playback', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await mockLibrary(page, { hover_play_gifs: false });
