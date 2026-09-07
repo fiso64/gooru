@@ -578,6 +578,37 @@ func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.Tag
 		}
 		return c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
 	}
+	if exclusions, ok := parseSimpleUserTagFacetExclusions(expression); ok {
+		all, err := c.store.KindFacets()
+		if err != nil {
+			return nil, err
+		}
+
+		var excluded []types.TagWithCount
+		if len(exclusions) == 1 {
+			filter := exclusions[0]
+			if filter.KeyOnly {
+				excluded, err = c.store.KindFacetsForTagKey(filter.Tag.Key)
+			} else {
+				excluded, err = c.store.KindFacetsForTag(filter.Tag.Key, filter.Tag.Value)
+			}
+		} else {
+			dbExclusions := make([]tagFacetExclusion, 0, len(exclusions))
+			for _, filter := range exclusions {
+				dbExclusions = append(dbExclusions, tagFacetExclusion{
+					Key:     filter.Tag.Key,
+					Value:   filter.Tag.Value,
+					KeyOnly: filter.KeyOnly,
+				})
+			}
+			excluded, err = c.store.KindFacetsForTagExclusions(dbExclusions)
+		}
+		if err != nil {
+			return nil, err
+		}
+		return subtractKindFacets(all, excluded), nil
+	}
+
 	sqlQuery, args, err := c.buildLocationQuery(expression)
 	if err != nil {
 		return nil, err
