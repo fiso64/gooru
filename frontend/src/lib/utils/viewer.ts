@@ -8,6 +8,7 @@ export type ViewerGeometryInput = {
   viewportHeight: number;
   rotation: number;
   fitMode: ViewerFitMode;
+  boundActualSizeToFit?: boolean;
   inset?: number;
   maxScale?: number;
 };
@@ -41,15 +42,16 @@ export function viewerGeometry(input: ViewerGeometryInput): ViewerGeometry {
     return { width: intrinsicWidth, height: intrinsicHeight, rotation: input.rotation, scale: 1 };
   }
 
-  if (input.fitMode === 'actual') {
-    return { width: intrinsicWidth, height: intrinsicHeight, rotation: input.rotation, scale: 1 };
-  }
-
   const quarterTurn = normalizedRotation === 90 || normalizedRotation === 270;
   const rotatedWidth = quarterTurn ? intrinsicHeight : intrinsicWidth;
   const rotatedHeight = quarterTurn ? intrinsicWidth : intrinsicHeight;
   const maxScale = input.maxScale ?? Number.POSITIVE_INFINITY;
   const fitScale = Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight, maxScale);
+
+  if (input.fitMode === 'actual') {
+    const scale = (input.boundActualSizeToFit ?? true) ? Math.min(1, fitScale) : 1;
+    return { width: intrinsicWidth * scale, height: intrinsicHeight * scale, rotation: input.rotation, scale };
+  }
   // Both non-upscaling policies are intentionally distinct public modes even though
   // contain geometry makes them equivalent today: if the original fits, keep 1:1;
   // otherwise scale down to fit. Keeping both names preserves the requested contract

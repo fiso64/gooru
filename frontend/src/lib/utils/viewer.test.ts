@@ -44,9 +44,37 @@ describe('viewer geometry policy', () => {
       viewportWidth: 200,
       viewportHeight: 200,
       rotation: -90,
-      fitMode: 'actual'
+      fitMode: 'actual',
+      boundActualSizeToFit: false
     });
     expect(geometry).toEqual({ width: 640, height: 480, rotation: -90, scale: 1 });
+  });
+
+  it('caps actual mode to fit by default and honors rotated bounds', () => {
+    const geometry = viewerGeometry({
+      intrinsicWidth: 1200,
+      intrinsicHeight: 400,
+      viewportWidth: 500,
+      viewportHeight: 300,
+      rotation: 90,
+      fitMode: 'actual'
+    });
+    expect(geometry.scale).toBeCloseTo(0.25);
+    expect(geometry.width).toBeCloseTo(300);
+    expect(geometry.height).toBeCloseTo(100);
+  });
+
+  it('preserves intrinsic actual-mode geometry when the fit cap is disabled', () => {
+    const geometry = viewerGeometry({
+      intrinsicWidth: 1200,
+      intrinsicHeight: 400,
+      viewportWidth: 500,
+      viewportHeight: 300,
+      rotation: 90,
+      fitMode: 'actual',
+      boundActualSizeToFit: false
+    });
+    expect(geometry).toEqual({ width: 1200, height: 400, rotation: 90, scale: 1 });
   });
 
   it('can cap fit-to-screen scaling for media that should stay at native size', () => {

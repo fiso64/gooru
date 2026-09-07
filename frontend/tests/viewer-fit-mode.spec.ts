@@ -145,3 +145,53 @@ test('nearest scaling applies to comic pages and follows the shared S toggle', a
   await expect(page.getByRole('status')).toContainText('Smooth scaling');
   await expect.poll(async () => image.evaluate((node) => getComputedStyle(node).imageRendering)).not.toBe('pixelated');
 });
+
+
+async function openOversizedActualViewer(page: Page, fitCap?: boolean) {
+  await mockSession(page);
+  const file = {
+    id: 'large-image', content_id: 'hash-large-image', name: 'large.png', safe_display_path: 'library/large.png', size: 4096,
+    added_at: '2026-09-07T00:00:00Z', modified_time: '2026-09-07T00:00:00Z', media_type: 'image/png', media_kind: 'photo',
+    metadata: { image_width: 2400, image_height: 1600 }, tags: [], can_delete: true,
+    media_urls: {
+      thumbnail: '/api/v1/files/large-image/thumbnail', preview: '/api/v1/files/large-image/preview',
+      content: '/api/v1/files/large-image/content', download: '/api/v1/files/large-image/download'
+    }
+  };
+  const uiConfig: Record<string, unknown> = { viewer_fit_mode: 'actual' };
+  if (fitCap !== undefined) uiConfig.viewer_actual_size_fit_cap = fitCap;
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(uiConfig) }));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ files: [file], total_count: 1, library_count: 1, facets: { kind: [] } })
+  }));
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1600"><rect width="2400" height="1600"/></svg>';
+  for (const endpoint of ['thumbnail', 'preview', 'content']) {
+    await page.route(`**/api/v1/files/large-image/${endpoint}`, async (route) => route.fulfill({ contentType: 'image/svg+xml', body: svg }));
+  }
+  await signInAndOpen(page, 'large.png');
+  const stage = page.locator('.viewer-stage');
+  const image = page.locator('img.viewer-visual-media');
+  await expect(image).toBeVisible();
+  await stage.focus();
+  return { stage, image };
+}
+
+test('actual-size mode is fit-capped by default while manual zoom can grow beyond the fitted baseline', async ({ page }) => {
+  const { stage, image } = await openOversizedActualViewer(page);
+  const stageBox = await stage.boundingBox();
+  const initial = await image.boundingBox();
+  expect(stageBox).not.toBeNull();
+  expect(initial).not.toBeNull();
+  expect(initial!.width).toBeLessThanOrEqual(stageBox!.width);
+  expect(initial!.height).toBeLessThanOrEqual(stageBox!.height);
+  expect(initial!.width).toBeLessThan(2400);
+
+  await page.locator('.viewer-pan-viewport').dispatchEvent('wheel', { deltaY: -120, ctrlKey: true, clientX: stageBox!.x + stageBox!.width / 2, clientY: stageBox!.y + stageBox!.height / 2 });
+  await expect.poll(async () => (await image.boundingBox())?.width ?? 0).toBeGreaterThan(initial!.width);
+});
+
+test('actual-size fit cap can be disabled to preserve intrinsic 1:1 startup size', async ({ page }) => {
+  const { image } = await openOversizedActualViewer(page, false);
+  await expect.poll(async () => (await image.boundingBox())?.width ?? 0).toBeGreaterThan(2398);
+  expect((await image.boundingBox())!.width).toBeLessThan(2402);
+});

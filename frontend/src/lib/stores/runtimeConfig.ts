@@ -21,6 +21,7 @@ export type RuntimeConfig = {
   hoverPlayVideos: boolean;
   hoverPlayGifs: boolean;
   viewerFitMode: ViewerConfiguredFitMode;
+  viewerActualSizeFitCap: boolean;
   viewerScaling: ViewerScaling;
   gridSize: number;
   gridType: GridType;
@@ -61,6 +62,7 @@ export const runtimeConfig = writable<RuntimeConfig>({
   hoverPlayVideos: true,
   hoverPlayGifs: true,
   viewerFitMode: 'fit_window',
+  viewerActualSizeFitCap: true,
   viewerScaling: 'smooth',
   gridSize: defaultGridSize,
   gridType: 'square',

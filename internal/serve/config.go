@@ -126,6 +126,7 @@ type UIConfig struct {
 	HoverPlayVideos          bool     `yaml:"hover_play_videos"`
 	HoverPlayGIFs            bool     `yaml:"hover_play_gifs"`
 	ViewerFitMode            string   `yaml:"viewer_fit_mode"`
+	ViewerActualSizeFitCap   bool     `yaml:"viewer_actual_size_fit_cap"`
 	ViewerScaling            string   `yaml:"viewer_scaling"`
 	PaginationMode           string   `yaml:"pagination_mode"`
 	ItemsPerPage             int      `yaml:"items_per_page"`
@@ -189,15 +190,16 @@ func DefaultConfig(dbPath string) Config {
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
 		UI: UIConfig{
-			FontStyle:        "editorial",
-			HoverPlayVideos: true,
-			HoverPlayGIFs:   true,
-			GridSize:         DefaultGridSize,
-			GridType:       DefaultGridType,
-			ViewerFitMode:  "fit_window",
-			ViewerScaling:  "smooth",
-			PaginationMode: DefaultPaginationMode,
-			ItemsPerPage:   DefaultItemsPerPage,
+			FontStyle:              "editorial",
+			HoverPlayVideos:        true,
+			HoverPlayGIFs:          true,
+			GridSize:               DefaultGridSize,
+			GridType:               DefaultGridType,
+			ViewerFitMode:          "fit_window",
+			ViewerActualSizeFitCap: true,
+			ViewerScaling:          "smooth",
+			PaginationMode:         DefaultPaginationMode,
+			ItemsPerPage:           DefaultItemsPerPage,
 		},
 	}
 }

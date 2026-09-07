@@ -13,6 +13,7 @@
     file,
     imageSource,
     initialFitMode = 'fit_window',
+    boundActualSizeToFit = true,
     initialScaling = 'smooth',
     onPrev,
     onNext,
@@ -34,6 +35,7 @@
     file: FileItem;
     imageSource: string;
     initialFitMode?: ViewerConfiguredFitMode;
+    boundActualSizeToFit?: boolean;
     initialScaling?: ViewerScaling;
     onPrev: () => void;
     onNext: () => void;
@@ -111,6 +113,7 @@
     viewportHeight: stageHeight,
     rotation,
     fitMode,
+    boundActualSizeToFit,
     inset: isFullscreen ? 0 : 36,
     maxScale: preserveNativeViewerSize(renderedFile) ? 1 : Number.POSITIVE_INFINITY
   }));
@@ -129,7 +132,10 @@
     inset: isFullscreen ? 0 : 36,
     maxScale: preserveNativeViewerSize(renderedFile) ? 1 : Number.POSITIVE_INFINITY
   }));
-  const minimumZoom = $derived(fitMode === 'actual' ? Math.min(1, fitGeometry.scale) : 1);
+  const minimumZoom = $derived(fitMode === 'actual' && !boundActualSizeToFit ? Math.min(1, fitGeometry.scale) : 1);
+  // Geometry carries the capped Actual-mode baseline. Scale the local ceiling inversely so
+  // manual zoom preserves the same absolute 32x ceiling and can always pass back through 1:1.
+  const maximumZoom = $derived(fitMode === 'actual' && boundActualSizeToFit && geometry.scale > 0 ? Math.max(32, 32 / geometry.scale) : 32);
   const panLimits = $derived(viewerPanLimits(zoom));
   const panSurfaceStyle = $derived(`width:${stageWidth + panLimits.x * 2}px;height:${stageHeight + panLimits.y * 2}px`);
   const visualStyle = $derived(viewerMediaStyle(geometry, { zoom }));
@@ -542,7 +548,7 @@
 
     if (event.ctrlKey) {
       event.preventDefault();
-      const nextZoom = Math.max(minimumZoom, Math.min(32, zoom * Math.exp(-event.deltaY * 0.0075)));
+      const nextZoom = Math.max(minimumZoom, Math.min(maximumZoom, zoom * Math.exp(-event.deltaY * 0.0075)));
       if (Math.abs(nextZoom - zoom) < 0.0001) return;
       const rect = stage.getBoundingClientRect();
       const pointerX = event.clientX - (rect.left + rect.width / 2);

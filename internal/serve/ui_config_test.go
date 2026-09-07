@@ -133,6 +133,7 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	cfg.UI.LoadFullMediaByDefault = true
 	cfg.UI.FullscreenMediaByDefault = true
 	cfg.UI.ViewerFitMode = "original_size_if_fit"
+	cfg.UI.ViewerActualSizeFitCap = false
 	cfg.UI.ViewerScaling = "nearest"
 	cfg.Media.ThumbnailSizes = []int{128, 384, 768}
 	cfg.UI.GridSize = 240
@@ -156,6 +157,9 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"viewer_fit_mode":"original_size_if_fit"`) {
 		t.Fatalf("response missing viewer fit mode: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `"viewer_actual_size_fit_cap":false`) {
+		t.Fatalf("response missing actual-size fit cap: %s", rec.Body.String())
+	}
 	if !strings.Contains(rec.Body.String(), `"viewer_scaling":"nearest"`) {
 		t.Fatalf("response missing viewer scaling: %s", rec.Body.String())
 	}
@@ -167,6 +171,25 @@ func TestUIConfigIsPublicAndContainsRuntimePreferences(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"thumbnail_sizes":[128,384,768]`) {
 		t.Fatalf("response missing thumbnail sizes: %s", rec.Body.String())
+	}
+}
+
+func TestConfigLoadsViewerActualSizeFitCap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gooru.yaml")
+	if err := os.WriteFile(path, []byte("ui:\n  viewer_actual_size_fit_cap: false\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := LoadConfig(path, filepath.Join(dir, "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.UI.ViewerActualSizeFitCap {
+		t.Fatal("ui.viewer_actual_size_fit_cap should allow explicitly disabling the default cap")
+	}
+	defaults := DefaultConfig(filepath.Join(dir, "default.db"))
+	if !defaults.UI.ViewerActualSizeFitCap {
+		t.Fatal("ui.viewer_actual_size_fit_cap should default enabled")
 	}
 }
 
