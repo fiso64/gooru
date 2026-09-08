@@ -64,8 +64,15 @@ func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister)
 		if !mapped {
 			physicalPath, err = serve.OpaqueManagedStoragePath(logicalPath, file.Hash, keys.Media)
 			if err != nil {
-				return fmt.Errorf("derive opaque managed storage path for %q: %w", logicalPath, err)
+				return fmt.Errorf("choose opaque managed storage path for %q: %w", logicalPath, err)
 			}
+			// Persist the random destination before mutating the filesystem. If the
+			// process stops after this point, the next startup resumes the same
+			// destination instead of inventing a second opaque name.
+			if err := registry.SetManagedStoragePath(file.ID, physicalPath); err != nil {
+				return fmt.Errorf("checkpoint opaque managed storage path for %q: %w", logicalPath, err)
+			}
+			mapped = true
 		}
 
 		logicalExists, err := regularManagedFileExists(logicalPath)
@@ -85,11 +92,6 @@ func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister)
 			if err := migrateManagedFileEncryption(physicalPath, cfg.Encryption.Key, keys.Media); err != nil {
 				return err
 			}
-			if !mapped {
-				if err := registry.SetManagedStoragePath(file.ID, physicalPath); err != nil {
-					return fmt.Errorf("recover opaque managed storage mapping for %q: %w", logicalPath, err)
-				}
-			}
 		case logicalExists:
 			if err := migrateManagedFileEncryption(logicalPath, cfg.Encryption.Key, keys.Media); err != nil {
 				return err
@@ -98,9 +100,6 @@ func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister)
 				if err := os.Rename(logicalPath, physicalPath); err != nil {
 					return fmt.Errorf("rename managed upload to opaque storage: %w", err)
 				}
-			}
-			if err := registry.SetManagedStoragePath(file.ID, physicalPath); err != nil {
-				return fmt.Errorf("record opaque managed storage mapping for %q: %w", logicalPath, err)
 			}
 		default:
 			// Preserve the previous preflight behavior for genuinely missing files;
