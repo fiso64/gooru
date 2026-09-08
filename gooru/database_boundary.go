@@ -32,6 +32,26 @@ func createDatabaseBackgroundOperation(client *Client, q databaseQuerier, id str
 	return backgroundOperationFromDatabase(operation), nil
 }
 
+func getDatabaseBackgroundOperation(client *Client, operationID string) (BackgroundOperationState, bool, error) {
+	operation, found, err := client.store.GetBackgroundOperation(operationID)
+	if err != nil || !found {
+		return BackgroundOperationState{}, found, err
+	}
+	return backgroundOperationStateFromDatabase(operation), true, nil
+}
+
+func listDatabaseBackgroundOperations(client *Client, options BackgroundOperationListOptions) ([]BackgroundOperationState, error) {
+	operations, err := client.store.ListBackgroundOperations(options.VisibleOnly, options.Limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]BackgroundOperationState, 0, len(operations))
+	for _, operation := range operations {
+		result = append(result, backgroundOperationStateFromDatabase(operation))
+	}
+	return result, nil
+}
+
 func cancelDatabaseBackgroundOperation(client *Client, operationID string) (bool, error) {
 	return client.store.CancelBackgroundOperation(operationID, time.Now().UTC())
 }
@@ -90,6 +110,23 @@ func backgroundOperationFromDatabase(operation database.BackgroundOperation) Bac
 		Visible:       operation.Visible,
 		ProgressTotal: operation.ProgressTotal,
 		CreatedAt:     operation.CreatedAt,
+	}
+}
+
+func backgroundOperationStateFromDatabase(operation database.BackgroundOperation) BackgroundOperationState {
+	return BackgroundOperationState{
+		ID:                operation.ID,
+		Kind:              operation.Kind,
+		Visible:           operation.Visible,
+		Status:            BackgroundWorkStatus(operation.Status),
+		ProgressTotal:     operation.ProgressTotal,
+		ProgressCompleted: operation.ProgressCompleted,
+		ProgressFailed:    operation.ProgressFailed,
+		CreatedAt:         operation.CreatedAt,
+		StartedAt:         operation.StartedAt,
+		FinishedAt:        operation.FinishedAt,
+		ErrorCode:         operation.ErrorCode,
+		ErrorMessage:      operation.ErrorMessage,
 	}
 }
 
