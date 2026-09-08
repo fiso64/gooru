@@ -104,7 +104,11 @@ var serveCmd = &cobra.Command{
 			"jobs_max_queued", cfg.Jobs.MaxQueued,
 			"jobs_max_running", cfg.Jobs.MaxRunning,
 		)
-		err = server.ListenAndServe(ctx)
+		runtime, err := server.NewBackgroundRuntime(client, fmt.Sprintf("serve-%d", os.Getpid()))
+		if err != nil {
+			return fmt.Errorf("failed to initialize background runtime: %w", err)
+		}
+		err = server.ListenAndServeWithBackgroundRuntime(ctx, runtime)
 		if err == nil {
 			logger.Info("gooru server stopped")
 		}

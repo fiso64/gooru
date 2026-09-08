@@ -57,15 +57,23 @@ type FileCountLibrary interface {
 }
 
 type GooruLibrary struct {
-	client       *core.Client
-	verbose      bool
-	metadata     MediaMetadataProvider
-	encryption   EncryptionConfig
-	managedRoots []string
+	client          *core.Client
+	verbose         bool
+	metadata        MediaMetadataProvider
+	encryption      EncryptionConfig
+	managedRoots    []string
+	backgroundTasks func(types.LocationInfo) []core.BackgroundTaskRequest
 }
 
 func NewGooruLibrary(client *core.Client, verbose bool) *GooruLibrary {
 	return &GooruLibrary{client: client, verbose: verbose, metadata: BasicMediaMetadataProvider{}}
+}
+
+func (l *GooruLibrary) GetFileByContentHash(ctx context.Context, hash string) (types.FileInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return types.FileInfo{}, err
+	}
+	return l.client.GetFileInfoByContentHash(hash)
 }
 
 func (l *GooruLibrary) ListFiles(ctx context.Context, query string) ([]types.FileInfo, error) {
