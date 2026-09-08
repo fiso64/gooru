@@ -121,6 +121,60 @@ func rebaseManagedRootTx(tx interface {
 	return int(n), nil
 }
 
+// ManagedStoragePath returns the physical storage path for a managed location.
+// Absence of a row means the logical location path is also the physical path.
+func (c *Client) ManagedStoragePath(locationID int64) (string, bool, error) {
+	var path string
+	err := c.store.QueryRow(`SELECT physical_path FROM managed_storage_locations WHERE location_id = ?`, locationID).Scan(&path)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return path, true, nil
+}
+
+// SetManagedStoragePath records the opaque physical path for a managed
+// location while leaving the canonical logical path in locations.path.
+func (c *Client) SetManagedStoragePath(locationID int64, physicalPath string) error {
+	physicalPath = strings.TrimSpace(physicalPath)
+	if locationID <= 0 {
+		return fmt.Errorf("invalid managed storage location id %d", locationID)
+	}
+	if physicalPath == "" {
+		return fmt.Errorf("managed storage path is empty")
+	}
+	_, err := c.store.Exec(`
+		INSERT INTO managed_storage_locations (location_id, physical_path)
+		VALUES (?, ?)
+		ON CONFLICT(location_id) DO UPDATE SET physical_path = excluded.physical_path`,
+		locationID, physicalPath)
+	return err
+}
+
+// ClearManagedStoragePath removes an opaque physical-path mapping after a
+// managed file has been restored to its canonical logical path.
+func (c *Client) ClearManagedStoragePath(locationID int64) error {
+	_, err := c.store.Exec(`DELETE FROM managed_storage_locations WHERE location_id = ?`, locationID)
+	return err
+}
+
+// ResolveManagedStorage attaches the physical storage path to a tracked file
+// without changing its canonical logical path or filename metadata.
+func (c *Client) ResolveManagedStorage(file types.FileInfo) (types.FileInfo, error) {
+	path, ok, err := c.ManagedStoragePath(file.ID)
+	if err != nil {
+		return file, err
+	}
+	if ok {
+		file.StoragePath = path
+	} else {
+		file.StoragePath = ""
+	}
+	return file, nil
+}
+
 // RecoverMissingManagedPath safely heals a pre-metadata library that was
 // already moved. Uploads are stored directly under target roots, so a stale
 // basename can identify candidates; content hashing is the authority and an
