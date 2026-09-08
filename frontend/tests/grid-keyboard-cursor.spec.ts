@@ -70,6 +70,22 @@ async function mockApp(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
+test('library viewport keeps initial keyboard focus without drawing a Chromium focus ring', async ({ page }) => {
+  await mockApp(page);
+
+  const viewport = page.getByTestId('library-viewport');
+  await expect(viewport).toBeFocused();
+  const focusStyle = await viewport.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+  });
+  expect(focusStyle.outlineStyle).toBe('none');
+  expect(focusStyle.outlineWidth).toBe('0px');
+
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.thumb-open').nth(0)).toBeFocused();
+});
+
 test('ArrowDown enters the media grid with a high-contrast cursor and cursor actions select, move, and open', async ({ page }) => {
   await mockApp(page);
 
