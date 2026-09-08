@@ -2,6 +2,7 @@ package gooru
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gooru.local/types"
@@ -43,6 +44,109 @@ func TestCreateBackgroundOperationUsesCoreFacade(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("operation count = %d, want 1", count)
+	}
+}
+
+func TestCreateBackgroundOperationWithTasksCommitsOwnedBatch(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	operation, tasks, err := client.CreateBackgroundOperationWithTasks(BackgroundOperationRequest{
+		Kind:          "library-delete",
+		Visible:       true,
+		ProgressTotal: 2,
+	}, []BackgroundTaskRequest{
+		{DedupeKey: "file-a:untrack", Kind: "library.delete", SubjectKind: "file", SubjectID: "file-a"},
+		{Kind: "library.delete", SubjectKind: "file", SubjectID: "file-b"},
+	})
+	if err != nil {
+		t.Fatalf("create operation with tasks: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("task count = %d, want 2", len(tasks))
+	}
+	for _, task := range tasks {
+		if task.OperationID != operation.ID {
+			t.Fatalf("task operation = %q, want %q", task.OperationID, operation.ID)
+		}
+	}
+
+	var persistedTasks int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_tasks WHERE operation_id = ?`, operation.ID).Scan(&persistedTasks); err != nil {
+		t.Fatalf("count tasks: %v", err)
+	}
+	if persistedTasks != 2 {
+		t.Fatalf("persisted task count = %d, want 2", persistedTasks)
+	}
+	rows, err := client.store.DB.Query(`SELECT dedupe_key FROM background_tasks WHERE operation_id = ? ORDER BY subject_id`, operation.ID)
+	if err != nil {
+		t.Fatalf("read dedupe keys: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			t.Fatalf("scan dedupe key: %v", err)
+		}
+		if !strings.HasPrefix(key, operation.ID+":") {
+			t.Fatalf("dedupe key %q is not scoped to operation %q", key, operation.ID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate dedupe keys: %v", err)
+	}
+}
+
+func TestCreateBackgroundOperationWithTasksRollsBackWholeBatch(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	_, _, err := client.CreateBackgroundOperationWithTasks(BackgroundOperationRequest{
+		Kind:          "library-delete",
+		Visible:       true,
+		ProgressTotal: 2,
+	}, []BackgroundTaskRequest{
+		{Kind: "library.delete", SubjectKind: "file", SubjectID: "file-a"},
+		{Kind: "", SubjectKind: "file", SubjectID: "file-b"},
+	})
+	if err == nil {
+		t.Fatal("create operation with invalid task succeeded")
+	}
+
+	var operations int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_operations WHERE kind = 'library-delete'`).Scan(&operations); err != nil {
+		t.Fatalf("count operations: %v", err)
+	}
+	if operations != 0 {
+		t.Fatalf("operation count after rollback = %d, want 0", operations)
+	}
+	var tasks int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_tasks WHERE subject_id IN ('file-a', 'file-b')`).Scan(&tasks); err != nil {
+		t.Fatalf("count tasks: %v", err)
+	}
+	if tasks != 0 {
+		t.Fatalf("task count after rollback = %d, want 0", tasks)
+	}
+}
+
+func TestCreateBackgroundOperationWithTasksRejectsPreownedChild(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	_, _, err := client.CreateBackgroundOperationWithTasks(BackgroundOperationRequest{
+		Kind:          "library-delete",
+		Visible:       true,
+		ProgressTotal: 1,
+	}, []BackgroundTaskRequest{{
+		OperationID: "operation-somewhere-else",
+		Kind:        "library.delete",
+		SubjectKind: "file",
+		SubjectID:   "file-a",
+	}})
+	if err == nil {
+		t.Fatal("create operation accepted a child already owned by another operation")
+	}
+
+	var operations int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_operations WHERE kind = 'library-delete'`).Scan(&operations); err != nil {
+		t.Fatalf("count operations: %v", err)
+	}
+	if operations != 0 {
+		t.Fatalf("operation count after rejected batch = %d, want 0", operations)
 	}
 }
 
