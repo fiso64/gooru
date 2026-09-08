@@ -37,7 +37,11 @@ async function mockApp(page: Page) {
       contentType: 'application/json',
       body: JSON.stringify({
         items,
-        meta_tags: [{ name: 'saved', syntax: '@saved:', hint: 'saved search', requires_value: true }]
+        meta_tags: [
+          { name: 'saved', syntax: '@saved:', hint: 'saved search', requires_value: true },
+          { name: 'extension', syntax: 'ext:', hint: 'file extension', requires_value: true },
+          { name: 'type', syntax: 'type:', hint: 'media type', requires_value: true }
+        ]
       })
     });
   });
@@ -57,7 +61,7 @@ async function visibleCompletions(page: Page): Promise<string[]> {
   return page.locator('#searchbar-suggestions [role="option"] .tok').allTextContents();
 }
 
-test('saved search names autocomplete after typing @saved:', async ({ page }) => {
+test('saved search names autocomplete after typing @saved: without a redundant prefix or fake counts', async ({ page }) => {
   await mockApp(page);
   const search = page.getByLabel('Search library');
 
@@ -65,11 +69,25 @@ test('saved search names autocomplete after typing @saved:', async ({ page }) =>
   await expect(page.getByRole('listbox', { name: 'Search suggestions' })).toBeVisible();
   await expect.poll(() => visibleCompletions(page)).toContain('@saved:Favorites');
   await expect.poll(() => visibleCompletions(page)).toContain('@saved:Family');
+  await expect.poll(() => visibleCompletions(page)).not.toContain('@saved:');
+
+  const favorites = page.getByRole('option').filter({ hasText: '@saved:Favorites' });
+  await expect(favorites.locator('.count')).toHaveCount(0);
 
   await search.fill('@saved:fav');
   await expect.poll(() => visibleCompletions(page)).toContain('@saved:Favorites');
   await search.press('Enter');
   await expect(page.getByRole('button', { name: 'Remove @saved:Favorites' })).toBeVisible();
+});
+
+test('completed value-taking prefixes are not offered as their own completions', async ({ page }) => {
+  await mockApp(page);
+  const search = page.getByLabel('Search library');
+
+  for (const prefix of ['ext:', 'type:']) {
+    await search.fill(prefix);
+    await expect(page.getByRole('option', { name: prefix, exact: true })).toHaveCount(0);
+  }
 });
 
 test('negated saved search names autocomplete without duplicating the negation prefix', async ({ page }) => {
