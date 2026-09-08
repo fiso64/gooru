@@ -6,7 +6,8 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-const twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAZAAAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');
+// Keep the first frame visible for three seconds so restart assertions have a wide, deterministic sampling window.
+const twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQALAEAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');
 const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
 function mediaFile(id: string, kind: 'video' | 'gif') {
@@ -157,9 +158,10 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   await expect(gifCard.locator('.thumb-badges')).toHaveCSS('z-index', '3');
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('z-index', '4');
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('opacity', '1');
+  const firstSource = await gif.getAttribute('src');
   const firstFrame = await gif.screenshot();
 
-  await page.waitForTimeout(1150);
+  await page.waitForTimeout(3150);
   const secondFrame = await gif.screenshot();
   expect(secondFrame.equals(firstFrame)).toBe(false);
 
@@ -168,6 +170,9 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   await gifCard.hover();
   gif = page.getByTestId('hover-gif-preview');
   await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
+  const restartedSource = await gif.getAttribute('src');
+  expect(restartedSource).not.toBe(firstSource);
+  expect(restartedSource?.split('#')[0]).toBe(firstSource?.split('#')[0]);
   const restartedFrame = await gif.screenshot();
   expect(restartedFrame.equals(firstFrame)).toBe(true);
 });
