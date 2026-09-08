@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -35,6 +36,11 @@ var (
 	ErrAuthentication = errors.New("encrypted file authentication failed")
 	ErrPlaintextSize  = errors.New("plaintext size does not match declared size")
 )
+
+type readAtCloser interface {
+	io.ReaderAt
+	io.Closer
+}
 
 // Encrypt writes a versioned, chunk-authenticated encrypted representation of
 // exactly plaintextSize bytes from src. The header is authenticated separately
@@ -94,15 +100,22 @@ func Encrypt(dst io.Writer, src io.Reader, plaintextSize int64, key []byte) erro
 }
 
 // File exposes authenticated plaintext with Reader, ReaderAt, and Seeker
-// semantics. Each random read decrypts only the chunks intersecting that range.
+// semantics. Sequential reads retain one decrypted chunk per open file so small
+// reads do not repeatedly authenticate the same 1 MiB chunk. Random ReadAt
+// calls remain independent and decrypt only the chunks intersecting their range.
 type File struct {
-	file    *os.File
+	file    readAtCloser
 	aead    cipher.AEAD
 	core    []byte
 	prefix  [noncePrefixSize]byte
 	size    int64
-	offset  int64
 	modTime time.Time
+
+	mu          sync.Mutex
+	offset      int64
+	cacheValid  bool
+	cachedChunk uint64
+	cachedPlain []byte
 }
 
 func Open(path string, key []byte) (*File, error) {
@@ -173,12 +186,19 @@ func Open(path string, key []byte) (*File, error) {
 }
 
 func (f *File) Read(p []byte) (int, error) {
-	n, err := f.ReadAt(p, f.offset)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	n, err := f.readAt(p, f.offset, true)
 	f.offset += int64(n)
 	return n, err
 }
 
 func (f *File) ReadAt(p []byte, off int64) (int, error) {
+	return f.readAt(p, off, false)
+}
+
+func (f *File) readAt(p []byte, off int64, sequential bool) (int, error) {
 	if off < 0 {
 		return 0, errors.New("encrypted file: negative offset")
 	}
@@ -197,21 +217,22 @@ func (f *File) ReadAt(p []byte, off int64) (int, error) {
 	}
 
 	written := 0
+	var scratch []byte
 	for written < limit {
 		position := off + int64(written)
 		chunkIndex := uint64(position / ChunkSize)
 		chunkStart := int64(chunkIndex) * ChunkSize
-		plainLength := f.chunkPlainLength(chunkIndex)
-		cipherLength := plainLength + int64(f.aead.Overhead())
-		cipherOffset := int64(headerSize) + int64(chunkIndex)*(ChunkSize+int64(f.aead.Overhead()))
 
-		ciphertext := make([]byte, int(cipherLength))
-		if _, err := f.file.ReadAt(ciphertext, cipherOffset); err != nil {
-			return written, fmt.Errorf("%w: read ciphertext: %v", ErrInvalidFormat, err)
+		var plain []byte
+		var err error
+		if sequential {
+			plain, err = f.sequentialChunk(chunkIndex)
+		} else {
+			plain, err = f.decryptChunk(chunkIndex, scratch)
+			scratch = plain
 		}
-		plain, err := f.aead.Open(nil, nonce(f.prefix, chunkIndex), ciphertext, chunkAAD(f.core, chunkIndex))
 		if err != nil {
-			return written, ErrAuthentication
+			return written, err
 		}
 
 		within := int(position - chunkStart)
@@ -228,7 +249,45 @@ func (f *File) ReadAt(p []byte, off int64) (int, error) {
 	return written, nil
 }
 
+func (f *File) sequentialChunk(index uint64) ([]byte, error) {
+	if f.cacheValid && f.cachedChunk == index {
+		return f.cachedPlain, nil
+	}
+	plain, err := f.decryptChunk(index, f.cachedPlain)
+	if err != nil {
+		f.cacheValid = false
+		return nil, err
+	}
+	f.cachedChunk = index
+	f.cachedPlain = plain
+	f.cacheValid = true
+	return f.cachedPlain, nil
+}
+
+func (f *File) decryptChunk(index uint64, buffer []byte) ([]byte, error) {
+	plainLength := f.chunkPlainLength(index)
+	cipherLength := plainLength + int64(f.aead.Overhead())
+	cipherOffset := int64(headerSize) + int64(index)*(ChunkSize+int64(f.aead.Overhead()))
+
+	if cap(buffer) < int(cipherLength) {
+		buffer = make([]byte, int(cipherLength))
+	} else {
+		buffer = buffer[:int(cipherLength)]
+	}
+	if _, err := f.file.ReadAt(buffer, cipherOffset); err != nil {
+		return nil, fmt.Errorf("%w: read ciphertext: %v", ErrInvalidFormat, err)
+	}
+	plain, err := f.aead.Open(buffer[:0], nonce(f.prefix, index), buffer, chunkAAD(f.core, index))
+	if err != nil {
+		return nil, ErrAuthentication
+	}
+	return plain, nil
+}
+
 func (f *File) Seek(offset int64, whence int) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	var next int64
 	switch whence {
 	case io.SeekStart:

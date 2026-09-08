@@ -22,7 +22,7 @@ func testPlaintext() []byte {
 	return out
 }
 
-func writeEncryptedFixture(t *testing.T, plaintext []byte, key []byte) string {
+func writeEncryptedFixture(t testing.TB, plaintext []byte, key []byte) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "original.bin")
 	file, err := os.Create(path)
@@ -37,6 +37,16 @@ func writeEncryptedFixture(t *testing.T, plaintext []byte, key []byte) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+type countingReadAtCloser struct {
+	readAtCloser
+	reads int
+}
+
+func (c *countingReadAtCloser) ReadAt(p []byte, off int64) (int, error) {
+	c.reads++
+	return c.readAtCloser.ReadAt(p, off)
 }
 
 func TestEncryptedFileRoundTripAndRandomAccess(t *testing.T) {
@@ -88,6 +98,52 @@ func TestEncryptedFileRoundTripAndRandomAccess(t *testing.T) {
 	}
 	if !bytes.Equal(tail, plaintext[len(plaintext)-128:]) {
 		t.Fatal("seek/read tail mismatch")
+	}
+}
+
+func TestEncryptedFileSequentialReadsReuseDecryptedChunk(t *testing.T) {
+	plaintext := testPlaintext()
+	key := testKey(0x42)
+	path := writeEncryptedFixture(t, plaintext, key)
+
+	file, err := Open(path, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	counted := &countingReadAtCloser{readAtCloser: file.file}
+	file.file = counted
+
+	buf := make([]byte, 32<<10)
+	for i := 0; i < 4; i++ {
+		if _, err := io.ReadFull(file, buf); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if counted.reads != 1 {
+		t.Fatalf("ciphertext reads after four same-chunk sequential reads = %d, want 1", counted.reads)
+	}
+
+	if _, err := file.Seek(ChunkSize-(16<<10), io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(file, buf); err != nil {
+		t.Fatal(err)
+	}
+	if counted.reads != 2 {
+		t.Fatalf("ciphertext reads after crossing chunk boundary = %d, want 2", counted.reads)
+	}
+
+	one := make([]byte, 1)
+	if _, err := file.ReadAt(one, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.ReadAt(one, 1); err != nil {
+		t.Fatal(err)
+	}
+	if counted.reads != 4 {
+		t.Fatalf("ciphertext reads after independent ReadAt calls = %d, want 4", counted.reads)
 	}
 }
 
@@ -194,5 +250,62 @@ func TestEncryptedEmptyFileRoundTrip(t *testing.T) {
 	buf := make([]byte, 1)
 	if n, err := file.Read(buf); n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("Read() = %d, %v; want 0, EOF", n, err)
+	}
+}
+
+func BenchmarkEncryptedFileSequentialRead(b *testing.B) {
+	plaintext := bytes.Repeat([]byte("gooru-protected-media-"), (8*ChunkSize)/len("gooru-protected-media-")+1)
+	plaintext = plaintext[:8*ChunkSize]
+	key := testKey(0x91)
+	path := writeEncryptedFixture(b, plaintext, key)
+
+	for _, tc := range []struct {
+		name string
+		size int
+	}{
+		{name: "32KiB", size: 32 << 10},
+		{name: "1MiB", size: ChunkSize},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			file, err := Open(path, key)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer file.Close()
+			buf := make([]byte, tc.size)
+			b.SetBytes(int64(len(plaintext)))
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := file.Seek(0, io.SeekStart); err != nil {
+					b.Fatal(err)
+				}
+				if _, err := io.CopyBuffer(io.Discard, file, buf); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkEncryptedFileRandomReadAt32KiB(b *testing.B) {
+	plaintext := bytes.Repeat([]byte("gooru-protected-media-"), (8*ChunkSize)/len("gooru-protected-media-")+1)
+	plaintext = plaintext[:8*ChunkSize]
+	key := testKey(0x92)
+	path := writeEncryptedFixture(b, plaintext, key)
+	file, err := Open(path, key)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer file.Close()
+
+	buf := make([]byte, 32<<10)
+	span := int64(len(plaintext) - len(buf))
+	b.SetBytes(int64(len(buf)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		off := (int64(i) * 104729) % span
+		if _, err := file.ReadAt(buf, off); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
