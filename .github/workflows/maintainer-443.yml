@@ -1,0 +1,50 @@
+name: maintainer-443
+
+on:
+  push:
+    branches:
+      - feat/443-saved-search-composition
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Focused serve tests
+        run: go test ./internal/serve
+      - name: Full Go tests
+        run: go test ./...
+      - name: Build Go
+        run: go build ./...
+
+  frontend:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+      - name: Check
+        run: npm run check
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Install Chromium
+        run: npx playwright install chromium
+      - name: Browser regressions
+        run: npm run test:e2e -- startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts hover-media-preview.spec.ts
+      - name: Build
+        run: npm run build
