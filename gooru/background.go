@@ -8,6 +8,41 @@ import (
 	"time"
 )
 
+// BackgroundOperation is the core-facing representation of one logical durable
+// operation. It intentionally exposes only stable operation identity and the
+// creation-time progress contract; mutable runtime bookkeeping remains behind
+// the persistence/runtime boundary until consumers need an explicit read API.
+type BackgroundOperation struct {
+	ID            string
+	Kind          string
+	Visible       bool
+	ProgressTotal int64
+	CreatedAt     time.Time
+}
+
+// BackgroundOperationRequest describes one logical operation to create.
+// ProgressTotal may be zero when the total is not known yet.
+type BackgroundOperationRequest struct {
+	Kind          string
+	Visible       bool
+	ProgressTotal int64
+}
+
+// CreateBackgroundOperation persists one logical operation outside an existing
+// transaction. Producers that must atomically create an operation with domain
+// state and tasks should use createBackgroundOperation from the core mutation.
+func (c *Client) CreateBackgroundOperation(request BackgroundOperationRequest) (BackgroundOperation, error) {
+	return c.createBackgroundOperation(c.store.DB, request)
+}
+
+func (c *Client) createBackgroundOperation(q databaseQuerier, request BackgroundOperationRequest) (BackgroundOperation, error) {
+	id, err := newBackgroundWorkID("operation")
+	if err != nil {
+		return BackgroundOperation{}, err
+	}
+	return createDatabaseBackgroundOperation(c, q, id, request)
+}
+
 // BackgroundTask is the core-facing input for one claimed durable task. It
 // intentionally exposes only stable domain identity/input fields: lease state,
 // retry bookkeeping, scheduling metadata, and terminal status remain runtime
@@ -48,19 +83,19 @@ func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task Back
 // business mutations that need content registration and background work to
 // commit atomically.
 func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
-	id, err := newBackgroundTaskID()
+	id, err := newBackgroundWorkID("task")
 	if err != nil {
 		return BackgroundTask{}, false, err
 	}
 	return enqueueDatabaseBackgroundTask(c, q, id, request)
 }
 
-func newBackgroundTaskID() (string, error) {
+func newBackgroundWorkID(prefix string) (string, error) {
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
-		return "", fmt.Errorf("generate background task id: %w", err)
+		return "", fmt.Errorf("generate background %s id: %w", prefix, err)
 	}
-	return "task-" + hex.EncodeToString(random[:]), nil
+	return prefix + "-" + hex.EncodeToString(random[:]), nil
 }
 
 // BackgroundTaskHandler executes one claimed durable task. The task lease and
