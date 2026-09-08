@@ -17,7 +17,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gofmt -w gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go
+          /usr/local/go/bin/gofmt -w gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go
           if ! git diff --quiet -- gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -29,11 +29,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          files=$(gofmt -l gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go)
+          files=$(/usr/local/go/bin/gofmt -l gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go)
           test -z "$files" || { printf 'gofmt required:\n%s\n' "$files"; exit 1; }
       - name: Focused tests
-        run: go test ./gooru ./internal/database ./internal/background
+        run: /usr/local/go/bin/go test ./gooru ./internal/database ./internal/background
       - name: Full Go tests
-        run: go test ./...
+        run: /usr/local/go/bin/go test ./...
       - name: Build
-        run: go build ./...
+        run: /usr/local/go/bin/go build ./...
