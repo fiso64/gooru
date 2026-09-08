@@ -33,7 +33,7 @@ On non-Windows systems key files must not be readable or writable by group or ot
 
 Back the key up separately from the encrypted data. Losing the key means losing access to the encrypted database and Gooru-managed encrypted media. A backup of only the encrypted data is not sufficient recovery material.
 
-The configured key is a master recovery key. Gooru derives independent cryptographic subkeys for the database and managed media instead of using the same encryption key material for both domains. Existing protected installations created before this separation are migrated in place on startup while the original master key remains configured.
+The configured key is a master recovery key. Gooru derives independent cryptographic subkeys for the database, managed media, and derivative cache instead of using the same encryption key material for those domains. Existing protected installations created before this separation are migrated in place on startup while the original master key remains configured.
 
 ## What is encrypted
 
@@ -41,9 +41,10 @@ When protected mode is enabled, Gooru encrypts:
 
 - the Gooru SQLite database, including SQLite sidecars and temporary storage handled by the encrypted VFS;
 - contents of files Gooru manages under configured upload targets;
+- persistent Gooru-generated media derivatives in a separate protected cache namespace;
 - new writes to Gooru-managed storage through the protected storage capability.
 
-When an existing plaintext installation first enters protected mode, Gooru migrates the database and registered files under configured upload targets before serving requests. Plaintext derivative-cache entries from ordinary mode are removed on the transition. Protected media derivatives are generated without the ordinary persistent plaintext derivative cache and protected responses use private/no-store cache policy.
+When an existing plaintext installation first enters protected mode, Gooru migrates the database and registered files under configured upload targets before serving requests. Plaintext derivative-cache entries from ordinary mode are removed on the transition. Protected derivatives persist only as authenticated encrypted cache entries; cache hits are decrypted in memory and protected responses use private/no-store cache policy.
 
 Arbitrary external or indexed library files are intentionally not rewritten or encrypted. They remain whatever they already are on disk.
 
@@ -65,14 +66,24 @@ Disabling opaque URL state deliberately restores self-contained readable URLs an
 
 ## Disable, key changes, and recovery
 
-The current supported lifecycle is intentionally fail-safe:
+Protected mode can be disabled in place, but the original recovery key must remain available for the one-time restoration startup:
 
-- **Disabling encryption in place is not supported.** If an existing database is encrypted and `encryption.enabled` is turned off, configured commands fail with an explicit diagnostic rather than attempting to interpret encrypted data as plaintext.
+1. Keep the existing `encryption.key_file`, `GOORU_ENCRYPTION_KEY`, or `GOORU_ENCRYPTION_KEY_FILE` source unchanged.
+2. Set `encryption.enabled: false` and start a Gooru command that opens the configured database (normally the server).
+3. Gooru opens the encrypted database with the recovery key, restores registered media under managed upload targets to plaintext at their ordinary canonical paths, removes the disposable encrypted derivative-cache namespace, and converts the database to ordinary plaintext **last**.
+4. After that startup completes successfully, the database and managed media are ordinary plaintext storage again. The recovery-key source is no longer required and may be removed from the runtime configuration.
+
+The ordering is deliberate and restart-safe. Managed files are replaced atomically one at a time, and an already-restored plaintext file is accepted on retry. Until all managed media and protected-cache cleanup succeed, the database remains encrypted so a later startup can still enumerate and continue the remaining work. The database itself is copied to a plaintext sibling, integrity-checked, atomically swapped, reopened, and verified before its encrypted rollback copy is removed.
+
+If the process is interrupted during the disable transition, restart it with `encryption.enabled: false` and the **same original recovery key** still configured. Do not remove the key source until a startup succeeds. A missing or wrong key fails before Gooru begins restoring managed media, and an encrypted database is never opened as an ordinary plaintext database.
+
+Other lifecycle constraints still apply:
+
 - **Automatic administrator-driven re-key/key rotation is not yet supported.** Replacing the configured master key for an existing encrypted installation causes opening to fail. Restore the original key instead of repeatedly trying new keys against the live data. Internal format upgrades may migrate ciphertext between Gooru-owned subkeys while preserving the configured master key.
-- **Intentional decrypt/migration back to plaintext is not yet provided as an administrative workflow.** Do not disable protected mode expecting an automatic reverse migration.
-- **Recovery requires the original key and recoverable encrypted data.** If the key is lost and no backup exists, Gooru has no recovery key or escrow mechanism that can decrypt the data.
+- **Recovery requires the original key and recoverable encrypted data until the disable transition completes.** If the key is lost and no backup exists, Gooru has no recovery key or escrow mechanism that can decrypt the data.
+- Disabling protected mode is not secure erasure of old ciphertext or prior plaintext copies. Backups, snapshots, or other external copies remain whatever they were when created.
 
-Before changing encryption configuration, keep a tested backup of both the encrypted data and the original key. Future explicit re-key/decrypt tooling should be used instead of manual file replacement once such a workflow exists.
+Before changing encryption configuration, keep a tested backup of both the data and the original key. Keep the key until the reverse migration has completed successfully and ordinary-mode startup has been verified.
 
 ## Operational boundary
 
