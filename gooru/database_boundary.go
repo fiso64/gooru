@@ -42,25 +42,11 @@ func newDatabaseBackgroundRuntime(client *Client, cfg BackgroundWorkerConfig) (B
 
 func backgroundTaskFromDatabase(task database.BackgroundTask) BackgroundTask {
 	return BackgroundTask{
-		ID:               task.ID,
-		OperationID:      task.OperationID,
-		DedupeKey:        task.DedupeKey,
-		Kind:             task.Kind,
-		SubjectKind:      task.SubjectKind,
-		SubjectID:        task.SubjectID,
-		InputKey:         task.InputKey,
-		ResourceClass:    task.ResourceClass,
-		Priority:         task.Priority,
-		Status:           string(task.Status),
-		AvailableAt:      task.AvailableAt,
-		LeaseOwner:       task.LeaseOwner,
-		LeaseExpiresAt:   task.LeaseExpiresAt,
-		CreatedAt:        task.CreatedAt,
-		StartedAt:        task.StartedAt,
-		FinishedAt:       task.FinishedAt,
-		AttemptCount:     task.AttemptCount,
-		MaxAttempts:      task.MaxAttempts,
-		LastErrorCode:    task.LastErrorCode,
-		LastErrorMessage: task.LastErrorMessage,
+		ID:          task.ID,
+		OperationID: task.OperationID,
+		Kind:        task.Kind,
+		SubjectKind: task.SubjectKind,
+		SubjectID:   task.SubjectID,
+		InputKey:    task.InputKey,
 	}
 }
