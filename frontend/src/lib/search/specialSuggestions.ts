@@ -41,9 +41,11 @@ export function specialSearchSuggestions(
       continue;
     }
 
+    const colon = syntax.indexOf(':');
+    if (colon >= 0 && !syntax.startsWith('@') && !lower.includes(':')) continue;
+
     const commit = `${negPrefix}${syntax}`;
     if (existing.has(commit)) continue;
-    const colon = syntax.indexOf(':');
     result.push({
       commit,
       ns: colon >= 0 && !syntax.startsWith('@') ? syntax.slice(0, colon) : '',
