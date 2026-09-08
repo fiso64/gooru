@@ -6,7 +6,7 @@ permissions:
   contents: write
 jobs:
   apply-and-validate:
-    if: github.event.head_commit.message != 'fix(ui): document hover playback defaults'
+    if: "github.event.head_commit.message != 'fix(ui): document hover playback defaults'"
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
