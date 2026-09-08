@@ -11,7 +11,7 @@ permissions:
 jobs:
   cleanup:
     if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
