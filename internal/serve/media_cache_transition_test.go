@@ -15,10 +15,10 @@ func TestCleanupPlaintextMediaCacheRemovesOnlyOwnedDerivatives(t *testing.T) {
 	unrelatedInShard := filepath.Join(root, "aa", "keep.txt")
 	otherDirFile := filepath.Join(root, "custom", strings.Repeat("b", 64)+".png")
 	for path, content := range map[string]string{
-		owned:            "plaintext derivative",
-		unrelated:        "unrelated",
+		owned:          "plaintext derivative",
+		unrelated:      "unrelated",
 		unrelatedInShard: "unrelated shard content",
-		otherDirFile:     "not a gooru shard",
+		otherDirFile:   "not a gooru shard",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)

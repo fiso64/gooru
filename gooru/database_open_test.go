@@ -22,7 +22,7 @@ func TestNewWithDatabaseOptionsMigratesPlaintextExplicitly(t *testing.T) {
 
 	key := bytes.Repeat([]byte{0x42}, 32)
 	client, err := NewWithDatabaseOptions(path, false, DatabaseOpenOptions{
-		EncryptionKey:    key,
+		EncryptionKey:   key,
 		MigratePlaintext: true,
 	})
 	if err != nil {
