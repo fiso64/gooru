@@ -46,7 +46,23 @@ func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 		t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
 	}
 
-	storedPath := filepath.Join(uploadDir, "secret.png")
+	logicalPath := filepath.Join(uploadDir, "secret.png")
+	if _, err := os.Stat(logicalPath); !os.IsNotExist(err) {
+		t.Fatalf("protected upload leaked its logical filename on disk: %v", err)
+	}
+
+	file, err := client.GetFileInfoByPath(logicalPath)
+	if err != nil {
+		t.Fatalf("uploaded image was not imported under its logical path: %v", err)
+	}
+	file, err = client.ResolveManagedStorage(file)
+	if err != nil {
+		t.Fatalf("resolve protected upload storage: %v", err)
+	}
+	storedPath := file.StoragePath
+	if storedPath == "" || filepath.Ext(storedPath) != "" || filepath.Base(storedPath) == filepath.Base(logicalPath) {
+		t.Fatalf("protected upload storage path is not random and extensionless: %q", storedPath)
+	}
 	stored, err := os.ReadFile(storedPath)
 	if err != nil {
 		t.Fatalf("read stored upload: %v", err)
@@ -77,10 +93,6 @@ func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 		t.Fatal("decrypted upload differs from request body")
 	}
 
-	file, err := client.GetFileInfoByPath(storedPath)
-	if err != nil {
-		t.Fatalf("uploaded image was not imported: %v", err)
-	}
 	if file.Size != int64(len(plaintext)) {
 		t.Fatalf("registered plaintext size = %d, want %d", file.Size, len(plaintext))
 	}

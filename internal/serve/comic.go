@@ -91,7 +91,7 @@ func (m *MediaService) acquireComicArchive(file types.FileInfo) (*comicArchive, 
 	// Open the current source before consulting the cache. This makes cache
 	// invalidation follow the file actually being served rather than possibly
 	// stale database metadata, and avoids a stat/open race on cache misses.
-	source, err := m.openMediaSource(file.Path)
+	source, err := m.openMediaSource(fileStoragePath(file))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open cbz: %w", err)
 	}

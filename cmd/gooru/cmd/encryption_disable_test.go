@@ -76,11 +76,40 @@ func TestConfiguredClientDisablesProtectedStorageRestartSafely(t *testing.T) {
 	if err := database.MigratePlaintextDatabase(dbPath, keys.Database); err != nil {
 		t.Fatal(err)
 	}
+	protectedClient, err := gooru.NewWithOptions(dbPath, false, gooru.OpenOptions{Database: gooru.DatabaseOpenOptions{EncryptionKey: keys.Database}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := protectedClient.GetAllFilesInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	physicalByLogical := make(map[string]string, len(files))
+	for _, file := range files {
+		physical, err := serve.OpaqueManagedStoragePath(file.Path, file.Hash, keys.Media)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(file.Path, physical); err != nil {
+			t.Fatal(err)
+		}
+		if err := protectedClient.SetManagedStoragePath(file.ID, physical); err != nil {
+			t.Fatal(err)
+		}
+		physicalByLogical[file.Path] = physical
+	}
+	if err := protectedClient.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-	// Simulate a process dying after restoring one managed file but before the
-	// database-last transition. The next startup must skip the plaintext file and
-	// finish the remaining work.
-	if err := encryptedfile.DecryptFileInPlace(firstPath, keys.Media); err != nil {
+	// Simulate a process dying after restoring one managed file and its canonical
+	// filename but before clearing the mapping/database-last transition. The next
+	// startup must recover that half-completed rename and finish the other file.
+	firstPhysical := physicalByLogical[firstPath]
+	if err := encryptedfile.DecryptFileInPlace(firstPhysical, keys.Media); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(firstPhysical, firstPath); err != nil {
 		t.Fatal(err)
 	}
 	cacheRoot := filepath.Join(dir, "cache")
@@ -102,7 +131,7 @@ func TestConfiguredClientDisablesProtectedStorageRestartSafely(t *testing.T) {
 	if err != nil {
 		t.Fatalf("disable protected storage: %v", err)
 	}
-	files, err := client.GetAllFilesInfo()
+	files, err = client.GetAllFilesInfo()
 	if err != nil {
 		_ = client.Close()
 		t.Fatal(err)
@@ -143,7 +172,7 @@ func TestConfiguredClientDisablesProtectedStorageRestartSafely(t *testing.T) {
 	}
 }
 
-func TestConfiguredDisableWrongRecoveryKeyFailsBeforeManagedMediaMutation(t *testing.T) {
+func TestConfiguredDisableWrongRecoveryKeyFailsBeforeOpaqueManagedMediaMutation(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
 	if err := gooru.Init(dbPath, types.StrategyPartial, false); err != nil {
@@ -153,25 +182,55 @@ func TestConfiguredDisableWrongRecoveryKeyFailsBeforeManagedMediaMutation(t *tes
 	if err := os.MkdirAll(uploadRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mediaPath := filepath.Join(uploadRoot, "managed.jpg")
+	logicalPath := filepath.Join(uploadRoot, "managed.jpg")
 	plaintext := []byte("must remain encrypted on wrong recovery key")
-	if err := os.WriteFile(mediaPath, plaintext, 0o644); err != nil {
+	if err := os.WriteFile(logicalPath, plaintext, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	registerManagedPath(t, dbPath, "hash-managed", mediaPath, int64(len(plaintext)))
+	registerManagedPath(t, dbPath, "hash-managed", logicalPath, int64(len(plaintext)))
 
 	master := bytes.Repeat([]byte{0x4c}, 32)
 	keys, err := encryptionkeys.Derive(master)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := encryptedfile.EncryptFileInPlace(mediaPath, keys.Media); err != nil {
+	if err := encryptedfile.EncryptFileInPlace(logicalPath, keys.Media); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.MigratePlaintextDatabase(dbPath, keys.Database); err != nil {
 		t.Fatal(err)
 	}
-	beforeMedia, err := os.ReadFile(mediaPath)
+	protectedClient, err := gooru.NewWithOptions(dbPath, false, gooru.OpenOptions{Database: gooru.DatabaseOpenOptions{EncryptionKey: keys.Database}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := protectedClient.GetAllFilesInfo()
+	if err != nil {
+		_ = protectedClient.Close()
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		_ = protectedClient.Close()
+		t.Fatalf("registered files = %d, want 1", len(files))
+	}
+	physicalPath, err := serve.OpaqueManagedStoragePath(logicalPath, files[0].Hash, keys.Media)
+	if err != nil {
+		_ = protectedClient.Close()
+		t.Fatal(err)
+	}
+	if err := os.Rename(logicalPath, physicalPath); err != nil {
+		_ = protectedClient.Close()
+		t.Fatal(err)
+	}
+	if err := protectedClient.SetManagedStoragePath(files[0].ID, physicalPath); err != nil {
+		_ = protectedClient.Close()
+		t.Fatal(err)
+	}
+	if err := protectedClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeMedia, err := os.ReadFile(physicalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +245,7 @@ func TestConfiguredDisableWrongRecoveryKeyFailsBeforeManagedMediaMutation(t *tes
 	if _, err := openConfiguredClient(cfg, false); err == nil {
 		t.Fatal("wrong recovery key unexpectedly disabled protected storage")
 	}
-	afterMedia, err := os.ReadFile(mediaPath)
+	afterMedia, err := os.ReadFile(physicalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,9 +254,12 @@ func TestConfiguredDisableWrongRecoveryKeyFailsBeforeManagedMediaMutation(t *tes
 		t.Fatal(err)
 	}
 	if !bytes.Equal(afterMedia, beforeMedia) {
-		t.Fatal("wrong recovery key mutated managed ciphertext")
+		t.Fatal("wrong recovery key mutated opaque managed ciphertext")
 	}
 	if !bytes.Equal(afterDB, beforeDB) {
 		t.Fatal("wrong recovery key mutated encrypted database")
+	}
+	if _, err := os.Stat(logicalPath); !os.IsNotExist(err) {
+		t.Fatalf("wrong recovery key unexpectedly restored logical managed path: %v", err)
 	}
 }

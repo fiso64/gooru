@@ -93,26 +93,28 @@ type TagOperationResult struct {
 
 // LocationInfo holds metadata about a file's location.
 type LocationInfo struct {
-	Path      string // The absolute path of the file
-	Hash      string
-	Size      int64
-	ModTime   int64 // Unix time
-	AddedAt   int64 // Unix time; zero lets the database assign insertion time
-	Extension string
-	TagsCache string
+	Path        string // The canonical logical path of the file
+	StoragePath string // Optional managed physical path; empty means Path
+	Hash        string
+	Size        int64
+	ModTime     int64 // Unix time
+	AddedAt     int64 // Unix time; zero lets the database assign insertion time
+	Extension   string
+	TagsCache   string
 }
 
 // FileInfo holds all displayable information about a file.
 type FileInfo struct {
-	ID       int64
-	PublicID string
-	Path     string
-	Hash     string
-	Size     int64
-	ModTime  int64 // Unix time
-	AddedAt  int64 // Unix time
-	Tags     []string
-	Metadata *MediaMetadata
+	ID          int64
+	PublicID    string
+	Path        string // Canonical logical path
+	StoragePath string // Optional managed physical path; empty means Path
+	Hash        string
+	Size        int64
+	ModTime     int64 // Unix time
+	AddedAt     int64 // Unix time
+	Tags        []string
+	Metadata    *MediaMetadata
 }
 
 // PageCursor identifies the last row from a keyset-paginated file page.

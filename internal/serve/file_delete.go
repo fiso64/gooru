@@ -20,8 +20,7 @@ type stagedFileDeletion struct {
 }
 
 func (s *Server) canDeleteFilePath(path string) bool {
-	_, ok := s.managedDeletePath(path)
-	return ok
+	return IsManagedUploadPath(s.cfg.Uploads.Targets, path)
 }
 
 func (s *Server) managedDeletePath(path string) (string, bool) {
@@ -72,7 +71,7 @@ func (s *Server) deleteManagedFile(ctx context.Context, publicID string) (bool, 
 	if err != nil {
 		return false, err
 	}
-	managedPath, ok := s.managedDeletePath(file.Path)
+	managedPath, ok := s.managedDeletePath(fileStoragePath(file))
 	if !ok {
 		return false, ErrFileNotManaged
 	}

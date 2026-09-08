@@ -153,7 +153,7 @@ func derivativeCacheRoot(cfg Config) (string, error) {
 }
 
 func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
-	source, err := m.openMediaSource(file.Path)
+	source, err := m.openMediaSource(fileStoragePath(file))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "file content not found", nil)
 		return
@@ -265,7 +265,7 @@ func (m *MediaService) generateDerivative(file types.FileInfo, dst io.Writer, si
 			if m.cfg.Encryption.Enabled {
 				sourceThumbnailer, ok := m.thumbnailer.(SourceQualityThumbnailer)
 				if ok {
-					source, err := m.openMediaSource(file.Path)
+					source, err := m.openMediaSource(fileStoragePath(file))
 					if err != nil {
 						return err
 					}

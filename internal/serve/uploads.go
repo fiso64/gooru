@@ -598,6 +598,7 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	importLocations := make([]types.LocationInfo, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
+	opaqueStorageByLogical := make(map[string]string, len(files))
 	for _, file := range files {
 		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
 		if file.Status == "error" {
@@ -650,6 +651,18 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 			response.Files = append(response.Files, dto)
 			continue
 		}
+		storagePath := ""
+		if l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path) {
+			storagePath, err = moveManagedFileToOpaqueStorage(file.Path, info.Hash, l.encryption.Key)
+			if err != nil {
+				dto.Status = "error"
+				dto.Error = err.Error()
+				response.Files = append(response.Files, dto)
+				continue
+			}
+			opaqueStorageByLogical[file.Path] = storagePath
+			analysisPath = storagePath
+		}
 		dto.Status = "imported"
 		response.Files = append(response.Files, dto)
 		responseIndexByPath[file.Path] = len(response.Files) - 1
@@ -659,12 +672,13 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 			addedAt = file.AddedAt.Unix()
 		}
 		importLocations = append(importLocations, types.LocationInfo{
-			Path:      file.Path,
-			Hash:      info.Hash,
-			Size:      info.Size,
-			ModTime:   info.ModTime,
-			AddedAt:   addedAt,
-			Extension: filepath.Ext(file.Path),
+			Path:        file.Path,
+			StoragePath: storagePath,
+			Hash:        info.Hash,
+			Size:        info.Size,
+			ModTime:     info.ModTime,
+			AddedAt:     addedAt,
+			Extension:   filepath.Ext(file.Path),
 		})
 	}
 	if len(importLocations) == 0 {
@@ -683,13 +697,20 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		}
 	})
 	if err != nil {
+		for _, storagePath := range opaqueStorageByLogical {
+			_ = os.Remove(storagePath)
+		}
 		return UploadImportResponse{}, err
 	}
 	for path, message := range failures {
 		if i, ok := responseIndexByPath[path]; ok {
 			response.Files[i].Status = "error"
 			response.Files[i].Error = message
-			_ = os.Remove(path)
+			if storagePath := opaqueStorageByLogical[path]; storagePath != "" {
+				_ = os.Remove(storagePath)
+			} else {
+				_ = os.Remove(path)
+			}
 		}
 	}
 	response.AffectedCount = result.AffectedCount
