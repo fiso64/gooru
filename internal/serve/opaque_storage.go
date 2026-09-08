@@ -94,6 +94,9 @@ func IsProtectedManagedStoragePath(targets []UploadTarget, path string) bool {
 	}
 	pathAbs = filepath.Clean(pathAbs)
 	for _, target := range targets {
+		if strings.TrimSpace(target.Path) == "" {
+			continue
+		}
 		root, err := filepath.Abs(target.Path)
 		if err != nil {
 			continue
@@ -129,6 +132,9 @@ func CleanupProtectedManagedStorageOrphans(targets []UploadTarget, referenced []
 		keep[filepath.Clean(abs)] = struct{}{}
 	}
 	for _, target := range targets {
+		if strings.TrimSpace(target.Path) == "" {
+			continue
+		}
 		root, err := filepath.Abs(target.Path)
 		if err != nil {
 			return fmt.Errorf("resolve managed upload target: %w", err)
@@ -204,6 +210,9 @@ func managedUploadTargetRoot(targets []UploadTarget, path string) (string, bool,
 	pathAbs = filepath.Clean(pathAbs)
 	best := ""
 	for _, target := range targets {
+		if strings.TrimSpace(target.Path) == "" {
+			continue
+		}
 		root, err := filepath.Abs(target.Path)
 		if err != nil {
 			return "", false, fmt.Errorf("resolve managed upload target: %w", err)
