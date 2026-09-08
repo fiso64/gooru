@@ -26,8 +26,12 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => {
     const q = new URL(route.request().url()).searchParams.get('q') ?? '';
-    const items = q.toLowerCase().startsWith('@saved:')
-      ? [{ name: '@saved:Favorites', value: 'saved search' }, { name: '@saved:Family', value: 'saved search' }]
+    const negated = q.startsWith('-');
+    const items = q.replace(/^-/, '').toLowerCase().startsWith('@saved:')
+      ? [
+          { name: `${negated ? '-' : ''}@saved:Favorites`, value: 'saved search' },
+          { name: `${negated ? '-' : ''}@saved:Family`, value: 'saved search' }
+        ]
       : [];
     await route.fulfill({
       contentType: 'application/json',
