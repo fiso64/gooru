@@ -1,0 +1,27 @@
+name: Validate #401 operation batch
+
+on:
+  push:
+    branches:
+      - refactor/401-background-operation-batch
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Format
+        run: test -z "$(gofmt -l gooru/background.go gooru/background_enqueue_test.go)"
+      - name: Focused tests
+        run: go test ./gooru -run 'Test(CreateBackgroundOperationWithTasks|BackgroundOperationAndTasks|EnqueueBackgroundTask)'
+      - name: Full tests
+        run: go test ./...
+      - name: Build
+        run: go build ./...
