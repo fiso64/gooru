@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - develop
+      - perf/28-protected-runtime-profile
 
 permissions:
   contents: read
@@ -29,8 +30,12 @@ jobs:
         run: go test ./...
       - name: Build
         run: go build ./...
+      - name: Protected source benchmarks
+        if: github.ref == 'refs/heads/perf/28-protected-runtime-profile'
+        run: go test ./internal/encryptedfile ./internal/filesource -run '^$' -bench 'EncryptedFile|ProtectedSource' -benchmem -benchtime=1s -count=3
 
   frontend:
+    if: github.ref != 'refs/heads/perf/28-protected-runtime-profile'
     name: Frontend
     runs-on: [self-hosted, gooru]
     defaults:
