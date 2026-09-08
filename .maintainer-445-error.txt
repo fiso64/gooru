@@ -1,4 +1,72 @@
-# gooru.local/internal/serve [gooru.local/internal/serve.test]
-internal/serve/uploads.go:141:75: undefined: conflictPolicy
-FAIL	gooru.local/internal/serve [build failed]
+?   	gooru.local/cmd/gooru	[no test files]
+ok  	gooru.local/cmd/gooru/cmd	14.271s
+?   	gooru.local/cmd/gooru/config	[no test files]
+?   	gooru.local/cmd/gooru/display	[no test files]
+ok  	gooru.local/gooru	33.598s
+ok  	gooru.local/internal/background	(cached)
+ok  	gooru.local/internal/config	(cached)
+ok  	gooru.local/internal/database	(cached)
+ok  	gooru.local/internal/encryptedfile	(cached)
+ok  	gooru.local/internal/encryptionkeys	(cached)
+ok  	gooru.local/internal/filesource	(cached)
+ok  	gooru.local/internal/hashing	(cached)
+ok  	gooru.local/internal/hashing/hashes	(cached)
+?   	gooru.local/internal/ipc	[no test files]
+ok  	gooru.local/internal/managedfile	(cached)
+ok  	gooru.local/internal/query	(cached)
+ok  	gooru.local/internal/relink	(cached)
+?   	gooru.local/internal/scanning	[no test files]
+ok  	gooru.local/internal/securekey	(cached)
+2026/09/08 16:20:03 INFO authentication succeeded
+2026/09/08 16:20:03 INFO http request completed method=POST route=/api/v1/auth/login status=200 duration=219.917536ms
+2026/09/08 16:20:03 INFO password change rejected
+2026/09/08 16:20:03 INFO http request completed method=POST route=/api/v1/auth/change-password status=401 duration=143.430621ms
+2026/09/08 16:20:16 INFO password changed
+2026/09/08 16:20:16 INFO http request completed method=POST route=/api/v1/auth/change-password status=200 duration=299.972382ms
+2026/09/08 16:20:34 INFO authentication succeeded
+2026/09/08 16:20:34 INFO http request completed method=POST route=/api/v1/auth/login status=200 duration=154.405342ms
+2026/09/08 16:20:34 INFO http request completed method=POST route=/api/v1/auth/logout status=403 duration=148.736µs
+2026/09/08 16:20:34 INFO session revoked
+2026/09/08 16:20:34 INFO http request completed method=POST route=/api/v1/auth/logout status=200 duration=20.700382ms
+2026/09/08 16:20:34 INFO http request completed method=POST route=/api/v1/auth/login status=404 duration=11.665µs
+2026/09/08 16:20:34 INFO http request completed method=POST route=/api/v1/auth/logout status=404 duration=4.27µs
+2026/09/08 16:20:34 INFO http request completed method=POST route=/api/v1/auth/change-password status=404 duration=4.007µs
+2026/09/08 16:20:35 INFO http request completed method=POST route=/api/v1/uploads status=403 duration=117.827µs
+2026/09/08 16:20:35 INFO http request completed method=POST route=/api/v1/files/tags status=403 duration=106.631µs
+2026/09/08 16:20:35 INFO http request completed method=DELETE route=/api/v1/files/ status=403 duration=83.792µs
+2026/09/08 16:20:35 INFO http request completed method=DELETE route=/api/v1/jobs status=403 duration=85.807µs
+2026/09/08 16:20:35 INFO http request completed method=DELETE route=/api/v1/jobs/ status=403 duration=84.772µs
+2026/09/08 16:20:36 INFO job started job_id=4be562488ef3e6905d882c4858d5548a job_type=upload_import
+2026/09/08 16:20:36 INFO job finished job_id=4be562488ef3e6905d882c4858d5548a job_type=upload_import status=completed duration=24.770105ms
+2026/09/08 16:20:36 INFO http request completed method=POST route=/api/v1/uploads status=200 duration=25.055204ms
+2026/09/08 16:20:40 WARN http request completed method=GET route=/api/v1/files status=500 duration=15.168µs
+2026/09/08 16:20:46 INFO http request completed method=DELETE route=/api/v1/files/ status=200 duration=10.782876ms
+2026/09/08 16:20:47 INFO http request completed method=DELETE route=/api/v1/files/ status=400 duration=10.324µs
+2026/09/08 16:20:48 INFO http request completed method=POST route=/api/v1/saved-searches status=201 duration=7.519578ms
+2026/09/08 16:20:48 INFO http request completed method=PUT route=/api/v1/saved-searches/ status=200 duration=7.618634ms
+2026/09/08 16:20:49 INFO http request completed method=PUT route=/api/v1/saved-searches/ status=404 duration=255.898µs
+2026/09/08 16:20:49 INFO http request completed method=DELETE route=/api/v1/saved-searches/ status=200 duration=7.105285ms
+--- FAIL: TestLoadConfigDefaultsAreValid (0.00s)
+    config_test.go:50: unexpected upload conflict policy default "rename"
+2026/09/08 16:20:51 INFO http request completed method=DELETE route=/api/v1/files status=200 duration=9.236783ms
+2026/09/08 16:20:52 INFO http request completed method=DELETE route=/api/v1/files/ status=200 duration=7.960148ms
+2026/09/08 16:20:53 INFO http request completed method=DELETE route=/api/v1/files/ status=409 duration=179.011µs
+2026/09/08 16:20:53 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=65.716µs
+2026/09/08 16:20:53 INFO http request completed method=DELETE route=/api/v1/files status=200 duration=13.618µs
+2026/09/08 16:20:53 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=55.315µs
+2026/09/08 16:20:53 INFO http request completed method=DELETE route=/api/v1/files status=200 duration=17.984µs
+2026/09/08 16:20:53 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=49.905µs
+2026/09/08 16:20:53 INFO http request completed method=POST route=/api/v1/file-selections/ status=200 duration=17.888µs
+2026/09/08 16:20:53 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=46.302µs
+2026/09/08 16:20:53 INFO job started job_id=6c2093e22305aeb84934ce1fff8d8dae job_type=tag_mutation
+2026/09/08 16:20:53 INFO job finished job_id=6c2093e22305aeb84934ce1fff8d8dae job_type=tag_mutation status=completed duration=14.697µs
+2026/09/08 16:20:53 INFO http request completed method=POST route=/api/v1/files/tags status=200 duration=111.99µs
+2026/09/08 16:20:54 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=59.253µs
+2026/09/08 16:20:54 INFO http request completed method=DELETE route=/api/v1/files status=410 duration=11.306µs
+2026/09/08 16:20:54 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=45.422µs
+2026/09/08 16:20:54 INFO http request completed method=POST route=/api/v1/files/tags status=410 duration=17.108µs
+FAIL
+FAIL	gooru.local/internal/serve	89.720s
+?   	gooru.local/scripts/devprofile	[no test files]
+?   	gooru.local/types	[no test files]
 FAIL
