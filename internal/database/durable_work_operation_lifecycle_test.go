@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 )
@@ -11,7 +12,7 @@ func readBackgroundOperationLifecycle(t *testing.T, store *Store, operationID st
 	var status string
 	var visible int
 	var createdAt int64
-	var startedAt, finishedAt nullableInt64
+	var startedAt, finishedAt sql.NullInt64
 	if err := store.DB.QueryRow(`
 		SELECT id, kind, visible, status, progress_total, progress_completed, progress_failed,
 		       created_at, started_at, finished_at, error_code, error_message
@@ -27,13 +28,9 @@ func readBackgroundOperationLifecycle(t *testing.T, store *Store, operationID st
 	operation.Visible = visible != 0
 	operation.Status = BackgroundWorkStatus(status)
 	operation.CreatedAt = workTime(createdAt)
-	operation.StartedAt = nullableWorkTime(startedAt.NullInt64)
-	operation.FinishedAt = nullableWorkTime(finishedAt.NullInt64)
+	operation.StartedAt = nullableWorkTime(startedAt)
+	operation.FinishedAt = nullableWorkTime(finishedAt)
 	return operation
-}
-
-type nullableInt64 struct {
-	NullInt64
 }
 
 func TestBackgroundOperationTracksChildTaskLifecycle(t *testing.T) {
