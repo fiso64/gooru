@@ -1,0 +1,21 @@
+name: Maintainer source snapshot
+
+on:
+  push:
+    branches:
+      - feat/28-opaque-managed-storage
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: .
+          include-hidden-files: true
+          retention-days: 1
