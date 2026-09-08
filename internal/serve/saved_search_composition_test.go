@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -47,6 +48,16 @@ func TestSavedSearchNameSuggestionsAreScopedAndPreserveNegation(t *testing.T) {
 	got := savedSearchNameSuggestions("@saved:fa", saved, 20)
 	if len(got) != 2 || got[0].Name != "@saved:Favorites" || got[1].Name != "@saved:Family" {
 		t.Fatalf("unexpected saved search suggestions: %#v", got)
+	}
+	if got[0].Count != nil || got[1].Count != nil {
+		t.Fatalf("saved search suggestions should leave unknown counts absent: %#v", got)
+	}
+	encoded, err := json.Marshal(got[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"count"`) {
+		t.Fatalf("unknown saved-search count should be omitted from API JSON: %s", encoded)
 	}
 
 	got = savedSearchNameSuggestions("-@saved:fav", saved, 20)

@@ -90,11 +90,11 @@
   });
 
   function normalizeTags(tags: TagLike[], suggestions: SuggestionLike[]) {
-    const seen = new Map<string, { tag: string; count: number }>();
+    const seen = new Map<string, { tag: string; count?: number }>();
     for (const tag of tags) {
       const name = tag.name ?? tag.tag ?? (tag.namespace ? `${tag.namespace}:${tag.value ?? ''}` : (tag.value ?? ''));
       if (!name || name.startsWith('@')) continue;
-      seen.set(name, { tag: name, count: tag.count ?? seen.get(name)?.count ?? 0 });
+      seen.set(name, { tag: name, count: tag.count ?? seen.get(name)?.count });
     }
     for (const suggestion of suggestions) {
       let name = suggestion.name?.trim();
@@ -104,9 +104,9 @@
         const colon = name.indexOf(':');
         if (colon < 0 || colon === name.length - 1) continue;
       }
-      seen.set(name, { tag: name, count: suggestion.count ?? seen.get(name)?.count ?? 0 });
+      seen.set(name, { tag: name, count: suggestion.count ?? seen.get(name)?.count });
     }
-    return [...seen.values()].sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+    return [...seen.values()].sort((a, b) => (b.count ?? 0) - (a.count ?? 0) || a.tag.localeCompare(b.tag));
   }
 
   function parseTag(tag: string) {
@@ -118,7 +118,7 @@
   function computeSuggestions(
     draftValue: string,
     currentTokens: SearchToken[],
-    items: Array<{ tag: string; count: number }>,
+    items: Array<{ tag: string; count?: number }>,
     metaTags: MetaTagLike[]
   ): SuggestionGroup[] {
     const tokenStrings = new Set(currentTokens.map(searchTokenToString));
