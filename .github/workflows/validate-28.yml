@@ -21,6 +21,7 @@ jobs:
         id: formatting
         shell: bash
         run: |
+          git fetch --no-tags origin develop:refs/remotes/origin/develop
           files=$(git diff --name-only origin/develop...HEAD -- '*.go')
           : > /tmp/gofmt.log
           if [ -n "$files" ]; then
