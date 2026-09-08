@@ -43,6 +43,13 @@ func (c *Client) createBackgroundOperation(q databaseQuerier, request Background
 	return createDatabaseBackgroundOperation(c, q, id, request)
 }
 
+// CancelBackgroundOperation durably cancels an active logical operation and all
+// pending/running child work. A running worker loses its lease and receives
+// context cancellation through BackgroundRuntime's renewal boundary.
+func (c *Client) CancelBackgroundOperation(operationID string) (bool, error) {
+	return cancelDatabaseBackgroundOperation(c, operationID)
+}
+
 // BackgroundTask is the core-facing input for one claimed durable task. It
 // intentionally exposes only stable domain identity/input fields: lease state,
 // retry bookkeeping, scheduling metadata, and terminal status remain runtime
@@ -88,6 +95,13 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		return BackgroundTask{}, false, err
 	}
 	return enqueueDatabaseBackgroundTask(c, q, id, request)
+}
+
+// CancelBackgroundTask durably cancels one pending/running task. This is the
+// lower-level cancellation primitive for consumers that expose per-item cancel;
+// canceling the parent operation is preferred for whole-operation cancellation.
+func (c *Client) CancelBackgroundTask(taskID string) (bool, error) {
+	return cancelDatabaseBackgroundTask(c, taskID)
 }
 
 func newBackgroundWorkID(prefix string) (string, error) {
