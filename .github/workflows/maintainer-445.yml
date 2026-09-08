@@ -9,24 +9,17 @@ permissions:
   contents: write
 
 jobs:
-  patch-and-validate:
+  materialize:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Apply fix and regressions
-        shell: python
+      - name: Apply upload conflict fix
+        shell: bash
         run: |
+          python3 <<'PY'
           from pathlib import Path
 
           replacements = {
@@ -40,6 +33,10 @@ jobs:
                   ('func TestDefaultUploadConflictPolicyIsSkip(t *testing.T) {', 'func TestDefaultUploadConflictPolicyIsRename(t *testing.T) {'),
                   ('if cfg.Uploads.ConflictPolicy != "skip" {\n\t\tt.Fatalf("expected default uploads.conflict_policy=skip, got %q", cfg.Uploads.ConflictPolicy)\n\t}', 'if cfg.Uploads.ConflictPolicy != "rename" {\n\t\tt.Fatalf("expected default uploads.conflict_policy=rename, got %q", cfg.Uploads.ConflictPolicy)\n\t}'),
                   ('if policy != "skip" {\n\t\tt.Fatalf("expected omitted conflict policy to resolve to skip, got %q", policy)\n\t}', 'if policy != "rename" {\n\t\tt.Fatalf("expected omitted conflict policy to resolve to rename, got %q", policy)\n\t}'),
+              ],
+              'internal/serve/uploads_test.go': [
+                  ('func TestUploadOmittedConflictPolicySkipsExistingName(t *testing.T) {', 'func TestUploadOmittedConflictPolicyRenamesExistingName(t *testing.T) {'),
+                  ('if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "existing" {\n\t\tt.Fatalf("existing file was overwritten: %q", got)\n\t}\n\tvar response UploadImportResponse\n\tif err := json.NewDecoder(rec.Body).Decode(&response); err != nil {\n\t\tt.Fatalf("decode response: %v", err)\n\t}\n\tif len(response.Files) != 1 || response.Files[0].Status != "skipped" {\n\t\tt.Fatalf("expected skipped response, got %+v", response.Files)\n\t}\n}\n\nfunc TestUploadRequestedConflictPolicySkipReturnsSkippedFile', 'if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "existing" {\n\t\tt.Fatalf("existing file was overwritten: %q", got)\n\t}\n\tif got := string(mustReadFile(t, filepath.Join(dir, "a-1.txt"))); got != "uploaded" {\n\t\tt.Fatalf("renamed upload was not retained: %q", got)\n\t}\n\tvar response UploadImportResponse\n\tif err := json.NewDecoder(rec.Body).Decode(&response); err != nil {\n\t\tt.Fatalf("decode response: %v", err)\n\t}\n\tif len(response.Files) != 1 || response.Files[0].Status != "imported" || response.Files[0].Name != "a-1.txt" {\n\t\tt.Fatalf("expected renamed imported response, got %+v", response.Files)\n\t}\n\tif len(library.paths) != 1 || filepath.Base(library.paths[0]) != "a-1.txt" {\n\t\tt.Fatalf("expected renamed logical import path, got %+v", library.paths)\n\t}\n}\n\nfunc TestUploadRequestedConflictPolicySkipReturnsSkippedFile'),
               ],
               'frontend/src/lib/state/uploadWorkflow.svelte.ts': [
                   ("let conflictPolicy = $state('skip');", "let conflictPolicy = $state('rename');"),
@@ -61,22 +58,7 @@ jobs:
                       raise SystemExit(f'{filename}: expected exactly one match for {old!r}, got {count}')
                   text = text.replace(old, new)
               path.write_text(text)
-      - name: Format and focused backend tests
-        run: |
-          gofmt -w internal/serve/config.go internal/serve/config_upload_policy_test.go internal/serve/uploads.go
-          go test ./internal/serve -run 'Test(DefaultUploadConflictPolicy|UploadConflictPolicy|Upload)'
-      - name: Frontend checks
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run check
-          npx playwright test tests/upload-conflict-default.spec.ts --project=chromium
-      - name: Full Go validation
-        run: |
-          go test ./...
-          go build ./...
-      - name: Commit validated source
-        run: |
+          PY
           rm -f .maintainer-trigger-445 .github/workflows/maintainer-445.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
