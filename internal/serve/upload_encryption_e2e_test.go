@@ -60,8 +60,8 @@ func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 		t.Fatalf("resolve protected upload storage: %v", err)
 	}
 	storedPath := file.StoragePath
-	if storedPath == "" || filepath.Ext(storedPath) != ".enc" || filepath.Base(storedPath) == filepath.Base(logicalPath) {
-		t.Fatalf("protected upload storage path is not opaque: %q", storedPath)
+	if storedPath == "" || filepath.Ext(storedPath) != "" || filepath.Base(storedPath) == filepath.Base(logicalPath) {
+		t.Fatalf("protected upload storage path is not random and extensionless: %q", storedPath)
 	}
 	stored, err := os.ReadFile(storedPath)
 	if err != nil {
