@@ -94,8 +94,13 @@ func Load(source Source) ([]byte, error) {
 		if !info.Mode().IsRegular() {
 			return nil, errors.New("encryption key file must be a regular file")
 		}
-		if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
-			return nil, errors.New("encryption key file must not be readable or writable by group or others")
+		// Reject key files that another Unix user can modify, but do not impose
+		// owner-only read permissions. Root-owned 0440/0640 service-group files
+		// and container/secret-manager mounts with broader read bits are valid
+		// deployment patterns whose actual access boundary is not described by
+		// these mode bits alone.
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0 {
+			return nil, errors.New("encryption key file must not be writable by group or others")
 		}
 		data, err := io.ReadAll(file)
 		if err != nil {

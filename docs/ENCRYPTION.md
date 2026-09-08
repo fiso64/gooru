@@ -29,7 +29,7 @@ encryption:
   key_file: /run/secrets/gooru-encryption-key
 ```
 
-On non-Windows systems key files must not be readable or writable by group or others. Secret-manager paths work well with declarative deployments; for example, NixOS/agenix can assign `services.gooru.settings.encryption.key_file` to an age-secret path without putting the key itself in the Nix store.
+On non-Windows systems Gooru rejects key files that are writable by group or others. Owner-only `0400`/`0600` permissions are the simplest recommendation, but group-readable `0440`/`0640` files are supported for deployments such as a root-owned secret exposed to a dedicated Gooru service group. Gooru does not reject broader read bits because container and secret-manager mounts can have mode bits that do not describe the host access boundary. On an ordinary multi-user host, however, a world-readable key defeats the local-user protection that encrypted-at-rest mode is intended to provide, so restrict key readability to the Gooru service and trusted administrators. Secret-manager paths work well with declarative deployments; for example, NixOS/agenix can assign `services.gooru.settings.encryption.key_file` to an age-secret path without putting the key itself in the Nix store.
 
 Back the key up separately from the encrypted data. Losing the key means losing access to the encrypted database and Gooru-managed encrypted media. A backup of only the encrypted data is not sufficient recovery material.
 
