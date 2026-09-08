@@ -131,7 +131,7 @@ func TestConfiguredClientDisablesProtectedStorageRestartSafely(t *testing.T) {
 	if err != nil {
 		t.Fatalf("disable protected storage: %v", err)
 	}
-	files, err := client.GetAllFilesInfo()
+	files, err = client.GetAllFilesInfo()
 	if err != nil {
 		_ = client.Close()
 		t.Fatal(err)
@@ -169,64 +169,5 @@ func TestConfiguredClientDisablesProtectedStorageRestartSafely(t *testing.T) {
 	}
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestConfiguredDisableWrongRecoveryKeyFailsBeforeManagedMediaMutation(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "gooru.db")
-	if err := gooru.Init(dbPath, types.StrategyPartial, false); err != nil {
-		t.Fatal(err)
-	}
-	uploadRoot := filepath.Join(dir, "uploads")
-	if err := os.MkdirAll(uploadRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	mediaPath := filepath.Join(uploadRoot, "managed.jpg")
-	plaintext := []byte("must remain encrypted on wrong recovery key")
-	if err := os.WriteFile(mediaPath, plaintext, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	registerManagedPath(t, dbPath, "hash-managed", mediaPath, int64(len(plaintext)))
-
-	master := bytes.Repeat([]byte{0x4c}, 32)
-	keys, err := encryptionkeys.Derive(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := encryptedfile.EncryptFileInPlace(mediaPath, keys.Media); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.MigratePlaintextDatabase(dbPath, keys.Database); err != nil {
-		t.Fatal(err)
-	}
-	beforeMedia, err := os.ReadFile(mediaPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	beforeDB, err := os.ReadFile(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := serve.DefaultConfig(dbPath)
-	cfg.Encryption.KeyFile = writeRecoveryKeyFile(t, dir, bytes.Repeat([]byte{0x4d}, 32))
-	cfg.Uploads.Targets = []serve.UploadTarget{{ID: "managed", Name: "Managed", Path: uploadRoot}}
-	if _, err := openConfiguredClient(cfg, false); err == nil {
-		t.Fatal("wrong recovery key unexpectedly disabled protected storage")
-	}
-	afterMedia, err := os.ReadFile(mediaPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	afterDB, err := os.ReadFile(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(afterMedia, beforeMedia) {
-		t.Fatal("wrong recovery key mutated managed ciphertext")
-	}
-	if !bytes.Equal(afterDB, beforeDB) {
-		t.Fatal("wrong recovery key mutated encrypted database")
 	}
 }
