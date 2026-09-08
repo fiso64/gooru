@@ -1,0 +1,29 @@
+name: Validate #28 protected derivatives
+
+on:
+  push:
+    branches:
+      - feat/28-encrypted-derivative-cache
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Formatting
+        run: test -z "$(gofmt -l internal/serve/derivative_store.go internal/serve/derivative_store_test.go internal/serve/media.go internal/serve/media_govips.go internal/serve/media_govips_disabled.go)"
+      - name: Focused tests
+        run: go test ./internal/serve -run 'Test(EncryptedDerivativeStore|NewDerivativeStore|ProtectedDerivativeStore)'
+      - name: Full Go tests
+        run: go test ./...
+      - name: Full Go build
+        run: go build ./...
+      - name: Govips compile and focused tests
+        run: go test -tags govips ./internal/serve -run 'Test(Govips|EncryptedDerivativeStore|NewDerivativeStore|ProtectedDerivativeStore)'
