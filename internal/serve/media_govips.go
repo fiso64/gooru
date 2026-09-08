@@ -41,8 +41,31 @@ func (GovipsImageThumbnailer) ThumbnailQuality(src string, dst io.Writer, size i
 		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to load image thumbnail", Err: err}
 	}
 	defer image.Close()
+	return exportGovipsThumbnail(image, dst, format, quality)
+}
 
+func thumbnailImageSourcePrimary(_ string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {
+	if err := ensureGovipsStarted(); err != nil {
+		return &UnsupportedMediaError{Backend: "govips", Reason: "govips startup failed", Err: err}
+	}
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	buf, err := io.ReadAll(src)
+	if err != nil {
+		return err
+	}
+	image, err := vips.NewThumbnailWithSizeFromBuffer(buf, size, size, vips.InterestingNone, vips.SizeDown)
+	if err != nil {
+		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to load logical image source", Err: err}
+	}
+	defer image.Close()
+	return exportGovipsThumbnail(image, dst, format, quality)
+}
+
+func exportGovipsThumbnail(image *vips.ImageRef, dst io.Writer, format string, quality int) error {
 	var data []byte
+	var err error
 	switch format {
 	case "jpeg":
 		params := vips.NewDefaultJPEGExportParams()
