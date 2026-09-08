@@ -117,7 +117,6 @@ When the owner posts a checklist in a comment and asks that it be kept updated, 
 - **Shortcut reference:** keep the WebUI shortcuts reference synchronized with meaningful keyboard behavior changes.
 - **Environment diagnosis:** distinguish source, packaged, container, and Nix delivery paths from evidence; do not infer the runtime path from the owner's OS/browser.
 - **CI diagnostics:** inaccessible preferred logs are a tooling problem, not a stopping condition. Use structured checks/logs, alternate endpoints, canonical local/available reproduction, or a temporary branch-local diagnostic workflow as a last resort; remove diagnostic-only workflow changes afterward.
-- **Actions runners:** use the repository's canonical runner labels for temporary maintainer validation/execution unless there is a concrete reason to test a different runner class. Treat a workflow run that fails with zero jobs as a pre-scheduling/workflow or runner-target problem, not as evidence that any particular runner host is broken. Inspect workflow/run metadata and the requested runner labels before retrying, and do not repeatedly retry the same failing runner path without new evidence.
 - **Frontend dependency packaging:** keep package-manager/Nix dependency hashes synchronized and prefer CI coverage of packaged frontend builds.
 - **Cross-surface backend features:** evaluate core/library, CLI, HTTP/API, and WebUI exposure together. Applicable core capabilities should normally have CLI exposure, and backend-owned discoverable contract data should not be duplicated in frontend constants.
 - **Protected-mode safety:** new features and significant refactors must explicitly consider protected-mode leakage/bypass risk, including plaintext persistence, raw tracked-path access, unsafe caches/temp files, browser persistence, logs, sensitive material propagation, and paths bypassing storage/source abstractions. Prefer capabilities where feature code does not need to know whether protected mode is enabled, with architectural tripwires where practical.
@@ -131,6 +130,8 @@ For a new user-facing end-to-end capability, include at least one golden-path te
 After repeated attempted fixes fail to resolve an owner-reported bug, stop speculative patching and add targeted temporary diagnostics/instrumentation, then request a real owner repro/logs when that evidence is needed. Once the bug is genuinely fixed, ablate earlier attempts for performance and cleanliness; keep only changes that independently improve correctness/architecture/performance or remain justified by regression evidence.
 
 If a local checkout is unavailable, that is not a blocker. Use authenticated GitHub writes and a temporary branch-local GitHub Actions workflow when execution is needed. Poll it, inspect logs, fix failures in the same run when possible, and remove temporary validation machinery afterward.
+
+**Actions runners:** use the repository's canonical runner labels (`[self-hosted, gooru]`) for temporary maintainer validation/execution. If there is evidence of the runners being down, mark as blocked (see the next section).
 
 ## Blocking and maintenance-system feedback
 
