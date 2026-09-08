@@ -7,12 +7,25 @@ import (
 
 func TestMetaTagCatalogAndParser(t *testing.T) {
 	definitions := MetaTags()
-	if len(definitions) != 2 {
-		t.Fatalf("got %d metatags, want 2", len(definitions))
+	if len(definitions) < 2 {
+		t.Fatalf("got %d query syntax definitions, want at least 2", len(definitions))
 	}
 	if definitions[0].Name != MetaTagTagged || definitions[1].Name != MetaTagFilenameContains {
-		t.Fatalf("unexpected catalog: %+v", definitions)
+		t.Fatalf("unexpected predicate catalog prefix: %+v", definitions[:2])
 	}
+	for _, syntax := range []string{"type:", "type:video", "ext:", "ext:jpg"} {
+		found := false
+		for _, definition := range definitions {
+			if definition.Syntax == syntax {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("query syntax catalog missing %q", syntax)
+		}
+	}
+
 	parsed, err := ParseMetaTag(`@filename_contains:Summer 100%_Set`)
 	if err != nil {
 		t.Fatalf("parse filename metatag: %v", err)
