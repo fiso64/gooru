@@ -2,64 +2,18 @@ name: maint-409
 on:
   push:
     branches: [fix/409-hover-play-defaults-docs]
-permissions:
-  contents: write
 jobs:
-  apply-and-validate:
-    if: "github.event.head_commit.message != 'fix(ui): document hover playback defaults'"
+  validate:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:
           ref: fix/409-hover-play-defaults-docs
-      - name: Apply owner-requested defaults and docs
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('internal/serve/config.go')
-          s = p.read_text()
-          old = '\t\t\tHoverPlayVideos:        true,\n\t\t\tHoverPlayGIFs:          true,'
-          new = '\t\t\tHoverPlayVideos:        false,\n\t\t\tHoverPlayGIFs:          true,'
-          assert old in s
-          p.write_text(s.replace(old, new, 1))
-
-          p = Path('frontend/src/lib/components/AppPage.svelte')
-          s = p.read_text()
-          old = 'hoverPlayVideos: config.hover_play_videos ?? true,'
-          new = 'hoverPlayVideos: config.hover_play_videos ?? false,'
-          assert old in s
-          p.write_text(s.replace(old, new, 1))
-
-          p = Path('internal/serve/hover_preview_config_test.go')
-          s = p.read_text()
-          old = '''\tif !defaults.UI.HoverPlayVideos || !defaults.UI.HoverPlayGIFs {\n\t\tt.Fatalf("default hover playback flags = video:%v gif:%v, want both true", defaults.UI.HoverPlayVideos, defaults.UI.HoverPlayGIFs)\n\t}'''
-          new = '''\tif defaults.UI.HoverPlayVideos || !defaults.UI.HoverPlayGIFs {\n\t\tt.Fatalf("default hover playback flags = video:%v gif:%v, want video false and gif true", defaults.UI.HoverPlayVideos, defaults.UI.HoverPlayGIFs)\n\t}'''
-          assert old in s
-          p.write_text(s.replace(old, new, 1))
-
-          p = Path('docs/CONFIG.md')
-          s = p.read_text()
-          old = '''  hover_play_videos: true\n  hover_play_gifs: true\n```\n\nFor deployment and API behavior'''
-          new = '''  hover_play_videos: false\n  hover_play_gifs: true\n```\n\n`ui.hover_play_gifs` controls animated GIF playback while hovering grid cards and defaults to `true`. `ui.hover_play_videos` controls the equivalent muted, inline, looping video preview and defaults to `false`. Both previews start only after the grid hover dwell, stop when the pointer leaves, stay limited to near-viewport media, and are disabled when the browser requests reduced motion.\n\nFor deployment and API behavior'''
-          assert old in s
-          p.write_text(s.replace(old, new, 1))
-          PY
-          nix develop -c gofmt -w internal/serve/config.go internal/serve/hover_preview_config_test.go
-      - name: Commit implementation
-        shell: bash
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add internal/serve/config.go internal/serve/hover_preview_config_test.go frontend/src/lib/components/AppPage.svelte docs/CONFIG.md
-          git commit -m 'fix(ui): document hover playback defaults'
-          git push origin HEAD:fix/409-hover-play-defaults-docs
       - name: Validate focused configuration behavior
-        run: nix develop -c go test ./internal/serve -run 'TestHoverPlaybackConfigDefaultsAndOverrides|TestUIConfigExposesHoverPlaybackPreferences'
+        run: nix develop -c go test -mod=mod ./internal/serve -run 'TestHoverPlaybackConfigDefaultsAndOverrides|TestUIConfigExposesHoverPlaybackPreferences'
       - name: Validate full Go suite
-        run: nix develop -c go test ./...
+        run: nix develop -c go test -mod=mod ./...
       - name: Validate Go build
-        run: nix develop -c go build ./...
+        run: nix develop -c go build -mod=mod ./...
       - name: Validate frontend
         run: nix develop -c bash -lc 'cd frontend && npm ci && npm run check && npm test -- --run && npm run build'
