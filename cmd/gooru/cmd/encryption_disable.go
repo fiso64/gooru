@@ -17,12 +17,15 @@ import (
 // migrateConfiguredStorageToPlaintext performs the one-time transition required
 // when encryption.enabled is turned off while the configured database is still
 // encrypted. Managed media is restored first and the database is converted
-// last, so an interruption always leaves an encrypted database that can
+// last, so an interruption always leaves recoverable database state that can
 // enumerate the remaining work on the next run. Already-restored media is
 // accepted to make that retry path idempotent.
 func migrateConfiguredStorageToPlaintext(cfg serve.Config, verbose bool) error {
 	if cfg.Encryption.Enabled {
 		return nil
+	}
+	if err := database.RecoverEncryptedDatabaseToPlaintextMigration(cfg.Database.Path); err != nil {
+		return fmt.Errorf("recover interrupted protected-storage disable: %w", err)
 	}
 	_, err := os.Stat(cfg.Database.Path)
 	if err != nil {
