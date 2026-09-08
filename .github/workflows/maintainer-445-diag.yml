@@ -22,7 +22,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Apply fix
-        run: python3 .github/maintainer-445-apply.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 .github/maintainer-445-apply.py 2>&1 | tee .maintainer-445-error.txt
       - name: Format
         run: gofmt -w internal/serve/config.go internal/serve/uploads.go internal/serve/config_upload_policy_test.go internal/serve/uploads_test.go internal/serve/upload_encryption_e2e_test.go
       - name: Focused backend tests
@@ -43,9 +46,18 @@ jobs:
       - name: Frontend conflict regression
         working-directory: frontend
         run: npx playwright install chromium && npx playwright test tests/upload-conflict-default.spec.ts
-      - name: Commit validated fix
+      - name: Commit failure diagnostic
+        if: failure()
         run: |
-          rm .github/workflows/maintainer-445-diag.yml .github/maintainer-445-apply.py
+          git config user.name fiso64
+          git config user.email 64778819+fiso64@users.noreply.github.com
+          git add .maintainer-445-error.txt
+          git commit -m 'chore: capture upload validation failure [skip ci]' || true
+          git push origin HEAD:fix/445-upload-conflict-default-rename
+      - name: Commit validated fix
+        if: success()
+        run: |
+          rm .github/workflows/maintainer-445-diag.yml .github/maintainer-445-apply.py .maintainer-445-error.txt
           git config user.name fiso64
           git config user.email 64778819+fiso64@users.noreply.github.com
           git add -A
