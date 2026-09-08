@@ -135,3 +135,53 @@ func TestEnsureStorageEncryptionReadyResumesCheckpointedLegacyNamespaceMove(t *t
 		t.Fatalf("namespaced protected file missing after recovery: %v", err)
 	}
 }
+
+func TestRestoreManagedUploadsToPlaintextRecreatesNestedLogicalDirectory(t *testing.T) {
+	dir := t.TempDir()
+	uploadRoot := filepath.Join(dir, "uploads")
+	if err := os.MkdirAll(uploadRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logicalPath := filepath.Join(uploadRoot, "nested", "album", "secret.jpg")
+	cfg := serve.DefaultConfig(filepath.Join(dir, "gooru.db"))
+	cfg.Uploads.Targets = []serve.UploadTarget{{ID: "managed", Path: uploadRoot}}
+	physicalPath, err := serve.ProtectedManagedStoragePathForName(cfg.Uploads.Targets, logicalPath, strings.Repeat("ef", 24))
+	if err != nil {
+		t.Fatal(err)
+	}
+	master := bytes.Repeat([]byte{0x64}, 32)
+	keys, err := encryptionkeys.Derive(master)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext := []byte("restore me to my logical directory")
+	out, err := os.Create(physicalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := encryptedfile.Encrypt(out, bytes.NewReader(plaintext), int64(len(plaintext)), keys.Media); err != nil {
+		_ = out.Close()
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	files := fakeRegisteredFiles{
+		files:    []types.FileInfo{{ID: 1, Path: logicalPath, Hash: "hash"}},
+		mappings: map[int64]string{1: physicalPath},
+	}
+
+	if err := restoreManagedUploadsToPlaintext(cfg, files, master, keys.Media); err != nil {
+		t.Fatalf("restore namespaced media: %v", err)
+	}
+	got, err := os.ReadFile(logicalPath)
+	if err != nil {
+		t.Fatalf("read restored logical file: %v", err)
+	}
+	if !bytes.Equal(got, plaintext) {
+		t.Fatal("restored logical file changed plaintext")
+	}
+	if _, ok := files.mappings[1]; ok {
+		t.Fatal("managed storage mapping remains after plaintext restoration")
+	}
+}
