@@ -31,7 +31,7 @@ func extract(expr *Expression, tags *[]string, seen map[string]struct{}) {
                         // We only care about user tags for count optimization. Virtual tags
                         // like `ext:` or `type:` don't have stored counts.
                         parsed := ParseTag(tagStr)
-                        if _, isReserved := reservedTagKeys[parsed.Key]; !isReserved {
+                        if !IsReservedField(parsed.Key) {
                             *tags = append(*tags, tagStr)
                             seen[tagStr] = struct{}{}
                         }

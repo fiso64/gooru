@@ -27,9 +27,17 @@ var metaTagDefinitions = []MetaTagDefinition{
 	{Name: MetaTagFilenameContains, Syntax: "@filename_contains:", Hint: "filename contains", RequiresValue: true},
 }
 
+// MetaTags returns the backend-owned catalog of reserved query syntax exposed by
+// the autocomplete API. The historical name is kept for wire compatibility.
 func MetaTags() []MetaTagDefinition {
-	out := make([]MetaTagDefinition, len(metaTagDefinitions))
-	copy(out, metaTagDefinitions)
+	out := make([]MetaTagDefinition, 0, len(metaTagDefinitions)+32)
+	out = append(out, metaTagDefinitions...)
+	for _, field := range ReservedFields() {
+		out = append(out, MetaTagDefinition{Name: field.Name, Syntax: field.Syntax, Hint: field.Hint, RequiresValue: true})
+		for _, value := range field.Values {
+			out = append(out, MetaTagDefinition{Name: field.Name, Syntax: field.Syntax + value, Hint: field.Hint, RequiresValue: false})
+		}
+	}
 	return out
 }
 

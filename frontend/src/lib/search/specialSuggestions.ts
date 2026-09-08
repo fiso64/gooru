@@ -6,8 +6,6 @@ export type SpecialSearchSuggestion = {
   partial?: boolean;
 };
 
-const mediaKinds = ['photo', 'video', 'gif', 'audio', 'other'] as const;
-
 export function specialSearchSuggestions(
   draft: string,
   existingTokens: string[] = [],
@@ -24,48 +22,37 @@ export function specialSearchSuggestions(
 
   const existing = new Set(existingTokens);
   const lower = working.toLowerCase();
-
-  if (lower.startsWith('type:')) {
-    const fragment = lower.slice('type:'.length);
-    return mediaKinds
-      .filter((kind) => !fragment || kind.startsWith(fragment))
-      .map((kind) => ({
-        commit: `${negPrefix}type:${kind}`,
-        ns: 'type',
-        val: kind,
-        hint: 'media type'
-      }))
-      .filter((item) => !existing.has(item.commit));
-  }
-
   const result: SpecialSearchSuggestion[] = [];
-  for (const metaTag of metaTags) {
-    const syntax = metaTag.syntax.trim();
-    if (!syntax.startsWith('@')) continue;
+
+  for (const definition of metaTags) {
+    const syntax = definition.syntax.trim();
+    if (!syntax) continue;
     const syntaxLower = syntax.toLowerCase();
-    if (metaTag.requires_value) {
-      if (syntaxLower.startsWith(lower)) {
-        result.push({
-          commit: `${negPrefix}${syntax}`,
-          ns: syntax.slice(0, -1),
-          val: '',
-          hint: metaTag.hint || 'query',
-          partial: true
-        });
-      }
+    if (!syntaxLower.startsWith(lower)) continue;
+
+    if (definition.requires_value) {
+      result.push({
+        commit: `${negPrefix}${syntax}`,
+        ns: syntax.endsWith(':') ? syntax.slice(0, -1) : syntax,
+        val: '',
+        hint: definition.hint || 'query',
+        partial: true
+      });
       continue;
     }
-    if (syntaxLower.startsWith(lower)) {
-      const commit = `${negPrefix}${syntax}`;
-      if (!existing.has(commit)) {
-        result.push({ commit, ns: '', val: syntax, hint: metaTag.hint || 'query' });
-      }
-    }
+
+    const colon = syntax.indexOf(':');
+    if (colon >= 0 && !syntax.startsWith('@') && !lower.includes(':')) continue;
+
+    const commit = `${negPrefix}${syntax}`;
+    if (existing.has(commit)) continue;
+    result.push({
+      commit,
+      ns: colon >= 0 && !syntax.startsWith('@') ? syntax.slice(0, colon) : '',
+      val: colon >= 0 && !syntax.startsWith('@') ? syntax.slice(colon + 1) : syntax,
+      hint: definition.hint || 'query'
+    });
   }
 
-  if ('type:'.startsWith(lower)) {
-    const commit = `${negPrefix}type:`;
-    result.push({ commit, ns: 'type', val: '', hint: 'media type', partial: true });
-  }
   return result;
 }

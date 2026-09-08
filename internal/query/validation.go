@@ -5,11 +5,6 @@ import (
 	"strings"
 )
 
-var reservedTagKeys = map[string]struct{}{
-	"ext":  {},
-	"type": {},
-}
-
 // validateTagSyntax checks if a tag string conforms to the required syntactic format for a query.
 // It does not check for reserved keywords.
 func validateTagSyntax(tag string) error {
@@ -74,7 +69,7 @@ func ValidateTag(tag string) error {
 	}
 
 	parsed := ParseTag(tag)
-	if _, isReserved := reservedTagKeys[strings.ToLower(parsed.Key)]; isReserved {
+	if IsReservedField(parsed.Key) {
 		return fmt.Errorf("tag key '%s' is a reserved keyword for special queries and cannot be used for tagging", parsed.Key)
 	}
 	return nil
