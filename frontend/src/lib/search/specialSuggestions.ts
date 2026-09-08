@@ -31,6 +31,10 @@ export function specialSearchSuggestions(
     if (!syntaxLower.startsWith(lower)) continue;
 
     if (definition.requires_value) {
+      // Once the complete value-taking prefix has been typed, the prefix itself
+      // is no longer a useful selectable completion. Dynamic/static values for
+      // that prefix are supplied by the normal value-completion path instead.
+      if (syntaxLower === lower) continue;
       result.push({
         commit: `${negPrefix}${syntax}`,
         ns: syntax.endsWith(':') ? syntax.slice(0, -1) : syntax,
