@@ -3,7 +3,6 @@ package serve
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -44,21 +43,20 @@ func TestProtectedContentDisablesBrowserCaching(t *testing.T) {
 	}
 }
 
-func TestProtectedThumbnailBypassesPersistentCache(t *testing.T) {
+func TestProtectedThumbnailUsesEncryptedPersistentCache(t *testing.T) {
 	imagePath := writePNGImage(t)
 	server := protectedMediaTestServer(t, types.FileInfo{ID: 92, Path: imagePath, Hash: "protected-thumbnail", Size: 100})
 	encryptMediaFixture(t, imagePath, server.cfg.Encryption.Key)
-	cacheDir := server.cfg.Media.CacheDir
 
-	for i := 0; i < 2; i++ {
+	for i, want := range []string{"miss", "hit"} {
 		rec := httptest.NewRecorder()
 		req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(92)+"/thumbnail?size=16")
 		server.Handler().ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("request %d expected 200, got %d: %s", i+1, rec.Code, rec.Body.String())
 		}
-		if got := rec.Header().Get("X-Gooru-Cache"); got != "bypass" {
-			t.Fatalf("request %d cache = %q, want bypass", i+1, got)
+		if got := rec.Header().Get("X-Gooru-Cache"); got != want {
+			t.Fatalf("request %d cache = %q, want %q", i+1, got, want)
 		}
 		if got := rec.Header().Get("Cache-Control"); got != "private, no-store" {
 			t.Fatalf("request %d Cache-Control = %q", i+1, got)
@@ -66,9 +64,6 @@ func TestProtectedThumbnailBypassesPersistentCache(t *testing.T) {
 		if rec.Body.Len() == 0 {
 			t.Fatalf("request %d returned an empty derivative", i+1)
 		}
-	}
-	if _, err := os.Stat(cacheDir); !os.IsNotExist(err) {
-		t.Fatalf("protected derivative cache directory should not exist, stat error = %v", err)
 	}
 }
 
