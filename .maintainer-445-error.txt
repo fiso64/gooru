@@ -1,0 +1,4 @@
+# gooru.local/internal/serve [gooru.local/internal/serve.test]
+internal/serve/uploads.go:141:75: undefined: conflictPolicy
+FAIL	gooru.local/internal/serve [build failed]
+FAIL
