@@ -9,4 +9,5 @@ s = s.replace("replace('internal/serve/uploads.go', 'func stagedUploads(files []
 s = s.replace("replace('internal/serve/uploads.go', 'SourceModTime: file.sourceModTime, AddedAt: file.addedAt})', 'SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: conflictPolicy})')", "replace('internal/serve/uploads.go', 'SourceModTime: file.sourceModTime, AddedAt: file.addedAt})', 'SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy})')")
 s += "\nreplace('internal/serve/uploads.go', '\\tsourceModTime   time.Time\\n\\taddedAt         time.Time\\n}', '\\tsourceModTime   time.Time\\n\\taddedAt         time.Time\\n\\tconflictPolicy  string\\n}')\n"
 s += "replace('internal/serve/upload_stream.go', '\\t\\t\\tfinalized.addedAt = file.addedAt\\n', '\\t\\t\\tfinalized.addedAt = file.addedAt\\n\\t\\t\\tfinalized.conflictPolicy = conflictPolicy\\n')\n"
+s += "replace('internal/serve/config_test.go', 'cfg.Uploads.ConflictPolicy != \\\"skip\\\"', 'cfg.Uploads.ConflictPolicy != \\\"rename\\\"')\n"
 p.write_text(s)
