@@ -140,6 +140,49 @@ func TestEncryptedDerivativeStorePersistsCiphertextAndReusesArtifact(t *testing.
 	}
 }
 
+func TestEncryptedDerivativeStoreRegeneratesUnreadableCacheEntry(t *testing.T) {
+	root := t.TempDir()
+	store := newEncryptedDerivativeStore(root, bytes.Repeat([]byte{0x51}, 32))
+	cachePath := filepath.Join(root, encryptedDerivativeNamespace, "ab", "cover.jpg")
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, []byte("not an encrypted derivative"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	generated := 0
+	artifact, err := store.GetOrGenerate(filepath.Join("ab", "cover.jpg"), func(dst io.Writer) error {
+		generated++
+		_, err := io.WriteString(dst, "regenerated derivative")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer artifact.Close()
+	if artifact.CacheStatus != "miss" {
+		t.Fatalf("status = %q, want miss", artifact.CacheStatus)
+	}
+	if generated != 1 {
+		t.Fatalf("generator called %d times, want 1", generated)
+	}
+	data, err := io.ReadAll(artifact.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "regenerated derivative" {
+		t.Fatalf("unexpected regenerated derivative: %q", data)
+	}
+	ciphertext, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(ciphertext, []byte("regenerated derivative")) {
+		t.Fatal("regenerated protected cache entry contains plaintext")
+	}
+}
+
 func TestNewDerivativeStoreChoosesPersistenceAtCompositionBoundary(t *testing.T) {
 	plainCfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	plainCfg.Media.CacheDir = t.TempDir()
