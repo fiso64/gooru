@@ -93,17 +93,16 @@ func TestProtectedComicReadsEncryptedArchiveWithoutPlaintextMaterialization(t *t
 		t.Fatal("decrypted comic page differs from archived plaintext")
 	}
 
-	thumbRecorder := httptest.NewRecorder()
-	thumbRequest := httptest.NewRequest(http.MethodGet, "/thumbnail?size=4", nil)
-	service.ServeDerivative(thumbRecorder, thumbRequest, types.FileInfo{Path: path, Hash: "encrypted-comic"}, "thumbnail")
-	if thumbRecorder.Code != http.StatusOK {
-		t.Fatalf("comic thumbnail status = %d: %s", thumbRecorder.Code, thumbRecorder.Body.String())
-	}
-	if got := thumbRecorder.Header().Get("X-Gooru-Cache"); got != "bypass" {
-		t.Fatalf("protected comic thumbnail cache = %q, want bypass", got)
-	}
-	if _, err := os.Stat(cfg.Media.CacheDir); !os.IsNotExist(err) {
-		t.Fatalf("protected comic thumbnail must not create plaintext cache, stat error = %v", err)
+	for i, want := range []string{"miss", "hit"} {
+		thumbRecorder := httptest.NewRecorder()
+		thumbRequest := httptest.NewRequest(http.MethodGet, "/thumbnail?size=4", nil)
+		service.ServeDerivative(thumbRecorder, thumbRequest, types.FileInfo{Path: path, Hash: "encrypted-comic"}, "thumbnail")
+		if thumbRecorder.Code != http.StatusOK {
+			t.Fatalf("comic thumbnail request %d status = %d: %s", i+1, thumbRecorder.Code, thumbRecorder.Body.String())
+		}
+		if got := thumbRecorder.Header().Get("X-Gooru-Cache"); got != want {
+			t.Fatalf("protected comic thumbnail request %d cache = %q, want %q", i+1, got, want)
+		}
 	}
 }
 
@@ -119,23 +118,22 @@ func TestProtectedImageThumbnailReadsEncryptedOriginal(t *testing.T) {
 	encryptMediaFixture(t, path, cfg.Encryption.Key)
 
 	service := NewMediaService(cfg)
-	recorder := httptest.NewRecorder()
-	service.ServeDerivative(recorder, httptest.NewRequest(http.MethodGet, "/thumbnail?size=16", nil), types.FileInfo{Path: path, Hash: "protected-image"}, "thumbnail")
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("protected image thumbnail status = %d: %s", recorder.Code, recorder.Body.String())
-	}
-	decoded, _, err := image.Decode(bytes.NewReader(recorder.Body.Bytes()))
-	if err != nil {
-		t.Fatalf("decode protected image thumbnail: %v", err)
-	}
-	if got := decoded.Bounds().Dx(); got != 16 {
-		t.Fatalf("thumbnail width = %d, want 16", got)
-	}
-	if got := recorder.Header().Get("X-Gooru-Cache"); got != "bypass" {
-		t.Fatalf("protected image thumbnail cache = %q, want bypass", got)
-	}
-	if _, err := os.Stat(cfg.Media.CacheDir); !os.IsNotExist(err) {
-		t.Fatalf("protected image thumbnail must not create plaintext cache, stat error = %v", err)
+	for i, want := range []string{"miss", "hit"} {
+		recorder := httptest.NewRecorder()
+		service.ServeDerivative(recorder, httptest.NewRequest(http.MethodGet, "/thumbnail?size=16", nil), types.FileInfo{Path: path, Hash: "protected-image"}, "thumbnail")
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("protected image thumbnail request %d status = %d: %s", i+1, recorder.Code, recorder.Body.String())
+		}
+		decoded, _, err := image.Decode(bytes.NewReader(recorder.Body.Bytes()))
+		if err != nil {
+			t.Fatalf("decode protected image thumbnail request %d: %v", i+1, err)
+		}
+		if got := decoded.Bounds().Dx(); got != 16 {
+			t.Fatalf("thumbnail request %d width = %d, want 16", i+1, got)
+		}
+		if got := recorder.Header().Get("X-Gooru-Cache"); got != want {
+			t.Fatalf("protected image thumbnail request %d cache = %q, want %q", i+1, got, want)
+		}
 	}
 }
 
@@ -160,18 +158,17 @@ func TestProtectedVideoThumbnailStreamsDecryptedSource(t *testing.T) {
 	encryptMediaFixture(t, path, cfg.Encryption.Key)
 
 	service := NewMediaService(cfg)
-	recorder := httptest.NewRecorder()
-	service.ServeDerivative(recorder, httptest.NewRequest(http.MethodGet, "/thumbnail?size=16", nil), types.FileInfo{Path: path, Hash: "protected-video"}, "thumbnail")
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("protected video thumbnail status = %d: %s", recorder.Code, recorder.Body.String())
-	}
-	if _, _, err := image.Decode(bytes.NewReader(recorder.Body.Bytes())); err != nil {
-		t.Fatalf("decode protected video thumbnail: %v", err)
-	}
-	if got := recorder.Header().Get("X-Gooru-Cache"); got != "bypass" {
-		t.Fatalf("protected video thumbnail cache = %q, want bypass", got)
-	}
-	if _, err := os.Stat(cfg.Media.CacheDir); !os.IsNotExist(err) {
-		t.Fatalf("protected video thumbnail must not create plaintext cache, stat error = %v", err)
+	for i, want := range []string{"miss", "hit"} {
+		recorder := httptest.NewRecorder()
+		service.ServeDerivative(recorder, httptest.NewRequest(http.MethodGet, "/thumbnail?size=16", nil), types.FileInfo{Path: path, Hash: "protected-video"}, "thumbnail")
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("protected video thumbnail request %d status = %d: %s", i+1, recorder.Code, recorder.Body.String())
+		}
+		if _, _, err := image.Decode(bytes.NewReader(recorder.Body.Bytes())); err != nil {
+			t.Fatalf("decode protected video thumbnail request %d: %v", i+1, err)
+		}
+		if got := recorder.Header().Get("X-Gooru-Cache"); got != want {
+			t.Fatalf("protected video thumbnail request %d cache = %q, want %q", i+1, got, want)
+		}
 	}
 }

@@ -21,3 +21,11 @@ func (govipsDisabledThumbnailer) Thumbnail(string, io.Writer, int, string) error
 		Err:     ErrUnsupportedMedia,
 	}
 }
+
+func thumbnailImageSourcePrimary(string, io.ReadSeeker, io.Writer, int, string, int) error {
+	return &UnsupportedMediaError{
+		Backend: "govips",
+		Reason:  "govips support is not compiled in; rebuild with -tags govips to enable libvips thumbnails",
+		Err:     ErrUnsupportedMedia,
+	}
+}

@@ -68,7 +68,12 @@ func (t GoImageThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst 
 	return t.ThumbnailSourceQuality(name, src, dst, size, format, derivativeJPEGQuality)
 }
 
-func (GoImageThumbnailer) ThumbnailSourceQuality(_ string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {
+func (GoImageThumbnailer) ThumbnailSourceQuality(name string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {
+	if err := thumbnailImageSourcePrimary(name, src, dst, size, format, quality); err == nil {
+		return nil
+	} else if !errors.Is(err, ErrUnsupportedMedia) {
+		return err
+	}
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
@@ -126,12 +131,12 @@ func newMediaSourceResolver(cfg Config) (*filesource.Resolver, error) {
 }
 
 func newDerivativeStore(cfg Config) (derivativeStore, error) {
-	if cfg.Encryption.Enabled {
-		return memoryDerivativeStore{}, nil
-	}
 	root, err := derivativeCacheRoot(cfg)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Encryption.Enabled {
+		return newEncryptedDerivativeStore(root, cfg.Encryption.Key), nil
 	}
 	return newPersistentDerivativeStore(root), nil
 }
@@ -203,9 +208,6 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 		m.ServeContent(w, r, file)
 		return
 	}
-	// A static image derivative necessarily discards GIF animation. The preview
-	// route is used by the full viewer, so preserve the original animated media
-	// there while thumbnails remain cheap static derivatives for grids/lists.
 	if kind == "preview" && mediaKindForType(originalContentType(file)) == "gif" {
 		m.ServeContent(w, r, file)
 		return
