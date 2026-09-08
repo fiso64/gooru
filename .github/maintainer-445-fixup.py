@@ -10,4 +10,6 @@ s = s.replace("replace('internal/serve/uploads.go', 'SourceModTime: file.sourceM
 s += "\nreplace('internal/serve/uploads.go', '\\tsourceModTime   time.Time\\n\\taddedAt         time.Time\\n}', '\\tsourceModTime   time.Time\\n\\taddedAt         time.Time\\n\\tconflictPolicy  string\\n}')\n"
 s += "replace('internal/serve/upload_stream.go', '\\t\\t\\tfinalized.addedAt = file.addedAt\\n', '\\t\\t\\tfinalized.addedAt = file.addedAt\\n\\t\\t\\tfinalized.conflictPolicy = conflictPolicy\\n')\n"
 s += "replace('internal/serve/config_test.go', 'cfg.Uploads.ConflictPolicy != \\\"skip\\\"', 'cfg.Uploads.ConflictPolicy != \\\"rename\\\"')\n"
+s += "replace('frontend/src/lib/state/uploadWorkflow.svelte.test.ts', \"defaults browser uploads to skip conflicts\", \"defaults browser uploads to rename conflicts\")\n"
+s += "replace('frontend/src/lib/state/uploadWorkflow.svelte.test.ts', \"expect(policy).toBe('skip')\", \"expect(policy).toBe('rename')\")\n"
 p.write_text(s)
