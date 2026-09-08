@@ -18,9 +18,9 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Formatting
-        run: test -z "$(gofmt -l internal/serve/derivative_store.go internal/serve/derivative_store_test.go internal/serve/media.go internal/serve/media_govips.go internal/serve/media_govips_disabled.go)"
+        run: test -z "$(gofmt -l internal/serve/derivative_store.go internal/serve/derivative_store_test.go internal/serve/media.go internal/serve/media_govips.go internal/serve/media_govips_disabled.go internal/serve/media_encryption_test.go internal/serve/media_source_encryption_test.go)"
       - name: Focused tests
-        run: go test ./internal/serve -run 'Test(EncryptedDerivativeStore|NewDerivativeStore|ProtectedDerivativeStore)'
+        run: go test ./internal/serve -run 'Test(EncryptedDerivativeStore|NewDerivativeStore|ProtectedDerivativeStore|ProtectedThumbnail|ProtectedComic|ProtectedImage|ProtectedVideo)'
       - name: Full Go tests
         id: full-tests
         shell: bash
@@ -37,4 +37,15 @@ jobs:
       - name: Full Go build
         run: go build ./...
       - name: Govips compile and focused tests
-        run: go test -tags govips ./internal/serve -run 'Test(Govips|EncryptedDerivativeStore|NewDerivativeStore|ProtectedDerivativeStore)'
+        id: govips-tests
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -tags govips ./internal/serve -run 'Test(Govips|EncryptedDerivativeStore|NewDerivativeStore|ProtectedDerivativeStore)' 2>&1 | tee /tmp/govips-test.log
+      - name: Preserve govips test log
+        if: failure() && steps.govips-tests.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: govips-test-log
+          path: /tmp/govips-test.log
+          if-no-files-found: error
