@@ -34,10 +34,10 @@ func TestBuildLocationsFilenameContainsUsesTrigramIndex(t *testing.T) {
 	}
 
 	for _, test := range []struct {
-		name       string
-		query      string
-		want       []int64
-		wantMatch  bool
+		name      string
+		query     string
+		want      []int64
+		wantMatch bool
 	}{
 		{name: "case insensitive trigram", query: `@filename_contains:bar`, want: []int64{1}, wantMatch: true},
 		{name: "punctuation is literal", query: `"@filename_contains:oo-"`, want: []int64{1}, wantMatch: true},

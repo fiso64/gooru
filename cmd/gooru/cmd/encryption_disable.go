@@ -131,50 +131,88 @@ func ensureRecoveryDatabaseSubkey(path string, master, databaseKey []byte) error
 }
 
 func restoreManagedUploadsToPlaintext(cfg serve.Config, client registeredFileLister, master, mediaKey []byte) error {
+	registry, ok := client.(managedStorageRegistry)
+	if !ok {
+		return fmt.Errorf("protected managed storage registry is unavailable")
+	}
 	files, err := client.GetAllFilesInfo()
 	if err != nil {
 		return fmt.Errorf("list registered files for protected-storage disable: %w", err)
 	}
-	seen := make(map[string]struct{}, len(files))
+	seen := make(map[int64]struct{}, len(files))
 	for _, file := range files {
-		path := file.Path
-		if !serve.IsManagedUploadPath(cfg.Uploads.Targets, path) {
+		logicalPath := file.Path
+		if !serve.IsManagedUploadPath(cfg.Uploads.Targets, logicalPath) {
 			continue
 		}
-		if _, ok := seen[path]; ok {
+		if _, ok := seen[file.ID]; ok {
 			continue
 		}
-		seen[path] = struct{}{}
+		seen[file.ID] = struct{}{}
 
-		info, err := os.Lstat(path)
+		physicalPath, mapped, err := registry.ManagedStoragePath(file.ID)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return fmt.Errorf("inspect managed upload before plaintext restoration: %w", err)
+			return fmt.Errorf("read managed storage mapping for %q: %w", logicalPath, err)
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing protected-storage disable of managed upload symlink %q", path)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("refusing protected-storage disable of non-regular managed upload %q", path)
+		if !mapped {
+			physicalPath = logicalPath
 		}
 
-		err = encryptedfile.DecryptFileInPlace(path, mediaKey)
-		if err == nil || errors.Is(err, encryptedfile.ErrNotEncrypted) {
-			continue
+		logicalExists, err := regularManagedFileExists(logicalPath)
+		if err != nil {
+			return err
 		}
-		if errors.Is(err, encryptedfile.ErrAuthentication) {
-			// Compatibility for protected media written before domain-separated
-			// media keys landed. A successfully restored file remains plaintext and
-			// is skipped on any subsequent interrupted-transition retry.
-			if legacyErr := encryptedfile.DecryptFileInPlace(path, master); legacyErr == nil {
-				continue
-			} else {
-				return fmt.Errorf("restore legacy-key managed upload to plaintext: %w", legacyErr)
+		physicalExists := logicalExists
+		if physicalPath != logicalPath {
+			physicalExists, err = regularManagedFileExists(physicalPath)
+			if err != nil {
+				return err
 			}
 		}
-		return fmt.Errorf("restore managed upload to plaintext storage: %w", err)
+		if logicalExists && physicalExists && physicalPath != logicalPath {
+			return fmt.Errorf("both logical and opaque managed upload paths exist while disabling %q", logicalPath)
+		}
+
+		switch {
+		case physicalExists && physicalPath != logicalPath:
+			if err := decryptManagedFile(physicalPath, master, mediaKey); err != nil {
+				return err
+			}
+			if err := os.Rename(physicalPath, logicalPath); err != nil {
+				return fmt.Errorf("restore canonical managed upload filename %q: %w", logicalPath, err)
+			}
+			if err := registry.ClearManagedStoragePath(file.ID); err != nil {
+				return fmt.Errorf("clear opaque managed storage mapping for %q: %w", logicalPath, err)
+			}
+		case logicalExists:
+			if err := decryptManagedFile(logicalPath, master, mediaKey); err != nil {
+				return err
+			}
+			if mapped {
+				// Recovery for a crash after physical->logical rename but before the
+				// mapping row was removed.
+				if err := registry.ClearManagedStoragePath(file.ID); err != nil {
+					return fmt.Errorf("clear recovered managed storage mapping for %q: %w", logicalPath, err)
+				}
+			}
+		default:
+			continue
+		}
 	}
 	return nil
+}
+
+func decryptManagedFile(path string, master, mediaKey []byte) error {
+	err := encryptedfile.DecryptFileInPlace(path, mediaKey)
+	if err == nil || errors.Is(err, encryptedfile.ErrNotEncrypted) {
+		return nil
+	}
+	if errors.Is(err, encryptedfile.ErrAuthentication) {
+		if legacyErr := encryptedfile.DecryptFileInPlace(path, master); legacyErr == nil {
+			return nil
+		} else {
+			return fmt.Errorf("restore legacy-key managed upload to plaintext: %w", legacyErr)
+		}
+	}
+	return fmt.Errorf("restore managed upload to plaintext storage: %w", err)
 }

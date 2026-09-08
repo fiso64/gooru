@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,12 +15,31 @@ import (
 )
 
 type fakeRegisteredFiles struct {
-	files []types.FileInfo
-	err   error
+	files    []types.FileInfo
+	err      error
+	mappings map[int64]string
 }
 
 func (f fakeRegisteredFiles) GetAllFilesInfo() ([]types.FileInfo, error) {
 	return f.files, f.err
+}
+
+func (f fakeRegisteredFiles) ManagedStoragePath(locationID int64) (string, bool, error) {
+	path, ok := f.mappings[locationID]
+	return path, ok, nil
+}
+
+func (f fakeRegisteredFiles) SetManagedStoragePath(locationID int64, physicalPath string) error {
+	if f.mappings == nil {
+		return errors.New("fake managed storage map is nil")
+	}
+	f.mappings[locationID] = physicalPath
+	return nil
+}
+
+func (f fakeRegisteredFiles) ClearManagedStoragePath(locationID int64) error {
+	delete(f.mappings, locationID)
+	return nil
 }
 
 func TestEnsureStorageEncryptionReadyAllowsOrdinaryMode(t *testing.T) {
@@ -54,19 +74,26 @@ func TestEnsureStorageEncryptionReadyMigratesOnlyManagedUploads(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Uploads.Targets = []serve.UploadTarget{{ID: "managed", Name: "Managed", Path: uploadRoot}}
-	files := fakeRegisteredFiles{files: []types.FileInfo{{Path: managedPath}, {Path: externalPath}}}
+	files := fakeRegisteredFiles{files: []types.FileInfo{{ID: 1, Path: managedPath, Hash: "managed-hash"}, {ID: 2, Path: externalPath, Hash: "external-hash"}}, mappings: map[int64]string{}}
 
 	if err := ensureStorageEncryptionReady(cfg, files); err != nil {
 		t.Fatalf("protected storage preflight: %v", err)
 	}
-	encrypted, err := encryptedfile.IsEncryptedFile(managedPath)
+	physicalPath := files.mappings[1]
+	if physicalPath == "" || filepath.Base(physicalPath) == filepath.Base(managedPath) {
+		t.Fatalf("managed upload did not receive opaque physical name: %q", physicalPath)
+	}
+	if _, err := os.Stat(managedPath); !os.IsNotExist(err) {
+		t.Fatalf("logical managed filename remains on disk: %v", err)
+	}
+	encrypted, err := encryptedfile.IsEncryptedFile(physicalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !encrypted {
 		t.Fatal("registered managed upload remained plaintext")
 	}
-	opened, err := encryptedfile.Open(managedPath, keys.Media)
+	opened, err := encryptedfile.Open(physicalPath, keys.Media)
 	if err != nil {
 		t.Fatalf("open migrated managed upload with media subkey: %v", err)
 	}
@@ -117,14 +144,16 @@ func TestEnsureStorageEncryptionReadyMigratesLegacyMasterKeyMedia(t *testing.T) 
 	cfg.Encryption.Enabled = true
 	cfg.Encryption.Key = master
 	cfg.Uploads.Targets = []serve.UploadTarget{{ID: "managed", Name: "Managed", Path: uploadRoot}}
-	if err := ensureStorageEncryptionReady(cfg, fakeRegisteredFiles{files: []types.FileInfo{{Path: path}}}); err != nil {
+	files := fakeRegisteredFiles{files: []types.FileInfo{{ID: 1, Path: path, Hash: "legacy-hash"}}, mappings: map[int64]string{}}
+	if err := ensureStorageEncryptionReady(cfg, files); err != nil {
 		t.Fatalf("migrate legacy managed media: %v", err)
 	}
+	physicalPath := files.mappings[1]
 	keys, err := encryptionkeys.Derive(master)
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened, err := encryptedfile.Open(path, keys.Media)
+	opened, err := encryptedfile.Open(physicalPath, keys.Media)
 	if err != nil {
 		t.Fatalf("open migrated media with derived key: %v", err)
 	}
@@ -138,7 +167,7 @@ func TestEnsureStorageEncryptionReadyMigratesLegacyMasterKeyMedia(t *testing.T) 
 	if !bytes.Equal(got, plaintext) {
 		t.Fatal("legacy media migration changed plaintext")
 	}
-	if legacy, err := encryptedfile.Open(path, master); err == nil {
+	if legacy, err := encryptedfile.Open(physicalPath, master); err == nil {
 		_ = legacy.Close()
 		t.Fatal("legacy master key unexpectedly opens migrated media")
 	}
@@ -169,7 +198,7 @@ func TestEnsureStorageEncryptionReadyDoesNotFollowNestedSymlinkOutsideUploadRoot
 	cfg.Encryption.Enabled = true
 	cfg.Encryption.Key = bytes.Repeat([]byte{0x42}, 32)
 	cfg.Uploads.Targets = []serve.UploadTarget{{ID: "managed", Name: "Managed", Path: uploadRoot}}
-	if err := ensureStorageEncryptionReady(cfg, fakeRegisteredFiles{files: []types.FileInfo{{Path: registeredPath}}}); err != nil {
+	if err := ensureStorageEncryptionReady(cfg, fakeRegisteredFiles{files: []types.FileInfo{{ID: 1, Path: registeredPath, Hash: "outside-hash"}}, mappings: map[int64]string{}}); err != nil {
 		t.Fatalf("protected storage preflight: %v", err)
 	}
 
@@ -217,7 +246,7 @@ func TestEnsureStorageEncryptionReadyFailsClosedForWrongManagedUploadKey(t *test
 	cfg.Encryption.Enabled = true
 	cfg.Encryption.Key = bytes.Repeat([]byte{0x52}, 32)
 	cfg.Uploads.Targets = []serve.UploadTarget{{ID: "managed", Name: "Managed", Path: uploadRoot}}
-	err = ensureStorageEncryptionReady(cfg, fakeRegisteredFiles{files: []types.FileInfo{{Path: path}}})
+	err = ensureStorageEncryptionReady(cfg, fakeRegisteredFiles{files: []types.FileInfo{{ID: 1, Path: path, Hash: "wrong-key-hash"}}, mappings: map[int64]string{}})
 	if err == nil {
 		t.Fatal("protected storage preflight accepted a managed upload encrypted with another key")
 	}

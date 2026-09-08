@@ -105,7 +105,20 @@ func rebaseManagedRootTx(tx interface {
 		return 0, err
 	}
 	n, err := res.RowsAffected()
-	return int(n), err
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`
+		UPDATE managed_storage_locations
+		SET physical_path = CASE
+			WHEN physical_path = ? THEN ?
+			ELSE ? || substr(physical_path, length(?) + 1)
+		END
+		WHERE physical_path = ? OR (physical_path >= ? AND physical_path < ?)`,
+		oldRoot, newRoot, newRoot, oldRoot, oldRoot, prefix, upper); err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 // RecoverMissingManagedPath safely heals a pre-metadata library that was

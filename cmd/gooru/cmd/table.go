@@ -14,9 +14,9 @@ import (
 
 // tableCmd represents the table command
 var tableCmd = &cobra.Command{
-    Use:   "table [expression]",
-    Short: "Lists files and their tags in a table.",
-    Long: `Lists files and their tags in a table based on a tag expression.
+	Use:   "table [expression]",
+	Short: "Lists files and their tags in a table.",
+	Long: `Lists files and their tags in a table based on a tag expression.
 If no expression is provided, all files are listed.
 
 Expressions support AND, OR, and NOT logic with grouping.
@@ -34,30 +34,30 @@ Expressions support AND, OR, and NOT logic with grouping.
                   gooru table "location:"        (files with simple 'location' tag)
                   gooru table "location:*"      (files with any non-empty 'location' tag)
 `,
-    RunE: func(cmd *cobra.Command, args []string) error {
-        var files []types.FileInfo
-        var err error
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var files []types.FileInfo
+		var err error
 
-        expression := ""
-        if len(args) > 0 {
-            expression = strings.Join(args, " ")
-        }
+		expression := ""
+		if len(args) > 0 {
+			expression = strings.Join(args, " ")
+		}
 
-        if expression == "" {
-            files, err = svc.GetAllFilesInfo()
-        } else {
-            files, err = svc.GetFilesInfoByQuery(expression, verbose)
-        }
+		if expression == "" {
+			files, err = svc.GetAllFilesInfo()
+		} else {
+			files, err = svc.GetFilesInfoByQuery(expression, verbose)
+		}
 
-        if err != nil {
-            return fmt.Errorf("error listing files: %w", err)
-        }
+		if err != nil {
+			return fmt.Errorf("error listing files: %w", err)
+		}
 
-        display.PrintTable(files)
-        return nil
-    },
+		display.PrintTable(files)
+		return nil
+	},
 }
 
 func init() {
-    rootCmd.AddCommand(tableCmd)
+	rootCmd.AddCommand(tableCmd)
 }

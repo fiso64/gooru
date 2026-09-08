@@ -62,6 +62,7 @@ type GooruLibrary struct {
 	metadata        MediaMetadataProvider
 	encryption      EncryptionConfig
 	managedRoots    []string
+	managedTargets  []UploadTarget
 	backgroundTasks func(types.LocationInfo) []core.BackgroundTaskRequest
 }
 
@@ -73,7 +74,11 @@ func (l *GooruLibrary) GetFileByContentHash(ctx context.Context, hash string) (t
 	if err := ctx.Err(); err != nil {
 		return types.FileInfo{}, err
 	}
-	return l.client.GetFileInfoByContentHash(hash)
+	file, err := l.client.GetFileInfoByContentHash(hash)
+	if err != nil {
+		return types.FileInfo{}, err
+	}
+	return l.repairManagedPath(file)
 }
 
 func (l *GooruLibrary) ListFiles(ctx context.Context, query string) ([]types.FileInfo, error) {
@@ -279,6 +284,9 @@ func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (Medi
 	}
 
 	file, fileErr := l.client.GetFileInfoByLocationID(locationID)
+	if fileErr == nil {
+		file, fileErr = l.repairManagedPath(file)
+	}
 	if fileErr != nil || !strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
 		if haveStored {
 			return mediaMetadataDTO(meta), nil
@@ -291,7 +299,7 @@ func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (Medi
 	if provider == nil {
 		provider = BasicMediaMetadataProvider{}
 	}
-	derived, deriveErr := l.importedMediaMetadata(ctx, provider, file, file.Path, mediaType, mediaKind)
+	derived, deriveErr := l.importedMediaMetadata(ctx, provider, file, fileStoragePath(file), mediaType, mediaKind)
 	if deriveErr != nil || derived.PageCount == nil {
 		if haveStored {
 			return mediaMetadataDTO(meta), nil

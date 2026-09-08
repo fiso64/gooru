@@ -76,11 +76,40 @@ func TestConfiguredClientDisablesProtectedStorageRestartSafely(t *testing.T) {
 	if err := database.MigratePlaintextDatabase(dbPath, keys.Database); err != nil {
 		t.Fatal(err)
 	}
+	protectedClient, err := gooru.NewWithOptions(dbPath, false, gooru.OpenOptions{Database: gooru.DatabaseOpenOptions{EncryptionKey: keys.Database}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := protectedClient.GetAllFilesInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	physicalByLogical := make(map[string]string, len(files))
+	for _, file := range files {
+		physical, err := serve.OpaqueManagedStoragePath(file.Path, file.Hash, keys.Media)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(file.Path, physical); err != nil {
+			t.Fatal(err)
+		}
+		if err := protectedClient.SetManagedStoragePath(file.ID, physical); err != nil {
+			t.Fatal(err)
+		}
+		physicalByLogical[file.Path] = physical
+	}
+	if err := protectedClient.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-	// Simulate a process dying after restoring one managed file but before the
-	// database-last transition. The next startup must skip the plaintext file and
-	// finish the remaining work.
-	if err := encryptedfile.DecryptFileInPlace(firstPath, keys.Media); err != nil {
+	// Simulate a process dying after restoring one managed file and its canonical
+	// filename but before clearing the mapping/database-last transition. The next
+	// startup must recover that half-completed rename and finish the other file.
+	firstPhysical := physicalByLogical[firstPath]
+	if err := encryptedfile.DecryptFileInPlace(firstPhysical, keys.Media); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(firstPhysical, firstPath); err != nil {
 		t.Fatal(err)
 	}
 	cacheRoot := filepath.Join(dir, "cache")

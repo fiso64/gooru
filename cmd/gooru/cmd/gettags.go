@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	multiFileGetTags bool
+	multiFileGetTags   bool
 	gettagsUseMetadata bool
 )
 

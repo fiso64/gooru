@@ -9,6 +9,7 @@ import (
 )
 
 func (l *GooruLibrary) configureManagedUploadRoots(targets []UploadTarget) error {
+	l.managedTargets = append([]UploadTarget(nil), targets...)
 	byID := make(map[string]string, len(targets))
 	roots := make([]string, 0, len(targets))
 	for _, target := range targets {
@@ -31,6 +32,14 @@ func (l *GooruLibrary) configureManagedUploadRoots(targets []UploadTarget) error
 }
 
 func (l *GooruLibrary) repairManagedPath(file types.FileInfo) (types.FileInfo, error) {
+	resolved, err := l.client.ResolveManagedStorage(file)
+	if err != nil {
+		return file, err
+	}
+	if resolved.StoragePath != "" {
+		return resolved, nil
+	}
+	file = resolved
 	if len(l.managedRoots) == 0 {
 		return file, nil
 	}

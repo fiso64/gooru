@@ -57,7 +57,7 @@ func (p BasicMediaMetadataProvider) Metadata(ctx context.Context, file types.Fil
 		return MediaMetadata{}, err
 	}
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
-		archive, err := openComicArchive(file.Path)
+		archive, err := openComicArchive(fileStoragePath(file))
 		if err != nil {
 			return MediaMetadata{}, err
 		}
@@ -132,7 +132,7 @@ func (p BasicMediaMetadataProvider) imageMetadata(ctx context.Context, file type
 	if err := ctx.Err(); err != nil {
 		return MediaMetadata{}, err
 	}
-	f, err := os.Open(file.Path)
+	f, err := os.Open(fileStoragePath(file))
 	if err != nil {
 		return MediaMetadata{}, err
 	}
@@ -150,7 +150,7 @@ func (p BasicMediaMetadataProvider) videoMetadata(ctx context.Context, file type
 	if strings.TrimSpace(p.FFprobePath) == "" {
 		return MediaMetadata{}, nil
 	}
-	return p.runFFprobe(ctx, file.Path, nil)
+	return p.runFFprobe(ctx, fileStoragePath(file), nil)
 }
 
 func (p BasicMediaMetadataProvider) videoMetadataFromReader(ctx context.Context, source io.Reader) (MediaMetadata, error) {
