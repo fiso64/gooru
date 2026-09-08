@@ -15,6 +15,11 @@ func refreshBackgroundOperation(tx *Tx, operationID string, now time.Time) error
 	}
 	now = normalizeWorkTime(now)
 
+	var progressTotal int64
+	if err := tx.QueryRow(`SELECT progress_total FROM background_operations WHERE id = ?`, operationID).Scan(&progressTotal); err != nil {
+		return fmt.Errorf("read background operation %s progress total: %w", operationID, err)
+	}
+
 	var total, completed, failed, canceled, started int64
 	if err := tx.QueryRow(`
 		SELECT count(*),
@@ -31,7 +36,8 @@ func refreshBackgroundOperation(tx *Tx, operationID string, now time.Time) error
 		return nil
 	}
 
-	terminal := completed+failed+canceled == total
+	terminalCount := completed + failed + canceled
+	terminal := terminalCount == total && (progressTotal == 0 || terminalCount >= progressTotal)
 	status := BackgroundWorkPending
 	if terminal {
 		switch {
