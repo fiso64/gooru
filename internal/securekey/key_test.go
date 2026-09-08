@@ -136,15 +136,46 @@ func TestLoadRejectsMissingOrMalformedKey(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsExposedKeyFile(t *testing.T) {
+func TestLoadAllowsNonWritableGroupOrOtherPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX permission bits are not authoritative on Windows")
 	}
-	path := filepath.Join(t.TempDir(), "key")
-	if err := os.WriteFile(path, []byte(encodedKey(0x31)), 0644); err != nil {
-		t.Fatal(err)
+
+	for _, mode := range []os.FileMode{0440, 0640, 0444, 0644, 0511} {
+		mode := mode
+		t.Run(mode.String(), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "key")
+			if err := os.WriteFile(path, []byte(encodedKey(0x31)), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(Source{File: path}); err != nil {
+				t.Fatalf("mode %04o should be accepted: %v", mode.Perm(), err)
+			}
+		})
 	}
-	if _, err := Load(Source{File: path}); err == nil {
-		t.Fatal("expected group/world-readable key file to fail")
+}
+
+func TestLoadRejectsGroupOrOtherWritableKeyFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not authoritative on Windows")
+	}
+
+	for _, mode := range []os.FileMode{0620, 0602, 0622} {
+		mode := mode
+		t.Run(mode.String(), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "key")
+			if err := os.WriteFile(path, []byte(encodedKey(0x31)), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(Source{File: path}); err == nil {
+				t.Fatalf("mode %04o should be rejected", mode.Perm())
+			}
+		})
 	}
 }
