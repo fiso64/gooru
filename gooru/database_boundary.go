@@ -18,6 +18,19 @@ type tagFacetExclusion = database.TagFacetExclusion
 
 var errInvalidSavedSearchOrder = database.ErrInvalidSavedSearchOrder
 
+func createDatabaseBackgroundOperation(client *Client, q databaseQuerier, id string, request BackgroundOperationRequest) (BackgroundOperation, error) {
+	operation, err := client.store.CreateBackgroundOperation(q, database.NewBackgroundOperation{
+		ID:            id,
+		Kind:          request.Kind,
+		Visible:       request.Visible,
+		ProgressTotal: request.ProgressTotal,
+	})
+	if err != nil {
+		return BackgroundOperation{}, err
+	}
+	return backgroundOperationFromDatabase(operation), nil
+}
+
 func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string, request BackgroundTaskRequest) (BackgroundTask, bool, error) {
 	task, created, err := client.store.EnqueueBackgroundTask(q, database.NewBackgroundTask{
 		ID:            id,
@@ -59,6 +72,16 @@ func newDatabaseBackgroundRuntime(client *Client, cfg BackgroundWorkerConfig) (B
 		PollInterval:  cfg.PollInterval,
 		RetryDelay:    cfg.RetryDelay,
 	})
+}
+
+func backgroundOperationFromDatabase(operation database.BackgroundOperation) BackgroundOperation {
+	return BackgroundOperation{
+		ID:            operation.ID,
+		Kind:          operation.Kind,
+		Visible:       operation.Visible,
+		ProgressTotal: operation.ProgressTotal,
+		CreatedAt:     operation.CreatedAt,
+	}
 }
 
 func backgroundTaskFromDatabase(task database.BackgroundTask) BackgroundTask {
