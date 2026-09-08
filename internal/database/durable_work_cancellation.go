@@ -66,8 +66,8 @@ func (s *Store) CancelBackgroundTask(taskID string, canceledAt time.Time) (cance
 // CancelBackgroundOperation durably cancels one active logical operation and all
 // of its pending/running child tasks in the same transaction. Marking the parent
 // canceled first makes cancellation sticky: the schema rejects any later child
-// enqueue for a terminal operation. Existing completed/failed history is kept for
-// aggregate diagnostics while active attempts are closed as canceled.
+// enqueue beneath that canceled operation. Existing completed/failed history is
+// kept for aggregate diagnostics while active attempts are closed as canceled.
 func (s *Store) CancelBackgroundOperation(operationID string, canceledAt time.Time) (canceled bool, err error) {
 	if s == nil || s.DB == nil {
 		return false, errors.New("background task store is required")
@@ -84,9 +84,9 @@ func (s *Store) CancelBackgroundOperation(operationID string, canceledAt time.Ti
 	}
 	defer tx.Rollback()
 
-	// Acquire the operation as an active row and make its terminal intent visible
-	// to all later statements in this transaction. A concurrent enqueue is
-	// serialized by SQLite and, after this commits, is rejected by the trigger.
+	// Acquire the operation as an active row and make its cancellation visible to
+	// all later statements in this transaction. A concurrent enqueue is serialized
+	// by SQLite and, after this commits, is rejected by the trigger.
 	res, err := tx.Exec(`
 		UPDATE background_operations
 		SET status = 'canceled',
