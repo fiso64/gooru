@@ -20,12 +20,6 @@ const (
 // namespace at the upload-target root and are sharded by the first two hex
 // characters so the physical tree never mirrors logical library directories.
 func ProtectedManagedStoragePathForName(targets []UploadTarget, logicalPath, opaqueName string) (string, error) {
-	if len(opaqueName) != opaqueManagedNameBytes*2 {
-		return "", fmt.Errorf("invalid opaque managed storage name")
-	}
-	if _, err := hex.DecodeString(opaqueName); err != nil {
-		return "", fmt.Errorf("invalid opaque managed storage name")
-	}
 	root, ok, err := managedUploadTargetRoot(targets, logicalPath)
 	if err != nil {
 		return "", err
@@ -33,25 +27,38 @@ func ProtectedManagedStoragePathForName(targets []UploadTarget, logicalPath, opa
 	if !ok {
 		return "", fmt.Errorf("logical managed upload is outside configured targets")
 	}
-	shardDir := filepath.Join(root, protectedManagedNamespace, opaqueName[:2])
-	if err := os.MkdirAll(shardDir, 0o700); err != nil {
-		return "", fmt.Errorf("create protected managed storage shard: %w", err)
-	}
-	return filepath.Join(shardDir, opaqueName), nil
+	return protectedManagedStoragePathForRoot(root, opaqueName)
 }
 
-// OpaqueManagedStoragePath chooses a fresh extensionless physical name in the
-// dedicated protected namespace. The hash/key parameters are retained for the
-// recovery-branch call contract but deliberately do not influence the name:
-// protected physical names must not encode content or public identity.
-func OpaqueManagedStoragePath(targets []UploadTarget, logicalPath string, _ string, _ []byte) (string, error) {
+// OpaqueManagedStoragePath chooses a fresh extensionless physical name for a
+// newly uploaded managed file. Upload staging stores logical files directly in
+// the configured target root, so the logical parent is the namespace root. The
+// target-aware variant is used by startup migration for nested legacy paths.
+func OpaqueManagedStoragePath(logicalPath string, _ string, _ []byte) (string, error) {
+	return opaqueManagedStoragePathForRoot(filepath.Dir(logicalPath))
+}
+
+// OpaqueManagedStoragePathForTargets chooses a fresh namespace path rooted at
+// the configured managed target that owns logicalPath.
+func OpaqueManagedStoragePathForTargets(targets []UploadTarget, logicalPath string, _ string, _ []byte) (string, error) {
+	root, ok, err := managedUploadTargetRoot(targets, logicalPath)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("logical managed upload is outside configured targets")
+	}
+	return opaqueManagedStoragePathForRoot(root)
+}
+
+func opaqueManagedStoragePathForRoot(root string) (string, error) {
 	for i := 0; i < 32; i++ {
 		buf := make([]byte, opaqueManagedNameBytes)
 		if _, err := rand.Read(buf); err != nil {
 			return "", fmt.Errorf("generate opaque managed storage name: %w", err)
 		}
 		name := hex.EncodeToString(buf)
-		candidate, err := ProtectedManagedStoragePathForName(targets, logicalPath, name)
+		candidate, err := protectedManagedStoragePathForRoot(root, name)
 		if err != nil {
 			return "", err
 		}
@@ -62,6 +69,20 @@ func OpaqueManagedStoragePath(targets []UploadTarget, logicalPath string, _ stri
 		}
 	}
 	return "", fmt.Errorf("could not choose an unused opaque managed storage name")
+}
+
+func protectedManagedStoragePathForRoot(root, opaqueName string) (string, error) {
+	if len(opaqueName) != opaqueManagedNameBytes*2 {
+		return "", fmt.Errorf("invalid opaque managed storage name")
+	}
+	if _, err := hex.DecodeString(opaqueName); err != nil {
+		return "", fmt.Errorf("invalid opaque managed storage name")
+	}
+	shardDir := filepath.Join(filepath.Clean(root), protectedManagedNamespace, opaqueName[:2])
+	if err := os.MkdirAll(shardDir, 0o700); err != nil {
+		return "", fmt.Errorf("create protected managed storage shard: %w", err)
+	}
+	return filepath.Join(shardDir, opaqueName), nil
 }
 
 // IsProtectedManagedStoragePath reports whether path has the exact reserved
@@ -199,8 +220,8 @@ func managedUploadTargetRoot(targets []UploadTarget, path string) (string, bool,
 	return best, best != "", nil
 }
 
-func moveManagedFileToOpaqueStorage(targets []UploadTarget, logicalPath, contentHash string, key []byte) (string, error) {
-	physicalPath, err := OpaqueManagedStoragePath(targets, logicalPath, contentHash, key)
+func moveManagedFileToOpaqueStorage(logicalPath, contentHash string, key []byte) (string, error) {
+	physicalPath, err := OpaqueManagedStoragePath(logicalPath, contentHash, key)
 	if err != nil {
 		return "", err
 	}
