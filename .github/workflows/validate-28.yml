@@ -22,19 +22,18 @@ jobs:
       - name: Focused tests
         run: go test ./internal/serve -run 'Test(EncryptedDerivativeStore|NewDerivativeStore|ProtectedDerivativeStore)'
       - name: Full Go tests
+        id: full-tests
         shell: bash
         run: |
           set -o pipefail
-          if go test ./... 2>&1 | tee /tmp/go-test.log; then
-            exit 0
-          fi
-          {
-            echo '### Full Go test failure'
-            echo '```text'
-            tail -n 200 /tmp/go-test.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit 1
+          go test ./... 2>&1 | tee /tmp/go-test.log
+      - name: Preserve full test log
+        if: failure() && steps.full-tests.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-test-log
+          path: /tmp/go-test.log
+          if-no-files-found: error
       - name: Full Go build
         run: go build ./...
       - name: Govips compile and focused tests
