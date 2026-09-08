@@ -1,0 +1,85 @@
+name: maintainer-445
+
+on:
+  push:
+    branches:
+      - fix/445-upload-conflict-default-rename
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply fix and regressions
+        shell: python
+        run: |
+          from pathlib import Path
+
+          replacements = {
+              'internal/serve/config.go': [
+                  ('Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "skip", PreserveModTime: true}', 'Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename", PreserveModTime: true}'),
+              ],
+              'internal/serve/uploads.go': [
+                  ('if fallback == "" {\n\t\treturn "skip", nil\n\t}', 'if fallback == "" {\n\t\treturn "rename", nil\n\t}'),
+              ],
+              'internal/serve/config_upload_policy_test.go': [
+                  ('func TestDefaultUploadConflictPolicyIsSkip(t *testing.T) {', 'func TestDefaultUploadConflictPolicyIsRename(t *testing.T) {'),
+                  ('if cfg.Uploads.ConflictPolicy != "skip" {\n\t\tt.Fatalf("expected default uploads.conflict_policy=skip, got %q", cfg.Uploads.ConflictPolicy)\n\t}', 'if cfg.Uploads.ConflictPolicy != "rename" {\n\t\tt.Fatalf("expected default uploads.conflict_policy=rename, got %q", cfg.Uploads.ConflictPolicy)\n\t}'),
+                  ('if policy != "skip" {\n\t\tt.Fatalf("expected omitted conflict policy to resolve to skip, got %q", policy)\n\t}', 'if policy != "rename" {\n\t\tt.Fatalf("expected omitted conflict policy to resolve to rename, got %q", policy)\n\t}'),
+              ],
+              'frontend/src/lib/state/uploadWorkflow.svelte.ts': [
+                  ("let conflictPolicy = $state('skip');", "let conflictPolicy = $state('rename');"),
+                  ("conflictPolicy = 'skip';", "conflictPolicy = 'rename';"),
+              ],
+              'frontend/tests/upload-conflict-default.spec.ts': [
+                  ("test('WebUI hides conflict policy choices and uploads with skip'", "test('WebUI hides conflict policy choices and uploads with rename'"),
+                  ("expect(requestBody).toMatch(/name=\"conflict_policy\"\\r?\\n\\r?\\nskip/);", "expect(requestBody).toMatch(/name=\"conflict_policy\"\\r?\\n\\r?\\nrename/);"),
+                  ("expect(requestBody).not.toMatch(/name=\"conflict_policy\"\\r?\\n\\r?\\n(rename|replace)/);", "expect(requestBody).not.toMatch(/name=\"conflict_policy\"\\r?\\n\\r?\\n(skip|replace)/);"),
+              ],
+          }
+
+          for filename, pairs in replacements.items():
+              path = Path(filename)
+              text = path.read_text()
+              for old, new in pairs:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(f'{filename}: expected exactly one match for {old!r}, got {count}')
+                  text = text.replace(old, new)
+              path.write_text(text)
+      - name: Format and focused backend tests
+        run: |
+          gofmt -w internal/serve/config.go internal/serve/config_upload_policy_test.go internal/serve/uploads.go
+          go test ./internal/serve -run 'Test(DefaultUploadConflictPolicy|UploadConflictPolicy|Upload)'
+      - name: Frontend checks
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run check
+          npx playwright test tests/upload-conflict-default.spec.ts --project=chromium
+      - name: Full Go validation
+        run: |
+          go test ./...
+          go build ./...
+      - name: Commit validated source
+        run: |
+          rm .github/workflows/maintainer-445.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'fix(upload): default filename conflicts to rename'
+          git push origin HEAD:fix/445-upload-conflict-default-rename
