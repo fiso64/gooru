@@ -25,7 +25,19 @@ jobs:
       - name: Format
         run: test -z "$(gofmt -l internal/query/specialsyntax.go internal/query/metatags.go internal/query/validation.go internal/serve/search_saved_metatags_test.go)"
       - name: Go tests
-        run: go test ./...
+        id: go-tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          go test ./... 2>&1 | tee go-test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validate-442-go-test
+          path: go-test.log
+      - name: Fail on Go test failure
+        if: steps.go-tests.outcome == 'failure'
+        run: exit 1
       - name: Go build
         run: go build ./...
       - name: Frontend install
