@@ -40,10 +40,10 @@ describe('specialSearchSuggestions', () => {
     ]);
   });
 
-  it('offers field prefixes and supports negation and exact-token exclusion', () => {
-    expect(specialSearchSuggestions('ty', [], querySyntax)[0]).toEqual({
-      commit: 'type:', ns: 'type', val: '', hint: 'media type', partial: true
-    });
+  it('offers field prefixes without flooding values and supports negation and exact-token exclusion', () => {
+    expect(specialSearchSuggestions('ty', [], querySyntax)).toEqual([
+      { commit: 'type:', ns: 'type', val: '', hint: 'media type', partial: true }
+    ]);
     expect(specialSearchSuggestions('-@t', [], querySyntax)).toEqual([
       { commit: '-@tagged', ns: '', val: '@tagged', hint: 'has tags' }
     ]);
