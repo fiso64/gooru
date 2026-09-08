@@ -32,7 +32,13 @@ jobs:
         run: go build ./...
       - name: Protected source benchmarks
         if: github.ref == 'refs/heads/perf/28-protected-runtime-profile'
-        run: go test ./internal/encryptedfile ./internal/filesource -run '^$' -bench 'EncryptedFile|ProtectedSource' -benchmem -benchtime=1s -count=3
+        run: go test ./internal/encryptedfile ./internal/filesource -run '^$' -bench 'EncryptedFile|ProtectedSource|EncryptFileInPlace' -benchmem -benchtime=1s -count=3 | tee protected-benchmarks.txt
+      - name: Upload benchmark evidence
+        if: github.ref == 'refs/heads/perf/28-protected-runtime-profile'
+        uses: actions/upload-artifact@v4
+        with:
+          name: protected-benchmarks
+          path: protected-benchmarks.txt
 
   frontend:
     if: github.ref != 'refs/heads/perf/28-protected-runtime-profile'
