@@ -143,6 +143,8 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | `ui.viewer_scaling` | `smooth` | Browser-side image interpolation: `smooth` uses normal browser filtering and `nearest` uses nearest-neighbor/pixelated scaling. Press `S` in the viewer to toggle it for the current browser session. |
 | `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |
 | `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |
+| `ui.hover_play_videos` | `false` | Play muted, inline, looping video previews after the grid hover dwell. Playback stops when the pointer leaves, is limited to near-viewport media, and is disabled when the browser requests reduced motion. |
+| `ui.hover_play_gifs` | `true` | Play animated GIF previews after the grid hover dwell. Playback stops when the pointer leaves, is limited to near-viewport media, and is disabled when the browser requests reduced motion. |
 
 ## `logging`
 
@@ -227,8 +229,6 @@ ui:
   hover_play_videos: false
   hover_play_gifs: true
 ```
-
-`ui.hover_play_gifs` controls animated GIF playback while hovering grid cards and defaults to `true`. `ui.hover_play_videos` controls the equivalent muted, inline, looping video preview and defaults to `false`. Both previews start only after the grid hover dwell, stop when the pointer leaves, stay limited to near-viewport media, and are disabled when the browser requests reduced motion.
 
 For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default remains the quickest way to verify defaults for the exact binary being run:
 
