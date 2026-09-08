@@ -40,7 +40,7 @@ export function createUploadWorkflow() {
   let tags = $state('');
   let targetID = $state('');
   let managedDefaultTags = $state<string[]>([]);
-  let conflictPolicy = $state('skip');
+  let conflictPolicy = $state('rename');
   let addedAtStrategy = $state<UploadAddedAtStrategy>('queue');
   let autoUpload = $state(false);
   let busy = $state(false);
@@ -72,7 +72,7 @@ export function createUploadWorkflow() {
     items = [];
     tags = '';
     managedDefaultTags = [];
-    conflictPolicy = 'skip';
+    conflictPolicy = 'rename';
     addedAtStrategy = 'queue';
     autoUpload = false;
     busy = false;

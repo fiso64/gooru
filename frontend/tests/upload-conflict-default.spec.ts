@@ -32,7 +32,7 @@ async function openUploadPanel(page: Page) {
   await page.getByRole('button', { name: 'Upload' }).click();
 }
 
-test('WebUI hides conflict policy choices and uploads with skip', async ({ page }) => {
+test('WebUI hides conflict policy choices and uploads with rename', async ({ page }) => {
   let requestBody = '';
   await page.route('**/api/v1/uploads', async (route) => {
     requestBody = route.request().postDataBuffer()?.toString('utf8') ?? '';
@@ -60,6 +60,6 @@ test('WebUI hides conflict policy choices and uploads with skip', async ({ page 
 
   await expect.poll(() => requestBody).not.toBe('');
   expect(requestBody).toContain('name="conflict_policy"');
-  expect(requestBody).toMatch(/name="conflict_policy"\r?\n\r?\nskip/);
-  expect(requestBody).not.toMatch(/name="conflict_policy"\r?\n\r?\n(rename|replace)/);
+  expect(requestBody).toMatch(/name="conflict_policy"\r?\n\r?\nrename/);
+  expect(requestBody).not.toMatch(/name="conflict_policy"\r?\n\r?\n(skip|replace)/);
 });

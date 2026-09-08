@@ -206,6 +206,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		finalized, finalErr := finalizeStreamedUpload(target, *file, conflictPolicy, s.cfg.Uploads.PreserveModTime)
 		if finalErr == nil {
 			finalized.addedAt = file.addedAt
+			finalized.conflictPolicy = conflictPolicy
 			file.path = ""
 			saved = append(saved, finalized)
 			continue
