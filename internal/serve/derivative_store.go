@@ -13,6 +13,8 @@ import (
 	"gooru.local/internal/encryptedfile"
 )
 
+const encryptedDerivativeNamespace = "protected-v1"
+
 type derivativeGenerator func(io.Writer) error
 
 type derivativeArtifact struct {
@@ -151,7 +153,10 @@ type encryptedDerivativeStore struct {
 }
 
 func newEncryptedDerivativeStore(root string, key []byte) *encryptedDerivativeStore {
-	return &encryptedDerivativeStore{root: root, key: append([]byte(nil), key...)}
+	return &encryptedDerivativeStore{
+		root: filepath.Join(root, encryptedDerivativeNamespace),
+		key:  append([]byte(nil), key...),
+	}
 }
 
 func (s *encryptedDerivativeStore) GetOrGenerate(relativePath string, generate derivativeGenerator) (*derivativeArtifact, error) {
