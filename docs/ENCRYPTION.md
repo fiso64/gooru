@@ -33,7 +33,7 @@ On non-Windows systems key files must not be readable or writable by group or ot
 
 Back the key up separately from the encrypted data. Losing the key means losing access to the encrypted database and Gooru-managed encrypted media. A backup of only the encrypted data is not sufficient recovery material.
 
-The configured key is a master recovery key. Gooru derives independent cryptographic subkeys for the database, managed media, and derivative cache instead of using the same encryption key material for those domains. Existing protected installations created before this separation are migrated in place on startup while the original master key remains configured.
+The configured key is a master recovery key. Gooru derives independent cryptographic subkeys for the database and managed media instead of using the same encryption key material for both domains. Existing protected installations created before this separation are migrated in place on startup while the original master key remains configured.
 
 ## What is encrypted
 
