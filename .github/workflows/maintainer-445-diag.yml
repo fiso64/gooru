@@ -1,0 +1,14 @@
+name: Maintainer 445 diagnostics
+on:
+  push:
+    branches: [fix/445-upload-conflict-default-rename]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect lookup implementation
+        run: |
+          grep -R -n "func (.*GetFileInfoByPath\|GetFileInfoByPath" gooru internal/database | head -80
