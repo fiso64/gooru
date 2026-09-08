@@ -17,13 +17,29 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Formatting check
+      - name: Formatting report
+        id: formatting
         shell: bash
         run: |
           files=$(git diff --name-only origin/develop...HEAD -- '*.go')
+          : > /tmp/gofmt.log
           if [ -n "$files" ]; then
-            test -z "$(gofmt -l $files)"
+            gofmt -l $files | tee /tmp/gofmt.log
           fi
+          if [ -s /tmp/gofmt.log ]; then
+            echo 'status=1' >> "$GITHUB_OUTPUT"
+          else
+            echo 'status=0' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload formatting output
+        uses: actions/upload-artifact@v4
+        with:
+          name: opaque-storage-gofmt-output
+          path: /tmp/gofmt.log
+          retention-days: 1
+      - name: Stop on formatting failure
+        if: steps.formatting.outputs.status != '0'
+        run: exit 1
       - name: Focused tests
         id: focused
         shell: bash
