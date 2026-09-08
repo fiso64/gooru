@@ -126,12 +126,12 @@ func newMediaSourceResolver(cfg Config) (*filesource.Resolver, error) {
 }
 
 func newDerivativeStore(cfg Config) (derivativeStore, error) {
-	if cfg.Encryption.Enabled {
-		return memoryDerivativeStore{}, nil
-	}
 	root, err := derivativeCacheRoot(cfg)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Encryption.Enabled {
+		return newEncryptedDerivativeStore(root, cfg.Encryption.Key), nil
 	}
 	return newPersistentDerivativeStore(root), nil
 }
@@ -203,9 +203,6 @@ func (m *MediaService) ServeDerivative(w http.ResponseWriter, r *http.Request, f
 		m.ServeContent(w, r, file)
 		return
 	}
-	// A static image derivative necessarily discards GIF animation. The preview
-	// route is used by the full viewer, so preserve the original animated media
-	// there while thumbnails remain cheap static derivatives for grids/lists.
 	if kind == "preview" && mediaKindForType(originalContentType(file)) == "gif" {
 		m.ServeContent(w, r, file)
 		return
