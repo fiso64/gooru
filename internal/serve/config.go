@@ -191,7 +191,7 @@ func DefaultConfig(dbPath string) Config {
 		Logging: LoggingConfig{Level: "info"},
 		UI: UIConfig{
 			FontStyle:              "editorial",
-			HoverPlayVideos:        true,
+			HoverPlayVideos:        false,
 			HoverPlayGIFs:          true,
 			GridSize:               DefaultGridSize,
 			GridType:               DefaultGridType,

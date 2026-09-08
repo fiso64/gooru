@@ -11,8 +11,8 @@ import (
 
 func TestHoverPlaybackConfigDefaultsAndOverrides(t *testing.T) {
 	defaults := DefaultConfig(filepath.Join(t.TempDir(), "default.db"))
-	if !defaults.UI.HoverPlayVideos || !defaults.UI.HoverPlayGIFs {
-		t.Fatalf("default hover playback flags = video:%v gif:%v, want both true", defaults.UI.HoverPlayVideos, defaults.UI.HoverPlayGIFs)
+	if defaults.UI.HoverPlayVideos || !defaults.UI.HoverPlayGIFs {
+		t.Fatalf("default hover playback flags = video:%v gif:%v, want video false and gif true", defaults.UI.HoverPlayVideos, defaults.UI.HoverPlayGIFs)
 	}
 
 	dir := t.TempDir()
@@ -38,7 +38,7 @@ func TestUIConfigExposesHoverPlaybackPreferences(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"hover_play_videos":true`) || !strings.Contains(rec.Body.String(), `"hover_play_gifs":true`) {
+	if !strings.Contains(rec.Body.String(), `"hover_play_videos":false`) || !strings.Contains(rec.Body.String(), `"hover_play_gifs":true`) {
 		t.Fatalf("response missing hover playback preferences: %s", rec.Body.String())
 	}
 }

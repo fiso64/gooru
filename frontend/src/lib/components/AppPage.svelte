@@ -54,7 +54,7 @@
       capabilities: Array.isArray(config.capabilities) ? config.capabilities : [runtimeCapability.previewImages],
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
-      hoverPlayVideos: config.hover_play_videos ?? true,
+      hoverPlayVideos: config.hover_play_videos ?? false,
       hoverPlayGifs: config.hover_play_gifs ?? true,
       viewerFitMode: config.viewer_fit_mode ?? 'fit_window',
       viewerActualSizeFitCap: config.viewer_actual_size_fit_cap ?? true,

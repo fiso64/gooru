@@ -224,9 +224,11 @@ ui:
   viewer_scaling: smooth
   load_full_media_by_default: false
   fullscreen_media_by_default: false
-  hover_play_videos: true
+  hover_play_videos: false
   hover_play_gifs: true
 ```
+
+`ui.hover_play_gifs` controls animated GIF playback while hovering grid cards and defaults to `true`. `ui.hover_play_videos` controls the equivalent muted, inline, looping video preview and defaults to `false`. Both previews start only after the grid hover dwell, stop when the pointer leaves, stay limited to near-viewport media, and are disabled when the browser requests reduced motion.
 
 For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default remains the quickest way to verify defaults for the exact binary being run:
 
