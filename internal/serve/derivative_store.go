@@ -164,22 +164,24 @@ func (s *encryptedDerivativeStore) GetOrGenerate(relativePath string, generate d
 	if err != nil {
 		return nil, err
 	}
+	if artifact, err := s.open(path, "hit"); err == nil {
+		return artifact, nil
+	}
+
+	unlock := s.lock(path)
+	defer unlock()
 	artifact, err := s.open(path, "hit")
 	if err == nil {
 		return artifact, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-
-	unlock := s.lock(path)
-	defer unlock()
-	artifact, err = s.open(path, "hit")
-	if err == nil {
-		return artifact, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
+		// Derivatives are disposable. If an existing protected cache entry cannot
+		// be authenticated/read (for example after corruption), remove it while
+		// holding the per-path lock and regenerate rather than permanently failing
+		// every request for that derivative.
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("remove unreadable protected derivative: %w", removeErr)
+		}
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
