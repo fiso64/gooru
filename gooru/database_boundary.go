@@ -2,6 +2,7 @@ package gooru
 
 import (
 	"context"
+	"time"
 
 	"gooru.local/internal/background"
 	"gooru.local/internal/database"
@@ -31,6 +32,10 @@ func createDatabaseBackgroundOperation(client *Client, q databaseQuerier, id str
 	return backgroundOperationFromDatabase(operation), nil
 }
 
+func cancelDatabaseBackgroundOperation(client *Client, operationID string) (bool, error) {
+	return client.store.CancelBackgroundOperation(operationID, time.Now().UTC())
+}
+
 func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string, request BackgroundTaskRequest) (BackgroundTask, bool, error) {
 	task, created, err := client.store.EnqueueBackgroundTask(q, database.NewBackgroundTask{
 		ID:            id,
@@ -49,6 +54,10 @@ func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string,
 		return BackgroundTask{}, false, err
 	}
 	return backgroundTaskFromDatabase(task), created, nil
+}
+
+func cancelDatabaseBackgroundTask(client *Client, taskID string) (bool, error) {
+	return client.store.CancelBackgroundTask(taskID, time.Now().UTC())
 }
 
 func newDatabaseBackgroundRuntime(client *Client, cfg BackgroundWorkerConfig) (BackgroundRuntime, error) {
