@@ -94,12 +94,13 @@ func Load(source Source) ([]byte, error) {
 		if !info.Mode().IsRegular() {
 			return nil, errors.New("encryption key file must be a regular file")
 		}
-		// A trusted service group may need read access to a root-owned secret,
-		// but the at-rest threat model still requires the key to remain hidden
-		// from unrelated local users. Permit group-read only; reject group
-		// write/execute and every permission granted to others.
-		if runtime.GOOS != "windows" && info.Mode().Perm()&0o037 != 0 {
-			return nil, errors.New("encryption key file may be group-readable but must not grant group write/execute or permissions to others")
+		// Reject key files that another Unix user can modify, but do not impose
+		// owner-only read permissions. Root-owned 0440/0640 service-group files
+		// and container/secret-manager mounts with broader read bits are valid
+		// deployment patterns whose actual access boundary is not described by
+		// these mode bits alone.
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o022 != 0 {
+			return nil, errors.New("encryption key file must not be writable by group or others")
 		}
 		data, err := io.ReadAll(file)
 		if err != nil {

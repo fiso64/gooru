@@ -35,6 +35,49 @@ func (c *Client) CreateBackgroundOperation(request BackgroundOperationRequest) (
 	return c.createBackgroundOperation(c.store.DB, request)
 }
 
+// CreateBackgroundOperationWithTasks atomically creates one logical operation
+// and its initial child tasks. Child dedupe keys are scoped to the new operation
+// so a separate user request cannot accidentally attach its progress to active
+// work owned by another operation. An empty child dedupe key is allowed here and
+// receives a stable per-operation key derived from its position in the batch.
+func (c *Client) CreateBackgroundOperationWithTasks(operationRequest BackgroundOperationRequest, taskRequests []BackgroundTaskRequest) (BackgroundOperation, []BackgroundTask, error) {
+	tx, err := c.store.Begin()
+	if err != nil {
+		return BackgroundOperation{}, nil, fmt.Errorf("begin background operation transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	operation, err := c.createBackgroundOperation(tx, operationRequest)
+	if err != nil {
+		return BackgroundOperation{}, nil, err
+	}
+
+	tasks := make([]BackgroundTask, 0, len(taskRequests))
+	for index, request := range taskRequests {
+		if request.OperationID != "" {
+			return BackgroundOperation{}, nil, fmt.Errorf("background child task %d already belongs to operation %q", index, request.OperationID)
+		}
+		request.OperationID = operation.ID
+		if request.DedupeKey == "" {
+			request.DedupeKey = fmt.Sprintf("task:%d", index)
+		}
+		request.DedupeKey = operation.ID + ":" + request.DedupeKey
+		task, created, err := c.enqueueBackgroundTask(tx, request)
+		if err != nil {
+			return BackgroundOperation{}, nil, fmt.Errorf("enqueue background child task %d: %w", index, err)
+		}
+		if !created {
+			return BackgroundOperation{}, nil, fmt.Errorf("enqueue background child task %d: scoped dedupe key already active", index)
+		}
+		tasks = append(tasks, task)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return BackgroundOperation{}, nil, fmt.Errorf("commit background operation transaction: %w", err)
+	}
+	return operation, tasks, nil
+}
+
 func (c *Client) createBackgroundOperation(q databaseQuerier, request BackgroundOperationRequest) (BackgroundOperation, error) {
 	id, err := newBackgroundWorkID("operation")
 	if err != nil {
