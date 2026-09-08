@@ -31,23 +31,42 @@ jobs:
       - name: Format
         run: gofmt -w internal/serve/config.go internal/serve/uploads.go internal/serve/config_upload_policy_test.go internal/serve/uploads_test.go internal/serve/upload_encryption_e2e_test.go
       - name: Focused backend tests
-        run: go test ./internal/serve -run 'Test(DefaultUploadConflictPolicyIsRename|UploadOmittedConflictPolicyRenamesExistingName|UploadRequestedConflictPolicySkipReturnsSkippedFile|UploadRequestedConflictPolicyReplaceOverwritesExistingName|EncryptedUploadDefaultConflictRenamesLogicalPathAfterHashDedup)$' -count=1
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./internal/serve -run 'Test(DefaultUploadConflictPolicyIsRename|UploadOmittedConflictPolicyRenamesExistingName|UploadRequestedConflictPolicySkipReturnsSkippedFile|UploadRequestedConflictPolicyReplaceOverwritesExistingName|EncryptedUploadDefaultConflictRenamesLogicalPathAfterHashDedup)$' -count=1 2>&1 | tee .maintainer-445-error.txt
       - name: Full backend tests
-        run: go test ./...
+        shell: bash
+        run: |
+          set -o pipefail
+          go test ./... 2>&1 | tee .maintainer-445-error.txt
       - name: Backend build
-        run: go build ./...
+        shell: bash
+        run: |
+          set -o pipefail
+          go build ./... 2>&1 | tee .maintainer-445-error.txt
       - name: Frontend install
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
       - name: Frontend check
         working-directory: frontend
-        run: npm run check
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee ../.maintainer-445-error.txt
       - name: Frontend unit tests
         working-directory: frontend
-        run: npm run test:unit
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:unit 2>&1 | tee ../.maintainer-445-error.txt
       - name: Frontend conflict regression
         working-directory: frontend
-        run: npx playwright install chromium && npx playwright test tests/upload-conflict-default.spec.ts
+        shell: bash
+        run: |
+          set -o pipefail
+          npx playwright install chromium 2>&1 | tee ../.maintainer-445-error.txt
+          npx playwright test tests/upload-conflict-default.spec.ts 2>&1 | tee ../.maintainer-445-error.txt
       - name: Commit failure diagnostic
         if: failure()
         run: |
