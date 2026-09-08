@@ -133,6 +133,14 @@
     document.getElementById(`tags-${file.id}`)?.focus();
   }
 
+  function toggleViewerFullscreen() {
+    // Reuse ViewerStage's existing fullscreen button so the rail action follows the same
+    // enter/exit behavior and fullscreen-by-default close guard as the F shortcut/control.
+    dialogElement
+      ?.querySelector<HTMLButtonElement>('.viewer-stage .viewer-mode-button[aria-label="Toggle fullscreen"]')
+      ?.click();
+  }
+
   function toggleOriginalMedia() {
     if (!previewAvailable || !originalAvailable) return;
     preferOriginal = !preferOriginal;
@@ -361,7 +369,11 @@
   />
 
   <aside class="lightbox-rail">
-    <button class="g-btn g-btn-ghost" type="button" title="Add tag (T)" aria-label="Add tag" onclick={() => focusTagInput('add')}><Icon name="tag" size={16} /></button>
+    <button class="g-btn g-btn-ghost" type="button" title="Fullscreen (F)" aria-label="Toggle fullscreen" onclick={toggleViewerFullscreen}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+      </svg>
+    </button>
     {#if previewAvailable && originalAvailable}
       <button
         class="g-btn g-btn-ghost"
