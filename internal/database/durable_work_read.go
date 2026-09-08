@@ -1,0 +1,110 @@
+package database
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+)
+
+const (
+	defaultBackgroundOperationListLimit = 100
+	maxBackgroundOperationListLimit     = 1000
+)
+
+// GetBackgroundOperation returns one durable logical operation by ID. The bool
+// distinguishes a missing operation from a read failure without leaking sql.ErrNoRows
+// into core callers.
+func (s *Store) GetBackgroundOperation(id string) (BackgroundOperation, bool, error) {
+	if id == "" {
+		return BackgroundOperation{}, false, errors.New("background operation id is required")
+	}
+	operation, err := scanBackgroundOperation(s.DB.QueryRow(`
+		SELECT id, kind, visible, status, progress_total, progress_completed, progress_failed,
+		       created_at, started_at, finished_at, error_code, error_message
+		FROM background_operations
+		WHERE id = ?
+	`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return BackgroundOperation{}, false, nil
+	}
+	if err != nil {
+		return BackgroundOperation{}, false, fmt.Errorf("read background operation: %w", err)
+	}
+	return operation, true, nil
+}
+
+// ListBackgroundOperations returns newest-first durable operation state. When
+// visibleOnly is true, hidden implementation/background operations are omitted.
+// A non-positive limit uses a bounded default; very large limits are capped so a
+// diagnostics/UI read cannot accidentally materialize unbounded history.
+func (s *Store) ListBackgroundOperations(visibleOnly bool, limit int) ([]BackgroundOperation, error) {
+	if limit <= 0 {
+		limit = defaultBackgroundOperationListLimit
+	} else if limit > maxBackgroundOperationListLimit {
+		limit = maxBackgroundOperationListLimit
+	}
+
+	query := `
+		SELECT id, kind, visible, status, progress_total, progress_completed, progress_failed,
+		       created_at, started_at, finished_at, error_code, error_message
+		FROM background_operations
+	`
+	if visibleOnly {
+		query += " WHERE visible = 1"
+	}
+	query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+
+	rows, err := s.DB.Query(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list background operations: %w", err)
+	}
+	defer rows.Close()
+
+	operations := make([]BackgroundOperation, 0)
+	for rows.Next() {
+		operation, err := scanBackgroundOperation(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan background operation: %w", err)
+		}
+		operations = append(operations, operation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate background operations: %w", err)
+	}
+	return operations, nil
+}
+
+type backgroundOperationScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanBackgroundOperation(scanner backgroundOperationScanner) (BackgroundOperation, error) {
+	var operation BackgroundOperation
+	var visible int
+	var status string
+	var createdAt int64
+	var startedAt sql.NullInt64
+	var finishedAt sql.NullInt64
+	if err := scanner.Scan(
+		&operation.ID,
+		&operation.Kind,
+		&visible,
+		&status,
+		&operation.ProgressTotal,
+		&operation.ProgressCompleted,
+		&operation.ProgressFailed,
+		&createdAt,
+		&startedAt,
+		&finishedAt,
+		&operation.ErrorCode,
+		&operation.ErrorMessage,
+	); err != nil {
+		return BackgroundOperation{}, err
+	}
+	operation.Visible = visible != 0
+	operation.Status = BackgroundWorkStatus(status)
+	operation.CreatedAt = workTime(createdAt)
+	operation.StartedAt = nullableWorkTime(startedAt)
+	operation.FinishedAt = nullableWorkTime(finishedAt)
+	return operation, nil
+}
