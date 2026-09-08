@@ -1,6 +1,9 @@
 package gooru
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // BackgroundTask is the core-facing input for one claimed durable task. It
 // intentionally exposes only stable domain identity/input fields: lease state,
