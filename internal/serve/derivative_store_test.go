@@ -104,7 +104,7 @@ func TestEncryptedDerivativeStorePersistsCiphertextAndReusesArtifact(t *testing.
 		t.Fatalf("unexpected decrypted derivative: %q", firstData)
 	}
 
-	cachePath := filepath.Join(root, "ab", "cover.jpg")
+	cachePath := filepath.Join(root, encryptedDerivativeNamespace, "ab", "cover.jpg")
 	ciphertext, err := os.ReadFile(cachePath)
 	if err != nil {
 		t.Fatal(err)
@@ -182,11 +182,14 @@ func TestProtectedDerivativeStoreWritesOnlyEncryptedCacheEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = artifact.Close()
-	data, err := os.ReadFile(filepath.Join(cacheDir, "ab", "cover.jpg"))
+	data, err := os.ReadFile(filepath.Join(cacheDir, encryptedDerivativeNamespace, "ab", "cover.jpg"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Contains(data, []byte(plaintext)) {
 		t.Fatal("protected derivative cache persisted plaintext bytes")
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, "ab", "cover.jpg")); !os.IsNotExist(err) {
+		t.Fatalf("protected cache collided with plaintext derivative namespace: %v", err)
 	}
 }
