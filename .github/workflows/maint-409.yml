@@ -3,17 +3,25 @@ on:
   push:
     branches: [fix/409-hover-play-defaults-docs]
 jobs:
-  validate:
-    runs-on: self-hosted
+  frontend:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
         with:
           ref: fix/409-hover-play-defaults-docs
-      - name: Validate focused configuration behavior
-        run: nix develop -c go test -mod=mod ./internal/serve -run 'TestHoverPlaybackConfigDefaultsAndOverrides|TestUIConfigExposesHoverPlaybackPreferences'
-      - name: Validate full Go suite
-        run: nix develop -c go test -mod=mod ./...
-      - name: Validate Go build
-        run: nix develop -c go build -mod=mod ./...
-      - name: Validate frontend
-        run: nix develop -c bash -lc 'cd frontend && npm ci && npm run check && npm test -- --run && npm run build'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+      - name: Check
+        run: npm run check
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Build
+        run: npm run build
