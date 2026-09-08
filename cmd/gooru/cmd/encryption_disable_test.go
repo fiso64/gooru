@@ -171,3 +171,95 @@ func TestConfiguredClientDisablesProtectedStorageRestartSafely(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestConfiguredDisableWrongRecoveryKeyFailsBeforeOpaqueManagedMediaMutation(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := gooru.Init(dbPath, types.StrategyPartial, false); err != nil {
+		t.Fatal(err)
+	}
+	uploadRoot := filepath.Join(dir, "uploads")
+	if err := os.MkdirAll(uploadRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logicalPath := filepath.Join(uploadRoot, "managed.jpg")
+	plaintext := []byte("must remain encrypted on wrong recovery key")
+	if err := os.WriteFile(logicalPath, plaintext, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registerManagedPath(t, dbPath, "hash-managed", logicalPath, int64(len(plaintext)))
+
+	master := bytes.Repeat([]byte{0x4c}, 32)
+	keys, err := encryptionkeys.Derive(master)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := encryptedfile.EncryptFileInPlace(logicalPath, keys.Media); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigratePlaintextDatabase(dbPath, keys.Database); err != nil {
+		t.Fatal(err)
+	}
+	protectedClient, err := gooru.NewWithOptions(dbPath, false, gooru.OpenOptions{Database: gooru.DatabaseOpenOptions{EncryptionKey: keys.Database}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := protectedClient.GetAllFilesInfo()
+	if err != nil {
+		_ = protectedClient.Close()
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		_ = protectedClient.Close()
+		t.Fatalf("registered files = %d, want 1", len(files))
+	}
+	physicalPath, err := serve.OpaqueManagedStoragePath(logicalPath, files[0].Hash, keys.Media)
+	if err != nil {
+		_ = protectedClient.Close()
+		t.Fatal(err)
+	}
+	if err := os.Rename(logicalPath, physicalPath); err != nil {
+		_ = protectedClient.Close()
+		t.Fatal(err)
+	}
+	if err := protectedClient.SetManagedStoragePath(files[0].ID, physicalPath); err != nil {
+		_ = protectedClient.Close()
+		t.Fatal(err)
+	}
+	if err := protectedClient.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeMedia, err := os.ReadFile(physicalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeDB, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := serve.DefaultConfig(dbPath)
+	cfg.Encryption.KeyFile = writeRecoveryKeyFile(t, dir, bytes.Repeat([]byte{0x4d}, 32))
+	cfg.Uploads.Targets = []serve.UploadTarget{{ID: "managed", Name: "Managed", Path: uploadRoot}}
+	if _, err := openConfiguredClient(cfg, false); err == nil {
+		t.Fatal("wrong recovery key unexpectedly disabled protected storage")
+	}
+	afterMedia, err := os.ReadFile(physicalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterDB, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(afterMedia, beforeMedia) {
+		t.Fatal("wrong recovery key mutated opaque managed ciphertext")
+	}
+	if !bytes.Equal(afterDB, beforeDB) {
+		t.Fatal("wrong recovery key mutated encrypted database")
+	}
+	if _, err := os.Stat(logicalPath); !os.IsNotExist(err) {
+		t.Fatalf("wrong recovery key unexpectedly restored logical managed path: %v", err)
+	}
+}
