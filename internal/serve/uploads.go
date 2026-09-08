@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	core "gooru.local/gooru"
 	"gooru.local/internal/query"
 	"gooru.local/types"
 )
@@ -669,8 +670,14 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	if len(importLocations) == 0 {
 		return response, nil
 	}
+	backgroundTasks := make([]core.BackgroundTaskRequest, 0, len(importLocations))
+	if l.backgroundTasks != nil {
+		for _, location := range importLocations {
+			backgroundTasks = append(backgroundTasks, l.backgroundTasks(location)...)
+		}
+	}
 	failures := make(map[string]string)
-	result, err := l.client.TagKnownFiles(importLocations, tags, func(filePath string, err error) {
+	result, err := l.client.TagKnownFilesWithBackgroundTasks(importLocations, tags, backgroundTasks, func(filePath string, err error) {
 		if err != nil {
 			failures[filePath] = err.Error()
 		}

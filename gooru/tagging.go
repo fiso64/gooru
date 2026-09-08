@@ -31,6 +31,13 @@ func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(fil
 // TagKnownFiles imports files whose content hash and filesystem metadata have
 // already been computed by the caller, avoiding a second hashing pass.
 func (c *Client) TagKnownFiles(files []types.LocationInfo, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+	return c.TagKnownFilesWithBackgroundTasks(files, tags, nil, progressCb)
+}
+
+// TagKnownFilesWithBackgroundTasks atomically registers known files and enqueues
+// durable follow-up work. If any task cannot be persisted, file registration and
+// tag mutations roll back with it.
+func (c *Client) TagKnownFilesWithBackgroundTasks(files []types.LocationInfo, tags []string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
 	result := types.TagOperationResult{}
 	if err := query.ValidateTags(tags); err != nil {
 		return result, err
@@ -55,7 +62,7 @@ func (c *Client) TagKnownFiles(files []types.LocationInfo, tags []string, progre
 	if len(analysis.allFileData) == 0 {
 		return result, nil
 	}
-	affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag)
+	affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag, tasks)
 	if err != nil {
 		return result, err
 	}
@@ -534,7 +541,7 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 }
 
 // executeTaggingTransaction performs all database writes for a tagging operation.
-func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind) (int64, map[string]string, error) {
+func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind, tasks []BackgroundTaskRequest) (int64, map[string]string, error) {
 	movesHandled := make(map[string]string) // newPath -> oldPath
 	tx, err := c.store.Begin()
 	if err != nil {
@@ -585,6 +592,13 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 		return 0, nil, err
 	}
 
+	// 4. Persist durable follow-up work in the same transaction as content registration.
+	for _, task := range tasks {
+		if _, _, err := c.enqueueBackgroundTask(tx, task); err != nil {
+			return 0, nil, fmt.Errorf("failed to enqueue background task: %w", err)
+		}
+	}
+
 	return affectedCount, movesHandled, tx.Commit()
 }
 
@@ -603,7 +617,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	}
 
 	// Phase 3: The Transaction (all DB writes).
-	affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind)
+	affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind, nil)
 	if err != nil {
 		return result, err
 	}

@@ -15,15 +15,16 @@ import (
 const metadataRequestBodyLimit int64 = 1 << 20
 
 type Server struct {
-	cfg            Config
-	jobs           *JobManager
-	library        Library
-	media          *MediaService
-	meta           MediaMetadataProvider
-	auth           *AuthStore
-	urlState       *urlStateCodec
-	fileSelections *fileSelectionStore
-	managedFiles   *managedfile.Writer
+	cfg               Config
+	jobs              *JobManager
+	library           Library
+	media             *MediaService
+	meta              MediaMetadataProvider
+	auth              *AuthStore
+	urlState          *urlStateCodec
+	fileSelections    *fileSelectionStore
+	managedFiles      *managedfile.Writer
+	backgroundContent contentHashLibrary
 }
 
 func NewServer(cfg Config) *Server {
@@ -32,7 +33,11 @@ func NewServer(cfg Config) *Server {
 
 func NewServerWithLibrary(cfg Config, library Library) *Server {
 	metadata := NewMediaMetadataProvider(cfg)
+	media := newComposedMediaServiceFromConfig(cfg)
+	var backgroundContent contentHashLibrary
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
+		backgroundContent = gooruLibrary
+		gooruLibrary.backgroundTasks = media.backgroundTaskRequests
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
 		if err := gooruLibrary.configureManagedUploadRoots(cfg.Uploads.Targets); err != nil {
@@ -47,14 +52,15 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		managedFiles = managedfile.NewProtected(cfg.Encryption.Key)
 	}
 	return &Server{
-		cfg:            cfg,
-		jobs:           NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
-		library:        library,
-		media:          newComposedMediaServiceFromConfig(cfg),
-		meta:           metadata,
-		urlState:       newURLStateCodec(cfg),
-		fileSelections: newFileSelectionStore(),
-		managedFiles:   managedFiles,
+		cfg:               cfg,
+		jobs:              NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
+		library:           library,
+		media:             media,
+		meta:              metadata,
+		urlState:          newURLStateCodec(cfg),
+		fileSelections:    newFileSelectionStore(),
+		managedFiles:      managedFiles,
+		backgroundContent: backgroundContent,
 	}
 }
 
