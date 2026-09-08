@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gooru.local/gooru"
@@ -152,7 +153,7 @@ func restoreManagedUploadsToPlaintext(cfg serve.Config, client registeredFileLis
 
 		physicalPath, mapped, err := registry.ManagedStoragePath(file.ID)
 		if err != nil {
-			return fmt.Errorf("read managed storage mapping for %q: %w", logicalPath, err)
+			return fmt.Errorf("read managed storage mapping: %w", err)
 		}
 		if !mapped {
 			physicalPath = logicalPath
@@ -170,7 +171,7 @@ func restoreManagedUploadsToPlaintext(cfg serve.Config, client registeredFileLis
 			}
 		}
 		if logicalExists && physicalExists && physicalPath != logicalPath {
-			return fmt.Errorf("both logical and opaque managed upload paths exist while disabling %q", logicalPath)
+			return fmt.Errorf("both logical and opaque managed upload paths exist while disabling protected storage")
 		}
 
 		switch {
@@ -178,11 +179,14 @@ func restoreManagedUploadsToPlaintext(cfg serve.Config, client registeredFileLis
 			if err := decryptManagedFile(physicalPath, master, mediaKey); err != nil {
 				return err
 			}
+			if err := os.MkdirAll(filepath.Dir(logicalPath), 0o700); err != nil {
+				return fmt.Errorf("restore canonical managed upload directory: %w", err)
+			}
 			if err := os.Rename(physicalPath, logicalPath); err != nil {
-				return fmt.Errorf("restore canonical managed upload filename %q: %w", logicalPath, err)
+				return fmt.Errorf("restore canonical managed upload filename: %w", err)
 			}
 			if err := registry.ClearManagedStoragePath(file.ID); err != nil {
-				return fmt.Errorf("clear opaque managed storage mapping for %q: %w", logicalPath, err)
+				return fmt.Errorf("clear opaque managed storage mapping: %w", err)
 			}
 		case logicalExists:
 			if err := decryptManagedFile(logicalPath, master, mediaKey); err != nil {
@@ -192,7 +196,7 @@ func restoreManagedUploadsToPlaintext(cfg serve.Config, client registeredFileLis
 				// Recovery for a crash after physical->logical rename but before the
 				// mapping row was removed.
 				if err := registry.ClearManagedStoragePath(file.ID); err != nil {
-					return fmt.Errorf("clear recovered managed storage mapping for %q: %w", logicalPath, err)
+					return fmt.Errorf("clear recovered managed storage mapping: %w", err)
 				}
 			}
 		default:
