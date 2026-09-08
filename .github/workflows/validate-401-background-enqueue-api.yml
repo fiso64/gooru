@@ -7,22 +7,13 @@ on:
 
 jobs:
   validate:
-    runs-on: self-hosted
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
-      - name: Locate Go toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          gofmt_path="$(find /nix/store /usr/local /opt -type f -name gofmt -perm -111 2>/dev/null | head -n 1 || true)"
-          if [ -z "$gofmt_path" ]; then
-            echo "unable to locate gofmt" >&2
-            exit 1
-          fi
-          go_bin="$(dirname "$gofmt_path")"
-          test -x "$go_bin/go" || { echo "go binary missing beside $gofmt_path" >&2; exit 1; }
-          echo "$go_bin" >> "$GITHUB_PATH"
-          "$go_bin/go" version
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Formatting guard
         shell: bash
         run: |
