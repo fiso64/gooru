@@ -5,35 +5,33 @@ on:
     branches:
       - refactor/401-background-enqueue-api
 
-permissions:
-  contents: write
-
 jobs:
   validate:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-      - name: Normalize formatting
+      - name: Locate Go toolchain
         shell: bash
         run: |
           set -euo pipefail
-          /usr/local/go/bin/gofmt -w gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go
-          if ! git diff --quiet -- gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go
-            git commit -m "style: gofmt background enqueue slice"
-            git push origin HEAD:refactor/401-background-enqueue-api
+          gofmt_path="$(find /nix/store /usr/local /opt -type f -name gofmt -perm -111 2>/dev/null | head -n 1 || true)"
+          if [ -z "$gofmt_path" ]; then
+            echo "unable to locate gofmt" >&2
+            exit 1
           fi
+          go_bin="$(dirname "$gofmt_path")"
+          test -x "$go_bin/go" || { echo "go binary missing beside $gofmt_path" >&2; exit 1; }
+          echo "$go_bin" >> "$GITHUB_PATH"
+          "$go_bin/go" version
       - name: Formatting guard
         shell: bash
         run: |
           set -euo pipefail
-          files=$(/usr/local/go/bin/gofmt -l gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go)
+          files=$(gofmt -l gooru/background.go gooru/database_boundary.go gooru/background_enqueue_test.go)
           test -z "$files" || { printf 'gofmt required:\n%s\n' "$files"; exit 1; }
       - name: Focused tests
-        run: /usr/local/go/bin/go test ./gooru ./internal/database ./internal/background
+        run: go test ./gooru ./internal/database ./internal/background
       - name: Full Go tests
-        run: /usr/local/go/bin/go test ./...
+        run: go test ./...
       - name: Build
-        run: /usr/local/go/bin/go build ./...
+        run: go build ./...
