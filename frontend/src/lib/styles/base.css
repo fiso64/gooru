@@ -72,6 +72,14 @@
   border-radius: 4px;
 }
 
+/* The library viewport is deliberately focused after load so keyboard
+   navigation starts in the main pane. It is not itself an interactive
+   control, so suppress Chromium's focus-visible outline while preserving
+   that programmatic focus and the visible cursor on media cards. */
+.gooru-root [data-testid='library-viewport']:focus-visible {
+  outline: none;
+}
+
 .g-btn:focus,
 .g-input:focus,
 .g-tag:focus {
