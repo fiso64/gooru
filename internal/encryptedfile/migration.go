@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-var ErrAlreadyEncrypted = errors.New("file is already encrypted")
+var (
+	ErrAlreadyEncrypted = errors.New("file is already encrypted")
+	ErrNotEncrypted     = errors.New("file is not encrypted")
+)
 
 // EncryptFileInPlace converts one plaintext regular file to the encrypted-file
 // container without ever writing plaintext to a sibling staging file. The
@@ -118,6 +121,98 @@ func EncryptFileInPlace(path string, key []byte) error {
 	return nil
 }
 
+// DecryptFileInPlace converts one Gooru encrypted-file container back to a
+// plaintext regular file at the same logical path. Plaintext is written only to
+// a mode-0600 sibling and cannot replace the encrypted source until every
+// encrypted chunk has authenticated, the sibling is synced, and both source and
+// destination are closed. This makes the operation safe to retry after an
+// interrupted multi-file protected-storage disable transition.
+//
+// ErrNotEncrypted is returned without modifying the file when the source does
+// not carry Gooru's encrypted-file magic. Callers performing a restartable
+// disable migration may treat that as an already-completed item.
+func DecryptFileInPlace(path string, key []byte) error {
+	inspected, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	info, err := inspected.Stat()
+	if err != nil {
+		_ = inspected.Close()
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		_ = inspected.Close()
+		return fmt.Errorf("%w: path is not a regular file", ErrInvalidFormat)
+	}
+	prefix := make([]byte, len(magic))
+	n, readErr := io.ReadFull(inspected, prefix)
+	closeErr := inspected.Close()
+	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("inspect source prefix: %w", readErr)
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if n != len(prefix) || !bytes.Equal(prefix, []byte(magic)) {
+		return ErrNotEncrypted
+	}
+
+	source, err := Open(path, key)
+	if err != nil {
+		return fmt.Errorf("open encrypted source: %w", err)
+	}
+	sourceClosed := false
+	defer func() {
+		if !sourceClosed {
+			_ = source.Close()
+		}
+	}()
+
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	tmp, err := os.CreateTemp(dir, "."+base+".plaintext-")
+	if err != nil {
+		return fmt.Errorf("create plaintext sibling: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanupTemp := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanupTemp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure plaintext sibling: %w", err)
+	}
+	written, err := io.Copy(tmp, source)
+	if err != nil {
+		return fmt.Errorf("decrypt source: %w", err)
+	}
+	if written != source.Size() {
+		return fmt.Errorf("decrypt source: copied %d bytes, expected %d", written, source.Size())
+	}
+	if err := source.Close(); err != nil {
+		return fmt.Errorf("close encrypted source before replacement: %w", err)
+	}
+	sourceClosed = true
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync plaintext sibling: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close plaintext sibling: %w", err)
+	}
+	if err := os.Chtimes(tmpPath, time.Now(), info.ModTime()); err != nil {
+		return fmt.Errorf("preserve source modification time: %w", err)
+	}
+	if err := replaceFile(tmpPath, path); err != nil {
+		return err
+	}
+	cleanupTemp = false
+	return nil
+}
+
 // ReencryptFileInPlace atomically rewrites an existing encrypted file from
 // oldKey to newKey without materializing plaintext on disk. It is used for
 // internal encryption-format/key-domain migrations rather than user-driven key
@@ -201,27 +296,27 @@ func replaceFile(replacement, target string) error {
 	}
 
 	dir := filepath.Dir(target)
-	backup, err := os.CreateTemp(dir, "."+filepath.Base(target)+".plaintext-backup-")
+	backup, err := os.CreateTemp(dir, "."+filepath.Base(target)+".replacement-backup-")
 	if err != nil {
-		return fmt.Errorf("reserve plaintext backup: %w", err)
+		return fmt.Errorf("reserve replacement backup: %w", err)
 	}
 	backupPath := backup.Name()
 	if err := backup.Close(); err != nil {
 		_ = os.Remove(backupPath)
-		return fmt.Errorf("close plaintext backup reservation: %w", err)
+		return fmt.Errorf("close replacement backup reservation: %w", err)
 	}
 	if err := os.Remove(backupPath); err != nil {
-		return fmt.Errorf("clear plaintext backup reservation: %w", err)
+		return fmt.Errorf("clear replacement backup reservation: %w", err)
 	}
 	if err := os.Rename(target, backupPath); err != nil {
-		return fmt.Errorf("stage plaintext source for replacement: %w", err)
+		return fmt.Errorf("stage source for replacement: %w", err)
 	}
 	if err := os.Rename(replacement, target); err != nil {
 		_ = os.Rename(backupPath, target)
-		return fmt.Errorf("install encrypted replacement: %w", err)
+		return fmt.Errorf("install replacement: %w", err)
 	}
 	if err := os.Remove(backupPath); err != nil {
-		return fmt.Errorf("remove plaintext migration backup: %w", err)
+		return fmt.Errorf("remove replacement backup: %w", err)
 	}
 	return syncDir(dir)
 }

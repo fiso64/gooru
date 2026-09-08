@@ -128,7 +128,7 @@ func TestConfiguredAuthStoreUsesEncryptionKey(t *testing.T) {
 	}
 }
 
-func TestConfiguredOpenRejectsDisablingEncryptionForEncryptedDatabase(t *testing.T) {
+func TestConfiguredOpenRequiresRecoveryKeyToDisableEncryptedDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gooru.db")
 	if err := gooru.Init(path, types.StrategyFull, false); err != nil {
 		t.Fatalf("initialize plaintext database: %v", err)
@@ -149,8 +149,11 @@ func TestConfiguredOpenRejectsDisablingEncryptionForEncryptedDatabase(t *testing
 	disabled.Encryption.Enabled = false
 	disabled.Encryption.Key = nil
 	if _, err := openConfiguredClient(disabled, false); err == nil {
-		t.Fatal("disabled encryption unexpectedly opened encrypted database")
-	} else if !strings.Contains(err.Error(), "disabling protected storage in place is not supported") || !strings.Contains(err.Error(), "original recovery key") {
+		t.Fatal("disabled encryption unexpectedly opened encrypted database without recovery key")
+	} else if !strings.Contains(err.Error(), "keep the original recovery key configured") {
 		t.Fatalf("disable diagnostic is not actionable: %v", err)
+	}
+	if plain, err := database.IsPlaintextDatabase(path); err != nil || plain {
+		t.Fatalf("missing-key disable mutated database plaintext state = %t, %v", plain, err)
 	}
 }
