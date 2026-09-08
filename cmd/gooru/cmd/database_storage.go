@@ -24,7 +24,7 @@ func validateConfiguredEncryptionLifecycle(cfg serve.Config) error {
 		return fmt.Errorf("inspect database encryption state: %w", err)
 	}
 	if !cfg.Encryption.Enabled && !plain {
-		return fmt.Errorf("database appears encrypted but encryption.enabled is false: disabling protected storage in place is not supported; restore encryption.enabled and the original recovery key before accessing this database")
+		return fmt.Errorf("database remains encrypted after protected-storage disable preparation")
 	}
 	return nil
 }
@@ -77,6 +77,9 @@ func ensureConfiguredDatabaseKey(cfg serve.Config, databaseKey []byte) error {
 }
 
 func openConfiguredClient(cfg serve.Config, verbose bool) (*gooru.Client, error) {
+	if err := migrateConfiguredStorageToPlaintext(cfg, verbose); err != nil {
+		return nil, err
+	}
 	if err := validateConfiguredEncryptionLifecycle(cfg); err != nil {
 		return nil, err
 	}
@@ -109,6 +112,9 @@ func openConfiguredClient(cfg serve.Config, verbose bool) (*gooru.Client, error)
 }
 
 func openConfiguredAuthStore(cfg serve.Config, verbose bool) (*database.Store, error) {
+	if err := migrateConfiguredStorageToPlaintext(cfg, verbose); err != nil {
+		return nil, err
+	}
 	if err := validateConfiguredEncryptionLifecycle(cfg); err != nil {
 		return nil, err
 	}
