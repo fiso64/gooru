@@ -7,15 +7,36 @@ import (
 	"gooru.local/internal/database"
 )
 
-// databaseTx, contentTagPair, and tagFacetExclusion keep database implementation
-// types behind the core package's composition boundary. Business-logic files
-// should depend on these package-local names rather than importing
-// internal/database directly.
+// databaseTx, databaseQuerier, contentTagPair, and tagFacetExclusion keep
+// database implementation types behind the core package's composition boundary.
+// Business-logic files should depend on these package-local names rather than
+// importing internal/database directly.
 type databaseTx = database.Tx
+type databaseQuerier = database.Querier
 type contentTagPair = database.ContentTagPair
 type tagFacetExclusion = database.TagFacetExclusion
 
 var errInvalidSavedSearchOrder = database.ErrInvalidSavedSearchOrder
+
+func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string, request BackgroundTaskRequest) (BackgroundTask, bool, error) {
+	task, created, err := client.store.EnqueueBackgroundTask(q, database.NewBackgroundTask{
+		ID:            id,
+		OperationID:   request.OperationID,
+		DedupeKey:     request.DedupeKey,
+		Kind:          request.Kind,
+		SubjectKind:   request.SubjectKind,
+		SubjectID:     request.SubjectID,
+		InputKey:      request.InputKey,
+		ResourceClass: request.ResourceClass,
+		Priority:      request.Priority,
+		AvailableAt:   request.AvailableAt,
+		MaxAttempts:   request.MaxAttempts,
+	})
+	if err != nil {
+		return BackgroundTask{}, false, err
+	}
+	return backgroundTaskFromDatabase(task), created, nil
+}
 
 func newDatabaseBackgroundRuntime(client *Client, cfg BackgroundWorkerConfig) (BackgroundRuntime, error) {
 	handlers := make(map[string]background.Handler, len(cfg.Handlers))
