@@ -129,6 +129,99 @@ func TestEncryptFileInPlaceFailsClosedForEncryptedFileWithWrongKey(t *testing.T)
 	}
 }
 
+func TestDecryptFileInPlaceRestoresPlaintextWithoutChangingLogicalFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret.bin")
+	key := bytes.Repeat([]byte{0x55}, 32)
+	plaintext := bytes.Repeat([]byte("restored-media-"), 100000)
+	if err := os.WriteFile(path, plaintext, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	originalTime := time.Unix(1_720_000_000, 0)
+	if err := os.Chtimes(path, originalTime, originalTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := EncryptFileInPlace(path, key); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := DecryptFileInPlace(path, key); err != nil {
+		t.Fatalf("decrypt file in place: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, plaintext) {
+		t.Fatal("decrypted file differs from original plaintext")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("decrypted replacement mode = %o, want 600", info.Mode().Perm())
+	}
+	if !info.ModTime().Equal(originalTime) {
+		t.Fatalf("decrypted replacement modtime = %v, want %v", info.ModTime(), originalTime)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".secret.bin.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("decryption left sibling artifacts: %v", matches)
+	}
+}
+
+func TestDecryptFileInPlaceFailsClosedForWrongKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret.bin")
+	key := bytes.Repeat([]byte{0x61}, 32)
+	wrongKey := bytes.Repeat([]byte{0x62}, 32)
+	plaintext := []byte("keep ciphertext on authentication failure")
+	if err := os.WriteFile(path, plaintext, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := EncryptFileInPlace(path, key); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = DecryptFileInPlace(path, wrongKey)
+	if !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("wrong-key decryption error = %v, want authentication failure", err)
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("wrong-key decryption mutated encrypted file")
+	}
+}
+
+func TestDecryptFileInPlaceReportsAlreadyPlaintextWithoutMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret.bin")
+	plaintext := []byte("already restored")
+	if err := os.WriteFile(path, plaintext, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := DecryptFileInPlace(path, bytes.Repeat([]byte{0x73}, 32))
+	if !errors.Is(err, ErrNotEncrypted) {
+		t.Fatalf("plaintext decryption error = %v, want ErrNotEncrypted", err)
+	}
+	got, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(got, plaintext) {
+		t.Fatal("plaintext source changed")
+	}
+}
+
 func TestReencryptFileInPlaceMigratesKeyWithoutPlaintextSibling(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secret.bin")
 	oldKey := bytes.Repeat([]byte{0x71}, 32)
