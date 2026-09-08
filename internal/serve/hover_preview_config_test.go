@@ -11,8 +11,8 @@ import (
 
 func TestHoverPlaybackConfigDefaultsAndOverrides(t *testing.T) {
 	defaults := DefaultConfig(filepath.Join(t.TempDir(), "default.db"))
-	if !defaults.UI.HoverPlayVideos || !defaults.UI.HoverPlayGIFs {
-		t.Fatalf("default hover playback flags = video:%v gif:%v, want both true", defaults.UI.HoverPlayVideos, defaults.UI.HoverPlayGIFs)
+	if defaults.UI.HoverPlayVideos || !defaults.UI.HoverPlayGIFs {
+		t.Fatalf("default hover playback flags = video:%v gif:%v, want video false and gif true", defaults.UI.HoverPlayVideos, defaults.UI.HoverPlayGIFs)
 	}
 
 	dir := t.TempDir()
