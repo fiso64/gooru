@@ -136,12 +136,12 @@ func TestLoadRejectsMissingOrMalformedKey(t *testing.T) {
 	}
 }
 
-func TestLoadAllowsNonWritableGroupOrOtherPermissions(t *testing.T) {
+func TestLoadAllowsOwnerAndTrustedGroupReadKeyFiles(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX permission bits are not authoritative on Windows")
 	}
 
-	for _, mode := range []os.FileMode{0440, 0640, 0444, 0644, 0511} {
+	for _, mode := range []os.FileMode{0400, 0600, 0440, 0640} {
 		mode := mode
 		t.Run(mode.String(), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "key")
@@ -158,12 +158,12 @@ func TestLoadAllowsNonWritableGroupOrOtherPermissions(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsGroupOrOtherWritableKeyFile(t *testing.T) {
+func TestLoadRejectsKeyPermissionsOutsideTrustedReadBoundary(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX permission bits are not authoritative on Windows")
 	}
 
-	for _, mode := range []os.FileMode{0620, 0602, 0622} {
+	for _, mode := range []os.FileMode{0620, 0410, 0604, 0602, 0601, 0644} {
 		mode := mode
 		t.Run(mode.String(), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "key")
