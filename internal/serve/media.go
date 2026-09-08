@@ -68,7 +68,12 @@ func (t GoImageThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst 
 	return t.ThumbnailSourceQuality(name, src, dst, size, format, derivativeJPEGQuality)
 }
 
-func (GoImageThumbnailer) ThumbnailSourceQuality(_ string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {
+func (GoImageThumbnailer) ThumbnailSourceQuality(name string, src io.ReadSeeker, dst io.Writer, size int, format string, quality int) error {
+	if err := thumbnailImageSourcePrimary(name, src, dst, size, format, quality); err == nil {
+		return nil
+	} else if !errors.Is(err, ErrUnsupportedMedia) {
+		return err
+	}
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
