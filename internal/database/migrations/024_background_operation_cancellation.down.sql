@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS background_tasks_reject_canceled_operation_before_insert;
