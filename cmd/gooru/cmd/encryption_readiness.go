@@ -61,24 +61,27 @@ func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister)
 		if err != nil {
 			return fmt.Errorf("read managed storage mapping for %q: %w", logicalPath, err)
 		}
-		if !mapped {
-			physicalPath, err = serve.OpaqueManagedStoragePath(logicalPath, file.Hash, keys.Media)
-			if err != nil {
-				return fmt.Errorf("choose opaque managed storage path for %q: %w", logicalPath, err)
-			}
-			// Persist the random destination before mutating the filesystem. If the
-			// process stops after this point, the next startup resumes the same
-			// destination instead of inventing a second opaque name.
-			if err := registry.SetManagedStoragePath(file.ID, physicalPath); err != nil {
-				return fmt.Errorf("checkpoint opaque managed storage path for %q: %w", logicalPath, err)
-			}
-			mapped = true
-		}
-
 		logicalExists, err := regularManagedFileExists(logicalPath)
 		if err != nil {
 			return err
 		}
+		if !mapped {
+			// Do not invent a mapping for a genuinely missing managed file. That
+			// would hide the logical path from relink/recovery without protecting
+			// any bytes. Once a file exists, checkpoint its random destination
+			// before mutating the filesystem so a restart resumes the same rename.
+			if !logicalExists {
+				continue
+			}
+			physicalPath, err = serve.OpaqueManagedStoragePath(logicalPath, file.Hash, keys.Media)
+			if err != nil {
+				return fmt.Errorf("choose opaque managed storage path for %q: %w", logicalPath, err)
+			}
+			if err := registry.SetManagedStoragePath(file.ID, physicalPath); err != nil {
+				return fmt.Errorf("checkpoint opaque managed storage path for %q: %w", logicalPath, err)
+			}
+		}
+
 		physicalExists, err := regularManagedFileExists(physicalPath)
 		if err != nil {
 			return err
@@ -102,8 +105,8 @@ func ensureStorageEncryptionReady(cfg serve.Config, client registeredFileLister)
 				}
 			}
 		default:
-			// Preserve the previous preflight behavior for genuinely missing files;
-			// relink/recovery can disposition them without startup inventing data.
+			// A pre-existing mapping with neither path present is left intact for
+			// explicit missing-file disposition; no filename is synthesized here.
 			continue
 		}
 	}
