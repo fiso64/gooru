@@ -1,0 +1,86 @@
+name: maint-435
+on:
+  push:
+    branches: [test/435-stabilize-gif-hover-restart]
+permissions:
+  contents: write
+jobs:
+  harden-and-validate:
+    if: "github.event.head_commit.message != 'test(ui): stabilize GIF restart regression'"
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/435-stabilize-gif-hover-restart
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Harden timing-sensitive GIF restart assertion
+        working-directory: .
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/tests/hover-media-preview.spec.ts')
+          s = p.read_text()
+          old_gif = "const twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAZAAAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');"
+          new_gif = "// Keep the first frame visible for three seconds so restart assertions have a wide, deterministic sampling window.\nconst twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQALAEAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');"
+          assert old_gif in s
+          s = s.replace(old_gif, new_gif, 1)
+          old = '''  const firstFrame = await gif.screenshot();
+
+  await page.waitForTimeout(1150);
+  const secondFrame = await gif.screenshot();
+  expect(secondFrame.equals(firstFrame)).toBe(false);
+
+  await page.getByRole('heading', { name: 'Library' }).hover();
+  await expect(gif).toHaveCount(0);
+  await gifCard.hover();
+  gif = page.getByTestId('hover-gif-preview');
+  await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
+  const restartedFrame = await gif.screenshot();
+  expect(restartedFrame.equals(firstFrame)).toBe(true);'''
+          new = '''  const firstSource = await gif.getAttribute('src');
+  const firstFrame = await gif.screenshot();
+
+  await page.waitForTimeout(3150);
+  const secondFrame = await gif.screenshot();
+  expect(secondFrame.equals(firstFrame)).toBe(false);
+
+  await page.getByRole('heading', { name: 'Library' }).hover();
+  await expect(gif).toHaveCount(0);
+  await gifCard.hover();
+  gif = page.getByTestId('hover-gif-preview');
+  await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
+  const restartedSource = await gif.getAttribute('src');
+  expect(restartedSource).not.toBe(firstSource);
+  expect(restartedSource?.split('#')[0]).toBe(firstSource?.split('#')[0]);
+  const restartedFrame = await gif.screenshot();
+  expect(restartedFrame.equals(firstFrame)).toBe(true);'''
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/tests/hover-media-preview.spec.ts
+          git commit -m 'test(ui): stabilize GIF restart regression'
+          git push origin HEAD:test/435-stabilize-gif-hover-restart
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+      - name: Install Chromium
+        run: npx playwright install chromium
+      - name: Repeat GIF restart regression
+        run: npm run test:e2e -- hover-media-preview.spec.ts --grep 'gif playback visibly restarts' --repeat-each=5
+      - name: Full hover browser suite
+        run: npm run test:e2e -- hover-media-preview.spec.ts
+      - name: Check
+        run: npm run check
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Build
+        run: npm run build
