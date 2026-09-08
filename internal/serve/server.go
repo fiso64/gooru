@@ -15,16 +15,17 @@ import (
 const metadataRequestBodyLimit int64 = 1 << 20
 
 type Server struct {
-	cfg               Config
-	jobs              *JobManager
-	library           Library
-	media             *MediaService
-	meta              MediaMetadataProvider
-	auth              *AuthStore
-	urlState          *urlStateCodec
-	fileSelections    *fileSelectionStore
-	managedFiles      *managedfile.Writer
-	backgroundContent contentHashLibrary
+	cfg                  Config
+	jobs                 *JobManager
+	library              Library
+	media                *MediaService
+	meta                 MediaMetadataProvider
+	auth                 *AuthStore
+	urlState             *urlStateCodec
+	fileSelections       *fileSelectionStore
+	managedFiles         *managedfile.Writer
+	backgroundContent    contentHashLibrary
+	backgroundOperations backgroundOperationReader
 }
 
 func NewServer(cfg Config) *Server {
@@ -35,8 +36,10 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	metadata := NewMediaMetadataProvider(cfg)
 	media := newComposedMediaServiceFromConfig(cfg)
 	var backgroundContent contentHashLibrary
+	var backgroundOperations backgroundOperationReader
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
 		backgroundContent = gooruLibrary
+		backgroundOperations = gooruLibrary
 		gooruLibrary.backgroundTasks = media.backgroundTaskRequests
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
@@ -52,15 +55,16 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		managedFiles = managedfile.NewProtected(cfg.Encryption.Key)
 	}
 	return &Server{
-		cfg:               cfg,
-		jobs:              NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
-		library:           library,
-		media:             media,
-		meta:              metadata,
-		urlState:          newURLStateCodec(cfg),
-		fileSelections:    newFileSelectionStore(),
-		managedFiles:      managedFiles,
-		backgroundContent: backgroundContent,
+		cfg:                  cfg,
+		jobs:                 NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
+		library:              library,
+		media:                media,
+		meta:                 metadata,
+		urlState:             newURLStateCodec(cfg),
+		fileSelections:       newFileSelectionStore(),
+		managedFiles:         managedFiles,
+		backgroundContent:    backgroundContent,
+		backgroundOperations: backgroundOperations,
 	}
 }
 
@@ -102,6 +106,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/saved-searches", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleSavedSearches))))
 	mux.Handle("/api/v1/tags/namespaces", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleTagNamespaces)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
+	mux.Handle("/api/v1/operations", s.adminProtected(http.HandlerFunc(s.handleOperations)))
+	mux.Handle("/api/v1/operations/", s.adminProtected(http.HandlerFunc(s.handleOperation)))
 	mux.Handle("/api/v1/jobs", s.adminProtected(http.HandlerFunc(s.handleJobs)))
 	mux.Handle("/api/v1/jobs/", s.adminProtected(http.HandlerFunc(s.handleJob)))
 	mux.HandleFunc("/", s.handleFrontend)
