@@ -21,6 +21,8 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Repair bootstrap
+        run: python3 .github/maintainer-445-fixup.py
       - name: Apply fix
         shell: bash
         run: |
@@ -57,7 +59,7 @@ jobs:
       - name: Commit validated fix
         if: success()
         run: |
-          rm .github/workflows/maintainer-445-diag.yml .github/maintainer-445-apply.py .maintainer-445-error.txt
+          rm .github/workflows/maintainer-445-diag.yml .github/maintainer-445-apply.py .github/maintainer-445-fixup.py .maintainer-445-error.txt
           git config user.name fiso64
           git config user.email 64778819+fiso64@users.noreply.github.com
           git add -A
