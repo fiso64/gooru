@@ -80,8 +80,8 @@ func TestCancelBackgroundOperationCancelsActiveChildrenAndRejectsLateEnqueue(t *
 
 	if _, created, err := store.EnqueueBackgroundTask(store.DB, NewBackgroundTask{
 		ID: "late", OperationID: "op-cancel", DedupeKey: "late", Kind: "import", ResourceClass: "io", CreatedAt: canceledAt,
-	}); err == nil || created || !strings.Contains(err.Error(), "background operation is not active") {
-		t.Fatalf("late enqueue = created %v err %v, want terminal-operation rejection", created, err)
+	}); err == nil || created || !strings.Contains(err.Error(), "background operation is canceled") {
+		t.Fatalf("late enqueue = created %v err %v, want canceled-operation rejection", created, err)
 	}
 	if canceled, err := store.CancelBackgroundOperation("op-cancel", canceledAt.Add(time.Second)); err != nil || canceled {
 		t.Fatalf("second operation cancel = %v, %v, want unchanged", canceled, err)
