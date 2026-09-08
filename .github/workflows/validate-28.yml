@@ -22,7 +22,19 @@ jobs:
       - name: Focused tests
         run: go test ./internal/serve -run 'Test(EncryptedDerivativeStore|NewDerivativeStore|ProtectedDerivativeStore)'
       - name: Full Go tests
-        run: go test ./...
+        shell: bash
+        run: |
+          set -o pipefail
+          if go test ./... 2>&1 | tee /tmp/go-test.log; then
+            exit 0
+          fi
+          {
+            echo '### Full Go test failure'
+            echo '```text'
+            tail -n 200 /tmp/go-test.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
       - name: Full Go build
         run: go build ./...
       - name: Govips compile and focused tests
