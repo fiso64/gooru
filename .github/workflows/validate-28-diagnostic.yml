@@ -33,6 +33,23 @@ jobs:
           git apply /tmp/opaque.patch
           gofmt -w cmd gooru internal types
           git diff --check
+      - name: Capture applied source
+        shell: bash
+        run: |
+          mkdir -p /tmp/opaque-source
+          git diff --name-only -z -- cmd gooru internal types | while IFS= read -r -d '' path; do
+            mkdir -p "/tmp/opaque-source/$(dirname "$path")"
+            cp "$path" "/tmp/opaque-source/$path"
+          done
+          git diff > /tmp/opaque-source.patch
+      - name: Upload applied source
+        uses: actions/upload-artifact@v4
+        with:
+          name: opaque-storage-applied-source
+          path: |
+            /tmp/opaque-source
+            /tmp/opaque-source.patch
+          retention-days: 1
       - name: Run focused tests with captured output
         id: focused
         shell: bash
