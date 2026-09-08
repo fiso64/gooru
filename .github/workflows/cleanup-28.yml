@@ -1,0 +1,39 @@
+name: Maintainer opaque storage diff cleanup
+
+on:
+  push:
+    branches:
+      - feat/28-opaque-managed-storage
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove whitespace-only branch drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin develop
+          changed=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if git diff --quiet -w origin/develop -- "$f" && ! git diff --quiet origin/develop -- "$f"; then
+              git checkout origin/develop -- "$f"
+              changed=1
+            fi
+          done < <(git diff --name-only origin/develop...HEAD)
+          if [ "$changed" -eq 0 ]; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: remove unrelated formatting drift"
+          git push
