@@ -46,20 +46,7 @@ jobs:
           assert old in s
           p.write_text(s.replace(old, new, 1))
           PY
-          gofmt -w internal/serve/config.go internal/serve/hover_preview_config_test.go
-      - name: Validate focused configuration behavior
-        run: go test ./internal/serve -run 'TestHoverPlaybackConfigDefaultsAndOverrides|TestUIConfigExposesHoverPlaybackPreferences'
-      - name: Validate full Go suite
-        run: go test ./...
-      - name: Validate Go build
-        run: go build ./...
-      - name: Validate frontend
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run check
-          npm test -- --run
-          npm run build
+          nix develop -c gofmt -w internal/serve/config.go internal/serve/hover_preview_config_test.go
       - name: Commit implementation
         shell: bash
         run: |
@@ -68,3 +55,11 @@ jobs:
           git add internal/serve/config.go internal/serve/hover_preview_config_test.go frontend/src/lib/components/AppPage.svelte docs/CONFIG.md
           git commit -m 'fix(ui): document hover playback defaults'
           git push origin HEAD:fix/409-hover-play-defaults-docs
+      - name: Validate focused configuration behavior
+        run: nix develop -c go test ./internal/serve -run 'TestHoverPlaybackConfigDefaultsAndOverrides|TestUIConfigExposesHoverPlaybackPreferences'
+      - name: Validate full Go suite
+        run: nix develop -c go test ./...
+      - name: Validate Go build
+        run: nix develop -c go build ./...
+      - name: Validate frontend
+        run: nix develop -c bash -lc 'cd frontend && npm ci && npm run check && npm test -- --run && npm run build'
