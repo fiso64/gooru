@@ -97,8 +97,14 @@
       seen.set(name, { tag: name, count: tag.count ?? seen.get(name)?.count ?? 0 });
     }
     for (const suggestion of suggestions) {
-      if (!suggestion.name || suggestion.name.startsWith('@')) continue;
-      seen.set(suggestion.name, { tag: suggestion.name, count: suggestion.count ?? seen.get(suggestion.name)?.count ?? 0 });
+      let name = suggestion.name?.trim();
+      if (!name) continue;
+      if (name.startsWith('-@')) name = name.slice(1);
+      if (name.startsWith('@')) {
+        const colon = name.indexOf(':');
+        if (colon < 0 || colon === name.length - 1) continue;
+      }
+      seen.set(name, { tag: name, count: suggestion.count ?? seen.get(name)?.count ?? 0 });
     }
     return [...seen.values()].sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }
