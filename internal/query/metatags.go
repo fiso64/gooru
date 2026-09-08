@@ -8,6 +8,7 @@ import (
 const (
 	MetaTagTagged           = "tagged"
 	MetaTagFilenameContains = "filename_contains"
+	MetaTagSaved            = "saved"
 )
 
 type MetaTagDefinition struct {
@@ -25,6 +26,7 @@ type ParsedMetaTag struct {
 var metaTagDefinitions = []MetaTagDefinition{
 	{Name: MetaTagTagged, Syntax: "@tagged", Hint: "has tags", RequiresValue: false},
 	{Name: MetaTagFilenameContains, Syntax: "@filename_contains:", Hint: "filename contains", RequiresValue: true},
+	{Name: MetaTagSaved, Syntax: "@saved:", Hint: "saved search", RequiresValue: true},
 }
 
 // MetaTags returns the backend-owned catalog of reserved query syntax exposed by

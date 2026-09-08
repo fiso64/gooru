@@ -127,12 +127,17 @@ func (s *Server) handleSearchSuggestions(w http.ResponseWriter, r *http.Request)
 		limit = 20
 	}
 	prefix := strings.TrimSpace(req.Query)
+	savedItems, err := s.savedSearchNameSuggestionsForRequest(r.Context(), prefix, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load saved search suggestions", nil)
+		return
+	}
 	items, err := search.TagSuggestions(r.Context(), prefix, strings.TrimSpace(req.Existing), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load suggestions", nil)
 		return
 	}
-	items = append(matchingMetaTagSuggestions(prefix), items...)
+	items = append(savedItems, append(matchingMetaTagSuggestions(prefix), items...)...)
 	if len(items) > limit {
 		items = items[:limit]
 	}

@@ -473,7 +473,15 @@ func (s *Server) handleListFilesRequest(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
-	queryText := req.Query
+	queryText, err := s.expandSavedSearchQueryForRequest(r.Context(), req.Query)
+	if err != nil {
+		if errors.Is(err, core.ErrInvalidQuery) {
+			writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to list files", nil)
+		return
+	}
 	sort := normalizeFileSort(req.Sort)
 	order := normalizeSortOrder(req.Order)
 	pageResult, err := s.listFilesPage(r.Context(), queryText, page, sort, order)
