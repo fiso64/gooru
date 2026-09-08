@@ -21,6 +21,31 @@ func newBackgroundEnqueueTestClient(t *testing.T) *Client {
 	return client
 }
 
+func TestCreateBackgroundOperationUsesCoreFacade(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	request := BackgroundOperationRequest{
+		Kind:          "library-import",
+		Visible:       true,
+		ProgressTotal: 12,
+	}
+
+	operation, err := client.CreateBackgroundOperation(request)
+	if err != nil {
+		t.Fatalf("create operation: %v", err)
+	}
+	if operation.ID == "" || operation.Kind != request.Kind || operation.Visible != request.Visible || operation.ProgressTotal != request.ProgressTotal || operation.CreatedAt.IsZero() {
+		t.Fatalf("unexpected operation: %+v", operation)
+	}
+
+	var count int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_operations WHERE id = ? AND kind = ? AND visible = 1`, operation.ID, request.Kind).Scan(&count); err != nil {
+		t.Fatalf("count operation: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("operation count = %d, want 1", count)
+	}
+}
+
 func TestEnqueueBackgroundTaskUsesDurableActiveDedupe(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 	request := BackgroundTaskRequest{
@@ -65,14 +90,25 @@ func TestEnqueueBackgroundTaskUsesDurableActiveDedupe(t *testing.T) {
 	}
 }
 
-func TestEnqueueBackgroundTaskCanCommitAtomicallyWithCoreMutation(t *testing.T) {
+func TestBackgroundOperationAndTasksCanCommitAtomicallyWithCoreMutation(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 	tx, err := client.store.Begin()
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
 
+	operation, err := client.createBackgroundOperation(tx, BackgroundOperationRequest{
+		Kind:          "library-import",
+		Visible:       true,
+		ProgressTotal: 1,
+	})
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("create operation in transaction: %v", err)
+	}
+
 	request := BackgroundTaskRequest{
+		OperationID: operation.ID,
 		DedupeKey:   "thumbnail:content-rollback:grid-v1",
 		Kind:        "thumbnail",
 		SubjectKind: "content",
@@ -90,11 +126,19 @@ func TestEnqueueBackgroundTaskCanCommitAtomicallyWithCoreMutation(t *testing.T) 
 		t.Fatalf("Rollback: %v", err)
 	}
 
-	var count int
-	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_tasks WHERE dedupe_key = ?`, request.DedupeKey).Scan(&count); err != nil {
+	var operationCount int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_operations WHERE id = ?`, operation.ID).Scan(&operationCount); err != nil {
+		t.Fatalf("count rolled-back operation: %v", err)
+	}
+	if operationCount != 0 {
+		t.Fatalf("rolled-back operation count = %d, want 0", operationCount)
+	}
+
+	var taskCount int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_tasks WHERE dedupe_key = ?`, request.DedupeKey).Scan(&taskCount); err != nil {
 		t.Fatalf("count rolled-back tasks: %v", err)
 	}
-	if count != 0 {
-		t.Fatalf("rolled-back task count = %d, want 0", count)
+	if taskCount != 0 {
+		t.Fatalf("rolled-back task count = %d, want 0", taskCount)
 	}
 }
