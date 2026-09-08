@@ -11,24 +11,24 @@ import (
 type BackgroundTask struct {
 	ID               string
 	OperationID      string
-	DedupeKey         string
-	Kind              string
-	SubjectKind       string
-	SubjectID         string
-	InputKey          string
-	ResourceClass     string
-	Priority          int
-	Status            string
-	AvailableAt       time.Time
-	LeaseOwner        string
-	LeaseExpiresAt    *time.Time
-	CreatedAt         time.Time
-	StartedAt         *time.Time
-	FinishedAt        *time.Time
-	AttemptCount      int
-	MaxAttempts       int
-	LastErrorCode     string
-	LastErrorMessage  string
+	DedupeKey        string
+	Kind             string
+	SubjectKind      string
+	SubjectID        string
+	InputKey         string
+	ResourceClass    string
+	Priority         int
+	Status           string
+	AvailableAt      time.Time
+	LeaseOwner       string
+	LeaseExpiresAt   *time.Time
+	CreatedAt        time.Time
+	StartedAt        *time.Time
+	FinishedAt       *time.Time
+	AttemptCount     int
+	MaxAttempts      int
+	LastErrorCode    string
+	LastErrorMessage string
 }
 
 // BackgroundTaskHandler executes one claimed durable task. The task lease and
