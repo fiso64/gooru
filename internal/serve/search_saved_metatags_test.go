@@ -4,13 +4,25 @@ import "testing"
 
 func TestMetaTagDTOsExposeCompleteQueryCatalog(t *testing.T) {
 	items := metaTagDTOs()
-	if len(items) != 2 {
-		t.Fatalf("got %d metatags, want 2", len(items))
+	assertSyntax := func(syntax string, requiresValue bool) {
+		t.Helper()
+		for _, item := range items {
+			if item.Syntax == syntax {
+				if item.RequiresValue != requiresValue {
+					t.Fatalf("syntax %q requires_value=%v, want %v", syntax, item.RequiresValue, requiresValue)
+				}
+				return
+			}
+		}
+		t.Fatalf("syntax %q missing from autocomplete catalog", syntax)
 	}
-	if items[0].Syntax != "@tagged" || items[0].RequiresValue {
-		t.Fatalf("unexpected tagged metadata: %+v", items[0])
-	}
-	if items[1].Syntax != "@filename_contains:" || !items[1].RequiresValue {
-		t.Fatalf("unexpected filename metadata: %+v", items[1])
-	}
+
+	assertSyntax("@tagged", false)
+	assertSyntax("@filename_contains:", true)
+	assertSyntax("type:", true)
+	assertSyntax("type:video", false)
+	assertSyntax("ext:", true)
+	assertSyntax("ext:jpg", false)
+	assertSyntax("ext:mp4", false)
+	assertSyntax("ext:cbz", false)
 }
