@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -36,15 +37,16 @@ type UploadedFileDTO struct {
 }
 
 type StagedUpload struct {
-	Name          string
-	Path          string
-	AnalysisPath  string
-	Size          int64
-	TargetID      string
-	Status        string
-	Error         string
-	SourceModTime time.Time
-	AddedAt       time.Time
+	Name           string
+	Path           string
+	AnalysisPath   string
+	Size           int64
+	TargetID       string
+	Status         string
+	Error          string
+	SourceModTime  time.Time
+	AddedAt        time.Time
+	ConflictPolicy string
 }
 
 const maxUploadFiles = 100
@@ -217,6 +219,7 @@ type savedUpload struct {
 	replace         bool
 	sourceModTime   time.Time
 	addedAt         time.Time
+	conflictPolicy  string
 }
 
 var (
@@ -279,7 +282,7 @@ func uploadConflictPolicy(requested string, fallback string) (string, error) {
 	}
 	fallback = strings.TrimSpace(fallback)
 	if fallback == "" {
-		return "skip", nil
+		return "rename", nil
 	}
 	switch fallback {
 	case "skip", "rename", "replace", "error":
@@ -584,7 +587,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy})
 	}
 	return out
 }
@@ -650,6 +653,18 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 			removeRejectedStagedUpload(file)
 			response.Files = append(response.Files, dto)
 			continue
+		}
+		if file.ConflictPolicy == "rename" && l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path) {
+			resolvedPath, err := l.resolveProtectedUploadRename(file.Path)
+			if err != nil {
+				dto.Status = "error"
+				dto.Error = err.Error()
+				removeRejectedStagedUpload(file)
+				response.Files = append(response.Files, dto)
+				continue
+			}
+			file.Path = resolvedPath
+			dto.Name = filepath.Base(resolvedPath)
 		}
 		storagePath := ""
 		if l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path) {
@@ -717,6 +732,40 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 	response.Notifications = notificationDTOs(result.Notifications)
 	l.cacheImportedMediaMetadata(ctx, importLocations, analysisPathByDestination)
 	return response, nil
+}
+
+func (l *GooruLibrary) resolveProtectedUploadRename(path string) (string, error) {
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(filepath.Base(path), ext)
+	if base == "" {
+		base = "upload"
+	}
+	dir := filepath.Dir(path)
+	for i := 0; i < 10_000; i++ {
+		name := filepath.Base(path)
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d%s", base, i, ext)
+		}
+		candidate := filepath.Join(dir, name)
+		_, err := l.client.GetFileInfoByPath(candidate)
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("check protected upload name: %w", err)
+		}
+		if candidate == path {
+			return path, nil
+		}
+		if err := commitUploadDestination(path, candidate); err != nil {
+			if errors.Is(err, errUploadConflict) {
+				continue
+			}
+			return "", err
+		}
+		return candidate, nil
+	}
+	return "", errors.New("could not choose a non-conflicting protected upload filename")
 }
 
 func removeRejectedStagedUpload(file StagedUpload) {

@@ -169,7 +169,7 @@ func TestUploadConflictPolicyErrorIsolatesExistingNameWithinBatch(t *testing.T) 
 	}
 }
 
-func TestUploadOmittedConflictPolicySkipsExistingName(t *testing.T) {
+func TestUploadOmittedConflictPolicyRenamesExistingName(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("existing"), 0600); err != nil {
 		t.Fatalf("write existing file: %v", err)
@@ -186,12 +186,11 @@ func TestUploadOmittedConflictPolicySkipsExistingName(t *testing.T) {
 	if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "existing" {
 		t.Fatalf("existing file was overwritten: %q", got)
 	}
-	var response UploadImportResponse
-	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
-		t.Fatalf("decode response: %v", err)
+	if got := string(mustReadFile(t, filepath.Join(dir, "a-1.txt"))); got != "uploaded" {
+		t.Fatalf("renamed upload contents = %q", got)
 	}
-	if len(response.Files) != 1 || response.Files[0].Status != "skipped" {
-		t.Fatalf("expected skipped response, got %+v", response.Files)
+	if len(library.paths) != 1 || filepath.Base(library.paths[0]) != "a-1.txt" {
+		t.Fatalf("unexpected imported paths: %+v", library.paths)
 	}
 }
 

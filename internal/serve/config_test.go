@@ -46,7 +46,7 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Jobs.MaxQueued != 100 || cfg.Jobs.MaxRunning != 2 || cfg.Jobs.MaxResultBytes != 10<<20 {
 		t.Fatalf("unexpected job defaults: %+v", cfg.Jobs)
 	}
-	if cfg.Uploads.ConflictPolicy != "skip" {
+	if cfg.Uploads.ConflictPolicy != "rename" {
 		t.Fatalf("unexpected upload conflict policy default %q", cfg.Uploads.ConflictPolicy)
 	}
 	if !cfg.Uploads.PreserveModTime {

@@ -2,6 +2,7 @@ package serve
 
 import (
 	"bytes"
+	"encoding/json"
 	"image/color"
 	"io"
 	"net/http"
@@ -131,5 +132,77 @@ func TestEncryptedUploadHonorsPlaintextSizeLimit(t *testing.T) {
 	defer dst.Close()
 	if _, err := server.persistUploadedFile(dst, bytes.NewReader([]byte("12345"))); err != errUploadTooLarge {
 		t.Fatalf("persist oversized encrypted upload error = %v, want %v", err, errUploadTooLarge)
+	}
+}
+
+func TestEncryptedUploadDefaultConflictRenamesLogicalPathAfterHashDedup(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+
+	uploadDir := filepath.Join(dir, "uploads")
+	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
+	cfg.Auth.Enabled = false
+	cfg.Encryption.Enabled = true
+	cfg.Encryption.Key = bytes.Repeat([]byte{0x33}, securekey.Size)
+	cfg.Uploads.Enabled = true
+	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
+	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+
+	upload := func(data []byte) UploadImportResponse {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		server.Handler().ServeHTTP(rec, uploadBinaryRequestWithSourceModTime(t, "same.png", data, time.Time{}))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
+		}
+		var response UploadImportResponse
+		if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if len(response.Files) != 1 {
+			t.Fatalf("upload response = %+v", response.Files)
+		}
+		return response
+	}
+
+	firstBytes := tinyPNG(t, 2, 2, color.RGBA{R: 10, G: 20, B: 30, A: 255})
+	secondBytes := tinyPNG(t, 3, 2, color.RGBA{R: 40, G: 50, B: 60, A: 255})
+	first := upload(firstBytes)
+	if first.Files[0].Status != "imported" || first.Files[0].Name != "same.png" {
+		t.Fatalf("first upload = %+v", first.Files[0])
+	}
+	duplicate := upload(firstBytes)
+	if duplicate.Files[0].Status != "duplicate_existing" {
+		t.Fatalf("exact duplicate = %+v", duplicate.Files[0])
+	}
+	renamed := upload(secondBytes)
+	if renamed.Files[0].Status != "imported" || renamed.Files[0].Name != "same-1.png" {
+		t.Fatalf("same-name different-content upload = %+v", renamed.Files[0])
+	}
+
+	for _, name := range []string{"same.png", "same-1.png"} {
+		logicalPath := filepath.Join(uploadDir, name)
+		if _, err := os.Stat(logicalPath); !os.IsNotExist(err) {
+			t.Fatalf("protected logical path %q leaked on disk: %v", logicalPath, err)
+		}
+		file, err := client.GetFileInfoByPath(logicalPath)
+		if err != nil {
+			t.Fatalf("logical path %q not tracked: %v", logicalPath, err)
+		}
+		resolved, err := client.ResolveManagedStorage(file)
+		if err != nil {
+			t.Fatalf("resolve storage for %q: %v", logicalPath, err)
+		}
+		if resolved.StoragePath == "" || filepath.Ext(resolved.StoragePath) != "" {
+			t.Fatalf("protected storage for %q is not opaque: %q", logicalPath, resolved.StoragePath)
+		}
 	}
 }

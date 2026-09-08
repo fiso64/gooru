@@ -28,7 +28,7 @@ function pendingJob(id: string): Job {
 describe('createUploadWorkflow', () => {
   beforeEach(() => untrackSpy.mockClear());
 
-  it('defaults browser uploads to skip conflicts', async () => {
+  it('defaults browser uploads to rename conflicts', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg')]);
     let policy = '';
@@ -38,7 +38,7 @@ describe('createUploadWorkflow', () => {
       return pendingJob('job-first');
     });
 
-    expect(policy).toBe('skip');
+    expect(policy).toBe('rename');
   });
 
   it('appends later file selections to the staged batch', () => {
