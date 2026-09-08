@@ -101,7 +101,7 @@ func TestEncryptedFileRoundTripAndRandomAccess(t *testing.T) {
 	}
 }
 
-func TestEncryptedFileSequentialReadsReuseDecryptedChunk(t *testing.T) {
+func TestEncryptedFileReadsReuseDecryptedChunks(t *testing.T) {
 	plaintext := testPlaintext()
 	key := testKey(0x42)
 	path := writeEncryptedFixture(t, plaintext, key)
@@ -139,11 +139,27 @@ func TestEncryptedFileSequentialReadsReuseDecryptedChunk(t *testing.T) {
 	if _, err := file.ReadAt(one, 0); err != nil {
 		t.Fatal(err)
 	}
+	if one[0] != plaintext[0] {
+		t.Fatalf("ReadAt(0) = %d, want %d", one[0], plaintext[0])
+	}
 	if _, err := file.ReadAt(one, 1); err != nil {
 		t.Fatal(err)
 	}
+	if one[0] != plaintext[1] {
+		t.Fatalf("ReadAt(1) = %d, want %d", one[0], plaintext[1])
+	}
+	if counted.reads != 3 {
+		t.Fatalf("ciphertext reads after two same-chunk ReadAt calls = %d, want 3", counted.reads)
+	}
+
+	if _, err := file.ReadAt(one, ChunkSize+1); err != nil {
+		t.Fatal(err)
+	}
+	if one[0] != plaintext[ChunkSize+1] {
+		t.Fatalf("ReadAt(next chunk) = %d, want %d", one[0], plaintext[ChunkSize+1])
+	}
 	if counted.reads != 4 {
-		t.Fatalf("ciphertext reads after independent ReadAt calls = %d, want 4", counted.reads)
+		t.Fatalf("ciphertext reads after random cache miss = %d, want 4", counted.reads)
 	}
 }
 
