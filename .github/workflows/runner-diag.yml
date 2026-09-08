@@ -1,0 +1,20 @@
+name: runner-diag
+
+on:
+  push:
+    branches:
+      - feat/443-saved-search-composition
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - name: Runner ping
+        run: |
+          echo "runner=$RUNNER_NAME"
+          echo "os=$RUNNER_OS"
+          echo "arch=$RUNNER_ARCH"
+          date -u
