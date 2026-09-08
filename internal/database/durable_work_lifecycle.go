@@ -71,6 +71,9 @@ func (s *Store) ClaimNextBackgroundTask(resourceClass, workerID string, now time
 	`, task.ID, task.AttemptCount, workerID, workTimeValue(now)); err != nil {
 		return BackgroundTask{}, false, fmt.Errorf("record background task attempt: %w", err)
 	}
+	if err := refreshBackgroundOperation(tx, task.OperationID, now); err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("refresh background operation after task claim: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return BackgroundTask{}, false, fmt.Errorf("commit background task claim: %w", err)
 	}
@@ -96,6 +99,7 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 	defer tx.Rollback()
 
 	var attemptNumber int
+	var operationID sql.NullString
 	if err := tx.QueryRow(`
 		UPDATE background_tasks
 		SET status = 'completed',
@@ -109,8 +113,8 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 		  AND lease_owner = ?
 		  AND lease_expires_at IS NOT NULL
 		  AND lease_expires_at > ?
-		RETURNING attempt_count
-	`, workTimeValue(finishedAt), taskID, workerID, workTimeValue(finishedAt)).Scan(&attemptNumber); err != nil {
+		RETURNING attempt_count, operation_id
+	`, workTimeValue(finishedAt), taskID, workerID, workTimeValue(finishedAt)).Scan(&attemptNumber, &operationID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrBackgroundTaskLeaseLost
 		}
@@ -127,6 +131,9 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 	}
 	if err := requireOneBackgroundAttempt(res); err != nil {
 		return fmt.Errorf("complete background task attempt: %w", err)
+	}
+	if err := refreshBackgroundOperation(tx, operationID.String, finishedAt); err != nil {
+		return fmt.Errorf("refresh background operation after task completion: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit background task completion: %w", err)
@@ -159,6 +166,7 @@ func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt 
 
 	var attemptNumber, maxAttempts int
 	var status string
+	var operationID sql.NullString
 	if err := tx.QueryRow(`
 		UPDATE background_tasks
 		SET status = CASE WHEN attempt_count < max_attempts THEN 'pending' ELSE 'failed' END,
@@ -173,8 +181,8 @@ func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt 
 		  AND lease_owner = ?
 		  AND lease_expires_at IS NOT NULL
 		  AND lease_expires_at > ?
-		RETURNING attempt_count, max_attempts, status
-	`, workTimeValue(retryAt), workTimeValue(finishedAt), errorCode, errorMessage, taskID, workerID, workTimeValue(finishedAt)).Scan(&attemptNumber, &maxAttempts, &status); err != nil {
+		RETURNING attempt_count, max_attempts, status, operation_id
+	`, workTimeValue(retryAt), workTimeValue(finishedAt), errorCode, errorMessage, taskID, workerID, workTimeValue(finishedAt)).Scan(&attemptNumber, &maxAttempts, &status, &operationID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, ErrBackgroundTaskLeaseLost
 		}
@@ -191,6 +199,9 @@ func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt 
 	}
 	if err := requireOneBackgroundAttempt(res); err != nil {
 		return false, fmt.Errorf("fail background task attempt: %w", err)
+	}
+	if err := refreshBackgroundOperation(tx, operationID.String, finishedAt); err != nil {
+		return false, fmt.Errorf("refresh background operation after task failure: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit background task failure: %w", err)
@@ -216,7 +227,7 @@ func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 	defer tx.Rollback()
 
 	rows, err := tx.Query(`
-		SELECT id, attempt_count
+		SELECT id, attempt_count, operation_id
 		FROM background_tasks
 		WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
 		ORDER BY lease_expires_at, id
@@ -227,11 +238,12 @@ func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 	type expiredTask struct {
 		id            string
 		attemptNumber int
+		operationID   sql.NullString
 	}
 	var expired []expiredTask
 	for rows.Next() {
 		var task expiredTask
-		if err := rows.Scan(&task.id, &task.attemptNumber); err != nil {
+		if err := rows.Scan(&task.id, &task.attemptNumber, &task.operationID); err != nil {
 			rows.Close()
 			return 0, fmt.Errorf("scan expired background task lease: %w", err)
 		}
@@ -278,6 +290,9 @@ func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 		}
 		if err := requireOneBackgroundAttempt(attemptResult); err != nil {
 			return 0, fmt.Errorf("abandon expired background task attempt %s/%d: %w", task.id, task.attemptNumber, err)
+		}
+		if err := refreshBackgroundOperation(tx, task.operationID.String, now); err != nil {
+			return 0, fmt.Errorf("refresh background operation after expired task %s: %w", task.id, err)
 		}
 		recovered++
 	}
