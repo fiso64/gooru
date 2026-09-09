@@ -76,6 +76,7 @@
   let displayedFile = $state<FileItem | undefined>();
   let displayedImageSource = $state('');
   let waitingForTarget = $state(false);
+  let mediaError = $state('');
   let waitingTimer: ReturnType<typeof setTimeout> | undefined;
   let transitionGeneration = 0;
   let rotation = $state<number>(initialViewerPreferences.rotation);
@@ -200,6 +201,7 @@
     recordViewerRequest(generation);
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = '';
 
     if (!displayedFile) {
       displayedFile = targetFile;
@@ -297,6 +299,7 @@
     intrinsicHeight = image.naturalHeight;
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = '';
     // Keep the frozen old pixels until the next paint after the *latest* target load. Stale
     // completions from sources superseded by rapid navigation must never release the freeze.
     requestAnimationFrame(() => {
@@ -315,6 +318,7 @@
     // End this handoff explicitly so stale pixels never stand in for the current file.
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = 'Media file could not be loaded. It may be missing from disk.';
     freezeGeneration += 1;
     freezeVisible = false;
     intrinsicWidth = 0;
@@ -336,6 +340,7 @@
     const generation = transitionGeneration;
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = '';
     recordViewerPresentation(generation);
     onPresented?.(renderedImageSource);
   }
@@ -368,6 +373,7 @@
     if (!(media instanceof HTMLMediaElement) || !playableMatchesCurrentSource(media)) return;
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = 'Media file could not be loaded. It may be missing from disk.';
   }
 
   function revealPlaybackControls() {
@@ -828,6 +834,7 @@
   {/if}
 
   {#if waitingForTarget}<div class="viewer-loading-indicator" role="status" aria-live="polite">Loading media…</div>{/if}
+  {#if mediaError}<div class="viewer-media-error" role="alert">{mediaError}</div>{/if}
   {#if fitModeFeedback}<div class="viewer-mode-feedback" role="status" aria-live="polite">{fitModeFeedback}</div>{/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
@@ -910,7 +917,8 @@
     opacity: 0.58;
   }
 
-  .viewer-loading-indicator {
+  .viewer-loading-indicator,
+  .viewer-media-error {
     position: absolute;
     z-index: 5;
     left: 50%;
@@ -922,6 +930,11 @@
     color: #fff;
     font: 600 11px/1.2 var(--font-mono);
     pointer-events: none;
+  }
+
+  .viewer-media-error {
+    max-width: min(420px, calc(100% - 40px));
+    text-align: center;
   }
 
   .viewer-mode-feedback {
