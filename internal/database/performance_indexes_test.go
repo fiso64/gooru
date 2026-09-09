@@ -2,7 +2,6 @@ package database
 
 import (
 	"database/sql"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -32,10 +31,11 @@ func explainPlan(t *testing.T, db *sql.DB, query string, args ...any) string {
 
 func migratedPerformanceDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "gooru.db"))
+	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	if err := RunMigrations(db); err != nil {
 		db.Close()
 		t.Fatalf("run migrations: %v", err)

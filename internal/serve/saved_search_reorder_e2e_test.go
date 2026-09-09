@@ -2,7 +2,6 @@ package serve
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -19,9 +18,7 @@ import (
 func TestSavedSearchReorderGoldenPath(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
-		t.Fatalf("init db: %v", err)
-	}
+	writeInitializedTestDB(t, dbPath, types.StrategyFull)
 	client, err := core.New(dbPath, false)
 	if err != nil {
 		t.Fatalf("open client: %v", err)
@@ -34,13 +31,9 @@ func TestSavedSearchReorderGoldenPath(t *testing.T) {
 	}
 	defer authDB.Close()
 	authStore := NewAuthStore(authDB.DB, time.Hour)
-	if _, err := authStore.CreateAdmin(context.Background(), "saved-search-test", "correct horse"); err != nil {
-		t.Fatalf("create test user: %v", err)
-	}
-	auth, err := authStore.Login(context.Background(), "saved-search-test", "correct horse")
-	if err != nil {
-		t.Fatalf("login test user: %v", err)
-	}
+	authStore.hashPassword = fastTestHashPassword
+	authStore.verifyPassword = fastTestVerifyPassword
+	auth := newTestAuthSession(t, authStore)
 
 	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))

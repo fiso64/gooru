@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -404,18 +405,31 @@ func commandError(err error) error {
 	return err
 }
 
+var commandVersionCache = struct {
+	sync.Mutex
+	values map[string]string
+}{values: make(map[string]string)}
+
 func commandVersion(path string, args []string) string {
+	key := path + "\x00" + strings.Join(args, "\x00")
+	commandVersionCache.Lock()
+	defer commandVersionCache.Unlock()
+	if version, ok := commandVersionCache.values[key]; ok {
+		return version
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, path, args...).CombinedOutput()
-	if err != nil {
-		return "unknown"
+	version := "unknown"
+	if err == nil {
+		line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+		if line != "" {
+			version = sanitizeVersion(line)
+		}
 	}
-	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
-	if line == "" {
-		return "unknown"
-	}
-	return sanitizeVersion(line)
+	commandVersionCache.values[key] = version
+	return version
 }
 
 func sanitizeVersion(version string) string {

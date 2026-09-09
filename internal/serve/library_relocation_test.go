@@ -21,9 +21,7 @@ func TestManagedLibraryMovePreservesOriginalAndDerivativeCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldDB := filepath.Join(oldRoot, "gooru.db")
-	if err := core.Init(oldDB, types.StrategyFull, false); err != nil {
-		t.Fatalf("init db: %v", err)
-	}
+	writeInitializedTestDB(t, oldDB, types.StrategyFull)
 	client, err := core.New(oldDB, false)
 	if err != nil {
 		t.Fatalf("open client: %v", err)

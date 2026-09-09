@@ -21,9 +21,7 @@ import (
 func TestCBZUploadImportAndOpenGoldenPath(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
-		t.Fatalf("init db: %v", err)
-	}
+	writeInitializedTestDB(t, dbPath, types.StrategyFull)
 	client, err := core.New(dbPath, false)
 	if err != nil {
 		t.Fatalf("open client: %v", err)

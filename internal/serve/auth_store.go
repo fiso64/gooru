@@ -32,6 +32,8 @@ type AuthStore struct {
 	cleanupMu       sync.Mutex
 	nextCleanupAt   time.Time
 	now             func() time.Time
+	hashPassword    func(string) (string, error)
+	verifyPassword  func(string, string) (bool, error)
 }
 
 type User struct {
@@ -68,6 +70,8 @@ func NewAuthStore(db *sql.DB, sessionTTL time.Duration) *AuthStore {
 		lastSeenTimeout: 5 * time.Minute,
 		cleanupInterval: time.Hour,
 		now:             func() time.Time { return time.Now().UTC() },
+		hashPassword:    HashPassword,
+		verifyPassword:  VerifyPassword,
 	}
 }
 
@@ -83,7 +87,7 @@ func (s *AuthStore) createUser(ctx context.Context, username, password, role str
 	if role == "" {
 		role = adminRole
 	}
-	hash, err := HashPassword(password)
+	hash, err := s.hashPassword(password)
 	if err != nil {
 		return User{}, err
 	}
@@ -134,7 +138,7 @@ WHERE username = ?`, username).Scan(&user.ID, &user.Username, &passwordHash, &us
 	if user.DisabledAt != nil {
 		return AuthSession{}, ErrDisabledUser
 	}
-	ok, err := VerifyPassword(passwordHash, password)
+	ok, err := s.verifyPassword(passwordHash, password)
 	if err != nil || !ok {
 		return AuthSession{}, ErrInvalidCredentials
 	}
@@ -195,11 +199,11 @@ func (s *AuthStore) ChangePassword(ctx context.Context, userID, currentPassword,
 	if disabledAt != nil {
 		return ErrDisabledUser
 	}
-	ok, err := VerifyPassword(passwordHash, currentPassword)
+	ok, err := s.verifyPassword(passwordHash, currentPassword)
 	if err != nil || !ok {
 		return ErrInvalidCredentials
 	}
-	newHash, err := HashPassword(newPassword)
+	newHash, err := s.hashPassword(newPassword)
 	if err != nil {
 		return err
 	}

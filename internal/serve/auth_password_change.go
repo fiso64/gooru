@@ -30,11 +30,11 @@ func (s *AuthStore) ChangePasswordAndRevokeOtherSessions(ctx context.Context, us
 	if disabledAt != nil {
 		return ErrDisabledUser
 	}
-	ok, err := VerifyPassword(passwordHash, currentPassword)
+	ok, err := s.verifyPassword(passwordHash, currentPassword)
 	if err != nil || !ok {
 		return ErrInvalidCredentials
 	}
-	newHash, err := HashPassword(newPassword)
+	newHash, err := s.hashPassword(newPassword)
 	if err != nil {
 		return err
 	}
