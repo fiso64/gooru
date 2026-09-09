@@ -20,7 +20,8 @@ type stagedFileDeletion struct {
 }
 
 func (s *Server) canDeleteFilePath(path string) bool {
-	return IsManagedUploadPath(s.cfg.Uploads.Targets, path)
+	_, ok := s.managedDeleteCandidatePath(path)
+	return ok
 }
 
 func (s *Server) managedDeletePath(path string) (string, bool) {
@@ -36,6 +37,34 @@ func (s *Server) managedDeletePath(path string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	return s.matchManagedUploadPath(filePath)
+}
+
+// managedDeleteCandidatePath validates a tracked path even when the file itself
+// has already disappeared from disk. The containing directory must still exist
+// and is canonicalized so a symlink cannot turn an apparently managed missing
+// path into a deletion outside the configured upload target.
+func (s *Server) managedDeleteCandidatePath(path string) (string, bool) {
+	if managedPath, ok := s.managedDeletePath(path); ok {
+		return managedPath, true
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", false
+	}
+	absolute, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", false
+	}
+	parent, err := canonicalExistingPath(filepath.Dir(absolute))
+	if err != nil {
+		return "", false
+	}
+	candidate := filepath.Join(parent, filepath.Base(absolute))
+	return s.matchManagedUploadPath(candidate)
+}
+
+func (s *Server) matchManagedUploadPath(filePath string) (string, bool) {
 	for _, target := range s.cfg.Uploads.Targets {
 		root := strings.TrimSpace(target.Path)
 		if root == "" {
@@ -49,7 +78,7 @@ func (s *Server) managedDeletePath(path string) (string, bool) {
 		if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			continue
 		}
-		return filePath, true
+		return filepath.Clean(filePath), true
 	}
 	return "", false
 }
@@ -71,7 +100,7 @@ func (s *Server) deleteManagedFile(ctx context.Context, publicID string) (bool, 
 	if err != nil {
 		return false, err
 	}
-	managedPath, ok := s.managedDeletePath(fileStoragePath(file))
+	managedPath, ok := s.managedDeleteCandidatePath(fileStoragePath(file))
 	if !ok {
 		return false, ErrFileNotManaged
 	}
