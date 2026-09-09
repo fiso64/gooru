@@ -34,7 +34,50 @@ jobs:
           test -d "$gocache" && test -w "$gocache"
           test -d "$gomodcache" && test -w "$gomodcache"
       - name: Test
-        run: go test -count=1 ./...
+        shell: bash
+        run: |
+          set +e
+          go test -json -count=1 ./... > /tmp/go-test.json
+          status=$?
+          set -e
+          python3 - <<'PY'
+          import json
+
+          tests = []
+          packages = []
+          failures = []
+          with open("/tmp/go-test.json", encoding="utf-8") as f:
+              for line in f:
+                  try:
+                      rec = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  action = rec.get("Action")
+                  elapsed = rec.get("Elapsed")
+                  package = rec.get("Package", "")
+                  test = rec.get("Test")
+                  if action == "pass" and elapsed is not None:
+                      if test:
+                          tests.append((float(elapsed), package, test))
+                      elif package:
+                          packages.append((float(elapsed), package))
+                  elif action == "fail":
+                      failures.append((package, test or "<package>"))
+
+          print("Slowest packages:")
+          for elapsed, package in sorted(packages, reverse=True):
+              print(f"{elapsed:8.3f}s  {package}")
+
+          print("\nSlowest tests/subtests:")
+          for elapsed, package, test in sorted(tests, reverse=True)[:60]:
+              print(f"{elapsed:8.3f}s  {package}  {test}")
+
+          if failures:
+              print("\nFailures:")
+              for package, test in failures:
+                  print(f"{package}  {test}")
+          PY
+          exit "$status"
       - name: Build
         run: go build ./...
 
