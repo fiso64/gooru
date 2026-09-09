@@ -13,6 +13,10 @@ import (
 // resolver.
 type thumbnailGenerationPolicy func(*MediaService, types.FileInfo, io.Writer, int, string) error
 
+type protectedVideoPathThumbnailer interface {
+	ThumbnailVideoPath(src string, dst io.Writer, size int, format string) error
+}
+
 func newThumbnailGenerationPolicy(protected bool) thumbnailGenerationPolicy {
 	if protected {
 		return generateThumbnailFromLogicalSource
@@ -30,6 +34,24 @@ func generateThumbnailFromLogicalSource(m *MediaService, file types.FileInfo, ds
 		return err
 	}
 	defer source.Close()
+
+	// ffmpeg can consume simple videos from stdin, but real MP4 files commonly
+	// require seeking (for example when the moov atom lives near the end). On
+	// platforms where we can expose a seekable anonymous in-memory file, prefer
+	// that path so protected mode keeps ffmpeg's ordinary seek semantics without
+	// writing plaintext media into the filesystem namespace.
+	if mediaKindForType(mediaTypeForPath(file.Path)) == "video" {
+		if pathThumbnailer, ok := m.thumbnailer.(protectedVideoPathThumbnailer); ok {
+			path, cleanup, available, err := protectedVideoSeekablePath(source)
+			if err != nil {
+				return err
+			}
+			if available {
+				defer cleanup()
+				return pathThumbnailer.ThumbnailVideoPath(path, dst, size, format)
+			}
+		}
+	}
 
 	sourceThumbnailer, ok := m.thumbnailer.(SourceThumbnailer)
 	if !ok {
