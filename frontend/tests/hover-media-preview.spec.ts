@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const session = {
   user: { id: 'usr_test', username: 'mac', role: 'admin' },
@@ -6,7 +6,7 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-// Keep the first frame visible for three seconds so restart assertions have a wide, deterministic sampling window.
+// Keep the first red frame visible for three seconds so restart assertions have a wide, deterministic sampling window.
 const twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQALAEAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');
 const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
@@ -36,6 +36,19 @@ function mediaFile(id: string, kind: 'video' | 'gif') {
 function hoverSessionURL(source: string | null) {
   if (!source) throw new Error('missing hover preview source');
   return new URL(source, 'http://gooru.test');
+}
+
+async function gifPixel(gif: Locator) {
+  return gif.evaluate((element) => {
+    const image = element as HTMLImageElement;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, image.naturalWidth);
+    canvas.height = Math.max(1, image.naturalHeight);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('missing canvas context');
+    context.drawImage(image, 0, 0);
+    return Array.from(context.getImageData(0, 0, 1, 1).data);
+  });
 }
 
 async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
@@ -168,11 +181,12 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('z-index', '4');
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('opacity', '1');
   const firstSource = hoverSessionURL(await gif.getAttribute('src'));
-  const firstFrame = await gif.screenshot();
+  const firstPixel = await gifPixel(gif);
+  expect(firstPixel[0]).toBeGreaterThan(firstPixel[1]);
 
   await page.waitForTimeout(3150);
-  const secondFrame = await gif.screenshot();
-  expect(secondFrame.equals(firstFrame)).toBe(false);
+  const advancedPixel = await gifPixel(gif);
+  expect(advancedPixel[1]).toBeGreaterThan(advancedPixel[0]);
 
   await page.getByRole('heading', { name: 'Library' }).hover();
   await expect(gif).toHaveCount(0);
@@ -184,8 +198,8 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   expect(restartedSource.searchParams.get('gooru_hover_session')).toBe('2');
   expect(restartedSource.hash).toBe('#gooru-hover-2');
   expect(`${restartedSource.pathname}${restartedSource.search}`).not.toBe(`${firstSource.pathname}${firstSource.search}`);
-  const restartedFrame = await gif.screenshot();
-  expect(restartedFrame.equals(firstFrame)).toBe(true);
+  const restartedPixel = await gifPixel(gif);
+  expect(restartedPixel[0]).toBeGreaterThan(restartedPixel[1]);
 });
 
 test('reduced motion and disabled media options suppress hover playback', async ({ page }) => {
