@@ -681,6 +681,10 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 }
 
 func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUpload, tags []string) (UploadImportResponse, error) {
+	return l.importUploadedFiles(ctx, files, tags, "", nil)
+}
+
+func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUpload, tags []string, operationID string, activated []activatedSavedReplacement) (UploadImportResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return UploadImportResponse{}, err
 	}
@@ -795,11 +799,22 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		}
 	}
 	failures := make(map[string]string)
-	result, err := l.client.TagKnownFilesWithBackgroundTasks(importLocations, tags, backgroundTasks, func(filePath string, err error) {
+	progress := func(filePath string, err error) {
 		if err != nil {
 			failures[filePath] = err.Error()
 		}
-	})
+	}
+	var result types.TagOperationResult
+	var err error
+	if operationID == "" {
+		result, err = l.client.TagKnownFilesWithBackgroundTasks(importLocations, tags, backgroundTasks, progress)
+	} else {
+		result, err = l.client.TagKnownFilesWithBackgroundTasksAndOperationState(importLocations, tags, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
+			response.AffectedCount = affectedCount
+			checkpoint := backgroundUploadImportedCheckpoint(activated, response)
+			return core.BackgroundOperationTransactionState{OperationID: operationID, Checkpoint: checkpoint, Result: response}, nil
+		}, progress)
+	}
 	if err != nil {
 		for _, storagePath := range opaqueStorageByLogical {
 			_ = os.Remove(storagePath)

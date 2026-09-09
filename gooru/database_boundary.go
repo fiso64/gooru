@@ -92,6 +92,13 @@ func cancelDatabaseBackgroundTask(client *Client, taskID string) (bool, error) {
 	return client.store.CancelBackgroundTask(taskID, time.Now().UTC())
 }
 
+func setDatabaseBackgroundOperationState(client *Client, tx *databaseTx, operationID string, checkpointJSON, resultJSON []byte) error {
+	if err := client.store.SetBackgroundOperationCheckpointTx(tx, operationID, checkpointJSON); err != nil {
+		return err
+	}
+	return client.store.SetBackgroundOperationResultTx(tx, operationID, resultJSON)
+}
+
 func newDatabaseBackgroundRuntime(client *Client, cfg BackgroundWorkerConfig) (BackgroundRuntime, error) {
 	handlers := make(map[string]background.Handler, len(cfg.Handlers))
 	for kind, handler := range cfg.Handlers {
