@@ -1,0 +1,59 @@
+name: Maintainer #401 atomic upload result repair 3
+
+on:
+  push:
+    branches:
+      - maintainer/401-atomic-upload-result
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reuse staged implementation with compile corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/maintainer-401-atomic-upload-result.yml').read_text().splitlines()
+          start = next(i for i, line in enumerate(workflow) if line.strip() == 'run: |') + 1
+          body = []
+          for line in workflow[start:]:
+              if line.startswith('          '):
+                  body.append(line[10:])
+              elif not line.strip():
+                  body.append('')
+              else:
+                  break
+          script = '\n'.join(body) + '\n'
+
+          old_import = '''replace_once(path, 'import (\\n\\t"database/sql"', 'import (\\n\\t"database/sql"\\n\\t"encoding/json"')'''
+          new_import = '''replace_once(path, 'import (\\n\\t"database/sql"', 'import (\\n\\t"database/sql"\\n\\t"encoding/json"\\n\\t"errors"')'''
+          if script.count(old_import) != 1:
+              raise SystemExit(f'expected one import patch marker, found {script.count(old_import)}')
+          script = script.replace(old_import, new_import, 1)
+
+          gofmt = 'gofmt -w internal/database/durable_work_checkpoint.go'
+          if gofmt not in script:
+              raise SystemExit('expected gofmt marker not found')
+          declaration_fix = '''python3 <<'PYERR'\nfrom pathlib import Path\np = Path('internal/serve/uploads.go')\ntext = p.read_text()\nold = "\\tvar result types.TagOperationResult\\n\\tif operationID =="\nnew = "\\tvar result types.TagOperationResult\\n\\tvar err error\\n\\tif operationID =="\nif text.count(old) != 1:\n    raise SystemExit(f'expected one result declaration marker, found {text.count(old)}')\np.write_text(text.replace(old, new, 1))\nPYERR\n'''
+          script = script.replace(gofmt, declaration_fix + gofmt, 1)
+
+          cleanup = 'rm .github/workflows/maintainer-401-atomic-upload-result.yml'
+          if cleanup not in script:
+              raise SystemExit('expected cleanup marker not found')
+          script = script.replace(
+              cleanup,
+              cleanup + ' .github/workflows/maintainer-401-atomic-upload-result-repair.yml .github/workflows/maintainer-401-atomic-upload-result-repair2.yml .github/workflows/maintainer-401-atomic-upload-result-repair3.yml',
+              1,
+          )
+          Path('/tmp/maintainer-401-atomic-upload-result.sh').write_text(script)
+          PY
+          bash /tmp/maintainer-401-atomic-upload-result.sh
