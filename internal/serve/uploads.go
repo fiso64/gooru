@@ -503,14 +503,43 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 		return activatedReplacement{}, errors.New("invalid staged replacement")
 	}
 	replacement := activatedReplacement{finalPath: finalPath, backupPath: stagedPath + ".backup"}
-	_ = os.Remove(replacement.backupPath)
-	if _, err := os.Stat(finalPath); err == nil {
+	stagedExists, err := replacementPathExists(stagedPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to inspect staged replacement")
+	}
+	finalExists, err := replacementPathExists(finalPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to inspect existing file before replacement")
+	}
+	backupExists, err := replacementPathExists(replacement.backupPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to inspect preserved file before replacement")
+	}
+	if backupExists {
+		replacement.hadOriginal = true
+		switch {
+		case stagedExists && !finalExists:
+			if err := os.Rename(stagedPath, finalPath); err != nil {
+				return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
+			}
+			return replacement, nil
+		case !stagedExists && finalExists:
+			return replacement, nil
+		default:
+			return activatedReplacement{}, errors.New("inconsistent staged replacement state")
+		}
+	}
+	if !stagedExists {
+		if finalExists {
+			return replacement, nil
+		}
+		return activatedReplacement{}, errors.New("staged replacement is missing")
+	}
+	if finalExists {
 		if err := os.Rename(finalPath, replacement.backupPath); err != nil {
 			return activatedReplacement{}, fmt.Errorf("failed to preserve existing file before replacement")
 		}
 		replacement.hadOriginal = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return activatedReplacement{}, fmt.Errorf("failed to inspect existing file before replacement")
 	}
 	if err := os.Rename(stagedPath, finalPath); err != nil {
 		if replacement.hadOriginal {
@@ -521,7 +550,34 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 	return replacement, nil
 }
 
+func replacementPathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
 func rollbackReplacement(replacement activatedReplacement) error {
+	if replacement.hadOriginal {
+		backupExists, err := replacementPathExists(replacement.backupPath)
+		if err != nil {
+			return fmt.Errorf("failed to inspect preserved original before replacement rollback")
+		}
+		if !backupExists {
+			finalExists, err := replacementPathExists(replacement.finalPath)
+			if err != nil {
+				return fmt.Errorf("failed to inspect replacement rollback state")
+			}
+			if finalExists {
+				return nil
+			}
+			return fmt.Errorf("failed to restore original file after replacement failure")
+		}
+	}
 	if err := os.Remove(replacement.finalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to remove rejected replacement")
 	}
