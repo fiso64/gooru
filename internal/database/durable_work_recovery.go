@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // CancelUnattachedHiddenBackgroundOperations releases durable admission
@@ -18,9 +19,10 @@ func (s *Store) CancelUnattachedHiddenBackgroundOperations(kind string) (int64, 
 	if kind == "" {
 		return 0, errors.New("background operation kind is required")
 	}
+	finishedAt := workTimeValue(time.Now().UTC())
 	result, err := s.DB.Exec(`
 		UPDATE background_operations
-		SET status = 'canceled', finished_at = CURRENT_TIMESTAMP,
+		SET status = 'canceled', finished_at = ?,
 		    error_code = 'producer_interrupted',
 		    error_message = 'producer interrupted before durable work was attached'
 		WHERE kind = ?
@@ -30,7 +32,7 @@ func (s *Store) CancelUnattachedHiddenBackgroundOperations(kind string) (int64, 
 			SELECT 1 FROM background_tasks
 			WHERE background_tasks.operation_id = background_operations.id
 		  )
-	`, kind)
+	`, finishedAt, kind)
 	if err != nil {
 		return 0, fmt.Errorf("cancel unattached hidden background operations: %w", err)
 	}
