@@ -172,3 +172,45 @@ func TestProtectedVideoThumbnailStreamsDecryptedSource(t *testing.T) {
 		}
 	}
 }
+
+func TestProtectedWebMThumbnailStreamsDecryptedSource(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	ffprobe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe unavailable")
+	}
+
+	path := filepath.Join(t.TempDir(), "video.webm")
+	cmd := exec.Command(ffmpeg, "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=32x24:d=0.1", "-frames:v", "1", "-c:v", "libvpx-vp9", path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("generate WebM fixture: %v: %s", err, output)
+	}
+
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Encryption.Enabled = true
+	cfg.Encryption.Key = bytes.Repeat([]byte{0x62}, securekey.Size)
+	cfg.Tools.FFmpegPath = ffmpeg
+	cfg.Tools.FFprobePath = ffprobe
+	cfg.Media.CacheDir = filepath.Join(t.TempDir(), "cache")
+	cfg.Media.ThumbnailSizes = []int{16}
+	cfg.Media.ThumbnailFormat = "png"
+	encryptMediaFixture(t, path, cfg.Encryption.Key)
+
+	service := NewMediaService(cfg)
+	for i, want := range []string{"miss", "hit"} {
+		recorder := httptest.NewRecorder()
+		service.ServeDerivative(recorder, httptest.NewRequest(http.MethodGet, "/thumbnail?size=16", nil), types.FileInfo{Path: path, Hash: "protected-webm"}, "thumbnail")
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("protected WebM thumbnail request %d status = %d: %s", i+1, recorder.Code, recorder.Body.String())
+		}
+		if _, _, err := image.Decode(bytes.NewReader(recorder.Body.Bytes())); err != nil {
+			t.Fatalf("decode protected WebM thumbnail request %d: %v", i+1, err)
+		}
+		if got := recorder.Header().Get("X-Gooru-Cache"); got != want {
+			t.Fatalf("protected WebM thumbnail request %d cache = %q, want %q", i+1, got, want)
+		}
+	}
+}
