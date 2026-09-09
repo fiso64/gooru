@@ -21,9 +21,9 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({
+  await page.route('**/api/v1/operations?**', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ items: [{ id: 'job-1', type: 'upload_import', status: 'running', progress: 0.5, submitted_at: '2026-09-02T08:00:00Z' }] })
+    body: JSON.stringify({ items: [{ id: 'op-1', kind: 'delete_files', status: 'running', progress_total: 2, progress_completed: 1, progress_failed: 0, created_at: '2026-09-02T08:00:00Z' }] })
   }));
 }
 
