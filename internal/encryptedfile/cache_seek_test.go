@@ -18,7 +18,7 @@ func TestEncryptedFileSeekWorkingSetReusesDecryptedChunks(t *testing.T) {
 
 	counted := &countingReadAtCloser{readAtCloser: file.file}
 	file.file = counted
-	buf := make([]byte, 32<<10)
+	buf := make([]byte, 4<<10)
 
 	// Loopback HTTP range serving for protected seekable video repeatedly seeks
 	// among a small set of container regions. Each miss decrypts/authenticates a
