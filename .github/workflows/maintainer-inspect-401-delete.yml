@@ -1,0 +1,43 @@
+name: maintainer-inspect-401-delete
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/maintainer-inspect-401-delete.yml
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Capture deletion/background integration context
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=.maintainer-inspect-401.txt
+          : > "$out"
+          add_file() {
+            local f="$1"
+            [ -f "$f" ] || return 0
+            printf '\n===== %s =====\n' "$f" >> "$out"
+            cat "$f" >> "$out"
+          }
+          add_file internal/serve/file_removals.go
+          add_file internal/serve/file_delete.go
+          add_file internal/serve/background_runtime.go
+          add_file internal/serve/background_operations.go
+          add_file internal/serve/file_removals_test.go
+          add_file internal/serve/background_runtime_test.go
+          add_file gooru/background.go
+          add_file cmd/gooru/cmd/serve.go
+          while IFS= read -r f; do add_file "$f"; done < <(grep -RIl --exclude='*_test.go' -E 'type GooruLibrary struct|func .*GooruLibrary|type .*FileLibrary interface|CreateBackgroundOperationWithTasks' internal/serve gooru cmd 2>/dev/null | sort -u)
+          git checkout -B maintainer/inspect-401-delete origin/develop
+          git add "$out"
+          git -c user.name=chatgpt-codex-connector -c user.email=chatgpt-codex-connector@users.noreply.github.com commit -m 'chore(maintainer): capture #401 integration context'
+          git push --force origin maintainer/inspect-401-delete
