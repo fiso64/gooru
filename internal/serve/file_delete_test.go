@@ -86,6 +86,39 @@ func TestDeleteModeRemovesManagedUploadFileAndLocation(t *testing.T) {
 	}
 }
 
+func TestDeleteModeUntracksMissingManagedUploadFile(t *testing.T) {
+	server, cleanup := newTestBrowseServer(t)
+	defer cleanup()
+
+	page := listTestFiles(t, server, "kind:image", 1)
+	file, err := server.getFileByPublicID(context.Background(), page.Files[0].ID)
+	if err != nil {
+		t.Fatalf("resolve file: %v", err)
+	}
+	server.cfg.Uploads.Targets = []UploadTarget{{ID: "managed", Name: "Managed", Path: filepath.Dir(file.Path)}}
+	if err := os.Remove(file.Path); err != nil {
+		t.Fatalf("remove fixture media: %v", err)
+	}
+
+	refreshed := listTestFiles(t, server, "kind:image", 1)
+	if !refreshed.Files[0].CanDelete {
+		t.Fatal("missing file under configured upload target should remain physically deletable")
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/files/"+page.Files[0].ID, bytes.NewBufferString(`{"mode":"delete"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected idempotent delete 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	missing := httptest.NewRecorder()
+	server.Handler().ServeHTTP(missing, authedRequest(http.MethodGet, "/api/v1/files/"+page.Files[0].ID))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("expected missing file location to be untracked, got %d: %s", missing.Code, missing.Body.String())
+	}
+}
+
 func TestDeleteModeRejectsFileOutsideUploadTargets(t *testing.T) {
 	server, cleanup := newTestBrowseServer(t)
 	defer cleanup()
@@ -129,6 +162,28 @@ func TestManagedDeleteRejectsSymlinkEscape(t *testing.T) {
 	server := NewServerWithLibrary(cfg, emptyLibrary{})
 	if server.canDeleteFilePath(filepath.Join(link, "outside.jpg")) {
 		t.Fatal("symlinked path escaping the configured target must not be physically deletable")
+	}
+	if _, err := os.Stat(outsideFile); err != nil {
+		t.Fatalf("outside file unexpectedly changed: %v", err)
+	}
+}
+
+func TestManagedDeleteRejectsFinalSymlink(t *testing.T) {
+	root := t.TempDir()
+	outsideFile := filepath.Join(t.TempDir(), "outside.jpg")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked.jpg")
+	if err := os.Symlink(outsideFile, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	cfg := DefaultConfig(filepath.Join(root, "gooru.db"))
+	cfg.Uploads.Targets = []UploadTarget{{ID: "managed", Name: "Managed", Path: root}}
+	server := NewServerWithLibrary(cfg, emptyLibrary{})
+	if server.canDeleteFilePath(link) {
+		t.Fatal("an existing final-component symlink must not use the missing-file fallback")
 	}
 	if _, err := os.Stat(outsideFile); err != nil {
 		t.Fatalf("outside file unexpectedly changed: %v", err)

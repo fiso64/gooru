@@ -31,7 +31,7 @@ func (s *Server) backgroundFileRemovalTask(mode string, file types.FileInfo) (co
 	publicID := s.publicFileID(file)
 	input := backgroundFileRemovalInput{Mode: mode, PublicID: publicID}
 	if mode == "delete" {
-		managedPath, ok := s.managedDeletePath(fileStoragePath(file))
+		managedPath, ok := s.managedDeleteCandidatePath(fileStoragePath(file))
 		if !ok {
 			return core.BackgroundTaskRequest{}, ErrFileNotManaged
 		}
@@ -105,7 +105,7 @@ func (s *Server) resumeManagedFileDeletion(ctx context.Context, input background
 		if err != nil {
 			return err
 		}
-		managedPath, ok := s.managedDeletePath(fileStoragePath(file))
+		managedPath, ok := s.managedDeleteCandidatePath(fileStoragePath(file))
 		if !ok {
 			return ErrFileNotManaged
 		}

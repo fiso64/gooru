@@ -179,3 +179,43 @@ test('plain Enter confirms no-input Untrack and Delete dialogs even when Cancel 
   expect(removals[1]).toEqual({ mode: 'delete', selection_id: 'selection-one', exclude_file_ids: ['one'] });
   await expect(dialog).toHaveCount(0);
 });
+
+test('bulk removal refreshes the grid only after durable removal completes', async ({ page }) => {
+  await mockApp(page);
+  const allFiles = [fileItem('one', 'one.jpg'), fileItem('two', 'two.jpg'), fileItem('three', 'three.jpg')];
+  let completed = false;
+  let releaseOperation!: () => void;
+  const operationGate = new Promise<void>((resolve) => { releaseOperation = resolve; });
+
+  await page.route('**/api/v1/files?**', async (route) => {
+    const files = completed ? [] : allFiles;
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })
+    });
+  });
+  await page.route('**/api/v1/files', async (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ mode: 'untrack', operation_id: 'remove-one', removed_locations: 0 })
+    });
+  });
+  await page.route('**/api/v1/operations/remove-one', async (route) => {
+    await operationGate;
+    completed = true;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'remove-one', status: 'completed' }) });
+  });
+
+  await page.keyboard.press('a');
+  await page.keyboard.press('Delete');
+  const dialog = page.getByRole('dialog', { name: 'Untrack selected files' });
+  await dialog.getByRole('button', { name: 'Untrack' }).click();
+
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('.thumb')).toHaveCount(3);
+  releaseOperation();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.thumb')).toHaveCount(0);
+});
