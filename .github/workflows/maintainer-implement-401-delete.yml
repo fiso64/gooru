@@ -1,0 +1,330 @@
+name: maintainer-implement-401-delete
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/maintainer-implement-401-delete.yml
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Implement durable selected-file removal
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B refactor/401-durable-file-removal origin/develop
+          rm -f .github/workflows/maintainer-inspect-401-delete.yml .github/workflows/maintainer-implement-401-delete.yml
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path('internal/serve/browse.go')
+          s = p.read_text()
+          old = '''type PublicFileLibrary interface {
+          \tPublicFileID(file types.FileInfo) string
+          \tGetFileByPublicID(ctx context.Context, id string) (types.FileInfo, error)
+          \tDeleteFileByPublicID(ctx context.Context, id string) (bool, error)
+          }
+          '''
+          new = old + '''\n// BackgroundFileRemovalLibrary is the durable mutation boundary used by bulk\n// delete/untrack. Keeping operation creation on the library adapter lets the\n// HTTP package compose work without depending on persistence details.\ntype BackgroundFileRemovalLibrary interface {\n\tPublicFileLibrary\n\tCreateBackgroundOperationWithTasks(core.BackgroundOperationRequest, []core.BackgroundTaskRequest) (core.BackgroundOperation, []core.BackgroundTask, error)\n}\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+          marker = '''func (l *GooruLibrary) DeleteFileByPublicID(ctx context.Context, id string) (bool, error) {
+          \tif err := ctx.Err(); err != nil {
+          \t\treturn false, err
+          \t}
+          \tlocationID, err := l.client.ResolvePublicFileID(id)
+          \tif err != nil {
+          \t\treturn false, ErrNotFound
+          \t}
+          \treturn l.client.DeleteLocationByID(locationID)
+          }
+          '''
+          add = marker + '''\nfunc (l *GooruLibrary) CreateBackgroundOperationWithTasks(operation core.BackgroundOperationRequest, tasks []core.BackgroundTaskRequest) (core.BackgroundOperation, []core.BackgroundTask, error) {\n\treturn l.client.CreateBackgroundOperationWithTasks(operation, tasks)\n}\n'''
+          assert marker in s
+          p.write_text(s.replace(marker, add, 1))
+
+          p = Path('internal/serve/file_removals.go')
+          s = p.read_text()
+          s = s.replace('''type FileRemovalResponse struct {\n\tMode             string              `json:"mode"`\n\tSelector         FileRemovalSelector `json:"selector"`\n\tRemovedLocations int                 `json:"removed_locations"`\n}\n''', '''type FileRemovalResponse struct {\n\tMode             string              `json:"mode"`\n\tSelector         FileRemovalSelector `json:"selector"`\n\tOperationID      string              `json:"operation_id,omitempty"`\n\tRemovedLocations int                 `json:"removed_locations"`\n}\n''', 1)
+          s = s.replace('''\tif _, ok := s.library.(PublicFileLibrary); !ok {\n\t\twriteError(w, http.StatusServiceUnavailable, "service_unavailable", "file mutation service is not configured", nil)\n\t\treturn\n\t}\n''', '''\tremovalLibrary, ok := s.library.(BackgroundFileRemovalLibrary)\n\tif !ok {\n\t\twriteError(w, http.StatusServiceUnavailable, "service_unavailable", "durable file mutation service is not configured", nil)\n\t\treturn\n\t}\n''', 1)
+          start = s.index('\tremoved := 0\n\tfor _, file := range files {')
+          end_marker = '''\twriteJSON(w, http.StatusOK, FileRemovalResponse{\n\t\tMode: request.Mode,\n\t\tSelector: FileRemovalSelector{\n\t\t\tFileIDs:        request.FileIDs,\n\t\t\tQuery:          request.Query,\n\t\t\tSelectionID:    request.SelectionID,\n\t\t\tIncludeFileIDs: request.IncludeFileIDs,\n\t\t\tExcludeFileIDs: request.ExcludeFileIDs,\n\t\t},\n\t\tRemovedLocations: removed,\n\t})\n'''
+          end = s.index(end_marker, start) + len(end_marker)
+          replacement = '''\tselector := FileRemovalSelector{\n\t\tFileIDs:        request.FileIDs,\n\t\tQuery:          request.Query,\n\t\tSelectionID:    request.SelectionID,\n\t\tIncludeFileIDs: request.IncludeFileIDs,\n\t\tExcludeFileIDs: request.ExcludeFileIDs,\n\t}\n\tif len(files) == 0 {\n\t\twriteJSON(w, http.StatusOK, FileRemovalResponse{Mode: request.Mode, Selector: selector})\n\t\treturn\n\t}\n\n\ttasks := make([]core.BackgroundTaskRequest, 0, len(files))\n\tfor _, file := range files {\n\t\ttask, err := s.backgroundFileRemovalTask(request.Mode, file)\n\t\tif err != nil {\n\t\t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to prepare durable file removal", nil)\n\t\t\treturn\n\t\t}\n\t\ttasks = append(tasks, task)\n\t}\n\toperation, _, err := removalLibrary.CreateBackgroundOperationWithTasks(core.BackgroundOperationRequest{\n\t\tKind:          "files." + request.Mode,\n\t\tVisible:       true,\n\t\tProgressTotal: int64(len(tasks)),\n\t}, tasks)\n\tif err != nil {\n\t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to enqueue selected file removal", nil)\n\t\treturn\n\t}\n\tw.Header().Set("Location", "/api/v1/operations/"+operation.ID)\n\twriteJSON(w, http.StatusAccepted, FileRemovalResponse{\n\t\tMode:        request.Mode,\n\t\tSelector:    selector,\n\t\tOperationID: operation.ID,\n\t})\n'''
+          p.write_text(s[:start] + replacement + s[end:])
+
+          p = Path('internal/serve/background_thumbnails.go')
+          s = p.read_text()
+          old = '''func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (BackgroundRuntime, error) {\n\tif client == nil {\n\t\treturn nil, fmt.Errorf("background client is required")\n\t}\n\treturn client.NewBackgroundRuntime(core.BackgroundWorkerConfig{\n\t\tResourceClass: backgroundThumbnailResourceClass,\n\t\tWorkerID:      workerID,\n\t\tHandlers: map[string]core.BackgroundTaskHandler{\n\t\t\tbackgroundThumbnailTaskKind: s.backgroundThumbnailHandler,\n\t\t},\n\t})\n}\n'''
+          new = '''func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (BackgroundRuntime, error) {\n\tif client == nil {\n\t\treturn nil, fmt.Errorf("background client is required")\n\t}\n\tmediaRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{\n\t\tResourceClass: backgroundThumbnailResourceClass,\n\t\tWorkerID:      workerID + "-media",\n\t\tHandlers: map[string]core.BackgroundTaskHandler{\n\t\t\tbackgroundThumbnailTaskKind: s.backgroundThumbnailHandler,\n\t\t},\n\t})\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tstorageRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{\n\t\tResourceClass: backgroundFileRemovalResourceClass,\n\t\tWorkerID:      workerID + "-storage",\n\t\tHandlers: map[string]core.BackgroundTaskHandler{\n\t\t\tbackgroundFileRemovalTaskKind: s.backgroundFileRemovalHandler,\n\t\t},\n\t})\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn multiBackgroundRuntime{runtimes: []BackgroundRuntime{mediaRuntime, storageRuntime}}, nil\n}\n'''
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('internal/serve/background_runtime.go')
+          s = p.read_text()
+          insert = '''\ntype multiBackgroundRuntime struct {\n\truntimes []BackgroundRuntime\n}\n\nfunc (m multiBackgroundRuntime) Run(ctx context.Context) error {\n\tif len(m.runtimes) == 0 {\n\t\treturn nil\n\t}\n\trunCtx, cancel := context.WithCancel(ctx)\n\tdefer cancel()\n\terrs := make(chan error, len(m.runtimes))\n\tfor _, runtime := range m.runtimes {\n\t\truntime := runtime\n\t\tgo func() { errs <- runtime.Run(runCtx) }()\n\t}\n\tfirst := <-errs\n\tcancel()\n\tjoined := first\n\tfor i := 1; i < len(m.runtimes); i++ {\n\t\terr := <-errs\n\t\tif errors.Is(err, context.Canceled) {\n\t\t\terr = nil\n\t\t}\n\t\tjoined = errors.Join(joined, err)\n\t}\n\treturn joined\n}\n'''
+          marker = 'type BackgroundRuntime interface {\n\tRun(context.Context) error\n}\n'
+          assert marker in s
+          p.write_text(s.replace(marker, marker + insert, 1))
+          PY
+          cat > internal/serve/background_file_removals.go <<'EOF'
+          package serve
+
+          import (
+            "context"
+            "crypto/rand"
+            "encoding/hex"
+            "encoding/json"
+            "errors"
+            "fmt"
+            "os"
+            "path/filepath"
+            "strings"
+
+            core "gooru.local/gooru"
+            "gooru.local/types"
+          )
+
+          const (
+            backgroundFileRemovalTaskKind      = "files.remove"
+            backgroundFileRemovalResourceClass = "storage"
+          )
+
+          type backgroundFileRemovalInput struct {
+            Mode         string `json:"mode"`
+            PublicID     string `json:"public_id"`
+            OriginalPath string `json:"original_path,omitempty"`
+            StagingPath  string `json:"staging_path,omitempty"`
+          }
+
+          func (s *Server) backgroundFileRemovalTask(mode string, file types.FileInfo) (core.BackgroundTaskRequest, error) {
+            publicID := s.publicFileID(file)
+            input := backgroundFileRemovalInput{Mode: mode, PublicID: publicID}
+            if mode == "delete" {
+              managedPath, ok := s.managedDeletePath(fileStoragePath(file))
+              if !ok {
+                return core.BackgroundTaskRequest{}, ErrFileNotManaged
+              }
+              token, err := newFileRemovalToken()
+              if err != nil {
+                return core.BackgroundTaskRequest{}, err
+              }
+              stagingDir := filepath.Join(filepath.Dir(managedPath), ".gooru-delete-"+token)
+              input.OriginalPath = managedPath
+              input.StagingPath = filepath.Join(stagingDir, filepath.Base(managedPath))
+            }
+            encoded, err := json.Marshal(input)
+            if err != nil {
+              return core.BackgroundTaskRequest{}, fmt.Errorf("encode file removal task: %w", err)
+            }
+            return core.BackgroundTaskRequest{
+              DedupeKey:     "file:" + publicID,
+              Kind:          backgroundFileRemovalTaskKind,
+              SubjectKind:   "file",
+              SubjectID:     publicID,
+              InputKey:      string(encoded),
+              ResourceClass: backgroundFileRemovalResourceClass,
+              MaxAttempts:   5,
+            }, nil
+          }
+
+          func newFileRemovalToken() (string, error) {
+            var value [16]byte
+            if _, err := rand.Read(value[:]); err != nil {
+              return "", fmt.Errorf("generate file removal staging token: %w", err)
+            }
+            return hex.EncodeToString(value[:]), nil
+          }
+
+          func (s *Server) backgroundFileRemovalHandler(ctx context.Context, task core.BackgroundTask) error {
+            var input backgroundFileRemovalInput
+            if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
+              return fmt.Errorf("decode file removal task: %w", err)
+            }
+            if task.SubjectKind != "file" || task.SubjectID == "" || task.SubjectID != input.PublicID {
+              return errors.New("file removal task has invalid file identity")
+            }
+            switch input.Mode {
+            case "untrack":
+              _, err := s.deleteFileByPublicID(ctx, input.PublicID)
+              if errors.Is(err, ErrNotFound) {
+                return nil
+              }
+              return err
+            case "delete":
+              return s.resumeManagedFileDeletion(ctx, input)
+            default:
+              return fmt.Errorf("file removal task has invalid mode %q", input.Mode)
+            }
+          }
+
+          func (s *Server) resumeManagedFileDeletion(ctx context.Context, input backgroundFileRemovalInput) error {
+            staged, err := persistedStagedFileDeletion(input.OriginalPath, input.StagingPath)
+            if err != nil {
+              return err
+            }
+            stagedExists, err := pathExists(staged.stagedPath)
+            if err != nil {
+              return err
+            }
+            if !stagedExists {
+              file, err := s.getFileByPublicID(ctx, input.PublicID)
+              if errors.Is(err, ErrNotFound) {
+                return staged.commitMissingOK()
+              }
+              if err != nil {
+                return err
+              }
+              managedPath, ok := s.managedDeletePath(fileStoragePath(file))
+              if !ok {
+                return ErrFileNotManaged
+              }
+              if filepath.Clean(managedPath) != staged.originalPath {
+                return errors.New("managed file path changed after deletion was queued")
+              }
+              if err := staged.stage(); err != nil {
+                return err
+              }
+            }
+
+            deleted, deleteErr := s.deleteFileByPublicID(ctx, input.PublicID)
+            if deleteErr != nil && !errors.Is(deleteErr, ErrNotFound) {
+              if rollbackErr := staged.rollbackMissingOK(); rollbackErr != nil {
+                return fmt.Errorf("delete library location: %v; restore file: %w", deleteErr, rollbackErr)
+              }
+              return deleteErr
+            }
+            if !deleted && deleteErr == nil {
+              deleteErr = ErrNotFound
+            }
+            // Once the database location is absent, never restore the staged file.
+            // A crash or cleanup failure here is recovered by the durable retry using
+            // the persisted staging path even though the public ID no longer resolves.
+            if err := staged.commitMissingOK(); err != nil {
+              return fmt.Errorf("remove staged file: %w", err)
+            }
+            return nil
+          }
+
+          func persistedStagedFileDeletion(originalPath, stagedPath string) (*stagedFileDeletion, error) {
+            originalPath = filepath.Clean(strings.TrimSpace(originalPath))
+            stagedPath = filepath.Clean(strings.TrimSpace(stagedPath))
+            if originalPath == "." || stagedPath == "." || originalPath == "" || stagedPath == "" {
+              return nil, errors.New("file removal task is missing persisted paths")
+            }
+            stagingDir := filepath.Dir(stagedPath)
+            if filepath.Dir(stagingDir) != filepath.Dir(originalPath) || !strings.HasPrefix(filepath.Base(stagingDir), ".gooru-delete-") || filepath.Base(stagedPath) != filepath.Base(originalPath) {
+              return nil, errors.New("file removal task has invalid staging path")
+            }
+            return &stagedFileDeletion{originalPath: originalPath, stagedPath: stagedPath, stagingDir: stagingDir}, nil
+          }
+
+          func (d *stagedFileDeletion) stage() error {
+            if err := os.Mkdir(d.stagingDir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+              if errors.Is(err, os.ErrNotExist) {
+                return nil
+              }
+              return fmt.Errorf("prepare file deletion: %w", err)
+            }
+            if err := os.Rename(d.originalPath, d.stagedPath); err != nil {
+              if errors.Is(err, os.ErrNotExist) {
+                return nil
+              }
+              return fmt.Errorf("stage file deletion: %w", err)
+            }
+            return nil
+          }
+
+          func (d *stagedFileDeletion) rollbackMissingOK() error {
+            exists, err := pathExists(d.stagedPath)
+            if err != nil || !exists {
+              return err
+            }
+            if err := os.Rename(d.stagedPath, d.originalPath); err != nil {
+              return err
+            }
+            _ = os.Remove(d.stagingDir)
+            return nil
+          }
+
+          func (d *stagedFileDeletion) commitMissingOK() error {
+            if err := os.Remove(d.stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+              return err
+            }
+            if err := os.Remove(d.stagingDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+              return err
+            }
+            return nil
+          }
+
+          func pathExists(path string) (bool, error) {
+            _, err := os.Lstat(path)
+            if err == nil {
+              return true, nil
+            }
+            if errors.Is(err, os.ErrNotExist) {
+              return false, nil
+            }
+            return false, err
+          }
+          EOF
+          cat > internal/serve/background_file_removals_test.go <<'EOF'
+          package serve
+
+          import (
+            "os"
+            "path/filepath"
+            "testing"
+          )
+
+          func TestPersistedStagedFileDeletionRejectsUnrelatedPath(t *testing.T) {
+            root := t.TempDir()
+            original := filepath.Join(root, "file.jpg")
+            staged := filepath.Join(t.TempDir(), ".gooru-delete-token", "file.jpg")
+            if _, err := persistedStagedFileDeletion(original, staged); err == nil {
+              t.Fatal("expected unrelated staging path to be rejected")
+            }
+          }
+
+          func TestPersistedStagedFileDeletionCanCommitAfterOriginalIsGone(t *testing.T) {
+            root := t.TempDir()
+            original := filepath.Join(root, "file.jpg")
+            if err := os.WriteFile(original, []byte("data"), 0o600); err != nil {
+              t.Fatal(err)
+            }
+            stagedPath := filepath.Join(root, ".gooru-delete-token", "file.jpg")
+            staged, err := persistedStagedFileDeletion(original, stagedPath)
+            if err != nil {
+              t.Fatal(err)
+            }
+            if err := staged.stage(); err != nil {
+              t.Fatal(err)
+            }
+            if _, err := os.Stat(original); !os.IsNotExist(err) {
+              t.Fatalf("original should be staged, stat err=%v", err)
+            }
+            if err := staged.commitMissingOK(); err != nil {
+              t.Fatal(err)
+            }
+            if err := staged.commitMissingOK(); err != nil {
+              t.Fatalf("commit must be idempotent: %v", err)
+            }
+            if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
+              t.Fatalf("staged file should be gone, stat err=%v", err)
+            }
+          }
+          EOF
+          gofmt -w internal/serve/browse.go internal/serve/file_removals.go internal/serve/background_runtime.go internal/serve/background_thumbnails.go internal/serve/background_file_removals.go internal/serve/background_file_removals_test.go
+          go test ./internal/serve ./gooru ./internal/background ./internal/database
+          go test ./...
+          git add -A
+          git -c user.name=chatgpt-codex-connector -c user.email=chatgpt-codex-connector@users.noreply.github.com commit -m 'feat(files): make bulk removals durable'
+          git push --force origin refactor/401-durable-file-removal
