@@ -1,0 +1,39 @@
+name: maintainer-diagnose-fixed-401
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/maintainer-diagnose-fixed-401.yml
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Capture exact patched implementation failure
+        shell: bash
+        run: |
+          set -u
+          git show 9bc3da9d5eff7f931def532fecd533d00ae2fdd5:.github/workflows/maintainer-fix-401-delete.yml > /tmp/fix.yml
+          awk 'BEGIN{capture=0} /      - name: Build and test durable file removal branch/{found=1} found && /        run: \|/{capture=1; next} capture{sub(/^          /, ""); print}' /tmp/fix.yml > /tmp/fix.sh
+          if bash -x /tmp/fix.sh > /tmp/fix.log 2>&1; then
+            exit 0
+          fi
+          git reset --hard origin/develop
+          git clean -fdx
+          git checkout -B maintainer/debug-401-fixed origin/develop
+          cp /tmp/fix.log .maintainer-401-fixed-error.log
+          git add .maintainer-401-fixed-error.log
+          git -c user.name=chatgpt-codex-connector -c user.email=chatgpt-codex-connector@users.noreply.github.com commit -m 'chore(maintainer): capture patched #401 failure'
+          git push --force origin maintainer/debug-401-fixed
+          exit 1
