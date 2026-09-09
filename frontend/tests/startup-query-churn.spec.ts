@@ -7,7 +7,7 @@ const session = {
 };
 
 test('authenticated startup does not refetch global queries after mount', async ({ page }) => {
-  const requests = { jobs: 0, tags: 0, savedSearches: 0, uploadTargets: 0 };
+  const requests = { operations: 0, tags: 0, savedSearches: 0, uploadTargets: 0 };
   let facetFileRequests = 0;
 
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
@@ -22,9 +22,9 @@ test('authenticated startup does not refetch global queries after mount', async 
       body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
     });
   });
-  await page.route('**/api/v1/jobs?**', async (route) => {
-    requests.jobs += 1;
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
+  await page.route('**/api/v1/operations?**', async (route) => {
+    requests.operations += 1;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
   await page.route('**/api/v1/tags?**', async (route) => {
     requests.tags += 1;
@@ -42,6 +42,6 @@ test('authenticated startup does not refetch global queries after mount', async 
   await page.goto('/');
   await expect.poll(() => Math.min(...Object.values(requests))).toBe(1);
   await page.waitForTimeout(300);
-  expect(requests).toEqual({ jobs: 1, tags: 1, savedSearches: 1, uploadTargets: 1 });
+  expect(requests).toEqual({ operations: 1, tags: 1, savedSearches: 1, uploadTargets: 1 });
   expect(facetFileRequests).toBe(1);
 });
