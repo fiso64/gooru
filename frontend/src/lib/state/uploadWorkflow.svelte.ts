@@ -10,7 +10,6 @@ import {
   uploadingItem,
   uploadProgressItem,
   uploadSummaryFromCounts,
-  waitingUploadItems,
   type UploadAddedAtStrategy,
   type UploadItem,
   type UploadStatusCounts
@@ -92,7 +91,11 @@ export function createUploadWorkflow() {
   }
 
   function removeAt(index: number) {
-    files = files.filter((_, fileIndex) => fileIndex !== index);
+    const stagedIndices = items.flatMap((item, itemIndex) => item.status === 'staged' ? [itemIndex] : []);
+    const stagedFileIndex = stagedIndices.indexOf(index);
+    if (stagedFileIndex >= 0) {
+      files = files.filter((_, fileIndex) => fileIndex !== stagedFileIndex);
+    }
     items = items.filter((_, itemIndex) => itemIndex !== index);
     status = '';
     statusCounts = countUploadStatuses(items);
@@ -242,15 +245,27 @@ export function createUploadWorkflow() {
     busy = true;
     trackedJobs = {};
     admissionBackpressured = false;
-    items = waitingUploadItems(items.length ? items : stagedUploadItems(files, targetID));
+
+    if (!items.length) items = stagedUploadItems(files, targetID);
+    const batchItemIndices = items.flatMap((item, itemIndex) => item.status === 'staged' ? [itemIndex] : []);
+    if (batchItemIndices.length !== files.length) {
+      busy = false;
+      status = 'Upload queue changed unexpectedly; please restage the pending files';
+      return { queued: false, changedFiles: false };
+    }
+    for (const itemIndex of batchItemIndices) {
+      const current = items[itemIndex];
+      replaceItem(itemIndex, current ? { ...current, status: 'waiting', progress: 0, error: '' } : undefined);
+    }
     statusCounts = countUploadStatuses(items);
-    const batchFiles = files;
+
+    const batchFiles = [...files];
     const parsedTags = parseTags(tags);
     const batchTargetID = targetID;
     const batchConflictPolicy = conflictPolicy;
     const batchAddedAtStrategy = addedAtStrategy;
     const fallbackQueueTimeMs = Date.now();
-    const batchQueueTimes = items.map((item) => item.queueTimeMs ?? fallbackQueueTimeMs);
+    const batchQueueTimes = batchItemIndices.map((itemIndex) => items[itemIndex]?.queueTimeMs ?? fallbackQueueTimeMs);
     const batchQueueFirstTimeMs = Math.min(...batchQueueTimes);
     const batchQueueLastTimeMs = Math.max(...batchQueueTimes);
     const batchQueueTotal = batchFiles.length;
@@ -263,8 +278,9 @@ export function createUploadWorkflow() {
         const index = nextIndex;
         nextIndex += 1;
         const file = batchFiles[index];
-        const current = items[index];
-        replaceItem(index, current ? uploadingItem([current], 0)[0] : undefined);
+        const itemIndex = batchItemIndices[index];
+        const current = items[itemIndex];
+        replaceItem(itemIndex, current ? uploadingItem([current], 0)[0] : undefined);
         refreshStatus();
         try {
           let response: Job | UploadImportResponse;
@@ -289,8 +305,8 @@ export function createUploadWorkflow() {
                 queueIndex: index,
                 queueTotal: batchQueueTotal,
                 onProgress: (progress) => {
-                  const progressItem = items[index];
-                  replaceItem(index, progressItem ? uploadProgressItem([progressItem], 0, progress)[0] : undefined);
+                  const progressItem = items[itemIndex];
+                  replaceItem(itemIndex, progressItem ? uploadProgressItem([progressItem], 0, progress)[0] : undefined);
                 }
               });
               break;
@@ -301,19 +317,19 @@ export function createUploadWorkflow() {
             }
           }
           if ('id' in response) {
-            trackedJobs = { ...trackedJobs, [response.id]: index };
-            const queuedItemState = items[index];
-            replaceItem(index, queuedItemState ? queuedItem([queuedItemState], 0)[0] : undefined);
+            trackedJobs = { ...trackedJobs, [response.id]: itemIndex };
+            const queuedItemState = items[itemIndex];
+            replaceItem(itemIndex, queuedItemState ? queuedItem([queuedItemState], 0)[0] : undefined);
             queued += 1;
           } else {
-            const resultItem = items[index];
-            replaceItem(index, resultItem ? itemFromResult([resultItem], 0, response)[0] : undefined);
+            const resultItem = items[itemIndex];
+            replaceItem(itemIndex, resultItem ? itemFromResult([resultItem], 0, response)[0] : undefined);
             changedFiles = true;
           }
         } catch (error) {
           const message = errorMessage(error);
-          const failed = items[index];
-          if (failed) replaceItem(index, { ...failed, status: 'error', error: message });
+          const failed = items[itemIndex];
+          if (failed) replaceItem(itemIndex, { ...failed, status: 'error', error: message });
         }
         refreshStatus();
       }
