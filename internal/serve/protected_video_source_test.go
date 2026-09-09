@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-func TestProtectedVideoSeekablePathSupportsRangesAndSanitizesName(t *testing.T) {
+func TestLogicalVideoSeekablePathSupportsRangesAndSanitizesName(t *testing.T) {
 	plaintext := []byte("0123456789abcdefghijklmnopqrstuvwxyz")
-	location, cleanup, available, err := protectedVideoSeekablePath("unsafe name?#.MP4", bytes.NewReader(plaintext))
+	location, cleanup, available, err := logicalVideoSeekablePath("unsafe name?#.MP4", bytes.NewReader(plaintext))
 	if err != nil {
 		t.Fatal(err)
 	}
