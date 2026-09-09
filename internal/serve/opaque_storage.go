@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	opaqueManagedNameBytes     = 24
+	opaqueManagedNameBytes    = 24
 	protectedManagedNamespace = ".gooru-protected-v1"
 )
 

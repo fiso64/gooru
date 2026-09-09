@@ -12,8 +12,8 @@ import (
 )
 
 type fakeBackgroundOperationReader struct {
-	operations []core.BackgroundOperationState
-	byID       map[string]core.BackgroundOperationState
+	operations  []core.BackgroundOperationState
+	byID        map[string]core.BackgroundOperationState
 	listOptions core.BackgroundOperationListOptions
 	listErr     error
 	getErr      error

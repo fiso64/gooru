@@ -48,6 +48,14 @@ type PublicFileLibrary interface {
 	DeleteFileByPublicID(ctx context.Context, id string) (bool, error)
 }
 
+// BackgroundFileRemovalLibrary is the durable mutation boundary used by bulk
+// delete/untrack. Keeping operation creation on the library adapter lets the
+// HTTP package compose work without depending on persistence details.
+type BackgroundFileRemovalLibrary interface {
+	PublicFileLibrary
+	CreateBackgroundOperationWithTasks(core.BackgroundOperationRequest, []core.BackgroundTaskRequest) (core.BackgroundOperation, []core.BackgroundTask, error)
+}
+
 type FileSelectionLibrary interface {
 	ListPublicFileIDs(ctx context.Context, query string) ([]string, error)
 }
@@ -268,6 +276,10 @@ func (l *GooruLibrary) DeleteFileByPublicID(ctx context.Context, id string) (boo
 		return false, ErrNotFound
 	}
 	return l.client.DeleteLocationByID(locationID)
+}
+
+func (l *GooruLibrary) CreateBackgroundOperationWithTasks(operation core.BackgroundOperationRequest, tasks []core.BackgroundTaskRequest) (core.BackgroundOperation, []core.BackgroundTask, error) {
+	return l.client.CreateBackgroundOperationWithTasks(operation, tasks)
 }
 
 func (l *GooruLibrary) FileMetadata(ctx context.Context, locationID int64) (MediaMetadata, error) {

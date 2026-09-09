@@ -14,7 +14,7 @@ func (h jobPageHeap) Less(i, j int) bool {
 	}
 	return h[i].SubmittedAt.Before(h[j].SubmittedAt)
 }
-func (h jobPageHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h jobPageHeap) Swap(i, j int)   { h[i], h[j] = h[j], h[i] }
 func (h *jobPageHeap) Push(value any) { *h = append(*h, value.(*Job)) }
 func (h *jobPageHeap) Pop() any {
 	old := *h

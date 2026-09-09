@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	core "gooru.local/gooru"
 	"gooru.local/types"
 )
 
@@ -90,6 +91,22 @@ func (l *snapshotTestLibrary) DeleteFileByPublicID(_ context.Context, id string)
 	return true, nil
 }
 
+func (l *snapshotTestLibrary) CreateBackgroundOperationWithTasks(operation core.BackgroundOperationRequest, tasks []core.BackgroundTaskRequest) (core.BackgroundOperation, []core.BackgroundTask, error) {
+	for _, task := range tasks {
+		var input backgroundFileRemovalInput
+		if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
+			return core.BackgroundOperation{}, nil, err
+		}
+		if input.Mode != "untrack" {
+			return core.BackgroundOperation{}, nil, errors.New("snapshot test library only supports queued untrack")
+		}
+		if _, err := l.DeleteFileByPublicID(context.Background(), input.PublicID); err != nil {
+			return core.BackgroundOperation{}, nil, err
+		}
+	}
+	return core.BackgroundOperation{ID: "operation-test", Kind: operation.Kind, Visible: operation.Visible, ProgressTotal: operation.ProgressTotal}, nil, nil
+}
+
 func (l *snapshotTestLibrary) MutateTags(_ context.Context, operation TagOperation, request TagMutationRequest) (TagMutationResponse, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -150,8 +167,8 @@ func TestFileSelectionSnapshotDoesNotGrowWithLiveQuery(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("snapshot untrack: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("snapshot untrack: expected 202, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if got := append([]string(nil), library.removed...); len(got) != 2 || got[0] != "a" || got[1] != "b" {
 		t.Fatalf("snapshot mutated the wrong files: %v", got)
@@ -175,8 +192,8 @@ func TestFileSelectionSnapshotSupportsExplicitIncludeAndExclude(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("snapshot include/exclude: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("snapshot include/exclude: expected 202, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if got := append([]string(nil), library.removed...); len(got) != 2 || got[0] != "a" || got[1] != "c" {
 		t.Fatalf("unexpected include/exclude target set: %v", got)

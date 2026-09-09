@@ -34,6 +34,7 @@ type FileRemovalSelector struct {
 type FileRemovalResponse struct {
 	Mode             string              `json:"mode"`
 	Selector         FileRemovalSelector `json:"selector"`
+	OperationID      string              `json:"operation_id,omitempty"`
 	RemovedLocations int                 `json:"removed_locations"`
 }
 
@@ -42,8 +43,9 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file library is not configured", nil)
 		return
 	}
-	if _, ok := s.library.(PublicFileLibrary); !ok {
-		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file mutation service is not configured", nil)
+	removalLibrary, ok := s.library.(BackgroundFileRemovalLibrary)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "durable file mutation service is not configured", nil)
 		return
 	}
 	request, err := decodeFileRemovalRequest(r)
@@ -84,33 +86,41 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	removed := 0
+	selector := FileRemovalSelector{
+		FileIDs:        request.FileIDs,
+		Query:          request.Query,
+		SelectionID:    request.SelectionID,
+		IncludeFileIDs: request.IncludeFileIDs,
+		ExcludeFileIDs: request.ExcludeFileIDs,
+	}
+	if len(files) == 0 {
+		writeJSON(w, http.StatusOK, FileRemovalResponse{Mode: request.Mode, Selector: selector})
+		return
+	}
+
+	tasks := make([]core.BackgroundTaskRequest, 0, len(files))
 	for _, file := range files {
-		publicID := s.publicFileID(file)
-		var changed bool
-		if request.Mode == "delete" {
-			changed, err = s.deleteManagedFile(r.Context(), publicID)
-		} else {
-			changed, err = s.deleteFileByPublicID(r.Context(), publicID)
-		}
+		task, err := s.backgroundFileRemovalTask(request.Mode, file)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "failed to "+request.Mode+" selected files", nil)
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare durable file removal", nil)
 			return
 		}
-		if changed {
-			removed++
-		}
+		tasks = append(tasks, task)
 	}
-	writeJSON(w, http.StatusOK, FileRemovalResponse{
-		Mode: request.Mode,
-		Selector: FileRemovalSelector{
-			FileIDs:        request.FileIDs,
-			Query:          request.Query,
-			SelectionID:    request.SelectionID,
-			IncludeFileIDs: request.IncludeFileIDs,
-			ExcludeFileIDs: request.ExcludeFileIDs,
-		},
-		RemovedLocations: removed,
+	operation, _, err := removalLibrary.CreateBackgroundOperationWithTasks(core.BackgroundOperationRequest{
+		Kind:          "files." + request.Mode,
+		Visible:       true,
+		ProgressTotal: int64(len(tasks)),
+	}, tasks)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to enqueue selected file removal", nil)
+		return
+	}
+	w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
+	writeJSON(w, http.StatusAccepted, FileRemovalResponse{
+		Mode:        request.Mode,
+		Selector:    selector,
+		OperationID: operation.ID,
 	})
 }
 

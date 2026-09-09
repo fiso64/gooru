@@ -94,11 +94,25 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 	if client == nil {
 		return nil, fmt.Errorf("background client is required")
 	}
-	return client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
+	mediaRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
 		ResourceClass: backgroundThumbnailResourceClass,
-		WorkerID:      workerID,
+		WorkerID:      workerID + "-media",
 		Handlers: map[string]core.BackgroundTaskHandler{
 			backgroundThumbnailTaskKind: s.backgroundThumbnailHandler,
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
+	storageRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
+		ResourceClass: backgroundFileRemovalResourceClass,
+		WorkerID:      workerID + "-storage",
+		Handlers: map[string]core.BackgroundTaskHandler{
+			backgroundFileRemovalTaskKind: s.backgroundFileRemovalHandler,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return multiBackgroundRuntime{runtimes: []BackgroundRuntime{mediaRuntime, storageRuntime}}, nil
 }
