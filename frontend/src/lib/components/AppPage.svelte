@@ -6,7 +6,7 @@
   import { ApiClient } from '$lib/api/client';
   import { setOpaqueURLState, setProtectedReadTransport } from '$lib/api/privacy';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, normalizeUITheme, runtimeCapability, runtimeConfig, type GridType, type UITheme } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, effectiveGridSize, normalizeConfiguredUITheme, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, normalizeUITheme, runtimeCapability, runtimeConfig, type ConfiguredUITheme, type GridType, type UITheme } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
   import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
@@ -38,6 +38,7 @@
   let loginPassword = $state('');
   let loginBusy = $state(false);
   let loginError = $state('');
+  let runtimeConfiguredTheme = $state<ConfiguredUITheme>('default');
   let runtimeTheme = $state<UITheme>('default');
   let runtimeAccent = $state<AccentTheme | null>(null);
   let runtimeFontStyle = $state<FontStyle>('editorial');
@@ -46,6 +47,7 @@
   let faviconHref = $state('/favicon.svg');
 
   async function applyRuntimeConfig(config: UIConfig) {
+    runtimeConfiguredTheme = normalizeConfiguredUITheme(config.ui_theme);
     runtimeTheme = normalizeUITheme(config.ui_theme);
     const booruStyle = runtimeTheme === 'booru-style';
     runtimeAccent = booruStyle ? null : accentTheme(config.accent_color ?? '');
@@ -132,7 +134,7 @@
 </svelte:head>
 
 <div
-  class={`gooru-root gooru-theme-${runtimeTheme} gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
+  class={`gooru-root gooru-theme-${runtimeTheme}${runtimeConfiguredTheme === 'default' ? '' : ` gooru-theme-${runtimeConfiguredTheme}`} gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
   style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;${runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
 >
   {#if !$authState.checked}
