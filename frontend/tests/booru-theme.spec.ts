@@ -53,7 +53,7 @@ async function mockBooruApp(page: Page) {
     contentType: 'application/json', body: JSON.stringify({ items: [] })
   }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
-    contentType: 'application/json', body: JSON.stringify({ tags: [] })
+    contentType: 'application/json', body: JSON.stringify({ tags: [], library_count: 1, facets: { kind: [{ value: 'image', count: 1 }] } })
   }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({
     contentType: 'application/json', body: JSON.stringify({ items: [], meta_tags: [] })
@@ -70,7 +70,7 @@ async function mockBooruApp(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('runtime booru theme follows Danbooru shell and viewer geometry without configured accent/font leakage', async ({ page }) => {
+test('runtime booru theme uses a real booru top navigation and shared route behavior', async ({ page }) => {
   await mockBooruApp(page);
 
   const root = page.locator('.gooru-root');
@@ -78,13 +78,23 @@ test('runtime booru theme follows Danbooru shell and viewer geometry without con
   await expect(root).toHaveClass(/gooru-type-modern/);
   await expect(root).not.toHaveAttribute('style', /--accent:/);
 
-  const topbar = page.locator('.topbar');
-  await expect(topbar).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-  await expect(topbar).toHaveCSS('min-height', '88px');
-  await expect(page.locator('.topbar-brand')).toHaveCSS('font-size', '28px');
-  await expect(page.locator('.searchbar')).toHaveCSS('border-radius', '0px');
+  await expect(page.locator('.topbar')).toHaveCount(0);
+  await expect(page.locator('.booru-brand')).toContainText('Gooru');
+  await expect(page.locator('.booru-main-nav')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.booru-subnav')).toHaveCSS('background-color', 'rgb(244, 246, 255)');
+  await expect(page.locator('.booru-sidebar .searchbar')).toBeVisible();
+  await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('border-radius', '0px');
   await expect(page.locator('.library-head h1')).toHaveCSS('font-size', '18px');
   await expect(page.locator('.sidebar-item').first()).toHaveCSS('border-radius', '0px');
+
+  const primaryNav = page.getByRole('navigation', { name: 'Primary navigation' });
+  const libraryTab = primaryNav.getByRole('button', { name: 'Library' });
+  await expect(libraryTab).toHaveAttribute('aria-current', 'page');
+  await primaryNav.getByRole('button', { name: 'Tags' }).click();
+  await expect(page.getByRole('heading', { name: '0 tags across 1 files' })).toBeVisible();
+  await expect(primaryNav.getByRole('button', { name: 'Tags' })).toHaveAttribute('aria-current', 'page');
+  await libraryTab.click();
+  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 
   const card = page.locator('.thumb').filter({ has: page.getByAltText('sample.png') });
   await expect(card).toBeVisible();
