@@ -184,9 +184,10 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   const firstPixel = await gifPixel(gif);
   expect(firstPixel[0]).toBeGreaterThan(firstPixel[1]);
 
-  await page.waitForTimeout(3150);
-  const advancedPixel = await gifPixel(gif);
-  expect(advancedPixel[1]).toBeGreaterThan(advancedPixel[0]);
+  await expect.poll(async () => {
+    const pixel = await gifPixel(gif);
+    return pixel[1] > pixel[0];
+  }, { timeout: 6000 }).toBe(true);
 
   await page.getByRole('heading', { name: 'Library' }).hover();
   await expect(gif).toHaveCount(0);
