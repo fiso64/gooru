@@ -92,22 +92,31 @@ func activatedSavedReplacementsFromCheckpoint(files []savedUpload, checkpoint ba
 	if len(checkpoint.Replacements) != replaceCount {
 		return nil, errors.New("upload checkpoint replacement count does not match task input")
 	}
-	seen := make(map[int]struct{}, len(checkpoint.Replacements))
-	activated := make([]activatedSavedReplacement, 0, len(checkpoint.Replacements))
+	savedByIndex := make(map[int]backgroundUploadReplacementCheckpoint, len(checkpoint.Replacements))
 	for _, saved := range checkpoint.Replacements {
 		if saved.Index < 0 || saved.Index >= len(files) {
 			return nil, errors.New("upload checkpoint replacement index is out of range")
 		}
-		if _, ok := seen[saved.Index]; ok {
+		if _, ok := savedByIndex[saved.Index]; ok {
 			return nil, errors.New("upload checkpoint replacement index is duplicated")
 		}
-		seen[saved.Index] = struct{}{}
 		file := files[saved.Index]
 		if !file.replace || file.path == "" || file.destinationPath == "" {
 			return nil, errors.New("upload checkpoint replacement does not match task input")
 		}
+		savedByIndex[saved.Index] = saved
+	}
+	activated := make([]activatedSavedReplacement, 0, len(checkpoint.Replacements))
+	for index, file := range files {
+		if !file.replace {
+			continue
+		}
+		saved, ok := savedByIndex[index]
+		if !ok {
+			return nil, errors.New("upload checkpoint replacement does not match task input")
+		}
 		activated = append(activated, activatedSavedReplacement{
-			index: saved.Index,
+			index: index,
 			replacement: activatedReplacement{
 				finalPath:            file.destinationPath,
 				backupPath:           file.path + ".backup",
