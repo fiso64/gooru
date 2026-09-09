@@ -125,7 +125,7 @@ test('different-aspect source handoff is covered by exact old pixels until targe
 });
 
 
-test('failed non-image preview releases the frozen previous presentation', async ({ page }) => {
+test('failed non-image preview releases the frozen previous presentation and reports missing media', async ({ page }) => {
   const { releaseLandscape } = await mockApp(page);
   await page.getByRole('button', { name: 'Preview portrait.jpg' }).click();
 
@@ -144,4 +144,5 @@ test('failed non-image preview releases the frozen previous presentation', async
   await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(0);
   await expect(freeze).toBeHidden();
   await expect(media).toHaveCSS('visibility', 'visible');
+  await expect(page.getByRole('alert')).toHaveText('Media file could not be loaded. It may be missing from disk.');
 });
