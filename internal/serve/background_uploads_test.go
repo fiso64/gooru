@@ -59,6 +59,27 @@ func TestBackgroundUploadTaskRoundTripsStagedExecutionState(t *testing.T) {
 	}
 }
 
+func TestBackgroundUploadTaskAllowsUnnamedPerFileError(t *testing.T) {
+	files := []savedUpload{{targetID: "default", status: "error", error: "uploaded filename is invalid"}}
+	request, err := backgroundUploadTaskRequest("operation-1", files, nil)
+	if err != nil {
+		t.Fatalf("backgroundUploadTaskRequest: %v", err)
+	}
+	decodedFiles, _, err := decodeBackgroundUploadTask(core.BackgroundTask{
+		OperationID: "operation-1",
+		Kind:        request.Kind,
+		SubjectKind: request.SubjectKind,
+		SubjectID:   request.SubjectID,
+		InputKey:    request.InputKey,
+	})
+	if err != nil {
+		t.Fatalf("decodeBackgroundUploadTask: %v", err)
+	}
+	if !reflect.DeepEqual(decodedFiles, files) {
+		t.Fatalf("decoded files = %#v, want %#v", decodedFiles, files)
+	}
+}
+
 func TestBackgroundUploadTaskRejectsInvalidPersistedState(t *testing.T) {
 	if _, err := backgroundUploadTaskRequest("operation-1", nil, nil); err == nil {
 		t.Fatal("empty upload payload unexpectedly accepted")
