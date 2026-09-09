@@ -4,7 +4,7 @@
   import Logo from './Logo.svelte';
   import SearchBar from './SearchBar.svelte';
   import ShellFilterSidebar from './ShellFilterSidebar.svelte';
-  import type { Job, MetaTagDefinition } from '$lib/api/types';
+  import type { MetaTagDefinition } from '$lib/api/types';
   import type { ShellCommonTag, ShellSavedSearch, ShellTagLike } from './shellModel';
 
   let {
@@ -93,26 +93,11 @@
     </button>
     <form class="topbar-search" onsubmit={(event) => event.preventDefault()}>
       <div class="topbar-search-inner">
-        <SearchBar
-          value={search}
-          {suggestions}
-          {metaTags}
-          {tags}
-          onDraftInput={onSearchDraft}
-          onCommit={onSearchCommit}
-        />
+        <SearchBar value={search} {suggestions} {metaTags} {tags} onDraftInput={onSearchDraft} onCommit={onSearchCommit} />
       </div>
     </form>
     <div class="topbar-right">
-      <button
-        class="g-btn g-btn-ghost g-btn-sm g-btn-icon"
-        type="button"
-        title="Jobs"
-        aria-label="Jobs"
-        aria-expanded={jobsDrawerOpen}
-        aria-controls="jobs-drawer"
-        onclick={onJobs}
-      >
+      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Jobs" aria-label="Jobs" aria-expanded={jobsDrawerOpen} aria-controls="jobs-drawer" onclick={onJobs}>
         <Icon name="jobs" size={16} />
         {#if jobsActiveCount > 0}<span class="topbar-badge">{jobsActiveCount}</span>{/if}
       </button>
@@ -147,28 +132,12 @@
     </div>
 
     <ShellFilterSidebar
-      {route}
-      {search}
-      {kindCounts}
-      {comicCount}
-      {comicAvailable}
-      {savedSearches}
-      {commonTags}
-      {commonTagsCollapsed}
-      {draggedSavedSearchID}
-      {savedSearchReorderBusy}
-      {savedSearchReorderError}
-      onToggleKind={onToggleKind}
-      {onCreateSavedSearch}
-      {onUpdateSavedSearch}
-      {onDeleteSavedSearch}
-      {onSavedSearch}
-      onSavedSearchDragStart={onSavedSearchDragStart}
-      onSavedSearchDragPreview={onSavedSearchDragPreview}
-      onSavedSearchDragEnd={onSavedSearchDragEnd}
-      onSavedSearchDrop={onSavedSearchDrop}
-      onToggleCommonTags={onToggleCommonTags}
-      onCommonTag={onCommonTag}
+      {route} {search} {kindCounts} {comicCount} {comicAvailable} {savedSearches} {commonTags} {commonTagsCollapsed}
+      {draggedSavedSearchID} {savedSearchReorderBusy} {savedSearchReorderError} onToggleKind={onToggleKind}
+      {onCreateSavedSearch} {onUpdateSavedSearch} {onDeleteSavedSearch} {onSavedSearch}
+      onSavedSearchDragStart={onSavedSearchDragStart} onSavedSearchDragPreview={onSavedSearchDragPreview}
+      onSavedSearchDragEnd={onSavedSearchDragEnd} onSavedSearchDrop={onSavedSearchDrop}
+      onToggleCommonTags={onToggleCommonTags} onCommonTag={onCommonTag}
     />
 
     <div class="sidebar-section bottom">
