@@ -70,7 +70,7 @@ async function mockBooruApp(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('runtime booru theme visibly styles library and viewer without configured accent/font leakage', async ({ page }) => {
+test('runtime booru theme follows Danbooru shell and viewer geometry without configured accent/font leakage', async ({ page }) => {
   await mockBooruApp(page);
 
   const root = page.locator('.gooru-root');
@@ -78,8 +78,13 @@ test('runtime booru theme visibly styles library and viewer without configured a
   await expect(root).toHaveClass(/gooru-type-modern/);
   await expect(root).not.toHaveAttribute('style', /--accent:/);
 
-  await expect(page.locator('.topbar')).toHaveCSS('background-color', 'rgb(244, 246, 255)');
+  const topbar = page.locator('.topbar');
+  await expect(topbar).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(topbar).toHaveCSS('min-height', '88px');
+  await expect(page.locator('.topbar-brand')).toHaveCSS('font-size', '28px');
+  await expect(page.locator('.searchbar')).toHaveCSS('border-radius', '0px');
   await expect(page.locator('.library-head h1')).toHaveCSS('font-size', '18px');
+  await expect(page.locator('.sidebar-item').first()).toHaveCSS('border-radius', '0px');
 
   const card = page.locator('.thumb').filter({ has: page.getByAltText('sample.png') });
   await expect(card).toBeVisible();
@@ -88,8 +93,10 @@ test('runtime booru theme visibly styles library and viewer without configured a
 
   const viewer = page.getByRole('dialog');
   await expect(viewer).toBeVisible();
-  await expect(page.locator('.lightbox')).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.96)');
-  await expect(page.locator('.lightbox-stage')).toHaveCSS('background-color', 'rgb(246, 246, 248)');
+  await expect(page.locator('.lightbox')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.lightbox-stage')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.lightbox-aside')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.lightbox-name')).toHaveCSS('font-size', '14px');
+  await expect(page.locator('.lightbox-rail .g-btn').first()).toHaveCSS('border-radius', '0px');
   await expect(root).toHaveClass(/gooru-theme-booru-style/);
 });
