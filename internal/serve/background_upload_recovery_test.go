@@ -20,12 +20,13 @@ func TestBackgroundUploadActivatedCheckpointReconstructsReplacementState(t *test
 	if checkpoint.Phase != backgroundUploadPhaseActivated {
 		t.Fatalf("phase = %q, want %q", checkpoint.Phase, backgroundUploadPhaseActivated)
 	}
+	checkpoint.Replacements[0], checkpoint.Replacements[1] = checkpoint.Replacements[1], checkpoint.Replacements[0]
 	got, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
 	if err != nil {
 		t.Fatalf("activatedSavedReplacementsFromCheckpoint: %v", err)
 	}
 	if !reflect.DeepEqual(got, activated) {
-		t.Fatalf("reconstructed replacements = %#v, want %#v", got, activated)
+		t.Fatalf("reconstructed replacements = %#v, want task activation order %#v", got, activated)
 	}
 }
 
