@@ -86,8 +86,8 @@ func TestUploadQueueAddedAtUsesAdmissionOrderAcrossRapidSelections(t *testing.T)
 	first := time.Date(2024, 1, 2, 3, 4, 5, 100_000_000, time.UTC)
 	queueTimes := []time.Time{
 		first,
-		first.Add(250 * time.Millisecond),
-		first.Add(500 * time.Millisecond),
+		first.Add(5 * time.Second),
+		first.Add(10 * time.Second),
 	}
 	added := make([]time.Time, len(queueTimes))
 	for index, queueTime := range queueTimes {
@@ -97,6 +97,30 @@ func TestUploadQueueAddedAtUsesAdmissionOrderAcrossRapidSelections(t *testing.T)
 		if !added[index-1].After(added[index]) {
 			t.Fatalf("queue order not preserved at %d: added=%v", index, added)
 		}
+	}
+}
+
+func TestUploadQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.T) {
+	first := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	last := first.Add(10 * time.Second)
+	results := make([]time.Time, 2)
+	for index, queueTime := range []time.Time{first, last} {
+		dir := t.TempDir()
+		library := &recordingUploadLibrary{}
+		server := newUploadTestServer(t, dir, true, library)
+		rec := httptest.NewRecorder()
+		req := uploadAddedAtRequestWithBounds(t, queueTime, time.Time{}, first, last, index, 2, "queue")
+		server.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("worker %d status=%d body=%s", index, rec.Code, rec.Body.String())
+		}
+		if len(library.files) != 1 {
+			t.Fatalf("worker %d imported %d files", index, len(library.files))
+		}
+		results[index] = library.files[0].AddedAt
+	}
+	if !results[0].After(results[1]) {
+		t.Fatalf("queue order was not preserved across distinct worker times: first=%v last=%v", results[0], results[1])
 	}
 }
 
@@ -119,7 +143,7 @@ func TestUploadReverseQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.
 		}
 		results[index] = library.files[0].AddedAt
 	}
-	if !results[0].After(results[1]) {
+	if !results[1].After(results[0]) {
 		t.Fatalf("reverse queue did not invert distinct queue times: first=%v last=%v", results[0], results[1])
 	}
 }
