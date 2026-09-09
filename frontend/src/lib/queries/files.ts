@@ -158,6 +158,8 @@ interface RemovalOperation {
   error_message?: string;
 }
 
+type DurableFileRemovalResponse = FileRemovalResponse & { operation_id?: string };
+
 async function waitForRemovalOperation(operationID: string) {
   for (;;) {
     const response = await fetch(`/api/v1/operations/${encodeURIComponent(operationID)}`, { credentials: 'same-origin' });
@@ -166,14 +168,16 @@ async function waitForRemovalOperation(operationID: string) {
     if (operation.status === 'completed') return;
     if (operation.status === 'failed') throw new Error(operation.error_message || 'File removal failed.');
     if (operation.status === 'canceled') throw new Error('File removal was canceled.');
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
 
 export function createFilesRemovalMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<FileRemovalResponse, Error, FileRemovalRequest>(() => ({
     mutationFn: async (body) => {
-      const response = await new ApiClient(getCSRFToken()).removeFiles(body);
+      // The server's durable bulk-removal response includes operation_id; keep this local
+      // extension until the generated OpenAPI client catches up with the backend contract.
+      const response = await new ApiClient(getCSRFToken()).removeFiles(body) as DurableFileRemovalResponse;
       if (response.operation_id) await waitForRemovalOperation(response.operation_id);
       return response;
     },
