@@ -153,9 +153,30 @@ export function createTagMutation(getCSRFToken: () => string, queryClient: Query
   }));
 }
 
+interface RemovalOperation {
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+  error_message?: string;
+}
+
+async function waitForRemovalOperation(operationID: string) {
+  for (;;) {
+    const response = await fetch(`/api/v1/operations/${encodeURIComponent(operationID)}`, { credentials: 'same-origin' });
+    if (!response.ok) throw new Error(`Unable to read file removal status (HTTP ${response.status}).`);
+    const operation = await response.json() as RemovalOperation;
+    if (operation.status === 'completed') return;
+    if (operation.status === 'failed') throw new Error(operation.error_message || 'File removal failed.');
+    if (operation.status === 'canceled') throw new Error('File removal was canceled.');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 export function createFilesRemovalMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<FileRemovalResponse, Error, FileRemovalRequest>(() => ({
-    mutationFn: (body) => new ApiClient(getCSRFToken()).removeFiles(body),
+    mutationFn: async (body) => {
+      const response = await new ApiClient(getCSRFToken()).removeFiles(body);
+      if (response.operation_id) await waitForRemovalOperation(response.operation_id);
+      return response;
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: fileKeys.all }),
