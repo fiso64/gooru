@@ -13,7 +13,7 @@ import (
 // resolver.
 type thumbnailGenerationPolicy func(*MediaService, types.FileInfo, io.Writer, int, string) error
 
-type protectedVideoPathThumbnailer interface {
+type videoPathThumbnailer interface {
 	ThumbnailVideoPath(src string, dst io.Writer, size int, format string) error
 }
 
@@ -48,12 +48,13 @@ func generateThumbnailFromLogicalSource(m *MediaService, file types.FileInfo, ds
 
 	switch support.protectedAccess {
 	case protectedThumbnailSeekableVideo:
-		// ffmpeg can consume simple videos from stdin, but real MP4 files commonly
-		// require seeking (for example when the moov atom lives near the end). Prefer
-		// a short-lived loopback range source when available so protected mode keeps
-		// seek semantics without writing plaintext to disk or buffering whole videos.
-		if pathThumbnailer, ok := m.thumbnailer.(protectedVideoPathThumbnailer); ok {
-			path, cleanup, available, err := protectedVideoSeekablePath(file.Path, source)
+		// Every declared video container reaches the same ffmpeg pathname backend.
+		// Protected mode differs only in how that seekable logical location is
+		// supplied: the authenticated random-access reader is exposed through a
+		// short-lived range-capable loopback URL, preserving #466's bounded chunk
+		// working set without plaintext disk materialization.
+		if pathThumbnailer, ok := m.thumbnailer.(videoPathThumbnailer); ok {
+			path, cleanup, available, err := logicalVideoSeekablePath(file.Path, source)
 			if err != nil {
 				return err
 			}
@@ -69,9 +70,8 @@ func generateThumbnailFromLogicalSource(m *MediaService, file types.FileInfo, ds
 			}
 		}
 	case protectedThumbnailSource:
-		// The generic protected path below is the declared strategy for images and
-		// GIFs. Keeping the declaration separate from backend dispatch makes new
-		// supported media kinds opt in to protected-mode semantics explicitly.
+		// Images and GIFs are naturally source-driven and do not require a seekable
+		// external location for their backend.
 	default:
 		return unsupportedThumbnailCapability(file.Path)
 	}
