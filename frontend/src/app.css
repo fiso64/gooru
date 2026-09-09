@@ -7,6 +7,7 @@
 @import './lib/styles/common-tags.css';
 @import './lib/styles/viewer.css';
 @import './lib/styles/font-style.css';
+@import './lib/styles/booru-style.css';
 
 .gooru-root [data-testid='refresh-upload-results'] {
   background: var(--accent);
