@@ -55,7 +55,7 @@
   const kinds = sidebarKindFilters;
 
   function kindCount(kind: string) {
-    return kindCounts.find((item) => item.value === kind)?.count ?? 0;
+    return kindCounts.find((item: { value: string; count: number }) => item.value === kind)?.count ?? 0;
   }
 
   function commonTagRankPercent(index: number) {
@@ -103,6 +103,8 @@
     <div
       class="sidebar-saved-row"
       class:drag-target={Boolean(draggedSavedSearchID) && draggedSavedSearchID !== saved.id}
+      role="group"
+      aria-label={`Saved search ${saved.name}`}
       animate:flip={{ duration: 160 }}
       ondragover={(event) => onSavedSearchDragPreview(event, saved.id)}
       ondrop={(event) => void onSavedSearchDrop(event, saved.id)}
