@@ -52,6 +52,6 @@ jobs:
       - name: Install Chromium
         run: npx playwright install chromium
       - name: Browser regressions
-        run: npm run test:e2e -- booru-theme.spec.ts viewer-image-geometry-hold.spec.ts startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts
+        run: npm run test:e2e -- booru-theme.spec.ts booru-search-feedback.spec.ts viewer-image-geometry-hold.spec.ts startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts
       - name: Build
         run: npm run build

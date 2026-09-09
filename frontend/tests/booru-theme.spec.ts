@@ -87,7 +87,7 @@ test('booru-light uses the shared booru shell and reference light presentation',
   await expect(page.locator('.booru-brand-mark')).toHaveAttribute('src', '/favicon.svg');
   await expect(page.locator('.booru-main-nav')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.booru-subnav')).toHaveCSS('background-color', 'rgb(244, 246, 255)');
-  await expect(page.locator('.booru-app-shell')).toHaveCSS('grid-template-columns', /320px/);
+  await expect(page.locator('.booru-app-shell')).toHaveCSS('grid-template-columns', /288px/);
   await expect(page.locator('.booru-sidebar .searchbar')).toBeVisible();
   await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('border-radius', '0px');
 

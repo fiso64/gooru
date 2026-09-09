@@ -1,5 +1,11 @@
 .gooru-theme-booru-style .booru-app-shell {
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: 288px minmax(0, 1fr);
+}
+
+.gooru-theme-booru-style .search-suggestions .group-head,
+.gooru-theme-booru-style .search-suggestions button[role='option'] .hint,
+.gooru-theme-booru-style .search-suggestions-footer {
+  display: none;
 }
 
 /* Palette follows the dark-theme variables in the committed Danbooru reference. */
@@ -120,7 +126,7 @@
 }
 
 .gooru-theme-booru-dark .search-suggestions button[role='option']:hover,
-.gooru-theme-booru-dark .search-suggestions button[role='option'].active {
+.gooru-theme-booru-dark .search-suggestions button[role='option'].is-active {
   background: #3f4058;
 }
 
