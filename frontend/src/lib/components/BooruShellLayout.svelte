@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import Logo from './Logo.svelte';
   import SearchBar from './SearchBar.svelte';
   import ShellFilterSidebar from './ShellFilterSidebar.svelte';
   import type { MetaTagDefinition } from '$lib/api/types';
@@ -93,7 +92,7 @@
   <header class="booru-header">
     <div class="booru-brand-row">
       <button class="booru-brand" type="button" onclick={onOpenLibrary} aria-label="Gooru library">
-        <span class="booru-brand-mark"><Logo size={28} /></span>
+        <img class="booru-brand-mark" src="/favicon.svg" alt="" aria-hidden="true" />
         <span>Gooru</span>
       </button>
       <div class="booru-account-actions">
