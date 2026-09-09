@@ -321,12 +321,12 @@ func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstT
 	if queueIndex >= queueTotal {
 		queueIndex = queueTotal - 1
 	}
-	queueOffset := queueIndex
+	queueOffset := queueTotal - 1 - queueIndex
 	if strategy == "modtime" && !sourceModTime.IsZero() {
 		return sourceModTime.UTC()
 	}
 	if strategy == "reverse_queue" {
-		queueOffset = queueTotal - 1 - queueIndex
+		queueOffset = queueIndex
 		if !queueFirstTime.IsZero() && !queueLastTime.IsZero() && !queueLastTime.Before(queueFirstTime) && !queueTime.Before(queueFirstTime) && !queueTime.After(queueLastTime) {
 			// Reflect each item's real queue-entry time across the batch envelope, then
 			// use the reversed ordinal as the second-granularity tie breaker. This
@@ -335,8 +335,9 @@ func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstT
 			queueTime = queueFirstTime.Add(queueLastTime.Sub(queueTime))
 		}
 	}
-	// locations.added_at is second-granularity; offset equal-time batch items by one
-	// second so async worker completion order cannot affect stable queue ordering.
+	// locations.added_at is second-granularity. Default newest-first browsing needs
+	// the first queued item to receive the newest ordinal; reverse_queue intentionally
+	// inverts that tie-breaker. This keeps async completion order out of gallery order.
 	return queueTime.UTC().Truncate(time.Second).Add(time.Duration(queueOffset) * time.Second)
 }
 
