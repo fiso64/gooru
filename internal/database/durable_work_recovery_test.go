@@ -58,4 +58,11 @@ func TestCancelUnattachedHiddenBackgroundOperationsOnlyReleasesReservations(t *t
 			t.Fatalf("operation %s status = %q, want %q", tc.id, status, tc.want)
 		}
 	}
+	var finishedAt int64
+	if err := db.QueryRow(`SELECT finished_at FROM background_operations WHERE id = ?`, stale.ID).Scan(&finishedAt); err != nil {
+		t.Fatalf("read recovered finish time: %v", err)
+	}
+	if finishedAt <= 0 {
+		t.Fatalf("recovered finish time = %d, want unix milliseconds", finishedAt)
+	}
 }
