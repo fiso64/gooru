@@ -23,7 +23,7 @@ func TestBackgroundOperationResultIsDurableAndCompletionGated(t *testing.T) {
 	if got, found, err := store.GetBackgroundOperationResult(op.ID); err != nil || found || got != nil {
 		t.Fatalf("active result = (%q, %v, %v), want hidden", got, found, err)
 	}
-	if _, err := db.Exec(`UPDATE background_operations SET status = 'completed' WHERE id = ?`, op.ID); err != nil {
+	if _, err := db.Exec(`UPDATE background_operations SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE id = ?`, op.ID); err != nil {
 		t.Fatal(err)
 	}
 	got, found, err := store.GetBackgroundOperationResult(op.ID)
@@ -45,7 +45,7 @@ func TestBackgroundOperationResultRejectsInvalidOrTerminalWrites(t *testing.T) {
 	if err := store.SetBackgroundOperationResult(op.ID, []byte(`not-json`)); err == nil {
 		t.Fatal("invalid JSON result unexpectedly accepted")
 	}
-	if _, err := db.Exec(`UPDATE background_operations SET status = 'failed' WHERE id = ?`, op.ID); err != nil {
+	if _, err := db.Exec(`UPDATE background_operations SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE id = ?`, op.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetBackgroundOperationResult(op.ID, []byte(`{"ok":true}`)); err == nil {
