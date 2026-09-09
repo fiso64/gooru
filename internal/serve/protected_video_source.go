@@ -12,11 +12,13 @@ import (
 	"time"
 )
 
-// protectedVideoSeekablePath exposes one already-open logical source through a
-// short-lived, tokenized loopback HTTP endpoint. ffmpeg/ffprobe can then issue
-// ordinary seeks/range requests without plaintext disk materialization or
-// buffering an entire video in memory.
-func protectedVideoSeekablePath(name string, src io.ReadSeeker) (string, func(), bool, error) {
+// logicalVideoSeekablePath exposes one already-open logical video source through
+// a short-lived, tokenized loopback HTTP endpoint. ffmpeg/ffprobe receive the
+// same seek/range semantics they get from an ordinary clear-mode pathname while
+// storage remains abstract: protected callers can back the source with the
+// authenticated encrypted random-access reader without plaintext materialization
+// or whole-video buffering.
+func logicalVideoSeekablePath(name string, src io.ReadSeeker) (string, func(), bool, error) {
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return "", nil, false, err
 	}
