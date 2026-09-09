@@ -282,7 +282,7 @@ func (m *MediaService) generateDerivative(file types.FileInfo, dst io.Writer, si
 
 func (m *MediaService) generateThumbnail(file types.FileInfo, dst io.Writer, size int, format string) error {
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
-		return m.thumbnailCBZFirstPage(file.Path, dst, size, format)
+		return m.thumbnailCBZFirstPage(fileStoragePath(file), dst, size, format)
 	}
 	if m.thumbnailGeneration == nil {
 		return errors.New("thumbnail generation policy is not configured")
