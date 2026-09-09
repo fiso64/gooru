@@ -738,7 +738,8 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		}
 		if exists || status == types.StatusUntrackedContent || status == types.StatusOK {
 			dto.Status = "duplicate_existing"
-			discardDuplicateUpload(file, status == types.StatusOK)
+			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
+			discardDuplicateUpload(file, trackedAtPath)
 			response.Files = append(response.Files, dto)
 			continue
 		}
