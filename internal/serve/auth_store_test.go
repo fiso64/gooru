@@ -207,16 +207,34 @@ func TestAuthEndpointsAreStableWhenAuthDisabled(t *testing.T) {
 
 func newAuthTestStore(t *testing.T) *AuthStore {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "auth.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	if err := database.RunMigrations(db); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
-	return NewAuthStore(db, time.Hour)
+	store := NewAuthStore(db, time.Hour)
+	store.hashPassword = fastTestHashPassword
+	store.verifyPassword = fastTestVerifyPassword
+	return store
+}
+
+func fastTestHashPassword(password string) (string, error) {
+	if err := ValidatePassword(password); err != nil {
+		return "", err
+	}
+	return "test-hash:" + password, nil
+}
+
+func fastTestVerifyPassword(encoded, password string) (bool, error) {
+	hash, err := fastTestHashPassword(password)
+	if err != nil {
+		return false, err
+	}
+	return encoded == hash, nil
 }
 
 func attachTestAuth(t *testing.T, server *Server) AuthSession {
