@@ -52,6 +52,12 @@ func (s *Server) managedDeleteCandidatePath(path string) (string, bool) {
 	if path == "" {
 		return "", false
 	}
+	// The fallback below is deliberately only for a genuinely absent final path.
+	// Existing symlinks (or other unusual file types/errors) must retain the stricter
+	// existing-path validation above rather than being reinterpreted as missing files.
+	if _, err := os.Lstat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return "", false
+	}
 	absolute, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		return "", false
