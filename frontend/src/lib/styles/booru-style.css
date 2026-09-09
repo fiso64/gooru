@@ -1,0 +1,318 @@
+.gooru-theme-booru-style {
+  --font-display: Tahoma, Verdana, Helvetica, sans-serif;
+  --font-display-weight: 700;
+  --font-ui: Verdana, Helvetica, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --bg: #ffffff;
+  --bg-2: #ffffff;
+  --surface: #f6f6f8;
+  --surface-2: #e8e8ec;
+  --surface-3: #d1d1da;
+  --border: #e8e8ec;
+  --border-strong: #d1d1da;
+  --text: #000000;
+  --text-2: #3f4058;
+  --text-3: #777892;
+  --text-4: #9192a7;
+  --accent: #0075f8;
+  --accent-ink: #ffffff;
+  --accent-soft: #f4f6ff;
+  --accent-line: #c3d0ff;
+  --danger: #ed2426;
+  --danger-soft: #fbe3e3;
+  --ok: #008e23;
+  --r-1: 0;
+  --r-2: 2px;
+  --r-3: 2px;
+  --r-4: 3px;
+  color-scheme: light;
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.gooru-theme-booru-style .app-shell {
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.gooru-theme-booru-style .topbar {
+  grid-template-columns: 220px minmax(0, 1fr) auto;
+  min-height: 44px;
+  background: #f4f6ff;
+  border-bottom-color: #e1e8ff;
+}
+
+.gooru-theme-booru-style .topbar-brand {
+  justify-content: flex-start;
+  padding: 0 12px;
+  border-right: 0;
+  color: #0075f8;
+}
+
+.gooru-theme-booru-style .topbar-brand-mark {
+  width: 28px;
+  height: 28px;
+  color: #0075f8;
+}
+
+.gooru-theme-booru-style .topbar-search {
+  justify-content: flex-start;
+  padding: 5px 10px;
+}
+
+.gooru-theme-booru-style .topbar-search-inner {
+  max-width: 560px;
+}
+
+.gooru-theme-booru-style .topbar-right {
+  align-self: center;
+  padding: 0 12px;
+  border-left: 0;
+}
+
+.gooru-theme-booru-style .searchbar {
+  min-height: 30px;
+  padding: 3px 8px 3px 30px;
+  background: #ffffff;
+  border-color: #d1d1da;
+  border-radius: 2px;
+  box-shadow: none;
+}
+
+.gooru-theme-booru-style .searchbar:focus-within {
+  background: #ffffff;
+  border-color: #0075f8;
+  box-shadow: 0 0 0 1px #0075f8;
+}
+
+.gooru-theme-booru-style .searchbar-icon {
+  left: 8px;
+  top: 7px;
+}
+
+.gooru-theme-booru-style .searchbar-input {
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.gooru-theme-booru-style .sidebar {
+  gap: 12px;
+  padding: 12px 10px 24px;
+  background: #ffffff;
+  border-right: 0;
+}
+
+.gooru-theme-booru-style .sidebar-section {
+  gap: 0;
+}
+
+.gooru-theme-booru-style .sidebar-section-head {
+  padding: 7px 5px 4px;
+  color: #1e1e2c;
+  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.gooru-theme-booru-style .sidebar-item {
+  gap: 6px;
+  min-height: 25px;
+  padding: 3px 5px;
+  border-radius: 2px;
+  color: #005ac3;
+  font-size: 12px;
+}
+
+.gooru-theme-booru-style .sidebar-item:hover {
+  background: #f4f6ff;
+  color: #5d8fff;
+}
+
+.gooru-theme-booru-style .sidebar-item.active,
+.gooru-theme-booru-style .sidebar-item.is-active {
+  background: #e1e8ff;
+  color: #005ac3;
+  font-weight: 700;
+}
+
+.gooru-theme-booru-style .sidebar-item .count {
+  color: #9192a7;
+  font-family: var(--font-ui);
+  font-size: 10px;
+}
+
+.gooru-theme-booru-style .main {
+  background: #ffffff;
+}
+
+.gooru-theme-booru-style .library-head {
+  min-height: 42px;
+  padding: 7px 12px;
+  border-bottom-color: #e8e8ec;
+}
+
+.gooru-theme-booru-style .library-head h1,
+.gooru-theme-booru-style .page-header h1 {
+  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.gooru-theme-booru-style .library-head-meta {
+  color: #777892;
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.gooru-theme-booru-style .grid {
+  --grid-gap: 10px;
+  --grid-pad: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--grid-cell, 180px), max-content));
+  justify-content: start;
+}
+
+.gooru-theme-booru-style .thumb {
+  background: transparent;
+  contain: layout paint style;
+}
+
+.gooru-theme-booru-style .thumb img,
+.gooru-theme-booru-style .thumb video,
+.gooru-theme-booru-style .thumb .thumb-ph {
+  object-fit: contain;
+  background: transparent;
+}
+
+.gooru-theme-booru-style .thumb:hover img {
+  transform: none;
+}
+
+.gooru-theme-booru-style .thumb-overlay {
+  background: transparent;
+}
+
+.gooru-theme-booru-style .thumb-meta {
+  left: 4px;
+  right: 4px;
+  bottom: 3px;
+  padding: 2px 3px;
+  background: rgb(255 255 255 / 88%);
+  color: #3f4058;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-shadow: none;
+}
+
+.gooru-theme-booru-style .thumb-badge {
+  background: rgb(255 255 255 / 90%);
+  color: #3f4058;
+  border: 1px solid #d1d1da;
+  border-radius: 2px;
+  font-family: var(--font-ui);
+}
+
+.gooru-theme-booru-style .thumb-badge-gif {
+  background: #0075f8;
+  border-color: #0075f8;
+  color: #ffffff;
+}
+
+.gooru-theme-booru-style .thumb-checkbox {
+  border-radius: 2px;
+  background: rgb(255 255 255 / 90%);
+  border-color: #9192a7;
+}
+
+.gooru-theme-booru-style .thumb.is-selected::after {
+  box-shadow: inset 0 0 0 3px #0075f8;
+}
+
+.gooru-theme-booru-style .g-btn {
+  padding: 4px 8px;
+  border-radius: 2px;
+  background: #e8e8ec;
+  border-color: #d1d1da;
+  color: #000000;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.gooru-theme-booru-style .g-btn:hover {
+  background: #f6f6f8;
+  border-color: #9192a7;
+}
+
+.gooru-theme-booru-style .g-btn-primary {
+  background: #0075f8;
+  border-color: #0075f8;
+  color: #ffffff;
+}
+
+.gooru-theme-booru-style .g-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: #005ac3;
+}
+
+.gooru-theme-booru-style .g-card,
+.gooru-theme-booru-style .g-input,
+.gooru-theme-booru-style .seg {
+  border-radius: 2px;
+}
+
+.gooru-theme-booru-style .page {
+  max-width: none;
+  margin: 0;
+  padding: 18px 24px 64px;
+  gap: 20px;
+}
+
+.gooru-theme-booru-style .settings-section {
+  grid-template-columns: 190px minmax(0, 720px);
+  gap: 22px;
+  padding: 18px 0;
+}
+
+.gooru-theme-booru-style .settings-section-head h2 {
+  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+@media (max-width: 660px) {
+  .gooru-theme-booru-style .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .gooru-theme-booru-style .topbar {
+    grid-column: 1;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .gooru-theme-booru-style .sidebar {
+    display: none;
+  }
+
+  .gooru-theme-booru-style .grid {
+    --grid-gap: 6px;
+    --grid-pad: 8px;
+    grid-template-columns: repeat(auto-fill, minmax(min(var(--grid-cell, 180px), 44vw), 1fr));
+  }
+
+  .gooru-theme-booru-style .library-head {
+    padding-inline: 8px;
+  }
+
+  .gooru-theme-booru-style .page {
+    padding: 14px 10px 48px;
+  }
+
+  .gooru-theme-booru-style .settings-section {
+    grid-template-columns: 1fr;
+  }
+}
