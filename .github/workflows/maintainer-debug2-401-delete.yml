@@ -1,0 +1,34 @@
+name: maintainer-debug2-401-delete
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/maintainer-debug2-401-delete.yml
+
+permissions:
+  contents: write
+
+jobs:
+  debug:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run implementation script with captured output
+        shell: bash
+        run: |
+          set -u
+          awk 'BEGIN{capture=0} /      - name: Implement durable selected-file removal/{found=1} found && /        run: \|/{capture=1; next} capture{sub(/^          /, ""); print}' .github/workflows/maintainer-implement-401-delete.yml > /tmp/maintainer-401-implement.sh
+          if bash -x /tmp/maintainer-401-implement.sh > /tmp/maintainer-401.log 2>&1; then
+            exit 0
+          fi
+          git reset --hard origin/develop
+          git clean -fdx
+          git checkout -B maintainer/debug-401-delete origin/develop
+          cp /tmp/maintainer-401.log .maintainer-401-error.log
+          git add .maintainer-401-error.log
+          git -c user.name=chatgpt-codex-connector -c user.email=chatgpt-codex-connector@users.noreply.github.com commit -m 'chore(maintainer): capture #401 implementation failure'
+          git push --force origin maintainer/debug-401-delete
+          exit 1
