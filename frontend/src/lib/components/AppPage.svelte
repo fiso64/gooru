@@ -6,7 +6,7 @@
   import { ApiClient } from '$lib/api/client';
   import { setOpaqueURLState, setProtectedReadTransport } from '$lib/api/privacy';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, runtimeCapability, runtimeConfig, type GridType } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, normalizeUITheme, runtimeCapability, runtimeConfig, type GridType, type UITheme } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
   import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
@@ -14,6 +14,7 @@
 
   type FontStyle = 'editorial' | 'modern' | 'comic';
   type UIConfig = {
+    ui_theme?: string;
     accent_color?: string;
     font_style?: FontStyle;
     load_full_media_by_default?: boolean;
@@ -37,6 +38,7 @@
   let loginPassword = $state('');
   let loginBusy = $state(false);
   let loginError = $state('');
+  let runtimeTheme = $state<UITheme>('default');
   let runtimeAccent = $state<AccentTheme | null>(null);
   let runtimeFontStyle = $state<FontStyle>('editorial');
   let runtimeGridSize = $state(defaultGridSize);
@@ -44,13 +46,16 @@
   let faviconHref = $state('/favicon.svg');
 
   async function applyRuntimeConfig(config: UIConfig) {
-    runtimeAccent = accentTheme(config.accent_color ?? '');
-    runtimeFontStyle = config.font_style ?? 'editorial';
+    runtimeTheme = normalizeUITheme(config.ui_theme);
+    const booruStyle = runtimeTheme === 'booru-style';
+    runtimeAccent = booruStyle ? null : accentTheme(config.accent_color ?? '');
+    runtimeFontStyle = booruStyle ? 'modern' : (config.font_style ?? 'editorial');
     runtimeGridSize = config.grid_size ?? defaultGridSize;
     runtimeGridType = normalizeGridType(config.grid_type);
     setProtectedReadTransport(config.protected_mode ?? false);
     setOpaqueURLState(config.opaque_url_state ?? false);
     runtimeConfig.set({
+      uiTheme: runtimeTheme,
       capabilities: Array.isArray(config.capabilities) ? config.capabilities : [runtimeCapability.previewImages],
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
@@ -127,7 +132,7 @@
 </svelte:head>
 
 <div
-  class={`gooru-root gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
+  class={`gooru-root gooru-theme-${runtimeTheme} gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
   style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;${runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
 >
   {#if !$authState.checked}
