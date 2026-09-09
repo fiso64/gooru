@@ -327,17 +327,14 @@ func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstT
 	}
 	if strategy == "reverse_queue" {
 		queueOffset = queueIndex
-		if !queueFirstTime.IsZero() && !queueLastTime.IsZero() && !queueLastTime.Before(queueFirstTime) && !queueTime.Before(queueFirstTime) && !queueTime.After(queueLastTime) {
-			// Reflect each item's real queue-entry time across the batch envelope, then
-			// use the reversed ordinal as the second-granularity tie breaker. This
-			// keeps one-file async worker requests globally reversed even when files
-			// were appended to the UI queue in separate selections.
-			queueTime = queueFirstTime.Add(queueLastTime.Sub(queueTime))
-		}
+	} else if !queueFirstTime.IsZero() && !queueLastTime.IsZero() && !queueLastTime.Before(queueFirstTime) && !queueTime.Before(queueFirstTime) && !queueTime.After(queueLastTime) {
+		// Normal newest-first browsing should preserve queue admission order even when
+		// one-file workers finish independently. Reflect the original queue time over
+		// the shared batch envelope, then use the descending ordinal as the seconds tie-breaker.
+		queueTime = queueFirstTime.Add(queueLastTime.Sub(queueTime))
 	}
-	// locations.added_at is second-granularity. Default newest-first browsing needs
-	// the first queued item to receive the newest ordinal; reverse_queue intentionally
-	// inverts that tie-breaker. This keeps async completion order out of gallery order.
+	// locations.added_at is second-granularity. The default queue strategy makes the
+	// first admitted item newest; reverse_queue deliberately keeps later queue times newer.
 	return queueTime.UTC().Truncate(time.Second).Add(time.Duration(queueOffset) * time.Second)
 }
 
