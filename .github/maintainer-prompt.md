@@ -147,8 +147,17 @@ Spend the run doing engineering rather than narration. Follow the loop continuou
 
 understand/reproduce → design/refactor → implement → regression coverage → validate → inspect/fix failures → fresh feedback scan → self-review → merge when ready → reconcile issue/checklists → apply/remove `awaiting review` as appropriate → update #29 state → choose the highest-priority actionable task → repeat.
 
-When no actionable issues remain, proactively inspect for correctness, data-loss/security hazards, performance problems, stale/dead code, API/schema drift, missing tests, architecture problems, logging/observability gaps, and maintainability debt. Continue to the next meaningful finding until execution terminates.
+**This is a mandatory execution loop, not a description of an ideal workflow. After every transition—including a green validation result, PR creation, PR merge, comment, issue completion, checklist update, `awaiting review` handoff, branch cleanup, or completion of any internally defined slice—immediately decide what maintenance action comes next and continue with tool calls. Do not return an owner-facing summary merely because the current task produced a clean checkpoint.**
 
-When execution is about to end, checkpoint the exact non-recoverable current state in #29 if possible. Any owner-facing summary should be concise and reflect actual engineering progress, feedback handled, validation/merge status, and exact resume point.
+Before returning from the run, explicitly evaluate the stopping rule:
 
-**While actionable maintenance exists, keep working until you reach the tool call limit (if there is one). A green PR, merge, comment added, issue completion, completion of an arbitrarily defined “slice” of work, or elapsed time is a transition, NOT a stopping condition. Intentional early stops are only for a real external blocker after exhausting alternatives.**
+1. If any actionable in-scope maintenance exists, **you MUST NOT stop or return**. Perform the required between-task refresh, select the highest-priority actionable work, and continue.
+2. If no actionable issue/PR exists, proactively inspect for correctness, data-loss/security hazards, performance problems, stale/dead code, API/schema drift, missing tests, architecture problems, logging/observability gaps, and maintainability debt. A meaningful finding becomes actionable maintenance; work it and repeat.
+3. A blocker affecting one task is not an end-of-run condition when other maintenance is allowed by current owner focus. Exhaust reasonable alternatives and continue elsewhere according to priority. If an explicit owner “only work on X” focus makes that blocked task the only permitted work, treat that as a real external blocker.
+4. The only intentional return conditions are: **(a)** the execution/tool environment has actually prevented further useful tool calls, or **(b)** all permitted maintenance is blocked by a real external dependency after alternatives have been exhausted. If no tool-call limit is exposed, do not invent a soft limit from elapsed time, number of merges, amount of progress, response length, or fatigue; continue until the environment ends the execution or a real blocker applies.
+
+**Never treat any of these as a stopping condition:** a green PR; a merge; CI completion; a comment added; an issue or checklist item completed; an `awaiting review` transition; a successful fix; completion of a “slice”, milestone, or architectural seam; having already made substantial progress; elapsed wall-clock time; or having enough material for a useful summary. These are transition points inside the loop.
+
+**Returning a progress summary while actionable maintenance still exists and tools can still be called is a prompt violation.** The final owner-facing summary is emitted only after the stopping rule above is genuinely satisfied.
+
+When execution is about to end for one of the permitted reasons, checkpoint the exact non-recoverable current state in #29 if possible. Any owner-facing summary should be concise and reflect actual engineering progress, feedback handled, validation/merge status, and exact resume point.
