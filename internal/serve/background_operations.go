@@ -14,6 +14,7 @@ const defaultBackgroundOperationAPILimit = 100
 type backgroundOperationReader interface {
 	GetBackgroundOperation(string) (core.BackgroundOperationState, bool, error)
 	ListBackgroundOperations(core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error)
+	CancelBackgroundOperation(string) (bool, error)
 }
 
 type BackgroundOperationDTO struct {
@@ -40,6 +41,10 @@ func (l *GooruLibrary) GetBackgroundOperation(operationID string) (core.Backgrou
 
 func (l *GooruLibrary) ListBackgroundOperations(options core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error) {
 	return l.client.ListBackgroundOperations(options)
+}
+
+func (l *GooruLibrary) CancelBackgroundOperation(operationID string) (bool, error) {
+	return l.client.CancelBackgroundOperation(operationID)
 }
 
 func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
@@ -79,8 +84,8 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
+	if r.Method != http.MethodGet && r.Method != http.MethodDelete {
+		w.Header().Set("Allow", "GET, DELETE")
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
@@ -100,6 +105,28 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found || !operation.Visible {
 		writeError(w, http.StatusNotFound, "not_found", "operation not found", nil)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		canceled, err := s.backgroundOperations.CancelBackgroundOperation(id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to cancel background operation", nil)
+			return
+		}
+		if !canceled {
+			writeError(w, http.StatusConflict, "operation_not_active", "operation is not active", nil)
+			return
+		}
+		operation, found, err = s.backgroundOperations.GetBackgroundOperation(id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load canceled background operation", nil)
+			return
+		}
+		if !found || !operation.Visible {
+			writeError(w, http.StatusNotFound, "not_found", "operation not found", nil)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, backgroundOperationDTO(operation))
 		return
 	}
 	writeJSON(w, http.StatusOK, backgroundOperationDTO(operation))
