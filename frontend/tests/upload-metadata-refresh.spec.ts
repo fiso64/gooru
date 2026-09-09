@@ -12,7 +12,7 @@ async function mockApp(page: Page) {
   let gridRequests = 0;
   let metadataRequests = 0;
   let tagsRequests = 0;
-  let jobsRequests = 0;
+  let operationRequests = 0;
 
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -31,8 +31,6 @@ async function mockApp(page: Page) {
     const queryTotal = params.get('query') ? 12 : serverTotal;
     if (limit > 1) gridRequests += 1;
     else metadataRequests += 1;
-    // Mirror the real files API: without aggregate metadata total_count is only
-    // a pagination lower bound, not the authoritative query result count.
     const lowerBoundTotal = queryTotal > limit ? limit + 1 : queryTotal;
     await route.fulfill({
       contentType: 'application/json',
@@ -46,9 +44,12 @@ async function mockApp(page: Page) {
       })
     });
   });
+  await page.route('**/api/v1/operations?**', async (route) => {
+    operationRequests += 1;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
+  });
   await page.route('**/api/v1/jobs**', async (route) => {
-    jobsRequests += 1;
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({
@@ -73,7 +74,7 @@ async function mockApp(page: Page) {
     gridRequests: () => gridRequests,
     metadataRequests: () => metadataRequests,
     tagsRequests: () => tagsRequests,
-    jobsRequests: () => jobsRequests
+    operationRequests: () => operationRequests
   };
 }
 
@@ -109,7 +110,7 @@ test('active uploads refresh authoritative counts without churning grid pages an
   const initialGridRequests = server.gridRequests();
   const initialMetadataRequests = server.metadataRequests();
   const initialTagsRequests = server.tagsRequests();
-  const initialJobsRequests = server.jobsRequests();
+  const initialOperationRequests = server.operationRequests();
 
   await page.getByRole('button', { name: 'Upload' }).click();
   await page.locator('input[type="file"]').setInputFiles({
@@ -124,7 +125,7 @@ test('active uploads refresh authoritative counts without churning grid pages an
   await librarySidebar(page).click();
 
   await expect.poll(() => server.tagsRequests(), { timeout: 5_500 }).toBeGreaterThan(initialTagsRequests);
-  await expect.poll(() => server.jobsRequests(), { timeout: 5_500 }).toBeGreaterThan(initialJobsRequests);
+  await expect.poll(() => server.operationRequests(), { timeout: 5_500 }).toBeGreaterThan(initialOperationRequests);
   await expect.poll(() => server.metadataRequests(), { timeout: 5_500 }).toBeGreaterThan(initialMetadataRequests);
   await expect(librarySidebar(page)).toContainText('76');
   await expect(page.getByTestId('library-header-count')).toHaveText('76 files');
@@ -159,7 +160,7 @@ test('active uploads refresh authoritative counts without churning grid pages an
   });
 
   const tagsBeforeFinal = server.tagsRequests();
-  const jobsBeforeFinal = server.jobsRequests();
+  const operationsBeforeFinal = server.operationRequests();
   await expect.poll(() => server.tagsRequests()).toBeGreaterThan(tagsBeforeFinal);
-  await expect.poll(() => server.jobsRequests()).toBeGreaterThan(jobsBeforeFinal);
+  await expect.poll(() => server.operationRequests()).toBeGreaterThan(operationsBeforeFinal);
 });
