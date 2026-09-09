@@ -72,7 +72,7 @@ type NotificationKind int
 const (
 	// NotificationKindMoveDetected indicates a file was moved/renamed.
 	NotificationKindMoveDetected NotificationKind = iota
-	// NotificationKindModified indicates a file's content was updated in the database.
+	// NotificationKindModified indicates the file content changed and the old tags need to be surfaced.
 	NotificationKindModified
 )
 
@@ -93,15 +93,14 @@ type TagOperationResult struct {
 
 // LocationInfo holds metadata about a file's location.
 type LocationInfo struct {
-	Path         string // The canonical logical path of the file
-	StoragePath  string // Optional managed physical path; empty means Path
-	Hash         string
-	Size         int64
-	ModTime      int64 // Unix time
-	AddedAt      int64 // Unix time; zero lets the database assign insertion time
-	AddedOrder   int64 // Internal high-precision added-order key; zero lets the database derive it from AddedAt
-	Extension    string
-	TagsCache    string
+	Path        string // The canonical logical path of the file
+	StoragePath string // Optional managed physical path; empty means Path
+	Hash        string
+	Size        int64
+	ModTime     int64 // Unix time
+	AddedAt     int64 // Unix time; zero lets the database assign insertion time
+	Extension   string
+	TagsCache   string
 }
 
 // FileInfo holds all displayable information about a file.
