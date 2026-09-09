@@ -267,7 +267,10 @@ func (f *File) cachedChunk(index uint64) ([]byte, error) {
 	}
 
 	slot := f.cacheNext
-	plain, err := f.decryptChunk(index, f.cache[slot].plain)
+	// Cached plaintext is immutable after publication. Allocate a fresh backing
+	// buffer on misses so a concurrent reader that just obtained an older entry
+	// cannot observe that slot being recycled underneath its copy.
+	plain, err := f.decryptChunk(index, nil)
 	if err != nil {
 		f.cache[slot].valid = false
 		return nil, err
