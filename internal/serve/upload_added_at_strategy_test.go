@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ func TestUploadAddedAtStrategyUsesTargetDefaultAndRequestOverride(t *testing.T) 
 		name, targetStrategy, requestStrategy string
 		want                                  time.Time
 	}{
-		{"target reverse", "reverse_queue", "", base.Add(2 * time.Second)},
+		{"target reverse", "reverse_queue", "", base},
 		{"request modtime", "reverse_queue", "modtime", source},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -35,6 +36,67 @@ func TestUploadAddedAtStrategyUsesTargetDefaultAndRequestOverride(t *testing.T) 
 				t.Fatalf("added_at=%v want=%v files=%+v", library.files[0].AddedAt, tc.want, library.files)
 			}
 		})
+	}
+}
+
+func TestUploadQueueAddedAtPreservesNewestFirstQueueOrder(t *testing.T) {
+	base := time.Date(2024, 1, 2, 3, 4, 5, 400_000_000, time.UTC)
+	got := make([]struct {
+		index   int
+		addedAt time.Time
+	}, 3)
+	for index := range got {
+		got[index] = struct {
+			index   int
+			addedAt time.Time
+		}{index: index, addedAt: resolveUploadAddedAt("queue", time.Time{}, base, time.Time{}, time.Time{}, index, len(got))}
+	}
+
+	sort.Slice(got, func(i, j int) bool { return got[i].addedAt.After(got[j].addedAt) })
+	for position, item := range got {
+		if item.index != position {
+			t.Fatalf("newest-first position %d has queue index %d: %+v", position, item.index, got)
+		}
+	}
+}
+
+func TestUploadReverseQueueAddedAtInvertsNewestFirstQueueOrder(t *testing.T) {
+	base := time.Date(2024, 1, 2, 3, 4, 5, 400_000_000, time.UTC)
+	got := make([]struct {
+		index   int
+		addedAt time.Time
+	}, 3)
+	for index := range got {
+		got[index] = struct {
+			index   int
+			addedAt time.Time
+		}{index: index, addedAt: resolveUploadAddedAt("reverse_queue", time.Time{}, base, time.Time{}, time.Time{}, index, len(got))}
+	}
+
+	sort.Slice(got, func(i, j int) bool { return got[i].addedAt.After(got[j].addedAt) })
+	for position, item := range got {
+		want := len(got) - 1 - position
+		if item.index != want {
+			t.Fatalf("newest-first position %d has queue index %d, want %d: %+v", position, item.index, want, got)
+		}
+	}
+}
+
+func TestUploadQueueAddedAtUsesAdmissionOrderAcrossRapidSelections(t *testing.T) {
+	first := time.Date(2024, 1, 2, 3, 4, 5, 100_000_000, time.UTC)
+	queueTimes := []time.Time{
+		first,
+		first.Add(250 * time.Millisecond),
+		first.Add(500 * time.Millisecond),
+	}
+	added := make([]time.Time, len(queueTimes))
+	for index, queueTime := range queueTimes {
+		added[index] = resolveUploadAddedAt("queue", time.Time{}, queueTime, queueTimes[0], queueTimes[len(queueTimes)-1], index, len(queueTimes))
+	}
+	for index := 1; index < len(added); index++ {
+		if !added[index-1].After(added[index]) {
+			t.Fatalf("queue order not preserved at %d: added=%v", index, added)
+		}
 	}
 }
 
