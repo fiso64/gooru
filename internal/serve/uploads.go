@@ -738,7 +738,7 @@ func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUp
 		}
 		if exists || status == types.StatusUntrackedContent || status == types.StatusOK {
 			dto.Status = "duplicate_existing"
-			removeRejectedStagedUpload(file)
+			discardDuplicateUpload(file, status == types.StatusOK)
 			response.Files = append(response.Files, dto)
 			continue
 		}
