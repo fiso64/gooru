@@ -10,14 +10,23 @@ import (
 )
 
 const (
-	backgroundUploadTaskKind      = "upload.import"
-	backgroundUploadResourceClass = "upload"
-	backgroundUploadInputVersion  = 1
-	backgroundUploadPhaseStaged   = "staged"
+	backgroundUploadTaskKind       = "upload.import"
+	backgroundUploadResourceClass  = "upload"
+	backgroundUploadInputVersion   = 1
+	backgroundUploadPhaseStaged    = "staged"
+	backgroundUploadPhaseActivated = "activated"
+	backgroundUploadPhaseImported  = "imported"
 )
 
 type backgroundUploadCheckpoint struct {
-	Phase string `json:"phase"`
+	Phase        string                                  `json:"phase"`
+	Replacements []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
+	Response     *UploadImportResponse                    `json:"response,omitempty"`
+}
+
+type backgroundUploadReplacementCheckpoint struct {
+	Index       int  `json:"index"`
+	HadOriginal bool `json:"had_original"`
 }
 
 type backgroundUploadTaskInput struct {
@@ -42,6 +51,81 @@ type backgroundUploadTaskFile struct {
 
 func backgroundUploadInitialCheckpoint() backgroundUploadCheckpoint {
 	return backgroundUploadCheckpoint{Phase: backgroundUploadPhaseStaged}
+}
+
+func backgroundUploadActivatedCheckpoint(activated []activatedSavedReplacement) backgroundUploadCheckpoint {
+	checkpoint := backgroundUploadCheckpoint{Phase: backgroundUploadPhaseActivated}
+	checkpoint.Replacements = backgroundUploadReplacementCheckpoints(activated)
+	return checkpoint
+}
+
+func backgroundUploadImportedCheckpoint(activated []activatedSavedReplacement, response UploadImportResponse) backgroundUploadCheckpoint {
+	checkpoint := backgroundUploadCheckpoint{
+		Phase:        backgroundUploadPhaseImported,
+		Replacements: backgroundUploadReplacementCheckpoints(activated),
+		Response:     &response,
+	}
+	return checkpoint
+}
+
+func backgroundUploadReplacementCheckpoints(activated []activatedSavedReplacement) []backgroundUploadReplacementCheckpoint {
+	if len(activated) == 0 {
+		return nil
+	}
+	result := make([]backgroundUploadReplacementCheckpoint, 0, len(activated))
+	for _, item := range activated {
+		result = append(result, backgroundUploadReplacementCheckpoint{Index: item.index, HadOriginal: item.replacement.hadOriginal})
+	}
+	return result
+}
+
+func activatedSavedReplacementsFromCheckpoint(files []savedUpload, checkpoint backgroundUploadCheckpoint) ([]activatedSavedReplacement, error) {
+	if checkpoint.Phase != backgroundUploadPhaseActivated && checkpoint.Phase != backgroundUploadPhaseImported {
+		return nil, fmt.Errorf("upload checkpoint phase %q has no activated replacements", checkpoint.Phase)
+	}
+	replaceCount := 0
+	for _, file := range files {
+		if file.replace {
+			replaceCount++
+		}
+	}
+	if len(checkpoint.Replacements) != replaceCount {
+		return nil, errors.New("upload checkpoint replacement count does not match task input")
+	}
+	savedByIndex := make(map[int]backgroundUploadReplacementCheckpoint, len(checkpoint.Replacements))
+	for _, saved := range checkpoint.Replacements {
+		if saved.Index < 0 || saved.Index >= len(files) {
+			return nil, errors.New("upload checkpoint replacement index is out of range")
+		}
+		if _, ok := savedByIndex[saved.Index]; ok {
+			return nil, errors.New("upload checkpoint replacement index is duplicated")
+		}
+		file := files[saved.Index]
+		if !file.replace || file.path == "" || file.destinationPath == "" {
+			return nil, errors.New("upload checkpoint replacement does not match task input")
+		}
+		savedByIndex[saved.Index] = saved
+	}
+	activated := make([]activatedSavedReplacement, 0, len(checkpoint.Replacements))
+	for index, file := range files {
+		if !file.replace {
+			continue
+		}
+		saved, ok := savedByIndex[index]
+		if !ok {
+			return nil, errors.New("upload checkpoint replacement does not match task input")
+		}
+		activated = append(activated, activatedSavedReplacement{
+			index: index,
+			replacement: activatedReplacement{
+				finalPath:            file.destinationPath,
+				backupPath:           file.path + ".backup",
+				noOriginalMarkerPath: file.path + ".no-original",
+				hadOriginal:          saved.HadOriginal,
+			},
+		})
+	}
+	return activated, nil
 }
 
 func backgroundUploadTaskRequest(operationID string, files []savedUpload, tags []string) (core.BackgroundTaskRequest, error) {
