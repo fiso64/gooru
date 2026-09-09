@@ -2,9 +2,20 @@ package serve
 
 import "strings"
 
-// UnmarshalYAML preserves the generated/default UI values while retaining whether grid_type
-// was actually present in YAML. That lets booru-style choose a presentation-appropriate grid
-// default without overriding an explicit user setting.
+const defaultBooruGridSize = 180
+
+func isBooruUITheme(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "booru-light", "booru-dark":
+		return true
+	default:
+		return false
+	}
+}
+
+// UnmarshalYAML preserves the generated/default UI values while retaining whether
+// theme-sensitive functional settings were actually present in YAML. Booru themes
+// can therefore choose their own defaults without overriding explicit user settings.
 func (cfg *UIConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type plainUIConfig UIConfig
 	next := plainUIConfig(*cfg)
@@ -16,8 +27,16 @@ func (cfg *UIConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err := unmarshal(&fields); err != nil {
 		return err
 	}
-	if _, configured := fields["grid_type"]; !configured && strings.EqualFold(strings.TrimSpace(next.Theme), "booru-style") {
-		next.GridType = "fit"
+	if isBooruUITheme(next.Theme) {
+		if _, configured := fields["grid_type"]; !configured {
+			next.GridType = "fit"
+		}
+		if _, configured := fields["grid_size"]; !configured {
+			next.GridSize = defaultBooruGridSize
+		}
+		if _, configured := fields["pagination_mode"]; !configured {
+			next.PaginationMode = "paged"
+		}
 	}
 	*cfg = UIConfig(next)
 	return nil
