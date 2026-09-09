@@ -16,13 +16,17 @@ type backgroundOperationReader interface {
 	GetBackgroundOperation(string) (core.BackgroundOperationState, bool, error)
 	ListBackgroundOperations(core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error)
 	CancelBackgroundOperation(string) (bool, error)
+	GetBackgroundOperationResult(string, any) (bool, error)
+}
+
+type backgroundOperationProducer interface {
 	CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest, int) (core.BackgroundOperation, error)
 	EnqueueBackgroundTask(core.BackgroundTaskRequest) (core.BackgroundTask, bool, error)
 	SetBackgroundOperationVisible(string, bool) error
 	SetBackgroundOperationCheckpoint(string, any) error
 	GetBackgroundOperationCheckpoint(string, any) (bool, error)
 	SetBackgroundOperationResult(string, any) error
-	GetBackgroundOperationResult(string, any) (bool, error)
+	CancelBackgroundOperation(string) (bool, error)
 }
 
 type BackgroundOperationDTO struct {
@@ -56,6 +60,10 @@ func (l *GooruLibrary) CancelBackgroundOperation(operationID string) (bool, erro
 	return l.client.CancelBackgroundOperation(operationID)
 }
 
+func (l *GooruLibrary) GetBackgroundOperationResult(operationID string, destination any) (bool, error) {
+	return l.client.GetBackgroundOperationResult(operationID, destination)
+}
+
 func (l *GooruLibrary) CreateBackgroundOperationWithPendingLimit(request core.BackgroundOperationRequest, maxPending int) (core.BackgroundOperation, error) {
 	return l.client.CreateBackgroundOperationWithPendingLimit(request, maxPending)
 }
@@ -78,10 +86,6 @@ func (l *GooruLibrary) GetBackgroundOperationCheckpoint(operationID string, dest
 
 func (l *GooruLibrary) SetBackgroundOperationResult(operationID string, result any) error {
 	return l.client.SetBackgroundOperationResult(operationID, result)
-}
-
-func (l *GooruLibrary) GetBackgroundOperationResult(operationID string, destination any) (bool, error) {
-	return l.client.GetBackgroundOperationResult(operationID, destination)
 }
 
 func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
