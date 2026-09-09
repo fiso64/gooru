@@ -148,8 +148,8 @@ func TestEncryptedFileReadsReuseDecryptedChunks(t *testing.T) {
 	if one[0] != plaintext[1] {
 		t.Fatalf("ReadAt(1) = %d, want %d", one[0], plaintext[1])
 	}
-	if counted.reads != 3 {
-		t.Fatalf("ciphertext reads after two same-chunk ReadAt calls = %d, want 3", counted.reads)
+	if counted.reads != 2 {
+		t.Fatalf("ciphertext reads after two cached same-chunk ReadAt calls = %d, want 2", counted.reads)
 	}
 
 	if _, err := file.ReadAt(one, ChunkSize+1); err != nil {
@@ -158,8 +158,8 @@ func TestEncryptedFileReadsReuseDecryptedChunks(t *testing.T) {
 	if one[0] != plaintext[ChunkSize+1] {
 		t.Fatalf("ReadAt(next chunk) = %d, want %d", one[0], plaintext[ChunkSize+1])
 	}
-	if counted.reads != 4 {
-		t.Fatalf("ciphertext reads after random cache miss = %d, want 4", counted.reads)
+	if counted.reads != 2 {
+		t.Fatalf("ciphertext reads after cached next-chunk ReadAt = %d, want 2", counted.reads)
 	}
 }
 
