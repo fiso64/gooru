@@ -85,10 +85,10 @@
 
   const commonTags = $derived(normalizeCommonTags(tags).slice(0, 20));
   const orderedSavedSearches = $derived.by(() => {
-    const byID = new Map(savedSearches.map((item) => [item.id, item]));
+    const byID = new Map(savedSearches.map((item: ShellSavedSearch) => [item.id, item]));
     const ordered = savedSearchOrder.map((id) => byID.get(id)).filter((item): item is ShellSavedSearch => Boolean(item));
-    const seen = new Set(ordered.map((item) => item.id));
-    return [...ordered, ...savedSearches.filter((item) => !seen.has(item.id))];
+    const seen = new Set(ordered.map((item: ShellSavedSearch) => item.id));
+    return [...ordered, ...savedSearches.filter((item: ShellSavedSearch) => !seen.has(item.id))];
   });
 
   onMount(() => {
@@ -105,7 +105,7 @@
   });
 
   $effect(() => {
-    const ids = savedSearches.map((item) => item.id);
+    const ids = savedSearches.map((item: ShellSavedSearch) => item.id);
     const membership = [...ids].sort().join('\u0000');
     if (membership !== savedSearchMembership) {
       savedSearchMembership = membership;
@@ -134,7 +134,7 @@
       return;
     }
     draggedSavedSearchID = id;
-    savedSearchDragStartOrder = orderedSavedSearches.map((item) => item.id);
+    savedSearchDragStartOrder = orderedSavedSearches.map((item: ShellSavedSearch) => item.id);
     savedSearchReorderError = '';
     event.dataTransfer?.setData('text/plain', id);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
@@ -146,7 +146,7 @@
     event.preventDefault();
     if (sourceID === targetID) return;
 
-    const current = orderedSavedSearches.map((item) => item.id);
+    const current = orderedSavedSearches.map((item: ShellSavedSearch) => item.id);
     const from = current.indexOf(sourceID);
     const target = current.indexOf(targetID);
     if (from < 0 || target < 0) return;
@@ -175,8 +175,8 @@
     if (!sourceID || savedSearchReorderBusy) return;
 
     previewSavedSearchDrag(event, targetID);
-    const previous = savedSearchDragStartOrder.length ? [...savedSearchDragStartOrder] : orderedSavedSearches.map((item) => item.id);
-    const next = orderedSavedSearches.map((item) => item.id);
+    const previous = savedSearchDragStartOrder.length ? [...savedSearchDragStartOrder] : orderedSavedSearches.map((item: ShellSavedSearch) => item.id);
+    const next = orderedSavedSearches.map((item: ShellSavedSearch) => item.id);
     draggedSavedSearchID = '';
     savedSearchDragStartOrder = [];
     if (next.every((id, index) => id === previous[index])) return;
