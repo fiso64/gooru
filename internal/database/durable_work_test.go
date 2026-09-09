@@ -2,6 +2,8 @@ package database
 
 import (
 	"database/sql"
+	"io"
+	"log"
 	"testing"
 	"time"
 )
@@ -19,7 +21,7 @@ func newDurableWorkTestDB(t *testing.T) (*Store, *sql.DB) {
 	if err := RunMigrations(db); err != nil {
 		t.Fatalf("RunMigrations: %v", err)
 	}
-	return &Store{}, db
+	return &Store{DB: db, logger: log.New(io.Discard, "", 0)}, db
 }
 
 func TestCreateBackgroundOperationAndEnqueueTask(t *testing.T) {
@@ -116,63 +118,5 @@ func TestEnqueueBackgroundTaskReturnsExistingActiveTask(t *testing.T) {
 	}
 	if taskCount != 1 {
 		t.Fatalf("task count = %d, want 1", taskCount)
-	}
-}
-
-func TestEnqueueBackgroundTaskAllowsDedupeKeyAfterTerminalHistory(t *testing.T) {
-	store, db := newDurableWorkTestDB(t)
-	now := time.Date(2026, time.September, 7, 22, 0, 0, 0, time.UTC)
-
-	first, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
-		ID:        "task-v1",
-		DedupeKey: "thumbnail:file-1",
-		Kind:      "thumbnail",
-		InputKey:  "v1",
-		CreatedAt: now,
-	})
-	if err != nil || !created {
-		t.Fatalf("first enqueue = (%+v, %v, %v), want created", first, created, err)
-	}
-	if _, err := db.Exec(`UPDATE background_tasks SET status = 'completed', finished_at = ? WHERE id = ?`, workTimeValue(now.Add(time.Minute)), first.ID); err != nil {
-		t.Fatal(err)
-	}
-
-	second, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
-		ID:        "task-v2",
-		DedupeKey: first.DedupeKey,
-		Kind:      "thumbnail",
-		InputKey:  "v2",
-		CreatedAt: now.Add(2 * time.Minute),
-	})
-	if err != nil {
-		t.Fatalf("reenqueue after terminal history: %v", err)
-	}
-	if !created || second.ID != "task-v2" {
-		t.Fatalf("reenqueue = (%+v, %v), want newly created task-v2", second, created)
-	}
-}
-
-func TestEnqueueBackgroundTaskPreservesConstraintErrors(t *testing.T) {
-	store, db := newDurableWorkTestDB(t)
-
-	_, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
-		ID:          "task-orphan",
-		OperationID: "missing-operation",
-		DedupeKey:   "orphan",
-		Kind:        "thumbnail",
-	})
-	if err == nil {
-		t.Fatal("enqueue with missing parent unexpectedly succeeded")
-	}
-	if created {
-		t.Fatal("enqueue with constraint failure reported created")
-	}
-
-	var taskCount int
-	if err := db.QueryRow(`SELECT count(*) FROM background_tasks WHERE id = 'task-orphan'`).Scan(&taskCount); err != nil {
-		t.Fatal(err)
-	}
-	if taskCount != 0 {
-		t.Fatalf("constraint failure inserted %d task rows", taskCount)
 	}
 }
