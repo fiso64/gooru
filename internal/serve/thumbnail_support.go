@@ -24,7 +24,8 @@ type thumbnailSupport struct {
 // file kind a two-sided decision: clear-path support and protected-source
 // support cannot drift apart unnoticed.
 func thumbnailSupportForPath(path string) (thumbnailSupport, bool) {
-	if strings.EqualFold(filepath.Ext(path), ".cbz") {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".cbz" {
 		return thumbnailSupport{kind: "comic", protectedAccess: protectedThumbnailComicArchive}, true
 	}
 
@@ -33,6 +34,13 @@ func thumbnailSupportForPath(path string) (thumbnailSupport, bool) {
 	case "photo", "gif":
 		return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSource}, true
 	case "video":
+		// WebM is designed for streaming and ffmpeg can consume it directly from
+		// the authenticated logical source. Prefer that path in protected mode so
+		// thumbnailing does not depend on loopback range/seek behavior. MP4 and
+		// other seek-oriented containers retain the short-lived seekable source.
+		if ext == ".webm" {
+			return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSource}, true
+		}
 		return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSeekableVideo}, true
 	default:
 		return thumbnailSupport{}, false

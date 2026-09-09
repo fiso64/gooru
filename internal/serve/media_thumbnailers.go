@@ -358,10 +358,10 @@ func videoOffsetFromDurationOutput(out []byte) (time.Duration, bool) {
 	}
 	offset := time.Duration(seconds * 0.10 * float64(time.Second))
 	if offset < 500*time.Millisecond {
-		offset = 500 * time.Millisecond
+		offset = 500*time.Millisecond
 	}
 	if offset > 3*time.Second {
-		offset = 3 * time.Second
+		offset = 3*time.Second
 	}
 	if max := time.Duration(seconds*float64(time.Second)) - 250*time.Millisecond; max > 0 && offset > max {
 		offset = max
