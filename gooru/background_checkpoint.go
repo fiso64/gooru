@@ -31,3 +31,9 @@ func (c *Client) GetBackgroundOperationCheckpoint(operationID string, destinatio
 func (c *Client) SetBackgroundOperationVisible(operationID string, visible bool) error {
 	return c.store.SetBackgroundOperationVisible(operationID, visible)
 }
+
+// CancelUnattachedHiddenBackgroundOperations releases pre-crash admission
+// reservations before producers begin accepting requests after startup.
+func (c *Client) CancelUnattachedHiddenBackgroundOperations(kind string) (int64, error) {
+	return c.store.CancelUnattachedHiddenBackgroundOperations(kind)
+}
