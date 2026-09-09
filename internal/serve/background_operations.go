@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,17 @@ const defaultBackgroundOperationAPILimit = 100
 type backgroundOperationReader interface {
 	GetBackgroundOperation(string) (core.BackgroundOperationState, bool, error)
 	ListBackgroundOperations(core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error)
+	CancelBackgroundOperation(string) (bool, error)
+	GetBackgroundOperationResult(string, any) (bool, error)
+}
+
+type backgroundOperationProducer interface {
+	CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest, int) (core.BackgroundOperation, error)
+	EnqueueBackgroundTask(core.BackgroundTaskRequest) (core.BackgroundTask, bool, error)
+	SetBackgroundOperationVisible(string, bool) error
+	SetBackgroundOperationCheckpoint(string, any) error
+	GetBackgroundOperationCheckpoint(string, any) (bool, error)
+	SetBackgroundOperationResult(string, any) error
 	CancelBackgroundOperation(string) (bool, error)
 }
 
@@ -29,6 +41,7 @@ type BackgroundOperationDTO struct {
 	FinishedAt        *time.Time                `json:"finished_at,omitempty"`
 	ErrorCode         string                    `json:"error_code,omitempty"`
 	ErrorMessage      string                    `json:"error_message,omitempty"`
+	Result            json.RawMessage           `json:"result,omitempty"`
 }
 
 type BackgroundOperationListResponse struct {
@@ -45,6 +58,34 @@ func (l *GooruLibrary) ListBackgroundOperations(options core.BackgroundOperation
 
 func (l *GooruLibrary) CancelBackgroundOperation(operationID string) (bool, error) {
 	return l.client.CancelBackgroundOperation(operationID)
+}
+
+func (l *GooruLibrary) GetBackgroundOperationResult(operationID string, destination any) (bool, error) {
+	return l.client.GetBackgroundOperationResult(operationID, destination)
+}
+
+func (l *GooruLibrary) CreateBackgroundOperationWithPendingLimit(request core.BackgroundOperationRequest, maxPending int) (core.BackgroundOperation, error) {
+	return l.client.CreateBackgroundOperationWithPendingLimit(request, maxPending)
+}
+
+func (l *GooruLibrary) EnqueueBackgroundTask(request core.BackgroundTaskRequest) (core.BackgroundTask, bool, error) {
+	return l.client.EnqueueBackgroundTask(request)
+}
+
+func (l *GooruLibrary) SetBackgroundOperationVisible(operationID string, visible bool) error {
+	return l.client.SetBackgroundOperationVisible(operationID, visible)
+}
+
+func (l *GooruLibrary) SetBackgroundOperationCheckpoint(operationID string, checkpoint any) error {
+	return l.client.SetBackgroundOperationCheckpoint(operationID, checkpoint)
+}
+
+func (l *GooruLibrary) GetBackgroundOperationCheckpoint(operationID string, destination any) (bool, error) {
+	return l.client.GetBackgroundOperationCheckpoint(operationID, destination)
+}
+
+func (l *GooruLibrary) SetBackgroundOperationResult(operationID string, result any) error {
+	return l.client.SetBackgroundOperationResult(operationID, result)
 }
 
 func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
@@ -66,10 +107,7 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	operations, err := s.backgroundOperations.ListBackgroundOperations(core.BackgroundOperationListOptions{
-		VisibleOnly: true,
-		Limit:       limit,
-	})
+	operations, err := s.backgroundOperations.ListBackgroundOperations(core.BackgroundOperationListOptions{VisibleOnly: true, Limit: limit})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operations", nil)
 		return
@@ -129,21 +167,21 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusAccepted, backgroundOperationDTO(operation))
 		return
 	}
-	writeJSON(w, http.StatusOK, backgroundOperationDTO(operation))
+	dto := backgroundOperationDTO(operation)
+	if operation.Status == core.BackgroundWorkCompleted {
+		var result json.RawMessage
+		found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
+			return
+		}
+		if found {
+			dto.Result = result
+		}
+	}
+	writeJSON(w, http.StatusOK, dto)
 }
 
 func backgroundOperationDTO(operation core.BackgroundOperationState) BackgroundOperationDTO {
-	return BackgroundOperationDTO{
-		ID:                operation.ID,
-		Kind:              operation.Kind,
-		Status:            operation.Status,
-		ProgressTotal:     operation.ProgressTotal,
-		ProgressCompleted: operation.ProgressCompleted,
-		ProgressFailed:    operation.ProgressFailed,
-		CreatedAt:         operation.CreatedAt,
-		StartedAt:         operation.StartedAt,
-		FinishedAt:        operation.FinishedAt,
-		ErrorCode:         operation.ErrorCode,
-		ErrorMessage:      operation.ErrorMessage,
-	}
+	return BackgroundOperationDTO{ID: operation.ID, Kind: operation.Kind, Status: operation.Status, ProgressTotal: operation.ProgressTotal, ProgressCompleted: operation.ProgressCompleted, ProgressFailed: operation.ProgressFailed, CreatedAt: operation.CreatedAt, StartedAt: operation.StartedAt, FinishedAt: operation.FinishedAt, ErrorCode: operation.ErrorCode, ErrorMessage: operation.ErrorMessage}
 }
