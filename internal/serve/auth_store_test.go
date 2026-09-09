@@ -222,14 +222,31 @@ func newAuthTestStore(t *testing.T) *AuthStore {
 func attachTestAuth(t *testing.T, server *Server) AuthSession {
 	t.Helper()
 	store := newAuthTestStore(t)
-	if _, err := store.CreateAdmin(context.Background(), "testadmin", "correct horse"); err != nil {
-		t.Fatalf("create test admin: %v", err)
-	}
-	auth, err := store.Login(context.Background(), "testadmin", "correct horse")
-	if err != nil {
-		t.Fatalf("login test admin: %v", err)
-	}
+	auth := newTestAuthSession(t, store)
 	server.SetAuthStore(store)
+	return auth
+}
+
+func newTestAuthSession(t *testing.T, store *AuthStore) AuthSession {
+	t.Helper()
+	ctx := context.Background()
+	now := store.now()
+	user := User{
+		ID:        "usr_test",
+		Username:  "testadmin",
+		Role:      adminRole,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := store.db.ExecContext(ctx, `
+INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)`, user.ID, user.Username, "unused-test-password-hash", user.Role, user.CreatedAt, user.UpdatedAt); err != nil {
+		t.Fatalf("insert test admin: %v", err)
+	}
+	auth, err := store.createSession(ctx, user)
+	if err != nil {
+		t.Fatalf("create test session: %v", err)
+	}
 	return auth
 }
 
