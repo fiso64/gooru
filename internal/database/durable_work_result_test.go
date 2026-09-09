@@ -7,6 +7,7 @@ import (
 
 func TestBackgroundOperationResultIsDurableAndCompletionGated(t *testing.T) {
 	store, db := newDurableWorkTestDB(t)
+	store.DB = db
 	op, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{
 		ID:      "op-result",
 		Kind:    "upload_import",
@@ -36,6 +37,7 @@ func TestBackgroundOperationResultIsDurableAndCompletionGated(t *testing.T) {
 
 func TestBackgroundOperationResultRejectsInvalidOrTerminalWrites(t *testing.T) {
 	store, db := newDurableWorkTestDB(t)
+	store.DB = db
 	op, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{ID: "op-result", Kind: "upload_import"})
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +55,7 @@ func TestBackgroundOperationResultRejectsInvalidOrTerminalWrites(t *testing.T) {
 
 func TestBackgroundOperationResultIsBounded(t *testing.T) {
 	store, db := newDurableWorkTestDB(t)
+	store.DB = db
 	op, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{ID: "op-result", Kind: "upload_import"})
 	if err != nil {
 		t.Fatal(err)
