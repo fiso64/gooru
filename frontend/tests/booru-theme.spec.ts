@@ -101,6 +101,22 @@ test('runtime booru theme uses a real booru top navigation and shared route beha
   const card = page.locator('.thumb').filter({ has: page.getByAltText('sample.png') });
   await expect(card).toBeVisible();
   await expect(card.locator('img')).toHaveCSS('object-fit', 'contain');
+
+  const gridGeometry = await page.getByTestId('virtual-media-grid').evaluate((node) => {
+    const style = getComputedStyle(node);
+    const columns = style.gridTemplateColumns.split(/\s+/).map((value) => Number.parseFloat(value)).filter(Number.isFinite);
+    const gap = Number.parseFloat(style.columnGap) || 0;
+    const paddingLeft = Number.parseFloat(style.paddingLeft) || 0;
+    const paddingRight = Number.parseFloat(style.paddingRight) || 0;
+    return {
+      columns: columns.length,
+      clientWidth: node.clientWidth,
+      usedWidth: columns.reduce((total, width) => total + width, 0) + gap * Math.max(0, columns.length - 1) + paddingLeft + paddingRight
+    };
+  });
+  expect(gridGeometry.columns).toBeGreaterThan(1);
+  expect(Math.abs(gridGeometry.clientWidth - gridGeometry.usedWidth)).toBeLessThanOrEqual(1);
+
   await card.getByRole('button', { name: 'Preview sample.png' }).click();
 
   const viewer = page.getByRole('dialog');

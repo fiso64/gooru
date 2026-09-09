@@ -1,0 +1,8 @@
+/* Booru-style reuses the shared virtual-grid geometry. Keep these track metrics aligned
+   with the shared virtualizer instead of introducing theme-specific padding/gap math. */
+.gooru-theme-booru-style .grid {
+  --grid-gap: 5px;
+  --grid-pad: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--grid-cell, 180px), 1fr));
+  justify-content: stretch;
+}
