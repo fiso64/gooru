@@ -31,78 +31,147 @@
   line-height: 1.25;
 }
 
-.gooru-theme-booru-style .app-shell {
-  grid-template-columns: 220px minmax(0, 1fr);
+.gooru-theme-booru-style .booru-app-shell {
+  grid-template-columns: 245px minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
   background: #ffffff;
 }
 
-/* Mirror the reference's white identity row over a pale-blue utility strip,
-   while keeping every visible Gooru control real and interactive. */
-.gooru-theme-booru-style .topbar {
-  grid-template-columns: 220px minmax(0, 1fr) auto;
-  grid-template-rows: 52px 36px;
-  min-height: 88px;
-  align-items: center;
-  background: #ffffff;
-  border-bottom: 0;
-  box-shadow: none;
-}
-
-.gooru-theme-booru-style .topbar::before {
-  content: '';
+.gooru-theme-booru-style .booru-header {
   grid-column: 1 / -1;
-  grid-row: 2;
-  align-self: stretch;
-  background: #f4f6ff;
-  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  position: relative;
+  z-index: 5;
 }
 
-.gooru-theme-booru-style .topbar-brand {
-  grid-column: 1 / 3;
-  grid-row: 1;
-  justify-content: flex-start;
+.gooru-theme-booru-style .booru-brand-row {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 32px 0;
+}
+
+.gooru-theme-booru-style .booru-brand {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  width: max-content;
-  padding: 0 32px;
   border: 0;
-  color: #1e1e2c;
+  padding: 0;
   background: transparent;
+  color: #1e1e2c;
+  cursor: pointer;
   font-family: Tahoma, Verdana, Helvetica, sans-serif;
   font-size: 28px;
   font-weight: 700;
   line-height: 1;
 }
 
-.gooru-theme-booru-style .topbar-brand::after {
-  content: 'Gooru';
-}
-
-.gooru-theme-booru-style .topbar-brand-mark {
+.gooru-theme-booru-style .booru-brand-mark {
   width: 36px;
   height: 36px;
+  display: grid;
+  place-items: center;
   color: #0075f8;
 }
 
-.gooru-theme-booru-style .topbar-search {
-  grid-column: 1 / 3;
-  grid-row: 2;
-  z-index: 1;
-  justify-content: flex-start;
-  padding: 4px 12px 4px 32px;
+.gooru-theme-booru-style .booru-account-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.gooru-theme-booru-style .topbar-search-inner {
-  width: min(460px, 58vw);
-  max-width: 460px;
-}
-
-.gooru-theme-booru-style .topbar-right {
-  grid-column: 3;
-  grid-row: 1;
-  align-self: stretch;
-  padding: 0 32px 0 12px;
+.gooru-theme-booru-style .booru-link-button,
+.gooru-theme-booru-style .booru-nav-tab,
+.gooru-theme-booru-style .booru-subnav-item {
   border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #0075f8;
+  cursor: pointer;
+  font-family: Verdana, Helvetica, sans-serif;
+}
+
+.gooru-theme-booru-style .booru-link-button {
+  padding: 4px 2px;
+  font-size: 12px;
+}
+
+.gooru-theme-booru-style .booru-main-nav,
+.gooru-theme-booru-style .booru-subnav {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  padding-inline: 20px;
+}
+
+.gooru-theme-booru-style .booru-main-nav {
+  min-height: 31px;
+  background: #ffffff;
+}
+
+.gooru-theme-booru-style .booru-subnav {
+  min-height: 31px;
+  background: #f4f6ff;
+}
+
+.gooru-theme-booru-style .booru-nav-tab,
+.gooru-theme-booru-style .booru-subnav-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gooru-theme-booru-style .booru-nav-tab.current {
+  background: #f4f6ff;
+  color: #005ac3;
+  font-weight: 700;
+}
+
+.gooru-theme-booru-style .booru-subnav-item.current {
+  color: #005ac3;
+  font-weight: 700;
+}
+
+.gooru-theme-booru-style .booru-link-button:hover,
+.gooru-theme-booru-style .booru-nav-tab:hover,
+.gooru-theme-booru-style .booru-subnav-item:hover {
+  color: #8caaff;
+}
+
+.gooru-theme-booru-style .booru-link-button:focus-visible,
+.gooru-theme-booru-style .booru-nav-tab:focus-visible,
+.gooru-theme-booru-style .booru-subnav-item:focus-visible {
+  outline: 2px solid #0075f8;
+  outline-offset: -2px;
+}
+
+.gooru-theme-booru-style .booru-sidebar {
+  gap: 14px;
+  padding: 12px 12px 24px 32px;
+  background: #ffffff;
+  border-right: 0;
+}
+
+.gooru-theme-booru-style .booru-search-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gooru-theme-booru-style .booru-search-section h2 {
+  margin: 0;
+  color: #1e1e2c;
+  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.gooru-theme-booru-style .booru-search-section form {
+  position: relative;
 }
 
 .gooru-theme-booru-style .searchbar {
@@ -143,13 +212,6 @@
 
 .gooru-theme-booru-style .search-suggestions {
   box-shadow: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -2px rgb(0 0 0 / 5%);
-}
-
-.gooru-theme-booru-style .sidebar {
-  gap: 14px;
-  padding: 12px 10px 24px 32px;
-  background: #ffffff;
-  border-right: 0;
 }
 
 .gooru-theme-booru-style .sidebar-section {
@@ -397,74 +459,57 @@
 }
 
 @media (max-width: 900px) {
-  .gooru-theme-booru-style .topbar-brand {
+  .gooru-theme-booru-style .booru-brand-row {
     padding-inline: 16px;
   }
 
-  .gooru-theme-booru-style .topbar-search {
-    padding-left: 16px;
-  }
-
-  .gooru-theme-booru-style .topbar-right {
-    padding-right: 16px;
-  }
-
-  .gooru-theme-booru-style .sidebar {
+  .gooru-theme-booru-style .booru-sidebar {
     padding-left: 16px;
   }
 }
 
 @media (max-width: 660px) {
-  .gooru-theme-booru-style .app-shell {
+  .gooru-theme-booru-style .booru-app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .gooru-theme-booru-style .topbar {
+  .gooru-theme-booru-style .booru-header {
     grid-column: 1;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: 44px 34px;
-    min-height: 78px;
   }
 
-  .gooru-theme-booru-style .topbar-brand {
-    grid-column: 1;
-    grid-row: 1;
-    padding-left: 8px;
+  .gooru-theme-booru-style .booru-brand-row {
+    min-height: 44px;
+    padding: 4px 8px 0;
+  }
+
+  .gooru-theme-booru-style .booru-brand {
     font-size: 22px;
   }
 
-  .gooru-theme-booru-style .topbar-brand-mark {
+  .gooru-theme-booru-style .booru-brand-mark {
     width: 30px;
     height: 30px;
   }
 
-  .gooru-theme-booru-style .topbar-right {
-    grid-column: 2;
-    grid-row: 1;
-    padding-right: 8px;
+  .gooru-theme-booru-style .booru-account-actions {
+    gap: 8px;
   }
 
-  .gooru-theme-booru-style .topbar-right .g-btn-sm:not(.g-btn-icon) span {
-    display: none;
+  .gooru-theme-booru-style .booru-main-nav,
+  .gooru-theme-booru-style .booru-subnav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-inline: 2px;
   }
 
-  .gooru-theme-booru-style .topbar::before {
-    grid-row: 2;
+  .gooru-theme-booru-style .booru-nav-tab,
+  .gooru-theme-booru-style .booru-subnav-item {
+    flex: 0 0 auto;
+    padding-inline: 9px;
   }
 
-  .gooru-theme-booru-style .topbar-search {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    padding: 3px 8px;
-  }
-
-  .gooru-theme-booru-style .topbar-search-inner {
-    width: 100%;
-    max-width: none;
-  }
-
-  .gooru-theme-booru-style .sidebar {
+  .gooru-theme-booru-style .booru-sidebar {
     display: none;
   }
 
