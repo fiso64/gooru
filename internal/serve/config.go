@@ -458,9 +458,9 @@ func (cfg *Config) Validate() error {
 		cfg.UI.Theme = DefaultUITheme
 	}
 	switch cfg.UI.Theme {
-	case "default", "booru-style":
+	case "default", "booru-light", "booru-dark":
 	default:
-		errs = append(errs, errors.New("ui.theme must be one of: default, booru-style"))
+		errs = append(errs, errors.New("ui.theme must be one of: default, booru-light, booru-dark"))
 	}
 	cfg.UI.AccentColor = strings.TrimSpace(cfg.UI.AccentColor)
 	if cfg.UI.AccentColor != "" && !accentColorPattern.MatchString(cfg.UI.AccentColor) {
