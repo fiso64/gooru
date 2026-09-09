@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ func TestUploadAddedAtStrategyUsesTargetDefaultAndRequestOverride(t *testing.T) 
 		name, targetStrategy, requestStrategy string
 		want                                  time.Time
 	}{
-		{"target reverse", "reverse_queue", "", base.Add(2 * time.Second)},
+		{"target reverse", "reverse_queue", "", base},
 		{"request modtime", "reverse_queue", "modtime", source},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -35,6 +36,91 @@ func TestUploadAddedAtStrategyUsesTargetDefaultAndRequestOverride(t *testing.T) 
 				t.Fatalf("added_at=%v want=%v files=%+v", library.files[0].AddedAt, tc.want, library.files)
 			}
 		})
+	}
+}
+
+func TestUploadQueueAddedAtPreservesNewestFirstQueueOrder(t *testing.T) {
+	base := time.Date(2024, 1, 2, 3, 4, 5, 400_000_000, time.UTC)
+	got := make([]struct {
+		index   int
+		addedAt time.Time
+	}, 3)
+	for index := range got {
+		got[index] = struct {
+			index   int
+			addedAt time.Time
+		}{index: index, addedAt: resolveUploadAddedAt("queue", time.Time{}, base, time.Time{}, time.Time{}, index, len(got))}
+	}
+
+	sort.Slice(got, func(i, j int) bool { return got[i].addedAt.After(got[j].addedAt) })
+	for position, item := range got {
+		if item.index != position {
+			t.Fatalf("newest-first position %d has queue index %d: %+v", position, item.index, got)
+		}
+	}
+}
+
+func TestUploadReverseQueueAddedAtInvertsNewestFirstQueueOrder(t *testing.T) {
+	base := time.Date(2024, 1, 2, 3, 4, 5, 400_000_000, time.UTC)
+	got := make([]struct {
+		index   int
+		addedAt time.Time
+	}, 3)
+	for index := range got {
+		got[index] = struct {
+			index   int
+			addedAt time.Time
+		}{index: index, addedAt: resolveUploadAddedAt("reverse_queue", time.Time{}, base, time.Time{}, time.Time{}, index, len(got))}
+	}
+
+	sort.Slice(got, func(i, j int) bool { return got[i].addedAt.After(got[j].addedAt) })
+	for position, item := range got {
+		want := len(got) - 1 - position
+		if item.index != want {
+			t.Fatalf("newest-first position %d has queue index %d, want %d: %+v", position, item.index, want, got)
+		}
+	}
+}
+
+func TestUploadQueueAddedAtUsesAdmissionOrderAcrossRapidSelections(t *testing.T) {
+	first := time.Date(2024, 1, 2, 3, 4, 5, 100_000_000, time.UTC)
+	queueTimes := []time.Time{
+		first,
+		first.Add(5 * time.Second),
+		first.Add(10 * time.Second),
+	}
+	added := make([]time.Time, len(queueTimes))
+	for index, queueTime := range queueTimes {
+		added[index] = resolveUploadAddedAt("queue", time.Time{}, queueTime, queueTimes[0], queueTimes[len(queueTimes)-1], index, len(queueTimes))
+	}
+	for index := 1; index < len(added); index++ {
+		if !added[index-1].After(added[index]) {
+			t.Fatalf("queue order not preserved at %d: added=%v", index, added)
+		}
+	}
+}
+
+func TestUploadQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.T) {
+	first := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	last := first.Add(10 * time.Second)
+	results := make([]time.Time, 2)
+	for index, queueTime := range []time.Time{first, last} {
+		dir := t.TempDir()
+		library := &recordingUploadLibrary{}
+		server := newUploadTestServer(t, dir, true, library)
+		rec := httptest.NewRecorder()
+		req := uploadAddedAtRequestWithBounds(t, queueTime, time.Time{}, first, last, index, 2, "queue")
+		server.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("worker %d status=%d body=%s", index, rec.Code, rec.Body.String())
+		}
+		if len(library.files) != 1 {
+			t.Fatalf("worker %d imported %d files", index, len(library.files))
+		}
+		results[index] = library.files[0].AddedAt
+	}
+	if !results[0].After(results[1]) {
+		t.Fatalf("queue order was not preserved across distinct worker times: first=%v last=%v", results[0], results[1])
 	}
 }
 
@@ -57,7 +143,7 @@ func TestUploadReverseQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.
 		}
 		results[index] = library.files[0].AddedAt
 	}
-	if !results[0].After(results[1]) {
+	if !results[1].After(results[0]) {
 		t.Fatalf("reverse queue did not invert distinct queue times: first=%v last=%v", results[0], results[1])
 	}
 }
