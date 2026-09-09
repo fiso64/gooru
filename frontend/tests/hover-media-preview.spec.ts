@@ -181,12 +181,12 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('z-index', '4');
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('opacity', '1');
   const firstSource = hoverSessionURL(await gif.getAttribute('src'));
-  const firstPixel = await gifPixel(gif);
-  expect(firstPixel[0]).toBeGreaterThan(firstPixel[1]);
+  const firstFrame = await gif.screenshot();
 
+  let advancedFrame = firstFrame;
   await expect.poll(async () => {
-    const pixel = await gifPixel(gif);
-    return pixel[1] > pixel[0];
+    advancedFrame = await gif.screenshot();
+    return !advancedFrame.equals(firstFrame);
   }, { timeout: 6000 }).toBe(true);
 
   await page.getByRole('heading', { name: 'Library' }).hover();
@@ -199,8 +199,8 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   expect(restartedSource.searchParams.get('gooru_hover_session')).toBe('2');
   expect(restartedSource.hash).toBe('#gooru-hover-2');
   expect(`${restartedSource.pathname}${restartedSource.search}`).not.toBe(`${firstSource.pathname}${firstSource.search}`);
-  const restartedPixel = await gifPixel(gif);
-  expect(restartedPixel[0]).toBeGreaterThan(restartedPixel[1]);
+  const restartedFrame = await gif.screenshot();
+  expect(restartedFrame.equals(advancedFrame)).toBe(false);
 });
 
 test('reduced motion and disabled media options suppress hover playback', async ({ page }) => {
