@@ -2,6 +2,7 @@ package serve
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,5 +48,15 @@ func TestLoadConfigDefaultThemeKeepsSquareGridDefault(t *testing.T) {
 	}
 	if cfg.UI.GridType != DefaultGridType {
 		t.Fatalf("default theme omitted grid_type=%q want %q", cfg.UI.GridType, DefaultGridType)
+	}
+}
+
+func TestLoadConfigBooruStyleStillRejectsUnknownUIFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, "ui:\n  theme: booru-style\n  unknown_grid_setting: true\n")
+
+	_, err := LoadConfig(path, filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "unknown_grid_setting") {
+		t.Fatalf("expected unknown ui field rejection, got %v", err)
 	}
 }
