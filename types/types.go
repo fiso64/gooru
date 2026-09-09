@@ -72,7 +72,7 @@ type NotificationKind int
 const (
 	// NotificationKindMoveDetected indicates a file was moved/renamed.
 	NotificationKindMoveDetected NotificationKind = iota
-	// NotificationKindModified indicates the file content changed and the old tags need to be surfaced.
+	// NotificationKindModified indicates a file's content was updated in the database.
 	NotificationKindModified
 )
 
