@@ -124,7 +124,7 @@ func validateBackgroundUploadInput(input backgroundUploadTaskInput) error {
 		return errors.New("upload background task has invalid file count")
 	}
 	for index, file := range input.Files {
-		if file.Name == "" || file.TargetID == "" {
+		if file.TargetID == "" || (file.Name == "" && file.Status != "error") {
 			return fmt.Errorf("upload background task file %d is missing identity", index)
 		}
 		if file.Status != "error" && file.Status != "skipped" && file.Path == "" {
