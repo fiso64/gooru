@@ -168,6 +168,28 @@ func TestManagedDeleteRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestManagedDeleteRejectsFinalSymlink(t *testing.T) {
+	root := t.TempDir()
+	outsideFile := filepath.Join(t.TempDir(), "outside.jpg")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked.jpg")
+	if err := os.Symlink(outsideFile, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	cfg := DefaultConfig(filepath.Join(root, "gooru.db"))
+	cfg.Uploads.Targets = []UploadTarget{{ID: "managed", Name: "Managed", Path: root}}
+	server := NewServerWithLibrary(cfg, emptyLibrary{})
+	if server.canDeleteFilePath(link) {
+		t.Fatal("an existing final-component symlink must not use the missing-file fallback")
+	}
+	if _, err := os.Stat(outsideFile); err != nil {
+		t.Fatalf("outside file unexpectedly changed: %v", err)
+	}
+}
+
 func TestManagedDeleteRollsBackFileWhenLibraryMutationFails(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kept.jpg")
