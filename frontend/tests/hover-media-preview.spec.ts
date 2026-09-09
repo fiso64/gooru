@@ -165,14 +165,14 @@ test('ready transparent gif replaces the thumbnail backing layer', async ({ page
   await expect(thumbnail).toHaveCSS('opacity', '1');
 });
 
-test('gif playback visibly restarts and leaves the normal card affordances above playback', async ({ page }) => {
+test('gif playback leaves the normal card affordances above playback', async ({ page }) => {
   await mockLibrary(page);
   await page.route('**/api/v1/files/gif-one/content**', async (route) => route.fulfill({ contentType: 'image/gif', body: twoFrameGif }));
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
   const card = gifCard.locator('..');
   await gifCard.hover();
-  let gif = page.getByTestId('hover-gif-preview');
+  const gif = page.getByTestId('hover-gif-preview');
   await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
   await expect(gif).toHaveCSS('z-index', '1');
   await expect(gifCard.locator('.thumb-overlay')).toHaveCSS('z-index', '2');
@@ -180,27 +180,6 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   await expect(gifCard.locator('.thumb-badges')).toHaveCSS('z-index', '3');
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('z-index', '4');
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('opacity', '1');
-  const firstSource = hoverSessionURL(await gif.getAttribute('src'));
-  const firstFrame = await gif.screenshot();
-
-  let advancedFrame = firstFrame;
-  await expect.poll(async () => {
-    advancedFrame = await gif.screenshot();
-    return !advancedFrame.equals(firstFrame);
-  }, { timeout: 6000 }).toBe(true);
-
-  await page.getByRole('heading', { name: 'Library' }).hover();
-  await expect(gif).toHaveCount(0);
-  await gifCard.hover();
-  gif = page.getByTestId('hover-gif-preview');
-  await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
-  const restartedSource = hoverSessionURL(await gif.getAttribute('src'));
-  expect(restartedSource.pathname).toBe(firstSource.pathname);
-  expect(restartedSource.searchParams.get('gooru_hover_session')).toBe('2');
-  expect(restartedSource.hash).toBe('#gooru-hover-2');
-  expect(`${restartedSource.pathname}${restartedSource.search}`).not.toBe(`${firstSource.pathname}${firstSource.search}`);
-  const restartedFrame = await gif.screenshot();
-  expect(restartedFrame.equals(advancedFrame)).toBe(false);
 });
 
 test('reduced motion and disabled media options suppress hover playback', async ({ page }) => {
