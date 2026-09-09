@@ -34,13 +34,11 @@ func thumbnailSupportForPath(path string) (thumbnailSupport, bool) {
 	case "photo", "gif":
 		return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSource}, true
 	case "video":
-		// WebM is designed for streaming and ffmpeg can consume it directly from
-		// the authenticated logical source. Prefer that path in protected mode so
-		// thumbnailing does not depend on loopback range/seek behavior. MP4 and
-		// other seek-oriented containers retain the short-lived seekable source.
-		if ext == ".webm" {
-			return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSource}, true
-		}
+		// All video containers use the same seek-capable ffmpeg contract. Clear
+		// mode supplies the ordinary pathname; protected mode supplies a short-lived
+		// seekable logical source backed by authenticated random access. Keeping the
+		// transport choice at the media-kind boundary prevents container-specific
+		// protected routing from drifting away from clear-mode support.
 		return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSeekableVideo}, true
 	default:
 		return thumbnailSupport{}, false
