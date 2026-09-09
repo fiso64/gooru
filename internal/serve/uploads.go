@@ -381,9 +381,10 @@ func removeSavedUploads(files []savedUpload) {
 }
 
 type activatedReplacement struct {
-	finalPath   string
-	backupPath  string
-	hadOriginal bool
+	finalPath            string
+	backupPath           string
+	noOriginalMarkerPath string
+	hadOriginal          bool
 }
 
 type activatedSavedReplacement struct {
@@ -502,7 +503,11 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 	if stagedPath == "" || finalPath == "" || stagedPath == finalPath {
 		return activatedReplacement{}, errors.New("invalid staged replacement")
 	}
-	replacement := activatedReplacement{finalPath: finalPath, backupPath: stagedPath + ".backup"}
+	replacement := activatedReplacement{
+		finalPath:            finalPath,
+		backupPath:           stagedPath + ".backup",
+		noOriginalMarkerPath: stagedPath + ".no-original",
+	}
 	stagedExists, err := replacementPathExists(stagedPath)
 	if err != nil {
 		return activatedReplacement{}, fmt.Errorf("failed to inspect staged replacement")
@@ -515,24 +520,21 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 	if err != nil {
 		return activatedReplacement{}, fmt.Errorf("failed to inspect preserved file before replacement")
 	}
+	markerExists, err := replacementPathExists(replacement.noOriginalMarkerPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to inspect replacement state marker")
+	}
+	if backupExists && markerExists {
+		return activatedReplacement{}, errors.New("inconsistent staged replacement state")
+	}
 	if backupExists {
 		replacement.hadOriginal = true
-		switch {
-		case stagedExists && !finalExists:
-			if err := os.Rename(stagedPath, finalPath); err != nil {
-				return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
-			}
-			return replacement, nil
-		case !stagedExists && finalExists:
-			return replacement, nil
-		default:
-			return activatedReplacement{}, errors.New("inconsistent staged replacement state")
-		}
+		return resumeReplacementActivation(replacement, stagedPath, stagedExists, finalExists)
+	}
+	if markerExists {
+		return resumeReplacementActivation(replacement, stagedPath, stagedExists, finalExists)
 	}
 	if !stagedExists {
-		if finalExists {
-			return replacement, nil
-		}
 		return activatedReplacement{}, errors.New("staged replacement is missing")
 	}
 	if finalExists {
@@ -540,14 +542,44 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 			return activatedReplacement{}, fmt.Errorf("failed to preserve existing file before replacement")
 		}
 		replacement.hadOriginal = true
+	} else if err := createReplacementStateMarker(replacement.noOriginalMarkerPath); err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to record replacement state")
 	}
 	if err := os.Rename(stagedPath, finalPath); err != nil {
 		if replacement.hadOriginal {
 			_ = os.Rename(replacement.backupPath, finalPath)
+		} else {
+			_ = os.Remove(replacement.noOriginalMarkerPath)
 		}
 		return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
 	}
 	return replacement, nil
+}
+
+func resumeReplacementActivation(replacement activatedReplacement, stagedPath string, stagedExists, finalExists bool) (activatedReplacement, error) {
+	switch {
+	case stagedExists && !finalExists:
+		if err := os.Rename(stagedPath, replacement.finalPath); err != nil {
+			return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
+		}
+		return replacement, nil
+	case !stagedExists && finalExists:
+		return replacement, nil
+	default:
+		return activatedReplacement{}, errors.New("inconsistent staged replacement state")
+	}
+}
+
+func createReplacementStateMarker(path string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 func replacementPathExists(path string) (bool, error) {
@@ -587,14 +619,14 @@ func rollbackReplacement(replacement activatedReplacement) error {
 		}
 	} else {
 		_ = os.Remove(replacement.backupPath)
+		_ = os.Remove(replacement.noOriginalMarkerPath)
 	}
 	return nil
 }
 
 func commitReplacement(replacement activatedReplacement) {
-	if replacement.hadOriginal {
-		_ = os.Remove(replacement.backupPath)
-	}
+	_ = os.Remove(replacement.backupPath)
+	_ = os.Remove(replacement.noOriginalMarkerPath)
 }
 
 func copyUpload(dst io.Writer, src io.Reader, maxSize int64) (int64, error) {
