@@ -137,7 +137,18 @@
     <section class="booru-search-section" aria-label="Search">
       <h2>Search</h2>
       <form onsubmit={(event) => event.preventDefault()}>
-        <SearchBar value={search} {suggestions} {metaTags} {tags} onDraftInput={onSearchDraft} onCommit={onSearchCommit} />
+        <SearchBar
+          value={search}
+          {suggestions}
+          {metaTags}
+          {tags}
+          onDraftInput={onSearchDraft}
+          onCommit={onSearchCommit}
+          presentation="text"
+          placeholder=""
+          showShortcutHint={false}
+          enableSlashShortcut={false}
+        />
       </form>
     </section>
 
