@@ -24,6 +24,12 @@ const (
 	// keeping ciphertext overhead small for large media files.
 	ChunkSize = 1 << 20
 
+	// decryptedChunkCacheEntries keeps a small working set of authenticated
+	// plaintext chunks. Protected video probing/thumbnailing seeks between a
+	// handful of container regions through loopback HTTP range requests; a
+	// single-entry cache repeatedly decrypted whole 1 MiB chunks on those seeks.
+	decryptedChunkCacheEntries = 4
+
 	noncePrefixSize = 16
 	headerCoreSize  = 40
 	headerTagSize   = chacha20poly1305.Overhead
@@ -40,6 +46,12 @@ var (
 type readAtCloser interface {
 	io.ReaderAt
 	io.Closer
+}
+
+type decryptedChunkCacheEntry struct {
+	valid bool
+	index uint64
+	plain []byte
 }
 
 // Encrypt writes a versioned, chunk-authenticated encrypted representation of
@@ -100,10 +112,8 @@ func Encrypt(dst io.Writer, src io.Reader, plaintextSize int64, key []byte) erro
 }
 
 // File exposes authenticated plaintext with Reader, ReaderAt, and Seeker
-// semantics. Sequential reads retain one decrypted chunk per open file so small
-// reads do not repeatedly authenticate the same 1 MiB chunk. ReadAt keeps a
-// separate one-chunk cache so archive and other random-access consumers can
-// reuse nearby reads without disturbing the sequential cursor/cache.
+// semantics. Reads share a bounded decrypted-chunk cache so nearby and repeated
+// seeks do not repeatedly authenticate the same 1 MiB ciphertext chunks.
 type File struct {
 	file    readAtCloser
 	aead    cipher.AEAD
@@ -112,16 +122,13 @@ type File struct {
 	size    int64
 	modTime time.Time
 
-	mu          sync.Mutex
-	offset      int64
-	cacheValid  bool
-	cachedChunk uint64
-	cachedPlain []byte
+	mu     sync.Mutex
+	offset int64
 
-	randomMu          sync.Mutex
-	randomCacheValid  bool
-	randomCachedChunk uint64
-	randomCachedPlain []byte
+	randomMu sync.Mutex
+	cacheMu  sync.Mutex
+	cache    [decryptedChunkCacheEntries]decryptedChunkCacheEntry
+	cacheNext int
 }
 
 func Open(path string, key []byte) (*File, error) {
@@ -195,7 +202,7 @@ func (f *File) Read(p []byte) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	n, err := f.readAt(p, f.offset, true)
+	n, err := f.readAt(p, f.offset)
 	f.offset += int64(n)
 	return n, err
 }
@@ -203,10 +210,10 @@ func (f *File) Read(p []byte) (int, error) {
 func (f *File) ReadAt(p []byte, off int64) (int, error) {
 	f.randomMu.Lock()
 	defer f.randomMu.Unlock()
-	return f.readAt(p, off, false)
+	return f.readAt(p, off)
 }
 
-func (f *File) readAt(p []byte, off int64, sequential bool) (int, error) {
+func (f *File) readAt(p []byte, off int64) (int, error) {
 	if off < 0 {
 		return 0, errors.New("encrypted file: negative offset")
 	}
@@ -230,13 +237,7 @@ func (f *File) readAt(p []byte, off int64, sequential bool) (int, error) {
 		chunkIndex := uint64(position / ChunkSize)
 		chunkStart := int64(chunkIndex) * ChunkSize
 
-		var plain []byte
-		var err error
-		if sequential {
-			plain, err = f.sequentialChunk(chunkIndex)
-		} else {
-			plain, err = f.randomChunk(chunkIndex)
-		}
+		plain, err := f.cachedChunk(chunkIndex)
 		if err != nil {
 			return written, err
 		}
@@ -255,34 +256,25 @@ func (f *File) readAt(p []byte, off int64, sequential bool) (int, error) {
 	return written, nil
 }
 
-func (f *File) sequentialChunk(index uint64) ([]byte, error) {
-	if f.cacheValid && f.cachedChunk == index {
-		return f.cachedPlain, nil
-	}
-	plain, err := f.decryptChunk(index, f.cachedPlain)
-	if err != nil {
-		f.cacheValid = false
-		return nil, err
-	}
-	f.cachedChunk = index
-	f.cachedPlain = plain
-	f.cacheValid = true
-	return f.cachedPlain, nil
-}
+func (f *File) cachedChunk(index uint64) ([]byte, error) {
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
 
-func (f *File) randomChunk(index uint64) ([]byte, error) {
-	if f.randomCacheValid && f.randomCachedChunk == index {
-		return f.randomCachedPlain, nil
+	for i := range f.cache {
+		if f.cache[i].valid && f.cache[i].index == index {
+			return f.cache[i].plain, nil
+		}
 	}
-	plain, err := f.decryptChunk(index, f.randomCachedPlain)
+
+	slot := f.cacheNext
+	plain, err := f.decryptChunk(index, f.cache[slot].plain)
 	if err != nil {
-		f.randomCacheValid = false
+		f.cache[slot].valid = false
 		return nil, err
 	}
-	f.randomCachedChunk = index
-	f.randomCachedPlain = plain
-	f.randomCacheValid = true
-	return f.randomCachedPlain, nil
+	f.cache[slot] = decryptedChunkCacheEntry{valid: true, index: index, plain: plain}
+	f.cacheNext = (slot + 1) % len(f.cache)
+	return f.cache[slot].plain, nil
 }
 
 func (f *File) decryptChunk(index uint64, buffer []byte) ([]byte, error) {
