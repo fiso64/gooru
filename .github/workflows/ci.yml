@@ -19,14 +19,22 @@ jobs:
   go:
     name: Go
     runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Verify runner Go and caches
+        shell: bash
+        run: |
+          go version
+          gocache="$(go env GOCACHE)"
+          gomodcache="$(go env GOMODCACHE)"
+          printf 'GOCACHE=%s\n' "$gocache"
+          printf 'GOMODCACHE=%s\n' "$gomodcache"
+          test -d "$gocache" && test -w "$gocache"
+          test -d "$gomodcache" && test -w "$gomodcache"
       - name: Test
-        run: go test ./...
+        run: go test -count=1 ./...
       - name: Build
         run: go build ./...
 
