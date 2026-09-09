@@ -10,6 +10,7 @@
 @import './lib/styles/booru-style.css';
 @import './lib/styles/booru-grid.css';
 @import './lib/styles/booru-viewer.css';
+@import './lib/styles/booru-variants.css';
 
 .gooru-root [data-testid='refresh-upload-results'] {
   background: var(--accent);

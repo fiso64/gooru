@@ -27,15 +27,16 @@ const file = {
   can_delete: false
 };
 
-async function mockBooruApp(page: Page) {
+async function mockBooruApp(page: Page, theme: 'booru-light' | 'booru-dark' = 'booru-light') {
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      ui_theme: 'booru-style',
+      ui_theme: theme,
       accent_color: '#0c2238',
       font_style: 'comic',
       grid_size: 200,
       grid_type: 'square',
+      pagination_mode: 'infinite',
       capabilities: ['preview_images']
     })
   }));
@@ -70,11 +71,13 @@ async function mockBooruApp(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('runtime booru theme uses a real booru top navigation and shared route behavior', async ({ page }) => {
-  await mockBooruApp(page);
+test('booru-light uses the shared booru shell and reference light presentation', async ({ page }) => {
+  await mockBooruApp(page, 'booru-light');
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-theme-booru-style/);
+  await expect(root).toHaveClass(/gooru-theme-booru-light/);
+  await expect(root).not.toHaveClass(/gooru-theme-booru-dark/);
   await expect(root).toHaveClass(/gooru-type-modern/);
   await expect(root).not.toHaveAttribute('style', /--accent:/);
 
@@ -84,6 +87,7 @@ test('runtime booru theme uses a real booru top navigation and shared route beha
   await expect(page.locator('.booru-brand-mark')).toHaveAttribute('src', '/favicon.svg');
   await expect(page.locator('.booru-main-nav')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.booru-subnav')).toHaveCSS('background-color', 'rgb(244, 246, 255)');
+  await expect(page.locator('.booru-app-shell')).toHaveCSS('grid-template-columns', /320px/);
   await expect(page.locator('.booru-sidebar .searchbar')).toBeVisible();
   await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('border-radius', '0px');
   await expect(page.locator('.library-head h1')).toHaveCSS('font-size', '18px');
@@ -118,13 +122,34 @@ test('runtime booru theme uses a real booru top navigation and shared route beha
   expect(Math.abs(gridGeometry.clientWidth - gridGeometry.usedWidth)).toBeLessThanOrEqual(1);
 
   await card.getByRole('button', { name: 'Preview sample.png' }).click();
-
-  const viewer = page.getByRole('dialog');
-  await expect(viewer).toBeVisible();
+  await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.locator('.lightbox')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.lightbox-stage')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.lightbox-aside')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.lightbox-name')).toHaveCSS('font-size', '14px');
   await expect(page.locator('.lightbox-rail .g-btn').first()).toHaveCSS('border-radius', '0px');
+});
+
+test('booru-dark follows the committed reference dark palette on shell and viewer surfaces', async ({ page }) => {
+  await mockBooruApp(page, 'booru-dark');
+
+  const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-theme-booru-style/);
+  await expect(root).toHaveClass(/gooru-theme-booru-dark/);
+  await expect(root).not.toHaveAttribute('style', /--accent:/);
+  await expect(root).toHaveCSS('background-color', 'rgb(30, 30, 44)');
+  await expect(page.locator('.booru-main-nav')).toHaveCSS('background-color', 'rgb(30, 30, 44)');
+  await expect(page.locator('.booru-subnav')).toHaveCSS('background-color', 'rgb(44, 45, 63)');
+  await expect(page.locator('.booru-main-nav').getByRole('button', { name: 'Tags' })).toHaveCSS('color', 'rgb(0, 155, 230)');
+  await expect(page.locator('.booru-nav-tab').first()).toHaveCSS('color', 'rgb(75, 180, 255)');
+  await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('background-color', 'rgb(63, 64, 88)');
+  await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('border-color', 'rgb(119, 120, 146)');
+
+  const card = page.locator('.thumb').filter({ has: page.getByAltText('sample.png') });
+  await card.getByRole('button', { name: 'Preview sample.png' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('.lightbox')).toHaveCSS('background-color', 'rgb(30, 30, 44)');
+  await expect(page.locator('.lightbox-stage')).toHaveCSS('background-color', 'rgb(30, 30, 44)');
+  await expect(page.locator('.lightbox-aside')).toHaveCSS('background-color', 'rgb(30, 30, 44)');
+  await expect(page.locator('.lightbox-tag-list .g-tag').first()).toHaveCSS('color', 'rgb(0, 155, 230)');
 });

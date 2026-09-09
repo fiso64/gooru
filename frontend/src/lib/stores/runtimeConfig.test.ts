@@ -3,6 +3,7 @@ import {
   defaultGridSize,
   denseGridSizeBoost,
   effectiveGridSize,
+  normalizeConfiguredUITheme,
   normalizeThumbnailSizes,
   normalizeUITheme
 } from './runtimeConfig';
@@ -14,8 +15,16 @@ describe('normalizeThumbnailSizes', () => {
 });
 
 describe('UI theme normalization', () => {
-  it('accepts booru-style as the alternate presentation', () => {
-    expect(normalizeUITheme('booru-style')).toBe('booru-style');
+  it('maps both booru variants onto the shared booru presentation', () => {
+    expect(normalizeConfiguredUITheme('booru-light')).toBe('booru-light');
+    expect(normalizeConfiguredUITheme('booru-dark')).toBe('booru-dark');
+    expect(normalizeUITheme('booru-light')).toBe('booru-style');
+    expect(normalizeUITheme('booru-dark')).toBe('booru-style');
+  });
+
+  it('does not retain the renamed booru-style config value', () => {
+    expect(normalizeConfiguredUITheme('booru-style')).toBe('default');
+    expect(normalizeUITheme('booru-style')).toBe('default');
   });
 
   it('keeps the existing presentation as the safe default', () => {
@@ -25,7 +34,7 @@ describe('UI theme normalization', () => {
 });
 
 describe('grid layout sizing', () => {
-  it('uses the requested 200px default', () => {
+  it('keeps the standard theme 200px default', () => {
     expect(defaultGridSize).toBe(200);
   });
 
