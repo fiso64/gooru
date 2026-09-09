@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -76,6 +77,33 @@ func (c *Client) CreateBackgroundOperationWithTasks(operationRequest BackgroundO
 		return BackgroundOperation{}, nil, fmt.Errorf("commit background operation transaction: %w", err)
 	}
 	return operation, tasks, nil
+}
+
+// AttachBackgroundTaskAndRevealOperation finishes producer admission after
+// expensive staging. The recovery checkpoint, first child task, and visibility
+// transition commit atomically, so a crash cannot leave a half-attached hidden
+// operation or expose work without its persisted recovery state.
+func (c *Client) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request BackgroundTaskRequest) (BackgroundTask, error) {
+	if operationID == "" {
+		return BackgroundTask{}, fmt.Errorf("background operation id is required")
+	}
+	if request.OperationID != "" && request.OperationID != operationID {
+		return BackgroundTask{}, fmt.Errorf("background child task already belongs to operation %q", request.OperationID)
+	}
+	checkpointJSON, err := json.Marshal(checkpoint)
+	if err != nil {
+		return BackgroundTask{}, fmt.Errorf("encode background operation checkpoint: %w", err)
+	}
+	if request.DedupeKey == "" {
+		request.DedupeKey = "task:0"
+	}
+	request.OperationID = operationID
+	request.DedupeKey = operationID + ":" + request.DedupeKey
+	taskID, err := newBackgroundWorkID("task")
+	if err != nil {
+		return BackgroundTask{}, err
+	}
+	return attachDatabaseBackgroundTaskAndRevealOperation(c, operationID, checkpointJSON, taskID, request)
 }
 
 func (c *Client) createBackgroundOperation(q databaseQuerier, request BackgroundOperationRequest) (BackgroundOperation, error) {

@@ -57,7 +57,23 @@ func cancelDatabaseBackgroundOperation(client *Client, operationID string) (bool
 }
 
 func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string, request BackgroundTaskRequest) (BackgroundTask, bool, error) {
-	task, created, err := client.store.EnqueueBackgroundTask(q, database.NewBackgroundTask{
+	task, created, err := client.store.EnqueueBackgroundTask(q, databaseBackgroundTask(id, request))
+	if err != nil {
+		return BackgroundTask{}, false, err
+	}
+	return backgroundTaskFromDatabase(task), created, nil
+}
+
+func attachDatabaseBackgroundTaskAndRevealOperation(client *Client, operationID string, checkpointJSON []byte, id string, request BackgroundTaskRequest) (BackgroundTask, error) {
+	task, err := client.store.AttachBackgroundTaskAndRevealOperation(operationID, checkpointJSON, databaseBackgroundTask(id, request))
+	if err != nil {
+		return BackgroundTask{}, err
+	}
+	return backgroundTaskFromDatabase(task), nil
+}
+
+func databaseBackgroundTask(id string, request BackgroundTaskRequest) database.NewBackgroundTask {
+	return database.NewBackgroundTask{
 		ID:            id,
 		OperationID:   request.OperationID,
 		DedupeKey:     request.DedupeKey,
@@ -69,11 +85,7 @@ func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string,
 		Priority:      request.Priority,
 		AvailableAt:   request.AvailableAt,
 		MaxAttempts:   request.MaxAttempts,
-	})
-	if err != nil {
-		return BackgroundTask{}, false, err
 	}
-	return backgroundTaskFromDatabase(task), created, nil
 }
 
 func cancelDatabaseBackgroundTask(client *Client, taskID string) (bool, error) {

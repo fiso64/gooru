@@ -16,6 +16,13 @@ func (s *Store) SetBackgroundOperationCheckpoint(operationID string, checkpointJ
 	if s == nil || s.DB == nil {
 		return errors.New("background operation store is required")
 	}
+	return s.setBackgroundOperationCheckpoint(s.DB, operationID, checkpointJSON)
+}
+
+func (s *Store) setBackgroundOperationCheckpoint(q Querier, operationID string, checkpointJSON []byte) error {
+	if q == nil {
+		return errors.New("background operation querier is required")
+	}
 	if operationID == "" {
 		return errors.New("background operation id is required")
 	}
@@ -25,7 +32,7 @@ func (s *Store) SetBackgroundOperationCheckpoint(operationID string, checkpointJ
 	if len(checkpointJSON) > maxBackgroundOperationCheckpointBytes {
 		return fmt.Errorf("background operation checkpoint exceeds %d bytes", maxBackgroundOperationCheckpointBytes)
 	}
-	res, err := s.DB.Exec(`
+	res, err := q.Exec(`
 		UPDATE background_operations
 		SET checkpoint_json = ?
 		WHERE id = ? AND status IN ('pending', 'running')
@@ -64,17 +71,24 @@ func (s *Store) GetBackgroundOperationCheckpoint(operationID string) ([]byte, bo
 	return []byte(checkpoint.String), checkpoint.Valid && checkpoint.String != "", nil
 }
 
-// SetBackgroundOperationVisible reveals a previously hidden admitted operation
-// after its durable child task has been attached successfully.
+// SetBackgroundOperationVisible changes whether an operation is exposed through
+// user-facing operation history.
 func (s *Store) SetBackgroundOperationVisible(operationID string, visible bool) error {
 	if s == nil || s.DB == nil {
 		return errors.New("background operation store is required")
+	}
+	return s.setBackgroundOperationVisible(s.DB, operationID, visible)
+}
+
+func (s *Store) setBackgroundOperationVisible(q Querier, operationID string, visible bool) error {
+	if q == nil {
+		return errors.New("background operation querier is required")
 	}
 	value := 0
 	if visible {
 		value = 1
 	}
-	res, err := s.DB.Exec(`UPDATE background_operations SET visible = ? WHERE id = ?`, value, operationID)
+	res, err := q.Exec(`UPDATE background_operations SET visible = ? WHERE id = ?`, value, operationID)
 	if err != nil {
 		return fmt.Errorf("set background operation visibility: %w", err)
 	}

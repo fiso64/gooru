@@ -2,6 +2,8 @@ package database
 
 import (
 	"database/sql"
+	"io"
+	"log"
 	"testing"
 	"time"
 )
@@ -19,7 +21,7 @@ func newDurableWorkTestDB(t *testing.T) (*Store, *sql.DB) {
 	if err := RunMigrations(db); err != nil {
 		t.Fatalf("RunMigrations: %v", err)
 	}
-	return &Store{}, db
+	return &Store{DB: db, logger: log.New(io.Discard, "", 0)}, db
 }
 
 func TestCreateBackgroundOperationAndEnqueueTask(t *testing.T) {
