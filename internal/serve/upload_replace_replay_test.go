@@ -68,6 +68,31 @@ func TestActivateReplacementCanReplayWhenOriginalDisappeared(t *testing.T) {
 		t.Fatalf("hadOriginal = %v/%v, want false/false", first.hadOriginal, second.hadOriginal)
 	}
 	assertReplacementTestFile(t, finalPath, "new")
+	if _, err := os.Stat(first.noOriginalMarkerPath); err != nil {
+		t.Fatalf("marker stat before commit: %v", err)
+	}
+	commitReplacement(second)
+	if _, err := os.Stat(first.noOriginalMarkerPath); !os.IsNotExist(err) {
+		t.Fatalf("marker stat after commit = %v, want not exist", err)
+	}
+}
+
+func TestActivateReplacementRejectsMissingStageWithoutReplayEvidence(t *testing.T) {
+	dir := t.TempDir()
+	finalPath := filepath.Join(dir, "item.jpg")
+	stagedPath := filepath.Join(dir, ".item.tmp")
+	writeReplacementTestFile(t, finalPath, "old")
+
+	if _, err := activateReplacement(stagedPath, finalPath); err == nil {
+		t.Fatal("activateReplacement error = nil, want missing-stage error")
+	}
+	assertReplacementTestFile(t, finalPath, "old")
+	if _, err := os.Stat(stagedPath + ".backup"); !os.IsNotExist(err) {
+		t.Fatalf("backup stat = %v, want not exist", err)
+	}
+	if _, err := os.Stat(stagedPath + ".no-original"); !os.IsNotExist(err) {
+		t.Fatalf("marker stat = %v, want not exist", err)
+	}
 }
 
 func TestRollbackReplacementIsReplaySafe(t *testing.T) {
@@ -90,6 +115,30 @@ func TestRollbackReplacementIsReplaySafe(t *testing.T) {
 	assertReplacementTestFile(t, finalPath, "old")
 	if _, err := os.Stat(replacement.backupPath); !os.IsNotExist(err) {
 		t.Fatalf("backup stat after rollback = %v, want not exist", err)
+	}
+}
+
+func TestRollbackReplacementWithoutOriginalIsReplaySafe(t *testing.T) {
+	dir := t.TempDir()
+	finalPath := filepath.Join(dir, "item.jpg")
+	stagedPath := filepath.Join(dir, ".item.tmp")
+	writeReplacementTestFile(t, stagedPath, "new")
+
+	replacement, err := activateReplacement(stagedPath, finalPath)
+	if err != nil {
+		t.Fatalf("activate replacement: %v", err)
+	}
+	if err := rollbackReplacement(replacement); err != nil {
+		t.Fatalf("first rollback: %v", err)
+	}
+	if err := rollbackReplacement(replacement); err != nil {
+		t.Fatalf("replayed rollback: %v", err)
+	}
+	if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
+		t.Fatalf("final stat after rollback = %v, want not exist", err)
+	}
+	if _, err := os.Stat(replacement.noOriginalMarkerPath); !os.IsNotExist(err) {
+		t.Fatalf("marker stat after rollback = %v, want not exist", err)
 	}
 }
 
