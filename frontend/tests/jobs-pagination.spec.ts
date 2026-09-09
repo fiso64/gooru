@@ -6,27 +6,22 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-function job(index: number) {
+function operation(index: number) {
   return {
-    id: `job-${index}`,
-    type: `history_${index}`,
-    status: 'completed',
-    progress: 1,
-    submitted_at: new Date(Date.UTC(2026, 8, 5, 12, 0, index)).toISOString(),
-    finished_at: new Date(Date.UTC(2026, 8, 5, 12, 0, index + 1)).toISOString()
+    id: `operation-${index}`,
+    kind: `history_${index}`,
+    status: index < 7 ? 'running' : 'completed',
+    progress_total: 10,
+    progress_completed: index < 7 ? 5 : 10,
+    progress_failed: 0,
+    created_at: new Date(Date.UTC(2026, 8, 5, 12, 0, index)).toISOString(),
+    finished_at: index < 7 ? undefined : new Date(Date.UTC(2026, 8, 5, 12, 0, index + 1)).toISOString()
   };
 }
 
-function offsetFromToken(token: string | null) {
-  if (!token) return 0;
-  const decoded = Buffer.from(token, 'base64url').toString('utf8');
-  const match = /^offset:(\d+)$/.exec(decoded);
-  return match ? Number(match[1]) : 0;
-}
-
 async function mockApp(page: Page) {
-  const jobs = Array.from({ length: 120 }, (_, index) => job(index)).reverse();
-  const requests: Array<{ limit: number; offset: number }> = [];
+  const operations = Array.from({ length: 120 }, (_, index) => operation(index)).reverse();
+  const requests: number[] = [];
 
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
@@ -35,27 +30,16 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/jobs?**', async (route) => {
+  await page.route('**/api/v1/operations?**', async (route) => {
     const url = new URL(route.request().url());
-    const limit = Number(url.searchParams.get('limit') ?? '50');
-    const offset = offsetFromToken(url.searchParams.get('page_token'));
-    requests.push({ limit, offset });
-    const items = jobs.slice(offset, offset + limit);
-    const nextOffset = offset + items.length;
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        items,
-        active_count: 7,
-        next_page_token: nextOffset < jobs.length ? Buffer.from(`offset:${nextOffset}`).toString('base64url') : undefined
-      })
-    });
+    requests.push(Number(url.searchParams.get('limit') ?? '0'));
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: operations }) });
   });
 
   return requests;
 }
 
-test('drawer stays bounded while jobs tab pages through large completed history', async ({ page }) => {
+test('drawer stays bounded while jobs tab pages through large durable operation history', async ({ page }) => {
   const requests = await mockApp(page);
   await page.goto('/');
 
@@ -65,24 +49,21 @@ test('drawer stays bounded while jobs tab pages through large completed history'
   await expect(drawer).toBeVisible();
   await expect(drawer.locator('.job-row')).toHaveCount(20);
   await expect(topbarJobs).toContainText('7');
-  await expect.poll(() => requests.some((request) => request.limit === 20 && request.offset === 0)).toBe(true);
+  await expect.poll(() => requests.includes(1000)).toBe(true);
 
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
   await expect(page.getByText('Page 1', { exact: true })).toBeVisible();
-  await expect.poll(() => requests.some((request) => request.limit === 50 && request.offset === 0)).toBe(true);
 
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByText('Page 2', { exact: true })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
-  await expect.poll(() => requests.some((request) => request.limit === 50 && request.offset === 50)).toBe(true);
 
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByText('Page 3', { exact: true })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(20);
   await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
-  await expect.poll(() => requests.some((request) => request.limit === 50 && request.offset === 100)).toBe(true);
 
   await page.getByRole('button', { name: 'Previous', exact: true }).click();
   await expect(page.getByText('Page 2', { exact: true })).toBeVisible();
