@@ -54,16 +54,19 @@ func (s *Store) GetBackgroundOperationResult(operationID string) ([]byte, bool, 
 	if operationID == "" {
 		return nil, false, errors.New("background operation id is required")
 	}
-	var result string
+	var result sql.NullString
 	if err := s.DB.QueryRow(`
 		SELECT result_json
 		FROM background_operations
-		WHERE id = ? AND status = 'completed' AND result_json <> ''
+		WHERE id = ? AND status = 'completed' AND COALESCE(result_json, '') <> ''
 	`, operationID).Scan(&result); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("read background operation result: %w", err)
 	}
-	return []byte(result), true, nil
+	if !result.Valid || result.String == "" {
+		return nil, false, nil
+	}
+	return []byte(result.String), true, nil
 }
