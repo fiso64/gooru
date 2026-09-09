@@ -94,6 +94,9 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 	if client == nil {
 		return nil, fmt.Errorf("background client is required")
 	}
+	if err := recoverBackgroundOperationReservations(client); err != nil {
+		return nil, err
+	}
 	mediaRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
 		ResourceClass: backgroundThumbnailResourceClass,
 		WorkerID:      workerID + "-media",
