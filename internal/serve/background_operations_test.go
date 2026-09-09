@@ -14,9 +14,11 @@ import (
 type fakeBackgroundOperationReader struct {
 	operations  []core.BackgroundOperationState
 	byID        map[string]core.BackgroundOperationState
+	results     map[string]json.RawMessage
 	listOptions core.BackgroundOperationListOptions
 	listErr     error
 	getErr      error
+	resultErr   error
 	cancelErr   error
 	canceledID  string
 	cancelOK    bool
@@ -51,6 +53,24 @@ func (f *fakeBackgroundOperationReader) CancelBackgroundOperation(id string) (bo
 		f.byID[id] = operation
 	}
 	return f.cancelOK, nil
+}
+
+func (f *fakeBackgroundOperationReader) GetBackgroundOperationResult(id string, destination any) (bool, error) {
+	if f.resultErr != nil {
+		return false, f.resultErr
+	}
+	result, ok := f.results[id]
+	if !ok {
+		return false, nil
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(encoded, destination); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func TestHandleOperationsListsVisibleOperationsWithBoundedLimit(t *testing.T) {
@@ -135,6 +155,36 @@ func TestHandleOperationReturnsVisibleState(t *testing.T) {
 	}
 	if payload.Status != core.BackgroundWorkFailed || payload.ProgressFailed != 1 || payload.ErrorCode != "partial_failure" {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestHandleOperationReturnsCompletedStructuredResult(t *testing.T) {
+	finishedAt := time.Now().UTC()
+	reader := &fakeBackgroundOperationReader{
+		byID: map[string]core.BackgroundOperationState{
+			"operation-upload": {ID: "operation-upload", Kind: "upload_import", Visible: true, Status: core.BackgroundWorkCompleted, CreatedAt: finishedAt.Add(-time.Second), FinishedAt: &finishedAt},
+		},
+		results: map[string]json.RawMessage{
+			"operation-upload": json.RawMessage(`{"affected_count":1,"files":[{"name":"a.jpg","status":"imported"}]}`),
+		},
+	}
+	server := &Server{backgroundOperations: reader}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations/operation-upload", nil)
+	response := httptest.NewRecorder()
+
+	server.handleOperation(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Result UploadImportResponse `json:"result"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Result.AffectedCount != 1 || len(payload.Result.Files) != 1 || payload.Result.Files[0].Name != "a.jpg" {
+		t.Fatalf("result = %+v", payload.Result)
 	}
 }
 
