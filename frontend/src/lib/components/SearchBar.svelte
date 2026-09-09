@@ -234,9 +234,9 @@
     onCommit(query);
   }
 
-  function commitPlainText(input: string) {
+  function commitPlainText(input: string, keepTrailingSpace = false) {
     const query = input.trim();
-    draft = query;
+    draft = keepTrailingSpace && query ? `${query} ` : query;
     open = false;
     active = 0;
     lastSyncedValue = query;
@@ -275,7 +275,8 @@
         inputRef?.focus();
         return;
       }
-      commitPlainText(next);
+      commitPlainText(next, true);
+      inputRef?.focus();
       return;
     }
 
@@ -335,7 +336,7 @@
       if (open && flat[active]) {
         event.preventDefault();
         selectSuggestion(flat[active]);
-      } else if (draft.trim()) {
+      } else if (draft.trim() || (textMode && event.key === 'Enter')) {
         event.preventDefault();
         if (textMode) commitPlainText(draft);
         else commitString(draft);
