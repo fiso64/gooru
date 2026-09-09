@@ -90,6 +90,16 @@ test('booru-light uses the shared booru shell and reference light presentation',
   await expect(page.locator('.booru-app-shell')).toHaveCSS('grid-template-columns', /320px/);
   await expect(page.locator('.booru-sidebar .searchbar')).toBeVisible();
   await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('border-radius', '0px');
+
+  const searchInput = page.locator('.booru-sidebar .searchbar-input');
+  await expect(searchInput).toHaveAttribute('placeholder', '');
+  await expect(page.locator('.booru-sidebar .searchbar-pill')).toHaveCount(0);
+  await expect(page.locator('.booru-sidebar .searchbar-shortcut')).toHaveCount(0);
+  await searchInput.fill('artist:demo rating:safe');
+  await searchInput.press('Enter');
+  await expect(searchInput).toHaveValue('artist:demo rating:safe');
+  await expect(page.locator('.booru-sidebar .searchbar-pill')).toHaveCount(0);
+
   await expect(page.locator('.library-head h1')).toHaveCSS('font-size', '18px');
   await expect(page.locator('.sidebar-item').first()).toHaveCSS('border-radius', '0px');
 
