@@ -310,13 +310,14 @@ func ffmpegThumbnailSourceArgs(size int, format string, offset *time.Duration) [
 		vcodec = "png"
 	}
 	scale := fmt.Sprintf("scale=if(gte(iw\\,ih)\\,min(%d\\,iw)\\,-2):if(gte(ih\\,iw)\\,min(%d\\,ih)\\,-2)", size, size)
-	args := []string{"-v", "error", "-i", "pipe:0"}
+	args := []string{"-v", "error", "-threads", "1", "-i", "pipe:0"}
 	if offset != nil && *offset > 0 {
 		args = append(args, "-ss", formatSeconds(*offset))
 	}
 	return append(args,
 		"-frames:v", "1",
 		"-vf", scale,
+		"-threads", "1",
 		"-f", "image2pipe",
 		"-vcodec", vcodec,
 		"pipe:1",
@@ -380,9 +381,11 @@ func ffmpegThumbnailArgs(src string, dst string, size int, format string, offset
 		args = append(args, "-ss", formatSeconds(*offset))
 	}
 	args = append(args,
+		"-threads", "1",
 		"-i", src,
 		"-frames:v", "1",
 		"-vf", scale,
+		"-threads", "1",
 		"-f", "image2",
 		"-vcodec", vcodec,
 		dst,
