@@ -140,7 +140,8 @@ test('booru-dark follows the committed reference dark palette on shell and viewe
   await expect(root).toHaveCSS('background-color', 'rgb(30, 30, 44)');
   await expect(page.locator('.booru-main-nav')).toHaveCSS('background-color', 'rgb(30, 30, 44)');
   await expect(page.locator('.booru-subnav')).toHaveCSS('background-color', 'rgb(44, 45, 63)');
-  await expect(page.locator('.booru-nav-tab').first()).toHaveCSS('color', 'rgb(0, 155, 230)');
+  await expect(page.locator('.booru-main-nav').getByRole('button', { name: 'Tags' })).toHaveCSS('color', 'rgb(0, 155, 230)');
+  await expect(page.locator('.booru-nav-tab').first()).toHaveCSS('color', 'rgb(75, 180, 255)');
   await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('background-color', 'rgb(63, 64, 88)');
   await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('border-color', 'rgb(119, 120, 146)');
 
