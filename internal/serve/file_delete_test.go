@@ -28,28 +28,28 @@ func TestBulkUntrackQueryHonorsExclusions(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected bulk untrack 200, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected bulk untrack 202, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var response FileRemovalResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Mode != "untrack" || response.RemovedLocations != len(page.Files)-1 {
+	if response.Mode != "untrack" || response.OperationID == "" || response.RemovedLocations != 0 {
 		t.Fatalf("unexpected response: %+v", response)
+	}
+	operation, found, err := server.backgroundOperations.GetBackgroundOperation(response.OperationID)
+	if err != nil || !found {
+		t.Fatalf("load queued operation: found=%v err=%v", found, err)
+	}
+	if operation.Kind != "files.untrack" || operation.ProgressTotal != int64(len(page.Files)-1) {
+		t.Fatalf("unexpected queued operation: %+v", operation)
 	}
 
 	kept := httptest.NewRecorder()
 	server.Handler().ServeHTTP(kept, authedRequest(http.MethodGet, "/api/v1/files/"+page.Files[0].ID))
 	if kept.Code != http.StatusOK {
-		t.Fatalf("excluded file should remain tracked, got %d: %s", kept.Code, kept.Body.String())
-	}
-	for _, removed := range page.Files[1:] {
-		missing := httptest.NewRecorder()
-		server.Handler().ServeHTTP(missing, authedRequest(http.MethodGet, "/api/v1/files/"+removed.ID))
-		if missing.Code != http.StatusNotFound {
-			t.Fatalf("selected file %s should be untracked, got %d: %s", removed.ID, missing.Code, missing.Body.String())
-		}
+		t.Fatalf("excluded file should remain tracked while work is queued, got %d: %s", kept.Code, kept.Body.String())
 	}
 }
 

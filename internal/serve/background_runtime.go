@@ -15,6 +15,34 @@ type BackgroundRuntime interface {
 	Run(context.Context) error
 }
 
+type multiBackgroundRuntime struct {
+	runtimes []BackgroundRuntime
+}
+
+func (m multiBackgroundRuntime) Run(ctx context.Context) error {
+	if len(m.runtimes) == 0 {
+		return nil
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errs := make(chan error, len(m.runtimes))
+	for _, runtime := range m.runtimes {
+		runtime := runtime
+		go func() { errs <- runtime.Run(runCtx) }()
+	}
+	first := <-errs
+	cancel()
+	joined := first
+	for i := 1; i < len(m.runtimes); i++ {
+		err := <-errs
+		if errors.Is(err, context.Canceled) {
+			err = nil
+		}
+		joined = errors.Join(joined, err)
+	}
+	return joined
+}
+
 // ListenAndServeWithBackgroundRuntime owns the HTTP server and durable worker as
 // one process lifecycle. Failure of either side cancels the other, while normal
 // process cancellation waits for both sides to stop before returning.
