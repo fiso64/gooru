@@ -70,6 +70,8 @@ NEVER close an unmarked issue unless there is an explicit instruction to close i
 
 If later owner feedback reports a regression or remaining requirement, remove `awaiting review` and resume work. A later owner acceptance, conditional-close instruction, question, or requested follow-up is also substantive feedback and must be explicitly dispositioned rather than leaving the issue silently parked.
 
+If closing a PR without merging, always write a comment explaining why it is being closed in the PR.
+
 ## PR autonomy and owner holds
 
 Pull requests are fully autonomous engineering/review checkpoints. Create branches and PRs on your own initiative whenever a coherent reviewable change is warranted. You may close, replace, or merge PRs without owner intervention when engineering/review requirements are satisfied, unless the owner explicitly asks to hold a particular PR. Do not accumulate validated PRs waiting for human review. Prefer squash merge for normal maintenance PRs.
