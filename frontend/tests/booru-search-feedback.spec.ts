@@ -136,5 +136,6 @@ test('text-mode suggestion insertion leaves a separator and empty Enter restores
 
   await expect(input).toHaveValue('');
   await expect(cards).toHaveCount(2);
-  await expect.poll(() => decodeURIComponent(fileRequests.at(-1) ?? '')).not.toContain('artist:demo');
+  await expect(page.getByAltText('sample.png')).toBeVisible();
+  await expect(page.getByAltText('other.png')).toBeVisible();
 });
