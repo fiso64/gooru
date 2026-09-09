@@ -1,6 +1,9 @@
 package database
 
 import (
+	"database/sql"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,19 +42,22 @@ func TestNewStoreSecuresSQLiteFiles(t *testing.T) {
 	}
 }
 
-func TestLocationPublicIDsArePersistedAndResolved(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "gooru.db")
-	if err := CreateEmptyDB(dbPath); err != nil {
-		t.Fatalf("CreateEmptyDB: %v", err)
-	}
-	store, err := NewStore(dbPath, false)
+func newMemoryTestStore(t *testing.T) *Store {
+	t.Helper()
+	db, err := sql.Open("sqlite3", ":memory:?_foreign_keys=on")
 	if err != nil {
-		t.Fatalf("NewStore: %v", err)
+		t.Fatalf("open memory database: %v", err)
 	}
-	defer store.Close()
-	if err := RunMigrations(store.DB); err != nil {
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	if err := RunMigrations(db); err != nil {
 		t.Fatalf("RunMigrations: %v", err)
 	}
+	return &Store{DB: db, logger: log.New(io.Discard, "", 0)}
+}
+
+func TestLocationPublicIDsArePersistedAndResolved(t *testing.T) {
+	store := newMemoryTestStore(t)
 	if _, err := store.Exec(`INSERT INTO contents (hash) VALUES (?)`, "hash-one"); err != nil {
 		t.Fatalf("insert content: %v", err)
 	}
@@ -86,18 +92,7 @@ func TestLocationPublicIDsArePersistedAndResolved(t *testing.T) {
 }
 
 func TestBatchUpsertLocationsPersistsExplicitAddedAtWithoutRewritingExistingValue(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "gooru.db")
-	if err := CreateEmptyDB(dbPath); err != nil {
-		t.Fatalf("CreateEmptyDB: %v", err)
-	}
-	store, err := NewStore(dbPath, false)
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
-	defer store.Close()
-	if err := RunMigrations(store.DB); err != nil {
-		t.Fatalf("RunMigrations: %v", err)
-	}
+	store := newMemoryTestStore(t)
 	if err := store.BatchInsertContents(store.DB, []string{"hash-one", "hash-two"}); err != nil {
 		t.Fatalf("BatchInsertContents: %v", err)
 	}
@@ -137,18 +132,7 @@ func TestBatchUpsertLocationsPersistsExplicitAddedAtWithoutRewritingExistingValu
 }
 
 func TestTagSuggestionsUseUniqueFileAggregatesForBaseAndNamespace(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "gooru.db")
-	if err := CreateEmptyDB(dbPath); err != nil {
-		t.Fatalf("CreateEmptyDB: %v", err)
-	}
-	store, err := NewStore(dbPath, false)
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
-	defer store.Close()
-	if err := RunMigrations(store.DB); err != nil {
-		t.Fatalf("RunMigrations: %v", err)
-	}
+	store := newMemoryTestStore(t)
 	if _, err := store.Exec(`INSERT INTO contents (hash) VALUES ('h1'), ('h2'), ('h3')`); err != nil {
 		t.Fatal(err)
 	}
