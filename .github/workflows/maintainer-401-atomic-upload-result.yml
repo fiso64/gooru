@@ -1,0 +1,335 @@
+name: Maintainer #401 atomic upload result
+
+on:
+  push:
+    branches:
+      - maintainer/401-atomic-upload-result
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply transaction-safe operation state changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: expected one replacement, found {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Database checkpoint transaction primitive.
+          path = "internal/database/durable_work_checkpoint.go"
+          marker = '''func (s *Store) SetBackgroundOperationCheckpoint(operationID string, checkpointJSON []byte) error {
+          \tif s == nil || s.DB == nil {
+          \t\treturn errors.New("background operation store is required")
+          \t}
+          \treturn s.setBackgroundOperationCheckpoint(s.DB, operationID, checkpointJSON)
+          }
+          '''
+          replacement = marker + '''
+          // SetBackgroundOperationCheckpointTx persists recovery state inside an
+          // existing domain transaction so the checkpoint cannot diverge from the
+          // mutation it describes.
+          func (s *Store) SetBackgroundOperationCheckpointTx(tx *Tx, operationID string, checkpointJSON []byte) error {
+          \tif s == nil {
+          \t\treturn errors.New("background operation store is required")
+          \t}
+          \treturn s.setBackgroundOperationCheckpoint(tx, operationID, checkpointJSON)
+          }
+          '''
+          replace_once(path, marker, replacement)
+
+          # Refactor result storage around the same querier-aware primitive.
+          path = "internal/database/durable_work_result.go"
+          old = '''func (s *Store) SetBackgroundOperationResult(operationID string, resultJSON []byte) error {
+          \tif s == nil || s.DB == nil {
+          \t\treturn errors.New("background operation store is required")
+          \t}
+          \tif operationID == "" {
+          \t\treturn errors.New("background operation id is required")
+          \t}
+          \tif len(resultJSON) == 0 || !json.Valid(resultJSON) {
+          \t\treturn errors.New("background operation result must be valid JSON")
+          \t}
+          \tif len(resultJSON) > maxBackgroundOperationResultBytes {
+          \t\treturn fmt.Errorf("background operation result exceeds %d bytes", maxBackgroundOperationResultBytes)
+          \t}
+          \tres, err := s.DB.Exec(`
+          \t\tUPDATE background_operations
+          \t\tSET result_json = ?
+          \t\tWHERE id = ? AND status IN ('pending', 'running')
+          \t`, string(resultJSON), operationID)
+          \tif err != nil {
+          \t\treturn fmt.Errorf("set background operation result: %w", err)
+          \t}
+          \trows, err := res.RowsAffected()
+          \tif err != nil {
+          \t\treturn fmt.Errorf("set background operation result rows affected: %w", err)
+          \t}
+          \tif rows != 1 {
+          \t\treturn errors.New("background operation is missing or no longer active")
+          \t}
+          \treturn nil
+          }
+          '''
+          new = '''func (s *Store) SetBackgroundOperationResult(operationID string, resultJSON []byte) error {
+          \tif s == nil || s.DB == nil {
+          \t\treturn errors.New("background operation store is required")
+          \t}
+          \treturn s.setBackgroundOperationResult(s.DB, operationID, resultJSON)
+          }
+
+          // SetBackgroundOperationResultTx persists a success payload inside an
+          // existing domain transaction so consumers can never observe a completed
+          // mutation whose durable replay result was lost in a separate commit.
+          func (s *Store) SetBackgroundOperationResultTx(tx *Tx, operationID string, resultJSON []byte) error {
+          \tif s == nil {
+          \t\treturn errors.New("background operation store is required")
+          \t}
+          \treturn s.setBackgroundOperationResult(tx, operationID, resultJSON)
+          }
+
+          func (s *Store) setBackgroundOperationResult(q Querier, operationID string, resultJSON []byte) error {
+          \tif q == nil {
+          \t\treturn errors.New("background operation querier is required")
+          \t}
+          \tif operationID == "" {
+          \t\treturn errors.New("background operation id is required")
+          \t}
+          \tif len(resultJSON) == 0 || !json.Valid(resultJSON) {
+          \t\treturn errors.New("background operation result must be valid JSON")
+          \t}
+          \tif len(resultJSON) > maxBackgroundOperationResultBytes {
+          \t\treturn fmt.Errorf("background operation result exceeds %d bytes", maxBackgroundOperationResultBytes)
+          \t}
+          \tres, err := q.Exec(`
+          \t\tUPDATE background_operations
+          \t\tSET result_json = ?
+          \t\tWHERE id = ? AND status IN ('pending', 'running')
+          \t`, string(resultJSON), operationID)
+          \tif err != nil {
+          \t\treturn fmt.Errorf("set background operation result: %w", err)
+          \t}
+          \trows, err := res.RowsAffected()
+          \tif err != nil {
+          \t\treturn fmt.Errorf("set background operation result rows affected: %w", err)
+          \t}
+          \tif rows != 1 {
+          \t\treturn errors.New("background operation is missing or no longer active")
+          \t}
+          \treturn nil
+          }
+          '''
+          replace_once(path, old, new)
+
+          # Keep database-specific transaction calls behind the core boundary.
+          path = "gooru/database_boundary.go"
+          marker = '''func cancelDatabaseBackgroundTask(client *Client, taskID string) (bool, error) {
+          \treturn client.store.CancelBackgroundTask(taskID, time.Now().UTC())
+          }
+          '''
+          replacement = marker + '''
+          func setDatabaseBackgroundOperationState(client *Client, tx *databaseTx, operationID string, checkpointJSON, resultJSON []byte) error {
+          \tif err := client.store.SetBackgroundOperationCheckpointTx(tx, operationID, checkpointJSON); err != nil {
+          \t\treturn err
+          \t}
+          \treturn client.store.SetBackgroundOperationResultTx(tx, operationID, resultJSON)
+          }
+          '''
+          replace_once(path, marker, replacement)
+
+          # Thread an optional operation-state builder through known-file registration.
+          path = "gooru/tagging.go"
+          replace_once(path, 'import (\n\t"database/sql"', 'import (\n\t"database/sql"\n\t"encoding/json"')
+          old = '''func (c *Client) TagKnownFilesWithBackgroundTasks(files []types.LocationInfo, tags []string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+          \tresult := types.TagOperationResult{}
+          '''
+          new = '''type BackgroundOperationTransactionState struct {
+          \tOperationID string
+          \tCheckpoint  any
+          \tResult      any
+          }
+
+          type BackgroundOperationTransactionStateBuilder func(affectedCount int) (BackgroundOperationTransactionState, error)
+
+          func (c *Client) TagKnownFilesWithBackgroundTasks(files []types.LocationInfo, tags []string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+          \treturn c.TagKnownFilesWithBackgroundTasksAndOperationState(files, tags, tasks, nil, progressCb)
+          }
+
+          // TagKnownFilesWithBackgroundTasksAndOperationState extends known-file
+          // registration with one producer-owned operation checkpoint/result update
+          // that commits in the same transaction as content, tags, and child tasks.
+          func (c *Client) TagKnownFilesWithBackgroundTasksAndOperationState(files []types.LocationInfo, tags []string, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+          \tresult := types.TagOperationResult{}
+          '''
+          replace_once(path, old, new)
+          replace_once(path,
+              'affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag, tasks)',
+              'affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag, tasks, stateBuilder)')
+          replace_once(path,
+              'func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind, tasks []BackgroundTaskRequest) (int64, map[string]string, error) {',
+              'func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder) (int64, map[string]string, error) {')
+          old = '''\t// 4. Persist durable follow-up work in the same transaction as content registration.
+          \tfor _, task := range tasks {
+          \t\tif _, _, err := c.enqueueBackgroundTask(tx, task); err != nil {
+          \t\t\treturn 0, nil, fmt.Errorf("failed to enqueue background task: %w", err)
+          \t\t}
+          \t}
+
+          \treturn affectedCount, movesHandled, tx.Commit()
+          '''
+          new = '''\t// 4. Persist durable follow-up work in the same transaction as content registration.
+          \tfor _, task := range tasks {
+          \t\tif _, _, err := c.enqueueBackgroundTask(tx, task); err != nil {
+          \t\t\treturn 0, nil, fmt.Errorf("failed to enqueue background task: %w", err)
+          \t\t}
+          \t}
+
+          \t// 5. Persist producer recovery state and the exact success payload before
+          \t// committing the domain mutation. A crash can therefore expose either the
+          \t// pre-import state or the complete replayable import state, never a split.
+          \tif stateBuilder != nil {
+          \t\tstate, err := stateBuilder(int(affectedCount))
+          \t\tif err != nil {
+          \t\t\treturn 0, nil, fmt.Errorf("build background operation transaction state: %w", err)
+          \t\t}
+          \t\tif state.OperationID == "" {
+          \t\t\treturn 0, nil, errors.New("background operation transaction state requires an operation id")
+          \t\t}
+          \t\tcheckpointJSON, err := json.Marshal(state.Checkpoint)
+          \t\tif err != nil {
+          \t\t\treturn 0, nil, fmt.Errorf("encode background operation transaction checkpoint: %w", err)
+          \t\t}
+          \t\tresultJSON, err := json.Marshal(state.Result)
+          \t\tif err != nil {
+          \t\t\treturn 0, nil, fmt.Errorf("encode background operation transaction result: %w", err)
+          \t\t}
+          \t\tif err := setDatabaseBackgroundOperationState(c, tx, state.OperationID, checkpointJSON, resultJSON); err != nil {
+          \t\t\treturn 0, nil, fmt.Errorf("persist background operation transaction state: %w", err)
+          \t\t}
+          \t}
+
+          \treturn affectedCount, movesHandled, tx.Commit()
+          '''
+          replace_once(path, old, new)
+          replace_once(path,
+              'affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind, nil)',
+              'affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind, nil, nil)')
+
+          # Let durable upload import opt into the atomic operation state without changing legacy HTTP behavior.
+          path = "internal/serve/uploads.go"
+          old = 'func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUpload, tags []string) (UploadImportResponse, error) {\n'
+          new = '''func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUpload, tags []string) (UploadImportResponse, error) {
+          \treturn l.importUploadedFiles(ctx, files, tags, "", nil)
+          }
+
+          func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUpload, tags []string, operationID string, activated []activatedSavedReplacement) (UploadImportResponse, error) {
+          '''
+          replace_once(path, old, new)
+          old = '''\tresult, err := l.client.TagKnownFilesWithBackgroundTasks(importLocations, tags, backgroundTasks, func(filePath string, err error) {
+          \t\tif err != nil {
+          \t\t\tfailures[filePath] = err.Error()
+          \t\t}
+          \t})
+          '''
+          new = '''\tprogress := func(filePath string, err error) {
+          \t\tif err != nil {
+          \t\t\tfailures[filePath] = err.Error()
+          \t\t}
+          \t}
+          \tvar result types.TagOperationResult
+          \tif operationID == "" {
+          \t\tresult, err = l.client.TagKnownFilesWithBackgroundTasks(importLocations, tags, backgroundTasks, progress)
+          \t} else {
+          \t\tresult, err = l.client.TagKnownFilesWithBackgroundTasksAndOperationState(importLocations, tags, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
+          \t\t\tresponse.AffectedCount = affectedCount
+          \t\t\tcheckpoint := backgroundUploadImportedCheckpoint(activated, response)
+          \t\t\treturn core.BackgroundOperationTransactionState{OperationID: operationID, Checkpoint: checkpoint, Result: response}, nil
+          \t\t}, progress)
+          \t}
+          '''
+          replace_once(path, old, new)
+
+          # Core regressions: success persists both payloads; persistence failure rolls domain mutation back.
+          path = "gooru/tag_known_background_test.go"
+          p = Path(path)
+          text = p.read_text()
+          append = r'''
+
+          func TestTagKnownFilesWithBackgroundTasksAndOperationStateCommitsAtomically(t *testing.T) {
+          	client := newBackgroundEnqueueTestClient(t)
+          	operation, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "upload_import", Visible: true, ProgressTotal: 1})
+          	if err != nil {
+          		t.Fatalf("CreateBackgroundOperation: %v", err)
+          	}
+          	location := types.LocationInfo{Path: "/library/atomic.jpg", Hash: "hash-atomic-operation-state", Size: 12, ModTime: 34, Extension: ".jpg"}
+          	_, err = client.TagKnownFilesWithBackgroundTasksAndOperationState([]types.LocationInfo{location}, []string{"source:upload"}, nil, func(affectedCount int) (BackgroundOperationTransactionState, error) {
+          		return BackgroundOperationTransactionState{
+          			OperationID: operation.ID,
+          			Checkpoint: map[string]any{"phase": "imported", "affected_count": affectedCount},
+          			Result: map[string]any{"affected_count": affectedCount, "status": "ok"},
+          		}, nil
+          	}, nil)
+          	if err != nil {
+          		t.Fatalf("TagKnownFilesWithBackgroundTasksAndOperationState: %v", err)
+          	}
+          	exists, err := client.ContentExists(location.Hash)
+          	if err != nil || !exists {
+          		t.Fatalf("ContentExists = %v, %v; want true, nil", exists, err)
+          	}
+          	var checkpoint map[string]any
+          	found, err := client.GetBackgroundOperationCheckpoint(operation.ID, &checkpoint)
+          	if err != nil || !found || checkpoint["phase"] != "imported" {
+          		t.Fatalf("checkpoint = %#v, %v, %v", checkpoint, found, err)
+          	}
+          	var rawResult string
+          	if err := client.store.DB.QueryRow(`SELECT result_json FROM background_operations WHERE id = ?`, operation.ID).Scan(&rawResult); err != nil {
+          		t.Fatalf("read result_json: %v", err)
+          	}
+          	if rawResult == "" {
+          		t.Fatal("result_json was not persisted")
+          	}
+          }
+
+          func TestTagKnownFilesWithBackgroundTasksAndOperationStateRollsBackWhenStatePersistenceFails(t *testing.T) {
+          	client := newBackgroundEnqueueTestClient(t)
+          	location := types.LocationInfo{Path: "/library/rollback.jpg", Hash: "hash-operation-state-rollback", Size: 12, ModTime: 34, Extension: ".jpg"}
+          	_, err := client.TagKnownFilesWithBackgroundTasksAndOperationState([]types.LocationInfo{location}, nil, nil, func(affectedCount int) (BackgroundOperationTransactionState, error) {
+          		return BackgroundOperationTransactionState{OperationID: "operation-missing", Checkpoint: map[string]string{"phase": "imported"}, Result: map[string]int{"affected_count": affectedCount}}, nil
+          	}, nil)
+          	if err == nil {
+          		t.Fatal("expected missing operation state persistence to fail")
+          	}
+          	exists, lookupErr := client.ContentExists(location.Hash)
+          	if lookupErr != nil {
+          		t.Fatalf("ContentExists: %v", lookupErr)
+          	}
+          	if exists {
+          		t.Fatal("content registration committed despite operation state persistence failure")
+          	}
+          }
+          '''
+          if "TestTagKnownFilesWithBackgroundTasksAndOperationStateCommitsAtomically" in text:
+              raise SystemExit("core atomic-state tests already exist")
+          p.write_text(text + append)
+          PY
+          gofmt -w internal/database/durable_work_checkpoint.go internal/database/durable_work_result.go gooru/database_boundary.go gooru/tagging.go gooru/tag_known_background_test.go internal/serve/uploads.go
+          go test ./gooru ./internal/database ./internal/serve
+          rm .github/workflows/maintainer-401-atomic-upload-result.yml
+          git config user.name "chatgpt-codex-connector[bot]"
+          git config user.email "chatgpt-codex-connector[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(background): atomically persist upload import state"
+          git push origin HEAD:maintainer/401-atomic-upload-result
