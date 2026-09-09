@@ -381,9 +381,10 @@ func removeSavedUploads(files []savedUpload) {
 }
 
 type activatedReplacement struct {
-	finalPath   string
-	backupPath  string
-	hadOriginal bool
+	finalPath            string
+	backupPath           string
+	noOriginalMarkerPath string
+	hadOriginal          bool
 }
 
 type activatedSavedReplacement struct {
@@ -502,26 +503,113 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 	if stagedPath == "" || finalPath == "" || stagedPath == finalPath {
 		return activatedReplacement{}, errors.New("invalid staged replacement")
 	}
-	replacement := activatedReplacement{finalPath: finalPath, backupPath: stagedPath + ".backup"}
-	_ = os.Remove(replacement.backupPath)
-	if _, err := os.Stat(finalPath); err == nil {
+	replacement := activatedReplacement{
+		finalPath:            finalPath,
+		backupPath:           stagedPath + ".backup",
+		noOriginalMarkerPath: stagedPath + ".no-original",
+	}
+	stagedExists, err := replacementPathExists(stagedPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to inspect staged replacement")
+	}
+	finalExists, err := replacementPathExists(finalPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to inspect existing file before replacement")
+	}
+	backupExists, err := replacementPathExists(replacement.backupPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to inspect preserved file before replacement")
+	}
+	markerExists, err := replacementPathExists(replacement.noOriginalMarkerPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to inspect replacement state marker")
+	}
+	if backupExists && markerExists {
+		return activatedReplacement{}, errors.New("inconsistent staged replacement state")
+	}
+	if backupExists {
+		replacement.hadOriginal = true
+		return resumeReplacementActivation(replacement, stagedPath, stagedExists, finalExists)
+	}
+	if markerExists {
+		return resumeReplacementActivation(replacement, stagedPath, stagedExists, finalExists)
+	}
+	if !stagedExists {
+		return activatedReplacement{}, errors.New("staged replacement is missing")
+	}
+	if finalExists {
 		if err := os.Rename(finalPath, replacement.backupPath); err != nil {
 			return activatedReplacement{}, fmt.Errorf("failed to preserve existing file before replacement")
 		}
 		replacement.hadOriginal = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return activatedReplacement{}, fmt.Errorf("failed to inspect existing file before replacement")
+	} else if err := createReplacementStateMarker(replacement.noOriginalMarkerPath); err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to record replacement state")
 	}
 	if err := os.Rename(stagedPath, finalPath); err != nil {
 		if replacement.hadOriginal {
 			_ = os.Rename(replacement.backupPath, finalPath)
+		} else {
+			_ = os.Remove(replacement.noOriginalMarkerPath)
 		}
 		return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
 	}
 	return replacement, nil
 }
 
+func resumeReplacementActivation(replacement activatedReplacement, stagedPath string, stagedExists, finalExists bool) (activatedReplacement, error) {
+	switch {
+	case stagedExists && !finalExists:
+		if err := os.Rename(stagedPath, replacement.finalPath); err != nil {
+			return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
+		}
+		return replacement, nil
+	case !stagedExists && finalExists:
+		return replacement, nil
+	default:
+		return activatedReplacement{}, errors.New("inconsistent staged replacement state")
+	}
+}
+
+func createReplacementStateMarker(path string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
+}
+
+func replacementPathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
 func rollbackReplacement(replacement activatedReplacement) error {
+	if replacement.hadOriginal {
+		backupExists, err := replacementPathExists(replacement.backupPath)
+		if err != nil {
+			return fmt.Errorf("failed to inspect preserved original before replacement rollback")
+		}
+		if !backupExists {
+			finalExists, err := replacementPathExists(replacement.finalPath)
+			if err != nil {
+				return fmt.Errorf("failed to inspect replacement rollback state")
+			}
+			if finalExists {
+				return nil
+			}
+			return fmt.Errorf("failed to restore original file after replacement failure")
+		}
+	}
 	if err := os.Remove(replacement.finalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to remove rejected replacement")
 	}
@@ -531,14 +619,14 @@ func rollbackReplacement(replacement activatedReplacement) error {
 		}
 	} else {
 		_ = os.Remove(replacement.backupPath)
+		_ = os.Remove(replacement.noOriginalMarkerPath)
 	}
 	return nil
 }
 
 func commitReplacement(replacement activatedReplacement) {
-	if replacement.hadOriginal {
-		_ = os.Remove(replacement.backupPath)
-	}
+	_ = os.Remove(replacement.backupPath)
+	_ = os.Remove(replacement.noOriginalMarkerPath)
 }
 
 func copyUpload(dst io.Writer, src io.Reader, maxSize int64) (int64, error) {
