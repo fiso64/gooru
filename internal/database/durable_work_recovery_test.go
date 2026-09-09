@@ -13,8 +13,17 @@ func TestCancelUnattachedHiddenBackgroundOperationsOnlyReleasesReservations(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateBackgroundTask(db, NewBackgroundTask{ID: "attached-task", OperationID: attached.ID, Resource: "upload_import", InputKey: attached.ID}); err != nil {
+	if _, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
+		ID:            "attached-task",
+		OperationID:   attached.ID,
+		DedupeKey:     "attached-upload-task",
+		Kind:          "upload_import",
+		InputKey:      attached.ID,
+		ResourceClass: "upload_import",
+	}); err != nil {
 		t.Fatal(err)
+	} else if !created {
+		t.Fatal("attached task was not created")
 	}
 	visible, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{ID: "visible-upload", Kind: "upload_import", Visible: true})
 	if err != nil {
