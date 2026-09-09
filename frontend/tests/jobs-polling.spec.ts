@@ -22,24 +22,12 @@ async function mockAuth(page: Page) {
 }
 
 async function mockShellApis(page: Page) {
-  await page.route('**/api/v1/ui-config', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) });
-  });
-  await page.route('**/api/v1/files?**', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
-  });
-  await page.route('**/api/v1/saved-searches', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
-  });
-  await page.route('**/api/v1/upload-targets', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
-  });
-  await page.route('**/api/v1/tags?**', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) });
-  });
-  await page.route('**/api/v1/search/suggestions?**', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
-  });
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
 }
 
 async function signIn(page: Page) {
@@ -50,39 +38,39 @@ async function signIn(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('does not keep polling jobs on idle screens', async ({ page }) => {
+test('does not keep polling operations on idle screens', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
-  let jobsRequests = 0;
-  await page.route('**/api/v1/jobs', async (route) => {
-    jobsRequests += 1;
+  let operationRequests = 0;
+  await page.route('**/api/v1/operations?**', async (route) => {
+    operationRequests += 1;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
 
   await signIn(page);
   await page.getByRole('button', { name: 'Tags' }).click();
   await expect(page.getByRole('heading', { name: 'Tags' })).toBeVisible();
-  await expect.poll(() => jobsRequests).toBeGreaterThan(0);
+  await expect.poll(() => operationRequests).toBeGreaterThan(0);
   await page.waitForTimeout(200);
-  const settledRequests = jobsRequests;
+  const settledRequests = operationRequests;
   await page.waitForTimeout(2300);
-  expect(jobsRequests).toBe(settledRequests);
+  expect(operationRequests).toBe(settledRequests);
 });
 
-test('keeps polling while a job is active', async ({ page }) => {
+test('keeps polling while an operation is active', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
-  let jobsRequests = 0;
-  await page.route('**/api/v1/jobs', async (route) => {
-    jobsRequests += 1;
+  let operationRequests = 0;
+  await page.route('**/api/v1/operations?**', async (route) => {
+    operationRequests += 1;
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ items: [{ id: 'job-1', type: 'upload_import', status: 'running', progress: 0.5 }] })
+      body: JSON.stringify({ items: [{ id: 'op-1', kind: 'delete_files', status: 'running', progress_total: 2, progress_completed: 1, progress_failed: 0, created_at: '2026-09-08T08:00:00Z' }] })
     });
   });
 
   await signIn(page);
   await page.waitForTimeout(200);
-  const initialRequests = jobsRequests;
-  await expect.poll(() => jobsRequests, { timeout: 3500 }).toBeGreaterThan(initialRequests);
+  const initialRequests = operationRequests;
+  await expect.poll(() => operationRequests, { timeout: 3500 }).toBeGreaterThan(initialRequests);
 });
