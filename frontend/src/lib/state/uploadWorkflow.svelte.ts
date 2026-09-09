@@ -253,10 +253,12 @@ export function createUploadWorkflow() {
       status = 'Upload queue changed unexpectedly; please restage the pending files';
       return { queued: false, changedFiles: false };
     }
+    const nextItems = [...items];
     for (const itemIndex of batchItemIndices) {
-      const current = items[itemIndex];
-      replaceItem(itemIndex, current ? { ...current, status: 'waiting', progress: 0, error: '' } : undefined);
+      const current = nextItems[itemIndex];
+      if (current) nextItems[itemIndex] = { ...current, status: 'waiting', progress: 0, error: '' };
     }
+    items = nextItems;
     statusCounts = countUploadStatuses(items);
 
     const batchFiles = [...files];
