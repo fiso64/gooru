@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // protectedVideoSeekablePath exposes one already-open logical source through a
@@ -41,7 +42,7 @@ func protectedVideoSeekablePath(name string, src io.ReadSeeker) (string, func(),
 			http.Error(w, "source unavailable", http.StatusInternalServerError)
 			return
 		}
-		http.ServeContent(w, r, filepath.Base(name), zeroTime, src)
+		http.ServeContent(w, r, filepath.Base(name), time.Time{}, src)
 	})
 	server := &http.Server{Handler: handler}
 	go func() { _ = server.Serve(listener) }()
