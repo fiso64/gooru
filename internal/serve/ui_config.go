@@ -5,6 +5,7 @@ import "net/http"
 const UICapabilityPreviewImages = "preview_images"
 
 type UIConfigResponse struct {
+	UITheme                  string   `json:"ui_theme"`
 	AccentColor              string   `json:"accent_color,omitempty"`
 	FontStyle                string   `json:"font_style"`
 	LoadFullMediaByDefault   bool     `json:"load_full_media_by_default"`
@@ -30,6 +31,7 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		capabilities = append(capabilities, UICapabilityPreviewImages)
 	}
 	writeJSON(w, http.StatusOK, UIConfigResponse{
+		UITheme:                  s.cfg.UI.Theme,
 		AccentColor:              s.cfg.UI.AccentColor,
 		FontStyle:                s.cfg.UI.FontStyle,
 		LoadFullMediaByDefault:   s.cfg.UI.LoadFullMediaByDefault,
