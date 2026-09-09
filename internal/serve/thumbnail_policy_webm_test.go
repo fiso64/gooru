@@ -1,7 +1,6 @@
 package serve
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -11,54 +10,55 @@ import (
 	"gooru.local/types"
 )
 
-type protectedWebMRouteThumbnailer struct {
+type protectedVideoRouteThumbnailer struct {
 	sourceCalls int
 	pathCalls   int
 }
 
-func (t *protectedWebMRouteThumbnailer) BackendVersion() string { return "protected-webm-route-test" }
+func (t *protectedVideoRouteThumbnailer) BackendVersion() string { return "protected-video-route-test" }
 
-func (t *protectedWebMRouteThumbnailer) Thumbnail(string, io.Writer, int, string) error {
+func (t *protectedVideoRouteThumbnailer) Thumbnail(string, io.Writer, int, string) error {
 	return errors.New("unexpected ordinary-path thumbnail call")
 }
 
-func (t *protectedWebMRouteThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writer, _ int, _ string) error {
+func (t *protectedVideoRouteThumbnailer) ThumbnailSource(string, io.ReadSeeker, io.Writer, int, string) error {
 	t.sourceCalls++
-	_, err := io.Copy(dst, src)
-	return err
+	return errors.New("unexpected streaming-source thumbnail call")
 }
 
-func (t *protectedWebMRouteThumbnailer) ThumbnailVideoPath(string, io.Writer, int, string) error {
+func (t *protectedVideoRouteThumbnailer) ThumbnailVideoPath(string, io.Writer, int, string) error {
 	t.pathCalls++
-	return errors.New("unexpected seekable-video thumbnail call")
+	return nil
 }
 
-func TestProtectedWebMThumbnailUsesLogicalSourceInsteadOfSeekableLoopback(t *testing.T) {
+func TestProtectedVideoContainersUseSharedSeekableSource(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
-	path := filepath.Join(root, "clip.webm")
-	plaintext := []byte("streamable-webm-fixture")
-	if err := os.WriteFile(path, plaintext, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	for _, ext := range []string{".mp4", ".webm", ".mkv"} {
+		ext := ext
+		t.Run(ext, func(t *testing.T) {
+			t.Parallel()
 
-	cfg := DefaultConfig(filepath.Join(root, "gooru.db"))
-	service := NewMediaService(cfg)
-	thumbnailer := &protectedWebMRouteThumbnailer{}
-	service.thumbnailer = thumbnailer
+			root := t.TempDir()
+			path := filepath.Join(root, "clip"+ext)
+			if err := os.WriteFile(path, []byte("video-fixture"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 
-	var dst bytes.Buffer
-	if err := generateThumbnailFromLogicalSource(service, types.FileInfo{Path: path, Hash: "webm-route"}, &dst, 320, "jpeg"); err != nil {
-		t.Fatal(err)
-	}
-	if thumbnailer.sourceCalls != 1 {
-		t.Fatalf("logical-source calls = %d, want 1", thumbnailer.sourceCalls)
-	}
-	if thumbnailer.pathCalls != 0 {
-		t.Fatalf("seekable-video calls = %d, want 0", thumbnailer.pathCalls)
-	}
-	if got := dst.Bytes(); !bytes.Equal(got, plaintext) {
-		t.Fatalf("logical-source bytes = %q, want %q", got, plaintext)
+			cfg := DefaultConfig(filepath.Join(root, "gooru.db"))
+			service := NewMediaService(cfg)
+			thumbnailer := &protectedVideoRouteThumbnailer{}
+			service.thumbnailer = thumbnailer
+
+			if err := generateThumbnailFromLogicalSource(service, types.FileInfo{Path: path, Hash: "video-route"}, io.Discard, 320, "jpeg"); err != nil {
+				t.Fatal(err)
+			}
+			if thumbnailer.pathCalls != 1 {
+				t.Fatalf("seekable-video calls = %d, want 1", thumbnailer.pathCalls)
+			}
+			if thumbnailer.sourceCalls != 0 {
+				t.Fatalf("streaming-source calls = %d, want 0", thumbnailer.sourceCalls)
+			}
+		})
 	}
 }
