@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,7 +30,8 @@ func protectedVideoSeekablePath(name string, src io.ReadSeeker) (string, func(),
 		_ = listener.Close()
 		return "", nil, false, err
 	}
-	path := "/" + hex.EncodeToString(tokenBytes) + "/" + filepath.Base(name)
+	ext := strings.ToLower(filepath.Ext(name))
+	path := "/" + hex.EncodeToString(tokenBytes) + "/source" + ext
 	var sourceMu sync.Mutex
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != path {
@@ -42,7 +44,7 @@ func protectedVideoSeekablePath(name string, src io.ReadSeeker) (string, func(),
 			http.Error(w, "source unavailable", http.StatusInternalServerError)
 			return
 		}
-		http.ServeContent(w, r, filepath.Base(name), time.Time{}, src)
+		http.ServeContent(w, r, "source"+ext, time.Time{}, src)
 	})
 	server := &http.Server{Handler: handler}
 	go func() { _ = server.Serve(listener) }()
