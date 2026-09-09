@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { defaultGridSize, denseGridSizeBoost, effectiveGridSize, normalizeThumbnailSizes } from './runtimeConfig';
+import {
+  defaultGridSize,
+  denseGridSizeBoost,
+  effectiveGridSize,
+  normalizeThumbnailSizes,
+  normalizeUITheme
+} from './runtimeConfig';
 
 describe('normalizeThumbnailSizes', () => {
   it('filters, deduplicates, and sorts the configured catalogue once', () => {
     expect(normalizeThumbnailSizes([512, 256, 512, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1024])).toEqual([256, 512, 1024]);
+  });
+});
+
+describe('UI theme normalization', () => {
+  it('accepts booru-style as the alternate presentation', () => {
+    expect(normalizeUITheme('booru-style')).toBe('booru-style');
+  });
+
+  it('keeps the existing presentation as the safe default', () => {
+    expect(normalizeUITheme(undefined)).toBe('default');
+    expect(normalizeUITheme('unknown')).toBe('default');
   });
 });
 
