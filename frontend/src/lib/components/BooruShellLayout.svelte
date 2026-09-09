@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import Icon from './Icon.svelte';
   import Logo from './Logo.svelte';
   import SearchBar from './SearchBar.svelte';
   import ShellFilterSidebar from './ShellFilterSidebar.svelte';
@@ -139,40 +138,17 @@
     <section class="booru-search-section" aria-label="Search">
       <h2>Search</h2>
       <form onsubmit={(event) => event.preventDefault()}>
-        <SearchBar
-          value={search}
-          {suggestions}
-          {metaTags}
-          {tags}
-          onDraftInput={onSearchDraft}
-          onCommit={onSearchCommit}
-        />
+        <SearchBar value={search} {suggestions} {metaTags} {tags} onDraftInput={onSearchDraft} onCommit={onSearchCommit} />
       </form>
     </section>
 
     <ShellFilterSidebar
-      {route}
-      {search}
-      {kindCounts}
-      {comicCount}
-      {comicAvailable}
-      {savedSearches}
-      {commonTags}
-      {commonTagsCollapsed}
-      {draggedSavedSearchID}
-      {savedSearchReorderBusy}
-      {savedSearchReorderError}
-      onToggleKind={onToggleKind}
-      {onCreateSavedSearch}
-      {onUpdateSavedSearch}
-      {onDeleteSavedSearch}
-      {onSavedSearch}
-      onSavedSearchDragStart={onSavedSearchDragStart}
-      onSavedSearchDragPreview={onSavedSearchDragPreview}
-      onSavedSearchDragEnd={onSavedSearchDragEnd}
-      onSavedSearchDrop={onSavedSearchDrop}
-      onToggleCommonTags={onToggleCommonTags}
-      onCommonTag={onCommonTag}
+      {route} {search} {kindCounts} {comicCount} {comicAvailable} {savedSearches} {commonTags} {commonTagsCollapsed}
+      {draggedSavedSearchID} {savedSearchReorderBusy} {savedSearchReorderError} onToggleKind={onToggleKind}
+      {onCreateSavedSearch} {onUpdateSavedSearch} {onDeleteSavedSearch} {onSavedSearch}
+      onSavedSearchDragStart={onSavedSearchDragStart} onSavedSearchDragPreview={onSavedSearchDragPreview}
+      onSavedSearchDragEnd={onSavedSearchDragEnd} onSavedSearchDrop={onSavedSearchDrop}
+      onToggleCommonTags={onToggleCommonTags} onCommonTag={onCommonTag}
     />
   </aside>
 
