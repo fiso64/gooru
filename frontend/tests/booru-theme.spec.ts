@@ -80,6 +80,8 @@ test('runtime booru theme uses a real booru top navigation and shared route beha
 
   await expect(page.locator('.topbar')).toHaveCount(0);
   await expect(page.locator('.booru-brand')).toContainText('Gooru');
+  await expect(page.locator('.booru-brand-mark')).toHaveCount(1);
+  await expect(page.locator('.booru-brand-mark')).toHaveAttribute('src', '/favicon.svg');
   await expect(page.locator('.booru-main-nav')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.booru-subnav')).toHaveCSS('background-color', 'rgb(244, 246, 255)');
   await expect(page.locator('.booru-sidebar .searchbar')).toBeVisible();
