@@ -15,6 +15,9 @@
     onCancel: (job: Job) => void;
     onClearCompleted: () => void;
   }>();
+  // Retain the prop while AuthenticatedApp still owns the legacy upload-job
+  // mutation. Durable operation history is intentionally not clearable.
+  void onClearCompleted;
 
   let pageIndex = $state(0);
   let pageTokens = $state(['']);
@@ -26,7 +29,6 @@
     () => pageToken
   );
   const pageJobs = $derived(pageQuery.data?.items ?? jobs);
-  const hasCompleted = $derived(pageJobs.some((job: Job) => job.status === 'completed' || job.status === 'failed' || job.status === 'canceled'));
   const hasNextPage = $derived(Boolean(pageQuery.data?.next_page_token));
 
   function nextPage() {
@@ -39,12 +41,6 @@
   function previousPage() {
     if (pageIndex > 0) pageIndex -= 1;
   }
-
-  function clearCompleted() {
-    pageTokens = [''];
-    pageIndex = 0;
-    onClearCompleted();
-  }
 </script>
 
 <main class="main">
@@ -52,17 +48,14 @@
     <div class="page-header jobs-page-header">
       <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
       <h1>Background work</h1>
-      <p>Completed jobs remain visible for 1 hour.</p>
-      {#if hasCompleted}
-        <button class="g-btn g-btn-ghost g-btn-sm jobs-clear" type="button" onclick={clearCompleted}>Clear completed</button>
-      {/if}
+      <p>Durable operation history remains available across restarts.</p>
     </div>
 
     <div class="g-card jobs-card" aria-busy={pageQuery.isFetching}>
       {#each pageJobs as job (job.id)}
         <JobRow {job} onCancel={onCancel} />
       {:else}
-        <div class="jobs-empty">No jobs have been recorded.</div>
+        <div class="jobs-empty">No background operations have been recorded.</div>
       {/each}
     </div>
 
@@ -86,21 +79,6 @@
     position: relative;
     max-width: 56ch;
     text-align: left;
-  }
-
-  .jobs-clear {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.12s;
-  }
-
-  .jobs-page-header:hover .jobs-clear,
-  .jobs-page-header:focus-within .jobs-clear {
-    opacity: 1;
-    pointer-events: auto;
   }
 
   .jobs-card {

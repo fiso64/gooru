@@ -1,7 +1,12 @@
 import { createMutation, createQuery } from '@tanstack/svelte-query';
-import { ApiClient, ApiError } from '$lib/api/client';
-import type { ApiErrorResponse, Job } from '$lib/api/types';
+import { ApiClient } from '$lib/api/client';
+import type { Job } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
+import {
+  backgroundOperationAsJob,
+  cancelBackgroundOperation,
+  listBackgroundOperations
+} from '$lib/api/operations';
 import {
   uploadBackpressuredJobStatusRefetchMs,
   uploadJobStatusBatchSize,
@@ -53,21 +58,16 @@ async function fetchJobBatch(ids: string[]) {
 }
 
 async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (pageToken) params.set('page_token', pageToken);
-  const response = await fetch(`/api/v1/jobs?${params.toString()}`, {
-    credentials: 'same-origin',
-    headers: { Accept: 'application/json' }
-  });
-  const payload = await response.json().catch(() => undefined) as (JobListPage & Partial<ApiErrorResponse>) | undefined;
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      payload?.error?.code ?? 'http_error',
-      payload?.error?.message ?? `Request failed with HTTP ${response.status}`
-    );
-  }
-  return payload ?? { items: [], active_count: 0 };
+  const response = await listBackgroundOperations(1000);
+  const jobs = response.items.map(backgroundOperationAsJob);
+  const offset = Number.parseInt(pageToken, 10);
+  const start = Number.isFinite(offset) && offset > 0 ? offset : 0;
+  const end = start + limit;
+  return {
+    items: jobs.slice(start, end),
+    active_count: jobs.filter(jobIsActive).length,
+    next_page_token: end < jobs.length ? String(end) : undefined
+  };
 }
 
 export function createJobQuery(_getCSRFToken: () => string, getJobID: () => string, getAuthScope: () => number) {
@@ -104,11 +104,10 @@ export function createJobsQuery(
 
 export function createCancelJobMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<Job, Error, string>(() => ({
-    mutationFn: (id) => new ApiClient(getCSRFToken()).cancelJob(id),
+    mutationFn: async (id) => backgroundOperationAsJob(await cancelBackgroundOperation(id, getCSRFToken())),
     onSuccess: async (job) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: jobKeys.all }),
-        queryClient.invalidateQueries({ queryKey: ['job'] }),
         queryClient.invalidateQueries({ queryKey: ['files'] }),
         queryClient.invalidateQueries({ queryKey: ['library', 'tags'] })
       ]);
@@ -117,6 +116,9 @@ export function createCancelJobMutation(getCSRFToken: () => string, queryClient:
   }));
 }
 
+// Upload result polling still uses the legacy JobManager until uploads become
+// durable-operation producers. Keep this mutation for callers outside the
+// durable operation history UI while that migration is incomplete.
 export function createClearJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<{ removed: number }, Error, string>(() => ({
     mutationFn: (status) => new ApiClient(getCSRFToken()).clearJobs(status),
