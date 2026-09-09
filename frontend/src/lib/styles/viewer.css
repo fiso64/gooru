@@ -183,6 +183,14 @@
   }
 }
 
+/* Keep the exact displayed frame visually stable while a different-aspect image
+   is loading. The live image gets this presentation from the shared lightbox
+   media rule; the handoff canvas must carry the same radius and shadow. */
+.viewer-image-freeze {
+  border-radius: var(--r-2);
+  filter: drop-shadow(0 30px 60px rgba(0, 0, 0, 0.55));
+}
+
 /* Keep rotation/fade transitions, but do not tween media dimensions between files. */
 .viewer-stage .viewer-visual-media {
   transition-property: filter, opacity !important;
