@@ -17,6 +17,9 @@ type fakeBackgroundOperationReader struct {
 	listOptions core.BackgroundOperationListOptions
 	listErr     error
 	getErr      error
+	cancelErr   error
+	canceledID  string
+	cancelOK    bool
 }
 
 func (f *fakeBackgroundOperationReader) GetBackgroundOperation(id string) (core.BackgroundOperationState, bool, error) {
@@ -33,6 +36,21 @@ func (f *fakeBackgroundOperationReader) ListBackgroundOperations(options core.Ba
 		return nil, f.listErr
 	}
 	return f.operations, nil
+}
+
+func (f *fakeBackgroundOperationReader) CancelBackgroundOperation(id string) (bool, error) {
+	f.canceledID = id
+	if f.cancelErr != nil {
+		return false, f.cancelErr
+	}
+	if f.cancelOK {
+		operation := f.byID[id]
+		operation.Status = core.BackgroundWorkCanceled
+		finishedAt := time.Now().UTC()
+		operation.FinishedAt = &finishedAt
+		f.byID[id] = operation
+	}
+	return f.cancelOK, nil
 }
 
 func TestHandleOperationsListsVisibleOperationsWithBoundedLimit(t *testing.T) {
@@ -117,6 +135,67 @@ func TestHandleOperationReturnsVisibleState(t *testing.T) {
 	}
 	if payload.Status != core.BackgroundWorkFailed || payload.ProgressFailed != 1 || payload.ErrorCode != "partial_failure" {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestHandleOperationCancelsVisibleActiveOperation(t *testing.T) {
+	reader := &fakeBackgroundOperationReader{
+		byID: map[string]core.BackgroundOperationState{
+			"operation-delete": {ID: "operation-delete", Kind: "library-delete", Visible: true, Status: core.BackgroundWorkRunning, CreatedAt: time.Now().UTC()},
+		},
+		cancelOK: true,
+	}
+	server := &Server{backgroundOperations: reader}
+	request := httptest.NewRequest(http.MethodDelete, "/api/v1/operations/operation-delete", nil)
+	response := httptest.NewRecorder()
+
+	server.handleOperation(response, request)
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if reader.canceledID != "operation-delete" {
+		t.Fatalf("canceled id = %q", reader.canceledID)
+	}
+	var payload BackgroundOperationDTO
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Status != core.BackgroundWorkCanceled {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestHandleOperationRejectsCancelForInactiveOperation(t *testing.T) {
+	reader := &fakeBackgroundOperationReader{byID: map[string]core.BackgroundOperationState{
+		"operation-delete": {ID: "operation-delete", Kind: "library-delete", Visible: true, Status: core.BackgroundWorkCompleted, CreatedAt: time.Now().UTC()},
+	}}
+	server := &Server{backgroundOperations: reader}
+	request := httptest.NewRequest(http.MethodDelete, "/api/v1/operations/operation-delete", nil)
+	response := httptest.NewRecorder()
+
+	server.handleOperation(response, request)
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestHandleOperationDoesNotCancelHiddenOperation(t *testing.T) {
+	reader := &fakeBackgroundOperationReader{byID: map[string]core.BackgroundOperationState{
+		"operation-hidden": {ID: "operation-hidden", Kind: "thumbnail", Visible: false, Status: core.BackgroundWorkRunning, CreatedAt: time.Now().UTC()},
+	}, cancelOK: true}
+	server := &Server{backgroundOperations: reader}
+	request := httptest.NewRequest(http.MethodDelete, "/api/v1/operations/operation-hidden", nil)
+	response := httptest.NewRecorder()
+
+	server.handleOperation(response, request)
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if reader.canceledID != "" {
+		t.Fatalf("hidden operation was canceled: %q", reader.canceledID)
 	}
 }
 
