@@ -19,6 +19,16 @@ func (s *Store) SetBackgroundOperationCheckpoint(operationID string, checkpointJ
 	return s.setBackgroundOperationCheckpoint(s.DB, operationID, checkpointJSON)
 }
 
+// SetBackgroundOperationCheckpointTx persists recovery state inside an
+// existing domain transaction so the checkpoint cannot diverge from the
+// mutation it describes.
+func (s *Store) SetBackgroundOperationCheckpointTx(tx *Tx, operationID string, checkpointJSON []byte) error {
+	if s == nil {
+		return errors.New("background operation store is required")
+	}
+	return s.setBackgroundOperationCheckpoint(tx, operationID, checkpointJSON)
+}
+
 func (s *Store) setBackgroundOperationCheckpoint(q Querier, operationID string, checkpointJSON []byte) error {
 	if q == nil {
 		return errors.New("background operation querier is required")
