@@ -40,6 +40,7 @@ jobs:
     runs-on: gooru-moderator
     env:
       GH_TOKEN: ${{ github.token }}
+      STATE_TOKEN: ${{ secrets.MODERATOR_STATE_TOKEN }}
       REPO: ${{ github.repository }}
       OWNER: fiso64
       CONNECTOR_SLUG: chatgpt-codex-connector
@@ -54,6 +55,10 @@ jobs:
 
           api() {
             gh api "$@"
+          }
+
+          state_api() {
+            GH_TOKEN="$STATE_TOKEN" gh api "$@"
           }
 
           has_label() {
@@ -190,22 +195,36 @@ jobs:
             body+=$'\n- none'
           fi
 
-          state_comment_id="$(
-            api --paginate "repos/${REPO}/issues/${STATE_ISSUE}/comments?per_page=100" \
-              --jq '.[] | select(.body | startswith("<!-- gooru-moderator-state:v1 -->")) | .id' | head -n1
-          )"
-
-          # #29 is a deliberate lock exception: the maintainer trusts only this exact bot comment
-          # by ID/author/marker, and GitHub Actions cannot edit it while the conversation is locked.
-          # Keep #29 unlocked rather than producing lock/unlock timeline churn on every reconcile.
-          if [[ "$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')" == true ]]; then
-            api --method DELETE "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
+          if [[ -z "$STATE_TOKEN" ]]; then
+            echo 'MODERATOR_STATE_TOKEN is missing' >&2
+            exit 1
           fi
 
+          # The state comment is authored and updated as the repository owner so it remains writable
+          # while #29 is locked. Migrate once from the old github-actions[bot] comment if necessary.
+          state_comment_id="$(
+            api --paginate "repos/${REPO}/issues/${STATE_ISSUE}/comments?per_page=100" \
+              --jq '.[] | select(.user.login == "fiso64" and (.body | startswith("<!-- gooru-moderator-state:v1 -->"))) | .id' | head -n1
+          )"
+
           if [[ -z "$state_comment_id" ]]; then
-            state_comment_id="$(api --method POST "repos/${REPO}/issues/${STATE_ISSUE}/comments" -f body="$body" --jq '.id')"
+            state_comment_id="$(state_api --method POST "repos/${REPO}/issues/${STATE_ISSUE}/comments" -f body="$body" --jq '.id')"
           else
-            api --method PATCH "repos/${REPO}/issues/comments/${state_comment_id}" -f body="$body" >/dev/null
+            state_api --method PATCH "repos/${REPO}/issues/comments/${state_comment_id}" -f body="$body" >/dev/null
+          fi
+
+          # Remove any legacy bot-authored state comment after the owner-authored replacement exists.
+          while read -r legacy_id; do
+            [[ -n "$legacy_id" ]] || continue
+            api --method DELETE "repos/${REPO}/issues/comments/${legacy_id}" >/dev/null || true
+          done < <(
+            api --paginate "repos/${REPO}/issues/${STATE_ISSUE}/comments?per_page=100" \
+              --jq '.[] | select(.user.login != "fiso64" and (.body | startswith("<!-- gooru-moderator-state:v1 -->"))) | .id'
+          )
+
+          # #29 must remain locked; owner-authenticated state writes work through the lock.
+          if [[ "$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')" != true ]]; then
+            api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
           fi
 
           echo "moderator_state_comment_id=${state_comment_id}"
