@@ -1,0 +1,28 @@
+name: Maintainer 401 stale jobs audit
+
+on:
+  push:
+    branches:
+      - maintainer/401-remove-job-manager
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: "github.event.head_commit.message == 'chore: audit #401 stale job compatibility'"
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/401-remove-job-manager
+      - name: Audit stale compatibility references
+        shell: bash
+        run: |
+          set +e
+          echo '=== LEGACY API/SYMBOL REFERENCES ==='
+          git grep -n -E 'JobManager|/api/v1/jobs|JobsConfig|AsyncJob|JobListResponse|clearJobs|legacy job|in-memory job|job queue' -- ':!.github/workflows/maintainer-401-stale-jobs-audit.yml' || true
+          echo '=== JOB-NAMED FILES ==='
+          git ls-files | grep -Ei '(^|/)(job|jobs)([^/]*)(/|\.|$)' || true
+          echo '=== OPERATIONS TEST REFERENCES ==='
+          git grep -n -E '/api/v1/operations|BackgroundOperation' -- frontend/tests frontend/src internal/serve docs spec || true
