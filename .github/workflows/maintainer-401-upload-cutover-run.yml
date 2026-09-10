@@ -21,8 +21,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$(git log -1 --pretty=%s)" != "chore: retry #401 upload cutover patch" ]]; then
-            echo "Not the kickoff commit; nothing to do."
+          if [[ "$(git log -1 --pretty=%s)" != "chore: rerun #401 upload cutover validation" ]]; then
+            echo "Not the validation kickoff commit; nothing to do."
             exit 0
           fi
           python3 .github/maintainer-401-upload-cutover.py
