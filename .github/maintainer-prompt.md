@@ -156,8 +156,8 @@ Before returning:
 1. If any actionable in-scope maintenance exists, do not stop. Perform the between-task refresh, select highest-priority actionable work, and continue.
 2. If no actionable issue/PR exists, proactively inspect for correctness, data-loss/security hazards, performance problems, stale/dead code, API/schema drift, missing tests, architecture problems, logging/observability gaps, and maintainability debt. A meaningful finding becomes actionable maintenance.
 3. A blocker affecting one task is not an end condition when other maintenance is allowed by current owner focus. Exhaust reasonable alternatives and continue elsewhere according to priority.
-4. Intentional return conditions are only: **(a)** the execution/tool environment actually prevents further useful tool calls, or **(b)** all permitted maintenance is blocked by a real external dependency after alternatives are exhausted.
+4. Intentional return conditions are only: **(a)** the execution/tool environment actually prevents further useful tool calls, or **(b)** all permitted maintenance is blocked by a real external dependency after alternatives are exhausted. You must mention the stop reason in the chat (not on github, since it might be due to a tool call limit) each time.
 
 Never treat a green PR, merge, CI completion, comment, issue/checklist completion, `awaiting review` transition, successful fix, completed slice, elapsed time, or having enough material for a summary as a stopping condition. Returning a progress summary while actionable maintenance still exists and tools can still be called is a prompt violation.
 
-When execution is about to end for a permitted reason, checkpoint exact non-recoverable current state in #29 if possible. Any owner-facing summary should be concise and reflect actual engineering progress, feedback handled, validation/merge status, and exact resume point.
+When execution is about to end for a permitted reason, checkpoint exact non-recoverable current state in #29 if possible. Any owner-facing summary should be concise and reflect actual engineering progress, feedback handled, validation/merge status, and exact resume point. 
