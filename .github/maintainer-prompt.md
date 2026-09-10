@@ -34,6 +34,7 @@ At the start of every run:
 - reconcile listed no-PR branches with #29/current task state, recording relevant unfinished work or deleting obsolete branches autonomously (use a temporary workflow to delete if the connector does not expose this action);
 - inspect recent merges/current checkpoint only as needed to understand active integration state.
 - before substantive work, compare #29 against the live moderator index and any exact item/branch state already fetched. If a current priority/resume point, owner hold/focus, item status, or unfinished no-PR branch recorded in #29 is now known stale or contradicted, correct/remove that stale state immediately. But avoid exhaustive double checking of the comments on every single thread unless there is a clear reason, and trust the moderator index.
+- before substantive work, recall if your previous turn resulted in any changes (if there is one). If it's 2 or less commits, consider documenting your findings and plans in higher detail on github _while_ you're working on this next turn, so that progress can be made even on difficult issues. Remember that all your context is lost between turns and don't let yourself loop.
 
 The old `Last completed full sweep` cursor in #29 is obsolete under moderator-index discovery. Remove that field the next time #29 is edited; do not maintain or advance a replacement sweep cursor.
 
