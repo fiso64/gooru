@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.head_commit.message != 'feat(upload): route HTTP uploads through durable admission'
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
