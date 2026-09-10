@@ -37,6 +37,21 @@ async function mockLibrary(page: Page) {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
   await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/file-selections', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'selection-accent', count: files.length }) });
+  });
+  await page.route('**/api/v1/file-selections/*/members', async (route) => {
+    const body = route.request().postDataJSON() as { file_ids?: string[] };
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ file_ids: body.file_ids ?? [] }) });
+  });
+  await page.route('**/api/v1/file-selections/*', async (route) => {
+    if (route.request().method() === 'DELETE') {
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    await route.fallback();
+  });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [], library_count: 1, facets: { kind: [] } }) }));
