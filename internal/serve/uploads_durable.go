@@ -22,8 +22,16 @@ type durableUploadOperationStore interface {
 	AttachBackgroundTaskAndRevealOperation(string, any, core.BackgroundTaskRequest) (core.BackgroundTask, error)
 }
 
+type durableUploadCancellationStore interface {
+	GetBackgroundOperationTask(string) (core.BackgroundTaskState, bool, error)
+}
+
 func (l *GooruLibrary) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {
 	return l.client.AttachBackgroundTaskAndRevealOperation(operationID, checkpoint, request)
+}
+
+func (l *GooruLibrary) GetBackgroundOperationTask(operationID string) (core.BackgroundTaskState, bool, error) {
+	return l.client.GetBackgroundOperationTask(operationID)
 }
 
 // handleUploadEndpoint uses the durable operation path whenever the configured
@@ -124,7 +132,10 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 	response, err := waitForDurableUpload(r.Context(), operations, operation.ID)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			_, _ = operations.CancelBackgroundOperation(operation.ID)
+			if _, cancelErr := s.cancelBackgroundOperation(operation.ID); cancelErr != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to cancel upload operation", nil)
+				return
+			}
 			writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
 			return
 		}
@@ -132,6 +143,39 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// cancelBackgroundOperation adds upload staging cleanup to the generic durable
+// operation cancellation boundary. A never-claimed upload has no concurrent
+// filesystem owner and can be removed immediately. Once a worker has claimed the
+// task, the worker owns rollback/cleanup after it observes cancellation; deleting
+// its files here would race active I/O.
+func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
+	if s.backgroundOperations == nil {
+		return false, errors.New("background operation service is not configured")
+	}
+	state, found, err := s.backgroundOperations.GetBackgroundOperation(operationID)
+	if err != nil {
+		return false, err
+	}
+	canceled, err := s.backgroundOperations.CancelBackgroundOperation(operationID)
+	if err != nil || !canceled || !found || state.Kind != backgroundUploadImportOperationKind {
+		return canceled, err
+	}
+	store, ok := s.backgroundOperations.(durableUploadCancellationStore)
+	if !ok {
+		return canceled, nil
+	}
+	task, found, err := store.GetBackgroundOperationTask(operationID)
+	if err != nil || !found || task.StartedAt != nil {
+		return canceled, err
+	}
+	files, _, err := decodeBackgroundUploadTask(task.BackgroundTask)
+	if err != nil {
+		return canceled, err
+	}
+	removeSavedUploads(files)
+	return canceled, nil
 }
 
 func (s *Server) durableUploadPendingLimit() int {
