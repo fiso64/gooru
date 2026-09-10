@@ -195,30 +195,17 @@ jobs:
               --jq '.[] | select(.body | startswith("<!-- gooru-moderator-state:v1 -->")) | .id' | head -n1
           )"
 
-          # Prefer updating the moderator state while #29 remains locked. If GitHub ever rejects
-          # that write, briefly unlock only as a compatibility fallback and restore the prior lock.
-          state_was_locked="$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')"
+          # #29 is a deliberate lock exception: the maintainer trusts only this exact bot comment
+          # by ID/author/marker, and GitHub Actions cannot edit it while the conversation is locked.
+          # Keep #29 unlocked rather than producing lock/unlock timeline churn on every reconcile.
+          if [[ "$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')" == true ]]; then
+            api --method DELETE "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
+          fi
 
-          write_state() {
-            if [[ -z "$state_comment_id" ]]; then
-              state_comment_id="$(api --method POST "repos/${REPO}/issues/${STATE_ISSUE}/comments" -f body="$body" --jq '.id')"
-            else
-              api --method PATCH "repos/${REPO}/issues/comments/${state_comment_id}" -f body="$body" >/dev/null
-            fi
-          }
-
-          if ! write_state; then
-            if [[ "$state_was_locked" == true ]]; then
-              api --method DELETE "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
-              trap 'api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null 2>&1 || true' EXIT
-            fi
-
-            write_state
-
-            if [[ "$state_was_locked" == true ]]; then
-              api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
-              trap - EXIT
-            fi
+          if [[ -z "$state_comment_id" ]]; then
+            state_comment_id="$(api --method POST "repos/${REPO}/issues/${STATE_ISSUE}/comments" -f body="$body" --jq '.id')"
+          else
+            api --method PATCH "repos/${REPO}/issues/comments/${state_comment_id}" -f body="$body" >/dev/null
           fi
 
           echo "moderator_state_comment_id=${state_comment_id}"
