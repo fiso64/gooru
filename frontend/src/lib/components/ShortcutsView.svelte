@@ -1,176 +1,219 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Icon from './Icon.svelte';
-  import { claimFocus } from '$lib/utils/focus';
 
-  let { onClose = () => undefined } = $props<{ onClose?: () => void }>();
-  let dialogElement = $state<HTMLDivElement | undefined>();
+  let { onClose } = $props<{ onClose: () => void }>();
+  let dialogElement: HTMLDivElement | undefined;
 
-  const groups = [
-    {
-      name: 'Navigation',
-      items: [
-        { keys: ['1–9'], description: 'Open the matching visible sidebar item' },
-        { keys: ['/'], description: 'Focus search' },
-        { keys: ['b'], description: 'Save current search' },
-        { keys: ['?'], description: 'Show shortcuts' }
-      ]
-    },
-    {
-      name: 'Viewer',
-      items: [
-        { keys: ['j', '→'], description: 'Next file or comic page' },
-        { keys: ['k', '←'], description: 'Previous file or comic page' },
-        { keys: ['t'], description: 'Focus tag input in tag mode' },
-        { keys: ['u'], description: 'Focus tag input in untag mode' },
-        { keys: ['q'], description: 'Toggle original / preview media' },
-        { keys: ['v'], description: 'Cycle viewer fit mode' },
-        { keys: ['s'], description: 'Toggle smooth / nearest-neighbor scaling' },
-        { keys: ['1'], description: 'Fit media to window' },
-        { keys: ['2'], description: 'Show media at actual size' },
-        { keys: ['o'], description: 'Open original in new tab' },
-        { keys: ['d'], description: 'Download original' },
-        { keys: ['Del'], description: 'Remove from library' },
-        { keys: ['⇧', 'Del'], description: 'Delete file from disk' },
-        { keys: ['Esc'], description: 'Close viewer' }
-      ]
-    },
-    {
-      name: 'Selection',
-      items: [
-        { keys: ['a'], description: 'Select all files in the current view' },
-        { keys: ['t'], description: 'Tag selected files' },
-        { keys: ['u'], description: 'Untag selected files' },
-        { keys: ['Del'], description: 'Remove selected files from library' },
-        { keys: ['⇧', 'Del'], description: 'Delete selected files from disk' }
-      ]
-    }
-  ] as const;
+  const shortcutColumns = [
+    [
+      {
+        title: 'Navigation',
+        items: [
+          ['1–9', 'Switch sidebar section'],
+          ['↑ / ↓ / ← / →', 'Move through media'],
+          ['Enter', 'Open focused media'],
+          ['Space', 'Play media or enter / exit comic'],
+          ['Esc', 'Close active overlay'],
+          ['/', 'Focus search']
+        ]
+      },
+      {
+        title: 'Selection',
+        items: [
+          ['Shift+click', 'Select a range'],
+          ['Ctrl / ⌘ + click', 'Toggle selection'],
+          ['Esc', 'Clear selection']
+        ]
+      }
+    ],
+    [
+      {
+        title: 'Viewer',
+        items: [
+          ['← / →', 'Previous / next media'],
+          ['Space', 'Play / pause media or enter / exit comic'],
+          ['F', 'Toggle fullscreen'],
+          ['Q', 'Toggle original / preview media'],
+          ['O', 'Open original in new tab'],
+          ['1', 'Fit to window'],
+          ['V', 'Cycle fit mode'],
+          ['2', 'Actual size'],
+          ['L / R', 'Rotate left / right'],
+          ['T', 'Add tag'],
+          ['U', 'Remove tag'],
+          ['D', 'Download original'],
+          ['Delete', 'Remove from library'],
+          ['Shift+Delete', 'Delete file from disk']
+        ]
+      }
+    ]
+  ];
 
   onMount(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    return claimFocus(dialogElement, previous);
+    dialogElement?.focus();
+    return () => previous?.focus();
   });
 </script>
 
-<div class="shortcut-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-  <div bind:this={dialogElement} class="shortcut-modal" role="dialog" aria-modal="true" aria-labelledby="shortcut-title" tabindex="-1">
-    <div class="shortcut-head">
-      <div>
-        <div class="g-eyebrow g-eyebrow-accent">Keyboard</div>
-        <h2 id="shortcut-title">Shortcuts</h2>
-      </div>
-      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" aria-label="Close shortcuts" onclick={onClose}>
-        <Icon name="close" size={15} />
-      </button>
-    </div>
+<svelte:window onkeydown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); } }} />
 
-    <div class="shortcut-grid">
-      {#each groups as group}
-        <section class="shortcut-group">
-          <h3>{group.name}</h3>
-          {#each group.items as item}
-            <div class="shortcut-row">
-              <span class="shortcut-description">{item.description}</span>
-              <span class="shortcut-keys">
-                {#each item.keys as key}
-                  <span class="g-kbd">{key}</span>
+<div class="shortcuts-overlay" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+  <div bind:this={dialogElement} class="shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" tabindex="-1">
+    <header class="shortcuts-head">
+      <div>
+        <div class="g-eyebrow g-eyebrow-accent">Reference</div>
+        <h2 id="shortcuts-title">Shortcuts</h2>
+      </div>
+      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" aria-label="Close shortcuts" onclick={onClose}>×</button>
+    </header>
+
+    <div class="shortcuts-grid">
+      {#each shortcutColumns as column}
+        <div class="shortcut-column">
+          {#each column as group}
+            <section class="shortcut-group">
+              <h3>{group.title}</h3>
+              <dl>
+                {#each group.items as item}
+                  <div class="shortcut-row">
+                    <dt><span class="g-kbd">{item[0]}</span></dt>
+                    <dd>{item[1]}</dd>
+                  </div>
                 {/each}
-              </span>
-            </div>
+              </dl>
+            </section>
           {/each}
-        </section>
+        </div>
       {/each}
     </div>
   </div>
 </div>
 
 <style>
-  .shortcut-backdrop {
+  .shortcuts-overlay {
     position: fixed;
-    z-index: 1200;
     inset: 0;
+    z-index: 130;
     display: grid;
     place-items: center;
-    padding: 32px;
-    background: rgba(8, 8, 7, 0.72);
-    backdrop-filter: blur(10px);
+    padding: 28px;
+    background: color-mix(in srgb, #080b10 34%, transparent);
+    backdrop-filter: blur(3px);
   }
 
-  .shortcut-modal {
-    width: min(980px, calc(100vw - 64px));
-    max-height: min(760px, calc(100vh - 64px));
+  .shortcuts-modal {
+    width: min(980px, calc(100vw - 40px));
+    max-height: min(760px, calc(100vh - 40px));
     overflow: auto;
-    padding: 28px 30px 32px;
     border: 1px solid var(--border-strong);
-    border-radius: var(--r-4);
-    background: var(--bg-2);
-    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.5);
+    border-radius: var(--radius);
+    background: var(--panel-bg);
+    box-shadow: var(--shadow);
     outline: none;
   }
 
-  .shortcut-head {
+  .shortcuts-head {
+    min-height: 38px;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 24px;
-    margin-bottom: 28px;
+    gap: 12px;
+    padding: 9px 12px 8px;
+    border-bottom: 1px solid var(--border);
   }
 
-  .shortcut-head h2 {
-    margin: 5px 0 5px;
+  .shortcuts-head h2 {
+    margin: 2px 0 0;
     font-family: var(--font-display);
     font-size: 22px;
-    font-weight: 400;
+    font-weight: 500;
+    line-height: 1;
   }
 
-  .shortcut-grid {
+  .shortcuts-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 28px 42px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+  }
+
+  .shortcut-column {
+    min-width: 0;
+  }
+
+  .shortcut-column + .shortcut-column {
+    border-left: 1px solid var(--border);
+  }
+
+  .shortcut-group {
+    min-width: 0;
+    padding: 12px 14px 14px;
+  }
+
+  .shortcut-group + .shortcut-group {
+    border-top: 1px solid var(--border);
   }
 
   .shortcut-group h3 {
-    margin: 0 0 12px;
-    color: var(--text-3);
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    letter-spacing: 0.16em;
+    margin: 0 0 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
     text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .shortcut-group dl {
+    margin: 0;
+    display: grid;
+    gap: 5px;
   }
 
   .shortcut-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(86px, max-content) minmax(0, 1fr);
     align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    min-height: 38px;
-    padding: 7px 0;
-    border-top: 1px solid var(--border);
-    font-size: 13px;
+    gap: 9px;
   }
 
-  .shortcut-row:first-of-type {
-    border-top: 0;
+  .shortcut-row dt,
+  .shortcut-row dd {
+    margin: 0;
   }
 
-  .shortcut-description {
+  .shortcut-row dd {
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.2;
     color: var(--text-2);
   }
 
-  .shortcut-keys {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: 0 0 auto;
+  :global(.shortcut-row .g-kbd) {
+    min-width: 21px;
+    min-height: 19px;
+    justify-content: center;
+    font-size: 9px;
+    line-height: 1.05;
+    white-space: nowrap;
   }
 
-  @media (max-width: 720px) {
-    .shortcut-backdrop { padding: 12px; }
-    .shortcut-modal {
-      width: calc(100vw - 24px);
-      max-height: calc(100vh - 24px);
-      padding: 22px 18px;
+  @media (max-width: 780px) {
+    .shortcuts-overlay {
+      padding: 14px;
+    }
+
+    .shortcuts-modal {
+      width: min(100%, 620px);
+      max-height: calc(100vh - 28px);
+    }
+
+    .shortcuts-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .shortcut-column + .shortcut-column {
+      border-left: 0;
+      border-top: 1px solid var(--border);
     }
   }
 </style>
