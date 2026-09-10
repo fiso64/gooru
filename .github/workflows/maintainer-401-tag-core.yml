@@ -1,0 +1,35 @@
+name: Maintainer #401 durable tag core
+
+on:
+  push:
+    branches:
+      - maintainer/401-durable-tag-mutations
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.event.head_commit.message == 'chore: run #401 durable tag core patch'
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply durable tag core patch
+        run: python3 .github/maintainer/401-durable-tag-core.py
+      - name: Format
+        run: gofmt -w gooru/background_tag_mutation.go gooru/background_tag_mutation_test.go gooru/tagging.go internal/database/durable_tag_mutation.go
+      - name: Validate focused Go packages
+        run: go test -count=1 ./gooru ./internal/database
+      - name: Check patch
+        run: git diff --check
+      - name: Commit validated implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add gooru/background_tag_mutation.go gooru/background_tag_mutation_test.go gooru/tagging.go internal/database/durable_tag_mutation.go internal/database/migrations/028_background_tag_mutations.up.sql internal/database/migrations/028_background_tag_mutations.down.sql
+          git commit -m 'feat: add durable tag mutation core'
+          git push origin HEAD:maintainer/401-durable-tag-mutations
