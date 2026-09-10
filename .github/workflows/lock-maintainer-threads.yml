@@ -86,10 +86,8 @@ jobs:
           fi
 
           mapfile -t items < <(
-            api --method GET /search/issues \
-              -f q="repo:${REPO} is:open author:${OWNER}" \
-              -f per_page=100 --paginate \
-              --jq '.items[] | [.number, (if has("pull_request") then "pr" else "issue" end)] | @tsv' |
+            api --paginate "repos/${REPO}/issues?state=open&per_page=100" \
+              --jq '.[] | select(.user.login == "fiso64") | [.number, (if has("pull_request") then "pr" else "issue" end)] | @tsv' |
               sort -n -k1,1
           )
 
