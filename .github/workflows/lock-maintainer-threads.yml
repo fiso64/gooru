@@ -195,20 +195,30 @@ jobs:
               --jq '.[] | select(.body | startswith("<!-- gooru-moderator-state:v1 -->")) | .id' | head -n1
           )"
 
-          # GitHub Actions' repository token may not edit a comment while its conversation is locked.
-          # Briefly unlock only this control issue, update the exact moderator comment, then relock it.
-          if [[ "$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')" == true ]]; then
-            api --method DELETE "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
-          fi
-          trap 'api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null 2>&1 || true' EXIT
+          # Prefer updating the moderator state while #29 remains locked. If GitHub ever rejects
+          # that write, briefly unlock only as a compatibility fallback and restore the prior lock.
+          state_was_locked="$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')"
 
-          if [[ -z "$state_comment_id" ]]; then
-            state_comment_id="$(api --method POST "repos/${REPO}/issues/${STATE_ISSUE}/comments" -f body="$body" --jq '.id')"
-          else
-            api --method PATCH "repos/${REPO}/issues/comments/${state_comment_id}" -f body="$body" >/dev/null
-          fi
+          write_state() {
+            if [[ -z "$state_comment_id" ]]; then
+              state_comment_id="$(api --method POST "repos/${REPO}/issues/${STATE_ISSUE}/comments" -f body="$body" --jq '.id')"
+            else
+              api --method PATCH "repos/${REPO}/issues/comments/${state_comment_id}" -f body="$body" >/dev/null
+            fi
+          }
 
-          api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
-          trap - EXIT
+          if ! write_state; then
+            if [[ "$state_was_locked" == true ]]; then
+              api --method DELETE "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
+              trap 'api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null 2>&1 || true' EXIT
+            fi
+
+            write_state
+
+            if [[ "$state_was_locked" == true ]]; then
+              api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
+              trap - EXIT
+            fi
+          fi
 
           echo "moderator_state_comment_id=${state_comment_id}"
