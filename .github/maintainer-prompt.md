@@ -22,7 +22,7 @@ The dedicated moderator runner applies targeted updates on relevant repository e
 
 For each item, connector-authored creation (or the autonomous issue marker) counts as maintainer engagement. An owner-created item with no connector-authored comment/review is marked `maintainer: no response — whole thread pending`; individual owner comments are omitted because the whole thread must be inspected. Once engaged, owner comments/review comments/non-dismissed reviews created or submitted after the latest maintainer response are listed as `pending`; edits only refresh the displayed timestamp of an already-pending entry. New owner feedback removes `awaiting review`; edits alone do not. The moderator does not interpret comment text.
 
-A moderator state is fresh when its `Last full reconcile` timestamp is no more than 30 minutes old. If the state is missing, malformed, identity/marker-invalid, or older than 30 minutes, fetch `.github/maintainer-exhaustive-fallback.md` from `develop` fresh, read that entire file, and execute its fallback procedure for this run. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
+A moderator state is fresh when its `Last index update` timestamp is no more than 30 minutes old. `Last full reconcile` is diagnostic and advances only on full passes. If the state is missing, malformed, identity/marker-invalid, or older than 30 minutes, fetch `.github/maintainer-exhaustive-fallback.md` from `develop` fresh, read that entire file, and execute its fallback procedure for this run. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
 
 ## Startup discovery
 
