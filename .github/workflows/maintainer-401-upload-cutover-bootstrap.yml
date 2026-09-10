@@ -1,0 +1,35 @@
+name: Maintainer 401 upload cutover bootstrap
+
+on:
+  push:
+    branches:
+      - maintainer/401-remove-legacy-jobs
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair one-shot workflow trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/maintainer-401-upload-cutover.yml')
+          s = p.read_text()
+          old = "    if: github.event.head_commit.message == 'chore: implement #401 upload cutover cleanup'"
+          new = "    if: \"${{ github.event.head_commit.message == 'chore: retry #401 upload cutover cleanup' }}\""
+          if old not in s:
+              raise SystemExit('workflow trigger target missing')
+          p.write_text(s.replace(old, new, 1))
+          Path('.github/workflows/maintainer-401-upload-cutover-bootstrap.yml').unlink()
+          PY
+          git add -A
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git commit -m 'chore: retry #401 upload cutover cleanup'
+          git push origin HEAD:maintainer/401-remove-legacy-jobs
