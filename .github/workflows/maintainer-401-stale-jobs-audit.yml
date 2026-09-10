@@ -1,4 +1,4 @@
-name: Maintainer 401 browser cleanup comparison
+name: Maintainer 401 selective browser cleanup
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   compare:
-    if: "github.event.head_commit.message == 'chore: rerun #401 browser cleanup comparison'"
+    if: "github.event.head_commit.message == 'chore: validate #401 selective browser cleanup'"
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
