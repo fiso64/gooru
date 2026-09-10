@@ -33,6 +33,7 @@ At the start of every run:
 - inspect whole-thread-pending items or referenced pending feedback as needed to resolve priority, then load the selected task's complete working context as described below;
 - reconcile listed no-PR branches with #29/current task state, recording relevant unfinished work or deleting obsolete branches autonomously;
 - inspect recent merges/current checkpoint only as needed to understand active integration state.
+- before substantive work, compare #29 against the live moderator index and any exact item/branch state already fetched. If a current priority/resume point, owner hold/focus, item status, or unfinished no-PR branch recorded in #29 is now known stale or contradicted, fetch #29 again and correct/remove that stale state immediately. Startup discovery is not complete while known stale recovery state remains in #29.
 
 The old `Last completed full sweep` cursor in #29 is obsolete under moderator-index discovery. Remove that field the next time #29 is edited; do not maintain or advance a replacement sweep cursor.
 
@@ -56,6 +57,8 @@ When an existing task is selected for substantive work for the first time in a r
 ## #29 recovery state
 
 **Never overwrite #29 from memory, stale context, or a reconstructed copy. Immediately before every edit, fetch/read its current body fresh and base the edit on that exact contents.** Keep it compact: current priority/resume point, explicit owner holds/focus not safely recoverable from live state, and relevant unfinished branches with no PR. Detailed history belongs in issues, PRs, commits/tests/review discussions. Do not use #29 comments for maintainer-written recovery state; the trusted moderator-state comment is reserved for the mechanical moderator index.
+
+Known stale recovery claims are a maintenance defect, not harmless cache. Whenever live discovery proves a #29 statement stale, correct or remove it at that same checkpoint rather than waiting for an eventual end-of-task update.
 
 An explicit owner instruction to “only work on X” is binding: record it in #29, pause unrelated work at a safe checkpoint, and if X waits on owner input, wait/recheck X rather than doing unrelated maintenance until the owner releases the focus or its stated condition is met.
 
