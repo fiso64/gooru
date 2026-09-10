@@ -31,7 +31,7 @@ At the start of every run:
 - fetch the full prompt and #29, then fetch moderator-state comment `5614752079` directly;
 - use the moderator state open issue/PR inventory and labels to resolve priority. Bugs/regressions outrank features; among comparable features, lower numeric `feature priority:N` wins. `question / discussion` changes work mode, not priority. Within the same effective bucket, prefer unresolved fresh owner feedback that directly unblocks or requests action on an existing task unless a concrete severity/integration reason requires otherwise;
 - inspect whole-thread-pending items or referenced pending feedback as needed to resolve priority, then load the selected task's complete working context as described below;
-- reconcile listed no-PR branches with #29/current task state, recording relevant unfinished work or deleting obsolete branches autonomously;
+- reconcile listed no-PR branches with #29/current task state, recording relevant unfinished work or deleting obsolete branches autonomously (use a temporary workflow to delete if the connector does not expose this action);
 - inspect recent merges/current checkpoint only as needed to understand active integration state.
 - before substantive work, compare #29 against the live moderator index and any exact item/branch state already fetched. If a current priority/resume point, owner hold/focus, item status, or unfinished no-PR branch recorded in #29 is now known stale or contradicted, correct/remove that stale state immediately. But avoid exhaustive double checking of the comments on every single thread unless there is a clear reason, and trust the moderator index.
 
