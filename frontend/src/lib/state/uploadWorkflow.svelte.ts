@@ -17,12 +17,13 @@ import {
 import { ApiError } from '$lib/api/client';
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
+import type { BackgroundOperation } from '$lib/api/operations';
 import type { UploadVariables } from '$lib/queries/library';
 import { uploadAdmissionFallbackMs, uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
 export { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
-type UploadMutate = (variables: UploadVariables) => Promise<Job | UploadImportResponse>;
+type UploadMutate = (variables: UploadVariables) => Promise<BackgroundOperation | UploadImportResponse>;
 type CancelJob = (jobID: string) => Promise<Job>;
 type JobBatch = { items: Job[] };
 type JobApplyResult = { completed: boolean; changedFiles: boolean };
@@ -285,7 +286,7 @@ export function createUploadWorkflow() {
         replaceItem(itemIndex, current ? uploadingItem([current], 0)[0] : undefined);
         refreshStatus();
         try {
-          let response: Job | UploadImportResponse;
+          let response: BackgroundOperation | UploadImportResponse;
           for (;;) {
             await waitForJobAdmissionSlot();
             admissionBackpressured = false;

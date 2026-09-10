@@ -5,7 +5,8 @@ import type { QueryClient } from '@tanstack/query-core';
 import {
   backgroundOperationAsJob,
   cancelBackgroundOperation,
-  listBackgroundOperations
+  listBackgroundOperations,
+  listBackgroundOperationsByIDs
 } from '$lib/api/operations';
 import {
   uploadBackpressuredJobStatusRefetchMs,
@@ -45,16 +46,8 @@ export function uploadJobRefetchInterval(jobIDs: string[]) {
 }
 
 async function fetchJobBatch(ids: string[]) {
-  const params = new URLSearchParams();
-  for (const id of ids) params.append('id', id);
-  const response = await fetch(`/api/v1/jobs?${params.toString()}`, {
-    credentials: 'same-origin',
-    headers: { Accept: 'application/json' }
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch upload job status (${response.status})`);
-  }
-  return await response.json() as { items: Job[] };
+  const response = await listBackgroundOperationsByIDs(ids);
+  return { items: response.items.map(backgroundOperationAsJob) };
 }
 
 async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
@@ -116,9 +109,8 @@ export function createCancelJobMutation(getCSRFToken: () => string, queryClient:
   }));
 }
 
-// Upload result polling still uses the legacy JobManager until uploads become
-// durable-operation producers. Keep this mutation for callers outside the
-// durable operation history UI while that migration is incomplete.
+// Tag mutation is the final legacy JobManager producer. Keep finished-job
+// clearing only until tag mutation moves to durable operations in the next slice.
 export function createClearJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<{ removed: number }, Error, string>(() => ({
     mutationFn: (status) => new ApiClient(getCSRFToken()).clearJobs(status),

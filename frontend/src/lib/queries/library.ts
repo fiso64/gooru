@@ -1,6 +1,7 @@
 import { createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
-import type { SavedSearch, SavedSearchRequest, UploadImportResponse, Job } from '$lib/api/types';
+import type { SavedSearch, SavedSearchRequest, UploadImportResponse } from '$lib/api/types';
+import type { BackgroundOperation } from '$lib/api/operations';
 import type { UploadAddedAtStrategy } from '$lib/state/uploadItems';
 import type { QueryClient } from '@tanstack/query-core';
 
@@ -102,7 +103,7 @@ export interface UploadVariables {
 }
 
 export function createUploadMutation(getCSRFToken: () => string) {
-  return createMutation<Job | UploadImportResponse, Error, UploadVariables>(() => ({
+  return createMutation<BackgroundOperation | UploadImportResponse, Error, UploadVariables>(() => ({
     mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, onProgress }) =>
       new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress, {
         addedAtStrategy,

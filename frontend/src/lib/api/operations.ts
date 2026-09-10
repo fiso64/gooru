@@ -13,6 +13,7 @@ export interface BackgroundOperation {
   finished_at?: string;
   error_code?: string;
   error_message?: string;
+  result?: unknown;
 }
 
 interface BackgroundOperationListResponse {
@@ -42,10 +43,16 @@ export function listBackgroundOperations(limit = 1000) {
   return operationRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
 }
 
+export function listBackgroundOperationsByIDs(ids: string[]) {
+  const params = new URLSearchParams();
+  for (const id of ids) params.append('id', id);
+  return operationRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
+}
+
 export function cancelBackgroundOperation(id: string, csrfToken: string) {
   return operationRequest<BackgroundOperation>(`/api/v1/operations/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : undefined
+    headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
   });
 }
 
@@ -66,6 +73,7 @@ export function backgroundOperationAsJob(operation: BackgroundOperation): Job {
     submitted_at: operation.created_at,
     started_at: operation.started_at,
     finished_at: operation.finished_at,
+    result: operation.result,
     error: operation.error_message
   } as Job;
 }

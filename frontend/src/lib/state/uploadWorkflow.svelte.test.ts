@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from '$lib/api/types';
+import type { BackgroundOperation } from '$lib/api/operations';
 
 const { untrackSpy } = vi.hoisted(() => ({
   untrackSpy: vi.fn((value: unknown) => typeof value === 'function' ? (value as () => unknown)() : value)
@@ -16,13 +17,19 @@ function uploadFile(name: string): File {
   return { name, size: 10, type: 'image/jpeg', lastModified: 0 } as File;
 }
 
-function pendingJob(id: string): Job {
+function pendingJob(id: string): Job & BackgroundOperation {
   return {
     id,
     type: 'upload_import',
+    kind: 'upload_import',
     status: 'pending',
-    submitted_at: '2026-09-01T00:00:00Z'
-  } as Job;
+    progress: 0,
+    progress_total: 1,
+    progress_completed: 0,
+    progress_failed: 0,
+    submitted_at: '2026-09-01T00:00:00Z',
+    created_at: '2026-09-01T00:00:00Z'
+  } as Job & BackgroundOperation;
 }
 
 describe('createUploadWorkflow', () => {

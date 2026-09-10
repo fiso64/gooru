@@ -1,6 +1,7 @@
 import createClient from 'openapi-fetch';
 import type { paths } from './openapi';
 import type { LibraryURLState } from '$lib/utils/appRoute';
+import type { BackgroundOperation } from './operations';
 import { useProtectedReadTransport } from './privacy';
 import type {
   ApiErrorResponse,
@@ -233,7 +234,7 @@ export class ApiClient {
     conflictPolicy = 'skip',
     onProgress?: (progress: number) => void,
     ordering: UploadOrderingMetadata = {}
-  ): Promise<Job | UploadImportResponse> {
+  ): Promise<BackgroundOperation | UploadImportResponse> {
     const form = new FormData();
     for (const file of files) form.append('files', file, file.name);
     for (const file of files) form.append('source_modtime_ms', String(file.lastModified));
@@ -247,7 +248,7 @@ export class ApiClient {
     for (const value of ordering.queueIndex ?? []) if (Number.isInteger(value) && value >= 0) form.append('queue_index', String(value));
     for (const value of ordering.queueTotal ?? []) if (Number.isInteger(value) && value > 0) form.append('queue_total', String(value));
 
-    return uploadMultipart<Job | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
+    return uploadMultipart<BackgroundOperation | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
       csrfToken: this.csrfToken,
       preferAsync,
       onProgress

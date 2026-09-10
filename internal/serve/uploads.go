@@ -100,17 +100,18 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "uploads_disabled", "upload target is not configured", nil)
 		return
 	}
-	reservation, err := s.jobs.Reserve(r.Context(), "upload_import")
-	if err != nil {
-		writeJobSubmitError(w, err, "failed to accept upload")
+	if err := r.Context().Err(); err != nil {
+		writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
 		return
 	}
-	submitted := false
-	defer func() {
-		if !submitted {
-			reservation.Release()
-		}
-	}()
+	// Real GooruLibrary uploads are selected into handleDurableUpload before
+	// reaching this fallback. Importer-only doubles and embedders cannot safely
+	// promise asynchronous recovery, so reject that capability before reading or
+	// staging the body instead of creating a second in-memory upload work model.
+	if PreferAsync(r) {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "asynchronous uploads require durable background operations", nil)
+		return
+	}
 	if limit := s.uploadRequestBodyLimit(); limit > 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 	}
@@ -129,48 +130,32 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", fileErr.Error(), uploadErrorDetails(fileErr))
 		return
 	}
-	cleanup := func() {
-		removeSavedUploads(saved)
-	}
-	job, err := reservation.Submit(r.Context(), PreferAsync(r), func(ctx context.Context) (interface{}, error) {
-		activated, err := activateSavedReplacements(saved)
-		if err != nil {
-			cleanup()
-			return nil, err
-		}
-		response, err := importer.ImportUploadedFiles(ctx, stagedUploads(saved), tags)
-		if err != nil {
-			rollbackErr := rollbackSavedReplacements(activated)
-			cleanup()
-			if rollbackErr != nil {
-				return nil, fmt.Errorf("%w; replacement rollback failed: %v", err, rollbackErr)
-			}
-			return nil, err
-		}
-		if err := settleSavedReplacements(activated, response); err != nil {
-			return nil, err
-		}
-		return response, nil
-	}, cleanup)
-	if err == nil {
-		submitted = true
-	}
-	if PreferAsync(r) && err == nil {
-		writeJSON(w, http.StatusAccepted, job)
-		return
-	}
+	activated, err := activateSavedReplacements(saved)
 	if err != nil {
-		writeJobSubmitError(w, err, "failed to import uploaded files")
+		removeSavedUploads(saved)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to import uploaded files", nil)
 		return
 	}
-	response, ok := job.Result.(UploadImportResponse)
-	if !ok {
+	response, err := importer.ImportUploadedFiles(r.Context(), stagedUploads(saved), tags)
+	if err != nil {
+		rollbackErr := rollbackSavedReplacements(activated)
+		removeSavedUploads(saved)
+		if rollbackErr != nil {
+			err = fmt.Errorf("%w; replacement rollback failed: %v", err, rollbackErr)
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to import uploaded files", nil)
+		return
+	}
+	if err := settleSavedReplacements(activated, response); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to finalize uploaded files", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
 }
-
 func (s *Server) uploadRequestBodyLimit() int64 {
 	maxFileSize := s.cfg.Uploads.MaxFileSizeBytes
 	if maxFileSize <= 0 {
