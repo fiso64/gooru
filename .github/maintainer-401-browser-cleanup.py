@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 
 
 def read(path: str) -> str:
@@ -10,32 +9,58 @@ def write(path: str, text: str) -> None:
     Path(path).write_text(text.rstrip() + '\n', encoding='utf-8')
 
 
-# Remove the redundant old-transport fixture from the metadata-refresh test;
-# this test already has an operations route that counts durable polling.
-path = 'frontend/tests/upload-metadata-refresh.spec.ts'
-text = read(path)
-old = """  await page.route('**/api/v1/jobs**', async (route) => {\n    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });\n  });\n"""
-if old not in text:
-    raise RuntimeError('metadata-refresh legacy jobs fixture not found')
-write(path, text.replace(old, ''))
+def remove_empty_job_routes(text: str) -> str:
+    """Delete obsolete browser routes that only returned an empty job list.
 
-# Migrate only legacy browser routes. Exact collection job fixtures become a
-# query-capable durable collection route because the Jobs UI supplies ?limit;
-# existing exact /operations fixtures are left untouched.
-for p in Path('frontend/tests').glob('*.spec.ts'):
-    text = p.read_text(encoding='utf-8')
-    text = text.replace("'**/api/v1/jobs'", "'**/api/v1/operations?**'")
-    text = text.replace('"**/api/v1/jobs"', '"**/api/v1/operations?**"')
-    text = text.replace('/api/v1/jobs', '/api/v1/operations')
-    p.write_text(text, encoding='utf-8')
+    These routes became setup noise once the frontend moved to /operations.
+    Replacing them with /operations mocks changes background polling timing and
+    can shadow operation-specific fixtures, so only stateful job tests are
+    migrated below.
+    """
+    lines = text.splitlines(keepends=True)
+    out: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if "if (path === '/api/v1/jobs')" in line and 'items: []' in line:
+            index += 1
+            continue
+        if 'await page.route(' in line and '/api/v1/jobs' in line:
+            block = [line]
+            end = index
+            while '));' not in ''.join(block) and end + 1 < len(lines) and end - index < 20:
+                end += 1
+                block.append(lines[end])
+            joined = ''.join(block)
+            stateful = any(token in joined for token in [
+                'searchParams',
+                'getAll(',
+                'route.request().method()',
+                'canceled',
+                'jobResponse(',
+                'operationResponse(',
+            ])
+            if 'items: []' in joined and not stateful:
+                index = end + 1
+                continue
+        out.append(line)
+        index += 1
+    return ''.join(out)
 
-# Tests that model upload status transitions need actual durable operation DTOs.
+
+# Remove unused empty legacy list fixtures everywhere first. Stateful fixtures
+# remain for explicit migration below.
+for spec in Path('frontend/tests').glob('*.spec.ts'):
+    write(str(spec), remove_empty_job_routes(spec.read_text(encoding='utf-8')))
+
+# Tests that model upload status transitions need real durable operation DTOs
+# and durable collection polling.
 for path in [
     'frontend/tests/upload-admission-throughput.spec.ts',
     'frontend/tests/upload-backpressure.spec.ts',
     'frontend/tests/upload-refresh-throttle.spec.ts',
 ]:
-    text = read(path)
+    text = read(path).replace('/api/v1/jobs', '/api/v1/operations')
     text = text.replace('function jobResponse(', 'function operationResponse(')
     text = text.replace('jobResponse(', 'operationResponse(')
     old_fields = """    type: 'upload_import',\n    status: completed ? 'completed' : 'pending',\n    progress: completed ? 1 : 0,\n    submitted_at: '2026-09-07T00:00:00Z',\n"""
@@ -44,28 +69,35 @@ for path in [
         raise RuntimeError(f'{path}: old job response fields not found')
     text = text.replace(old_fields, new_fields)
     if path.endswith('upload-backpressure.spec.ts'):
-        text = text.replace("test('job queue full is transient backpressure instead of a failed upload'", "test('durable admission saturation is transient backpressure instead of a failed upload'")
+        text = text.replace(
+            "test('job queue full is transient backpressure instead of a failed upload'",
+            "test('durable admission saturation is transient backpressure instead of a failed upload'",
+        )
     write(path, text)
 
-# Small upload-focused tests only need pending durable-operation admission.
+# Small upload-focused tests only need pending durable-operation admission and
+# detail polling. Their empty legacy list fixtures were removed above.
 for path in [
     'frontend/tests/upload-conflict-default.spec.ts',
     'frontend/tests/upload-isolation.spec.ts',
     'frontend/tests/upload-row-layout.spec.ts',
 ]:
-    text = read(path)
+    text = read(path).replace('/api/v1/jobs/job-*', '/api/v1/operations/job-*')
     text = text.replace(
         "type: 'upload_import', status: 'pending', submitted_at:",
-        "kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at:"
+        "kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at:",
     )
     write(path, text)
 
 # Shell: migrate the upload polling/cancellation scenario to the durable API.
 path = 'frontend/tests/shell.spec.ts'
 text = read(path)
-text = text.replace("test('uploads with job polling and cancellation'", "test('uploads with durable operation polling and cancellation'")
+text = text.replace(
+    "test('uploads with job polling and cancellation'",
+    "test('uploads with durable operation polling and cancellation'",
+)
 start = text.index('  let canceled = false;\n', text.index("test('uploads with durable operation polling and cancellation'"))
-end = text.index('\n\n  await page.goto(\'/\');', start)
+end = text.index("\n\n  await page.goto('/');", start)
 replacement = '''  let canceled = false;
   await page.route('**/api/v1/operations?**', async (route) => {
     const ids = new URL(route.request().url()).searchParams.getAll('id');
@@ -145,7 +177,9 @@ if old_clear not in text:
     raise RuntimeError('shell legacy clear-history assertion not found')
 text = text.replace(old_clear, "  await expect(page.getByRole('button', { name: 'Clear completed' })).toHaveCount(0);\n")
 
-# Shell: utility-view fixture uses durable operation DTOs.
+# Shell: utility-view fixture uses durable operation DTOs. Any remaining shell
+# legacy job URLs at this point are stateful expectations/routes and are safe to
+# migrate directly.
 old_items = '''          { id: 'utility-run', type: 'upload_import', status: 'running', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z' },
           { id: 'utility-done', type: 'bulk_tag', status: 'completed', progress: 1, submitted_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z', completed_at: '2026-05-20T00:02:00Z' }
 '''
@@ -155,6 +189,7 @@ new_items = '''          { id: 'utility-run', kind: 'upload_import', status: 'ru
 if old_items not in text:
     raise RuntimeError('shell utility legacy DTOs not found')
 text = text.replace(old_items, new_items)
+text = text.replace('/api/v1/jobs', '/api/v1/operations')
 write(path, text)
 
 # Durable terminology in source/spec. Keep the stable public error code/message
@@ -162,7 +197,7 @@ write(path, text)
 path = 'frontend/src/lib/state/uploadWorkflow.svelte.ts'
 text = read(path).replace(
     '// accepted unfinished imports to one batched status window.\n                // This keeps large batches from outrunning the server job queue.',
-    '// accepted unfinished imports to one batched status window.\n                // This keeps large batches from outrunning the durable admission window.'
+    '// accepted unfinished imports to one batched status window.\n                // This keeps large batches from outrunning the durable admission window.',
 )
 write(path, text)
 
@@ -170,7 +205,7 @@ path = 'spec/operation/serve_and_api.md'
 text = read(path)
 text = text.replace(
     'upload/import, thumbnails/previews, and in-memory jobs for a Gooru database.',
-    'upload/import, thumbnails/previews, and durable background operations for a Gooru database.'
+    'upload/import, thumbnails/previews, and durable background operations for a Gooru database.',
 )
 old_concurrency = '''*   **Concurrency Model: Bounded In-Memory Jobs**
     *   Mutations can run synchronously or asynchronously through an in-memory job manager.
@@ -188,10 +223,10 @@ text = text.replace(old_concurrency, new_concurrency)
 text = text.replace(
     '    *   The request will be placed in the write queue, and the server will wait for the job to be completed before sending a response.\n',
     '    *   The server waits for the admitted durable operation to reach a terminal state and returns the domain result.\n',
-    1
+    1,
 )
 text = text.replace(
     '    *   The request will be placed in the write queue, and the server will immediately respond without waiting for the job to complete.\n    *   **Response:** `202 Accepted` with a Job object in the body, containing a unique `id` for polling.\n',
-    '    *   The server durably admits the operation and immediately responds without waiting for completion.\n    *   **Response:** `202 Accepted` with a `BackgroundOperation` object containing a unique `id` for polling.\n'
+    '    *   The server durably admits the operation and immediately responds without waiting for completion.\n    *   **Response:** `202 Accepted` with a `BackgroundOperation` object containing a unique `id` for polling.\n',
 )
 write(path, text)
