@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   cleanup:
-    if: "github.event.head_commit.message == 'chore: fix #401 cleanup workflow'"
+    if: "github.event.head_commit.message == 'chore: rerun #401 legacy jobs removal'"
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
@@ -19,9 +19,11 @@ jobs:
         with:
           ref: maintainer/401-remove-job-manager
       - name: Remove legacy JobManager surfaces
-        run: python3 .github/maintainer-401-cleanup.py
+        run: |
+          python3 .github/maintainer-401-cleanup.py
+          python3 .github/maintainer-401-cleanup-residual.py
       - name: Format Go
-        run: gofmt -w internal/serve/server.go internal/serve/server_test.go internal/serve/authorization_test.go internal/serve/config.go internal/serve/config_test.go internal/background/runner.go scripts/devprofile/main.go
+        run: gofmt -w cmd/gooru/cmd/serve.go internal/serve/server.go internal/serve/server_test.go internal/serve/authorization_test.go internal/serve/config.go internal/serve/config_test.go internal/background/runner.go scripts/devprofile/main.go
       - name: Regenerate API client
         working-directory: frontend
         run: |
@@ -31,7 +33,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git grep -n -E 'JobManager|/api/v1/jobs|JobsConfig|AsyncJob|createClearJobsMutation|clearJobsMutation|\.clearJobs\(|\.getJob\(|\.listJobs\(|\.cancelJob\(' -- gooru internal docs scripts spec frontend/src; then
+          if git grep -n -E 'JobManager|/api/v1/jobs|JobsConfig|AsyncJob|createClearJobsMutation|clearJobsMutation|\.clearJobs\(|\.getJob\(|\.listJobs\(|\.cancelJob\(' -- gooru internal cmd docs scripts spec frontend/src; then
             echo 'legacy production compatibility references remain' >&2
             exit 1
           fi
