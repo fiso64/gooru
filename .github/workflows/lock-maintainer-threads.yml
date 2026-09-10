@@ -148,8 +148,7 @@ jobs:
               api --method PUT "repos/${REPO}/issues/${number}/lock" >/dev/null
             fi
 
-            item_line="- #${number} — ${labels_md} — ${title}"
-            append_item_line "$item_line"
+            append_item_line "- #${number} — ${labels_md} — ${title}"
             if [[ "$kind" == pr ]]; then
               append_item_line "  - head: \`${pr_heads[$number]:-unknown}\` → \`${pr_bases[$number]:-unknown}\`"
             fi
