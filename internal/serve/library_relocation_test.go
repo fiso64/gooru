@@ -35,6 +35,7 @@ func TestManagedLibraryMovePreservesOriginalAndDerivativeCache(t *testing.T) {
 	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: oldUploads}}
 	cfg.Media.CacheDir = oldCache
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	stopRuntime := startTestBackgroundRuntime(t, server, client, "test-library-relocation")
 
 	payload := tinyPNG(t, 7, 5, color.RGBA{R: 31, G: 101, B: 211, A: 255})
 	rec := httptest.NewRecorder()
@@ -61,6 +62,7 @@ func TestManagedLibraryMovePreservesOriginalAndDerivativeCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	stopRuntime()
 	if err := client.Close(); err != nil {
 		t.Fatalf("close before move: %v", err)
 	}
