@@ -40,6 +40,18 @@ func getDatabaseBackgroundOperation(client *Client, operationID string) (Backgro
 	return backgroundOperationStateFromDatabase(operation), true, nil
 }
 
+func getDatabaseBackgroundOperationTask(client *Client, operationID string) (BackgroundTaskState, bool, error) {
+	task, found, err := client.store.GetBackgroundTaskForOperation(operationID)
+	if err != nil || !found {
+		return BackgroundTaskState{}, found, err
+	}
+	return BackgroundTaskState{
+		BackgroundTask: backgroundTaskFromDatabase(task),
+		Status:         BackgroundWorkStatus(task.Status),
+		StartedAt:      task.StartedAt,
+	}, true, nil
+}
+
 func listDatabaseBackgroundOperations(client *Client, options BackgroundOperationListOptions) ([]BackgroundOperationState, error) {
 	operations, err := client.store.ListBackgroundOperations(options.VisibleOnly, options.Limit)
 	if err != nil {
