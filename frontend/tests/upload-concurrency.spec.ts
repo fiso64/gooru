@@ -6,7 +6,7 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-type JobStatus = 'pending' | 'completed';
+type OperationStatus = 'pending' | 'completed';
 
 function uploadResult(name: string) {
   return {
@@ -15,14 +15,16 @@ function uploadResult(name: string) {
   };
 }
 
-function jobResponse(id: string, status: JobStatus) {
+function operationResponse(id: string, status: OperationStatus) {
   const name = id.replace(/^job-/, '');
   return {
     id,
-    type: 'upload_import',
+    kind: 'upload_import',
     status,
-    progress: status === 'completed' ? 1 : 0,
-    submitted_at: '2026-09-03T00:00:00Z',
+    progress_total: 1,
+    progress_completed: status === 'completed' ? 1 : 0,
+    progress_failed: 0,
+    created_at: '2026-09-03T00:00:00Z',
     ...(status === 'completed' ? {
       finished_at: '2026-09-03T00:00:01Z',
       result: uploadResult(name)
@@ -30,7 +32,7 @@ function jobResponse(id: string, status: JobStatus) {
   };
 }
 
-async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBatchRequest?: (ids: string[]) => void, onLibraryRefresh?: (kind: 'jobs' | 'tags') => void) {
+async function mockApp(page: Page, uploadOperationStatus: OperationStatus = 'pending', onBatchRequest?: (ids: string[]) => void, onLibraryRefresh?: (kind: 'jobs' | 'tags') => void) {
   let loggedIn = false;
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -46,22 +48,22 @@ async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBat
     contentType: 'application/json',
     body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
   }));
-  await page.route('**/api/v1/jobs', async (route) => {
+  await page.route('**/api/v1/operations', async (route) => {
     onLibraryRefresh?.('jobs');
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
-  await page.route('**/api/v1/jobs?**', async (route) => {
+  await page.route('**/api/v1/operations?**', async (route) => {
     const ids = new URL(route.request().url()).searchParams.getAll('id');
     if (ids.length) {
       onBatchRequest?.(ids);
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ items: ids.map((id) => jobResponse(id, uploadJobStatus)) })
+        body: JSON.stringify({ items: ids.map((id) => operationResponse(id, uploadOperationStatus)) })
       });
       return;
     }
     onLibraryRefresh?.('jobs');
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({
@@ -70,11 +72,11 @@ async function mockApp(page: Page, uploadJobStatus: JobStatus = 'pending', onBat
   }));
   await page.route('**/api/v1/tags?**', async (route) => { onLibraryRefresh?.('tags'); await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }); });
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/jobs/job-*', async (route) => {
-    const id = route.request().url().split('/').at(-1) ?? '';
+  await page.route('**/api/v1/operations/job-*', async (route) => {
+    const id = decodeURIComponent(route.request().url().split('/').at(-1) ?? '');
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify(jobResponse(id, uploadJobStatus))
+      body: JSON.stringify(operationResponse(id, uploadOperationStatus))
     });
   });
 }
@@ -92,11 +94,11 @@ async function fulfillStagedUpload(route: Route, name: string) {
   await route.fulfill({
     status: 202,
     contentType: 'application/json',
-    body: JSON.stringify(jobResponse(`job-${name}`, 'pending'))
+    body: JSON.stringify(operationResponse(`job-${name}`, 'pending'))
   });
 }
 
-test('browser releases transfer slots after staging while import jobs remain pending', async ({ page }) => {
+test('browser releases transfer slots after staging while durable imports remain pending', async ({ page }) => {
   let statusBatchRequests = 0;
   await mockApp(page, 'pending', () => statusBatchRequests += 1);
 
@@ -164,7 +166,7 @@ test('browser releases transfer slots after staging while import jobs remain pen
   await expect.poll(() => statusBatchRequests).toBeGreaterThan(0);
 });
 
-test('large staged WebUI uploads complete through bounded batched job polling', async ({ page }) => {
+test('large staged WebUI uploads complete through bounded batched durable-operation polling', async ({ page }) => {
   let statusBatchRequests = 0;
   await mockApp(page, 'completed', () => statusBatchRequests += 1);
 
