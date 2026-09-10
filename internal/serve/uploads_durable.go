@@ -14,7 +14,7 @@ import (
 
 const (
 	defaultDurableUploadPendingLimit = 64
-	backgroundUploadCleanupTaskKind = "upload.cleanup"
+	backgroundUploadCleanupTaskKind  = "upload.cleanup"
 )
 
 // durableUploadOperationStore is the producer/read boundary required by HTTP
