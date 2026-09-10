@@ -31,8 +31,7 @@ jobs:
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'create' ||
-      github.event_name == 'delete' ||
+      ((github.event_name == 'create' || github.event_name == 'delete') && github.event.ref_type == 'branch') ||
       (github.event_name == 'issues' && github.event.issue.user.login == 'fiso64') ||
       (github.event_name == 'pull_request' && github.event.pull_request.user.login == 'fiso64') ||
       (github.event_name == 'issue_comment' && github.event.issue.user.login == 'fiso64' && github.event.comment.user.login == 'fiso64') ||
@@ -45,6 +44,8 @@ jobs:
       OWNER: fiso64
       CONNECTOR_SLUG: chatgpt-codex-connector
       STATE_ISSUE: '29'
+      EVENT_ACTION: ${{ github.event.action || '' }}
+      EVENT_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number || '' }}
     steps:
       - name: Reconcile moderator state
         shell: bash
@@ -57,7 +58,7 @@ jobs:
 
           has_label() {
             local number="$1" label="$2"
-            api "repos/${REPO}/issues/${number}" --jq ".labels[].name" | grep -Fxq "$label"
+            api "repos/${REPO}/issues/${number}" --jq '.labels[].name' | grep -Fxq "$label"
           }
 
           remove_awaiting_review() {
@@ -68,16 +69,12 @@ jobs:
           }
 
           # Closing/merging is an event-local invariant; do not require a repository-wide repair scan.
-          if [[ "${GITHUB_EVENT_NAME}" == issues || "${GITHUB_EVENT_NAME}" == pull_request ]]; then
-            action="$(api --method GET "repos/${REPO}/actions/runs/${GITHUB_RUN_ID}" --jq '.event' 2>/dev/null || true)"
-            event_action="$(sed -n 's/.*"action"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${GITHUB_EVENT_PATH}" | head -n1)"
-            if [[ "$event_action" == closed ]]; then
-              number="$(sed -n 's/.*"number"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${GITHUB_EVENT_PATH}" | head -n1)"
-              [[ -n "$number" ]] && remove_awaiting_review "$number"
-            fi
+          if [[ ("${GITHUB_EVENT_NAME}" == issues || "${GITHUB_EVENT_NAME}" == pull_request) && "${EVENT_ACTION}" == closed && -n "${EVENT_NUMBER}" ]]; then
+            remove_awaiting_review "${EVENT_NUMBER}"
           fi
 
-          # Ensure every currently in-scope conversation is locked, including ones predating this workflow.
+          # Every run is a live mechanical reconciliation. This makes dropped/coalesced event runs
+          # harmless and gives the maintainer a fresh index without making it crawl every discussion.
           mapfile -t items < <(
             api --method GET /search/issues \
               -f q="repo:${REPO} is:open author:${OWNER}" \
@@ -131,17 +128,17 @@ jobs:
             scan_endpoint \
               "repos/${REPO}/issues/${number}/comments?per_page=100" \
               issue-comment \
-              '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // ""), (.updated_at // .created_at // ""), (.id|tostring)] | @tsv'
+              '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.updated_at // .created_at // ""), (.id|tostring)] | @tsv'
 
             if [[ "$kind" == pr ]]; then
               scan_endpoint \
                 "repos/${REPO}/pulls/${number}/comments?per_page=100" \
                 review-comment \
-                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // ""), (.updated_at // .created_at // ""), (.id|tostring)] | @tsv'
+                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.updated_at // .created_at // ""), (.id|tostring)] | @tsv'
               scan_endpoint \
                 "repos/${REPO}/pulls/${number}/reviews?per_page=100" \
                 review \
-                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // ""), (.submitted_at // .updated_at // .created_at // ""), (.id|tostring)] | @tsv'
+                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.submitted_at // .updated_at // .created_at // ""), (.id|tostring)] | @tsv'
             fi
 
             if [[ -n "$latest_owner_ts" && ( -z "$latest_maintainer_ts" || "$latest_owner_ts" > "$latest_maintainer_ts" ) ]]; then
