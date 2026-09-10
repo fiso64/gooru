@@ -56,7 +56,7 @@ func TestUploadDurablySchedulesAndGeneratesBrowsingThumbnail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	uploadDir := filepath.Join(dir, "uploads")
 	cacheDir := filepath.Join(dir, "cache")
