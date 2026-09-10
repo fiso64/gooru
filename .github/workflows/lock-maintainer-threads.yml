@@ -195,15 +195,20 @@ jobs:
               --jq '.[] | select(.body | startswith("<!-- gooru-moderator-state:v1 -->")) | .id' | head -n1
           )"
 
+          # GitHub Actions' repository token may not edit a comment while its conversation is locked.
+          # Briefly unlock only this control issue, update the exact moderator comment, then relock it.
+          if [[ "$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')" == true ]]; then
+            api --method DELETE "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
+          fi
+          trap 'api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null 2>&1 || true' EXIT
+
           if [[ -z "$state_comment_id" ]]; then
             state_comment_id="$(api --method POST "repos/${REPO}/issues/${STATE_ISSUE}/comments" -f body="$body" --jq '.id')"
           else
             api --method PATCH "repos/${REPO}/issues/comments/${state_comment_id}" -f body="$body" >/dev/null
           fi
 
-          # #29 is a control-plane issue. Keep its conversation locked as well.
-          if [[ "$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')" != true ]]; then
-            api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
-          fi
+          api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
+          trap - EXIT
 
           echo "moderator_state_comment_id=${state_comment_id}"
