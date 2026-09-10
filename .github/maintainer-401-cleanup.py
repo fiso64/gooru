@@ -215,6 +215,7 @@ text = text.replace("import { ApiClient } from '$lib/api/client';\n", "")
 text, n = re.subn(r"\n// Tag mutation is the final legacy JobManager producer\..*\Z", "\n", text, count=1, flags=re.S)
 if n != 1:
     raise RuntimeError("expected legacy clear-jobs tail once")
+text = text.rstrip() + "\n"
 save(path, text)
 
 path = "frontend/src/lib/components/AuthenticatedApp.svelte"
