@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch-and-validate:
-    if: "github.event.head_commit.message == 'chore: run #401 durable tag HTTP patch'"
+    if: "github.event.head_commit.message == 'chore: retry #401 durable tag HTTP patch'"
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
@@ -30,6 +30,9 @@ jobs:
             internal/serve/background_operation_recovery.go \
             internal/serve/background_operation_recovery_test.go \
             internal/serve/tag_mutations_test.go
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
       - name: Regenerate OpenAPI client
         working-directory: frontend
         run: npm run generate:api
