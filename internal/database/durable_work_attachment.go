@@ -25,6 +25,16 @@ func (s *Store) AttachBackgroundTaskAndRevealOperation(operationID string, check
 	}
 	defer tx.Rollback()
 
+	// Make the first statement a write. With SQLite WAL, reading first and then
+	// upgrading the snapshot to a writer can fail immediately with SQLITE_BUSY if
+	// an idle durable worker commits between the read and write; busy_timeout does
+	// not make that stale snapshot upgrade retryable. The checkpoint write acquires
+	// writer ownership up front, and any later reservation-validation failure rolls
+	// it back with the rest of this transaction.
+	if err := s.setBackgroundOperationCheckpoint(tx, operationID, checkpointJSON); err != nil {
+		return BackgroundTask{}, err
+	}
+
 	var visible int
 	var status string
 	var attached int
@@ -41,9 +51,6 @@ func (s *Store) AttachBackgroundTaskAndRevealOperation(operationID string, check
 	}
 	if visible != 0 || status != string(BackgroundWorkPending) || attached != 0 {
 		return BackgroundTask{}, errors.New("background operation is not an unattached hidden pending reservation")
-	}
-	if err := s.setBackgroundOperationCheckpoint(tx, operationID, checkpointJSON); err != nil {
-		return BackgroundTask{}, err
 	}
 
 	task.OperationID = operationID

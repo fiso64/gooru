@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"image/color"
 	"net/http"
@@ -55,7 +56,7 @@ func TestUploadDurablySchedulesAndGeneratesBrowsingThumbnail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	uploadDir := filepath.Join(dir, "uploads")
 	cacheDir := filepath.Join(dir, "cache")
@@ -68,17 +69,40 @@ func TestUploadDurablySchedulesAndGeneratesBrowsingThumbnail(t *testing.T) {
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
 
 	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{
+	req := uploadBinaryRequest(t, map[string][]byte{
 		"photo.png": tinyPNG(t, 64, 48, color.White),
-	}, nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
+	}, nil)
+	req.Header.Set("Prefer", "respond-async")
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("async upload status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var operation BackgroundOperationDTO
+	if err := json.NewDecoder(rec.Body).Decode(&operation); err != nil {
+		t.Fatalf("decode upload operation: %v", err)
+	}
+	if operation.ID == "" || operation.Kind != "upload_import" {
+		t.Fatalf("unexpected upload operation: %+v", operation)
 	}
 
 	storedPath := filepath.Join(uploadDir, "photo.png")
-	file, err := client.GetFileInfoByPath(storedPath)
-	if err != nil {
-		t.Fatalf("uploaded image was not imported: %v", err)
+	if _, err := client.GetFileInfoByPath(storedPath); err == nil {
+		t.Fatal("upload was imported before the durable worker started")
+	}
+
+	startTestBackgroundRuntime(t, server, client, "test-eager-thumbnail")
+
+	deadline := time.Now().Add(5 * time.Second)
+	var file types.FileInfo
+	for {
+		file, err = client.GetFileInfoByPath(storedPath)
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("durable upload task did not import %s: %v", storedPath, err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	_, _, relativePath, ok := server.media.browsingThumbnailSpec(file)
 	if !ok {
@@ -88,30 +112,7 @@ func TestUploadDurablySchedulesAndGeneratesBrowsingThumbnail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("derivative path: %v", err)
 	}
-	if _, err := os.Stat(cachePath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("thumbnail should not be generated inline with upload; stat err = %v", err)
-	}
 
-	runtime, err := server.NewBackgroundRuntime(client, "test-eager-thumbnail")
-	if err != nil {
-		t.Fatalf("background runtime: %v", err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runtime.Run(ctx) }()
-	defer func() {
-		cancel()
-		select {
-		case runErr := <-done:
-			if runErr != nil && !errors.Is(runErr, context.Canceled) {
-				t.Errorf("background runtime shutdown: %v", runErr)
-			}
-		case <-time.After(2 * time.Second):
-			t.Error("background runtime did not stop after cancellation")
-		}
-	}()
-
-	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(cachePath); err == nil {
 			break
@@ -122,6 +123,14 @@ func TestUploadDurablySchedulesAndGeneratesBrowsingThumbnail(t *testing.T) {
 			t.Fatalf("durable thumbnail task did not populate cache at %s", cachePath)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+
+	state, found, err := server.backgroundOperations.GetBackgroundOperation(operation.ID)
+	if err != nil || !found {
+		t.Fatalf("load upload operation: found=%v err=%v", found, err)
+	}
+	if state.Status != core.BackgroundWorkCompleted {
+		t.Fatalf("upload operation status = %s, want completed", state.Status)
 	}
 
 	thumbnail := httptest.NewRecorder()

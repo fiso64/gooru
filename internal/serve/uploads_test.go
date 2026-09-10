@@ -480,13 +480,14 @@ func TestGooruUploadImportReportsDuplicateStatuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 	existing := writeTestFile(t, dir, "existing-source.txt", "already tracked")
 	if _, err := client.TagFiles([]string{existing}, []string{"state:existing"}, nil, false); err != nil {
 		t.Fatalf("tag existing file: %v", err)
 	}
 	uploadDir := filepath.Join(dir, "uploads")
 	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-gooru-upload")
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{
@@ -531,10 +532,11 @@ func TestGooruUploadImportCachesImageMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 	imageBytes := mustReadFile(t, writePNGImage(t))
 	uploadDir := filepath.Join(dir, "uploads")
 	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-gooru-upload")
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"image.png": imageBytes}, []string{"uploaded"}))
@@ -565,7 +567,7 @@ func TestGooruUploadImportCachesVideoMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 	uploadDir := filepath.Join(dir, "uploads")
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "serve.db"))
 	cfg.Auth.Enabled = false
@@ -573,6 +575,7 @@ func TestGooruUploadImportCachesVideoMetadata(t *testing.T) {
 	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
 	cfg.Tools.FFprobePath = writeJSONFFprobe(t, `{"streams":[{"width":1280,"height":720,"duration":"4.25","nb_frames":"100"}]}`)
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-gooru-video-upload")
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{"clip.mp4": []byte("fake video")}, nil))

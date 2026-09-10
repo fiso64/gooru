@@ -40,6 +40,18 @@ func getDatabaseBackgroundOperation(client *Client, operationID string) (Backgro
 	return backgroundOperationStateFromDatabase(operation), true, nil
 }
 
+func getDatabaseBackgroundOperationTask(client *Client, operationID string) (BackgroundTaskState, bool, error) {
+	task, found, err := client.store.GetBackgroundTaskForOperation(operationID)
+	if err != nil || !found {
+		return BackgroundTaskState{}, found, err
+	}
+	return BackgroundTaskState{
+		BackgroundTask: backgroundTaskFromDatabase(task),
+		Status:         BackgroundWorkStatus(task.Status),
+		StartedAt:      task.StartedAt,
+	}, true, nil
+}
+
 func listDatabaseBackgroundOperations(client *Client, options BackgroundOperationListOptions) ([]BackgroundOperationState, error) {
 	operations, err := client.store.ListBackgroundOperations(options.VisibleOnly, options.Limit)
 	if err != nil {
@@ -54,6 +66,14 @@ func listDatabaseBackgroundOperations(client *Client, options BackgroundOperatio
 
 func cancelDatabaseBackgroundOperation(client *Client, operationID string) (bool, error) {
 	return client.store.CancelBackgroundOperation(operationID, time.Now().UTC())
+}
+
+func cancelDatabaseBackgroundOperationWithDetails(client *Client, operationID string) (BackgroundOperationCancellation, error) {
+	result, err := client.store.CancelBackgroundOperationWithDetails(operationID, time.Now().UTC())
+	if err != nil {
+		return BackgroundOperationCancellation{}, err
+	}
+	return BackgroundOperationCancellation{Canceled: result.Canceled, RunningTasks: result.RunningTasks}, nil
 }
 
 func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string, request BackgroundTaskRequest) (BackgroundTask, bool, error) {

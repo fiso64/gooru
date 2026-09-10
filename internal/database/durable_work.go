@@ -217,6 +217,32 @@ func (s *Store) EnqueueBackgroundTask(q Querier, task NewBackgroundTask) (result
 	return BackgroundTask{}, false, errors.New("enqueue background task: active dedupe state kept changing")
 }
 
+// GetBackgroundTaskForOperation returns the first durable child task for one
+// logical operation. Upload-import operations deliberately own one child; callers
+// that need arbitrary task history should use a separate bounded list API.
+func (s *Store) GetBackgroundTaskForOperation(operationID string) (BackgroundTask, bool, error) {
+	if operationID == "" {
+		return BackgroundTask{}, false, errors.New("background operation id is required")
+	}
+	task, err := scanBackgroundTask(s.DB.QueryRow(`
+		SELECT id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
+		       resource_class, priority, status, available_at, lease_owner, lease_expires_at,
+		       created_at, started_at, finished_at, attempt_count, max_attempts,
+		       last_error_code, last_error_message
+		FROM background_tasks
+		WHERE operation_id = ?
+		ORDER BY created_at ASC, id ASC
+		LIMIT 1
+	`, operationID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return BackgroundTask{}, false, nil
+	}
+	if err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("get background task for operation: %w", err)
+	}
+	return task, true, nil
+}
+
 func scanBackgroundTask(row *sql.Row) (BackgroundTask, error) {
 	var task BackgroundTask
 	var operationID sql.NullString

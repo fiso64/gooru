@@ -26,7 +26,7 @@ func TestCBZUploadImportAndOpenGoldenPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	uploadDir := filepath.Join(dir, "uploads")
 	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
@@ -34,6 +34,7 @@ func TestCBZUploadImportAndOpenGoldenPath(t *testing.T) {
 	cfg.Uploads.Enabled = true
 	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-cbz-upload")
 
 	page := tinyPNG(t, 3, 2, color.White)
 	comicPath := writeComic(t, map[string][]byte{"pages/1.png": page})

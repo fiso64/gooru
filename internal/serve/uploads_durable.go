@@ -1,0 +1,302 @@
+package serve
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+
+	core "gooru.local/gooru"
+	"gooru.local/internal/query"
+)
+
+const defaultDurableUploadPendingLimit = 64
+
+// durableUploadOperationStore is the producer/read boundary required by HTTP
+// upload admission. The operation is created hidden before multipart staging,
+// then the recovery checkpoint, child task, and visibility transition are
+// committed atomically once staging succeeds.
+type durableUploadOperationStore interface {
+	backgroundOperationReader
+	CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest, int) (core.BackgroundOperation, error)
+	AttachBackgroundTaskAndRevealOperation(string, any, core.BackgroundTaskRequest) (core.BackgroundTask, error)
+}
+
+type durableUploadCancellationStore interface {
+	GetBackgroundOperationTask(string) (core.BackgroundTaskState, bool, error)
+	GetBackgroundOperationCheckpoint(string, any) (bool, error)
+	CancelBackgroundOperationWithDetails(string) (core.BackgroundOperationCancellation, error)
+}
+
+func (l *GooruLibrary) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {
+	return l.client.AttachBackgroundTaskAndRevealOperation(operationID, checkpoint, request)
+}
+
+func (l *GooruLibrary) GetBackgroundOperationTask(operationID string) (core.BackgroundTaskState, bool, error) {
+	return l.client.GetBackgroundOperationTask(operationID)
+}
+
+func (l *GooruLibrary) CancelBackgroundOperationWithDetails(operationID string) (core.BackgroundOperationCancellation, error) {
+	return l.client.CancelBackgroundOperationWithDetails(operationID)
+}
+
+// handleUploadEndpoint uses the durable operation path whenever the configured
+// library exposes the durable producer boundary. Importer-only Library test
+// doubles and embedders without that boundary retain the legacy path until they
+// opt into durable operations.
+func (s *Server) handleUploadEndpoint(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.backgroundOperations.(durableUploadOperationStore); ok {
+		s.handleDurableUpload(w, r)
+		return
+	}
+	s.handleUpload(w, r)
+}
+
+func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
+	}
+	if s.library == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "upload import service is not configured", nil)
+		return
+	}
+	operations, ok := s.backgroundOperations.(durableUploadOperationStore)
+	if !ok || operations == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "background operation service is not configured", nil)
+		return
+	}
+	if !s.cfg.Uploads.Enabled {
+		writeError(w, http.StatusForbidden, "uploads_disabled", "uploads are disabled", nil)
+		return
+	}
+	if !hasUploadTarget(s.cfg.Uploads.Targets) {
+		writeError(w, http.StatusForbidden, "uploads_disabled", "upload target is not configured", nil)
+		return
+	}
+
+	operation, err := operations.CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest{
+		Kind:          backgroundUploadImportOperationKind,
+		Visible:       false,
+		ProgressTotal: 1,
+	}, s.durableUploadPendingLimit())
+	if err != nil {
+		writeDurableUploadAdmissionError(w, err)
+		return
+	}
+	attached := false
+	defer func() {
+		if !attached {
+			_, _ = operations.CancelBackgroundOperation(operation.ID)
+		}
+	}()
+
+	if limit := s.uploadRequestBodyLimit(); limit > 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+	}
+	tags, saved, err := s.stageMultipartUpload(r)
+	if err != nil {
+		writeMultipartUploadError(w, err)
+		return
+	}
+	if err := query.ValidateTags(tags); err != nil {
+		removeSavedUploads(saved)
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+		return
+	}
+	if len(saved) == 1 && saved[0].status == "error" && saved[0].error == errUploadTooLarge.Error() {
+		fileErr := uploadFileError{name: saved[0].name, err: errUploadTooLarge}
+		writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", fileErr.Error(), uploadErrorDetails(fileErr))
+		return
+	}
+
+	taskRequest, err := backgroundUploadTaskRequest(operation.ID, saved, tags)
+	if err != nil {
+		removeSavedUploads(saved)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare uploaded files", nil)
+		return
+	}
+	if _, err := operations.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(), taskRequest); err != nil {
+		removeSavedUploads(saved)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files", nil)
+		return
+	}
+	attached = true
+
+	if PreferAsync(r) {
+		state, found, err := operations.GetBackgroundOperation(operation.ID)
+		if err != nil || !found {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load upload operation", nil)
+			return
+		}
+		w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
+		writeJSON(w, http.StatusAccepted, backgroundOperationDTO(state))
+		return
+	}
+
+	response, err := waitForDurableUpload(r.Context(), operations, operation.ID)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if _, cancelErr := s.cancelBackgroundOperation(operation.ID); cancelErr != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to cancel upload operation", nil)
+				return
+			}
+			writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to import uploaded files", nil)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// cancelBackgroundOperation adds upload staging cleanup to the generic durable
+// operation cancellation boundary. The detailed cancellation transaction tells
+// us whether a worker owned any child when cancellation won, avoiding a race
+// between request-side cleanup and active worker I/O. Pending/requeued uploads
+// are safe to clean immediately from their persisted task and checkpoint state;
+// running uploads are cleaned by the worker after it observes terminal cancel.
+func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
+	if s.backgroundOperations == nil {
+		return false, errors.New("background operation service is not configured")
+	}
+	state, found, err := s.backgroundOperations.GetBackgroundOperation(operationID)
+	if err != nil {
+		return false, err
+	}
+	if !found || state.Kind != backgroundUploadImportOperationKind {
+		return s.backgroundOperations.CancelBackgroundOperation(operationID)
+	}
+
+	store, ok := s.backgroundOperations.(durableUploadCancellationStore)
+	if !ok {
+		return s.backgroundOperations.CancelBackgroundOperation(operationID)
+	}
+	result, err := store.CancelBackgroundOperationWithDetails(operationID)
+	if err != nil || !result.Canceled || result.RunningTasks > 0 {
+		return result.Canceled, err
+	}
+	task, found, err := store.GetBackgroundOperationTask(operationID)
+	if err != nil || !found {
+		return result.Canceled, err
+	}
+	if err := cleanupCanceledDurableUpload(store, operationID, task.BackgroundTask); err != nil {
+		return result.Canceled, err
+	}
+	return result.Canceled, nil
+}
+
+func cleanupCanceledDurableUpload(store durableUploadCancellationStore, operationID string, task core.BackgroundTask) error {
+	files, _, err := decodeBackgroundUploadTask(task)
+	if err != nil {
+		return fmt.Errorf("decode canceled upload task: %w", err)
+	}
+	var checkpoint backgroundUploadCheckpoint
+	found, err := store.GetBackgroundOperationCheckpoint(operationID, &checkpoint)
+	if err != nil {
+		return fmt.Errorf("load canceled upload checkpoint: %w", err)
+	}
+	if !found {
+		return errors.New("canceled upload checkpoint is missing")
+	}
+
+	switch checkpoint.Phase {
+	case backgroundUploadPhaseStaged:
+		// Activation may have completed immediately before cancellation while the
+		// checkpoint write lost the race. Re-running activation is replay-safe and
+		// gives terminal cleanup the exact replacement state to roll back.
+		activated, err := activateSavedReplacements(files)
+		if err != nil {
+			return fmt.Errorf("recover canceled staged upload replacements: %w", err)
+		}
+		if err := rollbackSavedReplacements(activated); err != nil {
+			return fmt.Errorf("rollback canceled staged upload replacements: %w", err)
+		}
+		removeSavedUploads(files)
+		return nil
+	case backgroundUploadPhaseActivated:
+		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
+		if err != nil {
+			return fmt.Errorf("recover canceled activated upload replacements: %w", err)
+		}
+		if err := rollbackSavedReplacements(activated); err != nil {
+			return fmt.Errorf("rollback canceled activated upload replacements: %w", err)
+		}
+		removeSavedUploads(files)
+		return nil
+	case backgroundUploadPhaseImported:
+		if checkpoint.Response == nil {
+			return errors.New("canceled imported upload checkpoint is missing response")
+		}
+		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
+		if err != nil {
+			return fmt.Errorf("recover canceled imported upload replacements: %w", err)
+		}
+		if err := settleSavedReplacements(activated, *checkpoint.Response); err != nil {
+			return fmt.Errorf("settle canceled imported upload replacements: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("canceled upload checkpoint has invalid phase %q", checkpoint.Phase)
+	}
+}
+
+func (s *Server) durableUploadPendingLimit() int {
+	if s.cfg.Jobs.MaxQueued > 0 {
+		return s.cfg.Jobs.MaxQueued
+	}
+	return defaultDurableUploadPendingLimit
+}
+
+func writeDurableUploadAdmissionError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, core.ErrBackgroundOperationPendingLimit):
+		writeError(w, http.StatusServiceUnavailable, "job_queue_full", "job queue is full", nil)
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
+	default:
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to accept upload", nil)
+	}
+}
+
+func waitForDurableUpload(ctx context.Context, operations backgroundOperationReader, operationID string) (UploadImportResponse, error) {
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		state, found, err := operations.GetBackgroundOperation(operationID)
+		if err != nil {
+			return UploadImportResponse{}, err
+		}
+		if !found {
+			return UploadImportResponse{}, errors.New("upload operation disappeared")
+		}
+		switch state.Status {
+		case core.BackgroundWorkCompleted:
+			var response UploadImportResponse
+			found, err := operations.GetBackgroundOperationResult(operationID, &response)
+			if err != nil {
+				return UploadImportResponse{}, err
+			}
+			if !found {
+				return UploadImportResponse{}, errors.New("completed upload operation has no result")
+			}
+			return response, nil
+		case core.BackgroundWorkFailed:
+			if state.ErrorMessage != "" {
+				return UploadImportResponse{}, errors.New(state.ErrorMessage)
+			}
+			return UploadImportResponse{}, errors.New("upload operation failed")
+		case core.BackgroundWorkCanceled:
+			return UploadImportResponse{}, context.Canceled
+		}
+
+		select {
+		case <-ctx.Done():
+			return UploadImportResponse{}, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
