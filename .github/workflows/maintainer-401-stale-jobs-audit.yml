@@ -1,4 +1,4 @@
-name: Maintainer 401 stale jobs audit
+name: Maintainer 401 browser cleanup validation
 
 on:
   push:
@@ -6,23 +6,56 @@ on:
       - maintainer/401-remove-job-manager
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit:
-    if: "github.event.head_commit.message == 'chore: audit #401 stale job compatibility'"
+  cleanup:
+    if: "github.event.head_commit.message == 'chore: run #401 browser cleanup validation'"
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: maintainer/401-remove-job-manager
-      - name: Audit stale compatibility references
+      - name: Apply browser/spec compatibility cleanup
+        run: python3 .github/maintainer-401-browser-cleanup.py
+      - name: Verify stale compatibility is gone
         shell: bash
         run: |
-          set +e
-          echo '=== LEGACY API/SYMBOL REFERENCES ==='
-          git grep -n -E 'JobManager|/api/v1/jobs|JobsConfig|AsyncJob|JobListResponse|clearJobs|legacy job|in-memory job|job queue' -- ':!.github/workflows/maintainer-401-stale-jobs-audit.yml' || true
-          echo '=== JOB-NAMED FILES ==='
-          git ls-files | grep -Ei '(^|/)(job|jobs)([^/]*)(/|\.|$)' || true
-          echo '=== OPERATIONS TEST REFERENCES ==='
-          git grep -n -E '/api/v1/operations|BackgroundOperation' -- frontend/tests frontend/src internal/serve docs spec || true
+          set -euo pipefail
+          if git grep -n -E 'JobManager|/api/v1/jobs|JobsConfig|AsyncJob|JobListResponse|clearJobs|legacy job|in-memory job' -- \
+            ':!.github/maintainer-401-browser-cleanup.py' \
+            ':!.github/workflows/maintainer-401-stale-jobs-audit.yml'; then
+            echo 'stale legacy job compatibility remains' >&2
+            exit 1
+          fi
+          git grep -n 'job_queue_full' -- internal/serve frontend/src
+          git grep -n '/api/v1/operations' -- frontend/tests | head -n 200
+      - name: Validate Go
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          go test -count=1 ./...
+          go build ./...
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit
+          npx playwright install chromium
+          npm run test:e2e
+      - name: Validate diff and commit cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          git config user.name fiso64
+          git config user.email 64778819+fiso64@users.noreply.github.com
+          git add frontend spec
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'cleanup produced no changes' >&2; exit 1; }
+          git commit -m 'test: remove legacy job compatibility fixtures'
+          git push origin HEAD:maintainer/401-remove-job-manager
