@@ -33,7 +33,7 @@ At the start of every run:
 - inspect whole-thread-pending items or referenced pending feedback as needed to resolve priority, then load the selected task's complete working context as described below;
 - reconcile listed no-PR branches with #29/current task state, recording relevant unfinished work or deleting obsolete branches autonomously;
 - inspect recent merges/current checkpoint only as needed to understand active integration state.
-- before substantive work, compare #29 against the live moderator index and any exact item/branch state already fetched. If a current priority/resume point, owner hold/focus, item status, or unfinished no-PR branch recorded in #29 is now known stale or contradicted, fetch #29 again and correct/remove that stale state immediately. Startup discovery is not complete while known stale recovery state remains in #29.
+- before substantive work, compare #29 against the live moderator index and any exact item/branch state already fetched. If a current priority/resume point, owner hold/focus, item status, or unfinished no-PR branch recorded in #29 is now known stale or contradicted, correct/remove that stale state immediately. But avoid exhaustive double checking of the comments on every single thread unless there is a clear reason, and trust the moderator index.
 
 The old `Last completed full sweep` cursor in #29 is obsolete under moderator-index discovery. Remove that field the next time #29 is edited; do not maintain or advance a replacement sweep cursor.
 
