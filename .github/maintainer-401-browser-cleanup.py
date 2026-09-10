@@ -19,13 +19,14 @@ if old not in text:
     raise RuntimeError('metadata-refresh legacy jobs fixture not found')
 write(path, text.replace(old, ''))
 
-# First migrate browser route names everywhere. Exact collection fixtures must
-# include a query wildcard because the durable Jobs UI always supplies ?limit.
+# Migrate only legacy browser routes. Exact collection job fixtures become a
+# query-capable durable collection route because the Jobs UI supplies ?limit;
+# existing exact /operations fixtures are left untouched.
 for p in Path('frontend/tests').glob('*.spec.ts'):
     text = p.read_text(encoding='utf-8')
+    text = text.replace("'**/api/v1/jobs'", "'**/api/v1/operations?**'")
+    text = text.replace('"**/api/v1/jobs"', '"**/api/v1/operations?**"')
     text = text.replace('/api/v1/jobs', '/api/v1/operations')
-    text = text.replace("'**/api/v1/operations'", "'**/api/v1/operations?**'")
-    text = text.replace('"**/api/v1/operations"', '"**/api/v1/operations?**"')
     p.write_text(text, encoding='utf-8')
 
 # Tests that model upload status transitions need actual durable operation DTOs.
