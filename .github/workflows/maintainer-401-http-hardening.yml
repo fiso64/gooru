@@ -1,0 +1,525 @@
+name: Maintainer 401 durable upload hardening
+on:
+  push:
+    branches: [maintainer/401-durable-upload-http-v2]
+permissions:
+  contents: write
+jobs:
+  harden:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/401-durable-upload-http-v2
+          fetch-depth: 0
+      - name: Apply durable upload hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              s = p.read_text()
+              if old not in s:
+                  raise SystemExit(f'{path}: expected pattern not found')
+              p.write_text(s.replace(old, new, 1))
+
+          # Database child-task read used to make upload cancellation cleanup race-aware.
+          p = Path('internal/database/durable_work.go')
+          s = p.read_text()
+          marker = 'func scanBackgroundTask(row *sql.Row) (BackgroundTask, error) {'
+          insert = r'''// GetBackgroundTaskForOperation returns the first durable child task for one
+// logical operation. Operations such as upload import deliberately own one child;
+// callers that need arbitrary task history should use a separate bounded list API.
+func (s *Store) GetBackgroundTaskForOperation(operationID string) (BackgroundTask, bool, error) {
+	if operationID == "" {
+		return BackgroundTask{}, false, errors.New("background operation id is required")
+	}
+	task, err := scanBackgroundTask(s.DB.QueryRow(`
+		SELECT id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
+		       resource_class, priority, status, available_at, lease_owner, lease_expires_at,
+		       created_at, started_at, finished_at, attempt_count, max_attempts,
+		       last_error_code, last_error_message
+		FROM background_tasks
+		WHERE operation_id = ?
+		ORDER BY created_at ASC, id ASC
+		LIMIT 1
+	`, operationID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return BackgroundTask{}, false, nil
+	}
+	if err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("get background task for operation: %w", err)
+	}
+	return task, true, nil
+}
+
+'''
+          if insert not in s:
+              if marker not in s:
+                  raise SystemExit('durable_work.go insertion marker missing')
+              p.write_text(s.replace(marker, insert + marker, 1))
+
+          # Core read model for the child task; keeps handler input narrow.
+          p = Path('gooru/background_read.go')
+          s = p.read_text()
+          marker = '// BackgroundOperationListOptions controls bounded operation-history reads.'
+          insert = r'''// BackgroundTaskState is the diagnostic/read model for one durable task. The
+// embedded BackgroundTask remains the narrow handler input while lifecycle fields
+// are available to orchestration code that must reason about claim ownership.
+type BackgroundTaskState struct {
+	BackgroundTask
+	Status    BackgroundWorkStatus
+	StartedAt *time.Time
+}
+
+'''
+          if insert not in s:
+              if marker not in s:
+                  raise SystemExit('background_read.go type marker missing')
+              s = s.replace(marker, insert + marker, 1)
+          marker2 = '// ListBackgroundOperations returns newest-first durable operation state.'
+          insert2 = r'''// GetBackgroundOperationTask returns the first durable child task attached to
+// an operation. found=false means no child is attached.
+func (c *Client) GetBackgroundOperationTask(operationID string) (task BackgroundTaskState, found bool, err error) {
+	return getDatabaseBackgroundOperationTask(c, operationID)
+}
+
+'''
+          if insert2 not in s:
+              if marker2 not in s:
+                  raise SystemExit('background_read.go method marker missing')
+              s = s.replace(marker2, insert2 + marker2, 1)
+          p.write_text(s)
+
+          p = Path('gooru/database_boundary.go')
+          s = p.read_text()
+          marker = 'func listDatabaseBackgroundOperations(client *Client, options BackgroundOperationListOptions) ([]BackgroundOperationState, error) {'
+          insert = r'''func getDatabaseBackgroundOperationTask(client *Client, operationID string) (BackgroundTaskState, bool, error) {
+	task, found, err := client.store.GetBackgroundTaskForOperation(operationID)
+	if err != nil || !found {
+		return BackgroundTaskState{}, found, err
+	}
+	return BackgroundTaskState{
+		BackgroundTask: backgroundTaskFromDatabase(task),
+		Status:         BackgroundWorkStatus(task.Status),
+		StartedAt:      task.StartedAt,
+	}, true, nil
+}
+
+'''
+          if insert not in s:
+              if marker not in s:
+                  raise SystemExit('database_boundary.go insertion marker missing')
+              p.write_text(s.replace(marker, insert + marker, 1))
+
+          # Route operation cancellation through upload-aware cleanup and expose child read.
+          p = Path('internal/serve/uploads_durable.go')
+          s = p.read_text()
+          marker = 'func (l *GooruLibrary) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {'
+          insert = r'''type durableUploadCancellationStore interface {
+	GetBackgroundOperationTask(string) (core.BackgroundTaskState, bool, error)
+}
+
+func (l *GooruLibrary) GetBackgroundOperationTask(operationID string) (core.BackgroundTaskState, bool, error) {
+	return l.client.GetBackgroundOperationTask(operationID)
+}
+
+'''
+          if insert not in s:
+              if marker not in s:
+                  raise SystemExit('uploads_durable.go child-read marker missing')
+              s = s.replace(marker, insert + marker, 1)
+          old = '''\tif PreferAsync(r) {\n\t\tstate, found, err := operations.GetBackgroundOperation(operation.ID)\n'''
+          new = '''\tif PreferAsync(r) {\n\t\tstate, found, err := operations.GetBackgroundOperation(operation.ID)\n'''
+          # Location is useful for generic async clients and requires no compatibility shim.
+          async_marker = '\t\twriteJSON(w, http.StatusAccepted, backgroundOperationDTO(state))\n'
+          if '\t\tw.Header().Set("Location", "/api/v1/operations/"+operation.ID)\n' not in s:
+              if async_marker not in s:
+                  raise SystemExit('uploads_durable.go async marker missing')
+              s = s.replace(async_marker, '\t\tw.Header().Set("Location", "/api/v1/operations/"+operation.ID)\n' + async_marker, 1)
+          cancel_old = '''\t\tif errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {\n\t\t\t_, _ = operations.CancelBackgroundOperation(operation.ID)\n\t\t\twriteError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)\n\t\t\treturn\n\t\t}\n'''
+          cancel_new = '''\t\tif errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {\n\t\t\tif _, cancelErr := s.cancelBackgroundOperation(operation.ID); cancelErr != nil {\n\t\t\t\twriteError(w, http.StatusInternalServerError, "internal_error", "failed to cancel upload operation", nil)\n\t\t\t\treturn\n\t\t\t}\n\t\t\twriteError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)\n\t\t\treturn\n\t\t}\n'''
+          if cancel_new not in s:
+              if cancel_old not in s:
+                  raise SystemExit('uploads_durable.go cancellation marker missing')
+              s = s.replace(cancel_old, cancel_new, 1)
+          marker = 'func (s *Server) durableUploadPendingLimit() int {'
+          helper = r'''func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
+	if s.backgroundOperations == nil {
+		return false, errors.New("background operation service is not configured")
+	}
+	state, found, err := s.backgroundOperations.GetBackgroundOperation(operationID)
+	if err != nil {
+		return false, err
+	}
+	canceled, err := s.backgroundOperations.CancelBackgroundOperation(operationID)
+	if err != nil || !canceled || !found || state.Kind != "upload_import" {
+		return canceled, err
+	}
+	store, ok := s.backgroundOperations.(durableUploadCancellationStore)
+	if !ok {
+		return canceled, nil
+	}
+	task, found, err := store.GetBackgroundOperationTask(operationID)
+	if err != nil || !found || task.StartedAt != nil {
+		return canceled, err
+	}
+	files, _, err := decodeBackgroundUploadTask(task.BackgroundTask)
+	if err != nil {
+		return canceled, err
+	}
+	removeSavedUploads(files)
+	return canceled, nil
+}
+
+'''
+          if helper not in s:
+              if marker not in s:
+                  raise SystemExit('uploads_durable.go helper marker missing')
+              s = s.replace(marker, helper + marker, 1)
+          p.write_text(s)
+
+          replace('internal/serve/background_operations.go',
+                  'canceled, err := s.backgroundOperations.CancelBackgroundOperation(id)',
+                  'canceled, err := s.cancelBackgroundOperation(id)')
+
+          # Use the operation-aware import transaction for the real library and clean up
+          # a claimed upload if cancellation interrupts it before a committed import.
+          p = Path('internal/serve/background_upload_worker.go')
+          s = p.read_text()
+          marker = 'func runBackgroundUploadTask(ctx context.Context, importer UploadLibrary, store backgroundUploadWorkerStore, task core.BackgroundTask) error {'
+          insert = r'''type backgroundOperationUploadLibrary interface {
+	UploadLibrary
+	importUploadedFilesForOperation(context.Context, []StagedUpload, []string, string, []activatedSavedReplacement) (UploadImportResponse, error)
+}
+
+func (l *GooruLibrary) importUploadedFilesForOperation(ctx context.Context, files []StagedUpload, tags []string, operationID string, activated []activatedSavedReplacement) (UploadImportResponse, error) {
+	return l.importUploadedFiles(ctx, files, tags, operationID, activated)
+}
+
+func cancelClaimedBackgroundUpload(files []savedUpload, activated []activatedSavedReplacement) error {
+	rollbackErr := rollbackSavedReplacements(activated)
+	removeSavedUploads(files)
+	return rollbackErr
+}
+
+'''
+          if insert not in s:
+              if marker not in s:
+                  raise SystemExit('background_upload_worker.go insertion marker missing')
+              s = s.replace(marker, insert + marker, 1)
+          staged_old = '''\tcase backgroundUploadPhaseStaged:\n\t\tactivated, err = activateSavedReplacements(files)\n'''
+          staged_new = '''\tcase backgroundUploadPhaseStaged:\n\t\tif err := ctx.Err(); err != nil {\n\t\t\tremoveSavedUploads(files)\n\t\t\treturn err\n\t\t}\n\t\tactivated, err = activateSavedReplacements(files)\n'''
+          if staged_new not in s:
+              if staged_old not in s:
+                  raise SystemExit('worker staged marker missing')
+              s = s.replace(staged_old, staged_new, 1)
+          checkpoint_old = '''\t\tif err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {\n\t\t\treturn fmt.Errorf("persist activated upload checkpoint: %w", err)\n\t\t}\n'''
+          checkpoint_new = '''\t\tif err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {\n\t\t\tif ctx.Err() != nil {\n\t\t\t\tcleanupErr := cancelClaimedBackgroundUpload(files, activated)\n\t\t\t\treturn errors.Join(fmt.Errorf("persist activated upload checkpoint: %w", err), cleanupErr)\n\t\t\t}\n\t\t\treturn fmt.Errorf("persist activated upload checkpoint: %w", err)\n\t\t}\n'''
+          if checkpoint_new not in s:
+              if checkpoint_old not in s:
+                  raise SystemExit('worker activated checkpoint marker missing')
+              s = s.replace(checkpoint_old, checkpoint_new, 1)
+          activated_old = '''\tcase backgroundUploadPhaseActivated:\n\t\tactivated, err = activatedSavedReplacementsFromCheckpoint(files, checkpoint)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n'''
+          activated_new = '''\tcase backgroundUploadPhaseActivated:\n\t\tactivated, err = activatedSavedReplacementsFromCheckpoint(files, checkpoint)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif err := ctx.Err(); err != nil {\n\t\t\tcleanupErr := cancelClaimedBackgroundUpload(files, activated)\n\t\t\treturn errors.Join(err, cleanupErr)\n\t\t}\n'''
+          if activated_new not in s:
+              if activated_old not in s:
+                  raise SystemExit('worker activated phase marker missing')
+              s = s.replace(activated_old, activated_new, 1)
+          import_old = '''\tresponse, err := importer.ImportUploadedFiles(ctx, stagedUploads(files), tags)\n\tif err != nil {\n\t\t// Keep activated replacement state intact so the durable retry can replay\n\t\t// the import against the same filesystem identity. Rolling back here would\n\t\t// discard the staged replacement and make a later retry unrecoverable.\n\t\treturn err\n\t}\n\tcheckpoint = backgroundUploadImportedCheckpoint(activated, response)\n\tif err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {\n\t\treturn fmt.Errorf("persist imported upload checkpoint: %w", err)\n\t}\n\tif err := settleSavedReplacements(activated, response); err != nil {\n\t\treturn fmt.Errorf("settle imported upload replacements: %w", err)\n\t}\n\tif err := store.SetBackgroundOperationResult(task.OperationID, response); err != nil {\n\t\treturn fmt.Errorf("publish upload background result: %w", err)\n\t}\n\treturn nil\n'''
+          import_new = '''\tresponse, operationStatePersisted, err := importBackgroundUpload(ctx, importer, task.OperationID, activated, files, tags)\n\tif err != nil {\n\t\tif ctx.Err() != nil {\n\t\t\tcleanupErr := cancelClaimedBackgroundUpload(files, activated)\n\t\t\treturn errors.Join(err, cleanupErr)\n\t\t}\n\t\t// Keep activated replacement state intact for ordinary retryable failures.\n\t\treturn err\n\t}\n\tif !operationStatePersisted {\n\t\tcheckpoint = backgroundUploadImportedCheckpoint(activated, response)\n\t\tif err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {\n\t\t\treturn fmt.Errorf("persist imported upload checkpoint: %w", err)\n\t\t}\n\t}\n\tif err := settleSavedReplacements(activated, response); err != nil {\n\t\treturn fmt.Errorf("settle imported upload replacements: %w", err)\n\t}\n\tif !operationStatePersisted {\n\t\tif err := store.SetBackgroundOperationResult(task.OperationID, response); err != nil {\n\t\t\treturn fmt.Errorf("publish upload background result: %w", err)\n\t\t}\n\t}\n\treturn nil\n}\n\nfunc importBackgroundUpload(ctx context.Context, importer UploadLibrary, operationID string, activated []activatedSavedReplacement, files []savedUpload, tags []string) (UploadImportResponse, bool, error) {\n\tif durable, ok := importer.(backgroundOperationUploadLibrary); ok {\n\t\tresponse, err := durable.importUploadedFilesForOperation(ctx, stagedUploads(files), tags, operationID, activated)\n\t\treturn response, true, err\n\t}\n\tresponse, err := importer.ImportUploadedFiles(ctx, stagedUploads(files), tags)\n\treturn response, false, err\n'''
+          if import_new not in s:
+              if import_old not in s:
+                  raise SystemExit('worker import block marker missing')
+              s = s.replace(import_old, import_new, 1)
+          p.write_text(s)
+
+          # Add a shared real-runtime helper and focused durable HTTP tests.
+          Path('internal/serve/uploads_durable_test.go').write_text(r'''package serve
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"image/color"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	core "gooru.local/gooru"
+	"gooru.local/internal/securekey"
+	"gooru.local/types"
+)
+
+type durableUploadTrackingBody struct{ read bool }
+
+func (b *durableUploadTrackingBody) Read([]byte) (int, error) {
+	b.read = true
+	return 0, io.EOF
+}
+
+func (b *durableUploadTrackingBody) Close() error { return nil }
+
+func startDurableBackgroundRuntimeForTest(t *testing.T, server *Server, client *core.Client) {
+	t.Helper()
+	runtime, err := server.NewBackgroundRuntime(client, "test-durable-upload")
+	if err != nil {
+		t.Fatalf("background runtime: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case runErr := <-done:
+			if runErr != nil && !errors.Is(runErr, context.Canceled) {
+				t.Errorf("background runtime shutdown: %v", runErr)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("background runtime did not stop after cancellation")
+		}
+	})
+}
+
+func newDurableUploadServerForTest(t *testing.T, encrypted bool) (*Server, *core.Client, string) {
+	t.Helper()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	writeInitializedTestDB(t, dbPath, types.StrategyFull)
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	uploadDir := filepath.Join(dir, "uploads")
+	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
+	cfg.Auth.Enabled = false
+	cfg.Uploads.Enabled = true
+	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
+	if encrypted {
+		cfg.Encryption.Enabled = true
+		cfg.Encryption.Key = bytes.Repeat([]byte{0x47}, securekey.Size)
+	}
+	return NewServerWithLibrary(cfg, NewGooruLibrary(client, false)), client, uploadDir
+}
+
+func TestDurableUploadAdmissionRejectsBeforeReadingMultipart(t *testing.T) {
+	server, client, _ := newDurableUploadServerForTest(t, false)
+	server.cfg.Jobs.MaxQueued = 1
+	if _, err := client.CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest{
+		Kind: "upload_import", ProgressTotal: 1,
+	}, 1); err != nil {
+		t.Fatalf("fill durable upload admission: %v", err)
+	}
+	body := &durableUploadTrackingBody{}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", body)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if body.read {
+		t.Fatal("multipart body was read before durable admission")
+	}
+}
+
+func TestDurableUploadAsyncAttachesVisibleOperationAndCompletes(t *testing.T) {
+	server, client, uploadDir := newDurableUploadServerForTest(t, false)
+	request := uploadBinaryRequest(t, map[string][]byte{
+		"photo.png": tinyPNG(t, 8, 6, color.White),
+	}, nil)
+	request.Header.Set("Prefer", "respond-async")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, request)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var operation backgroundOperationDTO
+	if err := json.NewDecoder(rec.Body).Decode(&operation); err != nil {
+		t.Fatalf("decode operation: %v", err)
+	}
+	if operation.ID == "" || operation.Kind != "upload_import" || operation.Status != string(core.BackgroundWorkPending) {
+		t.Fatalf("unexpected operation: %+v", operation)
+	}
+	if got, want := rec.Header().Get("Location"), "/api/v1/operations/"+operation.ID; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+	state, found, err := client.GetBackgroundOperation(operation.ID)
+	if err != nil || !found || !state.Visible {
+		t.Fatalf("visible attached operation = %+v found=%v err=%v", state, found, err)
+	}
+	stagedPath := filepath.Join(uploadDir, "photo.png")
+	if _, err := os.Stat(stagedPath); err != nil {
+		t.Fatalf("clear staged upload missing before worker: %v", err)
+	}
+
+	startDurableBackgroundRuntimeForTest(t, server, client)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	response, err := waitForDurableUpload(ctx, server.backgroundOperations, operation.ID)
+	if err != nil {
+		t.Fatalf("wait for durable upload: %v", err)
+	}
+	if len(response.Files) != 1 || response.Files[0].Status != "imported" {
+		t.Fatalf("upload result = %+v", response.Files)
+	}
+	if _, err := client.GetFileInfoByPath(stagedPath); err != nil {
+		t.Fatalf("clear upload not tracked after worker: %v", err)
+	}
+}
+
+func TestDurableEncryptedUploadStagesEncryptedAndFinishesOpaque(t *testing.T) {
+	server, client, uploadDir := newDurableUploadServerForTest(t, true)
+	plaintext := tinyPNG(t, 9, 7, color.RGBA{R: 21, G: 42, B: 63, A: 255})
+	request := uploadBinaryRequest(t, map[string][]byte{"secret.png": plaintext}, nil)
+	request.Header.Set("Prefer", "respond-async")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, request)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var operation backgroundOperationDTO
+	if err := json.NewDecoder(rec.Body).Decode(&operation); err != nil {
+		t.Fatalf("decode operation: %v", err)
+	}
+	logicalPath := filepath.Join(uploadDir, "secret.png")
+	staged, err := os.ReadFile(logicalPath)
+	if err != nil {
+		t.Fatalf("read protected staged upload: %v", err)
+	}
+	if bytes.Equal(staged, plaintext) || bytes.Contains(staged, plaintext) {
+		t.Fatal("protected durable staging persisted plaintext bytes")
+	}
+
+	startDurableBackgroundRuntimeForTest(t, server, client)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := waitForDurableUpload(ctx, server.backgroundOperations, operation.ID); err != nil {
+		t.Fatalf("wait for protected upload: %v", err)
+	}
+	if _, err := os.Stat(logicalPath); !os.IsNotExist(err) {
+		t.Fatalf("protected logical path remains after worker: %v", err)
+	}
+	file, err := client.GetFileInfoByPath(logicalPath)
+	if err != nil {
+		t.Fatalf("protected logical upload not tracked: %v", err)
+	}
+	resolved, err := client.ResolveManagedStorage(file)
+	if err != nil {
+		t.Fatalf("resolve protected storage: %v", err)
+	}
+	if resolved.StoragePath == "" || filepath.Ext(resolved.StoragePath) != "" || filepath.Base(resolved.StoragePath) == filepath.Base(logicalPath) {
+		t.Fatalf("protected storage path is not opaque: %q", resolved.StoragePath)
+	}
+}
+
+func TestCancelPendingDurableUploadRemovesStaging(t *testing.T) {
+	server, _, uploadDir := newDurableUploadServerForTest(t, false)
+	request := uploadBinaryRequest(t, map[string][]byte{"cancel.png": tinyPNG(t, 4, 4, color.White)}, nil)
+	request.Header.Set("Prefer", "respond-async")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, request)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var operation backgroundOperationDTO
+	if err := json.NewDecoder(rec.Body).Decode(&operation); err != nil {
+		t.Fatalf("decode operation: %v", err)
+	}
+	stagedPath := filepath.Join(uploadDir, "cancel.png")
+	if _, err := os.Stat(stagedPath); err != nil {
+		t.Fatalf("staged upload missing before cancellation: %v", err)
+	}
+	cancelRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(cancelRec, httptest.NewRequest(http.MethodDelete, "/api/v1/operations/"+operation.ID, nil))
+	if cancelRec.Code != http.StatusOK {
+		t.Fatalf("cancel status = %d: %s", cancelRec.Code, cancelRec.Body.String())
+	}
+	if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
+		t.Fatalf("canceled pending upload left staging behind: %v", err)
+	}
+}
+''')
+
+          # Existing real-library synchronous upload tests now need the durable runtime
+          # running before entering the HTTP wait path.
+          for path, names in {
+              'internal/serve/uploads_test.go': [
+                  'TestGooruUploadImportReportsDuplicateStatuses',
+                  'TestGooruUploadImportCachesImageMetadata',
+                  'TestGooruUploadImportCachesVideoMetadata',
+              ],
+              'internal/serve/upload_encryption_e2e_test.go': [
+                  'TestEncryptedUploadImportAndContentGoldenPath',
+                  'TestEncryptedUploadDefaultConflictRenamesLogicalPathAfterHashDedup',
+              ],
+          }.items():
+              p = Path(path)
+              s = p.read_text()
+              for name in names:
+                  start = s.index('func ' + name)
+                  end = s.find('\nfunc ', start + 1)
+                  if end < 0:
+                      end = len(s)
+                  block = s[start:end]
+                  needle = 'server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))\n'
+                  addition = needle + '\tstartDurableBackgroundRuntimeForTest(t, server, client)\n'
+                  if 'startDurableBackgroundRuntimeForTest(t, server, client)' not in block:
+                      if needle not in block:
+                          raise SystemExit(f'{path}:{name}: server marker missing')
+                      block = block.replace(needle, addition, 1)
+                      s = s[:start] + block + s[end:]
+              p.write_text(s)
+
+          # The eager-thumbnail golden path must stage asynchronously before starting
+          # workers, otherwise synchronous durable HTTP correctly waits for a worker.
+          p = Path('internal/serve/background_thumbnails_test.go')
+          s = p.read_text()
+          old = '''\trec := httptest.NewRecorder()\n\tserver.Handler().ServeHTTP(rec, uploadBinaryRequest(t, map[string][]byte{\n\t\t"photo.png": tinyPNG(t, 64, 48, color.White),\n\t}, nil))\n\tif rec.Code != http.StatusOK {\n\t\tt.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())\n\t}\n\n\tstoredPath := filepath.Join(uploadDir, "photo.png")\n\tfile, err := client.GetFileInfoByPath(storedPath)\n\tif err != nil {\n\t\tt.Fatalf("uploaded image was not imported: %v", err)\n\t}\n\t_, _, relativePath, ok := server.media.browsingThumbnailSpec(file)\n'''
+          new = '''\trec := httptest.NewRecorder()\n\trequest := uploadBinaryRequest(t, map[string][]byte{\n\t\t"photo.png": tinyPNG(t, 64, 48, color.White),\n\t}, nil)\n\trequest.Header.Set("Prefer", "respond-async")\n\tserver.Handler().ServeHTTP(rec, request)\n\tif rec.Code != http.StatusAccepted {\n\t\tt.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())\n\t}\n\tvar operation backgroundOperationDTO\n\tif err := json.NewDecoder(rec.Body).Decode(&operation); err != nil {\n\t\tt.Fatalf("decode upload operation: %v", err)\n\t}\n\n\tstoredPath := filepath.Join(uploadDir, "photo.png")\n\tif _, err := client.GetFileInfoByPath(storedPath); err == nil {\n\t\tt.Fatal("uploaded image was imported before durable worker started")\n\t}\n\tfile := types.FileInfo{Path: storedPath}\n\t_, _, relativePath, ok := server.media.browsingThumbnailSpec(file)\n'''
+          if new not in s:
+              if old not in s:
+                  raise SystemExit('background thumbnail async block missing')
+              s = s.replace(old, new, 1)
+          old_runtime = '''\truntime, err := server.NewBackgroundRuntime(client, "test-eager-thumbnail")\n\tif err != nil {\n\t\tt.Fatalf("background runtime: %v", err)\n\t}\n\tctx, cancel := context.WithCancel(context.Background())\n\tdone := make(chan error, 1)\n\tgo func() { done <- runtime.Run(ctx) }()\n\tdefer func() {\n\t\tcancel()\n\t\tselect {\n\t\tcase runErr := <-done:\n\t\t\tif runErr != nil && !errors.Is(runErr, context.Canceled) {\n\t\t\t\tt.Errorf("background runtime shutdown: %v", runErr)\n\t\t\t}\n\t\tcase <-time.After(2 * time.Second):\n\t\t\tt.Error("background runtime did not stop after cancellation")\n\t\t}\n\t}()\n\n'''
+          if old_runtime in s:
+              s = s.replace(old_runtime, '\tstartDurableBackgroundRuntimeForTest(t, server, client)\n\n', 1)
+          lookup_marker = '''\tdeadline := time.Now().Add(5 * time.Second)\n'''
+          lookup_insert = '''\tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)\n\tdefer cancel()\n\tif _, err := waitForDurableUpload(ctx, server.backgroundOperations, operation.ID); err != nil {\n\t\tt.Fatalf("wait for upload import: %v", err)\n\t}\n\tfile, err = client.GetFileInfoByPath(storedPath)\n\tif err != nil {\n\t\tt.Fatalf("uploaded image was not imported: %v", err)\n\t}\n\n'''
+          if lookup_insert not in s:
+              if lookup_marker not in s:
+                  raise SystemExit('background thumbnail post-runtime marker missing')
+              s = s.replace(lookup_marker, lookup_insert + lookup_marker, 1)
+          p.write_text(s)
+
+          # Remove no-longer-needed errors import if the helper replacement made it unused;
+          # gofmt won't remove imports, so keep context/errors/time only if still referenced.
+          PY
+          gofmt -w internal/database/durable_work.go gooru/background_read.go gooru/database_boundary.go internal/serve/uploads_durable.go internal/serve/background_operations.go internal/serve/background_upload_worker.go internal/serve/uploads_durable_test.go internal/serve/uploads_test.go internal/serve/upload_encryption_e2e_test.go internal/serve/background_thumbnails_test.go
+      - name: Focused Go tests
+        run: go test ./internal/serve ./gooru ./internal/database
+      - name: Full Go tests and build
+        run: |
+          go test ./...
+          go build ./...
+      - name: Persist validated hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/maintainer-401-http-hardening.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat(upload): harden durable HTTP cutover'
+          git push origin HEAD:maintainer/401-durable-upload-http-v2
