@@ -6,11 +6,11 @@ on:
   pull_request:
     types: [opened, reopened, closed]
   issue_comment:
-    types: [created, edited, deleted]
+    types: [created, deleted]
   pull_request_review:
-    types: [submitted, edited, dismissed]
+    types: [submitted, dismissed]
   pull_request_review_comment:
-    types: [created, edited, deleted]
+    types: [created, deleted]
   create:
   delete:
   schedule:
@@ -87,25 +87,22 @@ jobs:
           pending_lines=()
 
           consider_event() {
-            local app_slug="$1" created_ts="$2" updated_ts="$3" id="$4" source="$5" created_action="$6"
-            [[ -n "$created_ts" ]] || return 0
+            local app_slug="$1" ts="$2" id="$3" source="$4" action="$5"
+            [[ -n "$ts" ]] || return 0
             if [[ "$app_slug" == "$CONNECTOR_SLUG" ]]; then
-              if [[ -z "${latest_maintainer_ts:-}" || "$created_ts" > "$latest_maintainer_ts" ]]; then
-                latest_maintainer_ts="$created_ts"
+              if [[ -z "${latest_maintainer_ts:-}" || "$ts" > "$latest_maintainer_ts" ]]; then
+                latest_maintainer_ts="$ts"
               fi
             elif [[ "$app_slug" == '-' ]]; then
-              owner_events+=("${created_ts}"$'\t'"${id}"$'\t'"${source}"$'\t'"${created_action}"$'\t'new')
-              if [[ -n "$updated_ts" && "$updated_ts" > "$created_ts" ]]; then
-                owner_events+=("${updated_ts}"$'\t'"${id}"$'\t'"${source}"$'\t'edited'$'\t'edit')
-              fi
+              owner_events+=("${ts}"$'\t'"${id}"$'\t'"${source}"$'\t'"${action}")
             fi
           }
 
           scan_endpoint() {
-            local endpoint="$1" source="$2" created_action="$3" jqexpr="$4"
-            while IFS=$'\t' read -r app_slug created_ts updated_ts id; do
-              [[ -n "${created_ts:-}" ]] || continue
-              consider_event "$app_slug" "$created_ts" "$updated_ts" "$id" "$source" "$created_action"
+            local endpoint="$1" source="$2" action="$3" jqexpr="$4"
+            while IFS=$'\t' read -r app_slug ts id; do
+              [[ -n "${ts:-}" ]] || continue
+              consider_event "$app_slug" "$ts" "$id" "$source" "$action"
             done < <(api --paginate "$endpoint" --jq "$jqexpr")
           }
 
@@ -124,34 +121,32 @@ jobs:
               "repos/${REPO}/issues/${number}/comments?per_page=100" \
               issue-comment \
               created \
-              '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.created_at // ""), (.updated_at // .created_at // ""), (.id|tostring)] | @tsv'
+              '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.created_at // ""), (.id|tostring)] | @tsv'
 
             if [[ "$kind" == pr ]]; then
               scan_endpoint \
                 "repos/${REPO}/pulls/${number}/comments?per_page=100" \
                 review-comment \
                 created \
-                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.created_at // ""), (.updated_at // .created_at // ""), (.id|tostring)] | @tsv'
+                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.created_at // ""), (.id|tostring)] | @tsv'
               scan_endpoint \
                 "repos/${REPO}/pulls/${number}/reviews?per_page=100" \
                 review \
                 submitted \
-                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.submitted_at // .created_at // ""), (.updated_at // .submitted_at // .created_at // ""), (.id|tostring)] | @tsv'
+                '.[] | select(.user.login == "fiso64" and .state != "DISMISSED") | [(.performed_via_github_app.slug // "-"), (.submitted_at // .created_at // ""), (.id|tostring)] | @tsv'
             fi
 
-            new_pending_for_item=false
+            pending_for_item=false
             if ((${#owner_events[@]})); then
-              while IFS=$'\t' read -r owner_ts owner_id owner_source owner_action owner_class; do
+              while IFS=$'\t' read -r owner_ts owner_id owner_source owner_action; do
                 [[ -n "${owner_ts:-}" ]] || continue
                 if [[ -z "$latest_maintainer_ts" || "$owner_ts" > "$latest_maintainer_ts" ]]; then
                   pending_lines+=("- ${kind} #${number} — ${owner_source} ${owner_id} ${owner_action} at ${owner_ts}")
-                  if [[ "$owner_class" == new ]]; then
-                    new_pending_for_item=true
-                  fi
+                  pending_for_item=true
                 fi
-              done < <(printf '%s\n' "${owner_events[@]}" | sort -t $'\t' -k1,1 -k2,2n -k4,4)
+              done < <(printf '%s\n' "${owner_events[@]}" | sort -t $'\t' -k1,1 -k2,2n)
             fi
-            if [[ "$new_pending_for_item" == true ]]; then
+            if [[ "$pending_for_item" == true ]]; then
               remove_awaiting_review "$number"
             fi
           done
