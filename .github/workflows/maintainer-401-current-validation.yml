@@ -13,25 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  diagnose:
-    name: Diagnose full serve suite
+  go:
+    name: Full Go validation
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Expose attach error in runner checkout
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('internal/serve/uploads_durable.go')
-          s = p.read_text()
-          old = 'writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files", nil)'
-          new = 'writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files: "+err.Error(), nil)'
-          if old not in s:
-              raise SystemExit('diagnostic target not found')
-          p.write_text(s.replace(old, new, 1))
-          PY
-      - name: Run full serve suite
-        run: go test -count=1 -v ./internal/serve
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Build
+        run: go build ./...
