@@ -9,13 +9,17 @@ import (
 )
 
 type recordingUploadImporter struct {
-	calls    int
-	response UploadImportResponse
-	err      error
+	calls       int
+	response    UploadImportResponse
+	err         error
+	operationID string
+	activated   int
 }
 
-func (i *recordingUploadImporter) ImportUploadedFiles(context.Context, []StagedUpload, []string) (UploadImportResponse, error) {
+func (i *recordingUploadImporter) importUploadedFiles(_ context.Context, _ []StagedUpload, _ []string, operationID string, activated []activatedSavedReplacement) (UploadImportResponse, error) {
 	i.calls++
+	i.operationID = operationID
+	i.activated = len(activated)
 	return i.response, i.err
 }
 
@@ -70,7 +74,7 @@ func backgroundUploadWorkerTestTask(t *testing.T, operationID string) core.Backg
 	}
 }
 
-func TestRunBackgroundUploadTaskPersistsImportedCheckpointBeforeResult(t *testing.T) {
+func TestRunBackgroundUploadTaskUsesOperationAwareImportBeforePublishingResult(t *testing.T) {
 	operationID := "operation-test"
 	response := UploadImportResponse{Files: []UploadedFileDTO{{Name: "already-rejected.jpg", Size: 12, TargetID: "default", Status: "error", Error: "rejected"}}}
 	importer := &recordingUploadImporter{response: response}
@@ -81,6 +85,9 @@ func TestRunBackgroundUploadTaskPersistsImportedCheckpointBeforeResult(t *testin
 	}
 	if importer.calls != 1 {
 		t.Fatalf("import calls = %d, want 1", importer.calls)
+	}
+	if importer.operationID != operationID {
+		t.Fatalf("operation-aware import id = %q, want %q", importer.operationID, operationID)
 	}
 	wantEvents := []string{"checkpoint:activated", "checkpoint:imported", "result"}
 	if !reflect.DeepEqual(store.events, wantEvents) {
