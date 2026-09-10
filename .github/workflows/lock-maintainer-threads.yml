@@ -34,7 +34,7 @@ jobs:
       ((github.event_name == 'create' || github.event_name == 'delete') && github.event.ref_type == 'branch') ||
       (github.event_name == 'issues' && github.event.issue.user.login == 'fiso64') ||
       (github.event_name == 'pull_request' && github.event.pull_request.user.login == 'fiso64') ||
-      (github.event_name == 'issue_comment' && github.event.issue.user.login == 'fiso64' && github.event.comment.user.login == 'fiso64') ||
+      (github.event_name == 'issue_comment' && github.event.issue.number != 29 && github.event.issue.user.login == 'fiso64' && github.event.comment.user.login == 'fiso64') ||
       (github.event_name == 'pull_request_review' && github.event.pull_request.user.login == 'fiso64' && github.event.review.user.login == 'fiso64') ||
       (github.event_name == 'pull_request_review_comment' && github.event.pull_request.user.login == 'fiso64' && github.event.comment.user.login == 'fiso64')
     runs-on: gooru-moderator
