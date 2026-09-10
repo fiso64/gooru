@@ -21,12 +21,13 @@ The only exception is the moderator-state/index comment on #29, normally issue c
 The dedicated moderator runner performs a mechanical full reconciliation on relevant repository events and every 15 minutes. It:
 
 - keeps in-scope conversations locked;
-- removes `awaiting review` when owner feedback is newer than the latest maintainer response on that open item;
+- removes `awaiting review` when at least one owner comment/review was newly created/submitted after the latest maintainer response on that open item; edits alone never remove the label;
 - removes `awaiting review` on the item being closed/merged;
-- records open issues/PRs whose latest owner feedback is newer than the latest connector-authored response;
+- records every owner issue comment, PR review comment, and non-dismissed review whose original creation/submission time is newer than the latest connector-authored response;
+- for an already-pending feedback object, reports its latest update timestamp, so edits refresh that entry without making an older already-addressed comment/review pending again;
 - records non-base branches that currently have no open PR.
 
-It deliberately does **not** interpret comment text. A pending entry means “inspect this item”; it is not proof the feedback is substantive or still actionable. False positives are acceptable. Direct live GitHub context remains authoritative.
+It deliberately does **not** interpret comment text. Pending membership is based only on original creation/submission chronology relative to the latest maintainer response. Editing an older addressed comment/review never resurrects it in the index. Editing an already-pending entry may change its listed timestamp, which is a signal to refetch that pending item. A pending entry means “inspect this item”; it is not proof the feedback is substantive or still actionable. False positives are acceptable. Direct live GitHub context remains authoritative.
 
 A moderator state is fresh when its `Last full reconcile` timestamp is no more than 30 minutes old. If the state is missing, malformed, identity/marker-invalid, or older than 30 minutes, fetch `.github/maintainer-exhaustive-fallback.md` from `develop` fresh, read that entire file, and execute its fallback procedure for this run. Do not fetch/read that sibling file during normal fresh moderator-index operation. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
 
@@ -83,7 +84,7 @@ NEVER close an unmarked issue unless the owner explicitly instructs closure. Do 
 - reply to substantive outstanding feedback;
 - apply `awaiting review` and leave a concise completion summary asking the owner to review/close when satisfied.
 
-If later owner feedback reports a regression or remaining requirement, resume work. The moderator normally removes `awaiting review` as soon as that owner feedback arrives; repair the label locally if needed rather than running a repository-wide closed-label scan. A later owner acceptance, conditional-close instruction, question, or follow-up request is substantive and must be explicitly dispositioned.
+If later owner feedback reports a regression or remaining requirement, resume work. The moderator normally removes `awaiting review` as soon as new owner feedback is posted/submitted; repair the label locally if needed rather than running a repository-wide closed-label scan. A later owner acceptance, conditional-close instruction, question, or follow-up request is substantive and must be explicitly dispositioned.
 
 If closing a PR without merging, always leave a comment explaining why it is being closed.
 
