@@ -14,8 +14,8 @@ const (
 	BackgroundTagMutationTaskKind      = "metadata.tag_mutation"
 	BackgroundTagMutationResourceClass = "metadata"
 
-	backgroundTagMutationTargetFileID      = "file_id"
-	backgroundTagMutationTargetContentHash = "content_hash"
+	BackgroundTagMutationTargetFileID      = "file_id"
+	BackgroundTagMutationTargetContentHash = "content_hash"
 	backgroundTagMutationInputVersion      = 1
 )
 
@@ -25,6 +25,7 @@ type BackgroundTagMutationRequest struct {
 	Tags           []string
 	FileIDs        []string
 	Query          string
+	FileIDSelector bool
 	ExcludedHashes []string
 	MaxPending     int
 }
@@ -48,10 +49,14 @@ func (c *Client) CreateBackgroundTagMutation(request BackgroundTagMutationReques
 	if request.MaxPending < 1 {
 		return BackgroundOperation{}, errors.New("background tag mutation pending limit must be positive")
 	}
-	if (len(request.FileIDs) == 0) == (request.Query == "") {
+	if request.FileIDSelector {
+		if request.Query != "" {
+			return BackgroundOperation{}, errors.New("background tag mutation file-id selector cannot use a query")
+		}
+	} else if request.Query == "" || len(request.FileIDs) != 0 {
 		return BackgroundOperation{}, errors.New("background tag mutation requires exactly one target selector")
 	}
-	if request.Query == "" && len(request.ExcludedHashes) != 0 {
+	if request.FileIDSelector && len(request.ExcludedHashes) != 0 {
 		return BackgroundOperation{}, errors.New("background tag mutation file-id selector cannot use excluded hashes")
 	}
 	if request.Mutation != "remove" || len(request.Tags) > 0 {
@@ -83,11 +88,11 @@ func (c *Client) CreateBackgroundTagMutation(request BackgroundTagMutationReques
 		}
 	}()
 
-	targetKind := backgroundTagMutationTargetFileID
+	targetKind := BackgroundTagMutationTargetFileID
 	var targetQuery string
 	var targetArgs []interface{}
-	if request.Query != "" {
-		targetKind = backgroundTagMutationTargetContentHash
+	if !request.FileIDSelector {
+		targetKind = BackgroundTagMutationTargetContentHash
 		targetQuery, targetArgs, err = c.buildQuery(request.Query)
 		if err != nil {
 			return BackgroundOperation{}, err
@@ -174,7 +179,7 @@ func (c *Client) ExecuteBackgroundTagMutationQuery(operationID string) error {
 	if state.ResultReady {
 		return nil
 	}
-	if state.TargetKind != backgroundTagMutationTargetContentHash {
+	if state.TargetKind != BackgroundTagMutationTargetContentHash {
 		return fmt.Errorf("background tag mutation %q does not use content-hash targets", operationID)
 	}
 	kind, err := backgroundTagMutationKind(state.Mutation, state.Tags)
@@ -212,11 +217,22 @@ func (c *Client) ExecuteBackgroundTagMutationPaths(operationID string, paths []s
 	if state.ResultReady {
 		return nil
 	}
-	if state.TargetKind != backgroundTagMutationTargetFileID {
+	if state.TargetKind != BackgroundTagMutationTargetFileID {
 		return fmt.Errorf("background tag mutation %q does not use file-id targets", operationID)
 	}
 	if len(paths) != state.MatchedFiles {
 		return fmt.Errorf("background tag mutation target count changed: expected %d paths, got %d", state.MatchedFiles, len(paths))
+	}
+	if len(paths) == 0 {
+		tx, err := c.store.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if err := c.persistBackgroundTagMutationResultTx(tx, operationID, types.TagOperationResult{}); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 	kind, err := backgroundTagMutationKind(state.Mutation, state.Tags)
 	if err != nil {

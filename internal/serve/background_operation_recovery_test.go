@@ -4,28 +4,31 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	core "gooru.local/gooru"
 )
 
 type fakeBackgroundOperationReservationRecovery struct {
-	kind string
-	err  error
+	kinds []string
+	err   error
 }
 
 func (f *fakeBackgroundOperationReservationRecovery) CancelUnattachedHiddenBackgroundOperations(kind string) (int64, error) {
-	f.kind = kind
+	f.kinds = append(f.kinds, kind)
 	if f.err != nil {
 		return 0, f.err
 	}
 	return 1, nil
 }
 
-func TestRecoverBackgroundOperationReservationsTargetsUploads(t *testing.T) {
+func TestRecoverBackgroundOperationReservationsTargetsDurableProducers(t *testing.T) {
 	recovery := &fakeBackgroundOperationReservationRecovery{}
 	if err := recoverBackgroundOperationReservations(recovery); err != nil {
 		t.Fatal(err)
 	}
-	if recovery.kind != backgroundUploadImportOperationKind {
-		t.Fatalf("recovery kind = %q, want %q", recovery.kind, backgroundUploadImportOperationKind)
+	want := []string{backgroundUploadImportOperationKind, core.BackgroundTagMutationOperationKind}
+	if len(recovery.kinds) != len(want) || recovery.kinds[0] != want[0] || recovery.kinds[1] != want[1] {
+		t.Fatalf("recovery kinds = %q, want %q", recovery.kinds, want)
 	}
 }
 

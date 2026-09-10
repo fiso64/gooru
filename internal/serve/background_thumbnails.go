@@ -127,5 +127,15 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 	if err != nil {
 		return nil, err
 	}
-	return multiBackgroundRuntime{runtimes: []BackgroundRuntime{mediaRuntime, storageRuntime, uploadRuntime}}, nil
+	metadataRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
+		ResourceClass: core.BackgroundTagMutationResourceClass,
+		WorkerID:      workerID + "-metadata",
+		Handlers: map[string]core.BackgroundTaskHandler{
+			core.BackgroundTagMutationTaskKind: s.backgroundTagMutationHandler,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return multiBackgroundRuntime{runtimes: []BackgroundRuntime{mediaRuntime, storageRuntime, uploadRuntime, metadataRuntime}}, nil
 }

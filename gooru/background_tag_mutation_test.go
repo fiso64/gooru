@@ -176,11 +176,12 @@ func TestBackgroundTagMutationPathResultPersistsMoveNotification(t *testing.T) {
 		t.Fatal("missing public file id")
 	}
 	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
-		Mutation:   "add",
-		Selector:   map[string][]string{"file_ids": []string{publicID}},
-		Tags:       []string{"reviewed"},
-		FileIDs:    []string{publicID},
-		MaxPending: 8,
+		Mutation:       "add",
+		Selector:       map[string][]string{"file_ids": []string{publicID}},
+		Tags:           []string{"reviewed"},
+		FileIDs:        []string{publicID},
+		FileIDSelector: true,
+		MaxPending:     8,
 	})
 	if err != nil {
 		t.Fatalf("create mutation: %v", err)
