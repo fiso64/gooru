@@ -59,7 +59,7 @@ jobs:
           tests = Path('frontend/tests/viewer-shortcuts.spec.ts')
           text = tests.read_text()
           route_marker = "  await page.route('**/api/v1/files/one/preview**', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"600\" />' }));\n"
-          route_addition = route_marker + "  await page.route('**/api/v1/files/one/content', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"600\" />' }));\n"
+          route_addition = route_marker + "  await page.context().route('**/api/v1/files/one/content', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"600\" />' }));\n"
           if text.count(route_marker) != 1:
               raise SystemExit('unexpected viewer shortcut route fixture shape')
           text = text.replace(route_marker, route_addition, 1)
