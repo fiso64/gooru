@@ -28,7 +28,8 @@ jobs:
       - name: Apply focused regression fix
         run: python3 .github/maintainer-470-patch.py
       - name: Update generated-type fixtures
-        run: sed -i "s/media_kind: 'photo',/media_kind: 'photo', viewer_support: 'supported',/" frontend/src/lib/state/ui.test.ts
+        run: |
+          sed -i "s/media_kind: 'photo',/media_kind: 'photo', viewer_support: 'supported',/" frontend/src/lib/state/ui.test.ts
       - name: Format Go
         run: gofmt -w internal/serve/browse.go internal/serve/browse_test.go
       - name: Install frontend dependencies and generate API types
