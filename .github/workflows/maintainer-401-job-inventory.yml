@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   cleanup:
-    if: "github.event.head_commit.message == 'chore: rerun #401 legacy jobs removal'"
+    if: "github.event.head_commit.message == 'chore: retry #401 cleanup after OpenAPI assertion'"
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
@@ -23,7 +23,7 @@ jobs:
           python3 .github/maintainer-401-cleanup.py
           python3 .github/maintainer-401-cleanup-residual.py
       - name: Format Go
-        run: gofmt -w cmd/gooru/cmd/serve.go internal/serve/server.go internal/serve/server_test.go internal/serve/authorization_test.go internal/serve/config.go internal/serve/config_test.go internal/background/runner.go scripts/devprofile/main.go
+        run: gofmt -w cmd/gooru/cmd/serve.go internal/serve/server.go internal/serve/server_test.go internal/serve/authorization_test.go internal/serve/config.go internal/serve/config_test.go internal/serve/openapi_test.go internal/background/runner.go scripts/devprofile/main.go
       - name: Regenerate API client
         working-directory: frontend
         run: |
