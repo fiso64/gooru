@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   compare:
-    if: "github.event.head_commit.message == 'chore: rerun #401 parser-fixed cleanup'"
+    if: "github.event.head_commit.message == 'chore: rerun #401 one-line parser cleanup'"
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +34,20 @@ jobs:
           set -e
           echo "baseline_status=$baseline_status"
       - name: Apply browser/spec compatibility cleanup
-        run: python3 .github/maintainer-401-browser-cleanup.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/maintainer-401-browser-cleanup.py')
+          text = path.read_text(encoding='utf-8')
+          old = """            block = [line]\n            end = index\n\n            def closes_route(candidate: str) -> bool:\n                stripped = candidate.rstrip('\\r\\n')\n                return stripped in {f'{indent}}});', f'{indent}));'}\n\n            while not closes_route(block[-1]) and end + 1 < len(lines) and end - index < 20:\n"""
+          new = """            block = [line]\n            end = index\n            first_line_closed = line.rstrip('\\r\\n').endswith(('));', '});'))\n\n            def closes_route(candidate: str) -> bool:\n                stripped = candidate.rstrip('\\r\\n')\n                return stripped in {f'{indent}}});', f'{indent}));'}\n\n            while not first_line_closed and not closes_route(block[-1]) and end + 1 < len(lines) and end - index < 20:\n"""
+          if old not in text:
+              raise SystemExit('expected parser block not found')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          python3 .github/maintainer-401-browser-cleanup.py
       - name: Verify stale compatibility is gone
         shell: bash
         run: |
