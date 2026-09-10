@@ -68,6 +68,14 @@ func cancelDatabaseBackgroundOperation(client *Client, operationID string) (bool
 	return client.store.CancelBackgroundOperation(operationID, time.Now().UTC())
 }
 
+func cancelDatabaseBackgroundOperationWithDetails(client *Client, operationID string) (BackgroundOperationCancellation, error) {
+	result, err := client.store.CancelBackgroundOperationWithDetails(operationID, time.Now().UTC())
+	if err != nil {
+		return BackgroundOperationCancellation{}, err
+	}
+	return BackgroundOperationCancellation{Canceled: result.Canceled, RunningTasks: result.RunningTasks}, nil
+}
+
 func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string, request BackgroundTaskRequest) (BackgroundTask, bool, error) {
 	task, created, err := client.store.EnqueueBackgroundTask(q, databaseBackgroundTask(id, request))
 	if err != nil {
