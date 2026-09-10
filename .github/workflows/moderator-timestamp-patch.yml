@@ -1,0 +1,91 @@
+name: Patch moderator freshness timestamps
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Patch moderator freshness timestamps'
+    runs-on: gooru-moderator
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Patch moderator and maintainer prompt
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+
+          workflow_path='.github/workflows/lock-maintainer-threads.yml'
+          workflow_sha="$(gh api "repos/${repo}/contents/${workflow_path}?ref=develop" --jq '.sha')"
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/${repo}/contents/${workflow_path}?ref=develop" > /tmp/moderator.yml
+
+          awk '
+            $0 == "    - cron: '\''*/15 * * * *'\''" {
+              print "    - cron: '\''12,27,42,57 * * * *'\''"
+              next
+            }
+            $0 == "          fetch_item_meta() {" {
+              print "          stamp_index_update() {"
+              print "            local file=\"$1\" now"
+              print "            now=\"$(date -u +\x27%Y-%m-%dT%H:%M:%SZ\x27)\""
+              print "            awk -v now=\"$now\" '\''"
+              print "              /^\\*\\*Last index update:\\*\\*/ { print \"**Last index update:** \" now; found=1; next }"
+              print "              /^\\*\\*Last full reconcile:\\*\\*/ && !found { print \"**Last index update:** \" now; found=1 }"
+              print "              { print }"
+              print "              END { if (!found) exit 42 }"
+              print "            '\'' \"$file\" >\"${file}.new\""
+              print "            mv \"${file}.new\" \"$file\""
+              print "          }"
+              print ""
+              print $0
+              next
+            }
+            $0 == "            body+=\"**Last full reconcile:** ${now}\"" {
+              print "            body+=\"**Last index update:** ${now}\""
+              print "            body+=$'\''\\n'\''"
+              print $0
+              next
+            }
+            $0 == "            state_api --method PATCH \"repos/${REPO}/issues/comments/${STATE_COMMENT_ID}\" -f body=\"$(cat \"$state\")\" >/dev/null" {
+              print "            stamp_index_update \"$state\""
+              print $0
+              next
+            }
+            { print }
+          ' /tmp/moderator.yml > /tmp/moderator.new.yml
+
+          grep -Fq '**Last index update:** ${now}' /tmp/moderator.new.yml
+          [[ "$(grep -Fc 'stamp_index_update "$state"' /tmp/moderator.new.yml)" -eq 2 ]]
+          grep -Fq "cron: '12,27,42,57 * * * *'" /tmp/moderator.new.yml
+
+          workflow_encoded="$(base64 < /tmp/moderator.new.yml | tr -d '\n')"
+          gh api --method PUT "repos/${repo}/contents/${workflow_path}" \
+            -f message='Track moderator index-update freshness' \
+            -f content="$workflow_encoded" \
+            -f sha="$workflow_sha" \
+            -f branch=develop >/dev/null
+
+          prompt_path='.github/maintainer-prompt.md'
+          prompt_sha="$(gh api "repos/${repo}/contents/${prompt_path}?ref=develop" --jq '.sha')"
+          gh api -H 'Accept: application/vnd.github.raw+json' "repos/${repo}/contents/${prompt_path}?ref=develop" > /tmp/prompt.md
+          old='A moderator state is fresh when its `Last full reconcile` timestamp is no more than 30 minutes old.'
+          new='A moderator state is fresh when its `Last index update` timestamp is no more than 30 minutes old. `Last full reconcile` is diagnostic and advances only on full passes.'
+          grep -Fq "$old" /tmp/prompt.md
+          sed "s|$old|$new|" /tmp/prompt.md > /tmp/prompt.new.md
+          prompt_encoded="$(base64 < /tmp/prompt.new.md | tr -d '\n')"
+          gh api --method PUT "repos/${repo}/contents/${prompt_path}" \
+            -f message='Use moderator index-update freshness' \
+            -f content="$prompt_encoded" \
+            -f sha="$prompt_sha" \
+            -f branch=develop >/dev/null
+
+          # Force GitHub to re-register the schedule, then seed the new timestamp schema.
+          gh api --method PUT "repos/${repo}/actions/workflows/lock-maintainer-threads.yml/disable" >/dev/null
+          gh api --method PUT "repos/${repo}/actions/workflows/lock-maintainer-threads.yml/enable" >/dev/null
+          gh api --method POST "repos/${repo}/actions/workflows/lock-maintainer-threads.yml/dispatches" -f ref=develop >/dev/null
