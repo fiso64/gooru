@@ -10,7 +10,10 @@ import (
 	core "gooru.local/gooru"
 )
 
-const defaultBackgroundOperationAPILimit = 100
+const (
+	defaultBackgroundOperationAPILimit = 100
+	maxBackgroundOperationStatusBatch  = 64
+)
 
 type backgroundOperationReader interface {
 	GetBackgroundOperation(string) (core.BackgroundOperationState, bool, error)
@@ -96,6 +99,52 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.backgroundOperations == nil {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "background operation service is not configured", nil)
+		return
+	}
+	if rawIDs, ok := r.URL.Query()["id"]; ok {
+		ids := make([]string, 0, len(rawIDs))
+		seen := make(map[string]struct{}, len(rawIDs))
+		for _, rawID := range rawIDs {
+			id := strings.TrimSpace(rawID)
+			if id == "" {
+				writeError(w, http.StatusBadRequest, "invalid_request", "operation id must not be blank", nil)
+				return
+			}
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+			if len(ids) > maxBackgroundOperationStatusBatch {
+				writeError(w, http.StatusBadRequest, "invalid_request", "at most 64 operation ids may be requested", nil)
+				return
+			}
+		}
+		items := make([]BackgroundOperationDTO, 0, len(ids))
+		for _, id := range ids {
+			operation, found, err := s.backgroundOperations.GetBackgroundOperation(id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation", nil)
+				return
+			}
+			if !found || !operation.Visible {
+				continue
+			}
+			dto := backgroundOperationDTO(operation)
+			if operation.Status == core.BackgroundWorkCompleted {
+				var result json.RawMessage
+				found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
+					return
+				}
+				if found {
+					dto.Result = result
+				}
+			}
+			items = append(items, dto)
+		}
+		writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items})
 		return
 	}
 	limit := defaultBackgroundOperationAPILimit

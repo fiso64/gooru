@@ -46,6 +46,9 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Jobs.MaxQueued != 100 || cfg.Jobs.MaxRunning != 2 || cfg.Jobs.MaxResultBytes != 10<<20 {
 		t.Fatalf("unexpected job defaults: %+v", cfg.Jobs)
 	}
+	if cfg.Uploads.MaxQueued != 100 {
+		t.Fatalf("unexpected upload queue default %d", cfg.Uploads.MaxQueued)
+	}
 	if cfg.Uploads.ConflictPolicy != "rename" {
 		t.Fatalf("unexpected upload conflict policy default %q", cfg.Uploads.ConflictPolicy)
 	}
@@ -287,6 +290,14 @@ func TestLoadConfigRejectsUnsupportedThumbnailFormat(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "media.thumbnail_format must be one of: jpeg, png") {
 		t.Fatalf("expected thumbnail format validation error, got %v", err)
+	}
+}
+
+func TestLoadConfigRejectsInvalidUploadQueueLimit(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Uploads.MaxQueued = 0
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "uploads.max_queued") {
+		t.Fatalf("expected upload queue limit validation error, got %v", err)
 	}
 }
 

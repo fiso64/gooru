@@ -3,6 +3,7 @@ package serve
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -257,6 +258,60 @@ func TestHandleOperationsReportsReaderFailure(t *testing.T) {
 	server.handleOperations(response, request)
 
 	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestHandleOperationsBatchesRequestedIDsWithCompletedResults(t *testing.T) {
+	finishedAt := time.Now().UTC()
+	reader := &fakeBackgroundOperationReader{
+		byID: map[string]core.BackgroundOperationState{
+			"operation-upload":  {ID: "operation-upload", Kind: "upload_import", Visible: true, Status: core.BackgroundWorkCompleted, CreatedAt: finishedAt.Add(-time.Second), FinishedAt: &finishedAt},
+			"operation-running": {ID: "operation-running", Kind: "upload_import", Visible: true, Status: core.BackgroundWorkRunning, CreatedAt: finishedAt.Add(-time.Second)},
+			"operation-hidden":  {ID: "operation-hidden", Kind: "thumbnail", Visible: false, Status: core.BackgroundWorkCompleted, CreatedAt: finishedAt},
+		},
+		results: map[string]json.RawMessage{
+			"operation-upload": json.RawMessage(`{"affected_count":1,"files":[{"name":"a.jpg","size":1,"target_id":"default","status":"imported"}]}`),
+		},
+	}
+	server := &Server{backgroundOperations: reader}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations?id=operation-running&id=operation-upload&id=operation-hidden&id=missing", nil)
+	response := httptest.NewRecorder()
+
+	server.handleOperations(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload BackgroundOperationListResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Items) != 2 || payload.Items[0].ID != "operation-running" || payload.Items[1].ID != "operation-upload" {
+		t.Fatalf("items = %+v", payload.Items)
+	}
+	var result UploadImportResponse
+	if err := json.Unmarshal(payload.Items[1].Result, &result); err != nil {
+		t.Fatalf("decode upload result: %v", err)
+	}
+	if result.AffectedCount != 1 || len(result.Files) != 1 || result.Files[0].Name != "a.jpg" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestHandleOperationsRejectsOversizedIDBatch(t *testing.T) {
+	server := &Server{backgroundOperations: &fakeBackgroundOperationReader{}}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations", nil)
+	query := request.URL.Query()
+	for i := 0; i <= maxBackgroundOperationStatusBatch; i++ {
+		query.Add("id", fmt.Sprintf("operation-%d", i))
+	}
+	request.URL.RawQuery = query.Encode()
+	response := httptest.NewRecorder()
+
+	server.handleOperations(response, request)
+
+	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
 	}
 }

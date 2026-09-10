@@ -37,18 +37,6 @@ func TestUploadRejectsDisabledUploadsBeforeParsingBody(t *testing.T) {
 	assertAPIError(t, rec, http.StatusForbidden, "uploads_disabled")
 }
 
-func TestUploadAdmissionRejectsBeforeParsingBody(t *testing.T) {
-	server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})
-	release := saturateJobQueue(t, server)
-	defer release()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", bytes.NewBufferString("not multipart"))
-	rec := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rec, req)
-
-	assertAPIError(t, rec, http.StatusServiceUnavailable, "job_queue_full")
-}
-
 func TestUploadPreventsTraversalAndHandlesConflicts(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "evil.txt"), []byte("existing"), 0600); err != nil {
@@ -377,43 +365,6 @@ func TestUploadIsolatesOversizedFileWithinBatch(t *testing.T) {
 	}
 }
 
-func TestUploadAsyncReturnsJob(t *testing.T) {
-	server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})
-	req := uploadRequest(t, map[string]string{"a.txt": "hello"}, nil)
-	req.Header.Set("Prefer", "respond-async")
-	rec := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var job Job
-	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
-		t.Fatalf("decode job: %v", err)
-	}
-	if job.ID == "" || job.Type != "upload_import" {
-		t.Fatalf("unexpected upload job: %+v", job)
-	}
-}
-
-func TestUploadQueueFullReturnsStableJSONError(t *testing.T) {
-	dir := t.TempDir()
-	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
-	release := saturateJobQueue(t, server)
-	defer release()
-	req := uploadRequest(t, map[string]string{"a.txt": "hello"}, nil)
-	req.Header.Set("Prefer", "respond-async")
-	rec := httptest.NewRecorder()
-
-	server.Handler().ServeHTTP(rec, req)
-
-	assertAPIError(t, rec, http.StatusServiceUnavailable, "job_queue_full")
-	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
-		t.Fatalf("queue-full upload should clean staged files, entries=%v err=%v", entries, err)
-	}
-}
-
 func TestUploadCleansStagedFilesWhenSubmissionContextIsCanceled(t *testing.T) {
 	dir := t.TempDir()
 	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
@@ -428,45 +379,6 @@ func TestUploadCleansStagedFilesWhenSubmissionContextIsCanceled(t *testing.T) {
 	assertAPIError(t, rec, http.StatusRequestTimeout, "request_canceled")
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
 		t.Fatalf("canceled submission should clean staged files, entries=%v err=%v", entries, err)
-	}
-}
-
-func TestCanceledQueuedUploadCleansStagedFiles(t *testing.T) {
-	dir := t.TempDir()
-	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
-	server.jobs = NewJobManagerWithLimits(2, 1, 0, time.Hour)
-	started := make(chan struct{})
-	release := make(chan struct{})
-	blocker, err := server.jobs.Submit(context.Background(), "blocker", true, func(ctx context.Context) (interface{}, error) {
-		close(started)
-		<-release
-		return nil, nil
-	})
-	if err != nil {
-		t.Fatalf("submit blocker: %v", err)
-	}
-	<-started
-
-	req := uploadRequest(t, map[string]string{"a.txt": "hello"}, nil)
-	req.Header.Set("Prefer", "respond-async")
-	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var uploadJob Job
-	if err := json.Unmarshal(rec.Body.Bytes(), &uploadJob); err != nil {
-		t.Fatalf("decode upload job: %v", err)
-	}
-	if _, ok := server.jobs.Cancel(uploadJob.ID); !ok {
-		t.Fatal("cancel upload job")
-	}
-	close(release)
-	waitForStatus(t, server.jobs, blocker.ID, JobCompleted)
-	waitForStatus(t, server.jobs, uploadJob.ID, JobCanceled)
-
-	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
-		t.Fatalf("canceled queued upload should clean staged files, entries=%v err=%v", entries, err)
 	}
 }
 
@@ -747,4 +659,20 @@ func containsStringValue(values []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func TestUploadAsyncFallbackRejectsBeforeReadingBody(t *testing.T) {
+	server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})
+	body := &uploadReadTracker{}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", body)
+	request.Header.Set("Content-Type", "multipart/form-data; boundary=unused")
+	request.Header.Set("Prefer", "respond-async")
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+
+	assertAPIError(t, response, http.StatusServiceUnavailable, "service_unavailable")
+	if body.read {
+		t.Fatal("async importer-only fallback read request body before rejecting unsupported durable capability")
+	}
 }

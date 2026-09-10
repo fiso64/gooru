@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from '$lib/api/types';
+import type { BackgroundOperation } from '$lib/api/operations';
 import { ApiError } from '$lib/api/client';
 
 const { untrackSpy } = vi.hoisted(() => ({
@@ -14,8 +15,19 @@ vi.mock('svelte', async () => {
 import { createUploadWorkflow } from './uploadWorkflow.svelte';
 import { uploadAdmissionFallbackMs } from '$lib/uploadBackpressure';
 
-function pendingJob(id: string): Job {
-  return { id, type: 'upload_import', status: 'pending', submitted_at: '2026-09-07T00:00:00Z' } as Job;
+function pendingJob(id: string): Job & BackgroundOperation {
+  return {
+    id,
+    type: 'upload_import',
+    kind: 'upload_import',
+    status: 'pending',
+    progress: 0,
+    progress_total: 1,
+    progress_completed: 0,
+    progress_failed: 0,
+    submitted_at: '2026-09-07T00:00:00Z',
+    created_at: '2026-09-07T00:00:00Z'
+  } as Job & BackgroundOperation;
 }
 
 describe('server upload queue backpressure', () => {

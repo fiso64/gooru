@@ -77,6 +77,7 @@ type UploadsConfig struct {
 	Enabled          bool           `yaml:"enabled"`
 	Targets          []UploadTarget `yaml:"targets"`
 	MaxFileSizeBytes int64          `yaml:"max_file_size_bytes"`
+	MaxQueued        int            `yaml:"max_queued"`
 	ConflictPolicy   string         `yaml:"conflict_policy"`
 	PreserveModTime  bool           `yaml:"preserve_modtime"`
 }
@@ -172,7 +173,7 @@ func DefaultConfig(dbPath string) Config {
 			CookieSecure:   "auto",
 			CookieSameSite: "lax",
 		},
-		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename", PreserveModTime: true},
+		Uploads: UploadsConfig{Enabled: false, MaxQueued: 100, ConflictPolicy: "rename", PreserveModTime: true},
 		Media: MediaConfig{
 			ThumbnailSizes:     []int{256, 512},
 			ThumbnailFormat:    "jpeg",
@@ -359,6 +360,9 @@ func (cfg *Config) Validate() error {
 	}
 	if cfg.Jobs.MaxResultBytes <= 0 {
 		errs = append(errs, errors.New("jobs.max_result_bytes must be greater than zero"))
+	}
+	if cfg.Uploads.MaxQueued <= 0 {
+		errs = append(errs, errors.New("uploads.max_queued must be greater than zero"))
 	}
 	if cfg.Uploads.Enabled && !hasUploadTarget(cfg.Uploads.Targets) {
 		errs = append(errs, errors.New("uploads.enabled requires at least one uploads.targets entry"))

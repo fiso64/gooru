@@ -244,8 +244,8 @@ func cleanupCanceledDurableUpload(store durableUploadCancellationStore, operatio
 }
 
 func (s *Server) durableUploadPendingLimit() int {
-	if s.cfg.Jobs.MaxQueued > 0 {
-		return s.cfg.Jobs.MaxQueued
+	if s.cfg.Uploads.MaxQueued > 0 {
+		return s.cfg.Uploads.MaxQueued
 	}
 	return defaultDurableUploadPendingLimit
 }
