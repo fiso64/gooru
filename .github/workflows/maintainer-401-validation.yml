@@ -19,13 +19,19 @@ jobs:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Format gate
         shell: bash
         run: |
-          files="$(git ls-files '*.go')"
-          unformatted="$(gofmt -l $files)"
+          mapfile -t files < <(git diff --name-only origin/develop...HEAD -- '*.go')
+          if [ "${#files[@]}" -eq 0 ]; then
+            exit 0
+          fi
+          unformatted="$(gofmt -l "${files[@]}")"
           if [ -n "$unformatted" ]; then
-            printf 'unformatted files:\n%s\n' "$unformatted"
+            printf 'unformatted changed files:\n%s\n\n' "$unformatted"
+            gofmt -d "${files[@]}"
             exit 1
           fi
       - name: Focused tests
@@ -35,4 +41,4 @@ jobs:
       - name: Build
         run: go build ./...
       - name: Diff check
-        run: git diff --check develop...HEAD
+        run: git diff --check origin/develop...HEAD
