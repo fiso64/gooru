@@ -155,14 +155,21 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   const shortcuts = page.getByRole('dialog', { name: 'Shortcuts' });
   await expect(shortcuts).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
-  await expect(shortcuts.getByText('Play media or enter / exit comic')).toHaveCount(0);
-  await expect(shortcuts.getByText('Clear selection')).toHaveCount(0);
+  await expect(shortcuts.getByText('Play media or enter / exit comic')).toBeVisible();
+  await expect(shortcuts.getByText('Clear selection')).toBeVisible();
   await expect(shortcuts.getByText('Keys are ignored while you are typing unless the shortcut belongs to that input')).toHaveCount(0);
   await expect(shortcuts.getByText('Focus search')).toBeVisible();
-  await expect(shortcuts.getByText('Save current search')).toBeVisible();
   await expect(shortcuts.getByText('Toggle original / preview media')).toBeVisible();
   await expect(shortcuts.getByText('Open original in new tab')).toBeVisible();
   await expect(shortcuts.getByRole('heading', { name: 'Shortcuts' })).toHaveCSS('font-size', '22px');
+
+  const shortcutColumns = shortcuts.locator('.shortcut-column');
+  await expect(shortcutColumns).toHaveCount(2);
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Navigation' })).toBeVisible();
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Selection' })).toBeVisible();
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Viewer' })).toHaveCount(0);
+  await expect(shortcutColumns.nth(1).getByRole('heading', { name: 'Viewer' })).toBeVisible();
+
   await page.keyboard.press('Escape');
   await expect(shortcuts).toHaveCount(0);
 
