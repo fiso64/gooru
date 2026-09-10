@@ -1,4 +1,4 @@
-name: Maintainer #401 durable tag core
+name: Maintainer 401 durable tag core
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch-and-validate:
-    if: github.event.head_commit.message == 'chore: run #401 durable tag core patch'
+    if: "github.event.head_commit.message == 'chore: retry #401 durable tag core patch'"
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
