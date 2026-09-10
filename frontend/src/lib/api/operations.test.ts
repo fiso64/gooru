@@ -8,25 +8,31 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+type CapturedFetch = { url: string; init?: RequestInit };
+
+function captureURL(input: RequestInfo | URL): string {
+  return typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+}
+
 describe('durable operation transport', () => {
   it('batches requested operation IDs with cookie authentication', async () => {
-    let request: Request | undefined;
+    let request: CapturedFetch | undefined;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      request = new Request(input, init);
+      request = { url: captureURL(input), init };
       return Response.json({ items: [] });
     }) as typeof fetch;
 
     await listBackgroundOperationsByIDs(['operation one', 'operation-two']);
 
     expect(request).toBeDefined();
-    expect(request?.credentials).toBe('same-origin');
+    expect(request?.init?.credentials).toBe('same-origin');
     expect(new URL(request!.url, 'http://localhost').searchParams.getAll('id')).toEqual(['operation one', 'operation-two']);
   });
 
   it('cancels with the server CSRF header', async () => {
-    let request: Request | undefined;
+    let request: CapturedFetch | undefined;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      request = new Request(input, init);
+      request = { url: captureURL(input), init };
       return Response.json({
         id: 'operation/one',
         kind: 'upload.import',
@@ -41,10 +47,11 @@ describe('durable operation transport', () => {
     await cancelBackgroundOperation('operation/one', 'secret-token');
 
     expect(request).toBeDefined();
-    expect(request?.method).toBe('DELETE');
-    expect(request?.credentials).toBe('same-origin');
-    expect(request?.headers.get('X-Gooru-CSRF')).toBe('secret-token');
-    expect(request?.headers.get('X-CSRF-Token')).toBeNull();
+    expect(request?.init?.method).toBe('DELETE');
+    expect(request?.init?.credentials).toBe('same-origin');
+    const headers = new Headers(request?.init?.headers);
+    expect(headers.get('X-Gooru-CSRF')).toBe('secret-token');
+    expect(headers.get('X-CSRF-Token')).toBeNull();
     expect(new URL(request!.url, 'http://localhost').pathname).toBe('/api/v1/operations/operation%2Fone');
   });
 });
