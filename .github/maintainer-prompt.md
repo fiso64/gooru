@@ -18,7 +18,7 @@ The only exception is the moderator-state/index comment on #29, normally issue c
 
 ## Moderator index
 
-The dedicated moderator runner performs a mechanical full reconciliation on relevant repository events and every 15 minutes. It keeps in-scope conversations locked and publishes the complete open in-scope issue/PR inventory with current titles and labels, PR head/base branches, and branches without an open PR.
+The dedicated moderator runner applies targeted updates on relevant repository events and performs a mechanical full reconciliation every 15 minutes. It keeps in-scope conversations locked and publishes the complete open in-scope issue/PR inventory with current titles and labels, PR head/base branches, and branches without an open PR.
 
 For each item, connector-authored creation (or the autonomous issue marker) counts as maintainer engagement. An owner-created item with no connector-authored comment/review is marked `maintainer: no response — whole thread pending`; individual owner comments are omitted because the whole thread must be inspected. Once engaged, owner comments/review comments/non-dismissed reviews created or submitted after the latest maintainer response are listed as `pending`; edits only refresh the displayed timestamp of an already-pending entry. New owner feedback removes `awaiting review`; edits alone do not. The moderator does not interpret comment text.
 
