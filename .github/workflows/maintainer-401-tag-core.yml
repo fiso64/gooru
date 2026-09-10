@@ -1,4 +1,4 @@
-name: Maintainer 401 durable tag core
+name: Maintainer 401 durable tag HTTP
 
 on:
   push:
@@ -10,18 +10,39 @@ permissions:
 
 jobs:
   patch-and-validate:
-    if: "github.event.head_commit.message == 'chore: retry #401 durable tag core patch'"
+    if: "github.event.head_commit.message == 'chore: run #401 durable tag HTTP patch'"
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Apply durable tag core patch
-        run: python3 .github/maintainer/401-durable-tag-core.py
+      - name: Apply durable tag HTTP patch
+        run: python3 .github/maintainer/401-durable-tag-http.py
       - name: Format
-        run: gofmt -w gooru/background_tag_mutation.go gooru/background_tag_mutation_test.go gooru/tagging.go internal/database/durable_tag_mutation.go
-      - name: Validate focused Go packages
-        run: go test -count=1 ./gooru ./internal/database
+        run: |
+          gofmt -w \
+            gooru/background_tag_mutation.go \
+            gooru/background_tag_mutation_test.go \
+            internal/serve/background_tag_mutations.go \
+            internal/serve/tag_mutations.go \
+            internal/serve/background_operations.go \
+            internal/serve/background_thumbnails.go \
+            internal/serve/background_operation_recovery.go \
+            internal/serve/background_operation_recovery_test.go \
+            internal/serve/tag_mutations_test.go
+      - name: Regenerate OpenAPI client
+        working-directory: frontend
+        run: npm run generate:api
+      - name: Validate affected Go packages
+        run: go test -count=1 ./gooru ./internal/database ./internal/serve
+      - name: Build Go
+        run: go build ./...
+      - name: Check frontend
+        working-directory: frontend
+        run: npm run check
+      - name: Unit test frontend
+        working-directory: frontend
+        run: npm run test:unit
       - name: Check patch
         run: git diff --check
       - name: Commit validated implementation
@@ -30,6 +51,17 @@ jobs:
           set -euo pipefail
           git config user.name 'chatgpt-codex-connector[bot]'
           git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
-          git add gooru/background_tag_mutation.go gooru/background_tag_mutation_test.go gooru/tagging.go internal/database/durable_tag_mutation.go internal/database/migrations/028_background_tag_mutations.up.sql internal/database/migrations/028_background_tag_mutations.down.sql
-          git commit -m 'feat: add durable tag mutation core'
+          git add \
+            gooru/background_tag_mutation.go \
+            gooru/background_tag_mutation_test.go \
+            internal/serve/background_tag_mutations.go \
+            internal/serve/tag_mutations.go \
+            internal/serve/background_operations.go \
+            internal/serve/background_thumbnails.go \
+            internal/serve/background_operation_recovery.go \
+            internal/serve/background_operation_recovery_test.go \
+            internal/serve/tag_mutations_test.go \
+            docs/openapi.yaml \
+            frontend/src/lib/api/openapi.ts
+          git commit -m 'feat: cut tag mutations over to durable operations'
           git push origin HEAD:maintainer/401-durable-tag-mutations
