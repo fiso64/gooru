@@ -1,0 +1,26 @@
+name: Maintainer 401 post-review validation
+
+on:
+  push:
+    branches:
+      - maintainer/401-remove-legacy-jobs
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate upload cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend ci
+          npm --prefix frontend run generate:api
+          go test ./internal/serve
+          npm --prefix frontend run check
+          npm --prefix frontend run test:unit
