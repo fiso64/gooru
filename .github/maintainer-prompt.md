@@ -28,7 +28,7 @@ The dedicated moderator runner performs a mechanical full reconciliation on rele
 
 It deliberately does **not** interpret comment text. A pending entry means “inspect this item”; it is not proof the feedback is substantive or still actionable. False positives are acceptable. Direct live GitHub context remains authoritative.
 
-A moderator state is fresh when its `Last full reconcile` timestamp is no more than 30 minutes old. If the state is missing, malformed, identity/marker-invalid, or older than 30 minutes, use the exhaustive fallback described below for this run. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
+A moderator state is fresh when its `Last full reconcile` timestamp is no more than 30 minutes old. If the state is missing, malformed, identity/marker-invalid, or older than 30 minutes, fetch `.github/maintainer-exhaustive-fallback.md` from `develop` fresh, read that entire file, and execute its fallback procedure for this run. Do not fetch/read that sibling file during normal fresh moderator-index operation. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
 
 ## Startup discovery
 
@@ -42,18 +42,6 @@ At the start of every run:
 - inspect recent merges/current checkpoint only as needed to understand active integration state. Do not perform a repository-wide history narration.
 
 The old `Last completed full sweep` cursor in #29 is obsolete under moderator-index discovery. Remove that field the next time #29 is edited; do not maintain or advance a replacement sweep cursor.
-
-### Exhaustive fallback
-
-If moderator state is not trustworthy/fresh, fall back for that run only:
-
-- enumerate every open in-scope issue/PR;
-- read each latest issue discussion tail and each PR conversation/review tail through its actual chronological end, expanding farther back when unresolved context requires it;
-- reconcile owner feedback and current `updated_at` values;
-- list repository branches and classify no-PR branches against #29/live PR state;
-- do one final lightweight open-item metadata refresh before choosing work.
-
-This fallback is a safety net, not the normal path, and it does not maintain a durable sweep watermark.
 
 ## Between substantive tasks
 
