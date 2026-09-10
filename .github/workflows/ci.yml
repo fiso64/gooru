@@ -18,6 +18,7 @@ concurrency:
 jobs:
   go:
     name: Go
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
@@ -83,6 +84,7 @@ jobs:
 
   frontend:
     name: Frontend
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gooru]
     defaults:
       run:
