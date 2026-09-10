@@ -46,6 +46,68 @@ func TestRemoveCanceledSavedUploadsReportsRetriableFailureWithoutPath(t *testing
 	}
 }
 
+func TestCanceledUploadCleanupPreemptsOlderImportBacklog(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	inspection, err := database.NewStore(dbPath, false)
+	if err != nil {
+		t.Fatalf("open inspection store: %v", err)
+	}
+	defer inspection.Close()
+
+	oldCreatedAt := time.Now().UTC().Add(-time.Hour)
+	if _, created, err := inspection.EnqueueBackgroundTask(inspection.DB, database.NewBackgroundTask{
+		ID:            "old-upload-import",
+		DedupeKey:     "old-upload-import",
+		Kind:          backgroundUploadTaskKind,
+		ResourceClass: backgroundUploadResourceClass,
+		CreatedAt:     oldCreatedAt,
+	}); err != nil || !created {
+		t.Fatalf("enqueue old upload import = created %v, err %v", created, err)
+	}
+
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+	operation, err := client.CreateBackgroundOperation(core.BackgroundOperationRequest{
+		Kind:          backgroundUploadImportOperationKind,
+		Visible:       false,
+		ProgressTotal: 1,
+	})
+	if err != nil {
+		t.Fatalf("create upload operation: %v", err)
+	}
+	stagedPath := filepath.Join(root, "canceled-stage")
+	taskRequest, err := backgroundUploadTaskRequest(operation.ID, []savedUpload{{
+		name: "canceled-stage", path: stagedPath, destinationPath: stagedPath, size: 1, targetID: "default",
+	}}, nil)
+	if err != nil {
+		t.Fatalf("build upload task: %v", err)
+	}
+	if _, err := client.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(), taskRequest); err != nil {
+		t.Fatalf("attach upload task: %v", err)
+	}
+	if result, err := client.CancelBackgroundOperationWithCleanupTask(operation.ID, backgroundUploadCleanupTaskRequest(operation.ID)); err != nil || !result.Canceled {
+		t.Fatalf("cancel upload with cleanup = %+v, %v", result, err)
+	}
+
+	claimed, ok, err := inspection.ClaimNextBackgroundTask(backgroundUploadResourceClass, "priority-test", time.Now().UTC().Add(time.Second), time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim upload work = (%+v, %v, %v)", claimed, ok, err)
+	}
+	if claimed.Kind != backgroundUploadCleanupTaskKind || claimed.SubjectID != operation.ID {
+		t.Fatalf("claimed %q for %q, want cleanup for %q ahead of old import", claimed.Kind, claimed.SubjectID, operation.ID)
+	}
+	if claimed.Priority != backgroundUploadCleanupPriority {
+		t.Fatalf("cleanup priority = %d, want %d", claimed.Priority, backgroundUploadCleanupPriority)
+	}
+}
+
 func TestCanceledUploadCleanupFailureRetriesThroughDurableRunner(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "gooru.db")

@@ -15,6 +15,7 @@ import (
 const (
 	defaultDurableUploadPendingLimit = 64
 	backgroundUploadCleanupTaskKind  = "upload.cleanup"
+	backgroundUploadCleanupPriority  = 100
 )
 
 // durableUploadOperationStore is the producer/read boundary required by HTTP
@@ -191,6 +192,7 @@ func backgroundUploadCleanupTaskRequest(operationID string) core.BackgroundTaskR
 		SubjectKind:   "operation",
 		SubjectID:     operationID,
 		ResourceClass: backgroundUploadResourceClass,
+		Priority:      backgroundUploadCleanupPriority,
 		MaxAttempts:   5,
 	}
 }
