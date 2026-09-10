@@ -146,7 +146,7 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodDelete {
-		canceled, err := s.backgroundOperations.CancelBackgroundOperation(id)
+		canceled, err := s.cancelBackgroundOperation(id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to cancel background operation", nil)
 			return
