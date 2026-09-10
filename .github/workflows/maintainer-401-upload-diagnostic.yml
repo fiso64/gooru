@@ -1,0 +1,42 @@
+name: maintainer 401 upload diagnostic
+
+on:
+  push:
+    branches:
+      - maintainer/401-durable-upload-http-v2
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Enumerate real-library upload harnesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in internal/serve/*_test.go; do
+            if grep -q 'NewGooruLibrary' "$f" && grep -Eq '/api/v1/uploads|upload(Binary)?Request|handleUpload' "$f"; then
+              echo "=== $f ==="
+              grep -nE 'NewGooruLibrary|/api/v1/uploads|upload(Binary)?Request|handleUpload' "$f" || true
+            fi
+          done
+      - name: Focused upload tests
+        shell: bash
+        run: |
+          set -o pipefail
+          timeout 90s go test ./internal/serve -run 'Upload' -count=1 -timeout=80s
+      - name: Remove diagnostic workflow
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/maintainer-401-upload-diagnostic.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'ci: remove upload diagnostic workflow'
+          git push origin HEAD:maintainer/401-durable-upload-http-v2
