@@ -22,10 +22,6 @@ permissions:
   issues: write
   pull-requests: write
 
-concurrency:
-  group: gooru-moderator-state
-  cancel-in-progress: false
-
 jobs:
   reconcile:
     if: >-
@@ -38,6 +34,9 @@ jobs:
       (github.event_name == 'pull_request_review' && github.event.pull_request.user.login == 'fiso64' && github.event.review.user.login == 'fiso64') ||
       (github.event_name == 'pull_request_review_comment' && github.event.pull_request.user.login == 'fiso64' && github.event.comment.user.login == 'fiso64')
     runs-on: gooru-moderator
+    concurrency:
+      group: gooru-moderator-state
+      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
       STATE_TOKEN: ${{ secrets.MODERATOR_STATE_TOKEN }}
