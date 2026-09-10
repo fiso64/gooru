@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	core "gooru.local/gooru"
 	"gooru.local/internal/query"
 )
 
-const defaultDurableUploadPendingLimit = 64
+const (
+	defaultDurableUploadPendingLimit = 64
+	backgroundUploadCleanupTaskKind  = "upload.cleanup"
+)
 
 // durableUploadOperationStore is the producer/read boundary required by HTTP
 // upload admission. The operation is created hidden before multipart staging,
@@ -24,9 +28,12 @@ type durableUploadOperationStore interface {
 }
 
 type durableUploadCancellationStore interface {
+	CancelBackgroundOperationWithCleanupTask(string, core.BackgroundTaskRequest) (core.BackgroundOperationCancellation, error)
+}
+
+type durableUploadCleanupStore interface {
 	GetBackgroundOperationTask(string) (core.BackgroundTaskState, bool, error)
 	GetBackgroundOperationCheckpoint(string, any) (bool, error)
-	CancelBackgroundOperationWithDetails(string) (core.BackgroundOperationCancellation, error)
 }
 
 func (l *GooruLibrary) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {
@@ -37,8 +44,8 @@ func (l *GooruLibrary) GetBackgroundOperationTask(operationID string) (core.Back
 	return l.client.GetBackgroundOperationTask(operationID)
 }
 
-func (l *GooruLibrary) CancelBackgroundOperationWithDetails(operationID string) (core.BackgroundOperationCancellation, error) {
-	return l.client.CancelBackgroundOperationWithDetails(operationID)
+func (l *GooruLibrary) CancelBackgroundOperationWithCleanupTask(operationID string, request core.BackgroundTaskRequest) (core.BackgroundOperationCancellation, error) {
+	return l.client.CancelBackgroundOperationWithCleanupTask(operationID, request)
 }
 
 // handleUploadEndpoint uses the durable operation path whenever the configured
@@ -152,12 +159,11 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-// cancelBackgroundOperation adds upload staging cleanup to the generic durable
-// operation cancellation boundary. The detailed cancellation transaction tells
-// us whether a worker owned any child when cancellation won, avoiding a race
-// between request-side cleanup and active worker I/O. Pending/requeued uploads
-// are safe to clean immediately from their persisted task and checkpoint state;
-// running uploads are cleaned by the worker after it observes terminal cancel.
+// cancelBackgroundOperation adds a crash-safe upload cleanup obligation to the
+// generic durable operation cancellation boundary. The cleanup task is persisted
+// in the same transaction as terminal cancellation and detached from the canceled
+// parent. Persistence delays it through any revoked worker lease horizon so a
+// cleanup worker cannot race an upload worker that is still unwinding.
 func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
 	if s.backgroundOperations == nil {
 		return false, errors.New("background operation service is not configured")
@@ -174,21 +180,41 @@ func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
 	if !ok {
 		return s.backgroundOperations.CancelBackgroundOperation(operationID)
 	}
-	result, err := store.CancelBackgroundOperationWithDetails(operationID)
-	if err != nil || !result.Canceled || result.RunningTasks > 0 {
-		return result.Canceled, err
-	}
-	task, found, err := store.GetBackgroundOperationTask(operationID)
-	if err != nil || !found {
-		return result.Canceled, err
-	}
-	if err := cleanupCanceledDurableUpload(store, operationID, task.BackgroundTask); err != nil {
-		return result.Canceled, err
-	}
-	return result.Canceled, nil
+	result, err := store.CancelBackgroundOperationWithCleanupTask(operationID, backgroundUploadCleanupTaskRequest(operationID))
+	return result.Canceled, err
 }
 
-func cleanupCanceledDurableUpload(store durableUploadCancellationStore, operationID string, task core.BackgroundTask) error {
+func backgroundUploadCleanupTaskRequest(operationID string) core.BackgroundTaskRequest {
+	return core.BackgroundTaskRequest{
+		DedupeKey:     "upload-cleanup:" + operationID,
+		Kind:          backgroundUploadCleanupTaskKind,
+		SubjectKind:   "operation",
+		SubjectID:     operationID,
+		ResourceClass: backgroundUploadResourceClass,
+		MaxAttempts:   5,
+	}
+}
+
+func (s *Server) backgroundUploadCleanupHandler(store durableUploadCleanupStore) core.BackgroundTaskHandler {
+	return func(ctx context.Context, task core.BackgroundTask) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if task.OperationID != "" || task.Kind != backgroundUploadCleanupTaskKind || task.SubjectKind != "operation" || task.SubjectID == "" {
+			return errors.New("upload cleanup task has invalid operation identity")
+		}
+		original, found, err := store.GetBackgroundOperationTask(task.SubjectID)
+		if err != nil {
+			return fmt.Errorf("load canceled upload task: %w", err)
+		}
+		if !found {
+			return errors.New("canceled upload task is missing")
+		}
+		return cleanupCanceledDurableUpload(store, task.SubjectID, original.BackgroundTask)
+	}
+}
+
+func cleanupCanceledDurableUpload(store durableUploadCleanupStore, operationID string, task core.BackgroundTask) error {
 	files, _, err := decodeBackgroundUploadTask(task)
 	if err != nil {
 		return fmt.Errorf("decode canceled upload task: %w", err)
@@ -214,8 +240,7 @@ func cleanupCanceledDurableUpload(store durableUploadCancellationStore, operatio
 		if err := rollbackSavedReplacements(activated); err != nil {
 			return fmt.Errorf("rollback canceled staged upload replacements: %w", err)
 		}
-		removeSavedUploads(files)
-		return nil
+		return removeCanceledSavedUploads(files)
 	case backgroundUploadPhaseActivated:
 		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
 		if err != nil {
@@ -224,8 +249,7 @@ func cleanupCanceledDurableUpload(store durableUploadCancellationStore, operatio
 		if err := rollbackSavedReplacements(activated); err != nil {
 			return fmt.Errorf("rollback canceled activated upload replacements: %w", err)
 		}
-		removeSavedUploads(files)
-		return nil
+		return removeCanceledSavedUploads(files)
 	case backgroundUploadPhaseImported:
 		if checkpoint.Response == nil {
 			return errors.New("canceled imported upload checkpoint is missing response")
@@ -241,6 +265,22 @@ func cleanupCanceledDurableUpload(store durableUploadCancellationStore, operatio
 	default:
 		return fmt.Errorf("canceled upload checkpoint has invalid phase %q", checkpoint.Phase)
 	}
+}
+
+func removeCanceledSavedUploads(files []savedUpload) error {
+	failures := 0
+	for _, file := range files {
+		if file.status == "skipped" || file.status == "error" {
+			continue
+		}
+		if err := os.Remove(file.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failures++
+		}
+	}
+	if failures > 0 {
+		return fmt.Errorf("remove %d canceled staged upload files", failures)
+	}
+	return nil
 }
 
 func (s *Server) durableUploadPendingLimit() int {

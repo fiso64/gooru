@@ -121,7 +121,8 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundUploadResourceClass,
 		WorkerID:      workerID + "-upload",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundUploadTaskKind: s.backgroundUploadHandler(client),
+			backgroundUploadTaskKind:        s.backgroundUploadHandler(client),
+			backgroundUploadCleanupTaskKind: s.backgroundUploadCleanupHandler(client),
 		},
 	})
 	if err != nil {

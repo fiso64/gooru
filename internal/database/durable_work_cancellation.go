@@ -82,12 +82,31 @@ func (s *Store) CancelBackgroundOperation(operationID string, canceledAt time.Ti
 
 // CancelBackgroundOperationWithDetails durably cancels one active logical
 // operation and all of its pending/running child tasks in the same transaction.
+func (s *Store) CancelBackgroundOperationWithDetails(operationID string, canceledAt time.Time) (BackgroundOperationCancellation, error) {
+	return s.cancelBackgroundOperation(operationID, canceledAt, nil)
+}
+
+// CancelBackgroundOperationWithCleanupTask atomically records a detached durable
+// cleanup obligation while canceling an operation. The cleanup task is detached
+// because canceled operations reject new child work. If a worker owned any child
+// task when cancellation won, cleanup is not claimable until the latest revoked
+// lease would have expired, so an old worker has time to observe lease loss and
+// stop side effects before compensation begins.
+func (s *Store) CancelBackgroundOperationWithCleanupTask(operationID string, canceledAt time.Time, cleanup NewBackgroundTask) (BackgroundOperationCancellation, error) {
+	if cleanup.OperationID != "" {
+		return BackgroundOperationCancellation{}, errors.New("background cancellation cleanup task must be detached from an operation")
+	}
+	return s.cancelBackgroundOperation(operationID, canceledAt, &cleanup)
+}
+
+// cancelBackgroundOperation is the cancellation transaction shared by the
+// generic API and producers that need a crash-safe external cleanup obligation.
 // Marking the parent canceled first makes cancellation sticky: the schema rejects
 // any later child enqueue beneath that canceled operation. Existing completed or
 // failed history is kept for aggregate diagnostics while active attempts are
 // closed as canceled. Once a producer has atomically persisted a success result,
 // cancellation is too late even if final child completion bookkeeping has not run.
-func (s *Store) CancelBackgroundOperationWithDetails(operationID string, canceledAt time.Time) (result BackgroundOperationCancellation, err error) {
+func (s *Store) cancelBackgroundOperation(operationID string, canceledAt time.Time, cleanup *NewBackgroundTask) (result BackgroundOperationCancellation, err error) {
 	if s == nil || s.DB == nil {
 		return result, errors.New("background task store is required")
 	}
@@ -130,15 +149,19 @@ func (s *Store) CancelBackgroundOperationWithDetails(operationID string, cancele
 	}
 	result.Canceled = true
 
-	// Capture current ownership before clearing task leases. StartedAt cannot be
-	// used for this decision because a retried task can be pending after an earlier
-	// attempt while still carrying its historical start timestamp.
+	// Capture current ownership and the old lease horizon before clearing task
+	// leases. A cancellation follow-up must not race a revoked worker that can keep
+	// executing until its renewal loop observes lease loss.
+	var latestRunningLease sql.NullInt64
 	if err := tx.QueryRow(`
-		SELECT COUNT(*)
+		SELECT COUNT(*), MAX(lease_expires_at)
 		FROM background_tasks
 		WHERE operation_id = ? AND status = 'running'
-	`, operationID).Scan(&result.RunningTasks); err != nil {
-		return BackgroundOperationCancellation{}, fmt.Errorf("count running background tasks during cancellation: %w", err)
+	`, operationID).Scan(&result.RunningTasks, &latestRunningLease); err != nil {
+		return BackgroundOperationCancellation{}, fmt.Errorf("inspect running background tasks during cancellation: %w", err)
+	}
+	if result.RunningTasks > 0 && !latestRunningLease.Valid {
+		return BackgroundOperationCancellation{}, errors.New("running background task is missing a lease expiry")
 	}
 
 	if _, err := tx.Exec(`
@@ -178,6 +201,31 @@ func (s *Store) CancelBackgroundOperationWithDetails(operationID string, cancele
 	`, operationID, operationID, operationID); err != nil {
 		return BackgroundOperationCancellation{}, fmt.Errorf("refresh canceled background operation progress: %w", err)
 	}
+
+	if cleanup != nil {
+		cleanupTask := *cleanup
+		if cleanupTask.CreatedAt.IsZero() {
+			cleanupTask.CreatedAt = canceledAt
+		}
+		safeAt := canceledAt
+		if latestRunningLease.Valid {
+			leaseAt := workTime(latestRunningLease.Int64)
+			if leaseAt.After(safeAt) {
+				safeAt = leaseAt
+			}
+		}
+		if cleanupTask.AvailableAt.IsZero() || cleanupTask.AvailableAt.Before(safeAt) {
+			cleanupTask.AvailableAt = safeAt
+		}
+		_, created, err := s.EnqueueBackgroundTask(tx, cleanupTask)
+		if err != nil {
+			return BackgroundOperationCancellation{}, fmt.Errorf("enqueue background cancellation cleanup: %w", err)
+		}
+		if !created {
+			return BackgroundOperationCancellation{}, errors.New("background cancellation cleanup task dedupe key is already active")
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return BackgroundOperationCancellation{}, fmt.Errorf("commit background operation cancellation: %w", err)
 	}

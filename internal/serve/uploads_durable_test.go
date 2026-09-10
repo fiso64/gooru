@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	core "gooru.local/gooru"
 	"gooru.local/types"
@@ -184,7 +185,7 @@ func TestDurableUploadAsyncAttachesOneTaskAndReturnsOperationLocation(t *testing
 	}
 }
 
-func TestDurableUploadAsyncCancelRemovesNeverClaimedStaging(t *testing.T) {
+func TestDurableUploadAsyncCancelReplaysCleanupAfterRestart(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "gooru.db")
 	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
@@ -194,7 +195,6 @@ func TestDurableUploadAsyncCancelRemovesNeverClaimedStaging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
 
 	uploadDir := filepath.Join(root, "uploads")
 	cfg := DefaultConfig(dbPath)
@@ -208,41 +208,78 @@ func TestDurableUploadAsyncCancelRemovesNeverClaimedStaging(t *testing.T) {
 	uploadRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(uploadRec, upload)
 	if uploadRec.Code != http.StatusAccepted {
+		_ = client.Close()
 		t.Fatalf("upload status = %d: %s", uploadRec.Code, uploadRec.Body.String())
 	}
 	var operation BackgroundOperationDTO
 	if err := json.NewDecoder(uploadRec.Body).Decode(&operation); err != nil {
+		_ = client.Close()
 		t.Fatalf("decode upload operation: %v", err)
 	}
 	if operation.ID == "" || operation.Status != core.BackgroundWorkPending {
+		_ = client.Close()
 		t.Fatalf("unexpected pending upload operation: %+v", operation)
 	}
 	stagedPath := filepath.Join(uploadDir, "pending.txt")
 	if got := string(mustReadFile(t, stagedPath)); got != "hello" {
+		_ = client.Close()
 		t.Fatalf("staged content = %q, want hello", got)
 	}
 
 	cancelRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(cancelRec, httptest.NewRequest(http.MethodDelete, "/api/v1/operations/"+operation.ID, nil))
 	if cancelRec.Code != http.StatusAccepted {
+		_ = client.Close()
 		t.Fatalf("cancel status = %d: %s", cancelRec.Code, cancelRec.Body.String())
 	}
 	var canceled BackgroundOperationDTO
 	if err := json.NewDecoder(cancelRec.Body).Decode(&canceled); err != nil {
+		_ = client.Close()
 		t.Fatalf("decode canceled operation: %v", err)
 	}
 	if canceled.ID != operation.ID || canceled.Status != core.BackgroundWorkCanceled {
+		_ = client.Close()
 		t.Fatalf("unexpected canceled operation: %+v", canceled)
 	}
-	if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
-		t.Fatalf("canceled pending upload left staged file behind: %v", err)
+	if _, err := os.Stat(stagedPath); err != nil {
+		_ = client.Close()
+		t.Fatalf("staging should remain until durable cleanup runs: %v", err)
 	}
 	task, found, err := client.GetBackgroundOperationTask(operation.ID)
 	if err != nil || !found {
+		_ = client.Close()
 		t.Fatalf("load canceled upload task = found %v err %v", found, err)
 	}
 	if task.Status != core.BackgroundWorkCanceled {
+		_ = client.Close()
 		t.Fatalf("canceled upload task status = %q, want %q", task.Status, core.BackgroundWorkCanceled)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("close client before restart: %v", err)
+	}
+
+	restartedClient, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("reopen client: %v", err)
+	}
+	defer restartedClient.Close()
+	restartedServer := NewServerWithLibrary(cfg, NewGooruLibrary(restartedClient, false))
+	stopRuntime := startTestBackgroundRuntime(t, restartedServer, restartedClient, "upload-cancel-restart")
+	defer stopRuntime()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_, statErr := os.Stat(stagedPath)
+		if os.IsNotExist(statErr) {
+			break
+		}
+		if statErr != nil {
+			t.Fatalf("stat staged upload after restart: %v", statErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("durable cancellation cleanup did not remove staging after restart")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
