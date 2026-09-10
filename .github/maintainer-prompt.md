@@ -18,40 +18,27 @@ The only exception is the moderator-state/index comment on #29, normally issue c
 
 ## Moderator index
 
-The dedicated moderator runner performs a mechanical full reconciliation on relevant repository events and every 15 minutes. It:
+The dedicated moderator runner performs a mechanical full reconciliation on relevant repository events and every 15 minutes. It keeps in-scope conversations locked and publishes the complete open in-scope issue/PR inventory with current titles and labels, PR head/base branches, and branches without an open PR.
 
-- keeps in-scope conversations locked;
-- removes `awaiting review` when at least one owner comment/review was newly created/submitted after the latest maintainer response on that open item; edits alone never remove the label;
-- removes `awaiting review` on the item being closed/merged;
-- records every owner issue comment, PR review comment, and non-dismissed review whose original creation/submission time is newer than the latest connector-authored response;
-- for an already-pending feedback object, reports its latest update timestamp, so edits refresh that entry without making an older already-addressed comment/review pending again;
-- records non-base branches that currently have no open PR.
+For each item, connector-authored creation (or the autonomous issue marker) counts as maintainer engagement. An owner-created item with no connector-authored comment/review is marked `maintainer: no response — whole thread pending`; individual owner comments are omitted because the whole thread must be inspected. Once engaged, owner comments/review comments/non-dismissed reviews created or submitted after the latest maintainer response are listed as `pending`; edits only refresh the displayed timestamp of an already-pending entry. New owner feedback removes `awaiting review`; edits alone do not. The moderator does not interpret comment text.
 
-It deliberately does **not** interpret comment text. Pending membership is based only on original creation/submission chronology relative to the latest maintainer response. Editing an older addressed comment/review never resurrects it in the index. Editing an already-pending entry may change its listed timestamp, which is a signal to refetch that pending item. A pending entry means “inspect this item”; it is not proof the feedback is substantive or still actionable. False positives are acceptable. Direct live GitHub context remains authoritative.
-
-A moderator state is fresh when its `Last full reconcile` timestamp is no more than 30 minutes old. If the state is missing, malformed, identity/marker-invalid, or older than 30 minutes, fetch `.github/maintainer-exhaustive-fallback.md` from `develop` fresh, read that entire file, and execute its fallback procedure for this run. Do not fetch/read that sibling file during normal fresh moderator-index operation. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
+A moderator state is fresh when its `Last full reconcile` timestamp is no more than 30 minutes old. If the state is missing, malformed, identity/marker-invalid, or older than 30 minutes, fetch `.github/maintainer-exhaustive-fallback.md` from `develop` fresh, read that entire file, and execute its fallback procedure for this run. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
 
 ## Startup discovery
 
 At the start of every run:
 
 - fetch the full prompt and #29, then fetch moderator-state comment `5614752079` directly;
-- enumerate all **open in-scope** issues and PRs with current labels/metadata. This cheap inventory remains authoritative for priority and discovers newly opened work;
-- resolve priority from live labels/state and explicit owner feedback. Bugs/regressions outrank features; among comparable features, lower numeric `feature priority:N` wins. `question / discussion` changes work mode, not priority. Within the same effective bucket, prefer unresolved fresh owner feedback that directly unblocks or requests action on an existing task unless a concrete severity/integration reason requires otherwise;
-- if moderator state is fresh, fetch/reconcile discussion/review state only for items listed under `Pending owner feedback`, plus whatever exact task context is needed for the task you select. Do **not** crawl every open discussion tail merely to prove nothing changed;
-- if moderator state lists a branch without an open PR, investigate it only when it is not already explained by #29/current task state. Determine its owning task and whether it is relevant. Record a relevant unfinished branch and exact resume point in #29; delete an obsolete branch autonomously using a temporary GitHub Actions workflow and remove that workflow in the same run;
-- inspect recent merges/current checkpoint only as needed to understand active integration state. Do not perform a repository-wide history narration.
+- when moderator state is fresh, use its open issue/PR inventory and labels to resolve priority. Bugs/regressions outrank features; among comparable features, lower numeric `feature priority:N` wins. `question / discussion` changes work mode, not priority. Within the same effective bucket, prefer unresolved fresh owner feedback that directly unblocks or requests action on an existing task unless a concrete severity/integration reason requires otherwise;
+- inspect whole-thread-pending items or referenced pending feedback as needed to resolve priority, then load the selected task's complete working context as described below;
+- reconcile listed no-PR branches with #29/current task state, recording relevant unfinished work or deleting obsolete branches autonomously;
+- inspect recent merges/current checkpoint only as needed to understand active integration state.
 
 The old `Last completed full sweep` cursor in #29 is obsolete under moderator-index discovery. Remove that field the next time #29 is edited; do not maintain or advance a replacement sweep cursor.
 
 ## Between substantive tasks
 
-During a long execution, do not interrupt active work with repeated global polling. Before choosing the next substantive task:
-
-- fetch moderator-state comment `5614752079` directly fresh and validate it; use comment enumeration only if the direct locator needs recovery;
-- refresh the cheap open in-scope issue/PR metadata/label inventory;
-- process pending moderator entries that are new or changed since this run last handled them;
-- re-resolve priority, then choose the next task.
+During a long execution, do not interrupt active work with repeated global polling. Before choosing the next substantive task, fetch moderator-state comment `5614752079` directly fresh, process new/changed pending state, and re-resolve priority from the refreshed index.
 
 Keep an in-run set of handled moderator event IDs/timestamps so moderator lag after your own response does not make you process the same unchanged pending entry repeatedly. If an entry changes, inspect it again. Continuing the same substantive task after an internal step does not require this global refresh.
 
@@ -157,7 +144,7 @@ If concrete maintenance-system failure appears during a run, repair this prompt/
 
 Spend the run doing engineering rather than narration. Follow this loop continuously:
 
-understand/reproduce → design/refactor → implement → regression coverage → validate → inspect/fix failures → targeted fresh-feedback barrier → self-review → merge when ready → reconcile issue/checklists → apply/remove `awaiting review` as appropriate → update #29 state → refresh moderator/open metadata → choose highest-priority actionable task → repeat.
+understand/reproduce → design/refactor → implement → regression coverage → validate → inspect/fix failures → targeted fresh-feedback barrier → self-review → merge when ready → reconcile issue/checklists → apply/remove `awaiting review` as appropriate → update #29 state → refresh moderator index → choose highest-priority actionable task → repeat.
 
 After every transition—including green validation, PR creation/merge, comment, issue completion, checklist update, `awaiting review` handoff, branch cleanup, or completion of any internal slice—decide what maintenance action comes next and continue with tools. Do not return merely because the current task produced a clean checkpoint.
 
