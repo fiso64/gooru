@@ -26,9 +26,15 @@ def remove_empty_job_routes(text: str) -> str:
             index += 1
             continue
         if 'await page.route(' in line and '/api/v1/jobs' in line:
+            indent = line[: len(line) - len(line.lstrip())]
             block = [line]
             end = index
-            while '));' not in ''.join(block) and end + 1 < len(lines) and end - index < 20:
+
+            def closes_route(candidate: str) -> bool:
+                stripped = candidate.rstrip('\r\n')
+                return stripped in {f'{indent}}});', f'{indent}));'}
+
+            while not closes_route(block[-1]) and end + 1 < len(lines) and end - index < 20:
                 end += 1
                 block.append(lines[end])
             joined = ''.join(block)
