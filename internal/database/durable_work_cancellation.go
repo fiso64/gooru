@@ -68,6 +68,8 @@ func (s *Store) CancelBackgroundTask(taskID string, canceledAt time.Time) (cance
 // canceled first makes cancellation sticky: the schema rejects any later child
 // enqueue beneath that canceled operation. Existing completed/failed history is
 // kept for aggregate diagnostics while active attempts are closed as canceled.
+// Once a producer has atomically persisted a success result, cancellation is too
+// late even if the final child task completion bookkeeping has not run yet.
 func (s *Store) CancelBackgroundOperation(operationID string, canceledAt time.Time) (canceled bool, err error) {
 	if s == nil || s.DB == nil {
 		return false, errors.New("background task store is required")
@@ -86,7 +88,8 @@ func (s *Store) CancelBackgroundOperation(operationID string, canceledAt time.Ti
 
 	// Acquire the operation as an active row and make its cancellation visible to
 	// all later statements in this transaction. A concurrent enqueue is serialized
-	// by SQLite and, after this commits, is rejected by the trigger.
+	// by SQLite and, after this commits, is rejected by the trigger. A persisted
+	// result is the producer's atomic commit boundary and therefore wins the race.
 	res, err := tx.Exec(`
 		UPDATE background_operations
 		SET status = 'canceled',
@@ -94,7 +97,9 @@ func (s *Store) CancelBackgroundOperation(operationID string, canceledAt time.Ti
 		    finished_at = ?,
 		    error_code = '',
 		    error_message = ''
-		WHERE id = ? AND status IN ('pending', 'running')
+		WHERE id = ?
+		  AND status IN ('pending', 'running')
+		  AND COALESCE(result_json, '') = ''
 	`, canceledAtValue, canceledAtValue, operationID)
 	if err != nil {
 		return false, fmt.Errorf("cancel background operation: %w", err)
