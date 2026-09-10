@@ -4,7 +4,7 @@ import { gridCardWidth, gridColumns, gridRowHeight, virtualGrid, virtualGridStar
 
 function mediaFile(id: string, width: number, height: number): FileItem {
   return { id, content_id: `hash-${id}`, name: `${id}.jpg`, safe_display_path: `library/${id}.jpg`, size: 1,
-    added_at: '2026-01-01T00:00:00Z', modified_time: '2026-01-01T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo',
+    added_at: '2026-01-01T00:00:00Z', modified_time: '2026-01-01T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo', viewer_support: 'supported',
     metadata: { image_width: width, image_height: height }, tags: [], media_urls: { thumbnail: '/thumbnail', preview: '/preview', content: '/content', download: '/download' }, can_delete: false };
 }
 

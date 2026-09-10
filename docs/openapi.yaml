@@ -1670,6 +1670,7 @@ components:
         - modified_time
         - media_type
         - media_kind
+        - viewer_support
         - metadata
         - tags
         - media_urls
@@ -1702,7 +1703,11 @@ components:
           type: string
         media_kind:
           type: string
-          enum: [photo, video, gif, audio, other]
+          enum: [photo, video, gif, audio, comic, other]
+        viewer_support:
+          type: string
+          enum: [supported, unsupported_media_type]
+          description: Backend-owned indication of whether the built-in viewer supports this media type.
         metadata:
           $ref: "#/components/schemas/MediaMetadata"
         tags:

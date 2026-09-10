@@ -393,6 +393,7 @@ type FileDTO struct {
 	ModifiedTime    time.Time     `json:"modified_time"`
 	MediaType       string        `json:"media_type"`
 	MediaKind       string        `json:"media_kind"`
+	ViewerSupport   string        `json:"viewer_support"`
 	Metadata        MediaMetadata `json:"metadata,omitempty"`
 	Tags            []string      `json:"tags"`
 	MediaURLs       MediaURLs     `json:"media_urls"`
@@ -769,6 +770,7 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 			}
 		}
 	}
+	dto.ViewerSupport = viewerSupportForMediaKind(dto.MediaKind)
 	return dto
 }
 
@@ -904,6 +906,15 @@ func mediaKindForType(mediaType string) string {
 		return "audio"
 	default:
 		return "other"
+	}
+}
+
+func viewerSupportForMediaKind(mediaKind string) string {
+	switch strings.ToLower(strings.TrimSpace(mediaKind)) {
+	case "photo", "gif", "video", "audio", "comic":
+		return "supported"
+	default:
+		return "unsupported_media_type"
 	}
 }
 

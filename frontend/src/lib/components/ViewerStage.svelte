@@ -182,6 +182,14 @@
     };
   });
 
+  function viewerSupportsFile(target: FileItem) {
+    return target.viewer_support === 'supported';
+  }
+
+  function unsupportedViewerMessage(target: FileItem) {
+    return `No viewer is available for this file type (${target.media_type}).`;
+  }
+
   function clearWaitingTimer() {
     if (waitingTimer) clearTimeout(waitingTimer);
     waitingTimer = undefined;
@@ -201,17 +209,24 @@
     recordViewerRequest(generation);
     clearWaitingTimer();
     waitingForTarget = false;
-    mediaError = '';
+    mediaError = viewerSupportsFile(targetFile) ? '' : unsupportedViewerMessage(targetFile);
 
     if (!displayedFile) {
       displayedFile = targetFile;
       displayedImageSource = targetImageSource;
+      if (!viewerSupportsFile(targetFile)) {
+        freezeGeneration += 1;
+        freezeVisible = false;
+        intrinsicWidth = 0;
+        intrinsicHeight = 0;
+        return;
+      }
       armWaitingTimer(generation);
       return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
     }
     if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
 
-    const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(targetFile) && targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
       // Once rapid navigation has frozen a committed frame, keep that exact snapshot until the
       // latest requested target is presentable. Re-freezing from an in-flight <img> can capture
@@ -230,6 +245,15 @@
     // lifecycle clear the short loading state just as image load/error does below.
     displayedFile = targetFile;
     displayedImageSource = targetImageSource;
+    if (!viewerSupportsFile(targetFile)) {
+      clearWaitingTimer();
+      waitingForTarget = false;
+      freezeGeneration += 1;
+      freezeVisible = false;
+      intrinsicWidth = 0;
+      intrinsicHeight = 0;
+      return;
+    }
     armWaitingTimer(generation);
     return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
   });
@@ -237,7 +261,7 @@
   $effect(() => {
     const nextFile = renderedFile;
     renderedImageSource;
-    const rendersImage = nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(nextFile) && nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
     // Image transitions install target metadata geometry while the presentation shield preserves old pixels separately.
     // Non-image media waits for its own metadata path and starts with no image geometry.
     if (!rendersImage) {
@@ -749,6 +773,7 @@
 <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
   <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
     <div class="viewer-pan-surface" style={panSurfaceStyle}>
+      {#if renderedFile.viewer_support !== 'unsupported_media_type'}
       {#if renderedFile.media_kind === 'video'}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video
@@ -791,6 +816,7 @@
           onload={syncImage}
           onerror={syncImageError}
         />
+      {/if}
       {/if}
     </div>
   </div>
