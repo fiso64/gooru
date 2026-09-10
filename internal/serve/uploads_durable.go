@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -24,6 +25,8 @@ type durableUploadOperationStore interface {
 
 type durableUploadCancellationStore interface {
 	GetBackgroundOperationTask(string) (core.BackgroundTaskState, bool, error)
+	GetBackgroundOperationCheckpoint(string, any) (bool, error)
+	CancelBackgroundOperationWithDetails(string) (core.BackgroundOperationCancellation, error)
 }
 
 func (l *GooruLibrary) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {
@@ -32,6 +35,10 @@ func (l *GooruLibrary) AttachBackgroundTaskAndRevealOperation(operationID string
 
 func (l *GooruLibrary) GetBackgroundOperationTask(operationID string) (core.BackgroundTaskState, bool, error) {
 	return l.client.GetBackgroundOperationTask(operationID)
+}
+
+func (l *GooruLibrary) CancelBackgroundOperationWithDetails(operationID string) (core.BackgroundOperationCancellation, error) {
+	return l.client.CancelBackgroundOperationWithDetails(operationID)
 }
 
 // handleUploadEndpoint uses the durable operation path whenever the configured
@@ -71,7 +78,7 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	operation, err := operations.CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest{
-		Kind:          "upload_import",
+		Kind:          backgroundUploadImportOperationKind,
 		Visible:       false,
 		ProgressTotal: 1,
 	}, s.durableUploadPendingLimit())
@@ -146,10 +153,11 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // cancelBackgroundOperation adds upload staging cleanup to the generic durable
-// operation cancellation boundary. A never-claimed upload has no concurrent
-// filesystem owner and can be removed immediately. Once a worker has claimed the
-// task, the worker owns rollback/cleanup after it observes cancellation; deleting
-// its files here would race active I/O.
+// operation cancellation boundary. The detailed cancellation transaction tells
+// us whether a worker owned any child when cancellation won, avoiding a race
+// between request-side cleanup and active worker I/O. Pending/requeued uploads
+// are safe to clean immediately from their persisted task and checkpoint state;
+// running uploads are cleaned by the worker after it observes terminal cancel.
 func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
 	if s.backgroundOperations == nil {
 		return false, errors.New("background operation service is not configured")
@@ -158,24 +166,81 @@ func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	canceled, err := s.backgroundOperations.CancelBackgroundOperation(operationID)
-	if err != nil || !canceled || !found || state.Kind != backgroundUploadImportOperationKind {
-		return canceled, err
+	if !found || state.Kind != backgroundUploadImportOperationKind {
+		return s.backgroundOperations.CancelBackgroundOperation(operationID)
 	}
+
 	store, ok := s.backgroundOperations.(durableUploadCancellationStore)
 	if !ok {
-		return canceled, nil
+		return s.backgroundOperations.CancelBackgroundOperation(operationID)
+	}
+	result, err := store.CancelBackgroundOperationWithDetails(operationID)
+	if err != nil || !result.Canceled || result.RunningTasks > 0 {
+		return result.Canceled, err
 	}
 	task, found, err := store.GetBackgroundOperationTask(operationID)
-	if err != nil || !found || task.StartedAt != nil {
-		return canceled, err
+	if err != nil || !found {
+		return result.Canceled, err
 	}
-	files, _, err := decodeBackgroundUploadTask(task.BackgroundTask)
+	if err := cleanupCanceledDurableUpload(store, operationID, task.BackgroundTask); err != nil {
+		return result.Canceled, err
+	}
+	return result.Canceled, nil
+}
+
+func cleanupCanceledDurableUpload(store durableUploadCancellationStore, operationID string, task core.BackgroundTask) error {
+	files, _, err := decodeBackgroundUploadTask(task)
 	if err != nil {
-		return canceled, err
+		return fmt.Errorf("decode canceled upload task: %w", err)
 	}
-	removeSavedUploads(files)
-	return canceled, nil
+	var checkpoint backgroundUploadCheckpoint
+	found, err := store.GetBackgroundOperationCheckpoint(operationID, &checkpoint)
+	if err != nil {
+		return fmt.Errorf("load canceled upload checkpoint: %w", err)
+	}
+	if !found {
+		return errors.New("canceled upload checkpoint is missing")
+	}
+
+	switch checkpoint.Phase {
+	case backgroundUploadPhaseStaged:
+		// Activation may have completed immediately before cancellation while the
+		// checkpoint write lost the race. Re-running activation is replay-safe and
+		// gives terminal cleanup the exact replacement state to roll back.
+		activated, err := activateSavedReplacements(files)
+		if err != nil {
+			return fmt.Errorf("recover canceled staged upload replacements: %w", err)
+		}
+		if err := rollbackSavedReplacements(activated); err != nil {
+			return fmt.Errorf("rollback canceled staged upload replacements: %w", err)
+		}
+		removeSavedUploads(files)
+		return nil
+	case backgroundUploadPhaseActivated:
+		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
+		if err != nil {
+			return fmt.Errorf("recover canceled activated upload replacements: %w", err)
+		}
+		if err := rollbackSavedReplacements(activated); err != nil {
+			return fmt.Errorf("rollback canceled activated upload replacements: %w", err)
+		}
+		removeSavedUploads(files)
+		return nil
+	case backgroundUploadPhaseImported:
+		if checkpoint.Response == nil {
+			return errors.New("canceled imported upload checkpoint is missing response")
+		}
+		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
+		if err != nil {
+			return fmt.Errorf("recover canceled imported upload replacements: %w", err)
+		}
+		if err := settleSavedReplacements(activated, *checkpoint.Response); err != nil {
+			return fmt.Errorf("settle canceled imported upload replacements: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("canceled upload checkpoint has invalid phase %q", checkpoint.Phase)
+	}
 }
 
 func (s *Server) durableUploadPendingLimit() int {
