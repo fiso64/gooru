@@ -68,8 +68,9 @@ func (s *Server) handleMutateTags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	mutator, ok := s.library.(TagMutationLibrary)
-	if s.library == nil || !ok {
+	legacyMutator, legacyOK := s.library.(TagMutationLibrary)
+	durableMutator, durableOK := s.library.(durableTagMutationLibrary)
+	if s.library == nil || (!legacyOK && !durableOK) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "tag mutation service is not configured", nil)
 		return
 	}
@@ -126,27 +127,56 @@ func (s *Server) handleMutateTags(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	job, err := s.jobs.Submit(r.Context(), "tag_mutation", PreferAsync(r), func(ctx context.Context) (interface{}, error) {
-		if request.SelectionID != "" && len(resolvedRequest.FileIDs) == 0 {
-			return TagMutationResponse{Operation: operation, Selector: selector}, nil
+	if !durableOK {
+		if PreferAsync(r) {
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable", "durable tag mutation service is not configured", nil)
+			return
 		}
-		response, err := mutator.MutateTags(ctx, operation, resolvedRequest)
+		if request.SelectionID != "" && len(resolvedRequest.FileIDs) == 0 {
+			writeJSON(w, http.StatusOK, TagMutationResponse{Operation: operation, Selector: selector})
+			return
+		}
+		response, err := legacyMutator.MutateTags(r.Context(), operation, resolvedRequest)
 		if err != nil {
-			return TagMutationResponse{}, err
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to mutate tags", nil)
+			return
 		}
 		response.Selector = selector
-		return response, nil
-	})
-	if PreferAsync(r) && err == nil {
-		writeJSON(w, http.StatusAccepted, job)
+		writeJSON(w, http.StatusOK, response)
 		return
 	}
+	if s.backgroundOperations == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "background operation service is not configured", nil)
+		return
+	}
+	operationState, err := durableMutator.createBackgroundTagMutation(
+		r.Context(),
+		operation,
+		selector,
+		resolvedRequest,
+		defaultDurableTagMutationPendingLimit,
+	)
 	if err != nil {
-		writeJobSubmitError(w, err, "failed to mutate tags")
+		writeDurableTagMutationAdmissionError(w, err)
 		return
 	}
-	response, ok := job.Result.(TagMutationResponse)
-	if !ok {
+	state, found, err := s.backgroundOperations.GetBackgroundOperation(operationState.ID)
+	if err != nil || !found {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load tag mutation operation", nil)
+		return
+	}
+	if PreferAsync(r) {
+		w.Header().Set("Location", "/api/v1/operations/"+operationState.ID)
+		writeJSON(w, http.StatusAccepted, backgroundOperationDTO(state))
+		return
+	}
+	response, err := waitForDurableTagMutation(r.Context(), s.backgroundOperations, operationState.ID)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			_, _ = s.cancelBackgroundOperation(operationState.ID)
+			writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to mutate tags", nil)
 		return
 	}

@@ -47,6 +47,8 @@ type BackgroundOperationTransactionState struct {
 
 type BackgroundOperationTransactionStateBuilder func(affectedCount int) (BackgroundOperationTransactionState, error)
 
+type taggingTransactionFinalizer func(tx *databaseTx, affectedCount int64, movesHandled map[string]string) error
+
 func (c *Client) TagKnownFilesWithBackgroundTasks(files []types.LocationInfo, tags []string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
 	return c.TagKnownFilesWithBackgroundTasksAndOperationState(files, tags, tasks, nil, progressCb)
 }
@@ -79,7 +81,7 @@ func (c *Client) TagKnownFilesWithBackgroundTasksAndOperationState(files []types
 	if len(analysis.allFileData) == 0 {
 		return result, nil
 	}
-	affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag, tasks, stateBuilder)
+	affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag, tasks, stateBuilder, nil)
 	if err != nil {
 		return result, err
 	}
@@ -558,7 +560,7 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 }
 
 // executeTaggingTransaction performs all database writes for a tagging operation.
-func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder) (int64, map[string]string, error) {
+func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, finalizer taggingTransactionFinalizer) (int64, map[string]string, error) {
 	movesHandled := make(map[string]string) // newPath -> oldPath
 	tx, err := c.store.Begin()
 	if err != nil {
@@ -640,6 +642,12 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 		}
 	}
 
+	if finalizer != nil {
+		if err := finalizer(tx, affectedCount, movesHandled); err != nil {
+			return 0, nil, fmt.Errorf("finalize tagging transaction: %w", err)
+		}
+	}
+
 	return affectedCount, movesHandled, tx.Commit()
 }
 
@@ -658,7 +666,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	}
 
 	// Phase 3: The Transaction (all DB writes).
-	affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind, nil, nil)
+	affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind, nil, nil, nil)
 	if err != nil {
 		return result, err
 	}

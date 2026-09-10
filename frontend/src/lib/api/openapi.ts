@@ -891,7 +891,7 @@ export interface paths {
             };
             responses: {
                 200: components["responses"]["TagMutation"];
-                202: components["responses"]["AsyncJob"];
+                202: components["responses"]["AsyncOperation"];
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
@@ -919,7 +919,7 @@ export interface paths {
             };
             responses: {
                 200: components["responses"]["TagMutation"];
-                202: components["responses"]["AsyncJob"];
+                202: components["responses"]["AsyncOperation"];
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
@@ -950,7 +950,7 @@ export interface paths {
             };
             responses: {
                 200: components["responses"]["TagMutation"];
-                202: components["responses"]["AsyncJob"];
+                202: components["responses"]["AsyncOperation"];
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];

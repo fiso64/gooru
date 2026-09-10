@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
+	core "gooru.local/gooru"
 	"gooru.local/types"
 )
 
@@ -54,42 +56,75 @@ func TestTagMutationSyncByFileID(t *testing.T) {
 	}
 }
 
-func TestTagMutationAsyncReturnsJob(t *testing.T) {
-	server := newTagMutationTestServer(t, &recordingMutationLibrary{file: types.FileInfo{ID: 6, Path: "/tmp/a.jpg"}})
-	req := authedJSONRequest(http.MethodPut, "/api/v1/files/tags", `{"file_ids":["`+fallbackPublicFileID(6)+`"],"tags":["ready"]}`)
+func TestTagMutationAsyncReturnsDurableOperation(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	server, client := newTestBrowseServerAt(t, dir, dbPath)
+	defer client.Close()
+	page := listTestFiles(t, server, "kind:image", 1)
+
+	req := authedJSONRequest(http.MethodPut, "/api/v1/files/tags", `{"file_ids":["`+page.Files[0].ID+`"],"tags":["ready"]}`)
 	req.Header.Set("Prefer", "respond-async")
 	rec := httptest.NewRecorder()
-
 	server.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var job Job
-	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
-		t.Fatalf("decode job: %v", err)
+	var operation BackgroundOperationDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &operation); err != nil {
+		t.Fatalf("decode operation: %v", err)
 	}
-	if job.ID == "" || job.Type != "tag_mutation" {
-		t.Fatalf("unexpected async job: %+v", job)
+	if operation.ID == "" || operation.Kind != core.BackgroundTagMutationOperationKind || operation.Status != core.BackgroundWorkPending {
+		t.Fatalf("unexpected async operation: %+v", operation)
+	}
+	if got, want := rec.Header().Get("Location"), "/api/v1/operations/"+operation.ID; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
 	}
 }
 
 func TestTagMutationQueueFullReturnsStableJSONError(t *testing.T) {
-	server := newTagMutationTestServer(t, &recordingMutationLibrary{file: types.FileInfo{ID: 7, Path: "/tmp/a.jpg"}})
-	release := saturateJobQueue(t, server)
-	defer release()
-	req := authedJSONRequest(http.MethodPost, "/api/v1/files/tags", `{"file_ids":["`+fallbackPublicFileID(7)+`"],"tags":["reviewed"]}`)
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	server, client := newTestBrowseServerAt(t, dir, dbPath)
+	defer client.Close()
+	page := listTestFiles(t, server, "kind:image", 1)
+
+	for i := 0; i < defaultDurableTagMutationPendingLimit; i++ {
+		if _, err := client.CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest{
+			Kind:          core.BackgroundTagMutationOperationKind,
+			Visible:       true,
+			ProgressTotal: 1,
+		}, defaultDurableTagMutationPendingLimit+1); err != nil {
+			t.Fatalf("seed pending operation %d: %v", i, err)
+		}
+	}
+	req := authedJSONRequest(http.MethodPost, "/api/v1/files/tags", `{"file_ids":["`+page.Files[0].ID+`"],"tags":["reviewed"]}`)
 	req.Header.Set("Prefer", "respond-async")
 	rec := httptest.NewRecorder()
-
 	server.Handler().ServeHTTP(rec, req)
 
 	assertAPIError(t, rec, http.StatusServiceUnavailable, "job_queue_full")
 }
 
 func TestTagMutationIntegrationUpdatesFileTags(t *testing.T) {
-	server, cleanup := newTestBrowseServer(t)
-	defer cleanup()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	server, client := newTestBrowseServerAt(t, dir, dbPath)
+	defer client.Close()
+	runtime, err := server.NewBackgroundRuntime(client, "tag-mutation-test")
+	if err != nil {
+		t.Fatalf("create background runtime: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("stop background runtime: %v", err)
+		}
+	}()
 
 	listRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(listRec, authedRequest(http.MethodGet, "/api/v1/files?query=kind:image&limit=1"))

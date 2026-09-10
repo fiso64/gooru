@@ -64,6 +64,27 @@ func (l *GooruLibrary) CancelBackgroundOperation(operationID string) (bool, erro
 }
 
 func (l *GooruLibrary) GetBackgroundOperationResult(operationID string, destination any) (bool, error) {
+	operation, found, err := l.client.GetBackgroundOperation(operationID)
+	if err != nil {
+		return false, err
+	}
+	if found && operation.Kind == core.BackgroundTagMutationOperationKind {
+		if operation.Status != core.BackgroundWorkCompleted {
+			return false, nil
+		}
+		response, found, err := l.backgroundTagMutationResponse(operationID)
+		if err != nil || !found {
+			return found, err
+		}
+		encoded, err := json.Marshal(response)
+		if err != nil {
+			return false, err
+		}
+		if err := json.Unmarshal(encoded, destination); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 	return l.client.GetBackgroundOperationResult(operationID, destination)
 }
 
