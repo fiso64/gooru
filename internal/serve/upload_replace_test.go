@@ -51,7 +51,7 @@ func TestGooruUploadReplaceDuplicateExistingPreservesOriginal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	trackedDir := filepath.Join(dir, "tracked")
 	if err := os.MkdirAll(trackedDir, 0700); err != nil {
@@ -74,6 +74,7 @@ func TestGooruUploadReplaceDuplicateExistingPreservesOriginal(t *testing.T) {
 		t.Fatalf("write original: %v", err)
 	}
 	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-replace-duplicate-existing")
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{"a.txt": "duplicate content"}, nil, "", "replace"))
@@ -103,7 +104,7 @@ func TestGooruUploadReplaceDuplicateInBatchPreservesRejectedOriginal(t *testing.
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	uploadDir := filepath.Join(dir, "uploads")
 	if err := os.MkdirAll(uploadDir, 0700); err != nil {
@@ -116,6 +117,7 @@ func TestGooruUploadReplaceDuplicateInBatchPreservesRejectedOriginal(t *testing.
 		}
 	}
 	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-replace-duplicate-batch")
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{
