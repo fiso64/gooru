@@ -28,6 +28,7 @@
         { keys: ['s'], description: 'Toggle smooth / nearest-neighbor scaling' },
         { keys: ['1'], description: 'Fit media to window' },
         { keys: ['2'], description: 'Show media at actual size' },
+        { keys: ['o'], description: 'Open original in new tab' },
         { keys: ['d'], description: 'Download original' },
         { keys: ['Del'], description: 'Remove from library' },
         { keys: ['⇧', 'Del'], description: 'Delete file from disk' },

@@ -61,6 +61,7 @@
 
   let dialogElement = $state<HTMLDivElement | undefined>();
   let downloadLink = $state<HTMLAnchorElement | undefined>();
+  let openOriginalLink = $state<HTMLAnchorElement | undefined>();
   let preferOriginal = $state(initialViewerPreferences.preferOriginal);
   let tagMode = $state<'add' | 'remove'>('add');
   let comicManifest = $state<ComicManifest | null>(null);
@@ -181,6 +182,12 @@
       event.preventDefault();
       event.stopPropagation();
       downloadLink?.click();
+      return;
+    }
+    if (key === 'o') {
+      event.preventDefault();
+      event.stopPropagation();
+      openOriginalLink?.click();
       return;
     }
     if (event.key === 'Delete') {
@@ -389,7 +396,7 @@
     <a bind:this={downloadLink} class="g-btn g-btn-ghost" href={file.media_urls.download || file.media_urls.content} title="Download original (D)" aria-label={`Download ${file.name}`}>
       <Icon name="download" size={16} />
     </a>
-    <a class="g-btn g-btn-ghost" href={file.media_urls.content} target="_blank" rel="noreferrer" title="Open original in new tab" aria-label={`Open original ${file.name}`}>
+    <a bind:this={openOriginalLink} class="g-btn g-btn-ghost" href={file.media_urls.content} target="_blank" rel="noreferrer" title="Open original in new tab (O)" aria-label={`Open original ${file.name}`}>
       <Icon name="external" size={16} />
     </a>
     <div class="rail-spacer"></div>
