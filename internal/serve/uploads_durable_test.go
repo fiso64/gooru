@@ -12,22 +12,23 @@ import (
 	"testing"
 
 	core "gooru.local/gooru"
+	"gooru.local/types"
 )
 
 type durableUploadTestStore struct {
-	createErr        error
-	createdRequest   core.BackgroundOperationRequest
-	createdLimit     int
-	operation        core.BackgroundOperation
-	state            core.BackgroundOperationState
-	result           UploadImportResponse
-	resultFound      bool
-	attachCalls      int
-	attachedRequest  core.BackgroundTaskRequest
+	createErr          error
+	createdRequest     core.BackgroundOperationRequest
+	createdLimit       int
+	operation          core.BackgroundOperation
+	state              core.BackgroundOperationState
+	result             UploadImportResponse
+	resultFound        bool
+	attachCalls        int
+	attachedRequest    core.BackgroundTaskRequest
 	attachedCheckpoint backgroundUploadCheckpoint
-	attached         chan struct{}
-	terminalOnAttach core.BackgroundWorkStatus
-	cancelCalls      int
+	attached           chan struct{}
+	terminalOnAttach   core.BackgroundWorkStatus
+	cancelCalls        int
 }
 
 func newDurableUploadTestStore() *durableUploadTestStore {
@@ -180,6 +181,68 @@ func TestDurableUploadAsyncAttachesOneTaskAndReturnsOperationLocation(t *testing
 	stagedPath := filepath.Join(targetDir, "photo.jpg")
 	if got := string(mustReadFile(t, stagedPath)); got != "hello" {
 		t.Fatalf("clear-mode durable staging content = %q, want hello", got)
+	}
+}
+
+func TestDurableUploadAsyncCancelRemovesNeverClaimedStaging(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	defer client.Close()
+
+	uploadDir := filepath.Join(root, "uploads")
+	cfg := DefaultConfig(dbPath)
+	cfg.Auth.Enabled = false
+	cfg.Uploads.Enabled = true
+	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
+	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+
+	upload := uploadRequest(t, map[string]string{"pending.txt": "hello"}, nil)
+	upload.Header.Set("Prefer", "respond-async")
+	uploadRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(uploadRec, upload)
+	if uploadRec.Code != http.StatusAccepted {
+		t.Fatalf("upload status = %d: %s", uploadRec.Code, uploadRec.Body.String())
+	}
+	var operation BackgroundOperationDTO
+	if err := json.NewDecoder(uploadRec.Body).Decode(&operation); err != nil {
+		t.Fatalf("decode upload operation: %v", err)
+	}
+	if operation.ID == "" || operation.Status != core.BackgroundWorkPending {
+		t.Fatalf("unexpected pending upload operation: %+v", operation)
+	}
+	stagedPath := filepath.Join(uploadDir, "pending.txt")
+	if got := string(mustReadFile(t, stagedPath)); got != "hello" {
+		t.Fatalf("staged content = %q, want hello", got)
+	}
+
+	cancelRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(cancelRec, httptest.NewRequest(http.MethodDelete, "/api/v1/operations/"+operation.ID, nil))
+	if cancelRec.Code != http.StatusAccepted {
+		t.Fatalf("cancel status = %d: %s", cancelRec.Code, cancelRec.Body.String())
+	}
+	var canceled BackgroundOperationDTO
+	if err := json.NewDecoder(cancelRec.Body).Decode(&canceled); err != nil {
+		t.Fatalf("decode canceled operation: %v", err)
+	}
+	if canceled.ID != operation.ID || canceled.Status != core.BackgroundWorkCanceled {
+		t.Fatalf("unexpected canceled operation: %+v", canceled)
+	}
+	if _, err := os.Stat(stagedPath); !os.IsNotExist(err) {
+		t.Fatalf("canceled pending upload left staged file behind: %v", err)
+	}
+	task, found, err := client.GetBackgroundOperationTask(operation.ID)
+	if err != nil || !found {
+		t.Fatalf("load canceled upload task = found %v err %v", found, err)
+	}
+	if task.Status != core.BackgroundWorkCanceled {
+		t.Fatalf("canceled upload task status = %q, want %q", task.Status, core.BackgroundWorkCanceled)
 	}
 }
 
