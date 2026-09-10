@@ -35,6 +35,18 @@ func TestFileIDRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFileDTOReportsViewerSupportFromBackendMediaKind(t *testing.T) {
+	server := &Server{cfg: DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))}
+	image := server.fileDTO(context.Background(), types.FileInfo{Path: filepath.Join(t.TempDir(), "image.jpg")}, false)
+	if image.MediaKind != "photo" || image.ViewerSupport != "supported" {
+		t.Fatalf("expected supported photo viewer state, got kind=%q support=%q", image.MediaKind, image.ViewerSupport)
+	}
+	text := server.fileDTO(context.Background(), types.FileInfo{Path: filepath.Join(t.TempDir(), "notes.txt")}, false)
+	if text.MediaKind != "other" || text.ViewerSupport != "unsupported_media_type" {
+		t.Fatalf("expected unsupported text viewer state, got kind=%q support=%q", text.MediaKind, text.ViewerSupport)
+	}
+}
+
 func TestBrowseRoutesRequireSession(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	server := NewServerWithLibrary(cfg, emptyLibrary{})

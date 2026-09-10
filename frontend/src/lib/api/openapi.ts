@@ -1883,7 +1883,12 @@ export interface components {
             modified_time: string;
             media_type: string;
             /** @enum {string} */
-            media_kind: "photo" | "video" | "gif" | "audio" | "other";
+            media_kind: "photo" | "video" | "gif" | "audio" | "comic" | "other";
+            /**
+             * @description Backend-owned indication of whether the built-in viewer supports this media type.
+             * @enum {string}
+             */
+            viewer_support: "supported" | "unsupported_media_type";
             metadata: components["schemas"]["MediaMetadata"];
             tags: string[];
             media_urls: components["schemas"]["MediaURLs"];

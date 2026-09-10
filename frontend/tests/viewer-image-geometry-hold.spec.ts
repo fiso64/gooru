@@ -6,7 +6,7 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-function fileItem(id: 'portrait' | 'landscape' | 'text') {
+function fileItem(id: 'portrait' | 'landscape' | 'missing' | 'text') {
   const portrait = id === 'portrait';
   const text = id === 'text';
   return {
@@ -17,7 +17,8 @@ function fileItem(id: 'portrait' | 'landscape' | 'text') {
     size: 2048,
     modified_time: '2026-05-20T00:00:00Z',
     media_type: text ? 'text/plain' : 'image/jpeg',
-    media_kind: text ? 'document' : 'photo',
+    media_kind: text ? 'other' : 'photo',
+    viewer_support: text ? 'unsupported_media_type' : 'supported',
     metadata: text ? {} : { image_width: portrait ? 1273 : 2546, image_height: 1800 },
     tags: [],
     media_urls: {
@@ -30,8 +31,9 @@ function fileItem(id: 'portrait' | 'landscape' | 'text') {
 }
 
 async function mockApp(page: Page) {
-  const files = [fileItem('portrait'), fileItem('landscape'), fileItem('text')];
+  const files = [fileItem('portrait'), fileItem('landscape'), fileItem('missing'), fileItem('text')];
   let loggedIn = false;
+  let unsupportedMediaRequests = 0;
   let releaseLandscape!: () => void;
   const landscapeGate = new Promise<void>((resolve) => { releaseLandscape = resolve; });
 
@@ -53,6 +55,11 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32"/></svg>' }));
   await page.route('**/api/v1/files/*/preview', async (route) => {
     if (route.request().url().includes('/text/')) {
+      unsupportedMediaRequests += 1;
+      await route.fulfill({ contentType: 'text/plain', body: 'present text file' });
+      return;
+    }
+    if (route.request().url().includes('/missing/')) {
       await route.fulfill({ status: 404, body: '' });
       return;
     }
@@ -66,14 +73,21 @@ async function mockApp(page: Page) {
       body: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="${fill}"/></svg>`
     });
   });
-  await page.route('**/api/v1/files/*/content', async (route) => route.fulfill({ status: 404, body: '' }));
+  await page.route('**/api/v1/files/*/content', async (route) => {
+    if (route.request().url().includes('/text/')) {
+      unsupportedMediaRequests += 1;
+      await route.fulfill({ contentType: 'text/plain', body: 'present text file' });
+      return;
+    }
+    await route.fulfill({ status: 404, body: '' });
+  });
 
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
-  return { releaseLandscape };
+  return { releaseLandscape, unsupportedMediaRequestCount: () => unsupportedMediaRequests };
 }
 
 test('different-aspect source handoff is covered by exact old pixels until target paint', async ({ page }) => {
@@ -125,7 +139,7 @@ test('different-aspect source handoff is covered by exact old pixels until targe
 });
 
 
-test('failed non-image preview releases the frozen previous presentation and reports missing media', async ({ page }) => {
+test('failed supported image preview releases the frozen previous presentation and reports missing media', async ({ page }) => {
   const { releaseLandscape } = await mockApp(page);
   await page.getByRole('button', { name: 'Preview portrait.jpg' }).click();
 
@@ -140,9 +154,20 @@ test('failed non-image preview releases the frozen previous presentation and rep
   await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(2546);
 
   await page.getByLabel('Next file').click();
-  await expect(page.getByRole('dialog', { name: 'text.txt' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'missing.jpg' })).toBeVisible();
   await expect.poll(async () => media.evaluate((node) => (node as HTMLImageElement).naturalWidth)).toBe(0);
   await expect(freeze).toBeHidden();
   await expect(media).toHaveCSS('visibility', 'visible');
   await expect(page.getByRole('alert')).toHaveText('Media file could not be loaded. It may be missing from disk.');
+});
+
+
+test('present unsupported file reports viewer capability without attempting media load', async ({ page }) => {
+  const { unsupportedMediaRequestCount } = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview text.txt' }).click();
+
+  await expect(page.getByRole('dialog', { name: 'text.txt' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText('No viewer is available for this file type (text/plain).');
+  await expect(page.locator('.viewer-visual-media')).toHaveCount(0);
+  expect(unsupportedMediaRequestCount()).toBe(0);
 });
