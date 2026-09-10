@@ -10,82 +10,16 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Retry freshness patch with bash only'
+    if: github.event.head_commit.message == 'Apply moderator freshness prompt patch'
     runs-on: gooru-moderator
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Patch moderator and maintainer prompt
+      - name: Patch maintainer prompt and re-register moderator
         shell: bash
         run: |
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
-
-          workflow_path='.github/workflows/lock-maintainer-threads.yml'
-          workflow_sha="$(gh api "repos/${repo}/contents/${workflow_path}?ref=develop" --jq '.sha')"
-          gh api -H 'Accept: application/vnd.github.raw+json' "repos/${repo}/contents/${workflow_path}?ref=develop" > /tmp/moderator.yml
-
-          : > /tmp/moderator.new.yml
-          inserted_helper=false
-          inserted_full_stamp=false
-          incremental_stamps=0
-          while IFS= read -r line || [[ -n "$line" ]]; do
-            if [[ "$line" == "    - cron: '*/15 * * * *'" ]]; then
-              printf '%s\n' "    - cron: '12,27,42,57 * * * *'" >> /tmp/moderator.new.yml
-              continue
-            fi
-
-            if [[ "$line" == '          fetch_item_meta() {' ]]; then
-              printf '%s\n' \
-                '          stamp_index_update() {' \
-                '            local file="$1" now line found=false' \
-                '            now="$(date -u +''%Y-%m-%dT%H:%M:%SZ'')"' \
-                '            : >"${file}.new"' \
-                '            while IFS= read -r line || [[ -n "$line" ]]; do' \
-                '              if [[ "$line" == ''**Last index update:** ''* ]]; then' \
-                '                printf ''**Last index update:** %s\n'' "$now" >>"${file}.new"' \
-                '                found=true' \
-                '                continue' \
-                '              fi' \
-                '              if [[ "$line" == ''**Last full reconcile:** ''* && "$found" != true ]]; then' \
-                '                printf ''**Last index update:** %s\n'' "$now" >>"${file}.new"' \
-                '                found=true' \
-                '              fi' \
-                '              printf ''%s\n'' "$line" >>"${file}.new"' \
-                '            done <"$file"' \
-                '            [[ "$found" == true ]]' \
-                '            mv "${file}.new" "$file"' \
-                '          }' \
-                '' >> /tmp/moderator.new.yml
-              inserted_helper=true
-            fi
-
-            if [[ "$line" == '            body+="**Last full reconcile:** ${now}"' ]]; then
-              printf '%s\n' '            body+="**Last index update:** ${now}"' >> /tmp/moderator.new.yml
-              printf '%s\n' '            body+=$''\n''' >> /tmp/moderator.new.yml
-              inserted_full_stamp=true
-            fi
-
-            if [[ "$line" == '            state_api --method PATCH "repos/${REPO}/issues/comments/${STATE_COMMENT_ID}" -f body="$(cat "$state")" >/dev/null' ]]; then
-              printf '%s\n' '            stamp_index_update "$state"' >> /tmp/moderator.new.yml
-              incremental_stamps=$((incremental_stamps + 1))
-            fi
-
-            printf '%s\n' "$line" >> /tmp/moderator.new.yml
-          done < /tmp/moderator.yml
-
-          [[ "$inserted_helper" == true ]]
-          [[ "$inserted_full_stamp" == true ]]
-          [[ "$incremental_stamps" -eq 2 ]]
-          grep -Fq "cron: '12,27,42,57 * * * *'" /tmp/moderator.new.yml
-
-          workflow_encoded="$(base64 < /tmp/moderator.new.yml | tr -d '\n')"
-          gh api --method PUT "repos/${repo}/contents/${workflow_path}" \
-            -f message='Track moderator index-update freshness' \
-            -f content="$workflow_encoded" \
-            -f sha="$workflow_sha" \
-            -f branch=develop >/dev/null
-
           prompt_path='.github/maintainer-prompt.md'
           prompt_sha="$(gh api "repos/${repo}/contents/${prompt_path}?ref=develop" --jq '.sha')"
           prompt="$(gh api -H 'Accept: application/vnd.github.raw+json' "repos/${repo}/contents/${prompt_path}?ref=develop")"
@@ -93,11 +27,10 @@ jobs:
           new='A moderator state is fresh when its `Last index update` timestamp is no more than 30 minutes old. `Last full reconcile` is diagnostic and advances only on full passes.'
           [[ "$prompt" == *"$old"* ]]
           prompt="${prompt/"$old"/"$new"}"
-          printf '%s' "$prompt" > /tmp/prompt.new.md
-          prompt_encoded="$(base64 < /tmp/prompt.new.md | tr -d '\n')"
+          encoded="$(printf '%s' "$prompt" | base64 | tr -d '\n')"
           gh api --method PUT "repos/${repo}/contents/${prompt_path}" \
             -f message='Use moderator index-update freshness' \
-            -f content="$prompt_encoded" \
+            -f content="$encoded" \
             -f sha="$prompt_sha" \
             -f branch=develop >/dev/null
 
