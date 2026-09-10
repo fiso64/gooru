@@ -116,6 +116,7 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load upload operation", nil)
 			return
 		}
+		w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
 		writeJSON(w, http.StatusAccepted, backgroundOperationDTO(state))
 		return
 	}
