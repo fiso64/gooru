@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   cleanup:
-    if: "github.event.head_commit.message == 'chore: retry #401 cleanup after OpenAPI assertion'"
+    if: "github.event.head_commit.message == 'chore: retry #401 cleanup after diff check'"
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
