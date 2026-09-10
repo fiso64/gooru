@@ -1,0 +1,38 @@
+name: Maintainer 401 validation
+
+on:
+  push:
+    branches:
+      - maintainer/401-durable-upload-cancel-cleanup
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintainer-401-upload-cancel-cleanup
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Format gate
+        shell: bash
+        run: |
+          files="$(git ls-files '*.go')"
+          unformatted="$(gofmt -l $files)"
+          if [ -n "$unformatted" ]; then
+            printf 'unformatted files:\n%s\n' "$unformatted"
+            exit 1
+          fi
+      - name: Focused tests
+        run: go test -count=1 ./internal/database ./gooru ./internal/background ./internal/serve
+      - name: Full tests
+        run: go test -count=1 ./...
+      - name: Build
+        run: go build ./...
+      - name: Diff check
+        run: git diff --check develop...HEAD
