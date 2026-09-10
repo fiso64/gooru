@@ -92,15 +92,9 @@ jobs:
             if [[ "$app_slug" == "$CONNECTOR_SLUG" ]]; then
               if [[ -z "${latest_maintainer_ts:-}" || "$ts" > "$latest_maintainer_ts" ]]; then
                 latest_maintainer_ts="$ts"
-                latest_maintainer_id="$id"
-                latest_maintainer_source="$source"
               fi
             else
-              if [[ -z "${latest_owner_ts:-}" || "$ts" > "$latest_owner_ts" ]]; then
-                latest_owner_ts="$ts"
-                latest_owner_id="$id"
-                latest_owner_source="$source"
-              fi
+              owner_events+=("${ts}"$'\t'"${id}"$'\t'"${source}")
             fi
           }
 
@@ -120,12 +114,8 @@ jobs:
               api --method PUT "repos/${REPO}/issues/${number}/lock" >/dev/null
             fi
 
-            latest_owner_ts=''
-            latest_owner_id=''
-            latest_owner_source=''
+            owner_events=()
             latest_maintainer_ts=''
-            latest_maintainer_id=''
-            latest_maintainer_source=''
 
             scan_endpoint \
               "repos/${REPO}/issues/${number}/comments?per_page=100" \
@@ -143,9 +133,18 @@ jobs:
                 '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // "-"), (.submitted_at // .updated_at // .created_at // ""), (.id|tostring)] | @tsv'
             fi
 
-            if [[ -n "$latest_owner_ts" && ( -z "$latest_maintainer_ts" || "$latest_owner_ts" > "$latest_maintainer_ts" ) ]]; then
-              remove_awaiting_review "$number"
-              pending_lines+=("- ${kind} #${number} — ${latest_owner_source} ${latest_owner_id} at ${latest_owner_ts}")
+            pending_for_item=false
+            if ((${#owner_events[@]})); then
+              while IFS=$'\t' read -r owner_ts owner_id owner_source; do
+                [[ -n "${owner_ts:-}" ]] || continue
+                if [[ -z "$latest_maintainer_ts" || "$owner_ts" > "$latest_maintainer_ts" ]]; then
+                  if [[ "$pending_for_item" == false ]]; then
+                    remove_awaiting_review "$number"
+                    pending_for_item=true
+                  fi
+                  pending_lines+=("- ${kind} #${number} — ${owner_source} ${owner_id} at ${owner_ts}")
+                fi
+              done < <(printf '%s\n' "${owner_events[@]}" | sort -t $'\t' -k1,1 -k2,2n)
             fi
           done
 
