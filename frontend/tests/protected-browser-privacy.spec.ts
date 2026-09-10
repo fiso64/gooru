@@ -56,7 +56,6 @@ async function mockProtectedApp(page: Page) {
     }
     if (path === '/api/v1/saved-searches') return json(route, { items: [] });
     if (path === '/api/v1/upload-targets') return json(route, { items: [] });
-    if (path === '/api/v1/jobs') return json(route, { items: [] });
     if (path === '/api/v1/tags') {
       return json(route, { tags: [], library_count: 0, facets: { kind: [] } });
     }

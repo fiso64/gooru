@@ -19,7 +19,6 @@ async function openUploadPanel(page: Page) {
   });
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
@@ -39,12 +38,12 @@ test('WebUI hides conflict policy choices and uploads with rename', async ({ pag
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'job-1', type: 'upload_import', status: 'pending', submitted_at: '2026-09-05T00:00:00Z' })
+      body: JSON.stringify({ id: 'job-1', kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at: '2026-09-05T00:00:00Z' })
     });
   });
-  await page.route('**/api/v1/jobs/job-*', async (route) => route.fulfill({
+  await page.route('**/api/v1/operations/job-*', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ id: 'job-1', type: 'upload_import', status: 'pending', submitted_at: '2026-09-05T00:00:00Z' })
+    body: JSON.stringify({ id: 'job-1', kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at: '2026-09-05T00:00:00Z' })
   }));
 
   await openUploadPanel(page);

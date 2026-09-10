@@ -48,9 +48,6 @@ async function mockApp(page: Page) {
     operationRequests += 1;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
-  await page.route('**/api/v1/jobs**', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
-  });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({
     contentType: 'application/json',

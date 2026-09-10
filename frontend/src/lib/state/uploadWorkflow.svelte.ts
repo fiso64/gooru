@@ -297,7 +297,7 @@ export function createUploadWorkflow() {
                 // Release browser transfer capacity once the server has staged
                 // the file and accepted its import job, but bound the number of
                 // accepted unfinished imports to one batched status window.
-                // This keeps large batches from outrunning the server job queue.
+                // This keeps large batches from outrunning the durable admission window.
                 preferAsync: true,
                 targetID: batchTargetID,
                 conflictPolicy: batchConflictPolicy,

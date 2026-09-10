@@ -26,7 +26,6 @@ async function mockApp(page: Page, onFilesRequest: () => void) {
     })
   }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
 }
 
 test('non-library route does not materialize the files grid and library still loads it on demand', async ({ page }) => {

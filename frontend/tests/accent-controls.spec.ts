@@ -36,7 +36,6 @@ async function mockLibrary(page: Page) {
     loggedIn = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/file-selections', async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'selection-accent', count: files.length }) });

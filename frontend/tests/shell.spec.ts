@@ -51,9 +51,6 @@ async function mockAuth(page: Page) {
 }
 
 async function mockShellApis(page: Page) {
-  await page.route('**/api/v1/jobs', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
-  });
   await page.route('**/api/v1/saved-searches', async (route) => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 's1', name: 'Safe blue', query: 'rating:safe blue' }] }) });
   });
@@ -230,7 +227,6 @@ test('loads paginated large libraries with bounded virtualized DOM', async ({ pa
 
 test('debounces search suggestions while preserving typed draft', async ({ page }) => {
   await mockAuth(page);
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
@@ -372,28 +368,48 @@ test('tag index renders real tag counts and navigates to a tag query', async ({ 
   await expect.poll(() => fileQueries).toContain('rating:safe');
 });
 
-test('uploads with job polling and cancellation', async ({ page }) => {
+test('uploads with durable operation polling and cancellation', async ({ page }) => {
   await mockAuth(page);
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
   let canceled = false;
-  await page.route('**/api/v1/jobs', async (route) => {
-    if (route.request().method() === 'DELETE') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ removed: 1 }) });
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: canceled ? [] : [{ id: 'job-one', type: 'upload_import', status: 'running', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z' }] }) });
+  await page.route('**/api/v1/operations?**', async (route) => {
+    const ids = new URL(route.request().url()).searchParams.getAll('id');
+    const operation = {
+      id: 'job-one',
+      kind: 'upload_import',
+      status: canceled ? 'canceled' : 'running',
+      progress_total: 10,
+      progress_completed: canceled ? 10 : 4,
+      progress_failed: 0,
+      created_at: '2026-05-20T00:00:00Z'
+    };
+    const visible = !canceled && (!ids.length || ids.includes(operation.id));
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: visible ? [operation] : [] }) });
   });
   await page.route('**/api/v1/uploads', async (route) => {
-    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'pending', submitted_at: '2026-05-20T00:00:00Z' }) });
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'job-one', kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at: '2026-05-20T00:00:00Z' })
+    });
   });
   const cancelRequests: Array<{ csrf: string; method: string }> = [];
-  await page.route('**/api/v1/jobs/job-one', async (route) => {
+  await page.route('**/api/v1/operations/job-one', async (route) => {
     if (route.request().method() === 'DELETE') {
       cancelRequests.push({ csrf: route.request().headers()['x-gooru-csrf'] ?? '', method: route.request().method() });
       canceled = true;
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: 'canceled', submitted_at: '2026-05-20T00:00:00Z' }) });
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'job-one', kind: 'upload_import', status: 'canceled', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at: '2026-05-20T00:00:00Z', finished_at: '2026-05-20T00:01:00Z' })
+      });
     }
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'job-one', type: 'upload_import', status: canceled ? 'canceled' : 'running', progress: canceled ? 1 : 0.5, submitted_at: '2026-05-20T00:00:00Z' }) });
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ id: 'job-one', kind: 'upload_import', status: canceled ? 'canceled' : 'running', progress_total: 10, progress_completed: canceled ? 10 : 5, progress_failed: 0, created_at: '2026-05-20T00:00:00Z' })
+    });
   });
 
   await page.goto('/');
@@ -408,7 +424,7 @@ test('uploads with job polling and cancellation', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Pause all' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Clear done' })).toBeDisabled();
   const deleteResponse = page.waitForResponse((response) =>
-    response.url().endsWith('/api/v1/jobs/job-one') && response.request().method() === 'DELETE'
+    response.url().endsWith('/api/v1/operations/job-one') && response.request().method() === 'DELETE'
   );
   await page.locator('.upload-queue-head').hover();
   await page.getByRole('button', { name: 'Cancel' }).click();
@@ -592,29 +608,24 @@ test('Jobs drawer preserves route and shares real job actions with the page', as
 
   let canceled = false;
   const cancels: Array<{ csrf: string; method: string }> = [];
-  const clears: Array<{ csrf: string; status: string }> = [];
 
-  await page.route('**/api/v1/jobs**', async (route) => {
+  await page.route('**/api/v1/operations**', async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith('/jobs/job-run') && route.request().method() === 'DELETE') {
+    if (url.pathname.endsWith('/operations/job-run') && route.request().method() === 'DELETE') {
       cancels.push({ csrf: route.request().headers()['x-gooru-csrf'] ?? '', method: route.request().method() });
       canceled = true;
       return route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ id: 'job-run', type: 'upload_import', status: 'canceled', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z' })
+        body: JSON.stringify({ id: 'job-run', kind: 'upload_import', status: 'canceled', progress_total: 10, progress_completed: 4, progress_failed: 0, created_at: '2026-05-20T00:00:00Z', finished_at: '2026-05-20T00:02:00Z' })
       });
     }
-    if (url.pathname.endsWith('/jobs') && route.request().method() === 'DELETE') {
-      clears.push({ csrf: route.request().headers()['x-gooru-csrf'] ?? '', status: url.searchParams.get('status') ?? '' });
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ removed: 1 }) });
-    }
-    if (url.pathname.endsWith('/jobs')) {
+    if (url.pathname.endsWith('/operations')) {
       return route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({
           items: [
-            { id: 'job-run', type: 'upload_import', status: canceled ? 'canceled' : 'running', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z' },
-            { id: 'job-done', type: 'tag_mutation', status: 'completed', progress: 1, submitted_at: '2026-05-19T23:00:00Z', started_at: '2026-05-19T23:01:00Z' }
+            { id: 'job-run', kind: 'upload_import', status: canceled ? 'canceled' : 'running', progress_total: 10, progress_completed: 4, progress_failed: 0, created_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z' },
+            { id: 'job-done', kind: 'tag_mutation', status: 'completed', progress_total: 1, progress_completed: 1, progress_failed: 0, created_at: '2026-05-19T23:00:00Z', started_at: '2026-05-19T23:01:00Z', finished_at: '2026-05-19T23:02:00Z' }
           ]
         })
       });
@@ -642,9 +653,7 @@ test('Jobs drawer preserves route and shares real job actions with the page', as
   await page.locator('.sidebar').getByRole('button', { name: /Jobs/ }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
   await expect(page.getByText('Tag edit', { exact: true })).toBeVisible();
-  await page.locator('.jobs-page-header').hover();
-  await page.getByRole('button', { name: 'Clear completed' }).click();
-  await expect.poll(() => clears).toEqual([{ csrf: 'csrf-one', status: 'completed' }]);
+  await expect(page.getByRole('button', { name: 'Clear completed' })).toHaveCount(0);
 });
 
 
@@ -1009,13 +1018,13 @@ test('matches concept utility views while exposing only real capabilities', asyn
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/jobs', async (route) => {
+  await page.route('**/api/v1/operations', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
         items: [
-          { id: 'utility-run', type: 'upload_import', status: 'running', progress: 0.4, submitted_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z' },
-          { id: 'utility-done', type: 'bulk_tag', status: 'completed', progress: 1, submitted_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z', completed_at: '2026-05-20T00:02:00Z' }
+          { id: 'utility-run', kind: 'upload_import', status: 'running', progress_total: 10, progress_completed: 4, progress_failed: 0, created_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z' },
+          { id: 'utility-done', kind: 'bulk_tag', status: 'completed', progress_total: 1, progress_completed: 1, progress_failed: 0, created_at: '2026-05-20T00:00:00Z', started_at: '2026-05-20T00:01:00Z', finished_at: '2026-05-20T00:02:00Z' }
         ]
       })
     });

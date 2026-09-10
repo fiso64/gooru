@@ -8,7 +8,7 @@
 
 ## 1. Abstract
 
-This document specifies the `gooru serve` command, which runs a persistent HTTP process providing the first-party browser app, REST API, authenticated media routes, upload/import, thumbnails/previews, and in-memory jobs for a Gooru database. It is designed to be stable, responsive, and safe by managing concurrent requests and handling long-running operations according to client preference.
+This document specifies the `gooru serve` command, which runs a persistent HTTP process providing the first-party browser app, REST API, authenticated media routes, upload/import, thumbnails/previews, and durable background operations for a Gooru database. It is designed to be stable, responsive, and safe by managing concurrent requests and handling long-running operations according to client preference.
 
 ## 2. Problem Statement / Motivation
 
@@ -48,10 +48,10 @@ While the Gooru CLI is powerful for direct user interaction, it is not suitable 
     *   Mutating cookie-authenticated requests must send `X-Gooru-CSRF` with a token returned from `POST /api/v1/auth/login` or `GET /api/v1/auth/me`. Safe `GET` media routes do not require CSRF.
     *   `auth.token`, `auth.token_env`, `auth.token_file`, and `--auth-token` are rejected with a migration message. `auth.enabled: false` is reserved for explicit trusted local development and is rejected on non-loopback binds unless the unsafe override is set.
 
-*   **Concurrency Model: Bounded In-Memory Jobs**
-    *   Mutations can run synchronously or asynchronously through an in-memory job manager.
-    *   `jobs.max_queued` bounds pending work, `jobs.max_running` bounds concurrently running async jobs, `jobs.completed_ttl` expires terminal jobs, and `jobs.max_result_bytes` prevents large results from being retained.
-    *   Read requests do not enter the job queue.
+*   **Concurrency Model: Durable Background Operations**
+    *   Long-running mutations are admitted as durable operations whose task state can survive process restart.
+    *   Producer-specific admission limits bound unfinished work, while resource-class workers bound execution and lease tasks for retry/recovery.
+    *   Read requests do not enter the durable background scheduler.
 
 ### 4.2. Synchronous vs. Asynchronous API Behavior
 
@@ -59,14 +59,14 @@ The API will support a hybrid model to provide both speed for fast operations an
 
 *   **Default Behavior (Synchronous):**
     *   If a client sends a write request **without** the `Prefer: respond-async` header, the server will process it **synchronously**.
-    *   The request will be placed in the write queue, and the server will wait for the job to be completed before sending a response.
+    *   The server waits for the admitted durable operation to reach a terminal state and returns the domain result.
     *   **Response:** `200 OK` or `201 Created` with the full result in the body.
     *   **Use Case:** Ideal for operations the client expects to be fast (e.g., tagging a single file) or for simple scripts where blocking behavior is acceptable. The client is responsible for setting an appropriate HTTP timeout.
 
 *   **Asynchronous Opt-In:**
     *   If a client sends a write request **with** the `Prefer: respond-async` HTTP header, the server will **always** handle it **asynchronously**.
-    *   The request will be placed in the write queue, and the server will immediately respond without waiting for the job to complete.
-    *   **Response:** `202 Accepted` with a Job object in the body, containing a unique `id` for polling.
+    *   The server durably admits the operation and immediately responds without waiting for completion.
+    *   **Response:** `202 Accepted` with a `BackgroundOperation` object containing a unique `id` for polling.
     *   **Use Case:** The recommended method for any potentially long-running operation (`relinkall`, batch operations on thousands of files) or for applications that must remain responsive (e.g., GUIs).
 
 ### 4.3. Durable Operation API
