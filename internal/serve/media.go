@@ -159,7 +159,11 @@ func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file
 		return
 	}
 	defer source.Close()
-	applyOriginalContentPolicy(w, file)
+	if isOriginalDocumentNavigation(r) {
+		applyOriginalDocumentContentPolicy(w, file, source)
+	} else {
+		applyOriginalContentPolicy(w, file)
+	}
 	http.ServeContent(w, r, filepath.Base(file.Path), source.modTime, source)
 }
 

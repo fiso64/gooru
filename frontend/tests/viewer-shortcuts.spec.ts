@@ -163,6 +163,14 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   await expect(shortcuts.getByText('Toggle original / preview media')).toBeVisible();
   await expect(shortcuts.getByText('Open original in new tab')).toBeVisible();
   await expect(shortcuts.getByRole('heading', { name: 'Shortcuts' })).toHaveCSS('font-size', '22px');
+
+  const shortcutColumns = shortcuts.locator('.shortcut-column');
+  await expect(shortcutColumns).toHaveCount(2);
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Navigation' })).toBeVisible();
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Selection' })).toBeVisible();
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Viewer' })).toHaveCount(0);
+  await expect(shortcutColumns.nth(1).getByRole('heading', { name: 'Viewer' })).toBeVisible();
+
   await page.keyboard.press('Escape');
   await expect(shortcuts).toHaveCount(0);
 
