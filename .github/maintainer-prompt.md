@@ -22,14 +22,14 @@ The dedicated moderator runner applies targeted updates on relevant repository e
 
 For each item, connector-authored creation (or the autonomous issue marker) counts as maintainer engagement. An owner-created item with no connector-authored comment/review is marked `maintainer: no response — whole thread pending`; individual owner comments are omitted because the whole thread must be inspected. Once engaged, owner comments/review comments/non-dismissed reviews created or submitted after the latest maintainer response are listed as `pending`; edits only refresh the displayed timestamp of an already-pending entry. New owner feedback removes `awaiting review`; edits alone do not. The moderator does not interpret comment text.
 
-A moderator state is fresh when its `Last index update` timestamp is no more than 30 minutes old. `Last full reconcile` is diagnostic and advances only on full passes. If the state is missing, malformed, identity/marker-invalid, or older than 30 minutes, fetch `.github/maintainer-exhaustive-fallback.md` from `develop` fresh, read that entire file, and execute its fallback procedure for this run. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
+Moderator timestamps are diagnostic only and do not determine whether the index is usable. If the state is missing, malformed, or identity/marker-invalid, fetch `.github/maintainer-exhaustive-fallback.md` from `develop` fresh, read that entire file, and execute its fallback procedure for this run. If moderator failure persists, treat it as a maintenance-system defect and repair the workflow minimally when safe.
 
 ## Startup discovery
 
 At the start of every run:
 
 - fetch the full prompt and #29, then fetch moderator-state comment `5614752079` directly;
-- when moderator state is fresh, use its open issue/PR inventory and labels to resolve priority. Bugs/regressions outrank features; among comparable features, lower numeric `feature priority:N` wins. `question / discussion` changes work mode, not priority. Within the same effective bucket, prefer unresolved fresh owner feedback that directly unblocks or requests action on an existing task unless a concrete severity/integration reason requires otherwise;
+- use the moderator state open issue/PR inventory and labels to resolve priority. Bugs/regressions outrank features; among comparable features, lower numeric `feature priority:N` wins. `question / discussion` changes work mode, not priority. Within the same effective bucket, prefer unresolved fresh owner feedback that directly unblocks or requests action on an existing task unless a concrete severity/integration reason requires otherwise;
 - inspect whole-thread-pending items or referenced pending feedback as needed to resolve priority, then load the selected task's complete working context as described below;
 - reconcile listed no-PR branches with #29/current task state, recording relevant unfinished work or deleting obsolete branches autonomously;
 - inspect recent merges/current checkpoint only as needed to understand active integration state.
