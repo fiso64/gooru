@@ -7,17 +7,12 @@
   let {
     jobs,
     authScope,
-    onCancel,
-    onClearCompleted
+    onCancel
   } = $props<{
     jobs: Job[];
     authScope: number;
     onCancel: (job: Job) => void;
-    onClearCompleted: () => void;
   }>();
-  // Retain the prop while AuthenticatedApp still owns the legacy upload-job
-  // mutation. Durable operation history is intentionally not clearable.
-  void onClearCompleted;
 
   let pageIndex = $state(0);
   let pageTokens = $state(['']);

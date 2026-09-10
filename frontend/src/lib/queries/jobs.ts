@@ -1,5 +1,4 @@
 import { createMutation, createQuery } from '@tanstack/svelte-query';
-import { ApiClient } from '$lib/api/client';
 import type { Job } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
 import {
@@ -106,14 +105,5 @@ export function createCancelJobMutation(getCSRFToken: () => string, queryClient:
       ]);
       return job;
     }
-  }));
-}
-
-// Tag mutation is the final legacy JobManager producer. Keep finished-job
-// clearing only until tag mutation moves to durable operations in the next slice.
-export function createClearJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
-  return createMutation<{ removed: number }, Error, string>(() => ({
-    mutationFn: (status) => new ApiClient(getCSRFToken()).clearJobs(status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: jobKeys.all })
   }));
 }

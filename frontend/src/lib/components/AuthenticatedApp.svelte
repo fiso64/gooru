@@ -15,7 +15,7 @@
   import { authState } from '$lib/stores/auth';
   import { runtimeConfig, type PaginationMode } from '$lib/stores/runtimeConfig';
   import { createFileCountQuery, createFileFacetsQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
-  import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
+  import { createCancelJobMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
     createSavedSearchDeleteMutation,
@@ -114,7 +114,6 @@
   const filesRemovalMutation = createFilesRemovalMutation(() => $authState.csrfToken, queryClient);
   const uploadMutation = createUploadMutation(() => $authState.csrfToken);
   const cancelJobMutation = createCancelJobMutation(() => $authState.csrfToken, queryClient);
-  const clearJobsMutation = createClearJobsMutation(() => $authState.csrfToken, queryClient);
   const createSavedSearchMutation = createSavedSearchCreateMutation(() => $authState.csrfToken, queryClient);
   const updateSavedSearchMutation = createSavedSearchUpdateMutation(() => $authState.csrfToken, queryClient);
   const deleteSavedSearchMutation = createSavedSearchDeleteMutation(() => $authState.csrfToken, queryClient);
@@ -539,9 +538,6 @@
     await cancelJobMutation.mutateAsync(job.id);
   }
 
-  async function clearCompletedJobs() {
-    await clearJobsMutation.mutateAsync('completed');
-  }
 
   function actionDialogTitle() {
     switch (actionDialog.kind) {
@@ -691,7 +687,7 @@
         onRemove={upload.removeAt}
       />
     {:else if library.route === 'jobs'}
-      <JobsView jobs={jobsQuery.data?.items ?? []} {authScope} onCancel={cancelJob} onClearCompleted={clearCompletedJobs} />
+      <JobsView jobs={jobsQuery.data?.items ?? []} {authScope} onCancel={cancelJob} />
     {:else if library.route === 'settings'}
       <SettingsView username={$authState.user.username} onLogout={logout} onChangePassword={changePassword} />
     {:else if library.route === 'tags'}

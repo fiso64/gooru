@@ -876,7 +876,7 @@ export interface paths {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation or legacy job as documented by the endpoint. */
+                    /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation as documented by the endpoint. */
                     Prefer?: components["parameters"]["PreferAsync"];
                     /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
                     "X-Gooru-CSRF": components["parameters"]["CSRF"];
@@ -904,7 +904,7 @@ export interface paths {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation or legacy job as documented by the endpoint. */
+                    /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation as documented by the endpoint. */
                     Prefer?: components["parameters"]["PreferAsync"];
                     /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
                     "X-Gooru-CSRF": components["parameters"]["CSRF"];
@@ -935,7 +935,7 @@ export interface paths {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation or legacy job as documented by the endpoint. */
+                    /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation as documented by the endpoint. */
                     Prefer?: components["parameters"]["PreferAsync"];
                     /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
                     "X-Gooru-CSRF": components["parameters"]["CSRF"];
@@ -1103,7 +1103,7 @@ export interface paths {
             parameters: {
                 query?: never;
                 header: {
-                    /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation or legacy job as documented by the endpoint. */
+                    /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation as documented by the endpoint. */
                     Prefer?: components["parameters"]["PreferAsync"];
                     /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
                     "X-Gooru-CSRF": components["parameters"]["CSRF"];
@@ -1624,150 +1624,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/jobs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List asynchronous jobs. */
-        get: {
-            parameters: {
-                query?: {
-                    /** @description Specific asynchronous job IDs to return. May be repeated; at most 64 unique IDs are accepted. */
-                    id?: string[];
-                    status?: "pending" | "running" | "completed" | "failed" | "canceled";
-                    limit?: number;
-                    page_token?: string;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Jobs matching the optional status filter. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["JobListResponse"];
-                    };
-                };
-                400: components["responses"]["BadRequest"];
-                401: components["responses"]["Unauthorized"];
-                403: components["responses"]["Forbidden"];
-            };
-        };
-        put?: never;
-        post?: never;
-        /** Clear finished jobs. */
-        delete: {
-            parameters: {
-                query?: {
-                    status?: "completed" | "failed" | "canceled";
-                };
-                header: {
-                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
-                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
-                };
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Number of finished jobs removed. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            removed: number;
-                        };
-                    };
-                };
-                400: components["responses"]["BadRequest"];
-                401: components["responses"]["Unauthorized"];
-                403: components["responses"]["Forbidden"];
-            };
-        };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/jobs/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get an asynchronous job. */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Job state. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Job"];
-                    };
-                };
-                401: components["responses"]["Unauthorized"];
-                403: components["responses"]["Forbidden"];
-                404: components["responses"]["NotFound"];
-            };
-        };
-        put?: never;
-        post?: never;
-        /** Cancel an asynchronous job. */
-        delete: {
-            parameters: {
-                query?: never;
-                header: {
-                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
-                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
-                };
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Cancellation requested. */
-                202: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Job"];
-                    };
-                };
-                401: components["responses"]["Unauthorized"];
-                403: components["responses"]["Forbidden"];
-                404: components["responses"]["NotFound"];
-            };
-        };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1954,27 +1810,6 @@ export interface components {
         BackgroundOperationListResponse: {
             items: components["schemas"]["BackgroundOperation"][];
         };
-        Job: {
-            id: string;
-            type: string;
-            /** @enum {string} */
-            status: "pending" | "running" | "completed" | "failed" | "canceled";
-            progress?: number;
-            /** Format: date-time */
-            submitted_at: string;
-            /** Format: date-time */
-            started_at?: string;
-            /** Format: date-time */
-            finished_at?: string;
-            result?: unknown;
-            error?: string;
-        };
-        JobListResponse: {
-            /** @description Total retained jobs currently pending or running, independent of the visible page. */
-            active_count: number;
-            next_page_token?: string;
-            items: components["schemas"]["Job"][];
-        };
         BrowserURLState: {
             query?: string;
             kind?: string;
@@ -2153,7 +1988,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
-        /** @description Service is temporarily unavailable, including a full job queue. */
+        /** @description Service is temporarily unavailable, including a full durable-operation admission window. */
         ServiceUnavailable: {
             headers: {
                 [name: string]: unknown;
@@ -2189,15 +2024,6 @@ export interface components {
                 "application/json": components["schemas"]["BackgroundOperation"];
             };
         };
-        /** @description Mutation was queued as an asynchronous job. */
-        AsyncJob: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["Job"];
-            };
-        };
         /** @description The requested media derivative cannot be generated for this file. */
         UnsupportedMedia: {
             headers: {
@@ -2211,7 +2037,7 @@ export interface components {
     parameters: {
         /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
         CSRF: string;
-        /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation or legacy job as documented by the endpoint. */
+        /** @description Set to respond-async to accept the mutation asynchronously; poll the returned durable operation as documented by the endpoint. */
         PreferAsync: "respond-async";
     };
     requestBodies: never;

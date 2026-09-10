@@ -69,23 +69,9 @@ The API will support a hybrid model to provide both speed for fast operations an
     *   **Response:** `202 Accepted` with a Job object in the body, containing a unique `id` for polling.
     *   **Use Case:** The recommended method for any potentially long-running operation (`relinkall`, batch operations on thousands of files) or for applications that must remain responsive (e.g., GUIs).
 
-### 4.3. Job Management API
+### 4.3. Durable Operation API
 
-*   **Job Object:** A job will be represented by a JSON object:
-    ```json
-    {
-      "id": "uuid-string-123",
-      "type": "relink", // The type of job that was started
-      "status": "pending" | "running" | "completed" | "failed" | "canceled",
-      "progress": 0.75, // Optional, float between 0.0 and 1.0
-      "submitted_at": "iso8601-timestamp",
-      "result": { ... }, // Present on 'completed' status
-      "error": "error message string" // Present on 'failed' status
-    }
-    ```
-
-*   **Endpoint:** `GET /api/v1/jobs/{job_id}`
-    *   This endpoint allows a client to poll for the status of an asynchronous job. It returns the full Job object.
+Long-running user-visible work is represented by durable operations. Clients can list operations, inspect one operation, and cancel active work through `/api/v1/operations`. Operation state and aggregate progress survive server restarts; internal task/attempt rows are not exposed as top-level jobs.
 
 ### 4.4. API Endpoint Specification (v1)
 
@@ -119,17 +105,17 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 *   `GET /api/v1/upload-targets`: Lists configured upload target IDs and names without exposing filesystem paths.
 *   `POST /api/v1/uploads`: Uploads files into a configured upload target and imports them. Multipart requests use `target_id`, `files`, and optional initial `tags`; same-name conflicts follow the server-side `uploads.conflict_policy`.
 
-#### Jobs (Long-Running Operations)
+#### Durable Operations
 
-*   `GET /api/v1/jobs`: Lists jobs, optionally filtered by status.
-*   `GET /api/v1/jobs/{job_id}`: Gets the status of any async job.
-*   `DELETE /api/v1/jobs/{job_id}`: Cancels a pending/running job where possible.
-*   `DELETE /api/v1/jobs?status=completed`: Clears finished jobs for the requested status.
+*   `GET /api/v1/operations`: Lists visible durable operations.
+*   `GET /api/v1/operations/{operation_id}`: Gets aggregate durable operation state and a completed result when available.
+*   `DELETE /api/v1/operations/{operation_id}`: Cancels active operation work where possible.
+
 
 ## 5. Edge Cases & Unresolved Questions
 
-*   **Server Crash:** If the `gooru serve` process crashes, all in-memory state (including the job queue) is lost. Running jobs (goroutines) are terminated.
-*   **Database Locking:** The in-memory job manager bounds mutation concurrency but is not a durable queue. Later database/session work may replace parts of this model.
+*   **Server Crash:** Durable operation/task state survives process crashes and is reconciled on restart; expired leases are recovered and retryable work can continue safely.
+*   **Database Locking:** Durable admission and resource-class scheduling bound backlog/execution without depending on an in-memory queue.
 *   **Invalid API Input:** Endpoints will return `400 Bad Request` with a clear JSON error message detailing the validation failure.
 *   **Pagination:** The public page-token shape is intentionally stable and currently uses opaque offset tokens backed by bounded database queries.
 *   **Media Metadata:** DTOs include a metadata object with optional image/video/audio fields. Browse and detail responses read cached metadata and do not synchronously probe media files in result construction.

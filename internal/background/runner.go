@@ -95,8 +95,8 @@ func NewRunner(cfg RunnerConfig) (*Runner, error) {
 }
 
 // Run recovers expired work once at startup and then continuously claims work from one
-// resource class until ctx is canceled. Existing HTTP JobManager behavior is intentionally
-// outside this boundary; callers can migrate producers/consumers independently.
+// resource class until ctx is canceled. Resource-class ownership keeps scheduling concerns
+// independent from the user-visible durable operation lifecycle.
 func (r *Runner) Run(ctx context.Context) error {
 	if _, err := r.store.RecoverExpiredBackgroundTaskLeases(r.now()); err != nil {
 		return fmt.Errorf("recover expired background work: %w", err)
