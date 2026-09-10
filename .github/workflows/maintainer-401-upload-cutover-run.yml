@@ -21,18 +21,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$(git log -1 --pretty=%s)" != "chore: run #401 upload cutover patch" ]]; then
+          if [[ "$(git log -1 --pretty=%s)" != "chore: retry #401 upload cutover patch" ]]; then
             echo "Not the kickoff commit; nothing to do."
             exit 0
           fi
           python3 .github/maintainer-401-upload-cutover.py
+          python3 .github/maintainer-401-upload-cutover-fixes.py
           gofmt -w internal/serve/uploads.go internal/serve/config.go internal/serve/background_operations.go internal/serve/background_operations_test.go internal/serve/uploads_test.go internal/serve/config_test.go
           npm --prefix frontend ci
           npm --prefix frontend run generate:api
           go test ./internal/serve
           npm --prefix frontend run check
           npm --prefix frontend run test:unit
-          rm .github/maintainer-401-upload-cutover.py .github/workflows/maintainer-401-upload-cutover-run.yml
+          rm .github/maintainer-401-upload-cutover.py .github/maintainer-401-upload-cutover-fixes.py .github/workflows/maintainer-401-upload-cutover-run.yml
           git status --short
           git add -A
           git config user.name 'fiso64'
