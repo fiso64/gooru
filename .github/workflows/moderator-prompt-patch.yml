@@ -9,8 +9,8 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Add temporary moderator prompt patch'
-    runs-on: ubuntu-latest
+    if: github.event.head_commit.message == 'Retry moderator prompt patch'
+    runs-on: gooru-moderator
     steps:
       - name: Patch one sentence
         env:
@@ -19,9 +19,8 @@ jobs:
         run: |
           set -euo pipefail
           path='.github/maintainer-prompt.md'
-          meta="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=develop")"
-          sha="$(printf '%s' "$meta" | jq -r '.sha')"
-          content="$(printf '%s' "$meta" | jq -r '.content' | base64 -d)"
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=develop" --jq '.sha')"
+          content="$(gh api -H 'Accept: application/vnd.github.raw+json' "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=develop")"
           old='The dedicated moderator runner performs a mechanical full reconciliation on relevant repository events and every 15 minutes.'
           new='The dedicated moderator runner applies targeted updates on relevant repository events and performs a mechanical full reconciliation every 15 minutes.'
           [[ "$content" == *"$old"* ]]
