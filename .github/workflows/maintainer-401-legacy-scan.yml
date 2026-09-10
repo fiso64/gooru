@@ -1,0 +1,23 @@
+name: Maintainer 401 legacy scan
+
+on:
+  push:
+    branches:
+      - maintainer/401-remove-legacy-jobs
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan legacy job references
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== LEGACY JOB SYMBOLS ==='
+          rg -n --hidden --glob '!.git/**' --glob '!.github/workflows/maintainer-401-legacy-scan.yml' 'JobManager|NewJobManager|s\.jobs|/api/v1/jobs|JobStatus|JobListResponse|ErrJobQueueFull|writeJobSubmitError|Jobs\.' . || true
+          echo '=== JOB CONFIG KEYS ==='
+          rg -n --hidden --glob '!.git/**' --glob '!.github/workflows/maintainer-401-legacy-scan.yml' 'completed_ttl|max_queued|max_running|max_result_bytes|jobs:' . || true
