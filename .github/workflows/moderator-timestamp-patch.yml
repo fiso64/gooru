@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'Retry moderator freshness timestamp patch'
+    if: github.event.head_commit.message == 'Retry freshness patch with bash only'
     runs-on: gooru-moderator
     env:
       GH_TOKEN: ${{ github.token }}
@@ -36,34 +36,33 @@ jobs:
             fi
 
             if [[ "$line" == '          fetch_item_meta() {' ]]; then
-              cat >> /tmp/moderator.new.yml <<'PATCH_HELPER'
-          stamp_index_update() {
-            local file="$1" now line found=false
-            now="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            : >"${file}.new"
-            while IFS= read -r line || [[ -n "$line" ]]; do
-              if [[ "$line" == '**Last index update:** '* ]]; then
-                printf '**Last index update:** %s\n' "$now" >>"${file}.new"
-                found=true
-                continue
-              fi
-              if [[ "$line" == '**Last full reconcile:** '* && "$found" != true ]]; then
-                printf '**Last index update:** %s\n' "$now" >>"${file}.new"
-                found=true
-              fi
-              printf '%s\n' "$line" >>"${file}.new"
-            done <"$file"
-            [[ "$found" == true ]]
-            mv "${file}.new" "$file"
-          }
-
-PATCH_HELPER
+              printf '%s\n' \
+                '          stamp_index_update() {' \
+                '            local file="$1" now line found=false' \
+                '            now="$(date -u +''%Y-%m-%dT%H:%M:%SZ'')"' \
+                '            : >"${file}.new"' \
+                '            while IFS= read -r line || [[ -n "$line" ]]; do' \
+                '              if [[ "$line" == ''**Last index update:** ''* ]]; then' \
+                '                printf ''**Last index update:** %s\n'' "$now" >>"${file}.new"' \
+                '                found=true' \
+                '                continue' \
+                '              fi' \
+                '              if [[ "$line" == ''**Last full reconcile:** ''* && "$found" != true ]]; then' \
+                '                printf ''**Last index update:** %s\n'' "$now" >>"${file}.new"' \
+                '                found=true' \
+                '              fi' \
+                '              printf ''%s\n'' "$line" >>"${file}.new"' \
+                '            done <"$file"' \
+                '            [[ "$found" == true ]]' \
+                '            mv "${file}.new" "$file"' \
+                '          }' \
+                '' >> /tmp/moderator.new.yml
               inserted_helper=true
             fi
 
             if [[ "$line" == '            body+="**Last full reconcile:** ${now}"' ]]; then
               printf '%s\n' '            body+="**Last index update:** ${now}"' >> /tmp/moderator.new.yml
-              printf '%s\n' "            body+=\$'\\n'" >> /tmp/moderator.new.yml
+              printf '%s\n' '            body+=$''\n''' >> /tmp/moderator.new.yml
               inserted_full_stamp=true
             fi
 
@@ -102,7 +101,6 @@ PATCH_HELPER
             -f sha="$prompt_sha" \
             -f branch=develop >/dev/null
 
-          # Force GitHub to re-register the schedule, then seed the new timestamp schema.
           gh api --method PUT "repos/${repo}/actions/workflows/lock-maintainer-threads.yml/disable" >/dev/null
           gh api --method PUT "repos/${repo}/actions/workflows/lock-maintainer-threads.yml/enable" >/dev/null
           gh api --method POST "repos/${repo}/actions/workflows/lock-maintainer-threads.yml/dispatches" -f ref=develop >/dev/null
