@@ -1,4 +1,4 @@
-name: Maintainer 401 transformed accent probe
+name: Maintainer 401 browser cleanup comparison
 
 on:
   push:
@@ -6,23 +6,108 @@ on:
       - maintainer/401-remove-job-manager
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  probe:
-    if: "github.event.head_commit.message == 'chore: isolate #401 accent transform failure'"
+  compare:
+    if: "github.event.head_commit.message == 'chore: rerun #401 browser cleanup comparison'"
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: maintainer/401-remove-job-manager
-      - name: Apply cleanup
-        run: python3 .github/maintainer-401-browser-cleanup.py
       - name: Install frontend dependencies
         working-directory: frontend
         run: |
           npm ci --prefer-offline --no-audit
           npx playwright install chromium
-      - name: Repeat transformed accent regression
-        working-directory: frontend
-        run: npx playwright test tests/accent-controls.spec.ts --repeat-each=5
+      - name: Capture affected browser baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git grep -l '/api/v1/jobs' -- 'frontend/tests/*.spec.ts' | sed 's#^frontend/##' > /tmp/affected-specs.txt
+          echo "Affected specs: $(wc -l < /tmp/affected-specs.txt)"
+          cd frontend
+          set +e
+          npx playwright test $(cat /tmp/affected-specs.txt) --reporter=json > /tmp/baseline.json
+          baseline_status=$?
+          set -e
+          echo "baseline_status=$baseline_status"
+      - name: Apply browser/spec compatibility cleanup
+        run: python3 .github/maintainer-401-browser-cleanup.py
+      - name: Verify stale compatibility is gone
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git grep -n -E 'JobManager|/api/v1/jobs|JobsConfig|AsyncJob|JobListResponse|clearJobs|legacy job|in-memory job' -- \
+            ':!.github/maintainer-401-browser-cleanup.py' \
+            ':!.github/workflows/maintainer-401-stale-jobs-audit.yml'; then
+            echo 'stale legacy job compatibility remains' >&2
+            exit 1
+          fi
+          git grep -n 'job_queue_full' -- internal/serve frontend/src
+      - name: Compare transformed affected browser suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd frontend
+          set +e
+          npx playwright test $(cat /tmp/affected-specs.txt) --reporter=json > /tmp/transformed.json
+          transformed_status=$?
+          set -e
+          echo "transformed_status=$transformed_status"
+          python3 - <<'PY'
+          import json
+
+          def failed_specs(path):
+              data = json.load(open(path, encoding='utf-8'))
+              failed = set()
+              def walk(suite):
+                  for spec in suite.get('specs', []):
+                      if any(result.get('status') in {'failed', 'timedOut', 'interrupted'}
+                             for test in spec.get('tests', [])
+                             for result in test.get('results', [])):
+                          failed.add(f"{spec.get('file','')}::{spec.get('title','')}")
+                  for child in suite.get('suites', []):
+                      walk(child)
+              for suite in data.get('suites', []):
+                  walk(suite)
+              return failed
+
+          baseline = failed_specs('/tmp/baseline.json')
+          transformed = failed_specs('/tmp/transformed.json')
+          new = sorted(transformed - baseline)
+          fixed = sorted(baseline - transformed)
+          print('baseline failures:', len(baseline))
+          for item in sorted(baseline): print('BASE', item)
+          print('transformed failures:', len(transformed))
+          for item in sorted(transformed): print('XFORM', item)
+          print('fixed after transform:', len(fixed))
+          for item in fixed: print('FIXED', item)
+          if new:
+              print('new failures introduced by transform:', len(new))
+              for item in new: print('NEW', item)
+              raise SystemExit(1)
+          PY
+      - name: Validate transformed Go and frontend contracts
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          go test -count=1 ./...
+          go build ./...
+          cd frontend
+          npm run check
+          npm run test:unit
+      - name: Validate diff and commit cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          git config user.name fiso64
+          git config user.email 64778819+fiso64@users.noreply.github.com
+          git add frontend spec
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'cleanup produced no changes' >&2; exit 1; }
+          git commit -m 'test: remove legacy job compatibility fixtures'
+          git push origin HEAD:maintainer/401-remove-job-manager
