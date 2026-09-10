@@ -17,8 +17,18 @@ export type SavedSearch = components['schemas']['SavedSearch'];
 export type SavedSearchesResponse = components['schemas']['SavedSearchesResponse'];
 export type TagMutationOperation = components['schemas']['TagMutationResponse']['operation'];
 export type TagMutationResponse = components['schemas']['TagMutationResponse'];
-export type Job = components['schemas']['Job'];
-export type JobListResponse = components['schemas']['JobListResponse'];
+export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+export interface Job {
+  id: string;
+  type: string;
+  status: JobStatus;
+  progress?: number;
+  submitted_at: string;
+  started_at?: string;
+  finished_at?: string;
+  result?: unknown;
+  error?: string;
+}
 export type UploadImportResponse = components['schemas']['UploadImportResponse'];
 export type UploadTargetsResponse = components['schemas']['UploadTargetsResponse'];
 export type AuthUser = components['schemas']['User'];

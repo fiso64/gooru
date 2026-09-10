@@ -16,7 +16,6 @@ const metadataRequestBodyLimit int64 = 1 << 20
 
 type Server struct {
 	cfg                  Config
-	jobs                 *JobManager
 	library              Library
 	media                *MediaService
 	meta                 MediaMetadataProvider
@@ -56,7 +55,6 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	}
 	return &Server{
 		cfg:                  cfg,
-		jobs:                 NewJobManagerWithLimits(cfg.Jobs.MaxQueued, cfg.Jobs.MaxRunning, cfg.Jobs.MaxResultBytes, cfg.Jobs.CompletedTTL),
 		library:              library,
 		media:                media,
 		meta:                 metadata,
@@ -108,8 +106,6 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
 	mux.Handle("/api/v1/operations", s.adminProtected(http.HandlerFunc(s.handleOperations)))
 	mux.Handle("/api/v1/operations/", s.adminProtected(http.HandlerFunc(s.handleOperation)))
-	mux.Handle("/api/v1/jobs", s.adminProtected(http.HandlerFunc(s.handleJobs)))
-	mux.Handle("/api/v1/jobs/", s.adminProtected(http.HandlerFunc(s.handleJob)))
 	mux.HandleFunc("/", s.handleFrontend)
 
 	var h http.Handler = mux
@@ -178,90 +174,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type JobListResponse struct {
-	Items         []*Job `json:"items"`
-	ActiveCount   int    `json:"active_count"`
-	NextPageToken string `json:"next_page_token,omitempty"`
-}
-
-func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
-	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	if status != "" && !JobStatus(status).Valid() {
-		writeError(w, http.StatusBadRequest, "invalid_request", "status is invalid", nil)
-		return
-	}
-	ids, err := jobIDsFromQuery(r.URL.Query())
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
-		return
-	}
-	switch r.Method {
-	case http.MethodGet:
-		if len(ids) > 0 {
-			writeJSON(w, http.StatusOK, JobListResponse{Items: s.jobs.ListIDs(ids, status), ActiveCount: s.jobs.ActiveCount()})
-			return
-		}
-		page, err := ParsePage(r.URL.Query().Get("limit"), r.URL.Query().Get("page_token"))
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
-			return
-		}
-		result, activeCount := s.jobs.ListPage(status, page)
-		writeJSON(w, http.StatusOK, JobListResponse{Items: result.Items, ActiveCount: activeCount, NextPageToken: result.NextPageToken})
-	case http.MethodDelete:
-		if len(ids) > 0 {
-			writeError(w, http.StatusBadRequest, "invalid_request", "job id filtering is only supported for GET", nil)
-			return
-		}
-		if status == "" {
-			status = string(JobCompleted)
-		}
-		if status == string(JobPending) || status == string(JobRunning) {
-			writeError(w, http.StatusBadRequest, "invalid_request", "only finished jobs can be cleared", nil)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]int{"removed": s.jobs.Clear(status)})
-	default:
-		w.Header().Set("Allow", "GET, DELETE")
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
-	}
-}
-
-func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/v1/jobs/")
-	if id == "" || strings.Contains(id, "/") {
-		writeError(w, http.StatusNotFound, "not_found", "job not found", nil)
-		return
-	}
-	switch r.Method {
-	case http.MethodGet:
-		s.handleGetJob(w, r, id)
-	case http.MethodDelete:
-		s.handleCancelJob(w, r, id)
-	default:
-		w.Header().Set("Allow", "GET, DELETE")
-		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
-	}
-}
-
-func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request, id string) {
-	job, ok := s.jobs.Get(id)
-	if !ok {
-		writeError(w, http.StatusNotFound, "not_found", "job not found", nil)
-		return
-	}
-	writeJSON(w, http.StatusOK, job)
-}
-
-func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request, id string) {
-	job, ok := s.jobs.Cancel(id)
-	if !ok {
-		writeError(w, http.StatusNotFound, "not_found", "job not found", nil)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, job)
-}
-
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		writeError(w, http.StatusNotFound, "not_found", "route not found", nil)
@@ -311,25 +223,6 @@ func contentSecurityPolicy(scriptHashes []string) string {
 	return "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; " + scriptSrc + "; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 }
 
-func writeJobSubmitError(w http.ResponseWriter, err error, fallback string) bool {
-	switch {
-	case errors.Is(err, ErrJobQueueFull):
-		writeError(w, http.StatusServiceUnavailable, "job_queue_full", "job queue is full", nil)
-		return true
-	case errors.Is(err, context.Canceled):
-		writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
-		return true
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", fallback, nil)
-		return true
-	}
-}
-
-// requestReadTimeoutMiddleware treats ServerConfig.ReadTimeout as an inactivity
-// limit for request bodies. http.Server.ReadTimeout is an absolute deadline from
-// accept through the entire body, which makes healthy large uploads fail merely
-// because they take longer than the timeout. Header reads retain the same hard
-// limit through ReadHeaderTimeout; each body read refreshes the network deadline.
 func requestReadTimeoutMiddleware(timeout time.Duration, next http.Handler) http.Handler {
 	if timeout <= 0 {
 		return next

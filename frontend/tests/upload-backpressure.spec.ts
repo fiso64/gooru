@@ -13,14 +13,16 @@ function uploadResult(name: string) {
   };
 }
 
-function jobResponse(id: string, completed: boolean) {
+function operationResponse(id: string, completed: boolean) {
   const name = id.replace(/^job-/, '');
   return {
     id,
-    type: 'upload_import',
+    kind: 'upload_import',
     status: completed ? 'completed' : 'pending',
-    progress: completed ? 1 : 0,
-    submitted_at: '2026-09-07T00:00:00Z',
+    progress_total: 1,
+    progress_completed: completed ? 1 : 0,
+    progress_failed: 0,
+    created_at: '2026-09-07T00:00:00Z',
     ...(completed ? {
       finished_at: '2026-09-07T00:00:01Z',
       result: uploadResult(name)
@@ -44,13 +46,12 @@ async function mockApp(page: Page, jobsCompleted: () => boolean) {
     contentType: 'application/json',
     body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
   }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) }));
-  await page.route('**/api/v1/jobs?**', async (route) => {
+  await page.route('**/api/v1/operations?**', async (route) => {
     const ids = new URL(route.request().url()).searchParams.getAll('id');
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify(ids.length
-        ? { items: ids.map((id) => jobResponse(id, jobsCompleted())) }
+        ? { items: ids.map((id) => operationResponse(id, jobsCompleted())) }
         : { items: [], active_count: 0 })
     });
   });
@@ -90,7 +91,7 @@ test('large upload pauses admission while accepted import jobs remain pending', 
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify(jobResponse(`job-${name}`, false))
+      body: JSON.stringify(operationResponse(`job-${name}`, false))
     });
   });
 
@@ -108,7 +109,7 @@ test('large upload pauses admission while accepted import jobs remain pending', 
   await expect(page.locator('.upload-row .status').filter({ hasText: 'imported' })).toHaveCount(70, { timeout: 5000 });
 });
 
-test('job queue full is transient backpressure instead of a failed upload', async ({ page }) => {
+test('durable admission saturation is transient backpressure instead of a failed upload', async ({ page }) => {
   await mockApp(page, () => true);
 
   let requestCount = 0;
@@ -126,7 +127,7 @@ test('job queue full is transient backpressure instead of a failed upload', asyn
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify(jobResponse(`job-${name}`, false))
+      body: JSON.stringify(operationResponse(`job-${name}`, false))
     });
   });
 

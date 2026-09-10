@@ -171,32 +171,6 @@ describe('ApiClient', () => {
     setUnauthorizedHandler(undefined);
   });
 
-  it('fetches jobs with cookies and cancels with CSRF', async () => {
-    const requests: Array<{ url: string; method?: string; headers: Headers }> = [];
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = new Request(input, init);
-      requests.push({
-        url: relativeURL(request.url),
-        method: request.method === 'GET' ? undefined : request.method,
-        headers: request.headers
-      });
-      return Response.json({ id: 'job-one', type: 'upload_import', status: 'canceled' });
-    }) as typeof fetch;
-
-    const client = new ApiClient('secret-token');
-    await client.getJob('job-one');
-    await client.cancelJob('job-one');
-
-    expect(requests).toHaveLength(2);
-    expect(requests[0].url).toBe('/api/v1/jobs/job-one');
-    expect(requests[0].method).toBeUndefined();
-    expect(requests[0].headers.get('Authorization')).toBeNull();
-    expect(requests[0].headers.get('X-Gooru-CSRF')).toBeNull();
-    expect(requests[1].url).toBe('/api/v1/jobs/job-one');
-    expect(requests[1].method).toBe('DELETE');
-    expect(requests[1].headers.get('Authorization')).toBeNull();
-    expect(requests[1].headers.get('X-Gooru-CSRF')).toBe('secret-token');
-  });
 });
 
 interface FakeXHRConfig {

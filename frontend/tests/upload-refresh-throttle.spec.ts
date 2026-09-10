@@ -13,14 +13,16 @@ function uploadResult(name: string) {
   };
 }
 
-function jobResponse(id: string, completed: boolean) {
+function operationResponse(id: string, completed: boolean) {
   const name = id.replace(/^job-/, '');
   return {
     id,
-    type: 'upload_import',
+    kind: 'upload_import',
     status: completed ? 'completed' : 'pending',
-    progress: completed ? 1 : 0,
-    submitted_at: '2026-09-07T00:00:00Z',
+    progress_total: 1,
+    progress_completed: completed ? 1 : 0,
+    progress_failed: 0,
+    created_at: '2026-09-07T00:00:00Z',
     ...(completed ? {
       finished_at: '2026-09-07T00:00:01Z',
       result: uploadResult(name)
@@ -56,11 +58,7 @@ async function mockApp(page: Page) {
       })
     });
   });
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({ items: [], active_count: 0 })
-  }));
-  await page.route('**/api/v1/jobs?**', async (route) => {
+  await page.route('**/api/v1/operations?**', async (route) => {
     const ids = new URL(route.request().url()).searchParams.getAll('id');
     if (!ids.length) {
       await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], active_count: 0 }) });
@@ -71,7 +69,7 @@ async function mockApp(page: Page) {
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
-        items: ids.map((id, index) => jobResponse(id, index < completeCount))
+        items: ids.map((id, index) => operationResponse(id, index < completeCount))
       })
     });
   });
@@ -94,7 +92,7 @@ async function mockApp(page: Page) {
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify(jobResponse(`job-${name}`, false))
+      body: JSON.stringify(operationResponse(`job-${name}`, false))
     });
   });
 

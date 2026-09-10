@@ -34,7 +34,6 @@ async function mockApp(page: Page, fileQueries: string[]) {
     });
   });
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
 }
 
 test('common tags rank visually, persist collapse state, and run a tag search', async ({ page }) => {

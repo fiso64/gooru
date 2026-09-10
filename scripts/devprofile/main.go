@@ -163,6 +163,7 @@ uploads:
       name: "Dev uploads"
       path: %q
   max_file_size_bytes: 104857600
+  max_queued: 100
   conflict_policy: "rename"
 
 media:
@@ -171,11 +172,6 @@ media:
   thumbnail_format: "jpeg"
   preview_size: 1280
 
-jobs:
-  completed_ttl: "1h"
-  max_queued: 100
-  max_running: 2
-  max_result_bytes: 10485760
 
 tools:
   ffmpeg_path: "ffmpeg"

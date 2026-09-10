@@ -17,7 +17,6 @@ async function mockApp(page: Page) {
     loggedIn = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ items: [{ id: 'saved-one', name: 'Favorites', query: 'rating:5', sort: 'created', order: 'desc' }] })

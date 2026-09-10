@@ -65,8 +65,9 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | `uploads.enabled` | `false` | Enable browser/API uploads. Enabling uploads requires at least one valid target. |
 | `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, `path`, and optional `added_at_strategy`. |
 | `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
+| `uploads.max_queued` | `100` | Maximum number of durable upload operations admitted but not yet completed. Must be positive. |
 | `uploads.preserve_modtime` | `true` | Preserve each browser-uploaded file's source modification timestamp on the stored destination. Source timestamps are still carried through upload processing when disabled. |
-| `uploads.conflict_policy` | `skip` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
+| `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
 
 Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `added_at_strategy`. The strategy defaults to `queue` and accepts `queue`, `reverse_queue`, or `modtime`.
 
@@ -94,6 +95,7 @@ uploads:
         - project:inbox
         - source:upload
   max_file_size_bytes: 104857600
+  max_queued: 100
   preserve_modtime: true
   conflict_policy: skip
 ```
@@ -109,14 +111,6 @@ uploads:
 | `media.preview_enabled` | `true` | Generate and serve derived viewer previews. When disabled, preview requests fall back to original media and the WebUI treats original media as the only viewer source. Grid thumbnails remain enabled. |
 | `media.preview_jpeg_quality` | `92` | JPEG quality for generated viewer previews, from `1` to `100`. This does not change grid-thumbnail JPEG quality. |
 
-## `jobs`
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `jobs.completed_ttl` | `1h` | How long completed/failed/canceled in-memory jobs are retained. Go duration; must be positive. |
-| `jobs.max_queued` | `100` | Maximum number of pending jobs. Must be positive. |
-| `jobs.max_running` | `2` | Maximum number of concurrently running jobs. Must be positive. |
-| `jobs.max_result_bytes` | `10485760` (10 MiB) | Maximum result payload retained for a completed in-memory job. Oversized results are omitted from retained job state without changing a successful job to failed; synchronous API calls still receive their immediate result. Must be positive. |
 
 ## `tools`
 
@@ -189,6 +183,7 @@ uploads:
       path: /srv/gooru/incoming
       added_at_strategy: queue
   max_file_size_bytes: 104857600
+  max_queued: 100
   preserve_modtime: true
   conflict_policy: skip
 
@@ -200,11 +195,6 @@ media:
   preview_enabled: true
   preview_jpeg_quality: 92
 
-jobs:
-  completed_ttl: 1h
-  max_queued: 100
-  max_running: 2
-  max_result_bytes: 10485760
 
 tools:
   ffmpeg_path: ffmpeg

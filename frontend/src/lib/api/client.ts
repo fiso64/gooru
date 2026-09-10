@@ -11,8 +11,6 @@ import type {
   FileListResponse,
   FileRemovalRequest,
   FileRemovalResponse,
-  Job,
-  JobListResponse,
   NamespacesResponse,
   SavedSearch,
   SavedSearchRequest,
@@ -28,8 +26,6 @@ import type {
 
 type FileSort = 'added' | 'name' | 'modified' | 'size' | 'kind';
 type SortOrder = 'asc' | 'desc';
-type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
-type ClearableJobStatus = 'completed' | 'failed' | 'canceled';
 
 export class ApiError extends Error {
   code: string;
@@ -255,22 +251,9 @@ export class ApiClient {
     });
   }
 
-  async getJob(id: string): Promise<Job> {
-    return this.unwrap(this.client.GET('/jobs/{id}', { params: { path: { id } } }));
-  }
 
-  async listJobs(status: JobStatus | '' = ''): Promise<JobListResponse> {
-    return this.unwrap(this.client.GET('/jobs', { params: { query: { status: status || undefined } } }));
-  }
 
-  async cancelJob(id: string): Promise<Job> {
-    return this.unwrap(this.client.DELETE('/jobs/{id}', { params: { header: this.csrfHeaderParam('DELETE'), path: { id } } }));
-  }
 
-  async clearJobs(status = 'completed'): Promise<{ removed: number }> {
-    const clearStatus = (['completed', 'failed', 'canceled'].includes(status) ? status : 'completed') as ClearableJobStatus;
-    return this.unwrap(this.client.DELETE('/jobs', { params: { header: this.csrfHeaderParam('DELETE'), query: { status: clearStatus } } }));
-  }
 
   private csrfHeaderParam(method: string): { 'X-Gooru-CSRF': string } {
     return { 'X-Gooru-CSRF': isMutatingMethod(method) ? this.csrfToken : '' };
