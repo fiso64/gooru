@@ -137,16 +137,12 @@ jobs:
           for item in "${items[@]}"; do
             IFS=$'\t' read -r number kind <<<"$item"
 
-            IFS=$'\t' read -r locked title labels_md item_app item_created marker <<<"$(
-              api "repos/${REPO}/issues/${number}" --jq '[
-                (.locked|tostring),
-                .title,
-                (if (.labels|length) == 0 then "no labels" else ([.labels[].name | "`" + . + "`"] | join(", ")) end),
-                (.performed_via_github_app.slug // "-"),
-                .created_at,
-                (((.body // "") | startswith("<!-- autonomous-maintainer-created-issue -->")) | tostring)
-              ] | @tsv'
-            )"
+            locked="$(api "repos/${REPO}/issues/${number}" --jq '.locked')"
+            title="$(api "repos/${REPO}/issues/${number}" --jq '.title')"
+            labels_md="$(api "repos/${REPO}/issues/${number}" --jq 'if (.labels|length) == 0 then "no labels" else ([.labels[].name | "`" + . + "`"] | join(", ")) end')"
+            item_app="$(api "repos/${REPO}/issues/${number}" --jq '.performed_via_github_app.slug // "-"')"
+            item_created="$(api "repos/${REPO}/issues/${number}" --jq '.created_at')"
+            marker="$(api "repos/${REPO}/issues/${number}" --jq '((.body // "") | startswith("<!-- autonomous-maintainer-created-issue -->"))')"
 
             if [[ "$locked" != true ]]; then
               api --method PUT "repos/${REPO}/issues/${number}/lock" >/dev/null
