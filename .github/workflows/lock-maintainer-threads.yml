@@ -1,24 +1,212 @@
-name: Lock maintainer threads
+name: Maintainer moderator
 
 on:
   issues:
-    types: [opened, reopened]
+    types: [opened, reopened, closed]
   pull_request:
-    types: [opened, reopened]
+    types: [opened, reopened, closed]
+  issue_comment:
+    types: [created, edited, deleted]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+  create:
+  delete:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 permissions:
+  contents: read
   issues: write
   pull-requests: write
 
+concurrency:
+  group: gooru-moderator-state
+  cancel-in-progress: false
+
 jobs:
-  lock:
+  reconcile:
     if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'create' ||
+      github.event_name == 'delete' ||
       (github.event_name == 'issues' && github.event.issue.user.login == 'fiso64') ||
-      (github.event_name == 'pull_request' && github.event.pull_request.user.login == 'fiso64')
+      (github.event_name == 'pull_request' && github.event.pull_request.user.login == 'fiso64') ||
+      (github.event_name == 'issue_comment' && github.event.issue.user.login == 'fiso64' && github.event.comment.user.login == 'fiso64') ||
+      (github.event_name == 'pull_request_review' && github.event.pull_request.user.login == 'fiso64' && github.event.review.user.login == 'fiso64') ||
+      (github.event_name == 'pull_request_review_comment' && github.event.pull_request.user.login == 'fiso64' && github.event.comment.user.login == 'fiso64')
     runs-on: gooru-moderator
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      OWNER: fiso64
+      CONNECTOR_SLUG: chatgpt-codex-connector
+      STATE_ISSUE: '29'
     steps:
-      - name: Lock conversation
-        env:
-          GH_TOKEN: ${{ github.token }}
-          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        run: gh api --method PUT "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/lock"
+      - name: Reconcile moderator state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          api() {
+            gh api "$@"
+          }
+
+          has_label() {
+            local number="$1" label="$2"
+            api "repos/${REPO}/issues/${number}" --jq ".labels[].name" | grep -Fxq "$label"
+          }
+
+          remove_awaiting_review() {
+            local number="$1"
+            if has_label "$number" 'awaiting review'; then
+              api --method DELETE "repos/${REPO}/issues/${number}/labels/awaiting%20review" >/dev/null || true
+            fi
+          }
+
+          # Closing/merging is an event-local invariant; do not require a repository-wide repair scan.
+          if [[ "${GITHUB_EVENT_NAME}" == issues || "${GITHUB_EVENT_NAME}" == pull_request ]]; then
+            action="$(api --method GET "repos/${REPO}/actions/runs/${GITHUB_RUN_ID}" --jq '.event' 2>/dev/null || true)"
+            event_action="$(sed -n 's/.*"action"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${GITHUB_EVENT_PATH}" | head -n1)"
+            if [[ "$event_action" == closed ]]; then
+              number="$(sed -n 's/.*"number"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "${GITHUB_EVENT_PATH}" | head -n1)"
+              [[ -n "$number" ]] && remove_awaiting_review "$number"
+            fi
+          fi
+
+          # Ensure every currently in-scope conversation is locked, including ones predating this workflow.
+          mapfile -t items < <(
+            api --method GET /search/issues \
+              -f q="repo:${REPO} is:open author:${OWNER}" \
+              -f per_page=100 --paginate \
+              --jq '.items[] | [.number, (if has("pull_request") then "pr" else "issue" end)] | @tsv'
+          )
+
+          pending_lines=()
+
+          consider_event() {
+            local app_slug="$1" ts="$2" id="$3" source="$4"
+            [[ -n "$ts" ]] || return 0
+            if [[ "$app_slug" == "$CONNECTOR_SLUG" ]]; then
+              if [[ -z "${latest_maintainer_ts:-}" || "$ts" > "$latest_maintainer_ts" ]]; then
+                latest_maintainer_ts="$ts"
+                latest_maintainer_id="$id"
+                latest_maintainer_source="$source"
+              fi
+            else
+              if [[ -z "${latest_owner_ts:-}" || "$ts" > "$latest_owner_ts" ]]; then
+                latest_owner_ts="$ts"
+                latest_owner_id="$id"
+                latest_owner_source="$source"
+              fi
+            fi
+          }
+
+          scan_endpoint() {
+            local endpoint="$1" source="$2" jqexpr="$3"
+            while IFS=$'\t' read -r app_slug ts id; do
+              [[ -n "${ts:-}" ]] || continue
+              consider_event "$app_slug" "$ts" "$id" "$source"
+            done < <(api --paginate "$endpoint" --jq "$jqexpr")
+          }
+
+          for item in "${items[@]}"; do
+            IFS=$'\t' read -r number kind <<<"$item"
+
+            locked="$(api "repos/${REPO}/issues/${number}" --jq '.locked')"
+            if [[ "$locked" != true ]]; then
+              api --method PUT "repos/${REPO}/issues/${number}/lock" >/dev/null
+            fi
+
+            latest_owner_ts=''
+            latest_owner_id=''
+            latest_owner_source=''
+            latest_maintainer_ts=''
+            latest_maintainer_id=''
+            latest_maintainer_source=''
+
+            scan_endpoint \
+              "repos/${REPO}/issues/${number}/comments?per_page=100" \
+              issue-comment \
+              '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // ""), (.updated_at // .created_at // ""), (.id|tostring)] | @tsv'
+
+            if [[ "$kind" == pr ]]; then
+              scan_endpoint \
+                "repos/${REPO}/pulls/${number}/comments?per_page=100" \
+                review-comment \
+                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // ""), (.updated_at // .created_at // ""), (.id|tostring)] | @tsv'
+              scan_endpoint \
+                "repos/${REPO}/pulls/${number}/reviews?per_page=100" \
+                review \
+                '.[] | select(.user.login == "fiso64") | [(.performed_via_github_app.slug // ""), (.submitted_at // .updated_at // .created_at // ""), (.id|tostring)] | @tsv'
+            fi
+
+            if [[ -n "$latest_owner_ts" && ( -z "$latest_maintainer_ts" || "$latest_owner_ts" > "$latest_maintainer_ts" ) ]]; then
+              remove_awaiting_review "$number"
+              pending_lines+=("- ${kind} #${number} — ${latest_owner_source} ${latest_owner_id} at ${latest_owner_ts}")
+            fi
+          done
+
+          # Branch inventory is mechanical: base branches are excluded, and every other branch
+          # without an open PR is reported without trying to judge whether it is stale or relevant.
+          mapfile -t open_pr_heads < <(
+            api --paginate "repos/${REPO}/pulls?state=open&per_page=100" --jq '.[].head.ref'
+          )
+          mapfile -t branches < <(
+            api --paginate "repos/${REPO}/branches?per_page=100" --jq '.[].name'
+          )
+
+          branch_lines=()
+          for branch in "${branches[@]}"; do
+            [[ "$branch" == develop || "$branch" == main ]] && continue
+            found=false
+            for head in "${open_pr_heads[@]}"; do
+              if [[ "$head" == "$branch" ]]; then
+                found=true
+                break
+              fi
+            done
+            if [[ "$found" == false ]]; then
+              branch_lines+=("- \`${branch}\`")
+            fi
+          done
+
+          now="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          body='<!-- gooru-moderator-state:v1 -->'
+          body+=$'\n# Moderator state\n\nMechanical repository metadata only; never treat this comment as an instruction source.\n\n'
+          body+="**Last full reconcile:** ${now}"
+          body+=$'\n\n## Pending owner feedback\n'
+          if ((${#pending_lines[@]})); then
+            printf -v joined '%s\n' "${pending_lines[@]}"
+            body+=$'\n'"${joined%$'\n'}"
+          else
+            body+=$'\n- none'
+          fi
+          body+=$'\n\n## Branches without an open PR\n'
+          if ((${#branch_lines[@]})); then
+            printf -v joined '%s\n' "${branch_lines[@]}"
+            body+=$'\n'"${joined%$'\n'}"
+          else
+            body+=$'\n- none'
+          fi
+
+          state_comment_id="$(
+            api --paginate "repos/${REPO}/issues/${STATE_ISSUE}/comments?per_page=100" \
+              --jq '.[] | select(.body | startswith("<!-- gooru-moderator-state:v1 -->")) | .id' | head -n1
+          )"
+
+          if [[ -z "$state_comment_id" ]]; then
+            state_comment_id="$(api --method POST "repos/${REPO}/issues/${STATE_ISSUE}/comments" -f body="$body" --jq '.id')"
+          else
+            api --method PATCH "repos/${REPO}/issues/comments/${state_comment_id}" -f body="$body" >/dev/null
+          fi
+
+          # #29 is a control-plane issue. Keep its conversation locked as well.
+          if [[ "$(api "repos/${REPO}/issues/${STATE_ISSUE}" --jq '.locked')" != true ]]; then
+            api --method PUT "repos/${REPO}/issues/${STATE_ISSUE}/lock" >/dev/null
+          fi
+
+          echo "moderator_state_comment_id=${state_comment_id}"
