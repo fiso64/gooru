@@ -1,0 +1,28 @@
+name: Maintainer 401 legacy jobs inventory
+
+on:
+  push:
+    branches:
+      - maintainer/401-remove-job-manager
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    if: "github.event.head_commit.message == 'chore: inventory #401 legacy jobs surfaces'"
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inventory legacy jobs surfaces
+        shell: bash
+        run: |
+          set +e
+          echo '=== TRACKED JOB-NAMED FILES ==='
+          git ls-files | grep -Ei '(^|/)(job|jobs)([^/]*)(/|\.|$)' || true
+          echo '=== LEGACY SYMBOLS ROUTES CONFIG FRONTEND SCHEMA ==='
+          git grep -n -E 'JobManager|/api/v1/jobs|s\.jobs|JobsConfig|JobConfig|AsyncJob|clearJob|job_queue|jobs:' -- ':!frontend/node_modules' || true
+          echo '=== SUBMIT CALLS ==='
+          git grep -n -E 'Submit\(' -- gooru internal cmd frontend docs || true
+          echo '=== QUEUE ERROR CONTRACTS ==='
+          git grep -n -E 'job_queue_full|ErrJobQueue|ErrBackgroundOperationPendingLimit' -- ':!frontend/node_modules' || true
