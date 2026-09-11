@@ -1,0 +1,187 @@
+name: E2E Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_count:
+        description: Number of top-level files (must be a multiple of 100)
+        required: true
+        default: '2000'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Mixed-media upload/delete smoke
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 90
+    env:
+      GOTOOLCHAIN: local
+      GOORU_SMOKE_USERNAME: smoke-admin
+      GOORU_SMOKE_TIMEOUT_MS: '2700000'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Resolve run paths
+        id: paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          count='${{ inputs.file_count }}'
+          if ! [[ "$count" =~ ^[1-9][0-9]*$ ]] || (( count % 100 != 0 )); then
+            echo "file_count must be a positive multiple of 100" >&2
+            exit 2
+          fi
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          artifact_dir="$GITHUB_WORKSPACE/artifacts/e2e-smoke/$stamp"
+          dataset_dir="$HOME/.cache/gooru/e2e-smoke/v1-$count"
+          run_dir="$RUNNER_TEMP/gooru-e2e-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$artifact_dir" "$run_dir"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          smoke_password="Sm0ke!$(node -e "process.stdout.write(require('crypto').randomBytes(24).toString('hex'))")"
+          echo "::add-mask::$smoke_password"
+          printf 'run_id=%s\nrun_attempt=%s\nfile_count=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$count" > "$artifact_dir/run.txt"
+          {
+            echo "GOORU_SMOKE_FILE_COUNT=$count"
+            echo "GOORU_SMOKE_PASSWORD=$smoke_password"
+            echo "GOORU_SMOKE_ARTIFACT_DIR=$artifact_dir"
+            echo "GOORU_SMOKE_DATASET_DIR=$dataset_dir"
+            echo "GOORU_SMOKE_RUN_DIR=$run_dir"
+            echo "GOORU_SMOKE_TAG=e2e:smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "GOORU_SMOKE_PLAYWRIGHT_OUTPUT=$artifact_dir/playwright"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore stable dataset
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/gooru/e2e-smoke
+          key: gooru-e2e-smoke-v1-${{ runner.os }}-${{ steps.paths.outputs.count }}
+
+      - name: Generate dataset only when absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v nix >/dev/null || { echo "nix is required on the self-hosted runner" >&2; exit 1; }
+          python_out="$(nix build --no-link --print-out-paths nixpkgs#python3)"
+          pillow_out="$(nix build --no-link --print-out-paths nixpkgs#python3Packages.pillow)"
+          ffmpeg_out="$(nix build --no-link --print-out-paths nixpkgs#ffmpeg)"
+          pillow_site="$(find "$pillow_out/lib" -type d -name site-packages -print -quit)"
+          [[ -n "$pillow_site" ]] || { echo "Pillow site-packages directory not found" >&2; exit 1; }
+          PATH="$ffmpeg_out/bin:$PATH" PYTHONPATH="$pillow_site" \
+            "$python_out/bin/python3" scripts/e2e/generate_smoke_dataset.py \
+              --count "$GOORU_SMOKE_FILE_COUNT" \
+              --output "$GOORU_SMOKE_DATASET_DIR"
+
+      - name: Build frontend and daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend ci --prefer-offline --no-audit
+          npm --prefix frontend run build
+          mkdir -p .e2e/bin
+          go build -o .e2e/bin/gooru ./cmd/gooru
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
+
+      - name: Run smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          upload_dir="$GOORU_SMOKE_RUN_DIR/uploads"
+          media_cache="$GOORU_SMOKE_RUN_DIR/media-cache"
+          database="$GOORU_SMOKE_RUN_DIR/gooru.db"
+          config="$GOORU_SMOKE_RUN_DIR/serve.yaml"
+          mkdir -p "$upload_dir" "$media_cache"
+
+          cat > "$config" <<EOF
+          server:
+            listen: 127.0.0.1:5678
+            frontend_dir: $GITHUB_WORKSPACE/frontend/build
+          database:
+            path: $database
+          uploads:
+            enabled: true
+            targets:
+              - id: smoke
+                name: Smoke target
+                path: $upload_dir
+                added_at_strategy: queue
+            max_file_size_bytes: 20971520
+            preserve_modtime: true
+            conflict_policy: rename
+          media:
+            cache_dir: $media_cache
+            thumbnail_sizes: [256, 512]
+            thumbnail_format: jpeg
+            preview_size: 1280
+            preview_enabled: true
+          tools:
+            ffmpeg_path: ffmpeg
+            ffprobe_path: ffprobe
+          logging:
+            level: debug
+          ui:
+            pagination_mode: paged
+            items_per_page: 100
+          EOF
+
+          GOORU_ADMIN_PASSWORD="$GOORU_SMOKE_PASSWORD" \
+            ./.e2e/bin/gooru user create-admin --username "$GOORU_SMOKE_USERNAME" --config "$config"
+
+          ffmpeg_out="$(nix build --no-link --print-out-paths nixpkgs#ffmpeg)"
+          PATH="$ffmpeg_out/bin:$PATH" "$GITHUB_WORKSPACE/.e2e/bin/gooru" serve --config "$config" \
+            >"$GOORU_SMOKE_ARTIFACT_DIR/daemon.log" 2>&1 &
+          daemon_pid=$!
+          cleanup() {
+            kill "$daemon_pid" 2>/dev/null || true
+            wait "$daemon_pid" 2>/dev/null || true
+            rm -rf "$GOORU_SMOKE_RUN_DIR"
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for _ in $(seq 1 120); do
+            if node -e "fetch('http://127.0.0.1:5678/api/v1/ui-config').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if (( ready == 0 )); then
+            echo "daemon did not become ready" >&2
+            exit 1
+          fi
+
+          cd frontend
+          npx playwright test --config playwright.smoke.config.ts
+
+      - name: Summarize timings
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$GOORU_SMOKE_ARTIFACT_DIR/timings.txt" ]]; then
+            cat "$GOORU_SMOKE_ARTIFACT_DIR/timings.txt" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/e2e-smoke/
+          if-no-files-found: error
+          retention-days: 14
