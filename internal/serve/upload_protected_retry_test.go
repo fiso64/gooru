@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	core "gooru.local/gooru"
 	"gooru.local/internal/securekey"
@@ -39,7 +40,7 @@ func TestProtectedUploadImportFailureRestoresOriginalRetryPathAfterRename(t *tes
 	logicalPath := filepath.Join(uploadDir, "same.png")
 	first := tinyPNG(t, 2, 2, color.RGBA{R: 10, G: 20, B: 30, A: 255})
 	seed := httptest.NewRecorder()
-	server.Handler().ServeHTTP(seed, uploadBinaryRequestWithSourceModTime(t, "same.png", first, typesTimeZero()))
+	server.Handler().ServeHTTP(seed, uploadBinaryRequestWithSourceModTime(t, "same.png", first, time.Time{}))
 	if seed.Code != http.StatusOK {
 		t.Fatalf("seed protected upload status = %d: %s", seed.Code, seed.Body.String())
 	}
