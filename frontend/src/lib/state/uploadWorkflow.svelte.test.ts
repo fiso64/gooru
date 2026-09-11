@@ -11,10 +11,10 @@ vi.mock('svelte', async () => {
   return { ...actual, untrack: untrackSpy };
 });
 
-import { createUploadWorkflow } from './uploadWorkflow.svelte';
+import { createUploadWorkflow, perFileUploadProgress } from './uploadWorkflow.svelte';
 
-function uploadFile(name: string): File {
-  return { name, size: 10, type: 'image/jpeg', lastModified: 0 } as File;
+function uploadFile(name: string, size = 10): File {
+  return { name, size, type: 'image/jpeg', lastModified: 0 } as File;
 }
 
 function pendingJob(id: string, completed = 0, total = 2): Job & BackgroundOperation {
@@ -34,6 +34,13 @@ function pendingJob(id: string, completed = 0, total = 2): Job & BackgroundOpera
 
 describe('createUploadWorkflow aggregate uploads', () => {
   beforeEach(() => untrackSpy.mockClear());
+
+  it('projects aggregate multipart progress across files in request order', () => {
+    const files = [uploadFile('first.jpg', 10), uploadFile('second.jpg', 30)];
+    expect(perFileUploadProgress(files, 25)).toEqual([100, 0]);
+    expect(perFileUploadProgress(files, 50)).toEqual([100, 33]);
+    expect(perFileUploadProgress(files, 100)).toEqual([100, 100]);
+  });
 
   it('defaults browser uploads to rename conflicts', async () => {
     const workflow = createUploadWorkflow();
@@ -73,8 +80,8 @@ describe('createUploadWorkflow aggregate uploads', () => {
       expect(variables.addedAtStrategy).toBe('reverse_queue');
       variables.onProgress?.(37);
       expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
-        ['uploading', 37],
-        ['uploading', 37]
+        ['uploading', 74],
+        ['uploading', 0]
       ]);
       return pendingJob('job-batch');
     });
@@ -130,8 +137,8 @@ describe('createUploadWorkflow aggregate uploads', () => {
       throw new Error('Network error while uploading files');
     });
     expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
-      ['error', 43],
-      ['error', 43]
+      ['error', 86],
+      ['error', 0]
     ]);
     expect(workflow.items.every((item) => item.error?.includes('Network error'))).toBe(true);
   });
