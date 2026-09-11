@@ -6,25 +6,19 @@ on:
       - maintainer/401-upload-staging-recovery
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  inspect:
+  validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: maintainer/401-upload-staging-recovery
           fetch-depth: 0
-      - name: Inspect runtime and recovery contracts
+      - name: Validate durable upload staging recovery
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== NewBackgroundRuntime ==='
-          rg -n -C 8 'NewBackgroundRuntime|recoverBackgroundOperationReservations' internal cmd
-          echo '=== CancelUnattachedBackgroundOperations ==='
-          rg -n -C 8 'CancelUnattachedBackgroundOperations' .
-          echo '=== Background operation interfaces ==='
-          rg -n -C 5 'CreateBackgroundOperationWithTasks|AttachBackgroundOperationTasks|BackgroundOperationListOptions|ListBackgroundOperations' internal
-          echo '=== upload stream call sites ==='
-          rg -n -C 5 'stageMultipartUpload|streamUploadPart|finalizeStagedUpload|prepareSavedUploadsForDurableTask' internal/serve
+          go test ./internal/database ./internal/serve
+          go build ./...
