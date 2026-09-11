@@ -133,6 +133,7 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 					return fmt.Errorf("handler canceled during transient contention: %w", ctx.Err())
 				}
 			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
