@@ -56,7 +56,7 @@ type BackgroundOperationDTO struct {
 
 type BackgroundOperationListResponse struct {
 	Items       []BackgroundOperationDTO `json:"items"`
-	ActiveCount int                      `json:"active_count,omitempty"`
+	ActiveCount int                      `json:"active_count"`
 }
 
 func (l *GooruLibrary) GetBackgroundOperation(operationID string) (core.BackgroundOperationState, bool, error) {
