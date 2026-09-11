@@ -104,9 +104,6 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	if limit := s.uploadRequestBodyLimit(); limit > 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, limit)
-	}
 	tags, saved, err := s.stageMultipartUpload(r)
 	if err != nil {
 		writeMultipartUploadError(w, err)
