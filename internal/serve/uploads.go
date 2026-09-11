@@ -49,8 +49,6 @@ type StagedUpload struct {
 	ConflictPolicy string
 }
 
-const maxUploadFiles = 1000
-
 type UploadTargetsResponse struct {
 	Items []UploadTargetDTO `json:"items"`
 }
@@ -112,9 +110,6 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "asynchronous uploads require durable background operations", nil)
 		return
 	}
-	if limit := s.uploadRequestBodyLimit(); limit > 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, limit)
-	}
 	tags, saved, err := s.stageMultipartUpload(r)
 	if err != nil {
 		writeMultipartUploadError(w, err)
@@ -155,18 +150,6 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
-}
-func (s *Server) uploadRequestBodyLimit() int64 {
-	maxFileSize := s.cfg.Uploads.MaxFileSizeBytes
-	if maxFileSize <= 0 {
-		return 0
-	}
-	const multipartOverhead int64 = 1 << 20
-	const safeLimit int64 = 1 << 62
-	if maxFileSize > (safeLimit-multipartOverhead)/maxUploadFiles {
-		return safeLimit
-	}
-	return maxFileSize*maxUploadFiles + multipartOverhead
 }
 
 func (s *Server) uploadTarget(id string) (UploadTarget, error) {
