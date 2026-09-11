@@ -1802,6 +1802,11 @@ export interface components {
             progress_completed_prefix?: number;
             /** Format: int64 */
             progress_failed: number;
+            /**
+             * Format: double
+             * @description Optional overall operation progress fraction. Uploads omit this while receiving when the request length is unknown.
+             */
+            progress?: number;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */

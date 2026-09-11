@@ -80,9 +80,9 @@ func (c *Client) CreateBackgroundOperationWithTasks(operationRequest BackgroundO
 }
 
 // AttachBackgroundTaskAndRevealOperation finishes producer admission after
-// expensive staging. The recovery checkpoint, first child task, and visibility
-// transition commit atomically, so a crash cannot leave a half-attached hidden
-// operation or expose work without its persisted recovery state.
+// expensive staging. The recovery checkpoint, first child task, and final
+// visibility state commit atomically. Producers normally attach hidden work;
+// uploads may already be visible while their request body is still arriving.
 func (c *Client) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request BackgroundTaskRequest) (BackgroundTask, error) {
 	if operationID == "" {
 		return BackgroundTask{}, fmt.Errorf("background operation id is required")

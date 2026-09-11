@@ -9,12 +9,21 @@ import (
 )
 
 type fakeBackgroundOperationReservationRecovery struct {
-	kinds []string
-	err   error
+	hiddenKinds []string
+	allKinds    []string
+	err         error
 }
 
 func (f *fakeBackgroundOperationReservationRecovery) CancelUnattachedHiddenBackgroundOperations(kind string) (int64, error) {
-	f.kinds = append(f.kinds, kind)
+	f.hiddenKinds = append(f.hiddenKinds, kind)
+	if f.err != nil {
+		return 0, f.err
+	}
+	return 1, nil
+}
+
+func (f *fakeBackgroundOperationReservationRecovery) CancelUnattachedBackgroundOperations(kind string) (int64, error) {
+	f.allKinds = append(f.allKinds, kind)
 	if f.err != nil {
 		return 0, f.err
 	}
@@ -26,9 +35,11 @@ func TestRecoverBackgroundOperationReservationsTargetsDurableProducers(t *testin
 	if err := recoverBackgroundOperationReservations(recovery); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{backgroundUploadImportOperationKind, core.BackgroundTagMutationOperationKind}
-	if len(recovery.kinds) != len(want) || recovery.kinds[0] != want[0] || recovery.kinds[1] != want[1] {
-		t.Fatalf("recovery kinds = %q, want %q", recovery.kinds, want)
+	if len(recovery.allKinds) != 1 || recovery.allKinds[0] != backgroundUploadImportOperationKind {
+		t.Fatalf("visible-capable recovery kinds = %q, want upload", recovery.allKinds)
+	}
+	if len(recovery.hiddenKinds) != 1 || recovery.hiddenKinds[0] != core.BackgroundTagMutationOperationKind {
+		t.Fatalf("hidden recovery kinds = %q, want tag mutation", recovery.hiddenKinds)
 	}
 }
 

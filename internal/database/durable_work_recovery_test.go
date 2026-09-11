@@ -66,3 +66,28 @@ func TestCancelUnattachedHiddenBackgroundOperationsOnlyReleasesReservations(t *t
 		t.Fatalf("recovered finish time = %d, want unix milliseconds", finishedAt)
 	}
 }
+
+func TestCancelUnattachedBackgroundOperationsIncludesVisibleReceivingWork(t *testing.T) {
+	store, db := newDurableWorkTestDB(t)
+	store.DB = db
+	if _, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{ID: "visible-receiving", Kind: "upload_import", Visible: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{ID: "other", Kind: "thumbnail", Visible: true}); err != nil {
+		t.Fatal(err)
+	}
+	count, err := store.CancelUnattachedBackgroundOperations("upload_import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("canceled %d operations, want 1", count)
+	}
+	var status string
+	if err := db.QueryRow(`SELECT status FROM background_operations WHERE id = 'visible-receiving'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "canceled" {
+		t.Fatalf("visible receiving status = %q, want canceled", status)
+	}
+}

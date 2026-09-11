@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,18 +19,22 @@ import (
 )
 
 type durableUploadTestStore struct {
-	createErr          error
-	createdRequest     core.BackgroundOperationRequest
-	operation          core.BackgroundOperation
-	state              core.BackgroundOperationState
-	result             UploadImportResponse
-	resultFound        bool
-	attachCalls        int
-	attachedRequest    core.BackgroundTaskRequest
-	attachedCheckpoint backgroundUploadCheckpoint
-	attached           chan struct{}
-	terminalOnAttach   core.BackgroundWorkStatus
-	cancelCalls        int
+	createErr           error
+	createdRequest      core.BackgroundOperationRequest
+	operation           core.BackgroundOperation
+	state               core.BackgroundOperationState
+	result              UploadImportResponse
+	resultFound         bool
+	attachCalls         int
+	attachedRequest     core.BackgroundTaskRequest
+	attachedCheckpoint  backgroundUploadCheckpoint
+	attached            chan struct{}
+	terminalOnAttach    core.BackgroundWorkStatus
+	attachErr           error
+	cancelCalls         int
+	visibleCalls        int
+	checkpointCalls     int
+	receivingCheckpoint backgroundUploadCheckpoint
 }
 
 func newDurableUploadTestStore() *durableUploadTestStore {
@@ -54,6 +59,24 @@ func (s *durableUploadTestStore) CreateBackgroundOperation(request core.Backgrou
 	return s.operation, nil
 }
 
+func (s *durableUploadTestStore) SetBackgroundOperationCheckpoint(operationID string, checkpoint any) error {
+	if operationID != s.operation.ID {
+		return errors.New("unexpected operation")
+	}
+	s.checkpointCalls++
+	s.receivingCheckpoint = checkpoint.(backgroundUploadCheckpoint)
+	return nil
+}
+
+func (s *durableUploadTestStore) SetBackgroundOperationVisible(operationID string, visible bool) error {
+	if operationID != s.operation.ID {
+		return errors.New("unexpected operation")
+	}
+	s.visibleCalls++
+	s.state.Visible = visible
+	return nil
+}
+
 func (s *durableUploadTestStore) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {
 	s.attachCalls++
 	s.attachedRequest = request
@@ -65,6 +88,9 @@ func (s *durableUploadTestStore) AttachBackgroundTaskAndRevealOperation(operatio
 	if s.attached != nil {
 		close(s.attached)
 		s.attached = nil
+	}
+	if s.attachErr != nil {
+		return core.BackgroundTask{}, s.attachErr
 	}
 	return core.BackgroundTask{ID: "task-upload-test", OperationID: operationID, Kind: request.Kind, SubjectKind: request.SubjectKind, SubjectID: request.SubjectID, InputKey: request.InputKey}, nil
 }
@@ -96,6 +122,21 @@ func (s *durableUploadTestStore) GetBackgroundOperationResult(operationID string
 	result := destination.(*UploadImportResponse)
 	*result = s.result
 	return true, nil
+}
+
+type gatedUploadBody struct {
+	io.ReadCloser
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *gatedUploadBody) Read(p []byte) (int, error) {
+	b.once.Do(func() {
+		close(b.entered)
+		<-b.release
+	})
+	return b.ReadCloser.Read(p)
 }
 
 type uploadReadTracker struct {
@@ -140,6 +181,35 @@ func TestDurableUploadOperationCreationFailureBeforeReadingOrStagingMultipart(t 
 	}
 }
 
+func TestDurableUploadPublishesOperationWhileRequestBodyIsStillReceiving(t *testing.T) {
+	targetDir := t.TempDir()
+	store := newDurableUploadTestStore()
+	server := newDurableUploadHandlerTestServer(t, targetDir, store)
+	req := uploadRequest(t, map[string]string{"photo.jpg": "hello"}, nil)
+	req.Header.Set("Prefer", "respond-async")
+	body := &gatedUploadBody{ReadCloser: req.Body, entered: make(chan struct{}), release: make(chan struct{})}
+	req.Body = body
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.Handler().ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	<-body.entered
+	if !store.state.Visible || store.visibleCalls != 1 {
+		t.Fatalf("operation was not visible before body read completed: state=%+v calls=%d", store.state, store.visibleCalls)
+	}
+	if store.receivingCheckpoint.Phase != backgroundUploadPhaseReceiving {
+		t.Fatalf("checkpoint phase while body blocked = %q, want receiving", store.receivingCheckpoint.Phase)
+	}
+	close(body.release)
+	<-done
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDurableUploadAsyncAttachesOneTaskAndReturnsOperationLocation(t *testing.T) {
 	targetDir := t.TempDir()
 	store := newDurableUploadTestStore()
@@ -165,6 +235,9 @@ func TestDurableUploadAsyncAttachesOneTaskAndReturnsOperationLocation(t *testing
 	}
 	if store.createdRequest.Kind != "upload_import" || store.createdRequest.Visible || store.createdRequest.ProgressTotal != 1 {
 		t.Fatalf("unexpected operation request: %+v", store.createdRequest)
+	}
+	if store.visibleCalls != 1 || store.checkpointCalls < 1 || store.receivingCheckpoint.Phase != backgroundUploadPhaseReceiving {
+		t.Fatalf("receiving publication = visible %d checkpoints %d checkpoint %+v", store.visibleCalls, store.checkpointCalls, store.receivingCheckpoint)
 	}
 	if store.attachCalls != 1 {
 		t.Fatalf("attach calls = %d, want 1", store.attachCalls)
@@ -339,4 +412,22 @@ func TestDurableUploadSyncFailureReturnsStableError(t *testing.T) {
 	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"photo.jpg": "hello"}, nil))
 
 	assertAPIError(t, rec, http.StatusInternalServerError, "internal_error")
+}
+
+func TestDurableUploadCancellationWinningAttachmentRaceReturnsCanceled(t *testing.T) {
+	targetDir := t.TempDir()
+	store := newDurableUploadTestStore()
+	store.terminalOnAttach = core.BackgroundWorkCanceled
+	store.attachErr = errors.New("operation canceled before attach")
+	server := newDurableUploadHandlerTestServer(t, targetDir, store)
+	req := uploadRequest(t, map[string]string{"photo.jpg": "hello"}, nil)
+	req.Header.Set("Prefer", "respond-async")
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	assertAPIError(t, rec, http.StatusRequestTimeout, "request_canceled")
+	if _, err := os.Stat(filepath.Join(targetDir, "photo.jpg")); !os.IsNotExist(err) {
+		t.Fatalf("staged file remained after canceled attachment race: %v", err)
+	}
 }

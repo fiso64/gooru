@@ -10,7 +10,7 @@
     onCancel?: (job: Job) => void;
   }>();
 
-  const percent = $derived(Math.round(Math.max(0, Math.min(1, job.progress ?? 0)) * 100));
+  const percent = $derived(job.progress === undefined ? undefined : Math.round(Math.max(0, Math.min(1, job.progress)) * 100));
   const cancellable = $derived(job.status === 'pending' || job.status === 'running');
   const visualStatus = $derived(
     job.status === 'completed' ? 'done' : job.status === 'failed' ? 'error' : job.status === 'pending' ? 'queued' : job.status
@@ -59,11 +59,13 @@
       <button class="job-cancel" type="button" aria-label={`Cancel ${titleFor(job.type)}`} onclick={() => onCancel?.(job)}>Cancel</button>
     {/if}
   </div>
-  <div class={`job-progress ${visualStatus}`} aria-label={`${percent}% complete`}>
-    <div style={`width: ${percent}%`}></div>
-  </div>
+  {#if percent !== undefined}
+    <div class={`job-progress ${visualStatus}`} aria-label={`${percent}% complete`}>
+      <div style={`width: ${percent}%`}></div>
+    </div>
+  {/if}
   <div class="job-meta">
-    <span>{percent}%</span>
+    {#if percent !== undefined}<span>{percent}%</span>{/if}
     {#if detail}<span class="job-detail">{detail}</span>{/if}
   </div>
 </div>
