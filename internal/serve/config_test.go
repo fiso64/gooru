@@ -40,9 +40,6 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Server.FrontendDir == "" {
 		t.Fatal("server.frontend_dir should point at the static frontend build by default")
 	}
-	if cfg.Uploads.MaxQueued != 100 {
-		t.Fatalf("unexpected upload queue default %d", cfg.Uploads.MaxQueued)
-	}
 	if cfg.Uploads.ConflictPolicy != "rename" {
 		t.Fatalf("unexpected upload conflict policy default %q", cfg.Uploads.ConflictPolicy)
 	}
@@ -274,11 +271,15 @@ func TestLoadConfigRejectsUnsupportedThumbnailFormat(t *testing.T) {
 	}
 }
 
-func TestLoadConfigRejectsInvalidUploadQueueLimit(t *testing.T) {
-	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Uploads.MaxQueued = 0
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "uploads.max_queued") {
-		t.Fatalf("expected upload queue limit validation error, got %v", err)
+func TestLoadConfigRejectsRemovedUploadMaxQueued(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, `
+uploads:
+  max_queued: 100
+`)
+	_, err := LoadConfig(path, filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "field max_queued not found") {
+		t.Fatalf("expected removed uploads.max_queued field to be rejected, got %v", err)
 	}
 }
 
