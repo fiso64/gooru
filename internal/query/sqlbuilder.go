@@ -283,12 +283,18 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 		}
 
 		// Bare key-wide location queries are frequently high-cardinality (for
-		// example the UI's `hidden` filter). Driving from locations and probing the
-		// tag association lets the outer browse query preserve its requested
-		// location ordering and stop at the page limit instead of materializing a
-		// DISTINCT set of every matching location before sorting it.
+		// example the UI's `hidden` filter). Keep driving populated keys from
+		// locations so the outer browse query can preserve ordering and stop at
+		// the page limit. For a key known to be empty, drive from tag associations
+		// instead so the exclusion subquery proves emptiness without scanning every
+		// location. Cardinality only selects a plan; both queries read live tables
+		// and remain semantically equivalent if the summary changes concurrently.
 		if b.target == "id" && parsed.Value == "" && !strings.HasSuffix(tagStr, ":") {
-			b.query.WriteString(`SELECT l.id as id FROM locations l WHERE EXISTS (SELECT 1 FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE ct.content_hash = l.content_hash AND t.key = ?)`)
+			if count, ok := b.tagCounts[tagStr]; ok && count == 0 {
+				b.query.WriteString(`SELECT DISTINCT l.id as id FROM tags t JOIN content_tags ct ON ct.tag_id = t.id JOIN locations l ON l.content_hash = ct.content_hash WHERE t.key = ?`)
+			} else {
+				b.query.WriteString(`SELECT l.id as id FROM locations l WHERE EXISTS (SELECT 1 FROM content_tags ct JOIN tags t ON ct.tag_id = t.id WHERE ct.content_hash = l.content_hash AND t.key = ?)`)
+			}
 			b.args = append(b.args, parsed.Key)
 			return
 		}

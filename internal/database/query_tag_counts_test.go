@@ -50,9 +50,12 @@ func TestBatchGetQueryTagCountsUsesNamespaceSummary(t *testing.T) {
 	associate("b", alice)
 	associate("a", favorite)
 
-	counts, err := store.BatchGetQueryTagCounts([]string{"artist:", "artist:alice", "favorite"})
+	counts, err := store.BatchGetQueryTagCounts([]string{"artist", "artist:", "artist:alice", "favorite", "missing"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got := counts["artist"]; got != 2 {
+		t.Fatalf("artist count = %d, want 2", got)
 	}
 	if got := counts["artist:"]; got != 2 {
 		t.Fatalf("artist: count = %d, want 2", got)
@@ -62,5 +65,8 @@ func TestBatchGetQueryTagCountsUsesNamespaceSummary(t *testing.T) {
 	}
 	if got := counts["favorite"]; got != 1 {
 		t.Fatalf("favorite count = %d, want 1", got)
+	}
+	if got, ok := counts["missing"]; !ok || got != 0 {
+		t.Fatalf("missing count = %d, present=%v, want explicit zero", got, ok)
 	}
 }
