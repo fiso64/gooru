@@ -1,0 +1,140 @@
+name: Maintainer #401 jobs projection patch
+
+on:
+  push:
+    branches:
+      - maintainer/401-job-stage-progress
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/401-job-stage-progress
+          fetch-depth: 0
+      - name: Apply stage and progress corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"pattern not found in {path}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace(
+              "internal/serve/background_operations.go",
+              '\tStatus                  core.BackgroundWorkStatus `json:"status"`\n',
+              '\tStatus                  core.BackgroundWorkStatus `json:"status"`\n\tStage                   string                    `json:"stage,omitempty"`\n',
+          )
+          replace(
+              "internal/serve/background_operations.go",
+              '\tif checkpoint.Phase == backgroundUploadPhaseReceiving {\n\t\tif checkpoint.TransportBytesTotal > 0 {',
+              '\tif checkpoint.Phase == backgroundUploadPhaseReceiving {\n\t\tdto.Stage = "receiving"\n\t\tif dto.Status == core.BackgroundWorkPending {\n\t\t\tdto.Status = core.BackgroundWorkRunning\n\t\t}\n\t\tif checkpoint.TransportBytesTotal > 0 {',
+          )
+          replace(
+              "internal/serve/background_operations.go",
+              '\t\treturn dto\n\t}\n\tif checkpoint.FileTotal <= 0 {',
+              '\t\treturn dto\n\t}\n\tdto.Stage = "importing"\n\tif checkpoint.FileTotal <= 0 {',
+          )
+
+          replace(
+              "internal/serve/background_operations_upload_progress_test.go",
+              '\tif dto.ProgressTotal != 1 || dto.ProgressCompleted != 0 {\n\t\tt.Fatalf("receiving should preserve raw durable counters: %+v", dto)\n\t}\n}',
+              '\tif dto.ProgressTotal != 1 || dto.ProgressCompleted != 0 {\n\t\tt.Fatalf("receiving should preserve raw durable counters: %+v", dto)\n\t}\n\tif dto.Status != core.BackgroundWorkRunning || dto.Stage != "receiving" {\n\t\tt.Fatalf("receiving projection = status %q stage %q, want running/receiving", dto.Status, dto.Stage)\n\t}\n}',
+          )
+          replace(
+              "internal/serve/background_operations_upload_progress_test.go",
+              '\tif dto.Progress != nil {\n\t\tt.Fatalf("unknown-length receiving progress = %v, want nil", *dto.Progress)\n\t}\n}\n\nfunc TestBackgroundOperationDTOClampsUploadRowPrefixToAggregateCompletion',
+              '\tif dto.Progress != nil {\n\t\tt.Fatalf("unknown-length receiving progress = %v, want nil", *dto.Progress)\n\t}\n\tif dto.Status != core.BackgroundWorkRunning || dto.Stage != "receiving" {\n\t\tt.Fatalf("unknown-length receiving projection = status %q stage %q, want running/receiving", dto.Status, dto.Stage)\n\t}\n}\n\nfunc TestBackgroundOperationDTOLeavesTerminalReceivingStatusUntouched(t *testing.T) {\n\toperation := core.BackgroundOperationState{ID: "operation-upload-canceled", Kind: backgroundUploadImportOperationKind, Visible: true, Status: core.BackgroundWorkCanceled, ProgressTotal: 1, CreatedAt: time.Now().UTC()}\n\treader := &fakeBackgroundOperationReader{checkpoints: map[string]backgroundUploadCheckpoint{\n\t\toperation.ID: backgroundUploadReceivingCheckpoint(1000, 400),\n\t}}\n\tdto := (&Server{backgroundOperations: reader}).backgroundOperationDTO(operation)\n\tif dto.Status != core.BackgroundWorkCanceled || dto.Stage != "receiving" {\n\t\tt.Fatalf("terminal receiving projection = status %q stage %q, want canceled/receiving", dto.Status, dto.Stage)\n\t}\n}\n\nfunc TestBackgroundOperationDTOClampsUploadRowPrefixToAggregateCompletion',
+          )
+          replace(
+              "internal/serve/background_operations_upload_progress_test.go",
+              '\tif dto.Progress == nil || *dto.Progress < 0.709999 || *dto.Progress > 0.710001 {\n\t\tt.Fatalf("overall upload progress = %v, want 0.71", dto.Progress)\n\t}\n}',
+              '\tif dto.Progress == nil || *dto.Progress < 0.709999 || *dto.Progress > 0.710001 {\n\t\tt.Fatalf("overall upload progress = %v, want 0.71", dto.Progress)\n\t}\n\tif dto.Stage != "importing" {\n\t\tt.Fatalf("upload stage = %q, want importing", dto.Stage)\n\t}\n}',
+          )
+
+          replace(
+              "docs/openapi.yaml",
+              '        status:\n          type: string\n          enum: [pending, running, completed, failed, canceled]\n        progress_total:',
+              '        status:\n          type: string\n          enum: [pending, running, completed, failed, canceled]\n        stage:\n          type: string\n          enum: [receiving, importing]\n          description: Optional user-visible lifecycle stage for upload_import operations. Receiving is active synchronous request-body work; importing is durable queued/running processing.\n        progress_total:',
+          )
+
+          replace(
+              "frontend/src/lib/api/operations.ts",
+              "  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';\n  progress_total: number;",
+              "  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';\n  stage?: 'receiving' | 'importing';\n  progress_total: number;",
+          )
+          replace(
+              "frontend/src/lib/api/operations.ts",
+              '  const fallbackProgress = total > 0\n    ? Math.max(0, Math.min(1, completed / total))\n    : operation.status === \'completed\' || operation.status === \'failed\' || operation.status === \'canceled\'\n      ? 1\n      : undefined;',
+              '  const fallbackProgress = total > 1\n    ? Math.max(0, Math.min(1, completed / total))\n    : undefined;',
+          )
+          replace(
+              "frontend/src/lib/api/operations.ts",
+              '    status: operation.status,\n    progress,',
+              '    status: operation.status,\n    stage: operation.stage,\n    progress,',
+          )
+
+          replace(
+              "frontend/src/lib/api/types.ts",
+              '  status: JobStatus;\n  progress?: number;',
+              "  status: JobStatus;\n  stage?: 'receiving' | 'importing';\n  progress?: number;",
+          )
+
+          replace(
+              "frontend/src/lib/components/JobRow.svelte",
+              '  function titleFor(type: string) {\n    if (type === \'upload_import\') return \'Import media\';',
+              "  function titleFor(job: Job) {\n    const type = job.type;\n    if (type === 'upload_import') return job.stage === 'receiving' ? 'Upload media' : 'Import media';",
+          )
+          replace(
+              "frontend/src/lib/components/JobRow.svelte",
+              '<b>{titleFor(job.type)}</b>',
+              '<b>{titleFor(job)}</b>',
+          )
+          replace(
+              "frontend/src/lib/components/JobRow.svelte",
+              'aria-label={`Cancel ${titleFor(job.type)}`}',
+              'aria-label={`Cancel ${titleFor(job)}`}',
+          )
+
+          replace(
+              "frontend/src/lib/api/operations.progress.test.ts",
+              "      status: 'pending',\n      progress_total: 1,",
+              "      status: 'running',\n      stage: 'receiving',\n      progress_total: 1,",
+          )
+          replace(
+              "frontend/src/lib/api/operations.progress.test.ts",
+              '    expect(backgroundOperationAsJob(operation).progress).toBeUndefined();\n  });\n});',
+              "    const job = backgroundOperationAsJob(operation);\n    expect(job.progress).toBeUndefined();\n    expect(job.stage).toBe('receiving');\n  });\n\n  it('does not invent percentage progress for one-task operations', () => {\n    const operation: BackgroundOperation = {\n      id: 'remove-batch',\n      kind: 'files_remove',\n      status: 'running',\n      progress_total: 1,\n      progress_completed: 0,\n      progress_failed: 0,\n      created_at: '2026-09-11T00:00:00Z'\n    };\n    expect(backgroundOperationAsJob(operation).progress).toBeUndefined();\n  });\n\n  it('retains useful count-derived progress for multi-task operations', () => {\n    const operation: BackgroundOperation = {\n      id: 'multi-task',\n      kind: 'thumbnail_backfill',\n      status: 'running',\n      progress_total: 4,\n      progress_completed: 1,\n      progress_failed: 1,\n      created_at: '2026-09-11T00:00:00Z'\n    };\n    expect(backgroundOperationAsJob(operation).progress).toBe(0.5);\n  });\n});",
+          )
+          PY
+          gofmt -w internal/serve/background_operations.go internal/serve/background_operations_upload_progress_test.go
+          cd frontend
+          npm ci --prefer-offline --no-audit
+          npm run generate:api
+          cd ..
+          go test ./internal/serve
+          cd frontend
+          npm run check
+          npm run test:unit -- operations.progress.test.ts
+          cd ..
+          git diff --check
+      - name: Commit implementation and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/maintainer-401-job-stage.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/serve/background_operations.go internal/serve/background_operations_upload_progress_test.go docs/openapi.yaml frontend/src/lib/api/openapi.ts frontend/src/lib/api/operations.ts frontend/src/lib/api/operations.progress.test.ts frontend/src/lib/api/types.ts frontend/src/lib/components/JobRow.svelte .github/workflows/maintainer-401-job-stage.yml
+          git commit -m 'fix(jobs): model upload receiving stage'
+          git push origin HEAD:maintainer/401-job-stage-progress
