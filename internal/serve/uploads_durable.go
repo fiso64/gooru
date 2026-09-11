@@ -208,41 +208,64 @@ func backgroundUploadCleanupTaskRequest(operationID string) core.BackgroundTaskR
 
 func (s *Server) backgroundUploadCleanupHandler(store durableUploadCleanupStore) core.BackgroundTaskHandler {
 	return func(ctx context.Context, task core.BackgroundTask) error {
-		if err := ctx.Err(); err != nil { return err }
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if task.OperationID != "" || task.Kind != backgroundUploadCleanupTaskKind || task.SubjectKind != "operation" || task.SubjectID == "" {
 			return errors.New("upload cleanup task has invalid operation identity")
 		}
 		original, found, err := store.GetBackgroundOperationTask(task.SubjectID)
-		if err != nil { return fmt.Errorf("load canceled upload task: %w", err) }
-		if !found { return errors.New("canceled upload task is missing") }
+		if err != nil {
+			return fmt.Errorf("load canceled upload task: %w", err)
+		}
+		if !found {
+			return errors.New("canceled upload task is missing")
+		}
 		return cleanupCanceledDurableUpload(store, task.SubjectID, original.BackgroundTask)
 	}
 }
 
 func cleanupCanceledDurableUpload(store durableUploadCleanupStore, operationID string, task core.BackgroundTask) error {
 	files, _, err := decodeBackgroundUploadTask(task)
-	if err != nil { return fmt.Errorf("decode canceled upload task: %w", err) }
+	if err != nil {
+		return fmt.Errorf("decode canceled upload task: %w", err)
+	}
 	var checkpoint backgroundUploadCheckpoint
 	found, err := store.GetBackgroundOperationCheckpoint(operationID, &checkpoint)
-	if err != nil { return fmt.Errorf("load canceled upload checkpoint: %w", err) }
-	if !found { return errors.New("canceled upload checkpoint is missing") }
+	if err != nil {
+		return fmt.Errorf("load canceled upload checkpoint: %w", err)
+	}
+	if !found {
+		return errors.New("canceled upload checkpoint is missing")
+	}
 
 	switch checkpoint.Phase {
 	case backgroundUploadPhaseStaged:
 		activated, err := activateSavedReplacements(files)
-		if err != nil { return fmt.Errorf("recover canceled staged upload replacements: %w", err) }
-		if err := rollbackSavedReplacements(activated); err != nil { return fmt.Errorf("rollback canceled staged upload replacements: %w", err) }
-		return removeCanceledSavedUploads(files)
+		if err != nil {
+			return fmt.Errorf("recover canceled staged upload replacements: %w", err)
+		}
+		return cleanupCanceledClaimedUpload(files, activated)
 	case backgroundUploadPhaseActivated:
 		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
-		if err != nil { return fmt.Errorf("recover canceled activated upload replacements: %w", err) }
-		if err := rollbackSavedReplacements(activated); err != nil { return fmt.Errorf("rollback canceled activated upload replacements: %w", err) }
-		return removeCanceledSavedUploads(files)
+		if err != nil {
+			return fmt.Errorf("recover canceled activated upload replacements: %w", err)
+		}
+		return cleanupCanceledClaimedUpload(files, activated)
 	case backgroundUploadPhaseImported:
-		if checkpoint.Response == nil { return errors.New("canceled imported upload checkpoint is missing response") }
+		if checkpoint.Response == nil {
+			return errors.New("canceled imported upload checkpoint is missing response")
+		}
 		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
-		if err != nil { return fmt.Errorf("recover canceled imported upload replacements: %w", err) }
-		if err := settleSavedReplacements(activated, *checkpoint.Response); err != nil { return fmt.Errorf("settle canceled imported upload replacements: %w", err) }
+		if err != nil {
+			return fmt.Errorf("recover canceled imported upload replacements: %w", err)
+		}
+		if err := settleSavedReplacements(activated, *checkpoint.Response); err != nil {
+			return fmt.Errorf("settle canceled imported upload replacements: %w", err)
+		}
+		if err := settleDurableNonreplacementActivations(files); err != nil {
+			return fmt.Errorf("settle canceled imported durable uploads: %w", err)
+		}
 		return nil
 	default:
 		return fmt.Errorf("canceled upload checkpoint has invalid phase %q", checkpoint.Phase)
@@ -252,10 +275,16 @@ func cleanupCanceledDurableUpload(store durableUploadCleanupStore, operationID s
 func removeCanceledSavedUploads(files []savedUpload) error {
 	failures := 0
 	for _, file := range files {
-		if file.status == "skipped" || file.status == "error" { continue }
-		if err := os.Remove(file.path); err != nil && !errors.Is(err, os.ErrNotExist) { failures++ }
+		if file.status == "skipped" || file.status == "error" {
+			continue
+		}
+		if err := os.Remove(file.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			failures++
+		}
 	}
-	if failures > 0 { return fmt.Errorf("remove %d canceled staged upload files", failures) }
+	if failures > 0 {
+		return fmt.Errorf("remove %d canceled staged upload files", failures)
+	}
 	return nil
 }
 
@@ -264,23 +293,34 @@ func waitForDurableUpload(ctx context.Context, operations backgroundOperationRea
 	defer ticker.Stop()
 	for {
 		state, found, err := operations.GetBackgroundOperation(operationID)
-		if err != nil { return UploadImportResponse{}, err }
-		if !found { return UploadImportResponse{}, errors.New("upload operation disappeared") }
+		if err != nil {
+			return UploadImportResponse{}, err
+		}
+		if !found {
+			return UploadImportResponse{}, errors.New("upload operation disappeared")
+		}
 		switch state.Status {
 		case core.BackgroundWorkCompleted:
 			var response UploadImportResponse
 			found, err := operations.GetBackgroundOperationResult(operationID, &response)
-			if err != nil { return UploadImportResponse{}, err }
-			if !found { return UploadImportResponse{}, errors.New("completed upload operation has no result") }
+			if err != nil {
+				return UploadImportResponse{}, err
+			}
+			if !found {
+				return UploadImportResponse{}, errors.New("completed upload operation has no result")
+			}
 			return response, nil
 		case core.BackgroundWorkFailed:
-			if state.ErrorMessage != "" { return UploadImportResponse{}, errors.New(state.ErrorMessage) }
+			if state.ErrorMessage != "" {
+				return UploadImportResponse{}, errors.New(state.ErrorMessage)
+			}
 			return UploadImportResponse{}, errors.New("upload operation failed")
 		case core.BackgroundWorkCanceled:
 			return UploadImportResponse{}, context.Canceled
 		}
 		select {
-		case <-ctx.Done(): return UploadImportResponse{}, ctx.Err()
+		case <-ctx.Done():
+			return UploadImportResponse{}, ctx.Err()
 		case <-ticker.C:
 		}
 	}
