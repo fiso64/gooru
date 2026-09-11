@@ -71,9 +71,11 @@ func activateDurableUploadDestination(stagedPath, destinationPath string) error 
 		stagedInfo, stagedErr := os.Stat(stagedPath)
 		destinationInfo, destinationErr := os.Stat(destinationPath)
 		if stagedErr != nil || destinationErr != nil || !os.SameFile(stagedInfo, destinationInfo) {
+			_ = os.Remove(markerPath)
 			return errUploadConflict
 		}
 	} else if err := os.Link(stagedPath, destinationPath); err != nil {
+		_ = os.Remove(markerPath)
 		if errors.Is(err, os.ErrExist) {
 			return errUploadConflict
 		}
@@ -139,6 +141,7 @@ func durableStagedUploads(files []savedUpload) []StagedUpload {
 	for i, file := range files {
 		if durableUploadNeedsActivation(file) {
 			staged[i].Path = file.destinationPath
+			staged[i].AnalysisPath = file.destinationPath
 		}
 	}
 	return staged
