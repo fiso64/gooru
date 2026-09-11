@@ -65,6 +65,17 @@ function datasetFiles(): string[] {
   return manifest.files.map((entry) => path.join(datasetDir!, entry.name));
 }
 
+function successfulUploadCount(summary: string): number {
+  if (!summary) return -1;
+  let total = 0;
+  for (const part of summary.split(' / ')) {
+    const match = part.match(/^(\d+) (imported|uploaded)$/);
+    if (!match) return -1;
+    total += Number(match[1]);
+  }
+  return total;
+}
+
 async function verifyFirstPageThumbnails(page: import('@playwright/test').Page, expectedCount: number) {
   const viewport = page.getByTestId('library-viewport');
   const grid = page.getByTestId('virtual-media-grid');
@@ -121,8 +132,11 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
     const uploadStartedAt = new Date();
     const uploadStartNs = process.hrtime.bigint();
     await uploadButton.click();
-    const clearDone = page.getByRole('button', { name: 'Clear done' });
-    await expect(clearDone).toBeEnabled({ timeout: operationTimeout });
+    const uploadQueue = page.locator('section.upload-queue-section');
+    await expect(uploadQueue).toBeVisible({ timeout: operationTimeout });
+    await expect.poll(async () => {
+      return successfulUploadCount((await uploadQueue.getAttribute('aria-label')) ?? '');
+    }, { timeout: operationTimeout, message: `all ${fileCount} uploads should reach a successful terminal state` }).toBe(fileCount);
     timingReport.upload = elapsed(uploadStartedAt, uploadStartNs);
     saveTimings();
 
