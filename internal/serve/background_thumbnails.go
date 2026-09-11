@@ -83,9 +83,6 @@ func (s *Server) backgroundThumbnailHandler(ctx context.Context, task core.Backg
 	}
 	file, err := s.backgroundContent.GetFileByContentHash(ctx, task.SubjectID)
 	if errors.Is(err, core.ErrContentNotTracked) {
-		// Eager thumbnail work is opportunistic. If its immutable content no
-		// longer has any tracked location, deletion has made the task obsolete;
-		// completing it avoids repeated retries and permanent-failure noise.
 		return nil
 	}
 	if err != nil {
@@ -94,14 +91,11 @@ func (s *Server) backgroundThumbnailHandler(ctx context.Context, task core.Backg
 	return s.media.ensureBrowsingThumbnail(file)
 }
 
-// NewBackgroundRuntime composes the serve process's durable workers. HTTP and
-// background execution share the same library/media services so durable tasks
-// observe the same storage, encryption, and metadata behavior as foreground work.
 func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (BackgroundRuntime, error) {
 	if client == nil {
 		return nil, fmt.Errorf("background client is required")
 	}
-	if err := recoverBackgroundOperationReservations(client); err != nil {
+	if err := recoverBackgroundOperationReservations(client, s.cfg.Uploads.Targets); err != nil {
 		return nil, err
 	}
 	mediaRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
