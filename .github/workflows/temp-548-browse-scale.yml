@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build server
         run: go build -o gooru-548 ./cmd/gooru
-      - name: Profile metadata-populated 10K HTTP browse requests
+      - name: Profile metadata-populated 10K HTTP browse requests with hidden tags
         shell: bash
         run: |
           set -euo pipefail
@@ -71,6 +71,9 @@ jobs:
               - id: default
                 name: Default
                 path: ${ROOT}/uploads
+          ui:
+            hidden_tags:
+              - hidden
           logging:
             level: warn
           YAML
@@ -87,8 +90,8 @@ jobs:
               except Exception: time.sleep(.05)
           else: raise SystemExit('server readiness timeout')
           paths={
-              'root':'/api/v1/files?limit=60&sort=added&order=desc&include_facets=true',
-              'tagged':'/api/v1/files?query=remove&limit=60&sort=added&order=desc&include_facets=true',
+              'root-hidden':'/api/v1/files?limit=60&sort=added&order=desc&include_facets=true',
+              'tagged-hidden':'/api/v1/files?query=remove&limit=60&sort=added&order=desc&include_facets=true',
           }
           result={}
           for name,path in paths.items():
@@ -101,5 +104,5 @@ jobs:
                   t=time.perf_counter(); urllib.request.urlopen(base+path,timeout=5).read(); samples.append((time.perf_counter()-t)*1000)
               samples.sort(); n=len(samples)
               result[name]={'cold_ms':cold,'p50_ms':statistics.median(samples),'p95_ms':samples[min(n-1,int(n*.95))],'max_ms':max(samples)}
-          print('GOORU_548_HTTP_METADATA_RESULT='+json.dumps(result,sort_keys=True))
+          print('GOORU_548_HTTP_HIDDEN_RESULT='+json.dumps(result,sort_keys=True))
           PY
