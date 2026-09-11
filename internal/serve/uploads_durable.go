@@ -126,7 +126,7 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare uploaded files", nil)
 		return
 	}
-	if _, err := operations.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(), taskRequest); err != nil {
+	if _, err := operations.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(len(saved)), taskRequest); err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files", nil)
 		return
@@ -140,7 +140,7 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
-		writeJSON(w, http.StatusAccepted, backgroundOperationDTO(state))
+		writeJSON(w, http.StatusAccepted, s.backgroundOperationDTO(state))
 		return
 	}
 

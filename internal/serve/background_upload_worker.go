@@ -62,7 +62,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		if err != nil {
 			return err
 		}
-		checkpoint = backgroundUploadActivatedCheckpoint(activated)
+		checkpoint = backgroundUploadActivatedCheckpoint(activated, len(files), 0)
 		if err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {
 			canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 			if stateErr != nil {

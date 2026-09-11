@@ -22,6 +22,10 @@ type backgroundOperationReader interface {
 	GetBackgroundOperationResult(string, any) (bool, error)
 }
 
+type backgroundOperationCheckpointReader interface {
+	GetBackgroundOperationCheckpoint(string, any) (bool, error)
+}
+
 type backgroundOperationProducer interface {
 	CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest, int) (core.BackgroundOperation, error)
 	EnqueueBackgroundTask(core.BackgroundTaskRequest) (core.BackgroundTask, bool, error)
@@ -151,7 +155,7 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 			if !found || !operation.Visible {
 				continue
 			}
-			dto := backgroundOperationDTO(operation)
+			dto := s.backgroundOperationDTO(operation)
 			if operation.Status == core.BackgroundWorkCompleted {
 				var result json.RawMessage
 				found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)
@@ -185,7 +189,7 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 	items := make([]BackgroundOperationDTO, 0, len(operations))
 	for _, operation := range operations {
 		if operation.Visible {
-			items = append(items, backgroundOperationDTO(operation))
+			items = append(items, s.backgroundOperationDTO(operation))
 		}
 	}
 	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items})
@@ -234,10 +238,10 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "operation not found", nil)
 			return
 		}
-		writeJSON(w, http.StatusAccepted, backgroundOperationDTO(operation))
+		writeJSON(w, http.StatusAccepted, s.backgroundOperationDTO(operation))
 		return
 	}
-	dto := backgroundOperationDTO(operation)
+	dto := s.backgroundOperationDTO(operation)
 	if operation.Status == core.BackgroundWorkCompleted {
 		var result json.RawMessage
 		found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)
@@ -254,4 +258,34 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 
 func backgroundOperationDTO(operation core.BackgroundOperationState) BackgroundOperationDTO {
 	return BackgroundOperationDTO{ID: operation.ID, Kind: operation.Kind, Status: operation.Status, ProgressTotal: operation.ProgressTotal, ProgressCompleted: operation.ProgressCompleted, ProgressFailed: operation.ProgressFailed, CreatedAt: operation.CreatedAt, StartedAt: operation.StartedAt, FinishedAt: operation.FinishedAt, ErrorCode: operation.ErrorCode, ErrorMessage: operation.ErrorMessage}
+}
+
+func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState) BackgroundOperationDTO {
+	dto := backgroundOperationDTO(operation)
+	if operation.Kind != backgroundUploadImportOperationKind || s.backgroundOperations == nil {
+		return dto
+	}
+	reader, ok := s.backgroundOperations.(backgroundOperationCheckpointReader)
+	if !ok {
+		return dto
+	}
+	var checkpoint backgroundUploadCheckpoint
+	found, err := reader.GetBackgroundOperationCheckpoint(operation.ID, &checkpoint)
+	if err != nil || !found || checkpoint.FileTotal <= 0 {
+		return dto
+	}
+	total := int64(checkpoint.FileTotal)
+	completed := int64(checkpoint.FilesCompleted)
+	if operation.Status == core.BackgroundWorkCompleted {
+		completed = total
+	}
+	if completed < 0 {
+		completed = 0
+	}
+	if completed > total {
+		completed = total
+	}
+	dto.ProgressTotal = total
+	dto.ProgressCompleted = completed
+	return dto
 }

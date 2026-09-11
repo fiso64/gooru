@@ -19,9 +19,11 @@ const (
 )
 
 type backgroundUploadCheckpoint struct {
-	Phase        string                                  `json:"phase"`
-	Replacements []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
-	Response     *UploadImportResponse                    `json:"response,omitempty"`
+	Phase          string                                  `json:"phase"`
+	Replacements   []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
+	Response       *UploadImportResponse                   `json:"response,omitempty"`
+	FileTotal      int                                     `json:"file_total,omitempty"`
+	FilesCompleted int                                     `json:"files_completed,omitempty"`
 }
 
 type backgroundUploadReplacementCheckpoint struct {
@@ -49,23 +51,47 @@ type backgroundUploadTaskFile struct {
 	ConflictPolicy  string    `json:"conflict_policy,omitempty"`
 }
 
-func backgroundUploadInitialCheckpoint() backgroundUploadCheckpoint {
-	return backgroundUploadCheckpoint{Phase: backgroundUploadPhaseStaged}
+func backgroundUploadInitialCheckpoint(fileTotal ...int) backgroundUploadCheckpoint {
+	total := 0
+	if len(fileTotal) > 0 {
+		total = fileTotal[0]
+	}
+	return backgroundUploadCheckpoint{Phase: backgroundUploadPhaseStaged, FileTotal: total}
 }
 
-func backgroundUploadActivatedCheckpoint(activated []activatedSavedReplacement) backgroundUploadCheckpoint {
+func backgroundUploadActivatedCheckpoint(activated []activatedSavedReplacement, progress ...int) backgroundUploadCheckpoint {
 	checkpoint := backgroundUploadCheckpoint{Phase: backgroundUploadPhaseActivated}
 	checkpoint.Replacements = backgroundUploadReplacementCheckpoints(activated)
+	if len(progress) > 0 {
+		checkpoint.FileTotal = progress[0]
+	}
+	if len(progress) > 1 {
+		checkpoint.FilesCompleted = progress[1]
+	}
 	return checkpoint
 }
 
 func backgroundUploadImportedCheckpoint(activated []activatedSavedReplacement, response UploadImportResponse) backgroundUploadCheckpoint {
+	total := len(response.Files)
 	checkpoint := backgroundUploadCheckpoint{
-		Phase:        backgroundUploadPhaseImported,
-		Replacements: backgroundUploadReplacementCheckpoints(activated),
-		Response:     &response,
+		Phase:          backgroundUploadPhaseImported,
+		Replacements:   backgroundUploadReplacementCheckpoints(activated),
+		Response:       &response,
+		FileTotal:      total,
+		FilesCompleted: total,
 	}
 	return checkpoint
+}
+
+func shouldPersistUploadProgress(completed, total int) bool {
+	if completed <= 0 || total <= 0 {
+		return false
+	}
+	step := total / 50
+	if step < 1 {
+		step = 1
+	}
+	return completed == total || completed%step == 0
 }
 
 func backgroundUploadReplacementCheckpoints(activated []activatedSavedReplacement) []backgroundUploadReplacementCheckpoint {
