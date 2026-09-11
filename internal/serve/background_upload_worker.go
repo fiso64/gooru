@@ -79,6 +79,9 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		if err != nil {
 			return err
 		}
+		if err := restoreDurableNonreplacementDestinations(files); err != nil {
+			return fmt.Errorf("restore activated durable uploads: %w", err)
+		}
 		if err := restoreActivatedReplacementDestinations(files, activated); err != nil {
 			return fmt.Errorf("restore activated upload replacements: %w", err)
 		}
