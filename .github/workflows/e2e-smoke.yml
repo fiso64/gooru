@@ -8,10 +8,6 @@ on:
         required: true
         default: '2000'
         type: string
-  # Temporary PR trigger for validating the finalized smoke harness; remove before merge.
-  pull_request:
-    branches:
-      - develop
 
 permissions:
   contents: read
@@ -23,7 +19,6 @@ concurrency:
 jobs:
   smoke:
     name: Mixed-media upload/delete smoke
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gooru]
     timeout-minutes: 90
     env:
@@ -44,11 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            count='${{ inputs.file_count }}'
-          else
-            count='200'
-          fi
+          count='${{ inputs.file_count }}'
           if ! [[ "$count" =~ ^[1-9][0-9]*$ ]] || (( count % 100 != 0 )); then
             echo "file_count must be a positive multiple of 100" >&2
             exit 2
@@ -92,28 +83,6 @@ jobs:
             "$python_out/bin/python3" scripts/e2e/generate_smoke_dataset.py \
               --count "$GOORU_SMOKE_FILE_COUNT" \
               --output "$GOORU_SMOKE_DATASET_DIR"
-
-      - name: Validate corrupted-cache regeneration
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
-          manifest="$GOORU_SMOKE_DATASET_DIR/manifest.json"
-          victim="$(node -e "const fs=require('node:fs'); const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(m.files[0].name)" "$manifest")"
-          victim_path="$GOORU_SMOKE_DATASET_DIR/$victim"
-          printf '\0' >> "$victim_path"
-
-          python_out="$(nix build --no-link --print-out-paths nixpkgs#python3)"
-          pillow_out="$(nix build --no-link --print-out-paths nixpkgs#python3Packages.pillow)"
-          ffmpeg_out="$(nix build --no-link --print-out-paths nixpkgs#ffmpeg)"
-          pillow_site="$(find "$pillow_out/lib" -type d -name site-packages -print -quit)"
-          [[ -n "$pillow_site" ]] || { echo "Pillow site-packages directory not found" >&2; exit 1; }
-          PATH="$ffmpeg_out/bin:$PATH" PYTHONPATH="$pillow_site" \
-            "$python_out/bin/python3" scripts/e2e/generate_smoke_dataset.py \
-              --count "$GOORU_SMOKE_FILE_COUNT" \
-              --output "$GOORU_SMOKE_DATASET_DIR"
-
-          node -e "const fs=require('node:fs'); const crypto=require('node:crypto'); const m=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); const e=m.files[0]; const p=process.argv[2]; const b=fs.readFileSync(p); const h=crypto.createHash('sha256').update(b).digest('hex'); if (b.length!==e.bytes || h!==e.sha256) { console.error('cached fixture corruption was not repaired'); process.exit(1); }" "$manifest" "$victim_path"
 
       - name: Build frontend and daemon
         shell: bash
