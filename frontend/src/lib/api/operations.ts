@@ -32,7 +32,7 @@ async function operationRequest<T>(path: string, init?: RequestInit): Promise<T>
     throw new ApiError(
       response.status,
       payload?.error?.code ?? 'http_error',
-      payload?.error.message ?? `Request failed with HTTP ${response.status}`
+      payload?.error?.message ?? `Request failed with HTTP ${response.status}`
     );
   }
   if (payload === undefined) throw new Error('Background operation response did not contain JSON');
