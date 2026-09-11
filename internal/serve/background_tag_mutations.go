@@ -9,7 +9,6 @@ import (
 	"time"
 
 	core "gooru.local/gooru"
-	"gooru.local/types"
 )
 
 const defaultDurableTagMutationPendingLimit = 64
@@ -78,16 +77,9 @@ func (l *GooruLibrary) executeBackgroundTagMutation(ctx context.Context, task co
 		if err != nil {
 			return err
 		}
-		files := make([]types.FileInfo, 0, len(targets))
-		for _, target := range targets {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			file, err := l.GetFileByPublicID(ctx, target)
-			if err != nil {
-				return err
-			}
-			files = append(files, file)
+		files, err := l.getFilesByPublicIDs(ctx, targets)
+		if err != nil {
+			return err
 		}
 		return l.client.ExecuteBackgroundTagMutationFiles(task.OperationID, files)
 	default:
