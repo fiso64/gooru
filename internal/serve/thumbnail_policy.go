@@ -54,7 +54,7 @@ func generateThumbnailFromLogicalSource(m *MediaService, file types.FileInfo, ds
 		// short-lived range-capable loopback URL, preserving #466's bounded chunk
 		// working set without plaintext disk materialization.
 		if pathThumbnailer, ok := m.thumbnailer.(videoPathThumbnailer); ok {
-			path, cleanup, available, err := logicalVideoSeekablePath(file.Path, source)
+			path, cleanup, available, err := logicalVideoSeekablePath(file.Path, source, source.size)
 			if err != nil {
 				return err
 			}
