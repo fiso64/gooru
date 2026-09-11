@@ -1,0 +1,32 @@
+name: Maintainer refresh 526
+
+on:
+  push:
+    branches:
+      - maintainer/28-protected-tag-persistence
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    name: Refresh onto develop
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - name: Merge current develop and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Autonomous maintainer"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git fetch origin develop
+          git merge --no-edit origin/develop
+          rm .github/workflows/maintainer-refresh-526.yml
+          git add .github/workflows/maintainer-refresh-526.yml
+          git diff --cached --check
+          git commit -m "Remove temporary #526 integration refresh"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
