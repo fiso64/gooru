@@ -6,7 +6,3 @@ export const uploadJobStatusBatchSize = 64;
 // dominant cost for fast small-file batches.
 export const uploadJobStatusRefetchMs = 700;
 export const uploadBackpressuredJobStatusRefetchMs = 50;
-
-// Completion signals should normally release a blocked upload immediately.
-// Keep a bounded timeout only as a missed-signal/network fallback.
-export const uploadAdmissionFallbackMs = 250;
