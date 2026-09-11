@@ -1,4 +1,4 @@
-name: Maintainer SQLite upgrade diagnostic
+name: Maintainer SQLite upgrade fix
 
 on:
   push:
@@ -6,28 +6,146 @@ on:
       - maintainer/sqlite-foreground-upgrade
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  apply-and-validate:
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect gosqlite transaction support
+      - name: Apply immediate write-transaction policy
         shell: bash
         run: |
           set -euo pipefail
-          driver_dir="$(go list -f '{{.Dir}}' gosqlite.org)"
-          echo "driver_dir=$driver_dir"
-          grep -R -n -E 'BeginTx|BEGIN IMMEDIATE|txlock|Transaction' "$driver_dir" | head -n 160 || true
-      - name: Reproduce foreground transaction upgrade
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('internal/database/database.go')
+          s = p.read_text()
+          old = '''\t// Add `_journal=WAL` for better concurrency.\n\t// Add `_busy_timeout=5000` so transient writer contention waits instead of failing immediately.\n\t// Add `_foreign_keys=on` to enforce foreign key constraints.\n\tdb, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL&_busy_timeout=5000", dataSourceName))'''
+          new = '''\t// Add `_journal=WAL` for better concurrency.\n\t// Add `_busy_timeout=5000` so transient writer contention waits instead of failing immediately.\n\t// Add `_txlock=immediate` so mutation transactions reserve SQLite's writer slot\n\t// before establishing a read snapshot. This prevents read-then-write callers\n\t// from failing with SQLITE_BUSY_SNAPSHOT after another writer commits.\n\t// Add `_foreign_keys=on` to enforce foreign key constraints.\n\tdb, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL&_busy_timeout=5000&_txlock=immediate", dataSourceName))'''
+          if s.count(old) != 1:
+              raise SystemExit('plaintext store open block changed unexpectedly')
+          p.write_text(s.replace(old, new))
+
+          p = Path('internal/database/encryption.go')
+          s = p.read_text()
+          old = 'sqlite.Config{Path: dataSourceName, Pragmas: sqlite.RecommendedPragmas()},'
+          new = 'sqlite.Config{Path: dataSourceName, Pragmas: sqlite.RecommendedPragmas(), TxLock: "immediate"},'
+          if s.count(old) != 1:
+              raise SystemExit('encrypted store config changed unexpectedly')
+          p.write_text(s.replace(old, new))
+          PY
+
+          cat > internal/database/sqlite_transaction_upgrade_test.go <<'EOF'
+          package database
+
+          import (
+          	"bytes"
+          	"context"
+          	"path/filepath"
+          	"testing"
+          	"time"
+          )
+
+          func TestForegroundTransactionReadThenWriteSurvivesConcurrentCommit(t *testing.T) {
+          	tests := []struct {
+          		name string
+          		open func(t *testing.T, path string) *Store
+          	}{
+          		{
+          			name: "plaintext",
+          			open: func(t *testing.T, path string) *Store {
+          				t.Helper()
+          				store, err := NewStore(path, false)
+          				if err != nil {
+          					t.Fatalf("NewStore: %v", err)
+          				}
+          				return store
+          			},
+          		},
+          		{
+          			name: "encrypted",
+          			open: func(t *testing.T, path string) *Store {
+          				t.Helper()
+          				store, err := NewEncryptedStore(path, false, bytes.Repeat([]byte{0x42}, encryptedDatabaseKeySize))
+          				if err != nil {
+          					t.Fatalf("NewEncryptedStore: %v", err)
+          				}
+          				return store
+          			},
+          		},
+          	}
+
+          	for _, tc := range tests {
+          		t.Run(tc.name, func(t *testing.T) {
+          			store := tc.open(t, filepath.Join(t.TempDir(), "gooru.db"))
+          			defer store.Close()
+          			store.DB.SetMaxOpenConns(4)
+
+          			if _, err := store.Exec(`CREATE TABLE tx_upgrade (id INTEGER PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+          				t.Fatalf("create table: %v", err)
+          			}
+          			if _, err := store.Exec(`INSERT INTO tx_upgrade(id, value) VALUES (1, 'initial')`); err != nil {
+          				t.Fatalf("seed row: %v", err)
+          			}
+
+          			tx, err := store.Begin()
+          			if err != nil {
+          				t.Fatalf("begin foreground transaction: %v", err)
+          			}
+          			defer tx.Rollback()
+
+          			var value string
+          			if err := tx.QueryRow(`SELECT value FROM tx_upgrade WHERE id = 1`).Scan(&value); err != nil {
+          				t.Fatalf("establish read snapshot: %v", err)
+          			}
+          			if value != "initial" {
+          				t.Fatalf("initial value = %q, want initial", value)
+          			}
+
+          			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+          			defer cancel()
+          			concurrentDone := make(chan error, 1)
+          			go func() {
+          				_, err := store.DB.ExecContext(ctx, `UPDATE tx_upgrade SET value = 'concurrent' WHERE id = 1`)
+          				concurrentDone <- err
+          			}()
+
+          			// A write-intent transaction owns the writer reservation already, so
+          			// the competing writer waits here instead of invalidating our snapshot.
+          			time.Sleep(50 * time.Millisecond)
+          			if _, err := tx.Exec(`UPDATE tx_upgrade SET value = 'foreground' WHERE id = 1`); err != nil {
+          				t.Fatalf("read-then-write foreground transaction failed under concurrent writer: %v", err)
+          			}
+          			if err := tx.Commit(); err != nil {
+          				t.Fatalf("commit foreground transaction: %v", err)
+          			}
+
+          			select {
+          			case err := <-concurrentDone:
+          				if err != nil {
+          					t.Fatalf("queued concurrent writer failed: %v", err)
+          				}
+          			case <-ctx.Done():
+          				t.Fatalf("queued concurrent writer did not complete: %v", ctx.Err())
+          			}
+          		})
+          }
+          EOF
+
+          gofmt -w internal/database/database.go internal/database/encryption.go internal/database/sqlite_transaction_upgrade_test.go
+      - name: Validate database package
+        run: go test -count=1 ./internal/database
+      - name: Remove temporary workflow and commit fix
         shell: bash
         run: |
-          set +e
-          go test -count=1 -run TestForegroundTransactionReadThenWriteSurvivesConcurrentCommit -v ./internal/database
-          status=$?
-          set -e
-          echo "targeted regression exit status: $status"
-          exit 0
+          set -euo pipefail
+          rm .github/workflows/maintainer-sqlite-upgrade-diagnostic.yml
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add internal/database/database.go internal/database/encryption.go internal/database/sqlite_transaction_upgrade_test.go .github/workflows/maintainer-sqlite-upgrade-diagnostic.yml
+          git commit -m 'database: reserve sqlite writer slot for transactions'
+          git push origin HEAD:maintainer/sqlite-foreground-upgrade
