@@ -40,6 +40,7 @@ type BackgroundOperationDTO struct {
 	ID                      string                    `json:"id"`
 	Kind                    string                    `json:"kind"`
 	Status                  core.BackgroundWorkStatus `json:"status"`
+	Stage                   string                    `json:"stage,omitempty"`
 	ProgressTotal           int64                     `json:"progress_total"`
 	ProgressCompleted       int64                     `json:"progress_completed"`
 	ProgressCompletedPrefix int64                     `json:"progress_completed_prefix,omitempty"`
@@ -277,6 +278,10 @@ func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState)
 		return dto
 	}
 	if checkpoint.Phase == backgroundUploadPhaseReceiving {
+		dto.Stage = "receiving"
+		if dto.Status == core.BackgroundWorkPending {
+			dto.Status = core.BackgroundWorkRunning
+		}
 		if checkpoint.TransportBytesTotal > 0 {
 			received := checkpoint.TransportBytesReceived
 			if received < 0 {
@@ -290,6 +295,7 @@ func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState)
 		}
 		return dto
 	}
+	dto.Stage = "importing"
 	if checkpoint.FileTotal <= 0 {
 		return dto
 	}
