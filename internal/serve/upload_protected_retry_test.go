@@ -95,7 +95,7 @@ func writeProtectedImportFixture(t *testing.T, server *Server, path string, plai
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatalf("create upload directory: %v", err)
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		t.Fatalf("create protected upload fixture: %v", err)
 	}
