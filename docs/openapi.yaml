@@ -1547,6 +1547,11 @@ components:
           type: integer
           format: int64
           minimum: 0
+        progress_completed_prefix:
+          type: integer
+          format: int64
+          minimum: 0
+          description: For upload_import operations, number of leading upload files whose analysis stage has completed. Omitted for other operation kinds.
         progress_failed:
           type: integer
           format: int64
