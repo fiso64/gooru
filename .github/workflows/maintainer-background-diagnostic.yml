@@ -1,0 +1,16 @@
+name: Maintainer background diagnostic
+
+on:
+  pull_request:
+    paths:
+      - 'internal/background/**'
+      - 'internal/database/**'
+      - '.github/workflows/maintainer-background-diagnostic.yml'
+
+jobs:
+  background:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Background tests
+        run: go test -v -count=1 ./internal/background
