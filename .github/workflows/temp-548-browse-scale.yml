@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - maintainer/548-browse-scale-diagnosis
+  pull_request:
+    branches:
+      - develop
 
 permissions:
   contents: read
