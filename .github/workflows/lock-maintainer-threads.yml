@@ -388,6 +388,7 @@ jobs:
               done
               [[ "$found" == false ]] && printf -- '- `%s`\n' "$branch" >>"$outfile"
             done <"$branches_file"
+            return 0
           }
 
           refresh_branches_incremental() {
