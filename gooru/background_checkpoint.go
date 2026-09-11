@@ -25,6 +25,22 @@ func (c *Client) GetBackgroundOperationCheckpoint(operationID string, destinatio
 	return true, nil
 }
 
+// ListActiveBackgroundOperationCheckpoints returns raw producer-owned recovery
+// state for every active operation of one kind. Callers must decode only the
+// schema they own; unlike operation-history reads this recovery boundary is not
+// artificially capped.
+func (c *Client) ListActiveBackgroundOperationCheckpoints(kind string) (map[string]json.RawMessage, error) {
+	encoded, err := c.store.ListActiveBackgroundOperationCheckpoints(kind)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]json.RawMessage, len(encoded))
+	for operationID, checkpoint := range encoded {
+		result[operationID] = append(json.RawMessage(nil), checkpoint...)
+	}
+	return result, nil
+}
+
 // SetBackgroundOperationVisible changes whether an operation is exposed through
 // user-facing operation history. Bounded producers use a hidden operation as an
 // admission reservation, then reveal it only after durable work is attached.
