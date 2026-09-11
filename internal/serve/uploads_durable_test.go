@@ -157,6 +157,24 @@ func newDurableUploadHandlerTestServer(t *testing.T, targetDir string, store *du
 	return server
 }
 
+func singleDurableStagedPath(t *testing.T, stagingDir string) string {
+	t.Helper()
+	entries, err := os.ReadDir(stagingDir)
+	if err != nil {
+		t.Fatalf("read durable staging directory: %v", err)
+	}
+	files := make([]os.DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			files = append(files, entry)
+		}
+	}
+	if len(files) != 1 {
+		t.Fatalf("durable staging files = %d, want 1", len(files))
+	}
+	return filepath.Join(stagingDir, files[0].Name())
+}
+
 func TestDurableUploadOperationCreationFailureBeforeReadingOrStagingMultipart(t *testing.T) {
 	targetDir := filepath.Join(t.TempDir(), "uploads")
 	store := newDurableUploadTestStore()
@@ -248,7 +266,11 @@ func TestDurableUploadAsyncAttachesOneTaskAndReturnsOperationLocation(t *testing
 	if store.attachedRequest.Kind != backgroundUploadTaskKind || store.attachedRequest.SubjectID != store.operation.ID || store.attachedRequest.ResourceClass != backgroundUploadResourceClass {
 		t.Fatalf("unexpected durable task request: %+v", store.attachedRequest)
 	}
-	stagedPath := filepath.Join(targetDir, "photo.jpg")
+	stagingDir, err := durableUploadStagingDir(targetDir, store.operation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stagedPath := singleDurableStagedPath(t, stagingDir)
 	if got := string(mustReadFile(t, stagedPath)); got != "hello" {
 		t.Fatalf("clear-mode durable staging content = %q, want hello", got)
 	}
@@ -289,7 +311,12 @@ func TestDurableUploadAsyncCancelReplaysCleanupAfterRestart(t *testing.T) {
 		_ = client.Close()
 		t.Fatalf("unexpected pending upload operation: %+v", operation)
 	}
-	stagedPath := filepath.Join(uploadDir, "pending.txt")
+	stagingDir, stagingErr := durableUploadStagingDir(uploadDir, operation.ID)
+	if stagingErr != nil {
+		_ = client.Close()
+		t.Fatal(stagingErr)
+	}
+	stagedPath := singleDurableStagedPath(t, stagingDir)
 	if got := string(mustReadFile(t, stagedPath)); got != "hello" {
 		_ = client.Close()
 		t.Fatalf("staged content = %q, want hello", got)
@@ -338,15 +365,15 @@ func TestDurableUploadAsyncCancelReplaysCleanupAfterRestart(t *testing.T) {
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		_, statErr := os.Stat(stagedPath)
+		_, statErr := os.Stat(stagingDir)
 		if os.IsNotExist(statErr) {
 			break
 		}
 		if statErr != nil {
-			t.Fatalf("stat staged upload after restart: %v", statErr)
+			t.Fatalf("stat durable staging directory after restart: %v", statErr)
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("durable cancellation cleanup did not remove staging after restart")
+			t.Fatal("durable cancellation cleanup did not remove operation staging after restart")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

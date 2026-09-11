@@ -43,3 +43,10 @@ func (c *Client) CancelUnattachedHiddenBackgroundOperations(kind string) (int64,
 func (c *Client) CancelUnattachedBackgroundOperations(kind string) (int64, error) {
 	return c.store.CancelUnattachedBackgroundOperations(kind)
 }
+
+// CancelUnattachedBackgroundOperationIDs releases pre-crash producer work and
+// returns the exact operation identities whose external staging state can be
+// reclaimed by the producer during startup.
+func (c *Client) CancelUnattachedBackgroundOperationIDs(kind string) ([]string, error) {
+	return c.store.CancelUnattachedBackgroundOperationIDs(kind)
+}

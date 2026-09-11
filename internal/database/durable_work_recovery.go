@@ -48,15 +48,24 @@ func (s *Store) CancelUnattachedHiddenBackgroundOperations(kind string) (int64, 
 // receiving operations use this at startup because a process death can occur
 // after publication but before multipart staging attaches durable work.
 func (s *Store) CancelUnattachedBackgroundOperations(kind string) (int64, error) {
+	ids, err := s.CancelUnattachedBackgroundOperationIDs(kind)
+	return int64(len(ids)), err
+}
+
+// CancelUnattachedBackgroundOperationIDs is the startup reconciliation variant
+// for producers that own external staging state. It returns exactly the durable
+// operation ids canceled by this statement so callers can reclaim only state
+// owned by those interrupted producers.
+func (s *Store) CancelUnattachedBackgroundOperationIDs(kind string) ([]string, error) {
 	if s == nil || s.DB == nil {
-		return 0, errors.New("background operation store is required")
+		return nil, errors.New("background operation store is required")
 	}
 	kind = strings.TrimSpace(kind)
 	if kind == "" {
-		return 0, errors.New("background operation kind is required")
+		return nil, errors.New("background operation kind is required")
 	}
 	finishedAt := workTimeValue(time.Now().UTC())
-	result, err := s.DB.Exec(`
+	rows, err := s.DB.Query(`
 		UPDATE background_operations
 		SET status = 'canceled', finished_at = ?,
 		    error_code = 'producer_interrupted',
@@ -67,13 +76,22 @@ func (s *Store) CancelUnattachedBackgroundOperations(kind string) (int64, error)
 			SELECT 1 FROM background_tasks
 			WHERE background_tasks.operation_id = background_operations.id
 		  )
+		RETURNING id
 	`, finishedAt, kind)
 	if err != nil {
-		return 0, fmt.Errorf("cancel unattached background operations: %w", err)
+		return nil, fmt.Errorf("cancel unattached background operations: %w", err)
 	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("cancel unattached background operations rows affected: %w", err)
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("read canceled unattached background operation id: %w", err)
+		}
+		ids = append(ids, id)
 	}
-	return count, nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("cancel unattached background operations rows: %w", err)
+	}
+	return ids, nil
 }
