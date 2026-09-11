@@ -127,6 +127,28 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def cached_file_ok(output: Path, item: object) -> bool:
+    if not isinstance(item, dict):
+        return False
+    name = item.get("name")
+    size = item.get("bytes")
+    digest = item.get("sha256")
+    if not isinstance(name, str) or not name or Path(name).name != name:
+        return False
+    if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+        return False
+    if not isinstance(digest, str) or len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        return False
+
+    path = output / name
+    try:
+        if not path.is_file() or path.stat().st_size != size:
+            return False
+        return sha256(path) == digest
+    except OSError:
+        return False
+
+
 def existing_fixture_ok(output: Path, count: int, seed: int) -> bool:
     manifest_path = output / "manifest.json"
     if not manifest_path.is_file():
@@ -140,7 +162,7 @@ def existing_fixture_ok(output: Path, count: int, seed: int) -> bool:
     files = manifest.get("files")
     if not isinstance(files, list) or len(files) != count:
         return False
-    return all((output / item.get("name", "")).is_file() for item in files if isinstance(item, dict))
+    return all(cached_file_ok(output, item) for item in files)
 
 
 def main() -> None:
