@@ -33,7 +33,7 @@ func NewEncryptedStore(dataSourceName string, verbose bool, key []byte) (*Store,
 	}
 
 	db, err := crypto.Open(
-		sqlite.Config{Path: dataSourceName, Pragmas: sqlite.RecommendedPragmas()},
+		sqlite.Config{Path: dataSourceName, Pragmas: sqlite.RecommendedPragmas(), TxLock: "immediate"},
 		crypto.Options{Key: key},
 	)
 	if err != nil {
