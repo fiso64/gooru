@@ -8,22 +8,17 @@ on:
       - .github/workflows/maintainer-401-staging-recovery.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  refresh:
+  inspect:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: maintainer/401-upload-staging-recovery
-          fetch-depth: 0
-      - name: Merge current develop
+      - name: Inspect upload import path
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'ChatGPT Codex Connector'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git fetch origin develop
-          git merge --no-edit origin/develop
-          git push origin HEAD:maintainer/401-upload-staging-recovery
+          rg -n 'func .*ImportUploadedFiles|func .*importUploadedFiles|StagedUpload|AnalysisPath' internal/serve | head -n 160
