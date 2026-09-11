@@ -67,6 +67,10 @@ export function jobsPageRequestLimit(limit: number, pageToken: string) {
   return Math.min(1000, start + limit + 1);
 }
 
+export function jobsPageActiveCount(serverActiveCount: number | undefined, jobs: Job[]) {
+  return serverActiveCount ?? jobs.filter(jobIsActive).length;
+}
+
 async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
   const start = jobsPageOffset(pageToken);
   const response = await listBackgroundOperations(jobsPageRequestLimit(limit, pageToken));
@@ -74,7 +78,7 @@ async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListP
   const end = start + limit;
   return {
     items: jobs.slice(start, end),
-    active_count: response.active_count ?? jobs.filter(jobIsActive).length,
+    active_count: jobsPageActiveCount(response.active_count, jobs),
     next_page_token: end < jobs.length ? String(end) : undefined
   };
 }
