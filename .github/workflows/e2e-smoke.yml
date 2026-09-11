@@ -2,10 +2,6 @@ name: E2E Smoke
 
 on:
   workflow_dispatch:
-  # Temporary validation trigger; remove after the three-stage workflow is verified.
-  pull_request:
-    branches:
-      - develop
 
 permissions:
   contents: read
@@ -16,10 +12,6 @@ concurrency:
 
 jobs:
   smoke:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
     name: Mixed-media upload/delete smoke
     runs-on: [self-hosted, gooru]
     timeout-minutes: 90
@@ -86,7 +78,6 @@ jobs:
           done
 
       - name: Build frontend and daemon
-        id: build
         shell: bash
         run: |
           set -euo pipefail
@@ -96,7 +87,6 @@ jobs:
           go build -o .e2e/bin/gooru ./cmd/gooru
 
       - name: Install Chromium
-        id: chromium
         working-directory: frontend
         run: npx playwright install chromium
 
