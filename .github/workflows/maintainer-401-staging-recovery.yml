@@ -11,14 +11,24 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
           ref: maintainer/401-upload-staging-recovery
-      - name: Inspect upload move helpers
+      - name: Probe activated analysis path fix
         shell: bash
         run: |
           set -euo pipefail
-          rg -n -C 25 'func commitUploadDestination|func moveManagedFileToOpaqueStorage' internal/serve
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('internal/serve/upload_durable_activation.go')
+          text = path.read_text()
+          old = '''\t\tif durableUploadNeedsActivation(file) {\n\t\t\tstaged[i].Path = file.destinationPath\n\t\t}\n'''
+          new = '''\t\tif durableUploadNeedsActivation(file) {\n\t\t\tstaged[i].Path = file.destinationPath\n\t\t\tstaged[i].AnalysisPath = file.destinationPath\n\t\t}\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f'activation mapping block count={text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+          go test ./internal/serve
