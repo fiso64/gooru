@@ -13,7 +13,6 @@ jobs:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect managed file lookup path
+      - name: Inspect server managed composition
         run: |
-          grep -R -n 'func (c \*Client) GetFileInfoByPublicID\|func (c \*Client) GetFileInfoByPublicIDs\|ManagedStorage\|managed_storage_locations' gooru internal/database | head -200
-          go test -count=1 -run '^TestBackgroundTagMutationManagedFileUsesStoragePath$' -v ./gooru
+          grep -R -n 'GetFileInfoByPublicIDs\|ResolveManagedStorage' --exclude-dir=.git . | head -200
