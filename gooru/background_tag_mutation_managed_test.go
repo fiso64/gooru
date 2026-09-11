@@ -1,10 +1,13 @@
 package gooru
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"gooru.local/internal/encryptedfile"
+	"gooru.local/internal/filesource"
 	"gooru.local/types"
 )
 
@@ -12,15 +15,44 @@ func TestBackgroundTagMutationManagedFileUsesStoragePath(t *testing.T) {
 	client := newBackgroundTagMutationTestClient(t)
 	dir := t.TempDir()
 	logicalPath := filepath.Join(dir, "logical", "photo.jpg")
-	storagePath := writeBackgroundTagMutationTestFile(t, dir, "opaque-storage.bin", "managed plaintext")
+	storagePath := filepath.Join(dir, "opaque-storage.bin")
+	plaintext := []byte("managed plaintext")
+	key := bytes.Repeat([]byte{0x62}, 32)
+
+	out, err := os.OpenFile(storagePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatalf("create managed storage: %v", err)
+	}
+	if err := encryptedfile.Encrypt(out, bytes.NewReader(plaintext), int64(len(plaintext)), key); err != nil {
+		_ = out.Close()
+		t.Fatalf("encrypt managed storage: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("close managed storage: %v", err)
+	}
+	resolver, err := filesource.NewProtected(key, []string{dir})
+	if err != nil {
+		t.Fatalf("create protected source resolver: %v", err)
+	}
+	client.hasher.SetSourceResolver(resolver)
 
 	metadata, err := client.hasher.FileMetadata(storagePath)
 	if err != nil {
 		t.Fatalf("read managed metadata: %v", err)
 	}
-	hash, err := client.hasher.HashFile(storagePath)
+	if metadata.Size != int64(len(plaintext)) {
+		t.Fatalf("logical managed size = %d, want %d", metadata.Size, len(plaintext))
+	}
+	physical, err := os.Stat(storagePath)
 	if err != nil {
-		t.Fatalf("hash managed file: %v", err)
+		t.Fatalf("stat managed storage: %v", err)
+	}
+	if physical.Size() == metadata.Size {
+		t.Fatalf("test did not distinguish encrypted size %d from logical size %d", physical.Size(), metadata.Size)
+	}
+	hash, err := client.hasher.HashSource(bytes.NewReader(plaintext), int64(len(plaintext)))
+	if err != nil {
+		t.Fatalf("hash logical managed file: %v", err)
 	}
 	if _, err := client.TagKnownFiles([]types.LocationInfo{{
 		Path:        logicalPath,
