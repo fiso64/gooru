@@ -125,6 +125,16 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 		task, ok, err := r.store.ClaimNextBackgroundTask(r.resourceClass, r.workerID, r.now(), r.leaseDuration)
 		if err != nil {
+			if database.IsTransientSQLiteContention(err) {
+				slog.DebugContext(ctx, "background task claim delayed by sqlite contention",
+					"resource_class", r.resourceClass,
+					"worker_id", r.workerID,
+				)
+				if err := wait(ctx, r.pollInterval); err != nil {
+					return nil
+				}
+				continue
+			}
 			return fmt.Errorf("claim background task: %w", err)
 		}
 		if !ok {
