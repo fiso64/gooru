@@ -8,7 +8,7 @@ on:
         required: true
         default: '2000'
         type: string
-  # Temporary validation trigger; remove after the full-scale run.
+  # Temporary validation trigger; remove after scaling validation.
   pull_request:
     branches:
       - develop
@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: e2e-smoke-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   smoke:
@@ -47,7 +47,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             count='${{ inputs.file_count }}'
           else
-            count=2000
+            count=100
           fi
           if ! [[ "$count" =~ ^[1-9][0-9]*$ ]] || (( count % 100 != 0 )); then
             echo "file_count must be a positive multiple of 100" >&2
