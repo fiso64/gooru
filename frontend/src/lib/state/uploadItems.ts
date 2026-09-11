@@ -94,7 +94,7 @@ export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
   return items.map((item, index) => ({
     ...item,
     status,
-    progress: terminal || index < completedPrefix ? 100 : 0,
+    progress: terminal || index < completedPrefix ? 100 : item.progress,
     error: job.status === 'failed' ? job.error ?? 'Import failed' : item.error
   }));
 }
