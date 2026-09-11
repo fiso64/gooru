@@ -32,8 +32,9 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/operations?**', async (route) => {
     const url = new URL(route.request().url());
-    requests.push(Number(url.searchParams.get('limit') ?? '0'));
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: operations }) });
+    const limit = Number(url.searchParams.get('limit') ?? '0');
+    requests.push(limit);
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: operations.slice(0, limit) }) });
   });
 
   return requests;
@@ -48,22 +49,26 @@ test('drawer stays bounded while jobs tab pages through large durable operation 
   const drawer = page.locator('#jobs-drawer .jobs-drawer');
   await expect(drawer).toBeVisible();
   await expect(drawer.locator('.job-row')).toHaveCount(20);
-  await expect(topbarJobs).toContainText('7');
-  await expect.poll(() => requests.includes(1000)).toBe(true);
+  await expect.poll(() => requests.includes(21)).toBe(true);
+  expect(requests).not.toContain(1000);
 
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
   await expect(page.getByText('Page 1', { exact: true })).toBeVisible();
+  await expect.poll(() => requests.includes(51)).toBe(true);
 
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByText('Page 2', { exact: true })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
+  await expect.poll(() => requests.includes(101)).toBe(true);
 
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByText('Page 3', { exact: true })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(20);
   await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
+  await expect.poll(() => requests.includes(151)).toBe(true);
+  expect(requests).not.toContain(1000);
 
   await page.getByRole('button', { name: 'Previous', exact: true }).click();
   await expect(page.getByText('Page 2', { exact: true })).toBeVisible();

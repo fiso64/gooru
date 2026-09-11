@@ -161,3 +161,38 @@ test('active uploads refresh authoritative counts without churning grid pages an
   await expect.poll(() => server.tagsRequests()).toBeGreaterThan(tagsBeforeFinal);
   await expect.poll(() => server.operationRequests()).toBeGreaterThan(operationsBeforeFinal);
 });
+
+test('grid requery clears upload refresh banner when the new rows are already represented', async ({ page }) => {
+  const server = await mockApp(page);
+  let pendingUpload: Route | undefined;
+  await page.route('**/api/v1/uploads', async (route) => {
+    pendingUpload = route;
+  });
+
+  await signIn(page);
+  await page.getByRole('button', { name: 'Upload' }).click();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'fresh.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from('fresh')
+  });
+  await page.getByRole('button', { name: /Upload 1 file/ }).click();
+  await expect.poll(() => Boolean(pendingUpload)).toBe(true);
+
+  server.setServerTotal(76);
+  await librarySidebar(page).click();
+  const refreshButton = page.getByTestId('refresh-upload-results');
+  await expect(refreshButton).toHaveText('1 new item · Refresh results');
+
+  const gridBeforeRequery = server.gridRequests();
+  await page.getByRole('button', { name: 'Paged' }).click();
+  await expect.poll(() => server.gridRequests()).toBeGreaterThan(gridBeforeRequery);
+  await expect(page.getByTestId('library-header-count')).toHaveText('76 files');
+  await expect(refreshButton).toHaveCount(0);
+
+  await pendingUpload!.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ files: [{ name: 'fresh.jpg', size: 5, target_id: 'default', status: 'imported' }], affected_count: 1 })
+  });
+});

@@ -21,6 +21,7 @@ export interface BackgroundOperation {
 
 interface BackgroundOperationListResponse {
   items: BackgroundOperation[];
+  active_count?: number;
 }
 
 async function operationRequest<T>(path: string, init?: RequestInit): Promise<T> {

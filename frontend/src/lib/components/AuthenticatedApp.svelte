@@ -130,7 +130,8 @@
     ? (uploadResultsCountQuery.data?.total_count ?? gridSnapshotTotalCount)
     : gridSnapshotTotalCount);
   const liveLibraryCount = $derived(tagsQuery.data?.library_count ?? fileMetadata?.library_count ?? loadedFiles.length);
-  const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveCurrentQueryCount - uploadResultsFloor) : 0);
+  const uploadResultsBaseline = $derived(Math.max(uploadResultsFloor, gridSnapshotTotalCount));
+  const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveCurrentQueryCount - uploadResultsBaseline) : 0);
   const pagedPageCount = $derived(Math.max(1, Math.ceil(gridSnapshotTotalCount / $runtimeConfig.itemsPerPage)));
   const selectedCount = $derived(library.selectedCount());
   const sidebarKindCounts = $derived(
@@ -475,7 +476,7 @@
   async function finishUploadMetadataRefresh() {
     stopUploadMetadataRefresh();
     const finalTotal = await refreshUploadMetadata(true);
-    if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsFloor) {
+    if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsBaseline) {
       trackUploadResults = false;
     }
     return finalTotal;
