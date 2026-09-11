@@ -15,11 +15,13 @@ jobs:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Inventory transaction starts
+      - name: Inspect gosqlite transaction support
         shell: bash
         run: |
           set -euo pipefail
-          git grep -n -E '\.Begin\(\)|BeginTx\(' -- '*.go' || true
+          driver_dir="$(go list -f '{{.Dir}}' gosqlite.org)"
+          echo "driver_dir=$driver_dir"
+          grep -R -n -E 'BeginTx|BEGIN IMMEDIATE|txlock|Transaction' "$driver_dir" | head -n 160 || true
       - name: Reproduce foreground transaction upgrade
         shell: bash
         run: |
