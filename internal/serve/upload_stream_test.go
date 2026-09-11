@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -86,6 +87,39 @@ func TestUploadStreamingAcceptsMetadataAfterFilePart(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("managed staging should be cleaned, entries=%v", entries)
+	}
+}
+
+func TestUploadStreamingAcceptsMoreThanOneThousandFiles(t *testing.T) {
+	uploadDir := t.TempDir()
+	library := &recordingUploadLibrary{}
+	server := newUploadTestServer(t, uploadDir, true, library)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	const fileCount = 1001
+	for i := 0; i < fileCount; i++ {
+		part, err := writer.CreateFormFile("file", "file-"+strconv.Itoa(i)+".txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write([]byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected upload above 1K files to succeed, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(library.files) != fileCount {
+		t.Fatalf("imported file count=%d want=%d", len(library.files), fileCount)
 	}
 }
 
