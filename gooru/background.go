@@ -134,11 +134,10 @@ type BackgroundTask struct {
 	InputKey    string
 }
 
-// BackgroundTaskRequest describes durable work to enqueue. DedupeKey is the
-// stable identity of active equivalent work; callers should include every input
-// that changes the promised result. AvailableAt is optional and defaults to now.
-type BackgroundTaskRequest struct {
-	OperationID   string
+// BackgroundTaskCleanupRequest describes detached compensation to enqueue
+// atomically if the owning task exhausts its retry budget. Compensation cannot
+// recursively own another compensation task.
+type BackgroundTaskCleanupRequest struct {
 	DedupeKey     string
 	Kind          string
 	SubjectKind   string
@@ -146,8 +145,24 @@ type BackgroundTaskRequest struct {
 	InputKey      string
 	ResourceClass string
 	Priority      int
-	AvailableAt   time.Time
 	MaxAttempts   int
+}
+
+// BackgroundTaskRequest describes durable work to enqueue. DedupeKey is the
+// stable identity of active equivalent work; callers should include every input
+// that changes the promised result. AvailableAt is optional and defaults to now.
+type BackgroundTaskRequest struct {
+	OperationID            string
+	DedupeKey              string
+	Kind                   string
+	SubjectKind            string
+	SubjectID              string
+	InputKey               string
+	ResourceClass          string
+	Priority               int
+	AvailableAt            time.Time
+	MaxAttempts            int
+	TerminalFailureCleanup *BackgroundTaskCleanupRequest
 }
 
 // EnqueueBackgroundTask persists durable work outside an existing transaction.
