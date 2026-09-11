@@ -159,6 +159,38 @@ describe('createUploadWorkflow aggregate uploads', () => {
     expect(workflow.status).toContain('Upload in progress');
   });
 
+  it('replaces managed target defaults while preserving user tags', () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox', 'source:upload']);
+    expect(workflow.tags).toBe('project:inbox source:upload');
+    workflow.tags += ' user:kept';
+    workflow.setTarget('two', 'queue', ['source:upload', 'user:kept']);
+    expect(workflow.tags).toBe('user:kept source:upload');
+  });
+
+  it('does not duplicate target defaults on repeated selection', () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox', 'project:inbox']);
+    workflow.setTarget('one', 'queue', ['project:inbox']);
+    expect(workflow.tags).toBe('project:inbox');
+  });
+
+  it('reapplies target defaults exactly for an explicit selection', () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox']);
+    workflow.tags = 'project:inbox user:custom';
+    workflow.setTarget('one', 'queue', ['project:inbox', 'source:upload'], true);
+    expect(workflow.tags).toBe('project:inbox source:upload');
+  });
+
+  it('keeps user tags when an explicitly selected target has no defaults', () => {
+    const workflow = createUploadWorkflow();
+    workflow.setTarget('one', 'queue', ['project:inbox']);
+    workflow.tags = 'project:inbox user:custom';
+    workflow.setTarget('plain', 'queue', [], true);
+    expect(workflow.tags).toBe('user:custom');
+  });
+
   it('preserves managed target defaults and user tags after direct completion', async () => {
     const workflow = createUploadWorkflow();
     workflow.setTarget('one', 'queue', ['project:inbox']);
