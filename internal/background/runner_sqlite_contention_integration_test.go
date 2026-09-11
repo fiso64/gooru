@@ -99,3 +99,139 @@ func TestRunnerSurvivesRealSQLiteWriterContention(t *testing.T) {
 		t.Fatal("runner did not stop after cancellation")
 	}
 }
+
+func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
+	store, writerDB, claimed := setupClaimedSQLiteContentionTask(t, "task-renew-contention", 120*time.Millisecond)
+
+	writerTx, err := writerDB.Begin()
+	if err != nil {
+		t.Fatalf("begin writer transaction: %v", err)
+	}
+	defer writerTx.Rollback()
+	if _, err := writerTx.Exec(`UPDATE background_tasks SET priority = priority WHERE id = ?`, claimed.ID); err != nil {
+		t.Fatalf("acquire writer lock: %v", err)
+	}
+
+	releaseDone := make(chan error, 1)
+	go func() {
+		time.Sleep(55 * time.Millisecond)
+		releaseDone <- writerTx.Commit()
+	}()
+
+	runner, err := NewRunner(RunnerConfig{
+		Store:         store,
+		ResourceClass: "image",
+		WorkerID:      "worker-lifecycle",
+		LeaseDuration: 120 * time.Millisecond,
+		PollInterval:  2 * time.Millisecond,
+		Handlers: map[string]Handler{
+			"thumbnail": func(ctx context.Context, _ database.BackgroundTask) error {
+				select {
+				case <-time.After(80 * time.Millisecond):
+					return nil
+				case <-ctx.Done():
+					return fmt.Errorf("handler canceled during transient contention: %w", ctx.Err())
+				}
+			},
+	})
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	if err := runner.runClaimed(context.Background(), claimed); err != nil {
+		t.Fatalf("run claimed task through renewal contention: %v", err)
+	}
+	if err := <-releaseDone; err != nil {
+		t.Fatalf("release writer lock: %v", err)
+	}
+	assertTaskStatus(t, store, claimed.ID, database.BackgroundWorkCompleted)
+}
+
+func TestRunnerSurvivesRealSQLiteContentionDuringTaskCompletion(t *testing.T) {
+	store, writerDB, claimed := setupClaimedSQLiteContentionTask(t, "task-complete-contention", 500*time.Millisecond)
+
+	writerTx, err := writerDB.Begin()
+	if err != nil {
+		t.Fatalf("begin writer transaction: %v", err)
+	}
+	defer writerTx.Rollback()
+	if _, err := writerTx.Exec(`UPDATE background_tasks SET priority = priority WHERE id = ?`, claimed.ID); err != nil {
+		t.Fatalf("acquire writer lock: %v", err)
+	}
+
+	releaseDone := make(chan error, 1)
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		releaseDone <- writerTx.Commit()
+	}()
+
+	runner, err := NewRunner(RunnerConfig{
+		Store:         store,
+		ResourceClass: "image",
+		WorkerID:      "worker-lifecycle",
+		LeaseDuration: 500 * time.Millisecond,
+		PollInterval:  2 * time.Millisecond,
+		Handlers: map[string]Handler{
+			"thumbnail": func(context.Context, database.BackgroundTask) error { return nil },
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewRunner: %v", err)
+	}
+	if err := runner.runClaimed(context.Background(), claimed); err != nil {
+		t.Fatalf("run claimed task through completion contention: %v", err)
+	}
+	if err := <-releaseDone; err != nil {
+		t.Fatalf("release writer lock: %v", err)
+	}
+	assertTaskStatus(t, store, claimed.ID, database.BackgroundWorkCompleted)
+}
+
+func setupClaimedSQLiteContentionTask(t *testing.T, taskID string, leaseDuration time.Duration) (*database.Store, *sql.DB, database.BackgroundTask) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	store, err := database.NewStore(dbPath, false)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := database.RunMigrations(store.DB); err != nil {
+		t.Fatalf("RunMigrations: %v", err)
+	}
+	store.DB.SetMaxOpenConns(1)
+	if _, err := store.DB.Exec(`PRAGMA busy_timeout = 1`); err != nil {
+		t.Fatalf("set short busy timeout: %v", err)
+	}
+
+	now := time.Now().UTC()
+	if _, _, err := store.EnqueueBackgroundTask(store.DB, database.NewBackgroundTask{
+		ID:            taskID,
+		DedupeKey:     "contention:" + taskID,
+		Kind:          "thumbnail",
+		ResourceClass: "image",
+		CreatedAt:     now,
+	}); err != nil {
+		t.Fatalf("enqueue task: %v", err)
+	}
+	claimed, ok, err := store.ClaimNextBackgroundTask("image", "worker-lifecycle", now, leaseDuration)
+	if err != nil || !ok {
+		t.Fatalf("claim task: task=%+v ok=%v err=%v", claimed, ok, err)
+	}
+
+	writerDB, err := sql.Open("sqlite3", fmt.Sprintf("%s?_journal=WAL&_busy_timeout=1", dbPath))
+	if err != nil {
+		t.Fatalf("open writer DB: %v", err)
+	}
+	t.Cleanup(func() { _ = writerDB.Close() })
+	return store, writerDB, claimed
+}
+
+func assertTaskStatus(t *testing.T, store *database.Store, taskID string, want database.BackgroundWorkStatus) {
+	t.Helper()
+	var got string
+	if err := store.DB.QueryRow(`SELECT status FROM background_tasks WHERE id = ?`, taskID).Scan(&got); err != nil {
+		t.Fatalf("read task status: %v", err)
+	}
+	if database.BackgroundWorkStatus(got) != want {
+		t.Fatalf("task status = %q, want %q", got, want)
+	}
+}
