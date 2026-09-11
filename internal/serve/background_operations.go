@@ -55,7 +55,8 @@ type BackgroundOperationDTO struct {
 }
 
 type BackgroundOperationListResponse struct {
-	Items []BackgroundOperationDTO `json:"items"`
+	Items       []BackgroundOperationDTO `json:"items"`
+	ActiveCount int                      `json:"active_count,omitempty"`
 }
 
 func (l *GooruLibrary) GetBackgroundOperation(operationID string) (core.BackgroundOperationState, bool, error) {
@@ -189,13 +190,18 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operations", nil)
 		return
 	}
+	activeCount, err := s.activeBackgroundOperationCount(operations)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to count active background operations", nil)
+		return
+	}
 	items := make([]BackgroundOperationDTO, 0, len(operations))
 	for _, operation := range operations {
 		if operation.Visible {
 			items = append(items, s.backgroundOperationDTO(operation))
 		}
 	}
-	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items})
+	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items, ActiveCount: activeCount})
 }
 
 func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
