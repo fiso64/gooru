@@ -55,20 +55,29 @@ func TestBackgroundTagMutationManagedFileUsesStoragePath(t *testing.T) {
 		t.Fatalf("hash logical managed file: %v", err)
 	}
 	if _, err := client.TagKnownFiles([]types.LocationInfo{{
-		Path:        logicalPath,
-		StoragePath: storagePath,
-		Hash:        hash,
-		Size:        metadata.Size,
-		ModTime:     metadata.ModTime.Unix(),
-		Extension:   filepath.Ext(logicalPath),
+		Path:      logicalPath,
+		Hash:      hash,
+		Size:      metadata.Size,
+		ModTime:   metadata.ModTime.Unix(),
+		Extension: filepath.Ext(logicalPath),
 	}}, []string{"initial"}, nil); err != nil {
-		t.Fatalf("register managed file: %v", err)
+		t.Fatalf("register logical file: %v", err)
 	}
 	if _, err := os.Stat(logicalPath); !os.IsNotExist(err) {
 		t.Fatalf("logical path should remain absent, stat err=%v", err)
 	}
 
 	files, err := client.GetAllFilesInfo()
+	if err != nil || len(files) != 1 {
+		t.Fatalf("list logical file: files=%v err=%v", files, err)
+	}
+	if _, err := client.store.Exec(
+		"INSERT INTO managed_storage_locations (location_id, physical_path) VALUES (?, ?)",
+		files[0].ID, storagePath,
+	); err != nil {
+		t.Fatalf("register managed storage: %v", err)
+	}
+	files, err = client.GetAllFilesInfo()
 	if err != nil || len(files) != 1 {
 		t.Fatalf("list managed file: files=%v err=%v", files, err)
 	}
