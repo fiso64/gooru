@@ -52,8 +52,11 @@ func CreateEmptyDB(dataSourceName string) error {
 func NewStore(dataSourceName string, verbose bool) (*Store, error) {
 	// Add `_journal=WAL` for better concurrency.
 	// Add `_busy_timeout=5000` so transient writer contention waits instead of failing immediately.
+	// Add `_txlock=immediate` so mutation transactions reserve SQLite's writer slot
+	// before establishing a read snapshot. This prevents read-then-write callers
+	// from failing with SQLITE_BUSY_SNAPSHOT after another writer commits.
 	// Add `_foreign_keys=on` to enforce foreign key constraints.
-	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL&_busy_timeout=5000", dataSourceName))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("%s?_foreign_keys=on&_journal=WAL&_busy_timeout=5000&_txlock=immediate", dataSourceName))
 	if err != nil {
 		return nil, err
 	}
