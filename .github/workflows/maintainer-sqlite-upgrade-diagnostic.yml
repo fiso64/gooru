@@ -1,0 +1,19 @@
+name: Maintainer SQLite upgrade diagnostic
+
+on:
+  push:
+    branches:
+      - maintainer/sqlite-foreground-upgrade
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reproduce foreground transaction upgrade
+        run: go test -count=1 -run TestForegroundTransactionReadThenWriteSurvivesConcurrentCommit -v ./internal/database
