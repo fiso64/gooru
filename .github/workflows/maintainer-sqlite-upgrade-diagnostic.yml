@@ -133,6 +133,7 @@ jobs:
           				t.Fatalf("queued concurrent writer did not complete: %v", ctx.Err())
           			}
           		})
+          	}
           }
           EOF
 
