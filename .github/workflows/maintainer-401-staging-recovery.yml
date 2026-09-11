@@ -1,0 +1,30 @@
+name: Maintainer #401 upload staging recovery
+
+on:
+  push:
+    branches:
+      - maintainer/401-upload-staging-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/401-upload-staging-recovery
+          fetch-depth: 0
+      - name: Inspect runtime and recovery contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== NewBackgroundRuntime ==='
+          rg -n -C 8 'NewBackgroundRuntime|recoverBackgroundOperationReservations' internal cmd
+          echo '=== CancelUnattachedBackgroundOperations ==='
+          rg -n -C 8 'CancelUnattachedBackgroundOperations' .
+          echo '=== Background operation interfaces ==='
+          rg -n -C 5 'CreateBackgroundOperationWithTasks|AttachBackgroundOperationTasks|BackgroundOperationListOptions|ListBackgroundOperations' internal
+          echo '=== upload stream call sites ==='
+          rg -n -C 5 'stageMultipartUpload|streamUploadPart|finalizeStagedUpload|prepareSavedUploadsForDurableTask' internal/serve
