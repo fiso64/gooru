@@ -171,6 +171,8 @@ func cleanupCanceledClaimedUpload(files []savedUpload, activated []activatedSave
 	if err := rollbackDurableNonreplacementActivations(files); err != nil {
 		return fmt.Errorf("rollback canceled durable uploads: %w", err)
 	}
-	removeSavedUploads(files)
+	if err := removeCanceledSavedUploads(files); err != nil {
+		return fmt.Errorf("remove canceled staged uploads: %w", err)
+	}
 	return nil
 }
