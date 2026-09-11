@@ -1,6 +1,7 @@
 import { createInfiniteQuery, createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
 import { libraryKeys } from './library';
+import { jobKeys } from './jobs';
 import { offsetPageToken } from '$lib/utils/pagination';
 import type { FileListResponse, FileRemovalRequest, FileRemovalResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
@@ -172,20 +173,44 @@ async function waitForRemovalOperation(operationID: string) {
   }
 }
 
+async function refreshFileRemovalWhenSettled(operationID: string, queryClient: QueryClient) {
+  try {
+    await waitForRemovalOperation(operationID);
+  } finally {
+    // The mutation itself resolves at durable admission so the confirmation
+    // dialog can close immediately. Refresh library state only after the
+    // background operation reaches a terminal state; failures remain visible in
+    // Jobs while this refresh reconciles any partial/no-op result.
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: fileKeys.all }),
+      queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot }),
+      queryClient.invalidateQueries({ queryKey: jobKeys.all })
+    ]);
+  }
+}
+
 export function createFilesRemovalMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<FileRemovalResponse, Error, FileRemovalRequest>(() => ({
     mutationFn: async (body) => {
-      // The server's durable bulk-removal response includes operation_id; keep this local
-      // extension until the generated OpenAPI client catches up with the backend contract.
+      // The durable server response confirms admission and supplies operation_id.
+      // Do not await terminal filesystem work here: callers use mutateAsync to
+      // decide when the confirmation dialog may close.
       const response = await new ApiClient(getCSRFToken()).removeFiles(body) as DurableFileRemovalResponse;
-      if (response.operation_id) await waitForRemovalOperation(response.operation_id);
+      if (response.operation_id) {
+        void refreshFileRemovalWhenSettled(response.operation_id, queryClient).catch(() => undefined);
+      }
       return response;
     },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: fileKeys.all }),
-        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
-      ]);
+    onSuccess: (response) => {
+      const durable = response as DurableFileRemovalResponse;
+      // Make a newly admitted durable removal discoverable immediately. The
+      // global Jobs query also keeps an idle poll so operations created by any
+      // producer cannot disappear between invalidation windows.
+      void queryClient.invalidateQueries({ queryKey: jobKeys.all });
+      if (!durable.operation_id) {
+        void queryClient.invalidateQueries({ queryKey: fileKeys.all });
+        void queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot });
+      }
     }
   }));
 }
