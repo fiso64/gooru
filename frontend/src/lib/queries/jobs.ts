@@ -33,9 +33,13 @@ export function jobsRefetchInterval(jobs: Job[] | undefined) {
   return jobs?.some(jobIsActive) ? 2000 : false;
 }
 
-export function jobsPageRefetchInterval(page: JobListPage | undefined) {
-  if (typeof page?.active_count === 'number') return page.active_count > 0 ? 2000 : false;
-  return jobsRefetchInterval(page?.items);
+export function jobsPageRefetchInterval(_page: JobListPage | undefined) {
+  // The visible operation list is also the discovery channel for work admitted
+  // elsewhere in the UI. Stopping the list poll when active_count reaches zero
+  // makes a later delete/upload operation invisible until another invalidation or
+  // full page refresh. Keep the existing active cadence while idle so new durable
+  // operations appear without relying on producer-specific cache coordination.
+  return 2000;
 }
 
 export function uploadJobRefetchInterval(jobIDs: string[]) {
