@@ -8,6 +8,10 @@ on:
         required: true
         default: '2000'
         type: string
+  # Temporary validation trigger; remove after the full-scale run.
+  pull_request:
+    branches:
+      - develop
 
 permissions:
   contents: read
@@ -19,6 +23,7 @@ concurrency:
 jobs:
   smoke:
     name: Mixed-media upload/delete smoke
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gooru]
     timeout-minutes: 90
     env:
@@ -39,7 +44,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          count='${{ inputs.file_count }}'
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            count='${{ inputs.file_count }}'
+          else
+            count=2000
+          fi
           if ! [[ "$count" =~ ^[1-9][0-9]*$ ]] || (( count % 100 != 0 )); then
             echo "file_count must be a positive multiple of 100" >&2
             exit 2
