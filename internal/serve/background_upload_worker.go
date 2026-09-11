@@ -53,6 +53,9 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 	var activated []activatedSavedReplacement
 	switch checkpoint.Phase {
 	case backgroundUploadPhaseStaged:
+		if err := prepareDurableReplacementRecoveryMarkers(files); err != nil {
+			return fmt.Errorf("prepare durable replacement recovery: %w", err)
+		}
 		activated, err = activateSavedDurableUploads(files)
 		if err != nil {
 			return err
@@ -76,6 +79,9 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		if err != nil {
 			return err
 		}
+		if err := restoreActivatedReplacementDestinations(files, activated); err != nil {
+			return fmt.Errorf("restore activated upload replacements: %w", err)
+		}
 	case backgroundUploadPhaseImported:
 		if checkpoint.Response == nil {
 			return errors.New("imported upload checkpoint is missing response")
@@ -89,6 +95,9 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		}
 		if err := settleDurableNonreplacementActivations(files); err != nil {
 			return fmt.Errorf("settle imported durable uploads: %w", err)
+		}
+		if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
+			return fmt.Errorf("settle imported durable replacement recovery markers: %w", err)
 		}
 		if err := store.SetBackgroundOperationResult(task.OperationID, *checkpoint.Response); err != nil {
 			canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
@@ -133,6 +142,9 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 			if settleErr := settleDurableNonreplacementActivations(files); settleErr != nil {
 				return fmt.Errorf("settle canceled durable uploads: %w", settleErr)
 			}
+			if settleErr := settleDurableReplacementRecoveryMarkers(files); settleErr != nil {
+				return fmt.Errorf("settle canceled durable replacement recovery markers: %w", settleErr)
+			}
 			return nil
 		}
 		return fmt.Errorf("persist imported upload checkpoint: %w", err)
@@ -142,6 +154,9 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 	}
 	if err := settleDurableNonreplacementActivations(files); err != nil {
 		return fmt.Errorf("settle imported durable uploads: %w", err)
+	}
+	if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
+		return fmt.Errorf("settle imported durable replacement recovery markers: %w", err)
 	}
 	if err := store.SetBackgroundOperationResult(task.OperationID, response); err != nil {
 		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
@@ -170,6 +185,9 @@ func cleanupCanceledClaimedUpload(files []savedUpload, activated []activatedSave
 	}
 	if err := rollbackDurableNonreplacementActivations(files); err != nil {
 		return fmt.Errorf("rollback canceled durable uploads: %w", err)
+	}
+	if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
+		return fmt.Errorf("settle canceled durable replacement recovery markers: %w", err)
 	}
 	if err := removeCanceledSavedUploads(files); err != nil {
 		return fmt.Errorf("remove canceled staged uploads: %w", err)

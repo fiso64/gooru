@@ -311,10 +311,11 @@ func settleDurableNonreplacementActivations(files []savedUpload) error {
 		}
 		cleanupDurableUploadStagingParents(file.path)
 	}
+	var result error
 	if failures > 0 {
-		return fmt.Errorf("settle %d durable upload activation artifacts", failures)
+		result = fmt.Errorf("settle %d durable upload activation artifacts", failures)
 	}
-	return nil
+	return errors.Join(result, settleDurableReplacementRecoveryMarkers(files))
 }
 
 func durableStagedUploads(files []savedUpload) []StagedUpload {

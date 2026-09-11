@@ -164,7 +164,7 @@ func TestRunBackgroundUploadTaskRollsBackClaimedReplacementWhenCanceledDuringImp
 	if got := string(mustReadFile(t, finalPath)); got != "old" {
 		t.Fatalf("replacement after cancellation = %q, want original", got)
 	}
-	for _, path := range []string{stagedPath, stagedPath + ".backup", stagedPath + ".no-original"} {
+	for _, path := range []string{stagedPath, stagedPath + ".backup", stagedPath + ".no-original", stagedPath + durableUploadActivatedMarkerSuffix} {
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("canceled replacement residue %q: %v", path, err)
 		}
@@ -194,8 +194,110 @@ func TestRunBackgroundUploadTaskPreservesClaimedReplacementForRetryableFailure(t
 	if got := string(mustReadFile(t, stagedPath+".backup")); got != "old" {
 		t.Fatalf("preserved replacement backup = %q, want old", got)
 	}
+	if got := string(mustReadFile(t, stagedPath+durableUploadActivatedMarkerSuffix)); got != "new" {
+		t.Fatalf("preserved replacement recovery marker = %q, want new", got)
+	}
 	if store.checkpoint.Phase != backgroundUploadPhaseActivated {
 		t.Fatalf("checkpoint phase = %q, want activated", store.checkpoint.Phase)
+	}
+}
+
+func TestRunBackgroundUploadTaskRestoresProtectedReplacementAfterOpaqueCrashLoss(t *testing.T) {
+	dir := t.TempDir()
+	finalPath := filepath.Join(dir, "photo.jpg")
+	stagedPath := filepath.Join(dir, ".photo.jpg.tmp-protected-crash")
+	opaquePath := filepath.Join(dir, "opaque-orphan")
+	if err := os.WriteFile(finalPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedPath, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files := []savedUpload{{name: "photo.jpg", path: stagedPath, destinationPath: finalPath, size: 3, targetID: "default", replace: true}}
+	task := backgroundUploadWorkerTaskForFiles(t, "operation-protected-crash", files)
+	store := &recordingUploadWorkerStore{checkpoint: backgroundUploadInitialCheckpoint(), found: true, operationStatus: core.BackgroundWorkRunning}
+	firstImporter := &recordingUploadImporter{
+		err: errors.New("simulated process crash before database commit"),
+		before: func() {
+			if err := os.Rename(finalPath, opaquePath); err != nil {
+				t.Fatalf("move activated replacement to opaque storage: %v", err)
+			}
+			if err := os.Remove(opaquePath); err != nil {
+				t.Fatalf("simulate startup orphan cleanup: %v", err)
+			}
+		},
+	}
+	if err := runBackgroundUploadTask(context.Background(), firstImporter, store, task); err == nil {
+		t.Fatal("simulated pre-commit crash unexpectedly succeeded")
+	}
+	if store.checkpoint.Phase != backgroundUploadPhaseActivated {
+		t.Fatalf("checkpoint phase = %q, want activated", store.checkpoint.Phase)
+	}
+	if _, err := os.Stat(finalPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("logical replacement survived simulated opaque cleanup: %v", err)
+	}
+	if got := string(mustReadFile(t, stagedPath+durableUploadActivatedMarkerSuffix)); got != "new" {
+		t.Fatalf("recovery marker after opaque cleanup = %q, want new", got)
+	}
+	if got := string(mustReadFile(t, stagedPath+".backup")); got != "old" {
+		t.Fatalf("replacement backup after opaque cleanup = %q, want old", got)
+	}
+
+	response := UploadImportResponse{Files: []UploadedFileDTO{{Name: "photo.jpg", Size: 3, TargetID: "default", Status: "imported"}}}
+	secondImporter := &recordingUploadImporter{response: response, before: func() {
+		if got := string(mustReadFile(t, finalPath)); got != "new" {
+			t.Fatalf("restored replacement before retry import = %q, want new", got)
+		}
+	}}
+	if err := runBackgroundUploadTask(context.Background(), secondImporter, store, task); err != nil {
+		t.Fatalf("retry after protected opaque crash loss: %v", err)
+	}
+	if got := string(mustReadFile(t, finalPath)); got != "new" {
+		t.Fatalf("replacement after successful retry = %q, want new", got)
+	}
+	for _, path := range []string{stagedPath + ".backup", stagedPath + ".no-original", stagedPath + durableUploadActivatedMarkerSuffix} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("successful retry residue %q: %v", path, err)
+		}
+	}
+}
+
+func TestRunBackgroundUploadTaskResumesReplacementActivatedBeforeCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	finalPath := filepath.Join(dir, "photo.jpg")
+	stagedPath := filepath.Join(dir, ".photo.jpg.tmp-partial-activation")
+	if err := os.WriteFile(finalPath, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedPath, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files := []savedUpload{{name: "photo.jpg", path: stagedPath, destinationPath: finalPath, size: 3, targetID: "default", replace: true}}
+	if err := prepareDurableReplacementRecoveryMarkers(files); err != nil {
+		t.Fatalf("prepare recovery marker: %v", err)
+	}
+	if _, err := activateReplacement(stagedPath, finalPath); err != nil {
+		t.Fatalf("simulate activation before checkpoint: %v", err)
+	}
+	if _, err := os.Stat(stagedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("staged path after simulated activation: %v", err)
+	}
+	if got := string(mustReadFile(t, finalPath)); got != "new" {
+		t.Fatalf("simulated activated destination = %q, want new", got)
+	}
+
+	response := UploadImportResponse{Files: []UploadedFileDTO{{Name: "photo.jpg", Size: 3, TargetID: "default", Status: "imported"}}}
+	store := &recordingUploadWorkerStore{checkpoint: backgroundUploadInitialCheckpoint(), found: true, operationStatus: core.BackgroundWorkRunning}
+	if err := runBackgroundUploadTask(context.Background(), &recordingUploadImporter{response: response}, store, backgroundUploadWorkerTaskForFiles(t, "operation-partial-activation", files)); err != nil {
+		t.Fatalf("resume activation before checkpoint: %v", err)
+	}
+	if got := string(mustReadFile(t, finalPath)); got != "new" {
+		t.Fatalf("replacement after resumed activation = %q, want new", got)
+	}
+	for _, path := range []string{stagedPath, stagedPath + ".backup", stagedPath + ".no-original", stagedPath + durableUploadActivatedMarkerSuffix} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("resumed activation residue %q: %v", path, err)
+		}
 	}
 }
 
@@ -223,7 +325,7 @@ func TestRunBackgroundUploadTaskRollsBackActivationWhenCancelWinsCheckpointRace(
 	if got := string(mustReadFile(t, finalPath)); got != "old" {
 		t.Fatalf("replacement after checkpoint-race cancellation = %q, want original", got)
 	}
-	for _, path := range []string{stagedPath, stagedPath + ".backup", stagedPath + ".no-original"} {
+	for _, path := range []string{stagedPath, stagedPath + ".backup", stagedPath + ".no-original", stagedPath + durableUploadActivatedMarkerSuffix} {
 		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("checkpoint-race residue %q: %v", path, err)
 		}
