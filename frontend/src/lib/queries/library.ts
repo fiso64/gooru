@@ -94,11 +94,11 @@ export interface UploadVariables {
   targetID: string;
   conflictPolicy: string;
   addedAtStrategy: UploadAddedAtStrategy;
-  queueTimeMs: number;
+  queueTimeMs: number[];
   queueFirstTimeMs: number;
   queueLastTimeMs: number;
-  queueIndex: number;
-  queueTotal: number;
+  queueIndex: number[];
+  queueTotal: number[];
   onProgress?: (progress: number) => void;
 }
 
@@ -107,11 +107,11 @@ export function createUploadMutation(getCSRFToken: () => string) {
     mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, onProgress }) =>
       new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress, {
         addedAtStrategy,
-        queueTimeMs: [queueTimeMs],
+        queueTimeMs,
         queueFirstTimeMs,
         queueLastTimeMs,
-        queueIndex: [queueIndex],
-        queueTotal: [queueTotal]
+        queueIndex,
+        queueTotal
       })
   }));
 }

@@ -49,7 +49,7 @@ type StagedUpload struct {
 	ConflictPolicy string
 }
 
-const maxUploadFiles = 100
+const maxUploadFiles = 1000
 
 type UploadTargetsResponse struct {
 	Items []UploadTargetDTO `json:"items"`
@@ -679,7 +679,16 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
 	opaqueStorageByLogical := make(map[string]string, len(files))
-	for _, file := range files {
+	analyses, analysisErr := l.analyzeUploadedFiles(ctx, files, func(completed int) error {
+		if operationID == "" || !shouldPersistUploadProgress(completed, len(files)) {
+			return nil
+		}
+		return l.client.SetBackgroundOperationCheckpoint(operationID, backgroundUploadActivatedCheckpoint(activated, len(files), completed))
+	})
+	if analysisErr != nil {
+		return UploadImportResponse{}, analysisErr
+	}
+	for index, file := range files {
 		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
 		if file.Status == "error" {
 			dto.Status = "error"
@@ -692,28 +701,15 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			response.Files = append(response.Files, dto)
 			continue
 		}
-		analysisPath := file.AnalysisPath
-		if analysisPath == "" {
-			analysisPath = file.Path
-		}
-		analysisSource, analysisSize, analysisModTime, err := l.openUploadAnalysisSource(analysisPath)
-		if err != nil {
+		analysis := analyses[index]
+		analysisPath := analysis.AnalysisPath
+		if analysis.Err != nil {
 			dto.Status = "error"
-			dto.Error = err.Error()
+			dto.Error = analysis.Err.Error()
 			response.Files = append(response.Files, dto)
 			continue
 		}
-		info, status, err := l.client.GetFileInfoForSource(file.Path, analysisSource, analysisSize, analysisModTime)
-		closeErr := analysisSource.Close()
-		if err == nil && closeErr != nil {
-			err = closeErr
-		}
-		if err != nil {
-			dto.Status = "error"
-			dto.Error = err.Error()
-			response.Files = append(response.Files, dto)
-			continue
-		}
+		info, status := analysis.Info, analysis.Status
 		if _, ok := hashes[info.Hash]; ok {
 			dto.Status = "duplicate_in_batch"
 			removeRejectedStagedUpload(file)

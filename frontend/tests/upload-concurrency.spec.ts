@@ -8,31 +8,36 @@ const session = {
 
 type OperationStatus = 'pending' | 'completed';
 
-function uploadResult(name: string) {
+function uploadResult(names: string[]) {
   return {
-    files: [{ name, size: 10, target_id: 'default', status: 'imported' }],
-    affected_count: 1
+    files: names.map((name) => ({ name, size: 10, target_id: 'default', status: 'imported' })),
+    affected_count: names.length
   };
 }
 
-function operationResponse(id: string, status: OperationStatus) {
-  const name = id.replace(/^job-/, '');
+function operationResponse(id: string, status: OperationStatus, names: string[] = [id.replace(/^job-/, '')]) {
   return {
     id,
     kind: 'upload_import',
     status,
-    progress_total: 1,
-    progress_completed: status === 'completed' ? 1 : 0,
+    progress_total: names.length,
+    progress_completed: status === 'completed' ? names.length : 0,
     progress_failed: 0,
     created_at: '2026-09-03T00:00:00Z',
     ...(status === 'completed' ? {
       finished_at: '2026-09-03T00:00:01Z',
-      result: uploadResult(name)
+      result: uploadResult(names)
     } : {})
   };
 }
 
-async function mockApp(page: Page, uploadOperationStatus: OperationStatus = 'pending', onBatchRequest?: (ids: string[]) => void, onLibraryRefresh?: (kind: 'jobs' | 'tags') => void) {
+async function mockApp(
+  page: Page,
+  uploadOperationStatus: OperationStatus = 'pending',
+  onBatchRequest?: (ids: string[]) => void,
+  onLibraryRefresh?: (kind: 'jobs' | 'tags') => void,
+  operationNames: string[] = []
+) {
   let loggedIn = false;
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -58,7 +63,7 @@ async function mockApp(page: Page, uploadOperationStatus: OperationStatus = 'pen
       onBatchRequest?.(ids);
       await route.fulfill({
         contentType: 'application/json',
-        body: JSON.stringify({ items: ids.map((id) => operationResponse(id, uploadOperationStatus)) })
+        body: JSON.stringify({ items: ids.map((id) => operationResponse(id, uploadOperationStatus, operationNames.length ? operationNames : undefined)) })
       });
       return;
     }
@@ -76,7 +81,7 @@ async function mockApp(page: Page, uploadOperationStatus: OperationStatus = 'pen
     const id = decodeURIComponent(route.request().url().split('/').at(-1) ?? '');
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify(operationResponse(id, uploadOperationStatus))
+      body: JSON.stringify(operationResponse(id, uploadOperationStatus, operationNames.length ? operationNames : undefined))
     });
   });
 }
@@ -89,109 +94,91 @@ async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Upload' }).click();
 }
 
-async function fulfillStagedUpload(route: Route, name: string) {
+async function fulfillAggregateUpload(route: Route, id: string, names: string[]) {
   expect(route.request().headers()['prefer']).toBe('respond-async');
   await route.fulfill({
     status: 202,
     contentType: 'application/json',
-    body: JSON.stringify(operationResponse(`job-${name}`, 'pending'))
+    body: JSON.stringify(operationResponse(id, 'pending', names))
   });
 }
 
-test('browser releases transfer slots after staging while durable imports remain pending', async ({ page }) => {
+test('browser submits one selected batch and releases it after durable admission', async ({ page }) => {
+  const names = Array.from({ length: 7 }, (_, index) => `file-${index + 1}.jpg`);
   let statusBatchRequests = 0;
-  await mockApp(page, 'pending', () => statusBatchRequests += 1);
+  await mockApp(page, 'pending', () => statusBatchRequests += 1, undefined, names);
 
   let active = 0;
   let maxActive = 0;
   let requestCount = 0;
-  const waiting: Array<{ route: Route; id: number }> = [];
+  let waiting: Route | undefined;
+  let uploadBody = '';
 
   await page.route('**/api/v1/uploads', async (route) => {
     requestCount += 1;
     active += 1;
     maxActive = Math.max(maxActive, active);
-    waiting.push({ route, id: requestCount });
+    waiting = route;
+    uploadBody = route.request().postDataBuffer()?.toString('utf8') ?? '';
   });
 
   await signIn(page);
   await page.locator('input[type="file"]').setInputFiles(
-    Array.from({ length: 7 }, (_, index) => ({
-      name: `file-${index + 1}.jpg`,
+    names.map((name) => ({
+      name,
       mimeType: 'image/jpeg',
-      buffer: Buffer.from(`file-${index + 1}`)
+      buffer: Buffer.from(name)
     }))
   );
   await page.getByRole('button', { name: /Upload 7 files/ }).click();
 
-  await expect.poll(() => requestCount).toBe(4);
-  await page.waitForTimeout(100);
-  expect(requestCount).toBe(4);
-  expect(active).toBe(4);
-  expect(maxActive).toBe(4);
+  await expect.poll(() => requestCount).toBe(1);
+  expect(active).toBe(1);
+  expect(maxActive).toBe(1);
+  for (const name of names) expect(uploadBody).toContain(`filename="${name}"`);
 
-  const first = waiting.shift();
-  expect(first).toBeDefined();
+  expect(waiting).toBeDefined();
   active -= 1;
-  await fulfillStagedUpload(first!.route, `file-${first!.id}.jpg`);
-  await expect.poll(() => requestCount).toBe(5);
-  await expect(page.locator('.upload-row').nth(first!.id - 1).locator('.status')).toContainText('queued');
-  expect(active).toBe(4);
-
-  const second = waiting.shift();
-  expect(second).toBeDefined();
-  active -= 1;
-  await fulfillStagedUpload(second!.route, `file-${second!.id}.jpg`);
-  await expect.poll(() => requestCount).toBe(6);
-  await expect(page.locator('.upload-row').nth(second!.id - 1).locator('.status')).toContainText('queued');
-  expect(active).toBe(4);
-
-  const third = waiting.shift();
-  expect(third).toBeDefined();
-  active -= 1;
-  await fulfillStagedUpload(third!.route, `file-${third!.id}.jpg`);
-  await expect.poll(() => requestCount).toBe(7);
-  await expect(page.locator('.upload-row').nth(third!.id - 1).locator('.status')).toContainText('queued');
-  expect(active).toBe(4);
-
-  while (waiting.length) {
-    const next = waiting.shift()!;
-    active -= 1;
-    await fulfillStagedUpload(next.route, `file-${next.id}.jpg`);
-  }
+  await fulfillAggregateUpload(waiting!, 'job-batch', names);
 
   await expect.poll(() => active).toBe(0);
-  expect(maxActive).toBe(4);
-  await expect(page.locator('.upload-row .status').filter({ hasText: 'queued' })).toHaveCount(7);
+  await expect(page.locator('.upload-row .status').filter({ hasText: 'queued' })).toHaveCount(names.length);
   await expect.poll(() => statusBatchRequests).toBeGreaterThan(0);
+  expect(requestCount).toBe(1);
 });
 
-test('large staged WebUI uploads complete through bounded batched durable-operation polling', async ({ page }) => {
+test('large staged WebUI upload completes through one durable operation lookup', async ({ page }) => {
+  const total = 130;
+  const names = Array.from({ length: total }, (_, index) => `batch-${index + 1}.jpg`);
   let statusBatchRequests = 0;
-  await mockApp(page, 'completed', () => statusBatchRequests += 1);
+  let largestStatusBatch = 0;
+  await mockApp(page, 'completed', (ids) => {
+    statusBatchRequests += 1;
+    largestStatusBatch = Math.max(largestStatusBatch, ids.length);
+  }, undefined, names);
 
   let requestCount = 0;
   await page.route('**/api/v1/uploads', async (route) => {
     requestCount += 1;
-    await fulfillStagedUpload(route, `batch-${requestCount}.jpg`);
+    await fulfillAggregateUpload(route, 'job-batch', names);
   });
 
   await signIn(page);
-  const total = 130;
   await page.locator('input[type="file"]').setInputFiles(
-    Array.from({ length: total }, (_, index) => ({
-      name: `batch-${index + 1}.jpg`,
+    names.map((name) => ({
+      name,
       mimeType: 'image/jpeg',
-      buffer: Buffer.from(`batch-${index + 1}`)
+      buffer: Buffer.from(name)
     }))
   );
   await page.getByRole('button', { name: /Upload 130 files/ }).click();
 
-  await expect.poll(() => requestCount).toBe(total);
+  await expect.poll(() => requestCount).toBe(1);
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(100, { timeout: 5000 });
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(30, { timeout: 5000 });
 
   expect(statusBatchRequests).toBeGreaterThan(0);
-  expect(statusBatchRequests).toBeLessThanOrEqual(Math.ceil(total / 64) + 1);
+  expect(largestStatusBatch).toBe(1);
+  expect(requestCount).toBe(1);
 });

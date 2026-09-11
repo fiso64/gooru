@@ -1,8 +1,8 @@
 import { untrack } from 'svelte';
 import {
   countUploadStatuses,
-  itemFromJob,
-  itemFromResult,
+  itemsFromJob,
+  itemsFromResult,
   queuedItem,
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
@@ -14,12 +14,11 @@ import {
   type UploadItem,
   type UploadStatusCounts
 } from './uploadItems';
-import { ApiError } from '$lib/api/client';
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
 import type { BackgroundOperation } from '$lib/api/operations';
 import type { UploadVariables } from '$lib/queries/library';
-import { uploadAdmissionFallbackMs, uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
+import { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
 export { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
@@ -27,12 +26,6 @@ type UploadMutate = (variables: UploadVariables) => Promise<BackgroundOperation 
 type CancelJob = (jobID: string) => Promise<Job>;
 type JobBatch = { items: Job[] };
 type JobApplyResult = { completed: boolean; changedFiles: boolean };
-
-export const browserUploadConcurrency = 4;
-
-function isJobQueueFull(error: unknown) {
-  return error instanceof ApiError && error.code === 'job_queue_full';
-}
 
 export function createUploadWorkflow() {
   let files = $state<File[]>([]);
@@ -46,10 +39,8 @@ export function createUploadWorkflow() {
   let busy = $state(false);
   let cancelBusy = $state(false);
   let status = $state('');
-  let trackedJobs = $state<Record<string, number>>({});
-  let admissionBackpressured = $state(false);
+  let trackedJobs = $state<Record<string, number[]>>({});
   let statusCounts: UploadStatusCounts = {};
-  let admissionWaiters = new Set<() => void>();
 
   $effect(() => {
     if (!busy) return;
@@ -60,12 +51,6 @@ export function createUploadWorkflow() {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   });
-
-  function wakeAdmissionWaiters() {
-    const waiters = admissionWaiters;
-    admissionWaiters = new Set();
-    for (const wake of waiters) wake();
-  }
 
   function reset() {
     files = [];
@@ -79,9 +64,7 @@ export function createUploadWorkflow() {
     cancelBusy = false;
     status = '';
     trackedJobs = {};
-    admissionBackpressured = false;
     statusCounts = {};
-    wakeAdmissionWaiters();
   }
 
   function clear() {
@@ -108,7 +91,7 @@ export function createUploadWorkflow() {
 
   function pollJobID() {
     const ids = Object.keys(trackedJobs);
-    if (busy && ids.length < uploadJobStatusBatchSize && !admissionBackpressured) return '';
+    if (busy && ids.length < uploadJobStatusBatchSize) return '';
     return ids.slice(0, uploadJobStatusBatchSize).join(',');
   }
 
@@ -166,16 +149,16 @@ export function createUploadWorkflow() {
   function applyJob(job: Job | JobBatch): JobApplyResult {
     if ('items' in job) return applyJobs(job.items);
     return untrack(() => {
-      const index = trackedJobs[job?.id];
-      if (!job || index === undefined) return { completed: false, changedFiles: false };
-      const current = items[index];
-      replaceItem(index, current ? itemFromJob([current], 0, job)[0] : undefined);
+      const itemIndices = trackedJobs[job?.id];
+      if (!job || itemIndices === undefined) return { completed: false, changedFiles: false };
+      const currentItems = itemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
+      const nextItems = itemsFromJob(currentItems, job);
+      itemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, nextItems[resultIndex]));
       if (!isTerminalJob(job)) return { completed: false, changedFiles: false };
 
       const nextTrackedJobs = { ...trackedJobs };
       delete nextTrackedJobs[job.id];
       trackedJobs = nextTrackedJobs;
-      wakeAdmissionWaiters();
       const changedFiles = job.status === 'completed';
       if (!busy && !hasActiveJobs()) finishBatch();
       else refreshStatus();
@@ -187,10 +170,12 @@ export function createUploadWorkflow() {
     untrack(() => {
       const jobID = Object.keys(trackedJobs)[0];
       if (!jobID) return;
-      const index = trackedJobs[jobID];
+      const itemIndices = trackedJobs[jobID] ?? [];
       status = errorMessage(error);
-      const current = items[index];
-      if (current) items[index] = { ...current, error: status };
+      for (const itemIndex of itemIndices) {
+        const current = items[itemIndex];
+        if (current) items[itemIndex] = { ...current, error: status };
+      }
     });
   }
 
@@ -208,44 +193,13 @@ export function createUploadWorkflow() {
 
   function finishBatch() {
     files = [];
-    admissionBackpressured = false;
-    wakeAdmissionWaiters();
     status = uploadSummaryFromCounts(statusCounts) || 'Upload finished';
-  }
-
-  function waitForAdmissionChange(skipIfCapacityAvailable = true) {
-    return new Promise<void>((resolve) => {
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const wake = () => {
-        if (timeout !== undefined) clearTimeout(timeout);
-        admissionWaiters.delete(wake);
-        resolve();
-      };
-      admissionWaiters.add(wake);
-      // Avoid sleeping through a completion that raced between the caller's
-      // local-window capacity check and registering this waiter. A server-side
-      // queue-full response cannot use this shortcut because its saturation may
-      // come from work outside this browser's tracked window.
-      if (skipIfCapacityAvailable && Object.keys(trackedJobs).length < uploadJobStatusBatchSize) {
-        wake();
-        return;
-      }
-      timeout = setTimeout(wake, uploadAdmissionFallbackMs);
-    });
-  }
-
-  async function waitForJobAdmissionSlot() {
-    while (Object.keys(trackedJobs).length >= uploadJobStatusBatchSize) {
-      admissionBackpressured = true;
-      await waitForAdmissionChange();
-    }
   }
 
   async function submit(mutate: UploadMutate) {
     if (!files.length || busy || hasActiveJobs()) return { queued: false, changedFiles: false };
     busy = true;
     trackedJobs = {};
-    admissionBackpressured = false;
 
     if (!items.length) items = stagedUploadItems(files, targetID);
     const batchItemIndices = items.flatMap((item, itemIndex) => item.status === 'staged' ? [itemIndex] : []);
@@ -272,80 +226,63 @@ export function createUploadWorkflow() {
     const batchQueueFirstTimeMs = Math.min(...batchQueueTimes);
     const batchQueueLastTimeMs = Math.max(...batchQueueTimes);
     const batchQueueTotal = batchFiles.length;
-    let queued = 0;
+    const batchQueueIndices = batchFiles.map((_, index) => index);
+    const batchQueueTotals = batchFiles.map(() => batchQueueTotal);
+    let queued = false;
     let changedFiles = false;
-    let nextIndex = 0;
 
-    async function uploadNext() {
-      while (nextIndex < batchFiles.length) {
-        const index = nextIndex;
-        nextIndex += 1;
-        const file = batchFiles[index];
-        const itemIndex = batchItemIndices[index];
-        const current = items[itemIndex];
-        replaceItem(itemIndex, current ? uploadingItem([current], 0)[0] : undefined);
-        refreshStatus();
-        try {
-          let response: BackgroundOperation | UploadImportResponse;
-          for (;;) {
-            await waitForJobAdmissionSlot();
-            admissionBackpressured = false;
-            try {
-              response = await mutate({
-                files: [file],
-                tags: parsedTags,
-                // Release browser transfer capacity once the server has staged
-                // the file and accepted its import job, but bound the number of
-                // accepted unfinished imports to one batched status window.
-                // This keeps large batches from outrunning the durable admission window.
-                preferAsync: true,
-                targetID: batchTargetID,
-                conflictPolicy: batchConflictPolicy,
-                addedAtStrategy: batchAddedAtStrategy,
-                queueTimeMs: batchQueueTimes[index],
-                queueFirstTimeMs: batchQueueFirstTimeMs,
-                queueLastTimeMs: batchQueueLastTimeMs,
-                queueIndex: index,
-                queueTotal: batchQueueTotal,
-                onProgress: (progress) => {
-                  const progressItem = items[itemIndex];
-                  replaceItem(itemIndex, progressItem ? uploadProgressItem([progressItem], 0, progress)[0] : undefined);
-                }
-              });
-              break;
-            } catch (error) {
-              if (!isJobQueueFull(error)) throw error;
-              admissionBackpressured = true;
-              await waitForAdmissionChange(false);
-            }
+    for (const itemIndex of batchItemIndices) {
+      const current = items[itemIndex];
+      replaceItem(itemIndex, current ? uploadingItem([current], 0)[0] : undefined);
+    }
+    refreshStatus();
+
+    try {
+      const response = await mutate({
+        files: batchFiles,
+        tags: parsedTags,
+        preferAsync: true,
+        targetID: batchTargetID,
+        conflictPolicy: batchConflictPolicy,
+        addedAtStrategy: batchAddedAtStrategy,
+        queueTimeMs: batchQueueTimes,
+        queueFirstTimeMs: batchQueueFirstTimeMs,
+        queueLastTimeMs: batchQueueLastTimeMs,
+        queueIndex: batchQueueIndices,
+        queueTotal: batchQueueTotals,
+        onProgress: (progress) => {
+          for (const itemIndex of batchItemIndices) {
+            const current = items[itemIndex];
+            replaceItem(itemIndex, current ? uploadProgressItem([current], 0, progress)[0] : undefined);
           }
-          if ('id' in response) {
-            trackedJobs = { ...trackedJobs, [response.id]: itemIndex };
-            const queuedItemState = items[itemIndex];
-            replaceItem(itemIndex, queuedItemState ? queuedItem([queuedItemState], 0)[0] : undefined);
-            queued += 1;
-          } else {
-            const resultItem = items[itemIndex];
-            replaceItem(itemIndex, resultItem ? itemFromResult([resultItem], 0, response)[0] : undefined);
-            changedFiles = true;
-          }
-        } catch (error) {
-          const message = errorMessage(error);
-          const failed = items[itemIndex];
-          if (failed) replaceItem(itemIndex, { ...failed, status: 'error', error: message });
         }
-        refreshStatus();
+      });
+
+      if ('id' in response) {
+        trackedJobs = { ...trackedJobs, [response.id]: [...batchItemIndices] };
+        for (const itemIndex of batchItemIndices) {
+          const current = items[itemIndex];
+          replaceItem(itemIndex, current ? queuedItem([current], 0)[0] : undefined);
+        }
+        queued = true;
+      } else {
+        const previousItems = batchItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
+        const resultItems = itemsFromResult(response, previousItems);
+        batchItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, resultItems[resultIndex]));
+        changedFiles = true;
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      for (const itemIndex of batchItemIndices) {
+        const current = items[itemIndex];
+        if (current) replaceItem(itemIndex, { ...current, status: 'error', error: message });
       }
     }
 
-    const workerCount = Math.min(browserUploadConcurrency, batchFiles.length);
-    await Promise.all(Array.from({ length: workerCount }, () => uploadNext()));
-
     busy = false;
-    admissionBackpressured = false;
     if (hasActiveJobs()) refreshStatus();
     else finishBatch();
-    return { queued: queued > 0, changedFiles };
+    return { queued, changedFiles };
   }
 
   async function cancel(mutate: CancelJob, _jobID = Object.keys(trackedJobs)[0] ?? '') {
@@ -355,23 +292,18 @@ export function createUploadWorkflow() {
     let changed = false;
     try {
       for (const jobID of jobIDs) {
-        const index = trackedJobs[jobID];
-        if (index === undefined) continue;
+        const itemIndices = trackedJobs[jobID];
+        if (!itemIndices) continue;
         try {
           const job = await mutate(jobID);
-          const current = items[index];
-          replaceItem(index, current ? itemFromJob([current], 0, job)[0] : undefined);
-          if (isTerminalJob(job)) {
-            const nextTrackedJobs = { ...trackedJobs };
-            delete nextTrackedJobs[jobID];
-            trackedJobs = nextTrackedJobs;
-            wakeAdmissionWaiters();
-          }
+          applyJob(job);
           changed = true;
         } catch (error) {
           const message = errorMessage(error);
-          const current = items[index];
-          if (current) items[index] = { ...current, error: message };
+          for (const itemIndex of itemIndices) {
+            const current = items[itemIndex];
+            if (current) items[itemIndex] = { ...current, error: message };
+          }
           status = message;
         }
       }

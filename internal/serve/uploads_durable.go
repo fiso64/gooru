@@ -13,18 +13,17 @@ import (
 )
 
 const (
-	defaultDurableUploadPendingLimit = 64
-	backgroundUploadCleanupTaskKind  = "upload.cleanup"
-	backgroundUploadCleanupPriority  = 100
+	backgroundUploadCleanupTaskKind = "upload.cleanup"
+	backgroundUploadCleanupPriority = 100
 )
 
 // durableUploadOperationStore is the producer/read boundary required by HTTP
-// upload admission. The operation is created hidden before multipart staging,
-// then the recovery checkpoint, child task, and visibility transition are
-// committed atomically once staging succeeds.
+// uploads. The operation is created hidden before multipart staging, then the
+// recovery checkpoint, child task, and visibility transition are committed
+// atomically once staging succeeds.
 type durableUploadOperationStore interface {
 	backgroundOperationReader
-	CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest, int) (core.BackgroundOperation, error)
+	CreateBackgroundOperation(core.BackgroundOperationRequest) (core.BackgroundOperation, error)
 	AttachBackgroundTaskAndRevealOperation(string, any, core.BackgroundTaskRequest) (core.BackgroundTask, error)
 }
 
@@ -35,6 +34,10 @@ type durableUploadCancellationStore interface {
 type durableUploadCleanupStore interface {
 	GetBackgroundOperationTask(string) (core.BackgroundTaskState, bool, error)
 	GetBackgroundOperationCheckpoint(string, any) (bool, error)
+}
+
+func (l *GooruLibrary) CreateBackgroundOperation(request core.BackgroundOperationRequest) (core.BackgroundOperation, error) {
+	return l.client.CreateBackgroundOperation(request)
 }
 
 func (l *GooruLibrary) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {
@@ -85,13 +88,13 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	operation, err := operations.CreateBackgroundOperationWithPendingLimit(core.BackgroundOperationRequest{
+	operation, err := operations.CreateBackgroundOperation(core.BackgroundOperationRequest{
 		Kind:          backgroundUploadImportOperationKind,
 		Visible:       false,
 		ProgressTotal: 1,
-	}, s.durableUploadPendingLimit())
+	})
 	if err != nil {
-		writeDurableUploadAdmissionError(w, err)
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to accept upload", nil)
 		return
 	}
 	attached := false
@@ -126,7 +129,7 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare uploaded files", nil)
 		return
 	}
-	if _, err := operations.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(), taskRequest); err != nil {
+	if _, err := operations.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(len(saved)), taskRequest); err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files", nil)
 		return
@@ -140,7 +143,7 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
-		writeJSON(w, http.StatusAccepted, backgroundOperationDTO(state))
+		writeJSON(w, http.StatusAccepted, s.backgroundOperationDTO(state))
 		return
 	}
 
@@ -283,24 +286,6 @@ func removeCanceledSavedUploads(files []savedUpload) error {
 		return fmt.Errorf("remove %d canceled staged upload files", failures)
 	}
 	return nil
-}
-
-func (s *Server) durableUploadPendingLimit() int {
-	if s.cfg.Uploads.MaxQueued > 0 {
-		return s.cfg.Uploads.MaxQueued
-	}
-	return defaultDurableUploadPendingLimit
-}
-
-func writeDurableUploadAdmissionError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, core.ErrBackgroundOperationPendingLimit):
-		writeError(w, http.StatusServiceUnavailable, "job_queue_full", "job queue is full", nil)
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
-	default:
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to accept upload", nil)
-	}
 }
 
 func waitForDurableUpload(ctx context.Context, operations backgroundOperationReader, operationID string) (UploadImportResponse, error) {

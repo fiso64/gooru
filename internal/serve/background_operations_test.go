@@ -16,6 +16,7 @@ type fakeBackgroundOperationReader struct {
 	operations  []core.BackgroundOperationState
 	byID        map[string]core.BackgroundOperationState
 	results     map[string]json.RawMessage
+	checkpoints map[string]backgroundUploadCheckpoint
 	listOptions core.BackgroundOperationListOptions
 	listErr     error
 	getErr      error
@@ -54,6 +55,15 @@ func (f *fakeBackgroundOperationReader) CancelBackgroundOperation(id string) (bo
 		f.byID[id] = operation
 	}
 	return f.cancelOK, nil
+}
+
+func (f *fakeBackgroundOperationReader) GetBackgroundOperationCheckpoint(id string, destination any) (bool, error) {
+	checkpoint, ok := f.checkpoints[id]
+	if !ok {
+		return false, nil
+	}
+	*(destination.(*backgroundUploadCheckpoint)) = checkpoint
+	return true, nil
 }
 
 func (f *fakeBackgroundOperationReader) GetBackgroundOperationResult(id string, destination any) (bool, error) {
@@ -313,5 +323,33 @@ func TestHandleOperationsRejectsOversizedIDBatch(t *testing.T) {
 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestHandleOperationsProjectsUploadFileProgressFromCheckpoint(t *testing.T) {
+	createdAt := time.Now().UTC()
+	reader := &fakeBackgroundOperationReader{
+		operations: []core.BackgroundOperationState{{
+			ID: "operation-upload-progress", Kind: backgroundUploadImportOperationKind, Visible: true,
+			Status: core.BackgroundWorkRunning, ProgressTotal: 1, CreatedAt: createdAt,
+		}},
+		checkpoints: map[string]backgroundUploadCheckpoint{
+			"operation-upload-progress": {Phase: backgroundUploadPhaseActivated, FileTotal: 1000, FilesCompleted: 420},
+		},
+	}
+	server := &Server{backgroundOperations: reader}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations", nil)
+	response := httptest.NewRecorder()
+
+	server.handleOperations(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload BackgroundOperationListResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) != 1 || payload.Items[0].ProgressTotal != 1000 || payload.Items[0].ProgressCompleted != 420 {
+		t.Fatalf("projected upload progress = %+v", payload.Items)
 	}
 }

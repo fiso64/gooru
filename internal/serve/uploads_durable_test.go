@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,6 @@ import (
 type durableUploadTestStore struct {
 	createErr          error
 	createdRequest     core.BackgroundOperationRequest
-	createdLimit       int
 	operation          core.BackgroundOperation
 	state              core.BackgroundOperationState
 	result             UploadImportResponse
@@ -46,9 +46,8 @@ func newDurableUploadTestStore() *durableUploadTestStore {
 	}
 }
 
-func (s *durableUploadTestStore) CreateBackgroundOperationWithPendingLimit(request core.BackgroundOperationRequest, limit int) (core.BackgroundOperation, error) {
+func (s *durableUploadTestStore) CreateBackgroundOperation(request core.BackgroundOperationRequest) (core.BackgroundOperation, error) {
 	s.createdRequest = request
-	s.createdLimit = limit
 	if s.createErr != nil {
 		return core.BackgroundOperation{}, s.createErr
 	}
@@ -117,10 +116,10 @@ func newDurableUploadHandlerTestServer(t *testing.T, targetDir string, store *du
 	return server
 }
 
-func TestDurableUploadRejectsAdmissionBeforeReadingOrStagingMultipart(t *testing.T) {
+func TestDurableUploadOperationCreationFailureBeforeReadingOrStagingMultipart(t *testing.T) {
 	targetDir := filepath.Join(t.TempDir(), "uploads")
 	store := newDurableUploadTestStore()
-	store.createErr = core.ErrBackgroundOperationPendingLimit
+	store.createErr = errors.New("create failed")
 	server := newDurableUploadHandlerTestServer(t, targetDir, store)
 	body := &uploadReadTracker{}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", body)
@@ -129,12 +128,12 @@ func TestDurableUploadRejectsAdmissionBeforeReadingOrStagingMultipart(t *testing
 
 	server.Handler().ServeHTTP(rec, req)
 
-	assertAPIError(t, rec, http.StatusServiceUnavailable, "job_queue_full")
+	assertAPIError(t, rec, http.StatusInternalServerError, "internal_error")
 	if body.read {
-		t.Fatal("request body was read after durable admission was rejected")
+		t.Fatal("request body was read after durable operation creation failed")
 	}
 	if _, err := os.Stat(targetDir); !os.IsNotExist(err) {
-		t.Fatalf("admission rejection should not create upload staging directory: %v", err)
+		t.Fatalf("operation creation failure should not create upload staging directory: %v", err)
 	}
 	if store.attachCalls != 0 {
 		t.Fatalf("attach calls = %d, want 0", store.attachCalls)
@@ -165,10 +164,7 @@ func TestDurableUploadAsyncAttachesOneTaskAndReturnsOperationLocation(t *testing
 		t.Fatalf("unexpected operation response: %+v", response)
 	}
 	if store.createdRequest.Kind != "upload_import" || store.createdRequest.Visible || store.createdRequest.ProgressTotal != 1 {
-		t.Fatalf("unexpected admission request: %+v", store.createdRequest)
-	}
-	if store.createdLimit != server.durableUploadPendingLimit() {
-		t.Fatalf("pending limit = %d, want %d", store.createdLimit, server.durableUploadPendingLimit())
+		t.Fatalf("unexpected operation request: %+v", store.createdRequest)
 	}
 	if store.attachCalls != 1 {
 		t.Fatalf("attach calls = %d, want 1", store.attachCalls)
