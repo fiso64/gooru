@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -81,6 +82,12 @@ func (s *Server) backgroundThumbnailHandler(ctx context.Context, task core.Backg
 		return fmt.Errorf("thumbnail task has invalid content identity")
 	}
 	file, err := s.backgroundContent.GetFileByContentHash(ctx, task.SubjectID)
+	if errors.Is(err, core.ErrContentNotTracked) {
+		// Eager thumbnail work is opportunistic. If its immutable content no
+		// longer has any tracked location, deletion has made the task obsolete;
+		// completing it avoids repeated retries and permanent-failure noise.
+		return nil
+	}
 	if err != nil {
 		return err
 	}
