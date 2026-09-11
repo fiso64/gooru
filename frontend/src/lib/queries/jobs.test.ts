@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { jobsPageRefetchInterval, jobsPageRequestLimit, jobsRefetchInterval } from './jobs';
+import { jobsPageActiveCount, jobsPageRefetchInterval, jobsPageRequestLimit, jobsRefetchInterval } from './jobs';
 import type { Job } from '$lib/api/types';
 
 function job(status: Job['status']): Job {
@@ -41,5 +41,15 @@ describe('jobsPageRequestLimit', () => {
   it('treats invalid page tokens as the first page', () => {
     expect(jobsPageRequestLimit(20, 'not-a-number')).toBe(21);
     expect(jobsPageRequestLimit(20, '-20')).toBe(21);
+  });
+});
+
+describe('jobsPageActiveCount', () => {
+  it('uses the exact server aggregate even when the fetched prefix is terminal', () => {
+    expect(jobsPageActiveCount(7, [job('completed')])).toBe(7);
+  });
+
+  it('falls back to the fetched jobs for older responses without the aggregate', () => {
+    expect(jobsPageActiveCount(undefined, [job('pending'), job('running'), job('completed')])).toBe(2);
   });
 });
