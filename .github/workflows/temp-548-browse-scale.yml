@@ -14,9 +14,88 @@ permissions:
 jobs:
   profile:
     runs-on: [self-hosted, gooru]
+    timeout-minutes: 15
     env:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Profile current 10K browse components
-        run: go test -count=1 -run '^TestDiagnosticBrowseScale548$' -v ./internal/database
+      - name: Build server
+        run: go build -o gooru-548 ./cmd/gooru
+      - name: Profile exact 10K HTTP browse requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${RUNNER_TEMP:-/tmp}/gooru-548-${GITHUB_RUN_ID}"
+          rm -rf "$ROOT"; mkdir -p "$ROOT/uploads"
+          DB="$ROOT/library.db"
+          printf '1\n' | ./gooru-548 --database "$DB" init >/dev/null
+          python3 - "$DB" <<'PY'
+          import sqlite3, sys
+          db=sys.argv[1]
+          c=sqlite3.connect(db)
+          c.execute('PRAGMA foreign_keys=ON'); c.execute('PRAGMA synchronous=OFF'); c.execute('PRAGMA journal_mode=MEMORY')
+          triggers=c.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger' AND sql IS NOT NULL").fetchall()
+          for name,_ in triggers: c.execute('DROP TRIGGER IF EXISTS "'+name.replace('"','""')+'"')
+          c.execute('BEGIN IMMEDIATE')
+          c.execute("INSERT INTO tags(key,value) VALUES ('remove','')")
+          tag=c.execute("SELECT id FROM tags WHERE key='remove' AND value='' ").fetchone()[0]
+          rows=[(f'{i+1:064x}',) for i in range(10000)]
+          c.executemany('INSERT INTO contents(hash) VALUES (?)',rows)
+          c.executemany("INSERT INTO locations(content_hash,path,size_bytes,mod_time,added_at,extension,tags_cache,public_id) VALUES (?,?,?,?,?,?,?,?)",[(h,f'/fixture/{i:05d}.jpg',1,1788696000,i+1,'.jpg','remove',f'bench_{i:032x}') for i,(h,) in enumerate(rows)])
+          c.executemany('INSERT INTO content_tags(content_hash,tag_id) VALUES (?,?)',[(h,tag) for (h,) in rows])
+          c.execute('UPDATE tags SET files_count=10000 WHERE id=?',(tag,))
+          summaries=[
+              ('tag_key_counts',"INSERT INTO tag_key_counts(key,files_count) VALUES ('remove',10000)",()),
+              ('kind_counts',"INSERT INTO kind_counts(kind,files_count) VALUES ('photo',10000)",()),
+              ('tag_kind_counts',"INSERT INTO tag_kind_counts(tag_id,kind,files_count) VALUES (?,'photo',10000)",(tag,)),
+              ('tag_key_kind_counts',"INSERT INTO tag_key_kind_counts(key,kind,files_count) VALUES ('remove','photo',10000)",()),
+          ]
+          for table,stmt,args in summaries:
+              if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone(): c.execute(stmt,args)
+          c.commit()
+          for _,sql in triggers: c.execute(sql)
+          c.commit(); c.close()
+          PY
+          PORT=$((24000 + GITHUB_RUN_ID % 10000))
+          cat > "$ROOT/serve.yaml" <<YAML
+          server:
+            listen: 127.0.0.1:${PORT}
+          database:
+            path: ${DB}
+          auth:
+            enabled: false
+          uploads:
+            enabled: true
+            targets:
+              - id: default
+                name: Default
+                path: ${ROOT}/uploads
+          logging:
+            level: warn
+          YAML
+          ./gooru-548 --config "$ROOT/serve.yaml" serve >"$ROOT/server.log" 2>&1 &
+          SERVER_PID=$!
+          cleanup() { kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; }
+          trap cleanup EXIT
+          python3 - "$PORT" <<'PY'
+          import json, statistics, sys, time, urllib.request
+          port=int(sys.argv[1]); base=f'http://127.0.0.1:{port}'
+          for _ in range(200):
+              try:
+                  urllib.request.urlopen(base+'/api/v1/health',timeout=1).read(); break
+              except Exception: time.sleep(.05)
+          else: raise SystemExit('server readiness timeout')
+          paths={
+              'root':'/api/v1/files?limit=60&sort=added&order=desc&include_facets=true',
+              'tagged':'/api/v1/files?query=remove&limit=60&sort=added&order=desc&include_facets=true',
+          }
+          result={}
+          for name,path in paths.items():
+              for _ in range(20): urllib.request.urlopen(base+path,timeout=5).read()
+              samples=[]
+              for _ in range(100):
+                  t=time.perf_counter(); urllib.request.urlopen(base+path,timeout=5).read(); samples.append((time.perf_counter()-t)*1000)
+              samples.sort(); n=len(samples)
+              result[name]={'p50_ms':statistics.median(samples),'p95_ms':samples[min(n-1,int(n*.95))],'max_ms':max(samples)}
+          print('GOORU_548_HTTP_RESULT='+json.dumps(result,sort_keys=True))
+          PY
