@@ -1,0 +1,53 @@
+name: Maintainer sync 529 OpenAPI
+
+on:
+  push:
+    branches:
+      - maintainer/401-per-file-import-progress
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync OpenAPI contract
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Update canonical and generated contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/openapi.yaml")
+          text = path.read_text(encoding="utf-8")
+          needle = """        progress_completed:\n          type: integer\n          format: int64\n          minimum: 0\n        progress_failed:\n"""
+          replacement = """        progress_completed:\n          type: integer\n          format: int64\n          minimum: 0\n        progress_completed_prefix:\n          type: integer\n          format: int64\n          minimum: 0\n          description: For upload_import operations, number of leading upload files whose analysis stage has completed. Omitted for other operation kinds.\n        progress_failed:\n"""
+          if "progress_completed_prefix:" not in text:
+              if needle not in text:
+                  raise SystemExit("BackgroundOperation progress_completed schema anchor not found")
+              text = text.replace(needle, replacement, 1)
+              path.write_text(text, encoding="utf-8")
+          PY
+
+          cd frontend
+          npm ci --prefer-offline --no-audit
+          npm run generate:api
+          cd ..
+
+          rm .github/workflows/maintainer-sync-529-openapi.yml
+          git config user.name "Autonomous maintainer"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add docs/openapi.yaml frontend/src/lib/api/openapi.ts .github/workflows/maintainer-sync-529-openapi.yml
+          git diff --cached --check
+          git commit -m "Sync upload row progress API contract"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
