@@ -1,0 +1,19 @@
+name: Temp #548 browse scale diagnostic
+
+on:
+  push:
+    branches:
+      - maintainer/548-browse-scale-diagnosis
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Profile current 10K browse components
+        run: go test -count=1 -run '^TestDiagnosticBrowseScale548$' -v ./internal/database
