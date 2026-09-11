@@ -1,0 +1,23 @@
+name: Temp #548 encrypted browse diagnostic
+
+on:
+  push:
+    branches:
+      - maintainer/548-browse-scale-diagnosis
+  pull_request:
+    branches:
+      - develop
+
+permissions:
+  contents: read
+
+jobs:
+  profile-encrypted:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 15
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Profile encrypted 10K browse components
+        run: go test -count=1 -run '^TestDiagnosticEncryptedBrowseScale548$' -v ./internal/database
