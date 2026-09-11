@@ -79,18 +79,19 @@ function successfulUploadCount(summary: string): number {
 async function verifyFirstPageThumbnails(page: import('@playwright/test').Page, expectedCount: number) {
   const viewport = page.getByTestId('library-viewport');
   const grid = page.getByTestId('virtual-media-grid');
+  const cards = grid.locator('.thumb');
   const seen = new Set<string>();
   await viewport.evaluate((node) => node.scrollTo({ top: 0 }));
 
-  for (let step = 0; step < expectedCount * 2 && seen.size < expectedCount; step += 1) {
+  for (let step = 0; step < expectedCount * 4 && seen.size < expectedCount; step += 1) {
     await expect.poll(async () => {
-      return await grid.locator('.thumb img').evaluateAll((images) => images.length > 0 && images.every((image) => {
-        const img = image as HTMLImageElement;
-        return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+      return await cards.evaluateAll((visibleCards) => visibleCards.length > 0 && visibleCards.every((card) => {
+        const img = card.querySelector('img');
+        return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
       }));
-    }, { timeout: operationTimeout, message: 'visible first-page thumbnails should load successfully' }).toBe(true);
+    }, { timeout: operationTimeout, message: 'every visible first-page card should have a loadable thumbnail' }).toBe(true);
 
-    const names = await grid.locator('.thumb img').evaluateAll((images) => images.map((image) => (image as HTMLImageElement).alt).filter(Boolean));
+    const names = await cards.locator('img').evaluateAll((images) => images.map((image) => (image as HTMLImageElement).alt).filter(Boolean));
     for (const name of names) seen.add(name);
 
     const scroll = await viewport.evaluate((node) => ({
@@ -99,7 +100,7 @@ async function verifyFirstPageThumbnails(page: import('@playwright/test').Page, 
       scrollHeight: node.scrollHeight
     }));
     if (scroll.top + scroll.height >= scroll.scrollHeight - 2) break;
-    await viewport.evaluate((node) => node.scrollBy({ top: Math.max(1, Math.floor(node.clientHeight * 0.7)) }));
+    await viewport.evaluate((node) => node.scrollBy({ top: Math.max(1, Math.floor(node.clientHeight * 0.25)) }));
   }
 
   expect(seen.size, 'every item on the first library page should produce a loadable thumbnail').toBe(expectedCount);
