@@ -69,3 +69,54 @@ func TestAnalyzeUploadedFilesConcurrentlyBoundsWorkersAndPreservesOrder(t *testi
 		t.Fatalf("progress = %v", progress)
 	}
 }
+
+func TestAnalyzeUploadedFilesConcurrentlyReportsOnlyContiguousCompletedPrefix(t *testing.T) {
+	files := []StagedUpload{{Name: "file-0.jpg"}, {Name: "file-1.jpg"}, {Name: "file-2.jpg"}}
+	release := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{})}
+	started := make(chan int, len(files))
+	progress := make(chan int, len(files))
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := analyzeUploadedFilesConcurrently(context.Background(), files, 2, func(file StagedUpload) uploadAnalysisResult {
+			index, _ := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(file.Name, "file-"), ".jpg"))
+			started <- index
+			<-release[index]
+			return uploadAnalysisResult{}
+		}, func(completed int) error {
+			progress <- completed
+			return nil
+		})
+		done <- err
+	}()
+
+	first := <-started
+	second := <-started
+	if (first != 0 && first != 1) || (second != 0 && second != 1) || first == second {
+		t.Fatalf("initial workers started %d and %d, want 0 and 1", first, second)
+	}
+
+	close(release[1])
+	if next := <-started; next != 2 {
+		t.Fatalf("next analysis index = %d, want 2", next)
+	}
+	if len(progress) != 0 {
+		t.Fatalf("out-of-order completion advanced progress: %d events", len(progress))
+	}
+
+	close(release[0])
+	if got := <-progress; got != 1 {
+		t.Fatalf("first contiguous progress = %d, want 1", got)
+	}
+	if got := <-progress; got != 2 {
+		t.Fatalf("second contiguous progress = %d, want 2", got)
+	}
+
+	close(release[2])
+	if got := <-progress; got != 3 {
+		t.Fatalf("final contiguous progress = %d, want 3", got)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("analyze uploads: %v", err)
+	}
+}
