@@ -74,7 +74,7 @@ async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListP
   const end = start + limit;
   return {
     items: jobs.slice(start, end),
-    active_count: jobs.filter(jobIsActive).length,
+    active_count: response.active_count ?? jobs.filter(jobIsActive).length,
     next_page_token: end < jobs.length ? String(end) : undefined
   };
 }
