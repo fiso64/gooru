@@ -71,8 +71,8 @@ func (s *Store) ClaimNextBackgroundTask(resourceClass, workerID string, now time
 	`, task.ID, task.AttemptCount, workerID, workTimeValue(now)); err != nil {
 		return BackgroundTask{}, false, fmt.Errorf("record background task attempt: %w", err)
 	}
-	if err := refreshBackgroundOperation(tx, task.OperationID, now); err != nil {
-		return BackgroundTask{}, false, fmt.Errorf("refresh background operation after task claim: %w", err)
+	if err := markBackgroundOperationStarted(tx, task.OperationID, now); err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("mark background operation after task claim: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return BackgroundTask{}, false, fmt.Errorf("commit background task claim: %w", err)
@@ -132,8 +132,8 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 	if err := requireOneBackgroundAttempt(res); err != nil {
 		return fmt.Errorf("complete background task attempt: %w", err)
 	}
-	if err := refreshBackgroundOperation(tx, operationID.String, finishedAt); err != nil {
-		return fmt.Errorf("refresh background operation after task completion: %w", err)
+	if err := recordBackgroundOperationTaskTerminal(tx, operationID.String, finishedAt, 1, 0); err != nil {
+		return fmt.Errorf("advance background operation after task completion: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit background task completion: %w", err)
@@ -200,8 +200,10 @@ func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt 
 	if err := requireOneBackgroundAttempt(res); err != nil {
 		return false, fmt.Errorf("fail background task attempt: %w", err)
 	}
-	if err := refreshBackgroundOperation(tx, operationID.String, finishedAt); err != nil {
-		return false, fmt.Errorf("refresh background operation after task failure: %w", err)
+	if BackgroundWorkStatus(status) == BackgroundWorkFailed {
+		if err := recordBackgroundOperationTaskTerminal(tx, operationID.String, finishedAt, 0, 1); err != nil {
+			return false, fmt.Errorf("advance background operation after task failure: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit background task failure: %w", err)
@@ -291,8 +293,10 @@ func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 		if err := requireOneBackgroundAttempt(attemptResult); err != nil {
 			return 0, fmt.Errorf("abandon expired background task attempt %s/%d: %w", task.id, task.attemptNumber, err)
 		}
-		if err := refreshBackgroundOperation(tx, task.operationID.String, now); err != nil {
-			return 0, fmt.Errorf("refresh background operation after expired task %s: %w", task.id, err)
+		if BackgroundWorkStatus(status) == BackgroundWorkFailed {
+			if err := recordBackgroundOperationTaskTerminal(tx, task.operationID.String, now, 0, 1); err != nil {
+				return 0, fmt.Errorf("advance background operation after expired task %s: %w", task.id, err)
+			}
 		}
 		recovered++
 	}
