@@ -230,7 +230,7 @@ func validateBackgroundUploadInput(input backgroundUploadTaskInput) error {
 	if input.Version != backgroundUploadInputVersion {
 		return fmt.Errorf("upload background task version %d is unsupported", input.Version)
 	}
-	if len(input.Files) == 0 || len(input.Files) > maxUploadFiles {
+	if len(input.Files) == 0 {
 		return errors.New("upload background task has invalid file count")
 	}
 	for index, file := range input.Files {
