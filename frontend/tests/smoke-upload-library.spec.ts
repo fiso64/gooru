@@ -170,7 +170,13 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
     timingReport.delete_from_disk = elapsed(deleteStartedAt, deleteStartNs);
     saveTimings();
 
-    // This assertion is intentionally made without page.reload(): the mutation must empty the live grid.
+    // Verify persistence after a full refresh rather than relying only on the live mutation state.
+    await page.reload();
+    const refreshedSearch = page.getByLabel('Search library');
+    await refreshedSearch.fill(tag);
+    await refreshedSearch.press('Enter');
+    await expect(page.getByRole('heading', { name: 'No results' })).toBeVisible({ timeout: operationTimeout });
+    await expect(page.locator('[data-testid="virtual-media-grid"] .thumb')).toHaveCount(0);
     await expect(page.getByTestId('library-header-count')).toHaveText('0 matching · 0 files', { timeout: operationTimeout });
   } finally {
     saveTimings();
