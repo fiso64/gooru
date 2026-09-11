@@ -79,21 +79,31 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 			}
 			switch formName {
 			case "target_id":
-				if !targetSeen { targetID, targetSeen = value, true }
+				if !targetSeen {
+					targetID, targetSeen = value, true
+				}
 			case "conflict_policy":
-				if !conflictSeen { conflictRequested, conflictSeen = value, true }
+				if !conflictSeen {
+					conflictRequested, conflictSeen = value, true
+				}
 			case "tags":
 				tagValues = append(tagValues, value)
 			case "source_modtime_ms":
 				sourceModTimeValues = append(sourceModTimeValues, value)
 			case "added_at_strategy":
-				if !addedAtStrategySeen { addedAtStrategyRequested, addedAtStrategySeen = value, true }
+				if !addedAtStrategySeen {
+					addedAtStrategyRequested, addedAtStrategySeen = value, true
+				}
 			case "queue_time_ms":
 				queueTimeValues = append(queueTimeValues, value)
 			case "queue_first_time_ms":
-				if !queueFirstTimeSeen { queueFirstTimeValue, queueFirstTimeSeen = value, true }
+				if !queueFirstTimeSeen {
+					queueFirstTimeValue, queueFirstTimeSeen = value, true
+				}
 			case "queue_last_time_ms":
-				if !queueLastTimeSeen { queueLastTimeValue, queueLastTimeSeen = value, true }
+				if !queueLastTimeSeen {
+					queueLastTimeValue, queueLastTimeSeen = value, true
+				}
 			case "queue_index":
 				queueIndexValues = append(queueIndexValues, value)
 			case "queue_total":
@@ -118,7 +128,9 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 		return nil, saved, multipartUploadError{message: "at least one file is required", err: errors.New("missing upload file")}
 	}
 	for i := range streamed {
-		if i >= len(sourceModTimeValues) { break }
+		if i >= len(sourceModTimeValues) {
+			break
+		}
 		streamed[i].sourceModTime = parseUploadSourceModTime(sourceModTimeValues[i])
 	}
 	target, err := s.uploadTarget(targetID)
@@ -145,7 +157,9 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	for i := range streamed {
 		queueTime := queueFallback
 		if i < len(queueTimeValues) {
-			if parsed := parseUploadSourceModTime(queueTimeValues[i]); !parsed.IsZero() { queueTime = parsed }
+			if parsed := parseUploadSourceModTime(queueTimeValues[i]); !parsed.IsZero() {
+				queueTime = parsed
+			}
 		}
 		queueIndex := parseUploadOrdinal(queueIndexValues, i, i)
 		queueTotal := parseUploadOrdinal(queueTotalValues, i, len(streamed))
@@ -179,9 +193,13 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 			saved = append(saved, savedUpload{name: file.name, path: path, destinationPath: path, size: file.size, targetID: target.ID, status: "skipped", sourceModTime: file.sourceModTime})
 			continue
 		}
-		stagedPath, moveErr := moveStreamedUploadIntoDir(file.path, targetDir, file.name)
-		if moveErr != nil {
-			return nil, saved, uploadFileError{name: file.name, err: moveErr}
+		stagedPath := file.path
+		if filepath.Clean(filepath.Dir(stagedPath)) != filepath.Clean(targetDir) {
+			var moveErr error
+			stagedPath, moveErr = moveStreamedUploadIntoDir(file.path, targetDir, file.name)
+			if moveErr != nil {
+				return nil, saved, uploadFileError{name: file.name, err: moveErr}
+			}
 		}
 		if err := applyUploadedSourceModTime(stagedPath, file.sourceModTime, s.cfg.Uploads.PreserveModTime); err != nil {
 			_ = os.Remove(stagedPath)
@@ -206,10 +224,14 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 func chooseDurableUploadDestination(dir, name, conflictPolicy string, reserved map[string]struct{}) (path string, skipped bool, replace bool, err error) {
 	ext := filepath.Ext(name)
 	base := name[:len(name)-len(ext)]
-	if base == "" { base = "upload" }
+	if base == "" {
+		base = "upload"
+	}
 	for i := 0; i < 10_000; i++ {
 		candidate := name
-		if i > 0 { candidate = fmt.Sprintf("%s-%d%s", base, i, ext) }
+		if i > 0 {
+			candidate = fmt.Sprintf("%s-%d%s", base, i, ext)
+		}
 		path = filepath.Join(dir, candidate)
 		_, planned := reserved[path]
 		_, statErr := os.Stat(path)
