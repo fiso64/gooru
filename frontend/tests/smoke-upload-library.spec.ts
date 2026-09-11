@@ -85,13 +85,32 @@ async function verifyFirstPageThumbnails(page: import('@playwright/test').Page, 
 
   for (let step = 0; step < expectedCount * 4 && seen.size < expectedCount; step += 1) {
     await expect.poll(async () => {
-      return await cards.evaluateAll((visibleCards) => visibleCards.length > 0 && visibleCards.every((card) => {
-        const img = card.querySelector('img');
-        return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
-      }));
+      return await cards.evaluateAll((renderedCards) => {
+        const viewportNode = document.querySelector('[data-testid="library-viewport"]');
+        if (!(viewportNode instanceof HTMLElement)) return false;
+        const viewportRect = viewportNode.getBoundingClientRect();
+        const visibleCards = renderedCards.filter((card) => {
+          const rect = card.getBoundingClientRect();
+          return rect.bottom > viewportRect.top && rect.top < viewportRect.bottom;
+        });
+        return visibleCards.length > 0 && visibleCards.every((card) => {
+          const img = card.querySelector('img');
+          return img instanceof HTMLImageElement && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+        });
+      });
     }, { timeout: operationTimeout, message: 'every visible first-page card should have a loadable thumbnail' }).toBe(true);
 
-    const names = await cards.locator('img').evaluateAll((images) => images.map((image) => (image as HTMLImageElement).alt).filter(Boolean));
+    const names = await cards.evaluateAll((renderedCards) => {
+      const viewportNode = document.querySelector('[data-testid="library-viewport"]');
+      if (!(viewportNode instanceof HTMLElement)) return [];
+      const viewportRect = viewportNode.getBoundingClientRect();
+      return renderedCards.flatMap((card) => {
+        const rect = card.getBoundingClientRect();
+        if (rect.bottom <= viewportRect.top || rect.top >= viewportRect.bottom) return [];
+        const img = card.querySelector('img');
+        return img instanceof HTMLImageElement && img.alt ? [img.alt] : [];
+      });
+    });
     for (const name of names) seen.add(name);
 
     const scroll = await viewport.evaluate((node) => ({
