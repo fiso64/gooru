@@ -6,87 +6,121 @@ import (
 	"time"
 )
 
-// refreshBackgroundOperation derives one logical operation's lifecycle from its
-// child tasks inside the same transaction that changed a task. This keeps the
-// user-visible aggregate crash-consistent with durable scheduling state.
-func refreshBackgroundOperation(tx *Tx, operationID string, now time.Time) error {
+// markBackgroundOperationStarted records the only aggregate state change caused
+// by a task claim. A running child proves the operation is running, so there is
+// no need to rescan every sibling task just to derive that fact.
+func markBackgroundOperationStarted(tx *Tx, operationID string, now time.Time) error {
+	if operationID == "" {
+		return nil
+	}
+	now = normalizeWorkTime(now)
+	res, err := tx.Exec(`
+		UPDATE background_operations
+		SET status = 'running',
+		    started_at = COALESCE(started_at, ?),
+		    finished_at = NULL,
+		    error_code = '',
+		    error_message = ''
+		WHERE id = ?
+	`, workTimeValue(now), operationID)
+	if err != nil {
+		return fmt.Errorf("mark background operation %s running: %w", operationID, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("mark background operation %s running rows affected: %w", operationID, err)
+	}
+	if rows != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// recordBackgroundOperationTaskTerminal applies the exact counter delta from a
+// guarded child-task transition. The task row and these counters are changed in
+// the same transaction, so retries or stale workers cannot double-count them.
+//
+// Most transitions stop after an indexed existence check for remaining active
+// children. Only the operation's final active child needs a canceled-child count
+// to choose the terminal status. This keeps large fan-out operations linear in
+// the number of task transitions instead of rescanning every sibling on every
+// claim and completion.
+func recordBackgroundOperationTaskTerminal(tx *Tx, operationID string, now time.Time, completedDelta, failedDelta int64) error {
 	if operationID == "" {
 		return nil
 	}
 	now = normalizeWorkTime(now)
 
-	var progressTotal int64
-	if err := tx.QueryRow(`SELECT progress_total FROM background_operations WHERE id = ?`, operationID).Scan(&progressTotal); err != nil {
-		return fmt.Errorf("read background operation %s progress total: %w", operationID, err)
+	var progressTotal, completed, failed int64
+	if err := tx.QueryRow(`
+		UPDATE background_operations
+		SET progress_completed = progress_completed + ?,
+		    progress_failed = progress_failed + ?
+		WHERE id = ?
+		RETURNING progress_total, progress_completed, progress_failed
+	`, completedDelta, failedDelta, operationID).Scan(&progressTotal, &completed, &failed); err != nil {
+		return fmt.Errorf("advance background operation %s progress: %w", operationID, err)
 	}
 
-	var total, completed, failed, canceled, started int64
+	var active int
 	if err := tx.QueryRow(`
-		SELECT count(*),
-		       COALESCE(sum(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
-		       COALESCE(sum(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0),
-		       COALESCE(sum(CASE WHEN status = 'canceled' THEN 1 ELSE 0 END), 0),
-		       COALESCE(sum(CASE WHEN started_at IS NOT NULL THEN 1 ELSE 0 END), 0)
-		FROM background_tasks
-		WHERE operation_id = ?
-	`, operationID).Scan(&total, &completed, &failed, &canceled, &started); err != nil {
-		return fmt.Errorf("aggregate background operation %s: %w", operationID, err)
+		SELECT EXISTS(
+			SELECT 1
+			FROM background_tasks
+			WHERE operation_id = ? AND status IN ('pending', 'running')
+			LIMIT 1
+		)
+	`, operationID).Scan(&active); err != nil {
+		return fmt.Errorf("inspect active background tasks for operation %s: %w", operationID, err)
 	}
-	if total == 0 {
+	if active != 0 {
 		return nil
 	}
 
+	var canceled int64
+	if err := tx.QueryRow(`
+		SELECT count(*)
+		FROM background_tasks
+		WHERE operation_id = ? AND status = 'canceled'
+	`, operationID).Scan(&canceled); err != nil {
+		return fmt.Errorf("count canceled background tasks for operation %s: %w", operationID, err)
+	}
+
 	terminalCount := completed + failed + canceled
-	terminal := terminalCount == total && (progressTotal == 0 || terminalCount >= progressTotal)
-	status := BackgroundWorkPending
-	if terminal {
-		switch {
-		case failed > 0:
-			status = BackgroundWorkFailed
-		case canceled > 0:
-			status = BackgroundWorkCanceled
-		default:
-			status = BackgroundWorkCompleted
-		}
-	} else if started > 0 {
-		status = BackgroundWorkRunning
+	if progressTotal > 0 && terminalCount < progressTotal {
+		// The operation declared more work than is attached today. Preserve its
+		// current pending/running state until later child attachment supplies the
+		// remaining work, matching the previous aggregate-derived semantics.
+		return nil
 	}
 
-	var startedAt, finishedAt interface{}
-	if started > 0 || terminal {
-		startedAt = workTimeValue(now)
-	}
-	if terminal {
-		finishedAt = workTimeValue(now)
-	}
-
+	status := BackgroundWorkCompleted
 	errorCode := ""
 	errorMessage := ""
-	if status == BackgroundWorkFailed {
+	switch {
+	case failed > 0:
+		status = BackgroundWorkFailed
 		errorCode = "child_task_failed"
 		errorMessage = fmt.Sprintf("%d background task(s) failed", failed)
+	case canceled > 0:
+		status = BackgroundWorkCanceled
 	}
 
 	res, err := tx.Exec(`
 		UPDATE background_operations
 		SET status = ?,
-		    progress_completed = ?,
-		    progress_failed = ?,
-		    started_at = CASE
-		        WHEN started_at IS NULL AND ? IS NOT NULL THEN ?
-		        ELSE started_at
-		    END,
+		    started_at = COALESCE(started_at, ?),
 		    finished_at = ?,
 		    error_code = ?,
 		    error_message = ?
 		WHERE id = ?
-	`, status, completed, failed, startedAt, startedAt, finishedAt, errorCode, errorMessage, operationID)
+	`, status, workTimeValue(now), workTimeValue(now), errorCode, errorMessage, operationID)
 	if err != nil {
-		return fmt.Errorf("refresh background operation %s: %w", operationID, err)
+		return fmt.Errorf("finish background operation %s: %w", operationID, err)
 	}
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("refresh background operation %s rows affected: %w", operationID, err)
+		return fmt.Errorf("finish background operation %s rows affected: %w", operationID, err)
 	}
 	if rows != 1 {
 		return sql.ErrNoRows
