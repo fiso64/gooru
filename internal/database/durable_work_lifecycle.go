@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -143,7 +144,8 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 
 // FailBackgroundTask closes the current attempt as failed iff workerID still owns a live
 // task lease. When retry capacity remains, the task returns to pending at retryAt;
-// otherwise it becomes terminally failed.
+// otherwise it becomes terminally failed. Terminal compensation is enqueued in the same
+// transaction so a crash cannot strand external resources after failure becomes visible.
 func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt time.Time, errorCode, errorMessage string) (bool, error) {
 	if s == nil || s.DB == nil {
 		return false, errors.New("background task store is required")
@@ -203,6 +205,9 @@ func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt 
 	if BackgroundWorkStatus(status) == BackgroundWorkFailed {
 		if err := recordBackgroundOperationTaskTerminal(tx, operationID.String, finishedAt, 0, 1); err != nil {
 			return false, fmt.Errorf("advance background operation after task failure: %w", err)
+		}
+		if err := s.enqueueBackgroundTaskTerminalCleanup(tx, taskID, finishedAt); err != nil {
+			return false, fmt.Errorf("enqueue background task terminal cleanup: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -297,6 +302,9 @@ func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 			if err := recordBackgroundOperationTaskTerminal(tx, task.operationID.String, now, 0, 1); err != nil {
 				return 0, fmt.Errorf("advance background operation after expired task %s: %w", task.id, err)
 			}
+			if err := s.enqueueBackgroundTaskTerminalCleanup(tx, task.id, now); err != nil {
+				return 0, fmt.Errorf("enqueue expired background task %s terminal cleanup: %w", task.id, err)
+			}
 		}
 		recovered++
 	}
@@ -305,6 +313,45 @@ func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 		return 0, fmt.Errorf("commit background task lease recovery: %w", err)
 	}
 	return recovered, nil
+}
+
+func (s *Store) enqueueBackgroundTaskTerminalCleanup(tx *Tx, taskID string, availableAt time.Time) error {
+	var encoded string
+	if err := tx.QueryRow(`
+		SELECT terminal_cleanup_json
+		FROM background_tasks
+		WHERE id = ?
+	`, taskID).Scan(&encoded); err != nil {
+		return fmt.Errorf("load terminal cleanup descriptor: %w", err)
+	}
+	if encoded == "" {
+		return nil
+	}
+	var cleanup BackgroundTaskCleanup
+	if err := json.Unmarshal([]byte(encoded), &cleanup); err != nil {
+		return fmt.Errorf("decode terminal cleanup descriptor: %w", err)
+	}
+	cleanupTask := NewBackgroundTask{
+		ID:            taskID + ":terminal-cleanup",
+		DedupeKey:     cleanup.DedupeKey,
+		Kind:          cleanup.Kind,
+		SubjectKind:   cleanup.SubjectKind,
+		SubjectID:     cleanup.SubjectID,
+		InputKey:      cleanup.InputKey,
+		ResourceClass: cleanup.ResourceClass,
+		Priority:      cleanup.Priority,
+		AvailableAt:   availableAt,
+		CreatedAt:     availableAt,
+		MaxAttempts:   cleanup.MaxAttempts,
+	}
+	_, created, err := s.EnqueueBackgroundTask(tx, cleanupTask)
+	if err != nil {
+		return err
+	}
+	if !created {
+		return errors.New("background terminal cleanup dedupe key is already active")
+	}
+	return nil
 }
 
 func requireOneBackgroundAttempt(res sql.Result) error {
