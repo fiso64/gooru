@@ -37,3 +37,9 @@ func (c *Client) SetBackgroundOperationVisible(operationID string, visible bool)
 func (c *Client) CancelUnattachedHiddenBackgroundOperations(kind string) (int64, error) {
 	return c.store.CancelUnattachedHiddenBackgroundOperations(kind)
 }
+
+// CancelUnattachedBackgroundOperations releases pre-crash producer work that
+// was already visible before its durable child task could be attached.
+func (c *Client) CancelUnattachedBackgroundOperations(kind string) (int64, error) {
+	return c.store.CancelUnattachedBackgroundOperations(kind)
+}

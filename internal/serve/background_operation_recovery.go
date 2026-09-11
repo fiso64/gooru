@@ -10,6 +10,7 @@ const backgroundUploadImportOperationKind = "upload_import"
 
 type backgroundOperationReservationRecovery interface {
 	CancelUnattachedHiddenBackgroundOperations(string) (int64, error)
+	CancelUnattachedBackgroundOperations(string) (int64, error)
 }
 
 // recoverBackgroundOperationReservations releases producer admission reservations
@@ -20,16 +21,11 @@ func recoverBackgroundOperationReservations(recovery backgroundOperationReservat
 	if recovery == nil {
 		return nil
 	}
-	for _, item := range []struct {
-		kind string
-		name string
-	}{
-		{kind: backgroundUploadImportOperationKind, name: "upload"},
-		{kind: core.BackgroundTagMutationOperationKind, name: "tag mutation"},
-	} {
-		if _, err := recovery.CancelUnattachedHiddenBackgroundOperations(item.kind); err != nil {
-			return fmt.Errorf("recover %s background operation reservations: %w", item.name, err)
-		}
+	if _, err := recovery.CancelUnattachedBackgroundOperations(backgroundUploadImportOperationKind); err != nil {
+		return fmt.Errorf("recover upload background operation reservations: %w", err)
+	}
+	if _, err := recovery.CancelUnattachedHiddenBackgroundOperations(core.BackgroundTagMutationOperationKind); err != nil {
+		return fmt.Errorf("recover tag mutation background operation reservations: %w", err)
 	}
 	return nil
 }

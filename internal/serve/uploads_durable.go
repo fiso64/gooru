@@ -24,6 +24,8 @@ const (
 type durableUploadOperationStore interface {
 	backgroundOperationReader
 	CreateBackgroundOperation(core.BackgroundOperationRequest) (core.BackgroundOperation, error)
+	SetBackgroundOperationCheckpoint(string, any) error
+	SetBackgroundOperationVisible(string, bool) error
 	AttachBackgroundTaskAndRevealOperation(string, any, core.BackgroundTaskRequest) (core.BackgroundTask, error)
 }
 
@@ -31,8 +33,12 @@ type durableUploadCancellationStore interface {
 	CancelBackgroundOperationWithCleanupTask(string, core.BackgroundTaskRequest) (core.BackgroundOperationCancellation, error)
 }
 
-type durableUploadCleanupStore interface {
+type durableUploadTaskReader interface {
 	GetBackgroundOperationTask(string) (core.BackgroundTaskState, bool, error)
+}
+
+type durableUploadCleanupStore interface {
+	durableUploadTaskReader
 	GetBackgroundOperationCheckpoint(string, any) (bool, error)
 }
 
@@ -104,8 +110,22 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	if err := operations.SetBackgroundOperationCheckpoint(operation.ID, backgroundUploadReceivingCheckpoint(r.ContentLength, 0)); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to initialize upload progress", nil)
+		return
+	}
+	if err := operations.SetBackgroundOperationVisible(operation.ID, true); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to publish upload operation", nil)
+		return
+	}
+	r.Body = newUploadReceivingProgressReadCloser(r.Body, operation.ID, r.ContentLength, operations)
+
 	tags, saved, err := s.stageMultipartUpload(r)
 	if err != nil {
+		if errors.Is(err, errUploadReceivingCanceled) {
+			writeError(w, http.StatusRequestTimeout, "request_canceled", "upload was canceled", nil)
+			return
+		}
 		writeMultipartUploadError(w, err)
 		return
 	}
@@ -175,6 +195,17 @@ func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
 	}
 	if !found || state.Kind != backgroundUploadImportOperationKind {
 		return s.backgroundOperations.CancelBackgroundOperation(operationID)
+	}
+
+	// Receiving uploads are visible before their import child exists. There are
+	// no durable external side effects to compensate yet; the request handler
+	// owns partial staging cleanup while unwinding from cancellation.
+	if taskStore, ok := s.backgroundOperations.(durableUploadTaskReader); ok {
+		if _, found, taskErr := taskStore.GetBackgroundOperationTask(operationID); taskErr != nil {
+			return false, taskErr
+		} else if !found {
+			return s.backgroundOperations.CancelBackgroundOperation(operationID)
+		}
 	}
 
 	store, ok := s.backgroundOperations.(durableUploadCancellationStore)

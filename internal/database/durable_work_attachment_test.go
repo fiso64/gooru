@@ -149,3 +149,21 @@ func TestAttachBackgroundTaskAndRevealOperationWaitsForConcurrentWriter(t *testi
 		t.Fatal("attachment did not complete after concurrent writer released")
 	}
 }
+
+func TestAttachBackgroundTaskAcceptsVisibleReceivingReservation(t *testing.T) {
+	store, db := newDurableWorkTestDB(t)
+	store.DB = db
+	if _, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{ID: "visible-upload", Kind: "upload_import", Visible: true, ProgressTotal: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AttachBackgroundTaskAndRevealOperation("visible-upload", []byte(`{"phase":"staged"}`), NewBackgroundTask{ID: "upload-task", DedupeKey: "upload", Kind: "upload.import", SubjectKind: "operation", SubjectID: "visible-upload", ResourceClass: "upload", MaxAttempts: 5}); err != nil {
+		t.Fatalf("attach visible upload: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM background_tasks WHERE operation_id = 'visible-upload'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("attached task count = %d, want 1", count)
+	}
+}

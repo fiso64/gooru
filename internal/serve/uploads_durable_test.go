@@ -18,18 +18,21 @@ import (
 )
 
 type durableUploadTestStore struct {
-	createErr          error
-	createdRequest     core.BackgroundOperationRequest
-	operation          core.BackgroundOperation
-	state              core.BackgroundOperationState
-	result             UploadImportResponse
-	resultFound        bool
-	attachCalls        int
-	attachedRequest    core.BackgroundTaskRequest
-	attachedCheckpoint backgroundUploadCheckpoint
-	attached           chan struct{}
-	terminalOnAttach   core.BackgroundWorkStatus
-	cancelCalls        int
+	createErr           error
+	createdRequest      core.BackgroundOperationRequest
+	operation           core.BackgroundOperation
+	state               core.BackgroundOperationState
+	result              UploadImportResponse
+	resultFound         bool
+	attachCalls         int
+	attachedRequest     core.BackgroundTaskRequest
+	attachedCheckpoint  backgroundUploadCheckpoint
+	attached            chan struct{}
+	terminalOnAttach    core.BackgroundWorkStatus
+	cancelCalls         int
+	visibleCalls        int
+	checkpointCalls     int
+	receivingCheckpoint backgroundUploadCheckpoint
 }
 
 func newDurableUploadTestStore() *durableUploadTestStore {
@@ -52,6 +55,24 @@ func (s *durableUploadTestStore) CreateBackgroundOperation(request core.Backgrou
 		return core.BackgroundOperation{}, s.createErr
 	}
 	return s.operation, nil
+}
+
+func (s *durableUploadTestStore) SetBackgroundOperationCheckpoint(operationID string, checkpoint any) error {
+	if operationID != s.operation.ID {
+		return errors.New("unexpected operation")
+	}
+	s.checkpointCalls++
+	s.receivingCheckpoint = checkpoint.(backgroundUploadCheckpoint)
+	return nil
+}
+
+func (s *durableUploadTestStore) SetBackgroundOperationVisible(operationID string, visible bool) error {
+	if operationID != s.operation.ID {
+		return errors.New("unexpected operation")
+	}
+	s.visibleCalls++
+	s.state.Visible = visible
+	return nil
 }
 
 func (s *durableUploadTestStore) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {
@@ -165,6 +186,9 @@ func TestDurableUploadAsyncAttachesOneTaskAndReturnsOperationLocation(t *testing
 	}
 	if store.createdRequest.Kind != "upload_import" || store.createdRequest.Visible || store.createdRequest.ProgressTotal != 1 {
 		t.Fatalf("unexpected operation request: %+v", store.createdRequest)
+	}
+	if store.visibleCalls != 1 || store.checkpointCalls < 1 || store.receivingCheckpoint.Phase != backgroundUploadPhaseReceiving {
+		t.Fatalf("receiving publication = visible %d checkpoints %d checkpoint %+v", store.visibleCalls, store.checkpointCalls, store.receivingCheckpoint)
 	}
 	if store.attachCalls != 1 {
 		t.Fatalf("attach calls = %d, want 1", store.attachCalls)

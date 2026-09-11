@@ -13,18 +13,21 @@ const (
 	backgroundUploadTaskKind       = "upload.import"
 	backgroundUploadResourceClass  = "upload"
 	backgroundUploadInputVersion   = 1
+	backgroundUploadPhaseReceiving = "receiving"
 	backgroundUploadPhaseStaged    = "staged"
 	backgroundUploadPhaseActivated = "activated"
 	backgroundUploadPhaseImported  = "imported"
 )
 
 type backgroundUploadCheckpoint struct {
-	Phase                string                                  `json:"phase"`
-	Replacements         []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
-	Response             *UploadImportResponse                   `json:"response,omitempty"`
-	FileTotal            int                                     `json:"file_total,omitempty"`
-	FilesCompleted       int                                     `json:"files_completed,omitempty"`
-	FilesCompletedPrefix int                                     `json:"files_completed_prefix,omitempty"`
+	Phase                  string                                  `json:"phase"`
+	Replacements           []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
+	Response               *UploadImportResponse                   `json:"response,omitempty"`
+	FileTotal              int                                     `json:"file_total,omitempty"`
+	FilesCompleted         int                                     `json:"files_completed,omitempty"`
+	FilesCompletedPrefix   int                                     `json:"files_completed_prefix,omitempty"`
+	TransportBytesTotal    int64                                   `json:"transport_bytes_total,omitempty"`
+	TransportBytesReceived int64                                   `json:"transport_bytes_received,omitempty"`
 }
 
 type backgroundUploadReplacementCheckpoint struct {
@@ -50,6 +53,23 @@ type backgroundUploadTaskFile struct {
 	SourceModTime   time.Time `json:"source_mod_time,omitempty"`
 	AddedAt         time.Time `json:"added_at,omitempty"`
 	ConflictPolicy  string    `json:"conflict_policy,omitempty"`
+}
+
+func backgroundUploadReceivingCheckpoint(total, received int64) backgroundUploadCheckpoint {
+	if total < 0 {
+		total = 0
+	}
+	if received < 0 {
+		received = 0
+	}
+	if total > 0 && received > total {
+		received = total
+	}
+	return backgroundUploadCheckpoint{
+		Phase:                  backgroundUploadPhaseReceiving,
+		TransportBytesTotal:    total,
+		TransportBytesReceived: received,
+	}
 }
 
 func backgroundUploadInitialCheckpoint(fileTotal ...int) backgroundUploadCheckpoint {

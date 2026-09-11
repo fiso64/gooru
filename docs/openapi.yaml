@@ -1556,6 +1556,12 @@ components:
           type: integer
           format: int64
           minimum: 0
+        progress:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Optional overall operation progress fraction. Uploads omit this while receiving when the request length is unknown.
         created_at:
           type: string
           format: date-time

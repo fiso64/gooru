@@ -7,10 +7,9 @@ import (
 )
 
 // AttachBackgroundTaskAndRevealOperation atomically persists producer recovery
-// state, attaches the first durable child task to a hidden admitted operation,
-// and reveals that operation to consumers. A failed attachment rolls all three
-// mutations back so startup recovery can safely release the still-hidden
-// reservation.
+// state, attaches the first durable child task to an admitted operation, and
+// ensures the operation is visible. Most producers attach while hidden; upload
+// operations may already be visible while their HTTP body is being received.
 func (s *Store) AttachBackgroundTaskAndRevealOperation(operationID string, checkpointJSON []byte, task NewBackgroundTask) (BackgroundTask, error) {
 	if s == nil || s.DB == nil {
 		return BackgroundTask{}, errors.New("background operation store is required")
@@ -49,8 +48,8 @@ func (s *Store) AttachBackgroundTaskAndRevealOperation(operationID string, check
 		}
 		return BackgroundTask{}, fmt.Errorf("inspect background operation attachment: %w", err)
 	}
-	if visible != 0 || status != string(BackgroundWorkPending) || attached != 0 {
-		return BackgroundTask{}, errors.New("background operation is not an unattached hidden pending reservation")
+	if (visible != 0 && visible != 1) || status != string(BackgroundWorkPending) || attached != 0 {
+		return BackgroundTask{}, errors.New("background operation is not an unattached pending reservation")
 	}
 
 	task.OperationID = operationID

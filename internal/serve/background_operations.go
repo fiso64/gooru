@@ -44,6 +44,7 @@ type BackgroundOperationDTO struct {
 	ProgressCompleted       int64                     `json:"progress_completed"`
 	ProgressCompletedPrefix int64                     `json:"progress_completed_prefix,omitempty"`
 	ProgressFailed          int64                     `json:"progress_failed"`
+	Progress                *float64                  `json:"progress,omitempty"`
 	CreatedAt               time.Time                 `json:"created_at"`
 	StartedAt               *time.Time                `json:"started_at,omitempty"`
 	FinishedAt              *time.Time                `json:"finished_at,omitempty"`
@@ -272,7 +273,24 @@ func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState)
 	}
 	var checkpoint backgroundUploadCheckpoint
 	found, err := reader.GetBackgroundOperationCheckpoint(operation.ID, &checkpoint)
-	if err != nil || !found || checkpoint.FileTotal <= 0 {
+	if err != nil || !found {
+		return dto
+	}
+	if checkpoint.Phase == backgroundUploadPhaseReceiving {
+		if checkpoint.TransportBytesTotal > 0 {
+			received := checkpoint.TransportBytesReceived
+			if received < 0 {
+				received = 0
+			}
+			if received > checkpoint.TransportBytesTotal {
+				received = checkpoint.TransportBytesTotal
+			}
+			progress := 0.5 * float64(received) / float64(checkpoint.TransportBytesTotal)
+			dto.Progress = &progress
+		}
+		return dto
+	}
+	if checkpoint.FileTotal <= 0 {
 		return dto
 	}
 	total := int64(checkpoint.FileTotal)
@@ -297,5 +315,13 @@ func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState)
 	dto.ProgressTotal = total
 	dto.ProgressCompleted = completed
 	dto.ProgressCompletedPrefix = completedPrefix
+	progress := 0.5 + 0.5*float64(completed)/float64(total)
+	if operation.Status == core.BackgroundWorkCompleted {
+		progress = 1
+	}
+	if progress > 1 {
+		progress = 1
+	}
+	dto.Progress = &progress
 	return dto
 }
