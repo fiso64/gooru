@@ -101,7 +101,6 @@ var serveCmd = &cobra.Command{
 			"logging_level", cfg.Logging.Level,
 			"preview_size", cfg.Media.PreviewSize,
 			"thumbnail_format", cfg.Media.ThumbnailFormat,
-			"uploads_max_queued", cfg.Uploads.MaxQueued,
 		)
 		runtime, err := server.NewBackgroundRuntime(client, fmt.Sprintf("serve-%d", os.Getpid()))
 		if err != nil {
