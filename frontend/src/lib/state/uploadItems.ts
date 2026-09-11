@@ -85,7 +85,7 @@ export function itemFromResult(items: UploadItem[], index: number, response: Upl
 
 export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
   const terminal = isTerminalJob(job);
-  const completedPrefix = Math.max(0, Math.min(items.length, Math.trunc(job.progress_completed ?? 0)));
+  const completedPrefix = Math.max(0, Math.min(items.length, Math.trunc(job.progress_completed_prefix ?? 0)));
   const status: UploadItemStatus =
     job.status === 'completed' ? 'imported' : job.status === 'canceled' ? 'canceled' : job.status === 'failed' ? 'error' : 'importing';
   if (job.status === 'completed' && isUploadImportResponse(job.result)) {
