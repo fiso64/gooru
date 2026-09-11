@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -107,10 +108,16 @@ func NewRunner(cfg RunnerConfig) (*Runner, error) {
 // independent from the user-visible durable operation lifecycle.
 func (r *Runner) Run(ctx context.Context) error {
 	startupRecoveryMu.Lock()
-	_, recoverErr := r.store.RecoverExpiredBackgroundTaskLeases(r.now())
+	recovered, recoverErr := r.store.RecoverExpiredBackgroundTaskLeases(r.now())
 	startupRecoveryMu.Unlock()
 	if recoverErr != nil {
 		return fmt.Errorf("recover expired background work: %w", recoverErr)
+	}
+	if recovered > 0 {
+		slog.WarnContext(ctx, "recovered expired background task leases",
+			"count", recovered,
+			"startup_worker_id", r.workerID,
+		)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -136,9 +143,11 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 	handler, ok := r.handlers[task.Kind]
 	if !ok {
 		now := r.now()
-		if _, err := r.store.FailBackgroundTask(task.ID, r.workerID, now, now.Add(r.retryDelay), "unsupported_task_kind", "no handler registered for task kind "+task.Kind); err != nil {
+		retrying, err := r.store.FailBackgroundTask(task.ID, r.workerID, now, now.Add(r.retryDelay), "unsupported_task_kind", "no handler registered for task kind "+task.Kind)
+		if err != nil {
 			return fmt.Errorf("fail unsupported background task %s: %w", task.ID, err)
 		}
+		r.logTaskFailure(ctx, task, "unsupported_task_kind", retrying)
 		return nil
 	}
 
@@ -175,13 +184,34 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 		return nil
 	}
 
-	if _, failErr := r.store.FailBackgroundTask(task.ID, r.workerID, finishedAt, finishedAt.Add(r.retryDelay), "handler_failed", err.Error()); failErr != nil {
+	retrying, failErr := r.store.FailBackgroundTask(task.ID, r.workerID, finishedAt, finishedAt.Add(r.retryDelay), "handler_failed", err.Error())
+	if failErr != nil {
 		if errors.Is(failErr, database.ErrBackgroundTaskLeaseLost) {
 			return nil
 		}
 		return fmt.Errorf("fail background task %s: %w", task.ID, failErr)
 	}
+	r.logTaskFailure(ctx, task, "handler_failed", retrying)
 	return nil
+}
+
+// logTaskFailure makes hidden/background task failures diagnosable without
+// copying handler error strings into logs. Handler errors may contain protected
+// filesystem paths; the durable database remains the detailed diagnostic source.
+func (r *Runner) logTaskFailure(ctx context.Context, task database.BackgroundTask, errorCode string, retrying bool) {
+	args := []any{
+		"task_id", task.ID,
+		"operation_id", task.OperationID,
+		"kind", task.Kind,
+		"resource_class", r.resourceClass,
+		"worker_id", r.workerID,
+		"error_code", errorCode,
+	}
+	if retrying {
+		slog.DebugContext(ctx, "background task failed; retry scheduled", args...)
+		return
+	}
+	slog.WarnContext(ctx, "background task failed permanently", args...)
 }
 
 func (r *Runner) renewLease(ctx context.Context, cancel context.CancelFunc, taskID string, stop <-chan struct{}, done chan<- error) {
