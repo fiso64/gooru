@@ -37,18 +37,19 @@ type backgroundOperationProducer interface {
 }
 
 type BackgroundOperationDTO struct {
-	ID                string                    `json:"id"`
-	Kind              string                    `json:"kind"`
-	Status            core.BackgroundWorkStatus `json:"status"`
-	ProgressTotal     int64                     `json:"progress_total"`
-	ProgressCompleted int64                     `json:"progress_completed"`
-	ProgressFailed    int64                     `json:"progress_failed"`
-	CreatedAt         time.Time                 `json:"created_at"`
-	StartedAt         *time.Time                `json:"started_at,omitempty"`
-	FinishedAt        *time.Time                `json:"finished_at,omitempty"`
-	ErrorCode         string                    `json:"error_code,omitempty"`
-	ErrorMessage      string                    `json:"error_message,omitempty"`
-	Result            json.RawMessage           `json:"result,omitempty"`
+	ID                      string                    `json:"id"`
+	Kind                    string                    `json:"kind"`
+	Status                  core.BackgroundWorkStatus `json:"status"`
+	ProgressTotal           int64                     `json:"progress_total"`
+	ProgressCompleted       int64                     `json:"progress_completed"`
+	ProgressCompletedPrefix int64                     `json:"progress_completed_prefix,omitempty"`
+	ProgressFailed          int64                     `json:"progress_failed"`
+	CreatedAt               time.Time                 `json:"created_at"`
+	StartedAt               *time.Time                `json:"started_at,omitempty"`
+	FinishedAt              *time.Time                `json:"finished_at,omitempty"`
+	ErrorCode               string                    `json:"error_code,omitempty"`
+	ErrorMessage            string                    `json:"error_message,omitempty"`
+	Result                  json.RawMessage           `json:"result,omitempty"`
 }
 
 type BackgroundOperationListResponse struct {
@@ -276,8 +277,10 @@ func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState)
 	}
 	total := int64(checkpoint.FileTotal)
 	completed := int64(checkpoint.FilesCompleted)
+	completedPrefix := int64(checkpoint.FilesCompletedPrefix)
 	if operation.Status == core.BackgroundWorkCompleted {
 		completed = total
+		completedPrefix = total
 	}
 	if completed < 0 {
 		completed = 0
@@ -285,7 +288,14 @@ func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState)
 	if completed > total {
 		completed = total
 	}
+	if completedPrefix < 0 {
+		completedPrefix = 0
+	}
+	if completedPrefix > completed {
+		completedPrefix = completed
+	}
 	dto.ProgressTotal = total
 	dto.ProgressCompleted = completed
+	dto.ProgressCompletedPrefix = completedPrefix
 	return dto
 }

@@ -26,6 +26,7 @@ function pendingJob(id: string, completed = 0, total = 2): Job & BackgroundOpera
     progress: total > 0 ? completed / total : 0,
     progress_total: total,
     progress_completed: completed,
+    progress_completed_prefix: completed,
     progress_failed: 0,
     submitted_at: '2026-09-11T00:00:00Z',
     created_at: '2026-09-11T00:00:00Z'
@@ -95,15 +96,15 @@ describe('createUploadWorkflow aggregate uploads', () => {
     now.mockRestore();
   });
 
-  it('applies aggregate running progress to every file in the batch', async () => {
+  it('applies durable running progress to the completed file prefix', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
     await workflow.submit(async () => pendingJob('job-batch'));
 
     expect(workflow.applyJob(pendingJob('job-batch', 1, 2))).toEqual({ completed: false, changedFiles: false });
     expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
-      ['importing', 50],
-      ['importing', 50]
+      ['importing', 100],
+      ['importing', 0]
     ]);
     expect(workflow.activeJobID).toBe('job-batch');
   });

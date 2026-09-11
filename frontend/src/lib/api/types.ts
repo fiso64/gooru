@@ -23,6 +23,10 @@ export interface Job {
   type: string;
   status: JobStatus;
   progress?: number;
+  progress_total?: number;
+  progress_completed?: number;
+  progress_completed_prefix?: number;
+  progress_failed?: number;
   submitted_at: string;
   started_at?: string;
   finished_at?: string;
