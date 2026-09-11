@@ -63,8 +63,8 @@ func (s *Store) CancelBackgroundTask(taskID string, canceledAt time.Time) (cance
 			return false, fmt.Errorf("cancel background task attempt: %w", err)
 		}
 	}
-	if err := refreshBackgroundOperation(tx, operationID.String, canceledAt); err != nil {
-		return false, fmt.Errorf("refresh background operation after task cancellation: %w", err)
+	if err := recordBackgroundOperationTaskTerminal(tx, operationID.String, canceledAt, 0, 0); err != nil {
+		return false, fmt.Errorf("advance background operation after task cancellation: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit background task cancellation: %w", err)
