@@ -266,6 +266,9 @@ func cleanupCanceledDurableUpload(store durableUploadCleanupStore, operationID s
 		if err := settleDurableNonreplacementActivations(files); err != nil {
 			return fmt.Errorf("settle canceled imported durable uploads: %w", err)
 		}
+		if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
+			return fmt.Errorf("settle canceled imported durable replacement recovery markers: %w", err)
+		}
 		return nil
 	default:
 		return fmt.Errorf("canceled upload checkpoint has invalid phase %q", checkpoint.Phase)
