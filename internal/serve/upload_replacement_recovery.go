@@ -27,30 +27,43 @@ func prepareDurableReplacementRecoveryMarkers(files []savedUpload) error {
 		if err != nil {
 			return fmt.Errorf("inspect durable replacement recovery marker: %w", err)
 		}
-		switch {
-		case stagedExists && markerExists:
-			if !os.SameFile(stagedInfo, markerInfo) {
-				return errors.New("durable replacement recovery marker does not own staged upload")
+
+		if stagedExists {
+			if markerExists {
+				if !os.SameFile(stagedInfo, markerInfo) {
+					return errors.New("durable replacement recovery marker does not own staged upload")
+				}
+				continue
 			}
-		case stagedExists:
 			if err := os.Link(file.path, markerPath); err != nil {
 				if errors.Is(err, os.ErrExist) {
-					return prepareDurableReplacementRecoveryMarkers(files)
+					return errors.New("durable replacement recovery marker changed during activation")
 				}
 				return fmt.Errorf("record durable replacement recovery ownership: %w", err)
 			}
-		case markerExists:
-			// A previous activation attempt may have renamed the staged link and
-			// then rolled back before checkpointing. Recreate the staged input from
-			// the marker so the normal activation state machine can resume.
-			if err := os.Link(markerPath, file.path); err != nil {
-				if errors.Is(err, os.ErrExist) {
-					return prepareDurableReplacementRecoveryMarkers(files)
-				}
-				return fmt.Errorf("restore durable replacement staging from recovery marker: %w", err)
-			}
-		default:
+			continue
+		}
+		if !markerExists {
 			return errors.New("durable replacement staging and recovery marker are missing")
+		}
+
+		// A crash can leave a staged checkpoint after activation has already
+		// moved the upload to its destination. When the destination is still our
+		// inode, leave the staged path absent so activateReplacement can resume its
+		// existing backup/no-original state. Otherwise recreate staged input from
+		// the marker so a rolled-back or missing destination can activate again.
+		finalInfo, finalExists, err := durableReplacementRegularFile(file.destinationPath)
+		if err != nil {
+			return fmt.Errorf("inspect durable replacement destination: %w", err)
+		}
+		if finalExists && os.SameFile(markerInfo, finalInfo) {
+			continue
+		}
+		if err := os.Link(markerPath, file.path); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return errors.New("durable replacement staging changed during recovery")
+			}
+			return fmt.Errorf("restore durable replacement staging from recovery marker: %w", err)
 		}
 	}
 	return nil
@@ -91,7 +104,7 @@ func restoreActivatedReplacementDestinations(files []savedUpload, activated []ac
 		}
 		if err := os.Link(markerPath, item.replacement.finalPath); err != nil {
 			if errors.Is(err, os.ErrExist) {
-				return restoreActivatedReplacementDestinations(files, activated)
+				return errors.New("activated replacement destination changed during recovery")
 			}
 			return fmt.Errorf("restore activated replacement destination: %w", err)
 		}
@@ -119,6 +132,9 @@ func settleDurableReplacementRecoveryMarkers(files []savedUpload) error {
 }
 
 func durableReplacementRegularFile(path string) (os.FileInfo, bool, error) {
+	if path == "" {
+		return nil, false, errors.New("durable replacement recovery path is empty")
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
