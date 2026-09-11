@@ -1,0 +1,35 @@
+name: Maintainer 401 upload batch frontend
+
+on:
+  push:
+    branches:
+      - maintainer/401-upload-batch-throughput
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/401-upload-batch-throughput
+          fetch-depth: 0
+      - name: Apply frontend aggregate upload changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/maintainer-401-upload-frontend.py
+          git diff --check
+          cd frontend
+          npm ci
+          npm run check
+          npm run test:unit -- src/lib/state/uploadWorkflow.svelte.test.ts src/lib/state/uploadWorkflow.admission.test.ts
+          cd ..
+          git config user.name "connector-maintainer"
+          git config user.email "connector-maintainer@users.noreply.github.com"
+          git rm .github/workflows/maintainer-401-upload-batch-frontend.yml .github/maintainer-401-upload-frontend.py
+          git add frontend
+          git commit -m "Submit uploads as one durable batch operation"
+          git push origin HEAD:maintainer/401-upload-batch-throughput
