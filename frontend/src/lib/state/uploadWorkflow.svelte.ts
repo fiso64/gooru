@@ -27,6 +27,20 @@ type CancelJob = (jobID: string) => Promise<Job>;
 type JobBatch = { items: Job[] };
 type JobApplyResult = { completed: boolean; changedFiles: boolean };
 
+export function perFileUploadProgress(files: File[], aggregateProgress: number): number[] {
+  if (!files.length) return [];
+  const safeAggregate = Math.max(0, Math.min(100, aggregateProgress));
+  const weights = files.map((file) => Math.max(1, file.size));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  const estimatedLoaded = totalWeight * safeAggregate / 100;
+  let offset = 0;
+  return weights.map((weight) => {
+    const loaded = Math.max(0, Math.min(weight, estimatedLoaded - offset));
+    offset += weight;
+    return Math.round((loaded / weight) * 100);
+  });
+}
+
 export function createUploadWorkflow() {
   let files = $state<File[]>([]);
   let items = $state<UploadItem[]>([]);
@@ -251,10 +265,11 @@ export function createUploadWorkflow() {
         queueIndex: batchQueueIndices,
         queueTotal: batchQueueTotals,
         onProgress: (progress) => {
-          for (const itemIndex of batchItemIndices) {
+          const fileProgress = perFileUploadProgress(batchFiles, progress);
+          batchItemIndices.forEach((itemIndex, fileIndex) => {
             const current = items[itemIndex];
-            replaceItem(itemIndex, current ? uploadProgressItem([current], 0, progress)[0] : undefined);
-          }
+            replaceItem(itemIndex, current ? uploadProgressItem([current], 0, fileProgress[fileIndex] ?? progress)[0] : undefined);
+          });
         }
       });
 

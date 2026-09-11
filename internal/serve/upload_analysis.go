@@ -21,7 +21,7 @@ type indexedUploadAnalysis struct {
 	result uploadAnalysisResult
 }
 
-func (l *GooruLibrary) analyzeUploadedFiles(ctx context.Context, files []StagedUpload, onProgress func(int) error) ([]uploadAnalysisResult, error) {
+func (l *GooruLibrary) analyzeUploadedFiles(ctx context.Context, files []StagedUpload, onProgress func(int, int) error) ([]uploadAnalysisResult, error) {
 	return analyzeUploadedFilesConcurrently(ctx, files, uploadAnalysisConcurrency, func(file StagedUpload) uploadAnalysisResult {
 		if file.Status == "error" || file.Status == "skipped" {
 			return uploadAnalysisResult{}
@@ -43,7 +43,7 @@ func (l *GooruLibrary) analyzeUploadedFiles(ctx context.Context, files []StagedU
 	}, onProgress)
 }
 
-func analyzeUploadedFilesConcurrently(ctx context.Context, files []StagedUpload, concurrency int, analyze func(StagedUpload) uploadAnalysisResult, onProgress func(int) error) ([]uploadAnalysisResult, error) {
+func analyzeUploadedFilesConcurrently(ctx context.Context, files []StagedUpload, concurrency int, analyze func(StagedUpload) uploadAnalysisResult, onProgress func(int, int) error) ([]uploadAnalysisResult, error) {
 	if len(files) == 0 {
 		return []uploadAnalysisResult{}, nil
 	}
@@ -97,13 +97,19 @@ func analyzeUploadedFilesConcurrently(ctx context.Context, files []StagedUpload,
 	}()
 
 	ordered := make([]uploadAnalysisResult, len(files))
+	finished := make([]bool, len(files))
 	completed := 0
+	completedPrefix := 0
 	var progressErr error
 	for item := range results {
 		ordered[item.index] = item.result
+		finished[item.index] = true
 		completed++
+		for completedPrefix < len(finished) && finished[completedPrefix] {
+			completedPrefix++
+		}
 		if progressErr == nil && onProgress != nil {
-			if err := onProgress(completed); err != nil {
+			if err := onProgress(completed, completedPrefix); err != nil {
 				progressErr = err
 				cancel()
 			}

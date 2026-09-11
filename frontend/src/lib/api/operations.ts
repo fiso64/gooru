@@ -7,6 +7,7 @@ export interface BackgroundOperation {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
   progress_total: number;
   progress_completed: number;
+  progress_completed_prefix?: number;
   progress_failed: number;
   created_at: string;
   started_at?: string;
@@ -70,10 +71,14 @@ export function backgroundOperationAsJob(operation: BackgroundOperation): Job {
     type: operation.kind,
     status: operation.status,
     progress,
+    progress_total: operation.progress_total,
+    progress_completed: operation.progress_completed,
+    progress_completed_prefix: operation.progress_completed_prefix,
+    progress_failed: operation.progress_failed,
     submitted_at: operation.created_at,
     started_at: operation.started_at,
     finished_at: operation.finished_at,
     result: operation.result,
     error: operation.error_message
-  } as Job;
+  };
 }

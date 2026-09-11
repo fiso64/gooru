@@ -1795,6 +1795,11 @@ export interface components {
             progress_total: number;
             /** Format: int64 */
             progress_completed: number;
+            /**
+             * Format: int64
+             * @description For upload_import operations, number of leading upload files whose analysis stage has completed. Omitted for other operation kinds.
+             */
+            progress_completed_prefix?: number;
             /** Format: int64 */
             progress_failed: number;
             /** Format: date-time */

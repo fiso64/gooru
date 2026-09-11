@@ -19,11 +19,12 @@ const (
 )
 
 type backgroundUploadCheckpoint struct {
-	Phase          string                                  `json:"phase"`
-	Replacements   []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
-	Response       *UploadImportResponse                   `json:"response,omitempty"`
-	FileTotal      int                                     `json:"file_total,omitempty"`
-	FilesCompleted int                                     `json:"files_completed,omitempty"`
+	Phase                string                                  `json:"phase"`
+	Replacements         []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
+	Response             *UploadImportResponse                   `json:"response,omitempty"`
+	FileTotal            int                                     `json:"file_total,omitempty"`
+	FilesCompleted       int                                     `json:"files_completed,omitempty"`
+	FilesCompletedPrefix int                                     `json:"files_completed_prefix,omitempty"`
 }
 
 type backgroundUploadReplacementCheckpoint struct {
@@ -68,17 +69,21 @@ func backgroundUploadActivatedCheckpoint(activated []activatedSavedReplacement, 
 	if len(progress) > 1 {
 		checkpoint.FilesCompleted = progress[1]
 	}
+	if len(progress) > 2 {
+		checkpoint.FilesCompletedPrefix = progress[2]
+	}
 	return checkpoint
 }
 
 func backgroundUploadImportedCheckpoint(activated []activatedSavedReplacement, response UploadImportResponse) backgroundUploadCheckpoint {
 	total := len(response.Files)
 	checkpoint := backgroundUploadCheckpoint{
-		Phase:          backgroundUploadPhaseImported,
-		Replacements:   backgroundUploadReplacementCheckpoints(activated),
-		Response:       &response,
-		FileTotal:      total,
-		FilesCompleted: total,
+		Phase:                backgroundUploadPhaseImported,
+		Replacements:         backgroundUploadReplacementCheckpoints(activated),
+		Response:             &response,
+		FileTotal:            total,
+		FilesCompleted:       total,
+		FilesCompletedPrefix: total,
 	}
 	return checkpoint
 }
@@ -230,7 +235,7 @@ func validateBackgroundUploadInput(input backgroundUploadTaskInput) error {
 	if input.Version != backgroundUploadInputVersion {
 		return fmt.Errorf("upload background task version %d is unsupported", input.Version)
 	}
-	if len(input.Files) == 0 || len(input.Files) > maxUploadFiles {
+	if len(input.Files) == 0 {
 		return errors.New("upload background task has invalid file count")
 	}
 	for index, file := range input.Files {

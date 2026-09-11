@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import type { Job } from '$lib/api/types';
 import {
   countUploadStatuses,
   effectiveUploadTargetID,
+  itemsFromJob,
   replaceUploadItemInPlace,
   uploadProgressItem,
   uploadSummaryFromCounts,
@@ -38,6 +40,45 @@ describe('effectiveUploadTargetID', () => {
 
   it('returns empty when uploads have no configured targets', () => {
     expect(effectiveUploadTargetID('', [])).toBe('');
+  });
+});
+
+describe('upload import progress', () => {
+  it('marks only the completed file prefix at 100 percent', () => {
+    const items = [queueItem(0), queueItem(1), queueItem(2)];
+    const job = {
+      id: 'upload-one',
+      type: 'upload_import',
+      status: 'running',
+      progress: 2 / 3,
+      progress_total: 3,
+      progress_completed: 2,
+      progress_completed_prefix: 2,
+      progress_failed: 0,
+      submitted_at: '2026-09-11T00:00:00Z'
+    } as Job;
+
+    expect(itemsFromJob(items, job).map((item) => [item.status, item.progress])).toEqual([
+      ['importing', 100],
+      ['importing', 100],
+      ['importing', 0]
+    ]);
+  });
+
+  it('does not guess row identity from aggregate completion alone', () => {
+    const items = [queueItem(0), queueItem(1), queueItem(2)];
+    const job = {
+      id: 'upload-one',
+      type: 'upload_import',
+      status: 'running',
+      progress: 2 / 3,
+      progress_total: 3,
+      progress_completed: 2,
+      progress_failed: 0,
+      submitted_at: '2026-09-11T00:00:00Z'
+    } as Job;
+
+    expect(itemsFromJob(items, job).map((item) => item.progress)).toEqual([0, 0, 0]);
   });
 });
 
