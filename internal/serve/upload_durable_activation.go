@@ -27,15 +27,15 @@ func activateSavedDurableUploads(files []savedUpload) ([]activatedSavedReplaceme
 
 func activateDurableUploadDestination(stagedPath, destinationPath string) error {
 	markerPath := stagedPath + durableUploadActivatedMarkerSuffix
-	markerExists, err := pathExists(markerPath)
+	markerExists, err := durableUploadPathExists(markerPath)
 	if err != nil {
 		return errors.New("failed to inspect durable upload activation")
 	}
-	stagedExists, err := pathExists(stagedPath)
+	stagedExists, err := durableUploadPathExists(stagedPath)
 	if err != nil {
 		return errors.New("failed to inspect staged upload")
 	}
-	destinationExists, err := pathExists(destinationPath)
+	destinationExists, err := durableUploadPathExists(destinationPath)
 	if err != nil {
 		return errors.New("failed to inspect upload destination")
 	}
@@ -94,7 +94,7 @@ func rollbackDurableNonreplacementActivations(files []savedUpload) error {
 			continue
 		}
 		markerPath := file.path + durableUploadActivatedMarkerSuffix
-		if exists, err := pathExists(markerPath); err != nil {
+		if exists, err := durableUploadPathExists(markerPath); err != nil {
 			failures++
 			continue
 		} else if exists {
@@ -152,7 +152,7 @@ func cleanupDurableUploadStagingParents(stagedPath string) {
 	}
 }
 
-func pathExists(path string) (bool, error) {
+func durableUploadPathExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
 		return true, nil
