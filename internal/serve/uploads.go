@@ -662,11 +662,11 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
 	opaqueStorageByLogical := make(map[string]string, len(files))
-	analyses, analysisErr := l.analyzeUploadedFiles(ctx, files, func(completed int) error {
+	analyses, analysisErr := l.analyzeUploadedFiles(ctx, files, func(completed, completedPrefix int) error {
 		if operationID == "" || !shouldPersistUploadProgress(completed, len(files)) {
 			return nil
 		}
-		return l.client.SetBackgroundOperationCheckpoint(operationID, backgroundUploadActivatedCheckpoint(activated, len(files), completed))
+		return l.client.SetBackgroundOperationCheckpoint(operationID, backgroundUploadActivatedCheckpoint(activated, len(files), completed, completedPrefix))
 	})
 	if analysisErr != nil {
 		return UploadImportResponse{}, analysisErr
