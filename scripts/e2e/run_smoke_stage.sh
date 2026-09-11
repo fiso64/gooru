@@ -126,10 +126,12 @@ if [[ -f "$artifact_dir/timings.json" ]]; then
   read -r upload_ms delete_ms < <(node - "$artifact_dir/timings.json" <<'NODE'
 const fs = require('fs');
 const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-const fmt = (timing) => timing ? `${timing.duration_ms.toFixed(3)} ms` : 'not-completed';
+const fmt = (timing) => timing ? timing.duration_ms.toFixed(3) : 'not-completed';
 process.stdout.write(`${fmt(report.upload)}\t${fmt(report.delete_from_disk)}\n`);
 NODE
 )
+  [[ "$upload_ms" == "not-completed" ]] || upload_ms="$upload_ms ms"
+  [[ "$delete_ms" == "not-completed" ]] || delete_ms="$delete_ms ms"
 fi
 
 result="pass"
