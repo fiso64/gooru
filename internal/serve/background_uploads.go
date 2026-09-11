@@ -211,14 +211,29 @@ func backgroundUploadTaskRequest(operationID string, files []savedUpload, tags [
 		return core.BackgroundTaskRequest{}, fmt.Errorf("encode upload background task: %w", err)
 	}
 	return core.BackgroundTaskRequest{
-		DedupeKey:     "import",
-		Kind:          backgroundUploadTaskKind,
-		SubjectKind:   "operation",
-		SubjectID:     operationID,
-		InputKey:      string(encoded),
-		ResourceClass: backgroundUploadResourceClass,
-		MaxAttempts:   5,
+		DedupeKey:              "import",
+		Kind:                   backgroundUploadTaskKind,
+		SubjectKind:            "operation",
+		SubjectID:              operationID,
+		InputKey:               string(encoded),
+		ResourceClass:          backgroundUploadResourceClass,
+		MaxAttempts:            5,
+		TerminalFailureCleanup: backgroundUploadTerminalFailureCleanup(operationID),
 	}, nil
+}
+
+func backgroundUploadTerminalFailureCleanup(operationID string) *core.BackgroundTaskCleanupRequest {
+	cleanup := backgroundUploadCleanupTaskRequest(operationID)
+	return &core.BackgroundTaskCleanupRequest{
+		DedupeKey:     cleanup.DedupeKey,
+		Kind:          cleanup.Kind,
+		SubjectKind:   cleanup.SubjectKind,
+		SubjectID:     cleanup.SubjectID,
+		InputKey:      cleanup.InputKey,
+		ResourceClass: cleanup.ResourceClass,
+		Priority:      cleanup.Priority,
+		MaxAttempts:   cleanup.MaxAttempts,
+	}
 }
 
 func decodeBackgroundUploadTask(task core.BackgroundTask) ([]savedUpload, []string, error) {

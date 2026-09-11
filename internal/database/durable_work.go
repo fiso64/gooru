@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -71,21 +72,36 @@ type NewBackgroundOperation struct {
 	CreatedAt     time.Time
 }
 
+// BackgroundTaskCleanup describes detached compensation to enqueue atomically if a
+// task exhausts its retry budget. It deliberately cannot own another cleanup, so a
+// permanently failing compensation task cannot recursively create more work.
+type BackgroundTaskCleanup struct {
+	DedupeKey     string `json:"dedupe_key"`
+	Kind          string `json:"kind"`
+	SubjectKind   string `json:"subject_kind,omitempty"`
+	SubjectID     string `json:"subject_id,omitempty"`
+	InputKey      string `json:"input_key,omitempty"`
+	ResourceClass string `json:"resource_class,omitempty"`
+	Priority      int    `json:"priority,omitempty"`
+	MaxAttempts   int    `json:"max_attempts,omitempty"`
+}
+
 // NewBackgroundTask describes a pending durable task. AvailableAt and CreatedAt default
 // to now when omitted. ResourceClass defaults to "default" and MaxAttempts defaults to 3.
 type NewBackgroundTask struct {
-	ID            string
-	OperationID   string
-	DedupeKey     string
-	Kind          string
-	SubjectKind   string
-	SubjectID     string
-	InputKey      string
-	ResourceClass string
-	Priority      int
-	AvailableAt   time.Time
-	CreatedAt     time.Time
-	MaxAttempts   int
+	ID                     string
+	OperationID            string
+	DedupeKey              string
+	Kind                   string
+	SubjectKind            string
+	SubjectID              string
+	InputKey               string
+	ResourceClass          string
+	Priority               int
+	AvailableAt            time.Time
+	CreatedAt              time.Time
+	MaxAttempts            int
+	TerminalFailureCleanup *BackgroundTaskCleanup
 }
 
 // CreateBackgroundOperation inserts a logical operation. It accepts a Querier so callers
@@ -153,6 +169,10 @@ func (s *Store) EnqueueBackgroundTask(q Querier, task NewBackgroundTask) (result
 	if task.MaxAttempts < 1 {
 		return BackgroundTask{}, false, errors.New("background task max attempts must be positive")
 	}
+	terminalCleanupJSON, err := encodeBackgroundTaskCleanup(task.TerminalFailureCleanup)
+	if err != nil {
+		return BackgroundTask{}, false, err
+	}
 	task.CreatedAt = normalizeWorkTime(task.CreatedAt)
 	if task.AvailableAt.IsZero() {
 		task.AvailableAt = task.CreatedAt
@@ -168,11 +188,13 @@ func (s *Store) EnqueueBackgroundTask(q Querier, task NewBackgroundTask) (result
 		res, err := q.Exec(`
 			INSERT INTO background_tasks
 				(id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
-				 resource_class, priority, status, available_at, created_at, max_attempts)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+				 resource_class, priority, status, available_at, created_at, max_attempts,
+				 terminal_cleanup_json)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
 			ON CONFLICT(dedupe_key) WHERE status IN ('pending', 'running') DO NOTHING
 		`, task.ID, operationID, task.DedupeKey, task.Kind, task.SubjectKind, task.SubjectID, task.InputKey,
-			task.ResourceClass, task.Priority, workTimeValue(task.AvailableAt), workTimeValue(task.CreatedAt), task.MaxAttempts)
+			task.ResourceClass, task.Priority, workTimeValue(task.AvailableAt), workTimeValue(task.CreatedAt), task.MaxAttempts,
+			terminalCleanupJSON)
 		if err != nil {
 			return BackgroundTask{}, false, fmt.Errorf("enqueue background task: %w", err)
 		}
@@ -215,6 +237,33 @@ func (s *Store) EnqueueBackgroundTask(q Querier, task NewBackgroundTask) (result
 		}
 	}
 	return BackgroundTask{}, false, errors.New("enqueue background task: active dedupe state kept changing")
+}
+
+func encodeBackgroundTaskCleanup(cleanup *BackgroundTaskCleanup) (string, error) {
+	if cleanup == nil {
+		return "", nil
+	}
+	normalized := *cleanup
+	if normalized.DedupeKey == "" {
+		return "", errors.New("background terminal cleanup dedupe key is required")
+	}
+	if normalized.Kind == "" {
+		return "", errors.New("background terminal cleanup kind is required")
+	}
+	if normalized.ResourceClass == "" {
+		normalized.ResourceClass = "default"
+	}
+	if normalized.MaxAttempts == 0 {
+		normalized.MaxAttempts = 3
+	}
+	if normalized.MaxAttempts < 1 {
+		return "", errors.New("background terminal cleanup max attempts must be positive")
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "", fmt.Errorf("encode background terminal cleanup: %w", err)
+	}
+	return string(encoded), nil
 }
 
 // GetBackgroundTaskForOperation returns the first durable child task for one

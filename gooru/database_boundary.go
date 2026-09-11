@@ -102,8 +102,26 @@ func attachDatabaseBackgroundTaskAndRevealOperation(client *Client, operationID 
 
 func databaseBackgroundTask(id string, request BackgroundTaskRequest) database.NewBackgroundTask {
 	return database.NewBackgroundTask{
-		ID:            id,
-		OperationID:   request.OperationID,
+		ID:                     id,
+		OperationID:            request.OperationID,
+		DedupeKey:              request.DedupeKey,
+		Kind:                   request.Kind,
+		SubjectKind:            request.SubjectKind,
+		SubjectID:              request.SubjectID,
+		InputKey:               request.InputKey,
+		ResourceClass:          request.ResourceClass,
+		Priority:               request.Priority,
+		AvailableAt:            request.AvailableAt,
+		MaxAttempts:            request.MaxAttempts,
+		TerminalFailureCleanup: databaseBackgroundTaskCleanup(request.TerminalFailureCleanup),
+	}
+}
+
+func databaseBackgroundTaskCleanup(request *BackgroundTaskCleanupRequest) *database.BackgroundTaskCleanup {
+	if request == nil {
+		return nil
+	}
+	return &database.BackgroundTaskCleanup{
 		DedupeKey:     request.DedupeKey,
 		Kind:          request.Kind,
 		SubjectKind:   request.SubjectKind,
@@ -111,7 +129,6 @@ func databaseBackgroundTask(id string, request BackgroundTaskRequest) database.N
 		InputKey:      request.InputKey,
 		ResourceClass: request.ResourceClass,
 		Priority:      request.Priority,
-		AvailableAt:   request.AvailableAt,
 		MaxAttempts:   request.MaxAttempts,
 	}
 }
