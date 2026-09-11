@@ -53,11 +53,24 @@ async function fetchJobBatch(ids: string[]) {
   return { items: response.items.map(backgroundOperationAsJob) };
 }
 
-async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
-  const response = await listBackgroundOperations(1000);
-  const jobs = response.items.map(backgroundOperationAsJob);
+function jobsPageOffset(pageToken: string) {
   const offset = Number.parseInt(pageToken, 10);
-  const start = Number.isFinite(offset) && offset > 0 ? offset : 0;
+  return Number.isFinite(offset) && offset > 0 ? offset : 0;
+}
+
+export function jobsPageRequestLimit(limit: number, pageToken: string) {
+  const start = jobsPageOffset(pageToken);
+  // The operations endpoint is newest-first but currently exposes only a bounded
+  // prefix, not a cursor. Fetch just enough prefix rows to cover this page plus
+  // one lookahead row so local pagination can preserve the existing next-page
+  // behavior without materializing and polling the full 1000-operation history.
+  return Math.min(1000, start + limit + 1);
+}
+
+async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
+  const start = jobsPageOffset(pageToken);
+  const response = await listBackgroundOperations(jobsPageRequestLimit(limit, pageToken));
+  const jobs = response.items.map(backgroundOperationAsJob);
   const end = start + limit;
   return {
     items: jobs.slice(start, end),
