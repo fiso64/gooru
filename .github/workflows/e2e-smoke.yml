@@ -83,8 +83,13 @@ jobs:
         run: |
           set -euo pipefail
           command -v nix >/dev/null || { echo "nix is required on the self-hosted runner" >&2; exit 1; }
-          nix shell nixpkgs#python3 nixpkgs#python3Packages.pillow nixpkgs#ffmpeg -c \
-            python3 scripts/e2e/generate_smoke_dataset.py \
+          python_out="$(nix build --no-link --print-out-paths nixpkgs#python3)"
+          pillow_out="$(nix build --no-link --print-out-paths nixpkgs#python3Packages.pillow)"
+          ffmpeg_out="$(nix build --no-link --print-out-paths nixpkgs#ffmpeg)"
+          pillow_site="$(find "$pillow_out/lib" -type d -name site-packages -print -quit)"
+          [[ -n "$pillow_site" ]] || { echo "Pillow site-packages directory not found" >&2; exit 1; }
+          PATH="$ffmpeg_out/bin:$PATH" PYTHONPATH="$pillow_site" \
+            "$python_out/bin/python3" scripts/e2e/generate_smoke_dataset.py \
               --count "$GOORU_SMOKE_FILE_COUNT" \
               --output "$GOORU_SMOKE_DATASET_DIR"
 
@@ -146,7 +151,8 @@ jobs:
           GOORU_ADMIN_PASSWORD="$GOORU_SMOKE_PASSWORD" \
             ./.e2e/bin/gooru user create-admin --username "$GOORU_SMOKE_USERNAME" --config "$config"
 
-          nix shell nixpkgs#ffmpeg -c "$GITHUB_WORKSPACE/.e2e/bin/gooru" serve --config "$config" \
+          ffmpeg_out="$(nix build --no-link --print-out-paths nixpkgs#ffmpeg)"
+          PATH="$ffmpeg_out/bin:$PATH" "$GITHUB_WORKSPACE/.e2e/bin/gooru" serve --config "$config" \
             >"$GOORU_SMOKE_ARTIFACT_DIR/daemon.log" 2>&1 &
           daemon_pid=$!
           cleanup() {
