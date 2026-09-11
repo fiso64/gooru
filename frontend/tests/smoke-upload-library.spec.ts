@@ -30,20 +30,7 @@ type TimingReport = {
 
 type RemovalOperation = {
   status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
-  progress_total: number;
-  progress_completed: number;
-  progress_failed: number;
-  started_at?: string;
-  finished_at?: string;
   error_message?: string;
-};
-
-type RemovalProgressSample = {
-  elapsed_ms: number;
-  status: RemovalOperation['status'];
-  progress_total: number;
-  progress_completed: number;
-  progress_failed: number;
 };
 
 const timingReport: TimingReport = { tag, file_count: fileCount };
@@ -96,41 +83,16 @@ function successfulUploadCount(summary: string): number {
 
 async function waitForRemovalOperation(page: import('@playwright/test').Page, operationID: string) {
   const deadline = Date.now() + operationTimeout;
-  const sampleStartNs = process.hrtime.bigint();
-  const samples: RemovalProgressSample[] = [];
-  const saveSamples = () => {
-    fs.writeFileSync(path.join(artifactDir!, 'delete-progress.json'), `${JSON.stringify(samples, null, 2)}\n`);
-  };
   for (;;) {
     const response = await page.request.get(`/api/v1/operations/${encodeURIComponent(operationID)}`);
     if (!response.ok()) {
-      saveSamples();
       throw new Error(`Unable to read file removal status (HTTP ${response.status()}).`);
     }
     const operation = await response.json() as RemovalOperation;
-    samples.push({
-      elapsed_ms: Number(process.hrtime.bigint() - sampleStartNs) / 1_000_000,
-      status: operation.status,
-      progress_total: operation.progress_total,
-      progress_completed: operation.progress_completed,
-      progress_failed: operation.progress_failed
-    });
-    if (operation.status === 'completed') {
-      saveSamples();
-      return;
-    }
-    if (operation.status === 'failed') {
-      saveSamples();
-      throw new Error(operation.error_message || 'File removal failed.');
-    }
-    if (operation.status === 'canceled') {
-      saveSamples();
-      throw new Error('File removal was canceled.');
-    }
-    if (Date.now() >= deadline) {
-      saveSamples();
-      throw new Error(`File removal operation ${operationID} did not complete before timeout.`);
-    }
+    if (operation.status === 'completed') return;
+    if (operation.status === 'failed') throw new Error(operation.error_message || 'File removal failed.');
+    if (operation.status === 'canceled') throw new Error('File removal was canceled.');
+    if (Date.now() >= deadline) throw new Error(`File removal operation ${operationID} did not complete before timeout.`);
     await page.waitForTimeout(100);
   }
 }
