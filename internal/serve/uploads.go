@@ -648,6 +648,11 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 	return out
 }
 
+type protectedUploadMove struct {
+	storagePath string
+	retryPath   string
+}
+
 func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUpload, tags []string) (UploadImportResponse, error) {
 	return l.importUploadedFiles(ctx, files, tags, "", nil)
 }
@@ -661,7 +666,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	importLocations := make([]types.LocationInfo, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
-	opaqueStorageByLogical := make(map[string]string, len(files))
+	opaqueStorageByLogical := make(map[string]protectedUploadMove, len(files))
 	analyses, analysisErr := l.analyzeUploadedFiles(ctx, files, func(completed, completedPrefix int) error {
 		if operationID == "" || !shouldPersistUploadProgress(completed, len(files)) {
 			return nil
@@ -711,6 +716,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			response.Files = append(response.Files, dto)
 			continue
 		}
+		retryPath := file.Path
 		if file.ConflictPolicy == "rename" && l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path) {
 			resolvedPath, err := l.resolveProtectedUploadRename(file.Path)
 			if err != nil {
@@ -732,7 +738,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 				response.Files = append(response.Files, dto)
 				continue
 			}
-			opaqueStorageByLogical[file.Path] = storagePath
+			opaqueStorageByLogical[file.Path] = protectedUploadMove{storagePath: storagePath, retryPath: retryPath}
 			analysisPath = storagePath
 		}
 		dto.Status = "imported"
@@ -780,8 +786,14 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 		}, progress)
 	}
 	if err != nil {
-		for _, storagePath := range opaqueStorageByLogical {
-			_ = os.Remove(storagePath)
+		var restoreErr error
+		for _, moved := range opaqueStorageByLogical {
+			if moveErr := commitUploadDestination(moved.storagePath, moved.retryPath); moveErr != nil {
+				restoreErr = errors.Join(restoreErr, fmt.Errorf("restore protected upload %q: %w", moved.retryPath, moveErr))
+			}
+		}
+		if restoreErr != nil {
+			return UploadImportResponse{}, errors.Join(err, restoreErr)
 		}
 		return UploadImportResponse{}, err
 	}
@@ -789,8 +801,8 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 		if i, ok := responseIndexByPath[path]; ok {
 			response.Files[i].Status = "error"
 			response.Files[i].Error = message
-			if storagePath := opaqueStorageByLogical[path]; storagePath != "" {
-				_ = os.Remove(storagePath)
+			if moved, ok := opaqueStorageByLogical[path]; ok {
+				_ = os.Remove(moved.storagePath)
 			} else {
 				_ = os.Remove(path)
 			}
