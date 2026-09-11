@@ -75,15 +75,16 @@ func TestBackgroundTagMutationManagedFileUsesStoragePath(t *testing.T) {
 	if publicID == "" {
 		t.Fatal("missing public file id")
 	}
-	if _, err := client.store.Exec(
-		"INSERT INTO managed_storage_locations (location_id, physical_path) VALUES (?, ?)",
-		files[0].ID, storagePath,
-	); err != nil {
+	if err := client.SetManagedStoragePath(files[0].ID, storagePath); err != nil {
 		t.Fatalf("register managed storage: %v", err)
 	}
 	managedFile, err := client.GetFileInfoByPublicID(publicID)
 	if err != nil {
 		t.Fatalf("load managed file: %v", err)
+	}
+	managedFile, err = client.ResolveManagedStorage(managedFile)
+	if err != nil {
+		t.Fatalf("resolve managed storage: %v", err)
 	}
 	if managedFile.StoragePath != storagePath {
 		t.Fatalf("storage path = %q, want %q", managedFile.StoragePath, storagePath)
@@ -107,6 +108,10 @@ func TestBackgroundTagMutationManagedFileUsesStoragePath(t *testing.T) {
 	got, err := client.GetFileInfoByPublicID(publicID)
 	if err != nil {
 		t.Fatalf("reload managed file: %v", err)
+	}
+	got, err = client.ResolveManagedStorage(got)
+	if err != nil {
+		t.Fatalf("resolve reloaded managed file: %v", err)
 	}
 	if !containsBackgroundTag(got.Tags, "reviewed") {
 		t.Fatalf("managed file did not persist reviewed tag: %v", got.Tags)
