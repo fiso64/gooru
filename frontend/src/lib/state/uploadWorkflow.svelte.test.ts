@@ -26,6 +26,7 @@ function pendingJob(id: string, completed = 0, total = 2): Job & BackgroundOpera
     progress: total > 0 ? completed / total : 0,
     progress_total: total,
     progress_completed: completed,
+    progress_completed_prefix: completed,
     progress_failed: 0,
     submitted_at: '2026-09-11T00:00:00Z',
     created_at: '2026-09-11T00:00:00Z'
