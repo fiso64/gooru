@@ -21,6 +21,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/maintainer-401-upload-backend.py
+          sed -i 's/analyses, err := l\.analyzeUploadedFiles/analyses, analysisErr := l.analyzeUploadedFiles/' internal/serve/uploads.go
+          sed -i '/analyses, analysisErr :=/,/for index, file :=/ s/if err != nil/if analysisErr != nil/' internal/serve/uploads.go
+          sed -i '/analyses, analysisErr :=/,/for index, file :=/ s/UploadImportResponse{}, err/UploadImportResponse{}, analysisErr/' internal/serve/uploads.go
           gofmt -w internal/serve/uploads.go internal/serve/background_uploads.go internal/serve/uploads_durable.go internal/serve/background_upload_worker.go internal/serve/background_operations.go internal/serve/upload_analysis.go internal/serve/upload_analysis_test.go internal/serve/background_uploads_test.go internal/serve/background_operations_test.go
           git diff --check
           go test ./internal/serve
