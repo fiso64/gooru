@@ -234,7 +234,7 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
     await grid.locator('.thumb-checkbox').first().click();
     const selectAll = page.getByRole('button', { name: new RegExp(`Select all ${formattedCount}$`) });
     await selectAll.click();
-    await expect(page.locator('.selection-summary')).toContainText(`${formattedCount} selected`, { timeout: operationTimeout });
+    await expect(page.locator('.selection-summary')).toContainText(`${fileCount} selected`, { timeout: operationTimeout });
 
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(page.getByRole('dialog')).toContainText(`Permanently delete ${fileCount} selected file`);
