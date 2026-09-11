@@ -17,8 +17,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: maintainer/401-upload-staging-recovery
-      - name: Inspect upload import path
+      - name: Inspect upload move helpers
         shell: bash
         run: |
           set -euo pipefail
-          rg -n 'func .*ImportUploadedFiles|func .*importUploadedFiles|StagedUpload|AnalysisPath' internal/serve | head -n 160
+          rg -n -C 25 'func commitUploadDestination|func moveManagedFileToOpaqueStorage' internal/serve
