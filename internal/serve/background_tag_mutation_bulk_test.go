@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -9,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gooru.local/types"
+	_ "gosqlite.org"
 )
 
 func TestTagMutationIntegrationUpdatesMultipleExplicitFiles(t *testing.T) {
@@ -81,7 +82,7 @@ func TestGetFilesByPublicIDsReturnsManagedStorageMapping(t *testing.T) {
 	selected := files[0]
 	physicalPath := filepath.Join(dir, "managed", "opaque-container")
 
-	db, err := openTestSQLite(dbPath)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
@@ -103,11 +104,3 @@ func TestGetFilesByPublicIDsReturnsManagedStorageMapping(t *testing.T) {
 		t.Fatalf("managed file = %+v, want storage path %q", got, physicalPath)
 	}
 }
-
-// Keep this small wrapper local to the test so production code does not expose
-// its database handle just to seed a managed-storage fixture.
-func openTestSQLite(path string) (*testSQLDB, error) {
-	return newTestSQLDB(path)
-}
-
-var _ = types.FileInfo{}
