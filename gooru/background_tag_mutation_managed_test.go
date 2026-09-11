@@ -71,23 +71,24 @@ func TestBackgroundTagMutationManagedFileUsesStoragePath(t *testing.T) {
 	if err != nil || len(files) != 1 {
 		t.Fatalf("list logical file: files=%v err=%v", files, err)
 	}
+	publicID := client.PublicFileID(files[0].ID)
+	if publicID == "" {
+		t.Fatal("missing public file id")
+	}
 	if _, err := client.store.Exec(
 		"INSERT INTO managed_storage_locations (location_id, physical_path) VALUES (?, ?)",
 		files[0].ID, storagePath,
 	); err != nil {
 		t.Fatalf("register managed storage: %v", err)
 	}
-	files, err = client.GetAllFilesInfo()
-	if err != nil || len(files) != 1 {
-		t.Fatalf("list managed file: files=%v err=%v", files, err)
+	managedFile, err := client.GetFileInfoByPublicID(publicID)
+	if err != nil {
+		t.Fatalf("load managed file: %v", err)
 	}
-	if files[0].StoragePath != storagePath {
-		t.Fatalf("storage path = %q, want %q", files[0].StoragePath, storagePath)
+	if managedFile.StoragePath != storagePath {
+		t.Fatalf("storage path = %q, want %q", managedFile.StoragePath, storagePath)
 	}
-	publicID := client.PublicFileID(files[0].ID)
-	if publicID == "" {
-		t.Fatal("missing public file id")
-	}
+
 	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
 		Mutation:       "add",
 		Selector:       map[string][]string{"file_ids": {publicID}},
@@ -99,7 +100,7 @@ func TestBackgroundTagMutationManagedFileUsesStoragePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create background mutation: %v", err)
 	}
-	if err := client.ExecuteBackgroundTagMutationFiles(operation.ID, files); err != nil {
+	if err := client.ExecuteBackgroundTagMutationFiles(operation.ID, []types.FileInfo{managedFile}); err != nil {
 		t.Fatalf("execute managed-file mutation: %v", err)
 	}
 
