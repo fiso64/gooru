@@ -65,6 +65,36 @@ function datasetFiles(): string[] {
   return manifest.files.map((entry) => path.join(datasetDir!, entry.name));
 }
 
+async function verifyFirstPageThumbnails(page: import('@playwright/test').Page, expectedCount: number) {
+  const viewport = page.getByTestId('library-viewport');
+  const grid = page.getByTestId('virtual-media-grid');
+  const seen = new Set<string>();
+  await viewport.evaluate((node) => node.scrollTo({ top: 0 }));
+
+  for (let step = 0; step < expectedCount * 2 && seen.size < expectedCount; step += 1) {
+    await expect.poll(async () => {
+      return await grid.locator('.thumb img').evaluateAll((images) => images.length > 0 && images.every((image) => {
+        const img = image as HTMLImageElement;
+        return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
+      }));
+    }, { timeout: operationTimeout, message: 'visible first-page thumbnails should load successfully' }).toBe(true);
+
+    const names = await grid.locator('.thumb img').evaluateAll((images) => images.map((image) => (image as HTMLImageElement).alt).filter(Boolean));
+    for (const name of names) seen.add(name);
+
+    const scroll = await viewport.evaluate((node) => ({
+      top: node.scrollTop,
+      height: node.clientHeight,
+      scrollHeight: node.scrollHeight
+    }));
+    if (scroll.top + scroll.height >= scroll.scrollHeight - 2) break;
+    await viewport.evaluate((node) => node.scrollBy({ top: Math.max(1, Math.floor(node.clientHeight * 0.7)) }));
+  }
+
+  expect(seen.size, 'every item on the first library page should produce a loadable thumbnail').toBe(expectedCount);
+  await viewport.evaluate((node) => node.scrollTo({ top: 0 }));
+}
+
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(operationTimeout + 5 * 60 * 1000);
 
@@ -106,12 +136,7 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
 
     const grid = page.getByTestId('virtual-media-grid');
     await expect(grid.locator('.thumb')).not.toHaveCount(0, { timeout: operationTimeout });
-    await expect.poll(async () => {
-      return await grid.locator('.thumb img').evaluateAll((images) => images.length > 0 && images.every((image) => {
-        const img = image as HTMLImageElement;
-        return img.complete && img.naturalWidth > 0 && img.naturalHeight > 0;
-      }));
-    }, { timeout: operationTimeout, message: 'first-page thumbnails should be generated and load successfully' }).toBe(true);
+    await verifyFirstPageThumbnails(page, Math.min(fileCount, 100));
 
     await grid.locator('.thumb-checkbox').first().click();
     const selectAll = page.getByRole('button', { name: new RegExp(`Select all ${formattedCount}$`) });
