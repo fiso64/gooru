@@ -248,7 +248,11 @@ func TestDurableUploadAsyncAttachesOneTaskAndReturnsOperationLocation(t *testing
 	if store.attachedRequest.Kind != backgroundUploadTaskKind || store.attachedRequest.SubjectID != store.operation.ID || store.attachedRequest.ResourceClass != backgroundUploadResourceClass {
 		t.Fatalf("unexpected durable task request: %+v", store.attachedRequest)
 	}
-	stagedPath := filepath.Join(targetDir, "photo.jpg")
+	stagingDir, err := durableUploadStagingDir(targetDir, store.operation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stagedPath := filepath.Join(stagingDir, "photo.jpg")
 	if got := string(mustReadFile(t, stagedPath)); got != "hello" {
 		t.Fatalf("clear-mode durable staging content = %q, want hello", got)
 	}
@@ -289,7 +293,12 @@ func TestDurableUploadAsyncCancelReplaysCleanupAfterRestart(t *testing.T) {
 		_ = client.Close()
 		t.Fatalf("unexpected pending upload operation: %+v", operation)
 	}
-	stagedPath := filepath.Join(uploadDir, "pending.txt")
+	stagingDir, stagingErr := durableUploadStagingDir(uploadDir, operation.ID)
+	if stagingErr != nil {
+		_ = client.Close()
+		t.Fatal(stagingErr)
+	}
+	stagedPath := filepath.Join(stagingDir, "pending.txt")
 	if got := string(mustReadFile(t, stagedPath)); got != "hello" {
 		_ = client.Close()
 		t.Fatalf("staged content = %q, want hello", got)
