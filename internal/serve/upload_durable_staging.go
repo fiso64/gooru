@@ -193,13 +193,9 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 			saved = append(saved, savedUpload{name: file.name, path: path, destinationPath: path, size: file.size, targetID: target.ID, status: "skipped", sourceModTime: file.sourceModTime})
 			continue
 		}
-		stagedPath := file.path
-		if filepath.Clean(filepath.Dir(stagedPath)) != filepath.Clean(targetDir) {
-			var moveErr error
-			stagedPath, moveErr = moveStreamedUploadIntoDir(file.path, targetDir, file.name)
-			if moveErr != nil {
-				return nil, saved, uploadFileError{name: file.name, err: moveErr}
-			}
+		stagedPath, moveErr := moveStreamedUploadIntoDir(file.path, targetDir, file.name)
+		if moveErr != nil {
+			return nil, saved, uploadFileError{name: file.name, err: moveErr}
 		}
 		if err := applyUploadedSourceModTime(stagedPath, file.sourceModTime, s.cfg.Uploads.PreserveModTime); err != nil {
 			_ = os.Remove(stagedPath)
