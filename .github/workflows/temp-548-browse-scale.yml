@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build server
         run: go build -o gooru-548 ./cmd/gooru
-      - name: Profile exact 10K HTTP browse requests
+      - name: Profile metadata-populated 10K HTTP browse requests
         shell: bash
         run: |
           set -euo pipefail
@@ -43,6 +43,7 @@ jobs:
           c.executemany('INSERT INTO contents(hash) VALUES (?)',rows)
           c.executemany("INSERT INTO locations(content_hash,path,size_bytes,mod_time,added_at,extension,tags_cache,public_id) VALUES (?,?,?,?,?,?,?,?)",[(h,f'/fixture/{i:05d}.jpg',1,1788696000,i+1,'.jpg','remove',f'bench_{i:032x}') for i,(h,) in enumerate(rows)])
           c.executemany('INSERT INTO content_tags(content_hash,tag_id) VALUES (?,?)',[(h,tag) for (h,) in rows])
+          c.execute("INSERT INTO media_metadata(location_id,media_kind,mime_type,image_width,image_height,video_width,video_height,duration_seconds,frame_count,page_count) SELECT id,'photo','image/jpeg',1920,1080,NULL,NULL,NULL,NULL,NULL FROM locations")
           c.execute('UPDATE tags SET files_count=10000 WHERE id=?',(tag,))
           summaries=[
               ('tag_key_counts',"INSERT INTO tag_key_counts(key,files_count) VALUES ('remove',10000)",()),
@@ -91,11 +92,14 @@ jobs:
           }
           result={}
           for name,path in paths.items():
-              for _ in range(20): urllib.request.urlopen(base+path,timeout=5).read()
+              cold=[]
+              for _ in range(5):
+                  t=time.perf_counter(); urllib.request.urlopen(base+path,timeout=5).read(); cold.append((time.perf_counter()-t)*1000)
+              for _ in range(15): urllib.request.urlopen(base+path,timeout=5).read()
               samples=[]
               for _ in range(100):
                   t=time.perf_counter(); urllib.request.urlopen(base+path,timeout=5).read(); samples.append((time.perf_counter()-t)*1000)
               samples.sort(); n=len(samples)
-              result[name]={'p50_ms':statistics.median(samples),'p95_ms':samples[min(n-1,int(n*.95))],'max_ms':max(samples)}
-          print('GOORU_548_HTTP_RESULT='+json.dumps(result,sort_keys=True))
+              result[name]={'cold_ms':cold,'p50_ms':statistics.median(samples),'p95_ms':samples[min(n-1,int(n*.95))],'max_ms':max(samples)}
+          print('GOORU_548_HTTP_METADATA_RESULT='+json.dumps(result,sort_keys=True))
           PY
