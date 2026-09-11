@@ -17,8 +17,8 @@ import (
 func TestBackgroundFileRemovalBatchTaskUsesOneFlatStagingTargetPerFile(t *testing.T) {
 	root := t.TempDir()
 	files := []types.FileInfo{
-		{PublicID: "file_a", Path: filepath.Join(root, "a.jpg")},
-		{PublicID: "file_b", Path: filepath.Join(root, "b.jpg")},
+		{ID: 1, PublicID: "file_a", Path: filepath.Join(root, "a.jpg")},
+		{ID: 2, PublicID: "file_b", Path: filepath.Join(root, "b.jpg")},
 	}
 	for _, file := range files {
 		if err := os.WriteFile(file.Path, []byte(file.PublicID), 0o600); err != nil {
@@ -44,8 +44,9 @@ func TestBackgroundFileRemovalBatchTaskUsesOneFlatStagingTargetPerFile(t *testin
 		t.Fatalf("unexpected batch input: %+v", input)
 	}
 	for index, item := range input.Files {
-		if item.PublicID != files[index].PublicID || item.OriginalPath != files[index].Path {
-			t.Fatalf("unexpected batch item %d: %+v", index, item)
+		expectedPublicID := server.publicFileID(files[index])
+		if item.PublicID != expectedPublicID || item.OriginalPath != files[index].Path {
+			t.Fatalf("unexpected batch item %d: got %+v, want public_id=%q path=%q", index, item, expectedPublicID, files[index].Path)
 		}
 		if filepath.Dir(item.StagingPath) != root || !strings.HasPrefix(filepath.Base(item.StagingPath), ".gooru-delete-") {
 			t.Fatalf("staging path is not a hidden sibling: %q", item.StagingPath)
@@ -115,5 +116,72 @@ func TestBackgroundFileRemovalBatchDeletesMultipleFilesInOneTask(t *testing.T) {
 		if len(matches) != 0 {
 			t.Fatalf("batch cleanup left staging files: %v", matches)
 		}
+	}
+}
+
+type replayBatchRemovalLibrary struct {
+	emptyLibrary
+	deleteCalls int
+	lookupCalls int
+	deletedIDs  []string
+}
+
+func (l *replayBatchRemovalLibrary) PublicFileID(file types.FileInfo) string {
+	return file.PublicID
+}
+
+func (l *replayBatchRemovalLibrary) GetFileByPublicID(context.Context, string) (types.FileInfo, error) {
+	l.lookupCalls++
+	return types.FileInfo{}, errors.New("unexpected public-id lookup during post-commit replay")
+}
+
+func (l *replayBatchRemovalLibrary) DeleteFileByPublicID(context.Context, string) (bool, error) {
+	return false, errors.New("unexpected single-file delete during batch replay")
+}
+
+func (l *replayBatchRemovalLibrary) DeleteFilesByPublicIDs(_ context.Context, publicIDs []string) (int, error) {
+	l.deleteCalls++
+	l.deletedIDs = append([]string(nil), publicIDs...)
+	// Zero rows means a previous attempt already committed the database removal.
+	return 0, nil
+}
+
+func TestBackgroundFileRemovalBatchReplayAfterDatabaseCommitPreservesReplacement(t *testing.T) {
+	root := t.TempDir()
+	originalPath := filepath.Join(root, "a.jpg")
+	stagingPath := filepath.Join(root, ".gooru-delete-replay-000000")
+	if err := os.WriteFile(stagingPath, []byte("staged-original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(originalPath, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	library := &replayBatchRemovalLibrary{}
+	server := NewServerWithLibrary(DefaultConfig(filepath.Join(root, "gooru.db")), library)
+	files := []backgroundFileRemovalBatchFile{{
+		PublicID:     "file_a",
+		OriginalPath: originalPath,
+		StagingPath:  stagingPath,
+	}}
+	if err := server.resumeManagedFileDeletionBatch(context.Background(), files, []string{"file_a"}); err != nil {
+		t.Fatal(err)
+	}
+
+	replacement, err := os.ReadFile(originalPath)
+	if err != nil {
+		t.Fatalf("read replacement after replay: %v", err)
+	}
+	if string(replacement) != "replacement" {
+		t.Fatalf("post-commit replay changed replacement content: %q", replacement)
+	}
+	if _, err := os.Stat(stagingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected persisted staging file to be cleaned, stat err=%v", err)
+	}
+	if library.lookupCalls != 0 {
+		t.Fatalf("post-commit replay unexpectedly resolved removed public IDs %d times", library.lookupCalls)
+	}
+	if library.deleteCalls != 1 || len(library.deletedIDs) != 1 || library.deletedIDs[0] != "file_a" {
+		t.Fatalf("unexpected batch delete replay: calls=%d ids=%v", library.deleteCalls, library.deletedIDs)
 	}
 }
