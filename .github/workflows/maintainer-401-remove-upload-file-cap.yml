@@ -1,0 +1,136 @@
+name: maintainer-401-remove-upload-file-cap
+
+on:
+  push:
+    branches:
+      - maintainer/401-remove-upload-file-cap
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'Remove fixed upload file-count cap'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/401-remove-upload-file-cap
+      - name: Remove fixed upload count ceiling
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          def edit(path, fn):
+              p = Path(path)
+              old = p.read_text()
+              new = fn(old)
+              if new == old:
+                  raise SystemExit(f"expected change missing in {path}")
+              p.write_text(new)
+
+          def uploads(text):
+              text = text.replace("\nconst maxUploadFiles = 1000\n", "\n")
+              text = text.replace("\tif limit := s.uploadRequestBodyLimit(); limit > 0 {\n\t\tr.Body = http.MaxBytesReader(w, r.Body, limit)\n\t}\n", "")
+              block = '''func (s *Server) uploadRequestBodyLimit() int64 {
+\tmaxFileSize := s.cfg.Uploads.MaxFileSizeBytes
+\tif maxFileSize <= 0 {
+\t\treturn 0
+\t}
+\tconst multipartOverhead int64 = 1 << 20
+\tconst safeLimit int64 = 1 << 62
+\tif maxFileSize > (safeLimit-multipartOverhead)/maxUploadFiles {
+\t\treturn safeLimit
+\t}
+\treturn maxFileSize*maxUploadFiles + multipartOverhead
+}
+
+'''
+              if block not in text:
+                  raise SystemExit("uploadRequestBodyLimit block not found")
+              return text.replace(block, "")
+
+          edit("internal/serve/uploads.go", uploads)
+          edit("internal/serve/uploads_durable.go", lambda text: text.replace("\tif limit := s.uploadRequestBodyLimit(); limit > 0 {\n\t\tr.Body = http.MaxBytesReader(w, r.Body, limit)\n\t}\n", ""))
+          edit("internal/serve/upload_stream.go", lambda text: text.replace('''\t\tif fileCount > maxUploadFiles {
+\t\t\t_ = part.Close()
+\t\t\treturn nil, saved, multipartUploadError{message: fmt.Sprintf("at most %d files are allowed per upload", maxUploadFiles), err: errors.New("too many upload files")}
+\t\t}
+''', ""))
+          edit("internal/serve/background_uploads.go", lambda text: text.replace("\tif len(input.Files) == 0 || len(input.Files) > maxUploadFiles {\n", "\tif len(input.Files) == 0 {\n"))
+
+          def background_tests(text):
+              pattern = r'''func TestBackgroundUploadTaskAcceptsOneThousandFilesAndRejectsMore\(t \*testing\.T\) \{.*?\n\}\n\n(?=func TestBackgroundUploadCheckpointCarriesFileProgress)'''
+              replacement = '''func TestBackgroundUploadTaskAcceptsMoreThanOneThousandFiles(t *testing.T) {
+\tfiles := make([]savedUpload, 1001)
+\tfor i := range files {
+\t\tfiles[i] = savedUpload{name: "a.jpg", path: "/uploads/a.jpg", targetID: "default"}
+\t}
+\tif _, err := backgroundUploadTaskRequest("operation-1001", files, nil); err != nil {
+\t\tt.Fatalf("upload task above 1K rejected: %v", err)
+\t}
+}
+
+'''
+              new, count = re.subn(pattern, replacement, text, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"expected one background upload test replacement, got {count}")
+              return new
+
+          edit("internal/serve/background_uploads_test.go", background_tests)
+
+          def stream_tests(text):
+              text = text.replace('"path/filepath"\n', '"path/filepath"\n\t"strconv"\n')
+              marker = "func TestUploadReportsMalformedMultipartReadFailure(t *testing.T) {"
+              test = '''func TestUploadStreamingAcceptsMoreThanOneThousandFiles(t *testing.T) {
+\tuploadDir := t.TempDir()
+\tlibrary := &recordingUploadLibrary{}
+\tserver := newUploadTestServer(t, uploadDir, true, library)
+
+\tvar body bytes.Buffer
+\twriter := multipart.NewWriter(&body)
+\tconst fileCount = 1001
+\tfor i := 0; i < fileCount; i++ {
+\t\tpart, err := writer.CreateFormFile("file", "file-"+strconv.Itoa(i)+".txt")
+\t\tif err != nil {
+\t\t\tt.Fatal(err)
+\t\t}
+\t\tif _, err := part.Write([]byte("x")); err != nil {
+\t\t\tt.Fatal(err)
+\t\t}
+\t}
+\tif err := writer.Close(); err != nil {
+\t\tt.Fatal(err)
+\t}
+
+\treq := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", &body)
+\treq.Header.Set("Content-Type", writer.FormDataContentType())
+\trec := httptest.NewRecorder()
+\tserver.Handler().ServeHTTP(rec, req)
+\tif rec.Code != http.StatusOK {
+\t\tt.Fatalf("expected upload above 1K files to succeed, got %d: %s", rec.Code, rec.Body.String())
+\t}
+\tif len(library.files) != fileCount {
+\t\tt.Fatalf("imported file count=%d want=%d", len(library.files), fileCount)
+\t}
+}
+
+'''
+              if marker not in text:
+                  raise SystemExit("upload stream test marker not found")
+              return text.replace(marker, test + marker, 1)
+
+          edit("internal/serve/upload_stream_test.go", stream_tests)
+          PY
+
+          gofmt -w internal/serve/uploads.go internal/serve/uploads_durable.go internal/serve/upload_stream.go internal/serve/background_uploads.go internal/serve/background_uploads_test.go internal/serve/upload_stream_test.go
+          git diff --check
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add internal/serve/uploads.go internal/serve/uploads_durable.go internal/serve/upload_stream.go internal/serve/background_uploads.go internal/serve/background_uploads_test.go internal/serve/upload_stream_test.go
+          if ! git diff --cached --quiet; then
+            git commit -m "Remove fixed upload file-count cap"
+            git push origin HEAD:maintainer/401-remove-upload-file-cap
+          fi
