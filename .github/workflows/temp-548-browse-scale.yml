@@ -91,6 +91,7 @@ jobs:
           else: raise SystemExit('server readiness timeout')
           paths={
               'root-hidden':'/api/v1/files?limit=60&sort=added&order=desc&include_facets=true',
+              'tagged-hidden-page':'/api/v1/files?query=remove&limit=60&sort=added&order=desc&include_facets=false',
               'tagged-hidden':'/api/v1/files?query=remove&limit=60&sort=added&order=desc&include_facets=true',
           }
           result={}
