@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"image/color"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,32 +27,27 @@ func TestProtectedUploadImportFailureRestoresOriginalRetryPathAfterRename(t *tes
 
 	uploadDir := filepath.Join(dir, "uploads")
 	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
+	cfg.Auth.Enabled = false
 	cfg.Encryption.Enabled = true
 	cfg.Encryption.Key = bytes.Repeat([]byte{0x71}, securekey.Size)
 	cfg.Uploads.Enabled = true
 	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
 	library := NewGooruLibrary(client, false)
 	server := NewServerWithLibrary(cfg, library)
+	startTestBackgroundRuntime(t, server, client, "test-protected-retry")
 
 	logicalPath := filepath.Join(uploadDir, "same.png")
 	first := tinyPNG(t, 2, 2, color.RGBA{R: 10, G: 20, B: 30, A: 255})
-	writeProtectedImportFixture(t, server, logicalPath, first)
-	firstResponse, err := library.importUploadedFiles(context.Background(), []StagedUpload{{
-		Name:           "same.png",
-		Path:           logicalPath,
-		AnalysisPath:   logicalPath,
-		Size:           int64(len(first)),
-		TargetID:       "default",
-		ConflictPolicy: "rename",
-	}}, []string{"first"}, "", nil)
-	if err != nil {
-		t.Fatalf("import first protected upload: %v", err)
+	seed := httptest.NewRecorder()
+	server.Handler().ServeHTTP(seed, uploadBinaryRequestWithSourceModTime(t, "same.png", first, typesTimeZero()))
+	if seed.Code != http.StatusOK {
+		t.Fatalf("seed protected upload status = %d: %s", seed.Code, seed.Body.String())
 	}
-	if len(firstResponse.Files) != 1 || firstResponse.Files[0].Status != "imported" || firstResponse.Files[0].Name != "same.png" {
-		t.Fatalf("first import response = %+v", firstResponse.Files)
+	if _, err := client.GetFileInfoByPath(logicalPath); err != nil {
+		t.Fatalf("seed protected upload was not tracked: %v", err)
 	}
 	if _, err := os.Stat(logicalPath); !os.IsNotExist(err) {
-		t.Fatalf("first protected logical path still exists: %v", err)
+		t.Fatalf("seed protected logical path still exists: %v", err)
 	}
 
 	second := tinyPNG(t, 3, 2, color.RGBA{R: 40, G: 50, B: 60, A: 255})
