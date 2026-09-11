@@ -81,6 +81,44 @@ func (s *Store) GetBackgroundOperationCheckpoint(operationID string) ([]byte, bo
 	return []byte(checkpoint.String), checkpoint.Valid && checkpoint.String != "", nil
 }
 
+// ListActiveBackgroundOperationCheckpoints returns producer-owned recovery state
+// for every active operation of one kind. This intentionally has no UI-style
+// history limit: startup recovery must not forget work merely because a queue is
+// large.
+func (s *Store) ListActiveBackgroundOperationCheckpoints(kind string) (map[string][]byte, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("background operation store is required")
+	}
+	if kind == "" {
+		return nil, errors.New("background operation kind is required")
+	}
+	rows, err := s.DB.Query(`
+		SELECT id, checkpoint_json
+		FROM background_operations
+		WHERE kind = ?
+		  AND status IN ('pending', 'running')
+		  AND COALESCE(checkpoint_json, '') <> ''
+	`, kind)
+	if err != nil {
+		return nil, fmt.Errorf("list active background operation checkpoints: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]byte)
+	for rows.Next() {
+		var operationID string
+		var checkpoint string
+		if err := rows.Scan(&operationID, &checkpoint); err != nil {
+			return nil, fmt.Errorf("scan active background operation checkpoint: %w", err)
+		}
+		result[operationID] = []byte(checkpoint)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active background operation checkpoints: %w", err)
+	}
+	return result, nil
+}
+
 // SetBackgroundOperationVisible changes whether an operation is exposed through
 // user-facing operation history.
 func (s *Store) SetBackgroundOperationVisible(operationID string, visible bool) error {
