@@ -145,10 +145,6 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 			continue
 		}
 		fileCount++
-		if fileCount > maxUploadFiles {
-			_ = part.Close()
-			return nil, saved, multipartUploadError{message: fmt.Sprintf("at most %d files are allowed per upload", maxUploadFiles), err: errors.New("too many upload files")}
-		}
 		streamedFile, fileErr := s.streamUploadPart(stagingTarget, fileName, part)
 		_ = part.Close()
 		if fileErr != nil {
