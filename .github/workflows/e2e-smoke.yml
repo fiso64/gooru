@@ -60,6 +60,8 @@ jobs:
           mkdir -p "$artifact_dir" "$run_dir"
           echo "count=$count" >> "$GITHUB_OUTPUT"
           smoke_password="Sm0ke!$(node -e "process.stdout.write(require('crypto').randomBytes(24).toString('hex'))")"
+          echo "::add-mask::$smoke_password"
+          printf 'run_id=%s\nrun_attempt=%s\nfile_count=%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$count" > "$artifact_dir/run.txt"
           {
             echo "GOORU_SMOKE_FILE_COUNT=$count"
             echo "GOORU_SMOKE_PASSWORD=$smoke_password"
@@ -80,9 +82,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          command -v nix-shell >/dev/null || { echo "nix-shell is required on the self-hosted runner" >&2; exit 1; }
-          nix-shell -p python3 python3Packages.pillow ffmpeg --run \
-            "python3 scripts/e2e/generate_smoke_dataset.py --count '$GOORU_SMOKE_FILE_COUNT' --output '$GOORU_SMOKE_DATASET_DIR'"
+          command -v nix >/dev/null || { echo "nix is required on the self-hosted runner" >&2; exit 1; }
+          nix shell nixpkgs#python3 nixpkgs#python3Packages.pillow nixpkgs#ffmpeg -c \
+            python3 scripts/e2e/generate_smoke_dataset.py \
+              --count "$GOORU_SMOKE_FILE_COUNT" \
+              --output "$GOORU_SMOKE_DATASET_DIR"
 
       - name: Build frontend and daemon
         shell: bash
@@ -142,7 +146,7 @@ jobs:
           GOORU_ADMIN_PASSWORD="$GOORU_SMOKE_PASSWORD" \
             ./.e2e/bin/gooru user create-admin --username "$GOORU_SMOKE_USERNAME" --config "$config"
 
-          nix-shell -p ffmpeg --run "exec '$GITHUB_WORKSPACE/.e2e/bin/gooru' serve --config '$config'" \
+          nix shell nixpkgs#ffmpeg -c "$GITHUB_WORKSPACE/.e2e/bin/gooru" serve --config "$config" \
             >"$GOORU_SMOKE_ARTIFACT_DIR/daemon.log" 2>&1 &
           daemon_pid=$!
           cleanup() {
