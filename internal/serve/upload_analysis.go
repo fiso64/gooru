@@ -97,15 +97,25 @@ func analyzeUploadedFilesConcurrently(ctx context.Context, files []StagedUpload,
 	}()
 
 	ordered := make([]uploadAnalysisResult, len(files))
-	completed := 0
+	finished := make([]bool, len(files))
+	received := 0
+	reported := 0
 	var progressErr error
 	for item := range results {
 		ordered[item.index] = item.result
-		completed++
+		finished[item.index] = true
+		received++
+		previousReported := reported
+		for reported < len(finished) && finished[reported] {
+			reported++
+		}
 		if progressErr == nil && onProgress != nil {
-			if err := onProgress(completed); err != nil {
-				progressErr = err
-				cancel()
+			for completed := previousReported + 1; completed <= reported; completed++ {
+				if err := onProgress(completed); err != nil {
+					progressErr = err
+					cancel()
+					break
+				}
 			}
 		}
 	}
@@ -115,7 +125,7 @@ func analyzeUploadedFilesConcurrently(ctx context.Context, files []StagedUpload,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if completed != len(files) {
+	if received != len(files) {
 		return nil, context.Canceled
 	}
 	return ordered, nil
