@@ -19,11 +19,12 @@ const (
 )
 
 type backgroundUploadCheckpoint struct {
-	Phase          string                                  `json:"phase"`
-	Replacements   []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
-	Response       *UploadImportResponse                   `json:"response,omitempty"`
-	FileTotal      int                                     `json:"file_total,omitempty"`
-	FilesCompleted int                                     `json:"files_completed,omitempty"`
+	Phase                string                                  `json:"phase"`
+	Replacements         []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
+	Response             *UploadImportResponse                   `json:"response,omitempty"`
+	FileTotal            int                                     `json:"file_total,omitempty"`
+	FilesCompleted       int                                     `json:"files_completed,omitempty"`
+	FilesCompletedPrefix int                                     `json:"files_completed_prefix,omitempty"`
 }
 
 type backgroundUploadReplacementCheckpoint struct {
@@ -68,17 +69,21 @@ func backgroundUploadActivatedCheckpoint(activated []activatedSavedReplacement, 
 	if len(progress) > 1 {
 		checkpoint.FilesCompleted = progress[1]
 	}
+	if len(progress) > 2 {
+		checkpoint.FilesCompletedPrefix = progress[2]
+	}
 	return checkpoint
 }
 
 func backgroundUploadImportedCheckpoint(activated []activatedSavedReplacement, response UploadImportResponse) backgroundUploadCheckpoint {
 	total := len(response.Files)
 	checkpoint := backgroundUploadCheckpoint{
-		Phase:          backgroundUploadPhaseImported,
-		Replacements:   backgroundUploadReplacementCheckpoints(activated),
-		Response:       &response,
-		FileTotal:      total,
-		FilesCompleted: total,
+		Phase:                backgroundUploadPhaseImported,
+		Replacements:         backgroundUploadReplacementCheckpoints(activated),
+		Response:             &response,
+		FileTotal:            total,
+		FilesCompleted:       total,
+		FilesCompletedPrefix: total,
 	}
 	return checkpoint
 }
