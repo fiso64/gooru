@@ -82,6 +82,15 @@ func TestGetFilesByPublicIDsReturnsManagedStorageMapping(t *testing.T) {
 	selected := files[0]
 	physicalPath := filepath.Join(dir, "managed", "opaque-container")
 
+	library, ok := server.library.(*GooruLibrary)
+	if !ok {
+		t.Fatalf("library type = %T, want *GooruLibrary", server.library)
+	}
+	publicID := library.PublicFileID(selected)
+	if publicID == "" {
+		t.Fatal("expected stable public file ID")
+	}
+
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatalf("open database: %v", err)
@@ -91,12 +100,8 @@ func TestGetFilesByPublicIDsReturnsManagedStorageMapping(t *testing.T) {
 		t.Fatalf("insert managed storage mapping: %v", err)
 	}
 
-	library, ok := server.library.(*GooruLibrary)
-	if !ok {
-		t.Fatalf("library type = %T, want *GooruLibrary", server.library)
-	}
 	library.managedRoots = []string{dir}
-	got, err := library.getFilesByPublicIDs(context.Background(), []string{selected.PublicID})
+	got, err := library.getFilesByPublicIDs(context.Background(), []string{publicID})
 	if err != nil {
 		t.Fatalf("getFilesByPublicIDs: %v", err)
 	}
