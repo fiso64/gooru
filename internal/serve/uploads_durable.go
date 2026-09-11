@@ -18,9 +18,9 @@ const (
 )
 
 // durableUploadOperationStore is the producer/read boundary required by HTTP
-// uploads. The operation is created hidden before multipart staging, then the
-// recovery checkpoint, child task, and visibility transition are committed
-// atomically once staging succeeds.
+// uploads. Admission starts hidden, then the receiving checkpoint is published
+// before multipart staging so the same operation is visible throughout transport
+// and durable import.
 type durableUploadOperationStore interface {
 	backgroundOperationReader
 	CreateBackgroundOperation(core.BackgroundOperationRequest) (core.BackgroundOperation, error)
@@ -148,6 +148,10 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := operations.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(len(saved)), taskRequest); err != nil {
 		removeSavedUploads(saved)
+		if state, found, stateErr := operations.GetBackgroundOperation(operation.ID); stateErr == nil && found && state.Status == core.BackgroundWorkCanceled {
+			writeError(w, http.StatusRequestTimeout, "request_canceled", "upload was canceled", nil)
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files", nil)
 		return
 	}
