@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"gooru.local/internal/database"
@@ -14,6 +15,13 @@ const (
 	defaultPollInterval  = 500 * time.Millisecond
 	defaultRetryDelay    = time.Second
 )
+
+// Every Runner shares one durable store in the serve process, and each Runner
+// performs the same global expired-lease recovery before polling its resource
+// class. Serialize that startup phase so SQLite WAL transactions do not race a
+// read snapshot upgrade to the single writer slot when several resource workers
+// start together after a crash.
+var startupRecoveryMu sync.Mutex
 
 type TaskStore interface {
 	RecoverExpiredBackgroundTaskLeases(time.Time) (int, error)
@@ -98,8 +106,11 @@ func NewRunner(cfg RunnerConfig) (*Runner, error) {
 // resource class until ctx is canceled. Resource-class ownership keeps scheduling concerns
 // independent from the user-visible durable operation lifecycle.
 func (r *Runner) Run(ctx context.Context) error {
-	if _, err := r.store.RecoverExpiredBackgroundTaskLeases(r.now()); err != nil {
-		return fmt.Errorf("recover expired background work: %w", err)
+	startupRecoveryMu.Lock()
+	_, recoverErr := r.store.RecoverExpiredBackgroundTaskLeases(r.now())
+	startupRecoveryMu.Unlock()
+	if recoverErr != nil {
+		return fmt.Errorf("recover expired background work: %w", recoverErr)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
