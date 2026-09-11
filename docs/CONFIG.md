@@ -65,11 +65,10 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | `uploads.enabled` | `false` | Enable browser/API uploads. Enabling uploads requires at least one valid target. |
 | `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, `path`, and optional `added_at_strategy`. |
 | `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
-| `uploads.max_queued` | `100` | Maximum number of durable upload operations with status `pending` that may exist at once. A multipart upload request/batch counts as one operation, not one per file. The admission check happens before the request body is staged; at the limit, new uploads receive HTTP 503 `job_queue_full`. This controls queue admission, not worker concurrency. Must be positive. |
 | `uploads.preserve_modtime` | `true` | Preserve each browser-uploaded file's source modification timestamp on the stored destination. Source timestamps are still carried through upload processing when disabled. |
 | `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
 
-Upload throughput concurrency is not currently configurable through YAML or a `serve` flag. The upload worker keeps mutation/replacement/protected-storage transitions serialized for correctness, while the safe per-file analysis/read/hash/status stage uses an internal bounded pool of four workers. This is independent of `uploads.max_queued`.
+Upload throughput concurrency is not currently configurable through YAML or a `serve` flag. The upload worker keeps mutation/replacement/protected-storage transitions serialized for correctness, while the safe per-file analysis/read/hash/status stage uses an internal bounded pool of four workers.
 
 Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `added_at_strategy`. The strategy defaults to `queue` and accepts `queue`, `reverse_queue`, or `modtime`.
 
@@ -97,7 +96,6 @@ uploads:
         - project:inbox
         - source:upload
   max_file_size_bytes: 104857600
-  max_queued: 100
   preserve_modtime: true
   conflict_policy: skip
 ```
@@ -185,7 +183,6 @@ uploads:
       path: /srv/gooru/incoming
       added_at_strategy: queue
   max_file_size_bytes: 104857600
-  max_queued: 100
   preserve_modtime: true
   conflict_policy: skip
 
