@@ -1,0 +1,36 @@
+name: Maintainer Upload Progress Race
+
+on:
+  push:
+    branches:
+      - maintainer/401-overall-upload-progress
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply and validate race fix
+        shell: bash
+        run: |
+          python3 .github/maintainer-upload-progress-race.py
+          gofmt -w internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go
+          go test ./internal/serve
+          go build ./...
+      - name: Commit clean follow-up
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/maintainer-upload-progress-race.py .github/workflows/maintainer-upload-progress-race.yml
+          git add internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go
+          git commit -m "Handle upload progress cancellation races"
+          git push origin HEAD:maintainer/401-overall-upload-progress
