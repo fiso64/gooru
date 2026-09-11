@@ -80,6 +80,27 @@ describe('upload import progress', () => {
 
     expect(itemsFromJob(items, job).map((item) => item.progress)).toEqual([0, 0, 0]);
   });
+
+  it('keeps completed transport bars full while durable import progress starts at zero', () => {
+    const items = [queueItem(0), queueItem(1), queueItem(2)].map((item) => ({ ...item, status: 'queued' as const, progress: 100 }));
+    const job = {
+      id: 'upload-one',
+      type: 'upload_import',
+      status: 'running',
+      progress: 0,
+      progress_total: 3,
+      progress_completed: 0,
+      progress_completed_prefix: 0,
+      progress_failed: 0,
+      submitted_at: '2026-09-11T00:00:00Z'
+    } as Job;
+
+    expect(itemsFromJob(items, job).map((item) => [item.status, item.progress])).toEqual([
+      ['importing', 100],
+      ['importing', 100],
+      ['importing', 100]
+    ]);
+  });
 });
 
 describe('large upload queue updates', () => {
