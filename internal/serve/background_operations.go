@@ -56,7 +56,7 @@ type BackgroundOperationDTO struct {
 
 type BackgroundOperationListResponse struct {
 	Items       []BackgroundOperationDTO `json:"items"`
-	ActiveCount int                      `json:"active_count"`
+	ActiveCount *int                     `json:"active_count,omitempty"`
 }
 
 func (l *GooruLibrary) GetBackgroundOperation(operationID string) (core.BackgroundOperationState, bool, error) {
@@ -201,7 +201,7 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 			items = append(items, s.backgroundOperationDTO(operation))
 		}
 	}
-	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items, ActiveCount: activeCount})
+	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items, ActiveCount: &activeCount})
 }
 
 func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
