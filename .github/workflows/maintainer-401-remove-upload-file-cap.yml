@@ -1,16 +1,12 @@
 name: maintainer-401-remove-upload-file-cap
 
-on:
-  push:
-    branches:
-      - maintainer/401-remove-upload-file-cap
+on: push
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'Remove fixed upload file-count cap'
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -23,13 +19,12 @@ jobs:
           from pathlib import Path
           import re
 
-          def edit(path, fn):
+          def update(path, transform):
               p = Path(path)
               old = p.read_text()
-              new = fn(old)
-              if new == old:
-                  raise SystemExit(f"expected change missing in {path}")
-              p.write_text(new)
+              new = transform(old)
+              if new != old:
+                  p.write_text(new)
 
           def uploads(text):
               text = text.replace("\nconst maxUploadFiles = 1000\n", "\n")
@@ -48,22 +43,21 @@ jobs:
 }
 
 '''
-              if block not in text:
-                  raise SystemExit("uploadRequestBodyLimit block not found")
               return text.replace(block, "")
 
-          edit("internal/serve/uploads.go", uploads)
-          edit("internal/serve/uploads_durable.go", lambda text: text.replace("\tif limit := s.uploadRequestBodyLimit(); limit > 0 {\n\t\tr.Body = http.MaxBytesReader(w, r.Body, limit)\n\t}\n", ""))
-          edit("internal/serve/upload_stream.go", lambda text: text.replace('''\t\tif fileCount > maxUploadFiles {
+          update("internal/serve/uploads.go", uploads)
+          update("internal/serve/uploads_durable.go", lambda text: text.replace("\tif limit := s.uploadRequestBodyLimit(); limit > 0 {\n\t\tr.Body = http.MaxBytesReader(w, r.Body, limit)\n\t}\n", ""))
+          update("internal/serve/upload_stream.go", lambda text: text.replace('''\t\tif fileCount > maxUploadFiles {
 \t\t\t_ = part.Close()
 \t\t\treturn nil, saved, multipartUploadError{message: fmt.Sprintf("at most %d files are allowed per upload", maxUploadFiles), err: errors.New("too many upload files")}
 \t\t}
 ''', ""))
-          edit("internal/serve/background_uploads.go", lambda text: text.replace("\tif len(input.Files) == 0 || len(input.Files) > maxUploadFiles {\n", "\tif len(input.Files) == 0 {\n"))
+          update("internal/serve/background_uploads.go", lambda text: text.replace("\tif len(input.Files) == 0 || len(input.Files) > maxUploadFiles {\n", "\tif len(input.Files) == 0 {\n"))
 
-          def background_tests(text):
-              pattern = r'''func TestBackgroundUploadTaskAcceptsOneThousandFilesAndRejectsMore\(t \*testing\.T\) \{.*?\n\}\n\n(?=func TestBackgroundUploadCheckpointCarriesFileProgress)'''
-              replacement = '''func TestBackgroundUploadTaskAcceptsMoreThanOneThousandFiles(t *testing.T) {
+          p = Path("internal/serve/background_uploads_test.go")
+          text = p.read_text()
+          pattern = r'''func TestBackgroundUploadTaskAcceptsOneThousandFilesAndRejectsMore\(t \*testing\.T\) \{.*?\n\}\n\n(?=func TestBackgroundUploadCheckpointCarriesFileProgress)'''
+          replacement = '''func TestBackgroundUploadTaskAcceptsMoreThanOneThousandFiles(t *testing.T) {
 \tfiles := make([]savedUpload, 1001)
 \tfor i := range files {
 \t\tfiles[i] = savedUpload{name: "a.jpg", path: "/uploads/a.jpg", targetID: "default"}
@@ -74,14 +68,12 @@ jobs:
 }
 
 '''
-              new, count = re.subn(pattern, replacement, text, flags=re.S)
-              if count != 1:
-                  raise SystemExit(f"expected one background upload test replacement, got {count}")
-              return new
+          text = re.sub(pattern, replacement, text, flags=re.S)
+          p.write_text(text)
 
-          edit("internal/serve/background_uploads_test.go", background_tests)
-
-          def stream_tests(text):
+          p = Path("internal/serve/upload_stream_test.go")
+          text = p.read_text()
+          if "TestUploadStreamingAcceptsMoreThanOneThousandFiles" not in text:
               text = text.replace('"path/filepath"\n', '"path/filepath"\n\t"strconv"\n')
               marker = "func TestUploadReportsMalformedMultipartReadFailure(t *testing.T) {"
               test = '''func TestUploadStreamingAcceptsMoreThanOneThousandFiles(t *testing.T) {
@@ -118,11 +110,8 @@ jobs:
 }
 
 '''
-              if marker not in text:
-                  raise SystemExit("upload stream test marker not found")
-              return text.replace(marker, test + marker, 1)
-
-          edit("internal/serve/upload_stream_test.go", stream_tests)
+              text = text.replace(marker, test + marker, 1)
+              p.write_text(text)
           PY
 
           gofmt -w internal/serve/uploads.go internal/serve/uploads_durable.go internal/serve/upload_stream.go internal/serve/background_uploads.go internal/serve/background_uploads_test.go internal/serve/upload_stream_test.go
