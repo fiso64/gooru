@@ -96,7 +96,7 @@ describe('createUploadWorkflow aggregate uploads', () => {
     now.mockRestore();
   });
 
-  it('applies durable running progress to the completed file prefix', async () => {
+  it('keeps completed transport progress monotonic while durable import runs', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
     await workflow.submit(async () => pendingJob('job-batch'));
@@ -104,7 +104,7 @@ describe('createUploadWorkflow aggregate uploads', () => {
     expect(workflow.applyJob(pendingJob('job-batch', 1, 2))).toEqual({ completed: false, changedFiles: false });
     expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
       ['importing', 100],
-      ['importing', 0]
+      ['importing', 100]
     ]);
     expect(workflow.activeJobID).toBe('job-batch');
   });
