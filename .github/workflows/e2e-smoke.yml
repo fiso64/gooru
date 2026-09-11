@@ -47,7 +47,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             count='${{ inputs.file_count }}'
           else
-            count=100
+            count="$(cat scripts/e2e/.smoke-validation-count 2>/dev/null || echo 200)"
           fi
           if ! [[ "$count" =~ ^[1-9][0-9]*$ ]] || (( count % 100 != 0 )); then
             echo "file_count must be a positive multiple of 100" >&2
