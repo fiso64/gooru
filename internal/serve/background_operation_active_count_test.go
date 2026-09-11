@@ -49,11 +49,31 @@ func TestHandleOperationsUsesExactActiveCountBeyondReturnedPrefix(t *testing.T) 
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.ActiveCount != 7 {
-		t.Fatalf("active_count = %d, want 7", payload.ActiveCount)
+	if payload.ActiveCount == nil || *payload.ActiveCount != 7 {
+		t.Fatalf("active_count = %v, want 7", payload.ActiveCount)
 	}
 	if len(payload.Items) != 1 || payload.Items[0].ID != "newest-terminal" {
 		t.Fatalf("items = %+v", payload.Items)
+	}
+}
+
+func TestHandleOperationsIncludesAuthoritativeZeroActiveCount(t *testing.T) {
+	reader := &exactActiveCountReader{fakeBackgroundOperationReader: &fakeBackgroundOperationReader{}}
+	server := &Server{backgroundOperations: reader}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/operations?limit=1", nil)
+	response := httptest.NewRecorder()
+
+	server.handleOperations(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	var payload BackgroundOperationListResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.ActiveCount == nil || *payload.ActiveCount != 0 {
+		t.Fatalf("active_count = %v, want explicit 0", payload.ActiveCount)
 	}
 }
 
