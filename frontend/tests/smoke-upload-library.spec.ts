@@ -28,6 +28,11 @@ type TimingReport = {
   delete_from_disk?: Timing;
 };
 
+type RemovalOperation = {
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+  error_message?: string;
+};
+
 const timingReport: TimingReport = { tag, file_count: fileCount };
 
 function elapsed(startedAt: Date, startNs: bigint): Timing {
@@ -74,6 +79,22 @@ function successfulUploadCount(summary: string): number {
     total += Number(match[1]);
   }
   return total;
+}
+
+async function waitForRemovalOperation(page: import('@playwright/test').Page, operationID: string) {
+  const deadline = Date.now() + operationTimeout;
+  for (;;) {
+    const response = await page.request.get(`/api/v1/operations/${encodeURIComponent(operationID)}`);
+    if (!response.ok()) {
+      throw new Error(`Unable to read file removal status (HTTP ${response.status()}).`);
+    }
+    const operation = await response.json() as RemovalOperation;
+    if (operation.status === 'completed') return;
+    if (operation.status === 'failed') throw new Error(operation.error_message || 'File removal failed.');
+    if (operation.status === 'canceled') throw new Error('File removal was canceled.');
+    if (Date.now() >= deadline) throw new Error(`File removal operation ${operationID} did not complete before timeout.`);
+    await page.waitForTimeout(100);
+  }
 }
 
 async function verifyFirstPageThumbnails(page: import('@playwright/test').Page, expectedCount: number) {
@@ -184,13 +205,21 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
 
     const deleteStartedAt = new Date();
     const deleteStartNs = process.hrtime.bigint();
+    const removalAdmissionPromise = page.waitForResponse((response) => {
+      const request = response.request();
+      return request.method() === 'DELETE' && new URL(response.url()).pathname === '/api/v1/files';
+    });
     await confirmDelete.click();
-    await expect(page.getByRole('heading', { name: 'No results' })).toBeVisible({ timeout: operationTimeout });
-    await expect(page.locator('[data-testid="virtual-media-grid"] .thumb')).toHaveCount(0);
+    const removalAdmission = await removalAdmissionPromise;
+    expect(removalAdmission.ok(), 'bulk delete admission should succeed').toBe(true);
+    const removalPayload = await removalAdmission.json() as { operation_id?: string };
+    expect(removalPayload.operation_id, 'bulk delete should return an async operation id').toBeTruthy();
+    await waitForRemovalOperation(page, removalPayload.operation_id!);
     timingReport.delete_from_disk = elapsed(deleteStartedAt, deleteStartNs);
     saveTimings();
 
-    // Verify persistence after a full refresh rather than relying only on the live mutation state.
+    // Deletion is asynchronous and the live grid is not required to refresh itself.
+    // Verify persistence only after a full refresh, then re-apply the initial-tag search.
     await page.reload();
     const refreshedSearch = page.getByLabel('Search library');
     await refreshedSearch.fill(tag);
