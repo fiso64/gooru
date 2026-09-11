@@ -22,6 +22,7 @@ export interface Job {
   id: string;
   type: string;
   status: JobStatus;
+  stage?: 'receiving' | 'importing';
   progress?: number;
   progress_total?: number;
   progress_completed?: number;

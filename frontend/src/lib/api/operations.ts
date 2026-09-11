@@ -5,6 +5,7 @@ export interface BackgroundOperation {
   id: string;
   kind: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+  stage?: 'receiving' | 'importing';
   progress_total: number;
   progress_completed: number;
   progress_completed_prefix?: number;
@@ -61,11 +62,9 @@ export function cancelBackgroundOperation(id: string, csrfToken: string) {
 export function backgroundOperationAsJob(operation: BackgroundOperation): Job {
   const total = Math.max(0, operation.progress_total);
   const completed = Math.max(0, operation.progress_completed + operation.progress_failed);
-  const fallbackProgress = total > 0
+  const fallbackProgress = total > 1
     ? Math.max(0, Math.min(1, completed / total))
-    : operation.status === 'completed' || operation.status === 'failed' || operation.status === 'canceled'
-      ? 1
-      : undefined;
+    : undefined;
   const progress = operation.progress !== undefined
     ? Math.max(0, Math.min(1, operation.progress))
     : operation.kind === 'upload_import'
@@ -76,6 +75,7 @@ export function backgroundOperationAsJob(operation: BackgroundOperation): Job {
     id: operation.id,
     type: operation.kind,
     status: operation.status,
+    stage: operation.stage,
     progress,
     progress_total: operation.progress_total,
     progress_completed: operation.progress_completed,

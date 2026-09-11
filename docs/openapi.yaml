@@ -1539,6 +1539,10 @@ components:
         status:
           type: string
           enum: [pending, running, completed, failed, canceled]
+        stage:
+          type: string
+          enum: [receiving, importing]
+          description: Optional user-visible lifecycle stage for upload_import operations. Receiving is active synchronous request-body work; importing is durable queued/running processing.
         progress_total:
           type: integer
           format: int64

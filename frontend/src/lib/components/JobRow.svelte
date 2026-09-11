@@ -16,8 +16,9 @@
     job.status === 'completed' ? 'done' : job.status === 'failed' ? 'error' : job.status === 'pending' ? 'queued' : job.status
   );
 
-  function titleFor(type: string) {
-    if (type === 'upload_import') return 'Import media';
+  function titleFor(job: Job) {
+    const type = job.type;
+    if (type === 'upload_import') return job.stage === 'receiving' ? 'Upload media' : 'Import media';
     if (type.includes('tag')) return 'Tag edit';
     if (type.includes('thumbnail')) return 'Generate thumbnails';
     return type
@@ -52,11 +53,11 @@
   <div class="job-row-head">
     <span class="name">
       <Icon name={iconFor(job.type)} size={14} />
-      <b>{titleFor(job.type)}</b>
+      <b>{titleFor(job)}</b>
     </span>
     <span class={`status ${visualStatus}`}>{visualStatus}</span>
     {#if cancellable && onCancel}
-      <button class="job-cancel" type="button" aria-label={`Cancel ${titleFor(job.type)}`} onclick={() => onCancel?.(job)}>Cancel</button>
+      <button class="job-cancel" type="button" aria-label={`Cancel ${titleFor(job)}`} onclick={() => onCancel?.(job)}>Cancel</button>
     {/if}
   </div>
   {#if percent !== undefined}

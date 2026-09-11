@@ -27,12 +27,41 @@ describe('backgroundOperationAsJob progress', () => {
     const operation: BackgroundOperation = {
       id: 'upload-receiving',
       kind: 'upload_import',
-      status: 'pending',
+      status: 'running',
+      stage: 'receiving',
+      progress_total: 1,
+      progress_completed: 0,
+      progress_failed: 0,
+      created_at: '2026-09-11T00:00:00Z'
+    };
+    const job = backgroundOperationAsJob(operation);
+    expect(job.progress).toBeUndefined();
+    expect(job.stage).toBe('receiving');
+  });
+
+  it('does not invent percentage progress for one-task operations', () => {
+    const operation: BackgroundOperation = {
+      id: 'remove-batch',
+      kind: 'files_remove',
+      status: 'running',
       progress_total: 1,
       progress_completed: 0,
       progress_failed: 0,
       created_at: '2026-09-11T00:00:00Z'
     };
     expect(backgroundOperationAsJob(operation).progress).toBeUndefined();
+  });
+
+  it('retains useful count-derived progress for multi-task operations', () => {
+    const operation: BackgroundOperation = {
+      id: 'multi-task',
+      kind: 'thumbnail_backfill',
+      status: 'running',
+      progress_total: 4,
+      progress_completed: 1,
+      progress_failed: 1,
+      created_at: '2026-09-11T00:00:00Z'
+    };
+    expect(backgroundOperationAsJob(operation).progress).toBe(0.5);
   });
 });

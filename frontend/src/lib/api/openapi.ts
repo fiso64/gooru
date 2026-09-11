@@ -1791,6 +1791,11 @@ export interface components {
             kind: string;
             /** @enum {string} */
             status: "pending" | "running" | "completed" | "failed" | "canceled";
+            /**
+             * @description Optional user-visible lifecycle stage for upload_import operations. Receiving is active synchronous request-body work; importing is durable queued/running processing.
+             * @enum {string}
+             */
+            stage?: "receiving" | "importing";
             /** Format: int64 */
             progress_total: number;
             /** Format: int64 */
