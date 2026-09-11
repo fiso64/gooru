@@ -1,0 +1,108 @@
+name: Maintainer 401 tag bulk validation
+
+on:
+  push:
+    branches:
+      - maintainer/401-tag-bulk-lookup
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check formatting and focused regressions
+        shell: bash
+        run: |
+          test -z "$(gofmt -d internal/database/file_info_batch.go internal/database/file_info_batch_test.go gooru/file_identity_batch.go internal/serve/public_file_batch.go internal/serve/background_tag_mutations.go internal/serve/background_tag_mutation_bulk_test.go)"
+          go test -count=1 ./internal/database -run '^TestGetFileInfosByPublicIDsChunksPreservesOrderAndManagedStorage$'
+          go test -count=1 ./internal/serve -run '^(TestTagMutationIntegrationUpdatesMultipleExplicitFiles|TestGetFilesByPublicIDsReturnsManagedStorageMapping)$'
+      - name: Measure 10K explicit file-ID tagging path
+        shell: bash
+        run: |
+          cat > internal/serve/maintainer_tag_scale_test.go <<'EOF'
+          package serve
+
+          import (
+            "context"
+            "fmt"
+            "os"
+            "path/filepath"
+            "testing"
+            "time"
+
+            core "gooru.local/gooru"
+            "gooru.local/types"
+          )
+
+          func TestMaintainerExplicitTagScale(t *testing.T) {
+            const count = 10000
+            root := t.TempDir()
+            dbPath := filepath.Join(root, "gooru.db")
+            if err := core.Init(dbPath, types.StrategyFull, false); err != nil { t.Fatal(err) }
+            client, err := core.New(dbPath, false)
+            if err != nil { t.Fatal(err) }
+            defer client.Close()
+
+            paths := make([]string, 0, count)
+            for i := 0; i < count; i++ {
+              path := filepath.Join(root, fmt.Sprintf("image-%06d.jpg", i))
+              if err := os.WriteFile(path, []byte(fmt.Sprintf("payload-%08d", i)), 0o600); err != nil { t.Fatal(err) }
+              paths = append(paths, path)
+            }
+            setupStarted := time.Now()
+            if _, err := client.TagFiles(paths, nil, nil, false); err != nil { t.Fatal(err) }
+            t.Logf("setup initial 10K tracking=%s", time.Since(setupStarted))
+
+            all, err := client.GetAllFilesInfo()
+            if err != nil { t.Fatal(err) }
+            if len(all) != count { t.Fatalf("tracked files=%d want %d", len(all), count) }
+            ids := make([]string, 0, count)
+            for _, file := range all {
+              id := client.PublicFileID(file.ID)
+              if id == "" { t.Fatal("missing public id") }
+              ids = append(ids, id)
+            }
+
+            library := NewGooruLibrary(client, false)
+            ctx := context.Background()
+            started := time.Now()
+            resolved, err := library.getFilesByPublicIDs(ctx, ids)
+            if err != nil { t.Fatal(err) }
+            lookupDuration := time.Since(started)
+
+            directOp, err := client.CreateBackgroundTagMutation(core.BackgroundTagMutationRequest{
+              Mutation: "add", Selector: map[string]any{"file_ids": ids}, Tags: []string{"scale:direct"},
+              FileIDs: ids, FileIDSelector: true, MaxPending: 64,
+            })
+            if err != nil { t.Fatal(err) }
+            started = time.Now()
+            if err := client.ExecuteBackgroundTagMutationFiles(directOp.ID, resolved); err != nil { t.Fatal(err) }
+            directDuration := time.Since(started)
+
+            fullOp, err := client.CreateBackgroundTagMutation(core.BackgroundTagMutationRequest{
+              Mutation: "add", Selector: map[string]any{"file_ids": ids}, Tags: []string{"scale:full"},
+              FileIDs: ids, FileIDSelector: true, MaxPending: 64,
+            })
+            if err != nil { t.Fatal(err) }
+            task := core.BackgroundTask{
+              OperationID: fullOp.ID,
+              Kind: core.BackgroundTagMutationTaskKind,
+              SubjectKind: "operation",
+              SubjectID: fullOp.ID,
+              InputKey: "v1",
+            }
+            started = time.Now()
+            if err := library.executeBackgroundTagMutation(ctx, task); err != nil { t.Fatal(err) }
+            fullDuration := time.Since(started)
+
+            t.Logf("10K explicit tag bulk: public_id_lookup=%s revalidate_hash_and_tx=%s full_handler=%s", lookupDuration, directDuration, fullDuration)
+          }
+          EOF
+          go test -count=1 -v ./internal/serve -run '^TestMaintainerExplicitTagScale$'
+          rm -f internal/serve/maintainer_tag_scale_test.go
