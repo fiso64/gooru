@@ -106,17 +106,13 @@ func TestBackgroundUploadInitialCheckpointStartsAtStagedPhase(t *testing.T) {
 	}
 }
 
-func TestBackgroundUploadTaskAcceptsOneThousandFilesAndRejectsMore(t *testing.T) {
-	files := make([]savedUpload, maxUploadFiles)
+func TestBackgroundUploadTaskAcceptsMoreThanOneThousandFiles(t *testing.T) {
+	files := make([]savedUpload, 1001)
 	for i := range files {
 		files[i] = savedUpload{name: "a.jpg", path: "/uploads/a.jpg", targetID: "default"}
 	}
-	if _, err := backgroundUploadTaskRequest("operation-1000", files, nil); err != nil {
-		t.Fatalf("1K upload task rejected: %v", err)
-	}
-	files = append(files, savedUpload{name: "overflow.jpg", path: "/uploads/overflow.jpg", targetID: "default"})
-	if _, err := backgroundUploadTaskRequest("operation-1001", files, nil); err == nil {
-		t.Fatal("upload task above the bounded 1K ceiling unexpectedly accepted")
+	if _, err := backgroundUploadTaskRequest("operation-1001", files, nil); err != nil {
+		t.Fatalf("upload task above 1K rejected: %v", err)
 	}
 }
 
