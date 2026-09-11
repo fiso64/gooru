@@ -13,5 +13,7 @@ jobs:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
-      - name: Run managed tag regression verbosely
-        run: go test -count=1 -run '^TestBackgroundTagMutationManagedFileUsesStoragePath$' -v ./gooru
+      - name: Inspect managed file lookup path
+        run: |
+          grep -R -n 'func (c \*Client) GetFileInfoByPublicID\|func (c \*Client) GetFileInfoByPublicIDs\|ManagedStorage\|managed_storage_locations' gooru internal/database | head -200
+          go test -count=1 -run '^TestBackgroundTagMutationManagedFileUsesStoragePath$' -v ./gooru
