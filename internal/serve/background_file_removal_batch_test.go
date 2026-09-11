@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -35,7 +36,7 @@ func TestBackgroundFileRemovalBatchTaskUsesOneFlatStagingTargetPerFile(t *testin
 		t.Fatalf("unexpected batch task identity: %+v", task)
 	}
 	var input backgroundFileRemovalBatchInput
-	if err := jsonUnmarshalForTest(task.InputKey, &input); err != nil {
+	if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
 		t.Fatal(err)
 	}
 	if input.Version != backgroundFileRemovalBatchVersion || input.Mode != "delete" || len(input.Files) != len(files) {
@@ -79,7 +80,7 @@ func TestBackgroundFileRemovalBatchDeletesMultipleFilesInOneTask(t *testing.T) {
 	server.cfg.Uploads.Targets = nil
 	index := 0
 	for root := range roots {
-		server.cfg.Uploads.Targets = append(server.cfg.Uploads.Targets, UploadTarget{ID: "managed-" + string(rune('a'+index)), Name: "Managed", Path: root})
+		server.cfg.Uploads.Targets = append(server.cfg.Uploads.Targets, UploadTarget{ID: fmt.Sprintf("managed-%d", index), Name: "Managed", Path: root})
 		index++
 	}
 
@@ -114,8 +115,4 @@ func TestBackgroundFileRemovalBatchDeletesMultipleFilesInOneTask(t *testing.T) {
 			t.Fatalf("batch cleanup left staging files: %v", matches)
 		}
 	}
-}
-
-func jsonUnmarshalForTest(raw string, destination any) error {
-	return json.Unmarshal([]byte(raw), destination)
 }
