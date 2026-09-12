@@ -143,10 +143,16 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 		contentionObserved: make(chan struct{}),
 		renewedAfter:       make(chan struct{}),
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	releaseDone := make(chan error, 1)
 	go func() {
-		<-observedStore.contentionObserved
-		releaseDone <- writerTx.Commit()
+		select {
+		case <-observedStore.contentionObserved:
+			releaseDone <- writerTx.Commit()
+		case <-ctx.Done():
+			releaseDone <- ctx.Err()
+		}
 	}()
 
 	runner, err := NewRunner(RunnerConfig{
@@ -169,8 +175,6 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 	if err := runner.runClaimed(ctx, claimed); err != nil {
 		t.Fatalf("run claimed task through renewal contention: %v", err)
 	}
