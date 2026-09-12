@@ -134,6 +134,8 @@ For a new user-facing end-to-end capability, include at least one golden-path te
 
 After repeated attempted fixes fail to resolve an owner-reported bug, stop speculative patching and add targeted temporary diagnostics/instrumentation, then request a real owner repro/logs when that evidence is needed. Once fixed, ablate earlier attempts; keep only changes independently justified by correctness/architecture/performance or regression evidence.
 
+If there is an unrelated test failure (like a flaky test) after a commit/PR, open an issue with label `bug` for it (assume it's either test or production bug). Do not ignore it even when your current changes are unrelated. 
+
 If a local checkout is unavailable, that is not a blocker. Use authenticated GitHub writes and a temporary branch-local GitHub Actions workflow when execution is needed. Poll it, inspect logs, fix failures in the same run when possible, and remove temporary validation machinery afterward.
 
 **Actions runners:** use the canonical `[self-hosted, gooru]` labels for temporary maintainer validation/execution. Never run or check out code from out-of-scope public/fork PRs on self-hosted runners.
