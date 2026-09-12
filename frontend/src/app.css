@@ -19,3 +19,9 @@
   border-color: oklch(from var(--accent) calc(l - 0.04) c h);
   color: var(--accent-ink);
 }
+
+/* Issue #606 keeps upload cancellation in the normal queue action row. */
+.gooru-root .upload-queue-head.has-active-job:hover .upload-queue-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
