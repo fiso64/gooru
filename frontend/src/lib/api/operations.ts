@@ -28,6 +28,10 @@ export interface BackgroundOperationClearResponse {
   cleared: number;
 }
 
+export interface BackgroundOperationCancelAllResponse {
+  canceled: number;
+}
+
 async function operationRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: 'same-origin',
@@ -59,6 +63,13 @@ export function listBackgroundOperationsByIDs(ids: string[]) {
 
 export function clearCompletedBackgroundOperations(csrfToken: string) {
   return operationRequest<BackgroundOperationClearResponse>('/api/v1/operations', {
+    method: 'DELETE',
+    headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
+  });
+}
+
+export function cancelActiveBackgroundOperations(csrfToken: string) {
+  return operationRequest<BackgroundOperationCancelAllResponse>('/api/v1/operations/cancel-all', {
     method: 'DELETE',
     headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
   });
