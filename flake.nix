@@ -39,6 +39,7 @@
               "-X=gooru.local/internal/buildinfo.Version=${version}"
               "-X=gooru.local/internal/buildinfo.Revision=${revision}"
               "-X=gooru.local/internal/buildinfo.Dirty=${dirty}"
+              "-X=gooru.local/internal/buildinfo.Development=true"
             ];
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.vips ];
@@ -94,7 +95,7 @@
             group = lib.mkOption {
               type = lib.types.str;
               default = "gooru";
-              description = "Group under which Gooru runs.";
+              description = "Group account under which Gooru runs.";
             };
 
             settings = lib.mkOption {
