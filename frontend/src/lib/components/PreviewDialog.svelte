@@ -356,6 +356,7 @@
         mode={tagMode}
         onInput={(value) => onTagInput(file.id, value)}
         onCommit={(value) => onMutateTags(file, tagMode, value)}
+        onModeToggle={() => focusTagInput(tagMode === 'add' ? 'remove' : 'add')}
       />
     </div>
   </aside>
