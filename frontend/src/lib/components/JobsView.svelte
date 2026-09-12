@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CancelActiveJobsButton from './CancelActiveJobsButton.svelte';
   import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
   import JobRow from './JobRow.svelte';
   import PageNav from './PageNav.svelte';
@@ -56,19 +57,15 @@
         <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
         <h1>Background work</h1>
       </div>
-      <ClearCompletedJobsButton onCleared={resetPagination} />
+      <div class="jobs-page-actions">
+        <CancelActiveJobsButton />
+        <ClearCompletedJobsButton onCleared={resetPagination} />
+      </div>
     </div>
 
     {#if pageCount > 1}
       <div class="jobs-top-pager">
-        <PageNav
-          page={pageIndex + 1}
-          {pageCount}
-          onPage={selectPage}
-          disabled={pageQuery.isFetching}
-          ariaLabel="Jobs pages"
-          testId="jobs-pages-top"
-        />
+        <PageNav page={pageIndex + 1} {pageCount} onPage={selectPage} disabled={pageQuery.isFetching} ariaLabel="Jobs pages" testId="jobs-pages-top" />
       </div>
     {/if}
 
@@ -81,62 +78,18 @@
     </div>
 
     {#if pageCount > 1}
-      <PageNav
-        page={pageIndex + 1}
-        {pageCount}
-        onPage={selectPage}
-        disabled={pageQuery.isFetching}
-        ariaLabel="Jobs pages"
-        testId="jobs-pages-bottom"
-      />
+      <PageNav page={pageIndex + 1} {pageCount} onPage={selectPage} disabled={pageQuery.isFetching} ariaLabel="Jobs pages" testId="jobs-pages-bottom" />
     {/if}
   </div>
 </main>
 
 <style>
-  .jobs-page {
-    width: min(100%, 600px);
-    margin-inline: 0;
-  }
-
-  .jobs-page-header {
-    position: relative;
-    max-width: none;
-    text-align: left;
-    display: flex;
-    flex-direction: row;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 16px;
-  }
-
-  .jobs-page-header h1 {
-    margin-bottom: 0;
-  }
-
-  .jobs-card {
-    overflow: hidden;
-    width: 100%;
-    text-align: left;
-  }
-
-  .jobs-empty {
-    padding: 28px 16px;
-    color: var(--text-3);
-    text-align: left;
-    font-family: var(--font-mono);
-    font-size: 11px;
-  }
-
-  :global(.jobs-top-pager .page-nav) {
-    margin-top: 0;
-    padding: 0 0 14px;
-  }
-
-  @media (max-width: 600px) {
-    .jobs-page-header {
-      align-items: flex-start;
-      flex-direction: column;
-    }
-  }
+  .jobs-page { width: min(100%, 600px); margin-inline: 0; }
+  .jobs-page-header { position: relative; max-width: none; text-align: left; display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .jobs-page-header h1 { margin-bottom: 0; }
+  .jobs-page-actions { display: flex; gap: 8px; align-items: center; }
+  .jobs-card { overflow: hidden; width: 100%; text-align: left; }
+  .jobs-empty { padding: 28px 16px; color: var(--text-3); text-align: left; font-family: var(--font-mono); font-size: 11px; }
+  :global(.jobs-top-pager .page-nav) { margin-top: 0; padding: 0 0 14px; }
+  @media (max-width: 600px) { .jobs-page-header { align-items: flex-start; flex-direction: column; } .jobs-page-actions { flex-wrap: wrap; } }
 </style>
