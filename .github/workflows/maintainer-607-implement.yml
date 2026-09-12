@@ -18,6 +18,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Prepare implementation script for app-safe push
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/maintainer-607-implement.sh')
+          s = p.read_text()
+          s = s.replace('git rebase origin/develop', 'git merge --no-edit origin/develop')
+          s = s.replace('rm -f .github/workflows/maintainer-607-implement.yml .github/maintainer-607-implement.sh', 'git restore -- .github/workflows/nix-package.yml\nrm -f .github/workflows/release.yml')
+          s = s.replace('git push --force-with-lease origin HEAD:maintainer/607-versioning', 'npm --prefix frontend run generate:api\ngit add frontend/src/lib/api/openapi.ts\ngit commit --amend --no-edit\ngit push origin HEAD:maintainer/607-versioning')
+          p.write_text(s)
+          PY
       - name: Implement and validate
         shell: bash
         run: |
