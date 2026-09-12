@@ -105,6 +105,6 @@ jobs:
       - name: Install Chromium
         run: npx playwright install chromium
       - name: Browser regressions
-        run: npm run test:e2e -- startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-history-controls.spec.ts
+        run: npm run test:e2e -- startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-cancel-inflight.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-history-controls.spec.ts
       - name: Build
         run: npm run build

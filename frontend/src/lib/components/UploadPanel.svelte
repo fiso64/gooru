@@ -309,13 +309,13 @@
 
       {#if queueRows.length > 0}
         <section class="upload-queue-section" aria-label={uploadStatus || 'Upload queue'}>
-          <div class:has-active-job={Boolean(activeUploadJobID)} class="upload-list-head upload-queue-head">
+          <div class:has-active-job={uploadBusy || Boolean(activeUploadJobID)} class="upload-list-head upload-queue-head">
             <div class="g-eyebrow">Queue · {queueRows.length} {queueRows.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
             <div class="upload-list-actions upload-queue-actions">
               <button class="g-btn g-btn-sm" type="button" disabled title="Pause uploads coming soon"><Icon name="pause" size={12} /> Pause all</button>
               <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => onClear('done')}><Icon name="close" size={12} /> Clear done</button>
             </div>
-            {#if activeUploadJobID}
+            {#if uploadBusy || activeUploadJobID}
               <button
                 class="g-btn g-btn-sm upload-cancel-action"
                 type="button"

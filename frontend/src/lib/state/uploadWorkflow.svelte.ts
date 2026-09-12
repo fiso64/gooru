@@ -63,6 +63,7 @@ export function createUploadWorkflow() {
   let addedAtStrategy = $state<UploadAddedAtStrategy>('queue');
   let autoUpload = $state(false);
   let activeSubmissions = $state(0);
+  const activeSubmissionControllers = new Set<AbortController>();
   let cancelBusy = $state(false);
   let cancelPending = false;
   let cancelPendingMutate: CancelJob | undefined;
@@ -82,6 +83,8 @@ export function createUploadWorkflow() {
   });
 
   function reset() {
+    for (const controller of activeSubmissionControllers) controller.abort();
+    activeSubmissionControllers.clear();
     files = [];
     items = [];
     tags = '';
@@ -262,6 +265,8 @@ export function createUploadWorkflow() {
     }
     items = nextItems;
     files = [];
+    const controller = new AbortController();
+    activeSubmissionControllers.add(controller);
     activeSubmissions += 1;
     statusCounts = countUploadStatuses(items);
 
@@ -304,7 +309,8 @@ export function createUploadWorkflow() {
             const current = items[itemIndex];
             replaceItem(itemIndex, current ? uploadProgressItem([current], 0, fileProgress[fileIndex] ?? progress)[0] : undefined);
           });
-        }
+        },
+        signal: controller.signal
       });
 
       if ('id' in response) {
@@ -331,12 +337,20 @@ export function createUploadWorkflow() {
         changedFiles = true;
       }
     } catch (error) {
-      const message = errorMessage(error);
-      for (const itemIndex of batchItemIndices) {
-        const current = items[itemIndex];
-        if (current) replaceItem(itemIndex, { ...current, status: 'error', error: message });
+      if (controller.signal.aborted) {
+        for (const itemIndex of batchItemIndices) {
+          const current = items[itemIndex];
+          if (current) replaceItem(itemIndex, { ...current, status: 'canceled', error: '' });
+        }
+      } else {
+        const message = errorMessage(error);
+        for (const itemIndex of batchItemIndices) {
+          const current = items[itemIndex];
+          if (current) replaceItem(itemIndex, { ...current, status: 'error', error: message });
+        }
       }
     } finally {
+      activeSubmissionControllers.delete(controller);
       activeSubmissions = Math.max(0, activeSubmissions - 1);
       if (activeSubmissions === 0 && cancelPending) {
         cancelPending = false;
@@ -357,6 +371,7 @@ export function createUploadWorkflow() {
     if (activeSubmissions > 0) {
       cancelPending = true;
       cancelPendingMutate = mutate;
+      for (const controller of activeSubmissionControllers) controller.abort();
       changed = true;
     }
     try {

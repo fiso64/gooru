@@ -100,18 +100,20 @@ export interface UploadVariables {
   queueIndex: number[];
   queueTotal: number[];
   onProgress?: (progress: number) => void;
+  signal?: AbortSignal;
 }
 
 export function createUploadMutation(getCSRFToken: () => string) {
   return createMutation<BackgroundOperation | UploadImportResponse, Error, UploadVariables>(() => ({
-    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, onProgress }) =>
+    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, onProgress, signal }) =>
       new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress, {
         addedAtStrategy,
         queueTimeMs,
         queueFirstTimeMs,
         queueLastTimeMs,
         queueIndex,
-        queueTotal
+        queueTotal,
+        signal
       })
   }));
 }

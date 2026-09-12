@@ -247,7 +247,8 @@ export class ApiClient {
     return uploadMultipart<BackgroundOperation | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
       csrfToken: this.csrfToken,
       preferAsync,
-      onProgress
+      onProgress,
+      signal: ordering.signal
     });
   }
 
@@ -282,12 +283,14 @@ export interface UploadOrderingMetadata {
   queueLastTimeMs?: number;
   queueIndex?: number[];
   queueTotal?: number[];
+  signal?: AbortSignal;
 }
 
 interface UploadMultipartOptions {
   csrfToken: string;
   preferAsync: boolean;
   onProgress?: (progress: number) => void;
+  signal?: AbortSignal;
 }
 
 function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipartOptions): Promise<T> {
@@ -322,6 +325,14 @@ function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipar
 
     xhr.addEventListener('error', () => reject(new ApiError(0, 'network_error', 'Network error while uploading files')));
     xhr.addEventListener('abort', () => reject(new ApiError(0, 'request_aborted', 'Upload was canceled')));
+
+    if (options.signal?.aborted) {
+      reject(new ApiError(0, 'request_aborted', 'Upload was canceled'));
+      return;
+    }
+    const abortUpload = () => xhr.abort();
+    options.signal?.addEventListener('abort', abortUpload, { once: true });
+    xhr.addEventListener('loadend', () => options.signal?.removeEventListener('abort', abortUpload), { once: true });
     xhr.send(form);
   });
 }
