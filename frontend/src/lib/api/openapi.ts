@@ -1549,7 +1549,39 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Clear visible terminal durable operation history.
+         * @description Removes completed, failed, and canceled visible operations together with their terminal child task history. Pending/running operations, hidden implementation operations, and operations with active child tasks are retained.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Terminal operation history cleared. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: int64 */
+                            cleared: number;
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
