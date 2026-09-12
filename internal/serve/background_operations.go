@@ -22,6 +22,10 @@ type backgroundOperationReader interface {
 	GetBackgroundOperationResult(string, any) (bool, error)
 }
 
+type backgroundOperationHistoryClearer interface {
+	ClearTerminalBackgroundOperations() (int64, error)
+}
+
 type backgroundOperationCheckpointReader interface {
 	GetBackgroundOperationCheckpoint(string, any) (bool, error)
 }
@@ -59,12 +63,20 @@ type BackgroundOperationListResponse struct {
 	ActiveCount *int                     `json:"active_count,omitempty"`
 }
 
+type BackgroundOperationClearResponse struct {
+	Cleared int64 `json:"cleared"`
+}
+
 func (l *GooruLibrary) GetBackgroundOperation(operationID string) (core.BackgroundOperationState, bool, error) {
 	return l.client.GetBackgroundOperation(operationID)
 }
 
 func (l *GooruLibrary) ListBackgroundOperations(options core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error) {
 	return l.client.ListBackgroundOperations(options)
+}
+
+func (l *GooruLibrary) ClearTerminalBackgroundOperations() (int64, error) {
+	return l.client.ClearTerminalBackgroundOperations()
 }
 
 func (l *GooruLibrary) CancelBackgroundOperation(operationID string) (bool, error) {
@@ -121,13 +133,27 @@ func (l *GooruLibrary) SetBackgroundOperationResult(operationID string, result a
 }
 
 func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
+	if r.Method != http.MethodGet && r.Method != http.MethodDelete {
+		w.Header().Set("Allow", "GET, DELETE")
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
 	if s.backgroundOperations == nil {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "background operation service is not configured", nil)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		clearer, ok := s.backgroundOperations.(backgroundOperationHistoryClearer)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable", "background operation history clearing is not configured", nil)
+			return
+		}
+		cleared, err := clearer.ClearTerminalBackgroundOperations()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to clear completed background operations", nil)
+			return
+		}
+		writeJSON(w, http.StatusOK, BackgroundOperationClearResponse{Cleared: cleared})
 		return
 	}
 	if rawIDs, ok := r.URL.Query()["id"]; ok {
