@@ -89,3 +89,43 @@ func (s *Store) BatchGetLocationSourcesByPaths(paths []string) (map[string]types
 
 	return locations, nil
 }
+
+// UpdateRelinkedLocation applies a relink move while respecting managed storage
+// indirection. For a managed location, the planner's destination is the newly
+// discovered physical source, so repair that mapping and preserve the canonical
+// logical path and location-scoped metadata. Unmanaged locations keep the
+// ordinary path-move behavior.
+func (s *Store) UpdateRelinkedLocation(q Querier, oldPath string, newInfo types.LocationInfo) error {
+	res, err := q.Exec(`
+		UPDATE managed_storage_locations
+		SET physical_path = ?
+		WHERE location_id = (SELECT id FROM locations WHERE path = ?)`,
+		newInfo.Path, oldPath)
+	if err != nil {
+		return err
+	}
+	managedRows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if managedRows == 0 {
+		return s.UpdateMovedLocation(q, oldPath, newInfo)
+	}
+
+	res, err = q.Exec(`
+		UPDATE locations
+		SET size_bytes = ?, mod_time = ?
+		WHERE path = ?`,
+		newInfo.Size, newInfo.ModTime, oldPath)
+	if err != nil {
+		return err
+	}
+	updatedRows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updatedRows != 1 {
+		return fmt.Errorf("expected to update 1 managed location for %q, updated %d", oldPath, updatedRows)
+	}
+	return nil
+}

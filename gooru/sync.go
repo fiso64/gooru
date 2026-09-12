@@ -333,7 +333,7 @@ func (c *Client) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSta
 	stats.LocationsRemoved += removed
 
 	for _, move := range changes.ProposedMoves {
-		if err := c.store.UpdateMovedLocation(tx, move.OldPath, move.NewLocation); err != nil {
+		if err := c.store.UpdateRelinkedLocation(tx, move.OldPath, move.NewLocation); err != nil {
 			return stats, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", move.OldPath, move.NewLocation.Path, err)
 		}
 	}

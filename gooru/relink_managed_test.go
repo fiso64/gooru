@@ -111,3 +111,58 @@ func TestNeedsRelinkUsesManagedPhysicalSource(t *testing.T) {
 		}
 	}
 }
+
+func TestRelinkRepairsMovedManagedPhysicalSource(t *testing.T) {
+	client := newManagedRelinkClient(t)
+	scanDir := t.TempDir()
+	logicalPath := filepath.Join(scanDir, "managed", "upload.bin") // canonical identity remains absent on disk
+	oldPhysicalPath := filepath.Join(t.TempDir(), "managed.bin")
+	addManagedTestLocation(t, client, logicalPath, oldPhysicalPath, []byte("managed contents"))
+
+	before, err := client.store.GetFileInfoByPath(logicalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPhysicalPath := filepath.Join(scanDir, "moved.bin")
+	if err := os.Rename(oldPhysicalPath, newPhysicalPath); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := client.Relink([]string{scanDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ProposedMoves) != 1 {
+		t.Fatalf("moves = %+v, want one managed-source repair", result.ProposedMoves)
+	}
+	move := result.ProposedMoves[0]
+	if move.OldPath != logicalPath || move.NewLocation.Path != newPhysicalPath {
+		t.Fatalf("move = %+v, want %q -> %q", move, logicalPath, newPhysicalPath)
+	}
+
+	if _, err := client.ApplyRelinkChanges(result); err != nil {
+		t.Fatal(err)
+	}
+	after, err := client.store.GetFileInfoByPath(logicalPath)
+	if err != nil {
+		t.Fatalf("logical identity was not preserved: %v", err)
+	}
+	if after.ID != before.ID {
+		t.Fatalf("location id changed from %d to %d", before.ID, after.ID)
+	}
+	source, err := client.store.GetLocationSourceByPath(logicalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source.StoragePath != newPhysicalPath {
+		t.Fatalf("physical path = %q, want %q", source.StoragePath, newPhysicalPath)
+	}
+
+	needsRelink, err := client.NeedsRelink([]string{scanDir}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if needsRelink {
+		t.Fatal("managed source still needs relink after physical-path repair")
+	}
+}
