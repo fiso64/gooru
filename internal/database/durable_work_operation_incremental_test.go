@@ -70,18 +70,35 @@ func TestBackgroundOperationLateChildReopensTerminalHistory(t *testing.T) {
 		if err != nil || !ok {
 			t.Fatalf("claim child %d = ok %v err %v", index, ok, err)
 		}
+		if index == 1 {
+			if err := store.SetBackgroundOperationResult(operationID, []byte(`{"generation":1}`)); err != nil {
+				t.Fatalf("SetBackgroundOperationResult: %v", err)
+			}
+		}
 		if index == 2 {
 			op := readBackgroundOperationLifecycle(t, store, operationID)
 			if op.Status != BackgroundWorkRunning || op.FinishedAt != nil || op.ErrorCode != "" {
 				t.Fatalf("operation did not reopen for late child: %+v", op)
 			}
+			if got, found, err := store.GetBackgroundOperationResult(operationID); err != nil || found || got != nil {
+				t.Fatalf("reopened operation result = (%q, %v, %v), want hidden and invalidated", got, found, err)
+			}
 		}
 		if err := store.CompleteBackgroundTask(claimed.ID, "worker", now.Add(time.Duration(index)*time.Second+500*time.Millisecond)); err != nil {
 			t.Fatal(err)
+		}
+		if index == 1 {
+			got, found, err := store.GetBackgroundOperationResult(operationID)
+			if err != nil || !found || string(got) != `{"generation":1}` {
+				t.Fatalf("first completed result = (%q, %v, %v), want generation 1", got, found, err)
+			}
 		}
 	}
 	op := readBackgroundOperationLifecycle(t, store, operationID)
 	if op.Status != BackgroundWorkCompleted || op.ProgressCompleted != 2 || op.ProgressFailed != 0 {
 		t.Fatalf("operation after late child history = %+v", op)
+	}
+	if got, found, err := store.GetBackgroundOperationResult(operationID); err != nil || found || got != nil {
+		t.Fatalf("late-child completion resurrected stale result = (%q, %v, %v)", got, found, err)
 	}
 }
