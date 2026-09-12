@@ -54,7 +54,7 @@
     onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;
     onCancel: (jobID: string) => void;
-    onClear: () => void;
+    onClear: (scope: 'staged' | 'done') => void;
     onRemove: (index: number) => void;
   }>();
 
@@ -254,7 +254,7 @@
           <div class="upload-list-head">
             <div class="g-eyebrow">Staged · {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'} · {formatBytes(stagedBytes)}</div>
             <div class="upload-list-actions">
-              <button class="g-btn g-btn-sm" type="button" onclick={onClear}><Icon name="close" size={12} /> Clear staged</button>
+              <button class="g-btn g-btn-sm" type="button" onclick={() => onClear('staged')}><Icon name="close" size={12} /> Clear staged</button>
               <button class="g-btn g-btn-primary g-btn-sm" type="submit" disabled={uploadBusy || Boolean(activeUploadJobID)}>
                 <Icon name="upload" size={12} /> Upload {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'}
               </button>
@@ -265,7 +265,7 @@
               {#each stagedVisibleRows as row (row.index)}
                 {@const item = row.item}
                 <div class="upload-row upload-row-staged">
-                  <UploadMediaPreview file={uploadFiles[row.index]} {item} />
+                  <UploadMediaPreview file={item.previewFile} {item} />
                   <div><div class="name">{item.name}</div></div>
                   <div class="size">{formatBytes(item.size)}</div>
                   <div class="progress is-staged" aria-hidden="true"></div>
@@ -299,7 +299,7 @@
             <div class="g-eyebrow">Queue · {queueRows.length} {queueRows.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
             <div class="upload-list-actions upload-queue-actions">
               <button class="g-btn g-btn-sm" type="button" disabled title="Pause uploads coming soon"><Icon name="pause" size={12} /> Pause all</button>
-              <button class="g-btn g-btn-sm" type="button" disabled={Boolean(activeUploadJobID)} onclick={onClear}><Icon name="close" size={12} /> Clear done</button>
+              <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => onClear('done')}><Icon name="close" size={12} /> Clear done</button>
             </div>
             {#if activeUploadJobID}
               <button
@@ -317,7 +317,7 @@
               {#each queueVisibleRows as row (row.index)}
                 {@const item = row.item}
                 <div class="upload-row">
-                  <UploadMediaPreview file={uploadFiles[row.index]} {item} />
+                  <UploadMediaPreview file={item.previewFile} {item} />
                   <div>
                     <div class="name">{item.name}</div>
                     {#if item.error}<div class="upload-error">{item.error}</div>{/if}
