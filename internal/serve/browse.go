@@ -425,7 +425,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		s.handleRemoveFiles(w, r)
 	default:
 		w.Header().Set("Allow", "GET, DELETE")
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed", nil)
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 	}
 }
 
