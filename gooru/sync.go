@@ -190,8 +190,12 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	if err != nil {
 		return result, fmt.Errorf("could not look up old paths for found content: %w", err)
 	}
+	knownSources, err := c.store.BatchGetLocationSourcesByPaths(uniqueKnownPaths(knownPathsByHash))
+	if err != nil {
+		return result, fmt.Errorf("could not look up tracked sources for found content: %w", err)
+	}
 
-	missingKnownPath := missingPaths(knownPathsByHash)
+	missingKnownPath := missingPaths(knownPathsByHash, knownSources)
 	return relink.Plan(relink.PlanInput{
 		DBLocations:      dbLocationsInScope,
 		FSLocations:      fsLocations,
@@ -214,14 +218,33 @@ func uniqueHashes(locations map[string]types.LocationInfo) []string {
 	return hashes
 }
 
-func missingPaths(pathsByHash map[string][]string) map[string]bool {
+func uniqueKnownPaths(pathsByHash map[string][]string) []string {
+	seen := make(map[string]struct{})
+	paths := make([]string, 0)
+	for _, knownPaths := range pathsByHash {
+		for _, path := range knownPaths {
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+func missingPaths(pathsByHash map[string][]string, sourcesByPath map[string]types.LocationInfo) map[string]bool {
 	missing := make(map[string]bool)
 	for _, paths := range pathsByHash {
 		for _, path := range paths {
 			if _, checked := missing[path]; checked {
 				continue
 			}
-			_, err := os.Stat(path)
+			sourcePath := path
+			if source, ok := sourcesByPath[path]; ok && source.StoragePath != "" {
+				sourcePath = source.StoragePath
+			}
+			_, err := os.Stat(sourcePath)
 			missing[path] = os.IsNotExist(err)
 		}
 	}
