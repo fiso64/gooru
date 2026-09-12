@@ -1,12 +1,13 @@
 package database
 
 import (
+	"database/sql"
 	"testing"
 
 	"gooru.local/types"
 )
 
-func TestRehashLocationPreservingTagsKeepsLocationScopedMetadata(t *testing.T) {
+func TestRehashLocationPreservingTagsKeepsLocationIdentityButInvalidatesDerivedMetadata(t *testing.T) {
 	store := newMemoryTestStore(t)
 	const (
 		oldHash      = "old-hash"
@@ -28,7 +29,7 @@ func TestRehashLocationPreservingTagsKeepsLocationScopedMetadata(t *testing.T) {
 	originalID := file.ID
 
 	if err := store.UpsertMediaMetadata(types.MediaMetadata{
-		LocationID: originalID,
+		LocationID: file.ID,
 		MediaKind:  "photo",
 		MimeType:   "image/jpeg",
 	}); err != nil {
@@ -58,8 +59,13 @@ func TestRehashLocationPreservingTagsKeepsLocationScopedMetadata(t *testing.T) {
 	if file.Hash != newHash {
 		t.Fatalf("content hash = %q, want %q", file.Hash, newHash)
 	}
-	if file.Metadata == nil || file.Metadata.MediaKind != "photo" || file.Metadata.MimeType != "image/jpeg" {
-		t.Fatalf("media metadata not preserved: %#v", file.Metadata)
+	if file.Metadata != nil {
+		t.Fatalf("stale media metadata preserved after byte-changing rehash: %#v", file.Metadata)
+	}
+
+	var metadataLocationID int64
+	if err := store.QueryRow(`SELECT location_id FROM media_metadata WHERE location_id = ?`, originalID).Scan(&metadataLocationID); err != sql.ErrNoRows {
+		t.Fatalf("media metadata row still present after rehash: id=%d err=%v", metadataLocationID, err)
 	}
 
 	var gotPhysicalPath string
