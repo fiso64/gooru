@@ -462,74 +462,9 @@ func (c *Client) PruneLocations(paths []string) (int, error) {
 	return c.store.RemoveLocationsByPath(paths)
 }
 
-// RehashFiles updates the content record for files that have been modified on disk, preserving their tags.
+// RehashFiles updates content for tracked files while preserving tags.
+// It is kept for API compatibility; RehashTrackedFiles is the single source of
+// rehash behavior so managed-storage and ordinary locations cannot drift apart.
 func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error), useMetadataHeuristic bool) {
-	for _, originalPath := range filePaths {
-		absPath, err := resolvePath(originalPath)
-		if err != nil {
-			progressCb(originalPath, 0, err)
-			continue
-		}
-
-		dbInfo, err := c.store.GetLocationByPath(absPath)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				progressCb(originalPath, types.StatusSkippedNotInDB, nil)
-			} else {
-				progressCb(originalPath, 0, fmt.Errorf("database lookup failed: %w", err))
-			}
-			continue
-		}
-
-		logicalInfo, err := c.hasher.FileMetadata(absPath)
-		if err != nil {
-			progressCb(originalPath, 0, err) // e.g., file deleted or source policy rejected it
-			continue
-		}
-
-		// Path 1: Fast exit using heuristic if requested and logical metadata matches.
-		if useMetadataHeuristic && (logicalInfo.Size == dbInfo.Size && logicalInfo.ModTime.Unix() == dbInfo.ModTime) {
-			progressCb(originalPath, types.StatusSkippedUnchanged, nil)
-			continue
-		}
-
-		// Path 2: Heuristic was false OR failed. We must verify by hashing.
-		newHash, err := c.hasher.HashFile(absPath)
-		if err != nil {
-			progressCb(originalPath, 0, fmt.Errorf("hashing failed: %w", err))
-			continue
-		}
-
-		// Case A: Content is identical.
-		if newHash == dbInfo.Hash {
-			// Check if only metadata changed.
-			if logicalInfo.Size != dbInfo.Size || logicalInfo.ModTime.Unix() != dbInfo.ModTime {
-				err := c.store.UpdateLocationMetadata(absPath, logicalInfo.Size, logicalInfo.ModTime.Unix())
-				if err != nil {
-					progressCb(originalPath, 0, fmt.Errorf("metadata update failed: %w", err))
-				} else {
-					progressCb(originalPath, types.StatusMetadataUpdated, nil)
-				}
-			} else {
-				// Hashes and metadata match, truly unchanged.
-				progressCb(originalPath, types.StatusSkippedUnchanged, nil)
-			}
-			continue
-		}
-
-		// Case B: Content has definitively changed. Proceed with full rehash.
-		newLocInfo := types.LocationInfo{
-			Path:      absPath,
-			Hash:      newHash,
-			Size:      logicalInfo.Size,
-			ModTime:   logicalInfo.ModTime.Unix(),
-			Extension: filepath.Ext(absPath),
-		}
-		err = c.store.RehashLocationPreservingTags(dbInfo.Hash, newHash, newLocInfo)
-		if err != nil {
-			progressCb(originalPath, 0, fmt.Errorf("transaction failed: %w", err))
-		} else {
-			progressCb(originalPath, types.StatusRehashed, nil)
-		}
-	}
+	c.RehashTrackedFiles(filePaths, progressCb, useMetadataHeuristic)
 }
