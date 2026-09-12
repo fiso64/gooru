@@ -47,14 +47,33 @@ async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Upload' }).click();
 }
 
-test('cancel aborts an upload request that is still in flight before durable admission', async ({ page }) => {
+test('cancel aborts transport and cancels the pre-body durable reservation', async ({ page }) => {
   await mockApp(page);
 
   let uploadRequests = 0;
-  await page.route('**/api/v1/uploads', async () => {
+  let cancelRequests = 0;
+  const operationID = 'operation-upload-test';
+  await page.route(`**/api/v1/operations/${operationID}`, async (route) => {
+    if (route.request().method() === 'DELETE') cancelRequests += 1;
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: operationID, kind: 'upload_import', status: 'canceled', progress_total: 1, progress_completed: 0, progress_failed: 0 })
+    });
+  });
+  await page.route('**/api/v1/uploads', async (route) => {
+    if (route.request().headers()['x-gooru-upload-reserve'] === 'true') {
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: operationID, kind: 'upload_import', status: 'running', stage: 'receiving', progress_total: 1, progress_completed: 0, progress_failed: 0 })
+      });
+      return;
+    }
     uploadRequests += 1;
-    // Keep the request in flight, matching the owner repro where the first large file
-    // is still transferring and the server has not returned a durable operation yet.
+    expect(route.request().headers()['x-gooru-upload-operation-id']).toBe(operationID);
+    // Keep the multipart request in flight. Cancel must still have a durable
+    // server identity even though this request never produces its response.
     await new Promise<void>(() => {});
   });
 
@@ -69,6 +88,7 @@ test('cancel aborts an upload request that is still in flight before durable adm
   await expect(page.getByRole('button', { name: /^Cancel$/ })).toBeVisible();
   await page.getByRole('button', { name: /^Cancel$/ }).click();
 
+  await expect.poll(() => cancelRequests).toBeGreaterThan(0);
   await expect(page.locator('.upload-row .status').filter({ hasText: 'canceled' })).toHaveCount(2, { timeout: 2_000 });
   await expect(page.getByRole('button', { name: /^Cancel$/ })).toHaveCount(0);
 });
