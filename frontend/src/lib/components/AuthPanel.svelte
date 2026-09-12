@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { getBuildInfo, type BuildInfo } from '$lib/api/buildInfo';
   import Logo from './Logo.svelte';
 
   let {
@@ -21,9 +22,23 @@
   }>();
 
   let usernameInput: HTMLInputElement;
+  let buildInfo: BuildInfo | null = $state(null);
+
+  function versionLabel(): string { return buildInfo ? `v${buildInfo.version}` : 'v…'; }
+  function buildRef(): string {
+    if (!buildInfo) return 'develop';
+    if (!buildInfo.development) return `v${buildInfo.version}`;
+    return buildInfo.revision && buildInfo.revision !== 'unknown' ? buildInfo.revision : 'develop';
+  }
+  function sourceHref(): string {
+    if (!buildInfo || !buildInfo.revision || buildInfo.revision === 'unknown') return 'https://github.com/fiso64/gooru';
+    return `https://github.com/fiso64/gooru/tree/${buildInfo.revision}`;
+  }
+  function docsHref(): string { return `https://github.com/fiso64/gooru/tree/${buildRef()}/docs`; }
 
   onMount(() => {
     usernameInput?.focus();
+    void getBuildInfo().then((info) => { buildInfo = info; }).catch(() => {});
   });
 </script>
 
@@ -31,7 +46,7 @@
   <div class="login-v2-card">
     <div class="login-v2-id">
       <div class="login-v2-mark"><Logo size={16} /></div>
-      <div class="login-v2-id-meta"><span>agpl-3.0</span></div>
+      <div class="login-v2-id-meta"><span>{versionLabel()}</span><span>agpl-3.0</span></div>
     </div>
 
     <form class="login-v2-form" onsubmit={(event) => { event.preventDefault(); onLogin(); }}>
@@ -72,9 +87,9 @@
     <div class="login-v2-foot">
       <div><span class="mono">first run?</span><span> on the server: </span><code>gooru user create-admin</code></div>
       <div class="login-v2-foot-links">
-        <a href="https://github.com/fiso64/gooru/tree/develop/docs" target="_blank" rel="noreferrer">docs</a>
+        <a href={docsHref()} target="_blank" rel="noreferrer">docs</a>
         <span class="sep">&middot;</span>
-        <a href="https://github.com/fiso64/gooru" target="_blank" rel="noreferrer">source</a>
+        <a href={sourceHref()} target="_blank" rel="noreferrer">source</a>
       </div>
     </div>
   </div>

@@ -4,7 +4,7 @@ set -euo pipefail
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git fetch origin develop
-git rebase origin/develop
+git merge --no-edit origin/develop
 
 cat > internal/buildinfo/buildinfo.go <<'EOF'
 package buildinfo
@@ -307,7 +307,8 @@ block='''  /build:
 s=s.replace(marker,block+marker,1); p.write_text(s)
 PY
 
-rm -f .github/workflows/maintainer-607-implement.yml .github/maintainer-607-implement.sh
+git restore -- .github/workflows/nix-package.yml
+rm -f .github/workflows/release.yml
 gofmt -w internal/buildinfo cmd/gooru/cmd/version.go internal/serve/build_info.go internal/serve/build_info_test.go
 git add -A
 git diff --cached --check
@@ -323,4 +324,7 @@ npm --prefix frontend run test:unit
 npm --prefix frontend run build
 nix build .#packages.x86_64-linux.default --print-build-logs
 
-git push --force-with-lease origin HEAD:maintainer/607-versioning
+npm --prefix frontend run generate:api
+git add frontend/src/lib/api/openapi.ts
+git commit --amend --no-edit
+git push origin HEAD:maintainer/607-versioning

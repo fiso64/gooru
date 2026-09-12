@@ -6,6 +6,26 @@ info:
 servers:
   - url: /api/v1
 paths:
+  /build:
+    get:
+      summary: Get running build identity.
+      responses:
+        "200":
+          description: Running server version and source revision.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, revision, dirty, development]
+                properties:
+                  version:
+                    type: string
+                  revision:
+                    type: string
+                  dirty:
+                    type: boolean
+                  development:
+                    type: boolean
   /health:
     get:
       summary: Health check

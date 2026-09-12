@@ -7,13 +7,16 @@
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+      version = builtins.replaceStrings [ "\n" ] [ "" ] (builtins.readFile ./VERSION);
+      revision = if self ? rev then self.rev else if self ? dirtyRev then builtins.replaceStrings [ "-dirty" ] [ "" ] self.dirtyRev else "unknown";
+      dirty = if self ? dirtyRev then "true" else "false";
     in {
       packages = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
           frontend = pkgs.buildNpmPackage {
             pname = "gooru-frontend";
-            version = "0-unstable";
+            version = version;
             src = ./frontend;
             npmDepsHash = "sha256-6dL0bcxE0C39LDBG4GKQNA6xJx98NP2uSB8ifS1pxRE=";
             npmBuildScript = "build";
@@ -27,11 +30,16 @@
         in {
           default = pkgs.buildGoModule {
             pname = "gooru";
-            version = "0-unstable";
+            version = version;
             src = ./.;
             vendorHash = "sha256-sZCEbsjFTNim3dOAW347LBjQRuQboA2ttXN8A3VWlFA=";
             subPackages = [ "cmd/gooru" ];
             tags = [ "govips" ];
+            ldflags = [
+              "-X=gooru.local/internal/buildinfo.Version=${version}"
+              "-X=gooru.local/internal/buildinfo.Revision=${revision}"
+              "-X=gooru.local/internal/buildinfo.Dirty=${dirty}"
+            ];
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.vips ];
 

@@ -1,17 +1,17 @@
 package buildinfo
 
 import (
+	"fmt"
 	"runtime/debug"
 	"strings"
 )
 
-// Version, Revision, and Dirty are intended to be populated with -ldflags for
-// release/package builds. Their defaults describe an ordinary development
-// build without pretending it is an official release.
+// Version, Revision, and Dirty are overridden with -ldflags by release and
+// package builds. Source builds intentionally identify themselves as dev.
 var (
-	Version  = "0.1.0-dev"
-	Revision = "unknown"
-	Dirty    = "true"
+	Version  = "0.0.0-dev"
+	Revision = ""
+	Dirty    = ""
 )
 
 type Info struct {
@@ -24,22 +24,20 @@ type Info struct {
 func Current() Info {
 	version := strings.TrimSpace(Version)
 	if version == "" {
-		version = "0.1.0-dev"
+		version = "0.0.0-dev"
 	}
 	revision := strings.TrimSpace(Revision)
-	dirty := strings.EqualFold(strings.TrimSpace(Dirty), "true")
-
+	dirtyText := strings.TrimSpace(Dirty)
+	dirty := strings.EqualFold(dirtyText, "true")
 	if bi, ok := debug.ReadBuildInfo(); ok {
-		if revision == "" || revision == "unknown" {
-			for _, setting := range bi.Settings {
-				if setting.Key == "vcs.revision" && setting.Value != "" {
+		for _, setting := range bi.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				if revision == "" && setting.Value != "" {
 					revision = setting.Value
 				}
-			}
-		}
-		if strings.TrimSpace(Dirty) == "" {
-			for _, setting := range bi.Settings {
-				if setting.Key == "vcs.modified" {
+			case "vcs.modified":
+				if dirtyText == "" {
 					dirty = setting.Value == "true"
 				}
 			}
@@ -48,13 +46,7 @@ func Current() Info {
 	if revision == "" {
 		revision = "unknown"
 	}
-
-	return Info{
-		Version:     version,
-		Revision:    revision,
-		Dirty:       dirty,
-		Development: strings.Contains(version, "dev") || dirty || revision == "unknown",
-	}
+	return Info{Version: version, Revision: revision, Dirty: dirty, Development: strings.Contains(version, "dev") || dirty || revision == "unknown"}
 }
 
 func ShortRevision(revision string) string {
@@ -63,4 +55,15 @@ func ShortRevision(revision string) string {
 		return revision
 	}
 	return revision[:12]
+}
+
+func Summary() string {
+	info := Current()
+	state := ""
+	if info.Dirty {
+		state = ", dirty"
+	} else if info.Development {
+		state = ", development"
+	}
+	return fmt.Sprintf("gooru v%s (revision %s%s)", info.Version, ShortRevision(info.Revision), state)
 }
