@@ -31,11 +31,25 @@ func (s *Store) RehashLocationPreservingTags(oldHash, newHash string, newLoc typ
 		return fmt.Errorf("failed to copy tags to rehashed content: %w", err)
 	}
 
+	// content_tags triggers refresh caches for locations that already point at the
+	// target hash, but this location still points at oldHash while those inserts
+	// happen. Recompute its cache in the same UPDATE that moves it so a rehash onto
+	// an existing differently-tagged hash cannot leave stale query/display state.
 	res, err := tx.Exec(`
 		UPDATE locations
-		SET content_hash = ?, size_bytes = ?, mod_time = ?, extension = ?
+		SET content_hash = ?, size_bytes = ?, mod_time = ?, extension = ?,
+		    tags_cache = (
+			SELECT IFNULL(GROUP_CONCAT(tag_str, ' '), '')
+			FROM (
+				SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str
+				FROM tags t
+				JOIN content_tags ct ON t.id = ct.tag_id
+				WHERE ct.content_hash = ?
+				ORDER BY t.key, t.value
+			)
+		    )
 		WHERE path = ? AND content_hash = ?`,
-		newHash, newLoc.Size, newLoc.ModTime, newLoc.Extension, newLoc.Path, oldHash)
+		newHash, newLoc.Size, newLoc.ModTime, newLoc.Extension, newHash, newLoc.Path, oldHash)
 	if err != nil {
 		return fmt.Errorf("failed to update location record: %w", err)
 	}
