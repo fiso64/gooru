@@ -24,7 +24,6 @@
       { keys: ['k', '←'], description: 'Previous file or comic page' },
       { keys: ['t'], description: 'Focus tag input in tag mode' },
       { keys: ['u'], description: 'Focus tag input in untag mode' },
-      { keys: ['+', '−'], description: 'Switch tag / untag mode while the tag input is empty' },
       { keys: ['q'], description: 'Toggle original / preview media' },
       { keys: ['v'], description: 'Cycle viewer fit mode' },
       { keys: ['s'], description: 'Toggle smooth / nearest-neighbor scaling' },
