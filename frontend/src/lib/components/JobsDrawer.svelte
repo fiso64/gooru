@@ -1,6 +1,6 @@
 <script lang="ts">
+  import CancelActiveJobsButton from './CancelActiveJobsButton.svelte';
   import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
-  import Icon from './Icon.svelte';
   import JobRow from './JobRow.svelte';
   import type { Job } from '$lib/api/types';
 
@@ -34,9 +34,7 @@
   <div class="jobs-drawer-head">
     <h3 id="jobs-drawer-title">Jobs</h3>
     <div class="jobs-drawer-actions">
-      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Pause all coming soon" aria-label="Pause all coming soon">
-        <Icon name="pause" size={13} />
-      </button>
+      <CancelActiveJobsButton variant="icon" />
       <ClearCompletedJobsButton variant="icon" />
     </div>
   </div>
@@ -50,7 +48,6 @@
 </div>
 
 <style>
-  /* AppShell keeps this host for aria-controls; it must not become an in-flow grid item. */
   :global(#jobs-drawer) {
     display: contents;
   }

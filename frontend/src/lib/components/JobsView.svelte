@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CancelActiveJobsButton from './CancelActiveJobsButton.svelte';
   import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
   import JobRow from './JobRow.svelte';
   import PageNav from './PageNav.svelte';
@@ -56,7 +57,10 @@
         <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
         <h1>Background work</h1>
       </div>
-      <ClearCompletedJobsButton onCleared={resetPagination} />
+      <div class="jobs-page-actions">
+        <CancelActiveJobsButton />
+        <ClearCompletedJobsButton onCleared={resetPagination} />
+      </div>
     </div>
 
     {#if pageCount > 1}
@@ -114,6 +118,12 @@
     margin-bottom: 0;
   }
 
+  .jobs-page-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
   .jobs-card {
     overflow: hidden;
     width: 100%;
@@ -137,6 +147,10 @@
     .jobs-page-header {
       align-items: flex-start;
       flex-direction: column;
+    }
+
+    .jobs-page-actions {
+      flex-wrap: wrap;
     }
   }
 </style>
