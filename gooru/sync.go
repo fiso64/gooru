@@ -400,7 +400,7 @@ func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, st
 			ModTime:   logicalInfo.ModTime.Unix(),
 			Extension: filepath.Ext(absPath),
 		}
-		err = c.store.TransferTagsAndRehashLocation(dbInfo.Hash, newHash, newLocInfo)
+		err = c.store.RehashLocationPreservingTags(dbInfo.Hash, newHash, newLocInfo)
 		if err != nil {
 			progressCb(originalPath, 0, fmt.Errorf("transaction failed: %w", err))
 		} else {
