@@ -19,11 +19,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/maintainer-patch-602.py
+          mv internal/database/migrations/034_background_operation_producer_claim.up.sql internal/database/migrations/035_background_operation_producer_claim.up.sql
+          mv internal/database/migrations/034_background_operation_producer_claim.down.sql internal/database/migrations/035_background_operation_producer_claim.down.sql
           gofmt -w internal/database/durable_work_producer_claim.go internal/database/durable_work_producer_claim_test.go gooru/background.go internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go
           go test ./internal/database ./gooru ./internal/serve
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           rm .github/maintainer-patch-602.py
-          git add internal/database/migrations/034_background_operation_producer_claim.up.sql internal/database/migrations/034_background_operation_producer_claim.down.sql internal/database/durable_work_producer_claim.go internal/database/durable_work_producer_claim_test.go gooru/background.go internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go .github/maintainer-patch-602.py
+          git add internal/database/migrations/035_background_operation_producer_claim.up.sql internal/database/migrations/035_background_operation_producer_claim.down.sql internal/database/durable_work_producer_claim.go internal/database/durable_work_producer_claim_test.go gooru/background.go internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go .github/maintainer-patch-602.py
           git commit -m 'fix: atomically claim upload reservations'
           git push origin HEAD:maintainer/fix-602-upload-reservation-claim
