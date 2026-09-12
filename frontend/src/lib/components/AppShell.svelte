@@ -353,7 +353,7 @@
     <div class="sidebar-section saved-searches-section">
       <div class="sidebar-section-head">
         <span>Saved searches</span>
-        <button class="sidebar-head-action" type="button" title="Save current search" aria-label="Save current search" onclick={onCreateSavedSearch}>
+        <button class="sidebar-head-action" type="button" title="Save current search (B)" aria-label="Save current search" onclick={onCreateSavedSearch}>
           <Icon name="plus" size={11} />
         </button>
       </div>
