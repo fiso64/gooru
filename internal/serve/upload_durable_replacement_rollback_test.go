@@ -60,6 +60,31 @@ func TestRollbackDurableReplacementPreservesRacingDestination(t *testing.T) {
 	}
 }
 
+func TestRollbackDurableReplacementWithoutMarkerPreservesExistingDestination(t *testing.T) {
+	root := t.TempDir()
+	stagedPath := filepath.Join(root, ".photo.jpg.tmp")
+	finalPath := filepath.Join(root, "photo.jpg")
+	backupPath := stagedPath + ".backup"
+	if err := os.WriteFile(finalPath, []byte("racer"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backupPath, []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	file := savedUpload{path: stagedPath, destinationPath: finalPath, replace: true}
+	replacement := activatedReplacement{finalPath: finalPath, backupPath: backupPath, hadOriginal: true}
+
+	if err := rollbackDurableReplacement(file, replacement); !errors.Is(err, errUploadConflict) {
+		t.Fatalf("rollback error = %v, want upload conflict", err)
+	}
+	if got := string(mustReadFile(t, finalPath)); got != "racer" {
+		t.Fatalf("rollback changed unowned destination to %q", got)
+	}
+	if got := string(mustReadFile(t, backupPath)); got != "original" {
+		t.Fatalf("rollback changed preserved original to %q", got)
+	}
+}
+
 func TestRollbackDurableReplacementRestoresOriginal(t *testing.T) {
 	root := t.TempDir()
 	stagingDir := filepath.Join(root, durableUploadStagingRootName, testDurableUploadOperationID)
