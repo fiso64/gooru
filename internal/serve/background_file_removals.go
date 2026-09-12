@@ -176,7 +176,11 @@ func (s *Server) resumeManagedFileDeletionBatch(ctx context.Context, files []bac
 		if err != nil {
 			return rollbackFlatStagedFiles(stagedFiles, err)
 		}
-		if !stagedExists {
+		if stagedExists {
+			if err := s.validatePersistedStagedDeletionRetry(ctx, input.PublicID, staged.originalPath); err != nil {
+				return rollbackFlatStagedFiles(stagedFiles, err)
+			}
+		} else {
 			file, err := s.getFileByPublicID(ctx, input.PublicID)
 			if errors.Is(err, ErrNotFound) {
 				continue
@@ -211,6 +215,27 @@ func (s *Server) resumeManagedFileDeletionBatch(ctx context.Context, files []bac
 		}
 	}
 	return nil
+}
+
+func (s *Server) validatePersistedStagedDeletionRetry(ctx context.Context, publicID, originalPath string) error {
+	originalExists, err := pathExists(originalPath)
+	if err != nil {
+		return fmt.Errorf("check original path before staged deletion retry: %w", err)
+	}
+	if !originalExists {
+		return nil
+	}
+
+	_, err = s.getFileByPublicID(ctx, publicID)
+	if errors.Is(err, ErrNotFound) {
+		// The database delete already committed. The occupied original path is a
+		// replacement, so leave it alone and finish removing the staged original.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("resolve file before staged deletion retry: %w", err)
+	}
+	return errors.New("cannot resume staged file deletion because original path is occupied before database removal")
 }
 
 func rollbackFlatStagedFiles(stagedFiles []*flatStagedFileDeletion, cause error) error {
@@ -284,7 +309,11 @@ func (s *Server) resumeManagedFileDeletion(ctx context.Context, input background
 	if err != nil {
 		return err
 	}
-	if !stagedExists {
+	if stagedExists {
+		if err := s.validatePersistedStagedDeletionRetry(ctx, input.PublicID, staged.originalPath); err != nil {
+			return err
+		}
+	} else {
 		file, err := s.getFileByPublicID(ctx, input.PublicID)
 		if errors.Is(err, ErrNotFound) {
 			return staged.commitMissingOK()
@@ -353,9 +382,16 @@ func (d *stagedFileDeletion) stage() error {
 }
 
 func (d *stagedFileDeletion) rollbackMissingOK() error {
-	exists, err := pathExists(d.stagedPath)
-	if err != nil || !exists {
+	stagedExists, err := pathExists(d.stagedPath)
+	if err != nil || !stagedExists {
 		return err
+	}
+	originalExists, err := pathExists(d.originalPath)
+	if err != nil {
+		return err
+	}
+	if originalExists {
+		return errors.New("cannot restore staged file because original path is occupied")
 	}
 	if err := os.Rename(d.stagedPath, d.originalPath); err != nil {
 		return err

@@ -54,7 +54,21 @@ func (c *Client) EditPath(oldPath, newPath string) error {
 		return fmt.Errorf("could not resolve new path '%s': %w", newPath, err)
 	}
 
-	logicalInfo, err := c.hasher.FileMetadata(absNewPath)
+	// Managed uploads keep a canonical logical path in locations while their
+	// bytes live at a separate physical storage path. Renaming that logical
+	// identity must inspect the stored source rather than requiring the new
+	// logical path to exist on disk. Ordinary locations still inspect newPath,
+	// which is the file the user moved/renamed before invoking editpath.
+	sourcePath := absNewPath
+	tracked, err := c.store.GetLocationSourceByPath(absOldPath)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("could not inspect old tracked path '%s': %w", oldPath, err)
+	}
+	if err == nil && tracked.StoragePath != "" {
+		sourcePath = tracked.StoragePath
+	}
+
+	logicalInfo, err := c.hasher.FileMetadata(sourcePath)
 	if err != nil {
 		return fmt.Errorf("could not inspect new path '%s': %w", newPath, err)
 	}
@@ -82,6 +96,10 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 	dbLocations, err := c.store.GetLocationsForDirs(absDirs)
 	if err != nil {
 		return false, err
+	}
+	trackedSources, err := c.store.BatchGetLocationSourcesByPaths(locationPaths(dbLocations))
+	if err != nil {
+		return false, fmt.Errorf("could not look up tracked sources for pre-check: %w", err)
 	}
 
 	// IMPORTANT: Get the size-to-hash map to filter the FS walk, exactly like the full Relink scan does.
@@ -122,6 +140,37 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		}
 	}
 
+	// A physical managed-storage alias is already represented by its canonical
+	// logical location. Hide aliases found by the filesystem walk even when that
+	// logical location is outside the directories being checked; otherwise the
+	// backing object looks like an extra ordinary file forever.
+	scannedPaths := make([]string, 0, len(fsPaths))
+	for path := range fsPaths {
+		scannedPaths = append(scannedPaths, path)
+	}
+	managedAliases, err := c.store.BatchGetManagedLocationSourcesByPhysicalPaths(scannedPaths)
+	if err != nil {
+		return false, fmt.Errorf("could not look up managed backing aliases for pre-check: %w", err)
+	}
+	for physicalPath := range managedAliases {
+		delete(fsPaths, physicalPath)
+	}
+
+	// Managed locations use their logical path as database identity but keep the
+	// bytes at StoragePath. Add their logical identity to the comparison only
+	// when the physical source can be inspected through the configured policy.
+	for path, source := range trackedSources {
+		if source.StoragePath == "" {
+			continue
+		}
+		info, err := c.hasher.FileMetadata(source.StoragePath)
+		if err != nil {
+			continue
+		}
+		delete(fsPaths, source.StoragePath)
+		fsPaths[path] = logicalMetadata{size: info.Size, modTime: info.ModTime.Unix()}
+	}
+
 	// Now that both fsPaths and dbLocations are looking at the same conceptual set of files,
 	// the comparison logic will be correct.
 
@@ -138,7 +187,11 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		}
 
 		if alwaysVerifyHash {
-			currentHash, err := c.hasher.HashFile(path)
+			sourcePath := path
+			if source, ok := trackedSources[path]; ok && source.StoragePath != "" {
+				sourcePath = source.StoragePath
+			}
+			currentHash, err := c.hasher.HashFile(sourcePath)
 			if err != nil {
 				return true, nil // Can't hash the file, treat as changed.
 			}
@@ -171,13 +224,42 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	}
 	fsLocations, filesScanned := scanning.DirsConcurrently(absDirs, sizeToHashes, c.hasher)
 
+	managedAliases, err := c.store.BatchGetManagedLocationSourcesByPhysicalPaths(locationPaths(fsLocations))
+	if err != nil {
+		return result, fmt.Errorf("could not look up managed backing aliases: %w", err)
+	}
+	for physicalPath := range managedAliases {
+		delete(fsLocations, physicalPath)
+	}
+
 	fsHashes := uniqueHashes(fsLocations)
 	knownPathsByHash, err := c.store.BatchGetPathsForHashes(c.store, fsHashes)
 	if err != nil {
 		return result, fmt.Errorf("could not look up old paths for found content: %w", err)
 	}
+	trackedSources, err := c.store.BatchGetLocationSourcesByPaths(relinkSourcePaths(knownPathsByHash, dbLocationsInScope))
+	if err != nil {
+		return result, fmt.Errorf("could not look up tracked sources for found content: %w", err)
+	}
 
-	missingKnownPath := missingPaths(knownPathsByHash)
+	// A managed location whose physical source still exists is not missing merely
+	// because its canonical logical path is intentionally absent. Synthesize that
+	// logical identity into the planner's filesystem view so the first pass cannot
+	// propose a destructive move/delete for a live managed upload. If the backing
+	// path is itself inside a scanned directory, remove that physical alias first
+	// so it cannot also be proposed as a separate ordinary location.
+	for path, dbInfo := range dbLocationsInScope {
+		source, ok := trackedSources[path]
+		if !ok || source.StoragePath == "" {
+			continue
+		}
+		if _, err := os.Stat(source.StoragePath); err == nil || !os.IsNotExist(err) {
+			delete(fsLocations, source.StoragePath)
+			fsLocations[path] = dbInfo
+		}
+	}
+
+	missingKnownPath := missingPaths(knownPathsByHash, trackedSources)
 	return relink.Plan(relink.PlanInput{
 		DBLocations:      dbLocationsInScope,
 		FSLocations:      fsLocations,
@@ -200,14 +282,57 @@ func uniqueHashes(locations map[string]types.LocationInfo) []string {
 	return hashes
 }
 
-func missingPaths(pathsByHash map[string][]string) map[string]bool {
+func locationPaths(locations map[string]types.LocationInfo) []string {
+	paths := make([]string, 0, len(locations))
+	for path := range locations {
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func uniqueKnownPaths(pathsByHash map[string][]string) []string {
+	seen := make(map[string]struct{})
+	paths := make([]string, 0)
+	for _, knownPaths := range pathsByHash {
+		for _, path := range knownPaths {
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+func relinkSourcePaths(pathsByHash map[string][]string, dbLocations map[string]types.LocationInfo) []string {
+	paths := uniqueKnownPaths(pathsByHash)
+	seen := make(map[string]struct{}, len(paths)+len(dbLocations))
+	for _, path := range paths {
+		seen[path] = struct{}{}
+	}
+	for path := range dbLocations {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func missingPaths(pathsByHash map[string][]string, sourcesByPath map[string]types.LocationInfo) map[string]bool {
 	missing := make(map[string]bool)
 	for _, paths := range pathsByHash {
 		for _, path := range paths {
 			if _, checked := missing[path]; checked {
 				continue
 			}
-			_, err := os.Stat(path)
+			sourcePath := path
+			if source, ok := sourcesByPath[path]; ok && source.StoragePath != "" {
+				sourcePath = source.StoragePath
+			}
+			_, err := os.Stat(sourcePath)
 			missing[path] = os.IsNotExist(err)
 		}
 	}
@@ -236,7 +361,7 @@ func (c *Client) ApplyRelinkChanges(changes types.RelinkResult) (types.RelinkSta
 	stats.LocationsRemoved += removed
 
 	for _, move := range changes.ProposedMoves {
-		if err := c.store.UpdateMovedLocation(tx, move.OldPath, move.NewLocation); err != nil {
+		if err := c.store.UpdateRelinkedLocation(tx, move.OldPath, move.NewLocation); err != nil {
 			return stats, fmt.Errorf("failed to update moved path from '%s' to '%s': %w", move.OldPath, move.NewLocation.Path, err)
 		}
 	}
@@ -337,74 +462,9 @@ func (c *Client) PruneLocations(paths []string) (int, error) {
 	return c.store.RemoveLocationsByPath(paths)
 }
 
-// RehashFiles updates the content record for files that have been modified on disk, preserving their tags.
+// RehashFiles updates content for tracked files while preserving tags.
+// It is kept for API compatibility; RehashTrackedFiles is the single source of
+// rehash behavior so managed-storage and ordinary locations cannot drift apart.
 func (c *Client) RehashFiles(filePaths []string, progressCb func(path string, status types.RehashStatus, err error), useMetadataHeuristic bool) {
-	for _, originalPath := range filePaths {
-		absPath, err := resolvePath(originalPath)
-		if err != nil {
-			progressCb(originalPath, 0, err)
-			continue
-		}
-
-		dbInfo, err := c.store.GetLocationByPath(absPath)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				progressCb(originalPath, types.StatusSkippedNotInDB, nil)
-			} else {
-				progressCb(originalPath, 0, fmt.Errorf("database lookup failed: %w", err))
-			}
-			continue
-		}
-
-		logicalInfo, err := c.hasher.FileMetadata(absPath)
-		if err != nil {
-			progressCb(originalPath, 0, err) // e.g., file deleted or source policy rejected it
-			continue
-		}
-
-		// Path 1: Fast exit using heuristic if requested and logical metadata matches.
-		if useMetadataHeuristic && (logicalInfo.Size == dbInfo.Size && logicalInfo.ModTime.Unix() == dbInfo.ModTime) {
-			progressCb(originalPath, types.StatusSkippedUnchanged, nil)
-			continue
-		}
-
-		// Path 2: Heuristic was false OR failed. We must verify by hashing.
-		newHash, err := c.hasher.HashFile(absPath)
-		if err != nil {
-			progressCb(originalPath, 0, fmt.Errorf("hashing failed: %w", err))
-			continue
-		}
-
-		// Case A: Content is identical.
-		if newHash == dbInfo.Hash {
-			// Check if only metadata changed.
-			if logicalInfo.Size != dbInfo.Size || logicalInfo.ModTime.Unix() != dbInfo.ModTime {
-				err := c.store.UpdateLocationMetadata(absPath, logicalInfo.Size, logicalInfo.ModTime.Unix())
-				if err != nil {
-					progressCb(originalPath, 0, fmt.Errorf("metadata update failed: %w", err))
-				} else {
-					progressCb(originalPath, types.StatusMetadataUpdated, nil)
-				}
-			} else {
-				// Hashes and metadata match, truly unchanged.
-				progressCb(originalPath, types.StatusSkippedUnchanged, nil)
-			}
-			continue
-		}
-
-		// Case B: Content has definitively changed. Proceed with full rehash.
-		newLocInfo := types.LocationInfo{
-			Path:      absPath,
-			Hash:      newHash,
-			Size:      logicalInfo.Size,
-			ModTime:   logicalInfo.ModTime.Unix(),
-			Extension: filepath.Ext(absPath),
-		}
-		err = c.store.TransferTagsAndRehashLocation(dbInfo.Hash, newHash, newLocInfo)
-		if err != nil {
-			progressCb(originalPath, 0, fmt.Errorf("transaction failed: %w", err))
-		} else {
-			progressCb(originalPath, types.StatusRehashed, nil)
-		}
-	}
+	c.RehashTrackedFiles(filePaths, progressCb, useMetadataHeuristic)
 }
