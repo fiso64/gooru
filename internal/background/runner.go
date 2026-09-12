@@ -17,12 +17,11 @@ const (
 	defaultRetryDelay    = time.Second
 )
 
-// Every Runner shares one durable store in the serve process, and each Runner
-// performs the same global expired-lease recovery before polling its resource
-// class. Serialize that startup phase so SQLite WAL transactions do not race a
-// read snapshot upgrade to the single writer slot when several resource workers
-// start together after a crash.
-var startupRecoveryMu sync.Mutex
+// Every Runner shares one durable store, and expired-lease recovery is global.
+// Serialize both startup recovery and rare in-process recovery after lease loss so
+// SQLite WAL transactions do not race a read snapshot upgrade to the single writer
+// slot when several resource workers recover at once.
+var leaseRecoveryMu sync.Mutex
 
 type TaskStore interface {
 	RecoverExpiredBackgroundTaskLeases(time.Time) (int, error)
@@ -107,7 +106,7 @@ func NewRunner(cfg RunnerConfig) (*Runner, error) {
 // resource class until ctx is canceled. Resource-class ownership keeps scheduling concerns
 // independent from the user-visible durable operation lifecycle.
 func (r *Runner) Run(ctx context.Context) error {
-	startupRecoveryMu.Lock()
+	leaseRecoveryMu.Lock()
 	var recovered int
 	for {
 		var recoverErr error
@@ -116,16 +115,16 @@ func (r *Runner) Run(ctx context.Context) error {
 			break
 		}
 		if !database.IsTransientSQLiteContention(recoverErr) {
-			startupRecoveryMu.Unlock()
+			leaseRecoveryMu.Unlock()
 			return fmt.Errorf("recover expired background work: %w", recoverErr)
 		}
 		r.logSQLiteContention(ctx, "startup_recovery", "")
 		if err := wait(ctx, r.pollInterval); err != nil {
-			startupRecoveryMu.Unlock()
+			leaseRecoveryMu.Unlock()
 			return nil
 		}
 	}
-	startupRecoveryMu.Unlock()
+	leaseRecoveryMu.Unlock()
 	if recovered > 0 {
 		slog.WarnContext(ctx, "recovered expired background task leases",
 			"count", recovered,
@@ -164,7 +163,10 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 	if !ok {
 		retrying, err := r.failClaimed(ctx, task, "unsupported_task_kind", "no handler registered for task kind "+task.Kind)
 		if err != nil {
-			if errors.Is(err, database.ErrBackgroundTaskLeaseLost) || ctx.Err() != nil {
+			if errors.Is(err, database.ErrBackgroundTaskLeaseLost) {
+				return r.recoverLeaseLoss(ctx, task.ID)
+			}
+			if ctx.Err() != nil {
 				return nil
 			}
 			return fmt.Errorf("fail unsupported background task %s: %w", task.ID, err)
@@ -186,7 +188,7 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 	if renewErr != nil {
 		// Lease loss is the ownership boundary. Never write a handler outcome after it.
 		if errors.Is(renewErr, database.ErrBackgroundTaskLeaseLost) {
-			return nil
+			return r.recoverLeaseLoss(ctx, task.ID)
 		}
 		return fmt.Errorf("renew background task %s lease: %w", task.ID, renewErr)
 	}
@@ -197,7 +199,10 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 	}
 	if err == nil {
 		if err := r.completeClaimed(ctx, task); err != nil {
-			if errors.Is(err, database.ErrBackgroundTaskLeaseLost) || ctx.Err() != nil {
+			if errors.Is(err, database.ErrBackgroundTaskLeaseLost) {
+				return r.recoverLeaseLoss(ctx, task.ID)
+			}
+			if ctx.Err() != nil {
 				return nil
 			}
 			return fmt.Errorf("complete background task %s: %w", task.ID, err)
@@ -207,13 +212,48 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 
 	retrying, failErr := r.failClaimed(ctx, task, "handler_failed", err.Error())
 	if failErr != nil {
-		if errors.Is(failErr, database.ErrBackgroundTaskLeaseLost) || ctx.Err() != nil {
+		if errors.Is(failErr, database.ErrBackgroundTaskLeaseLost) {
+			return r.recoverLeaseLoss(ctx, task.ID)
+		}
+		if ctx.Err() != nil {
 			return nil
 		}
 		return fmt.Errorf("fail background task %s: %w", task.ID, failErr)
 	}
 	r.logTaskFailure(ctx, task, "handler_failed", retrying)
 	return nil
+}
+
+// recoverLeaseLoss makes runtime lease expiry self-healing. Without this path an expired
+// task discovered by renewal/finalization would remain in running state until the next
+// process restart, because ordinary claims only consider pending work.
+func (r *Runner) recoverLeaseLoss(ctx context.Context, taskID string) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	leaseRecoveryMu.Lock()
+	defer leaseRecoveryMu.Unlock()
+	for {
+		recovered, err := r.store.RecoverExpiredBackgroundTaskLeases(r.now())
+		if err == nil {
+			if recovered > 0 {
+				slog.WarnContext(ctx, "recovered expired background task leases after runtime lease loss",
+					"count", recovered,
+					"task_id", taskID,
+					"resource_class", r.resourceClass,
+					"worker_id", r.workerID,
+				)
+			}
+			return nil
+		}
+		if !database.IsTransientSQLiteContention(err) {
+			return fmt.Errorf("recover expired background work after lease loss: %w", err)
+		}
+		r.logSQLiteContention(ctx, "lease_loss_recovery", taskID)
+		if err := wait(ctx, r.pollInterval); err != nil {
+			return nil
+		}
+	}
 }
 
 func (r *Runner) completeClaimed(ctx context.Context, task database.BackgroundTask) error {
