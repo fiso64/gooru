@@ -104,6 +104,7 @@
     max-width: none;
     text-align: left;
     display: flex;
+    flex-direction: row;
     align-items: flex-end;
     justify-content: space-between;
     gap: 16px;

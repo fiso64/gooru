@@ -60,10 +60,12 @@
       <Icon name={iconFor(job.type)} size={14} />
       <b>{titleFor(job)}</b>
     </span>
-    <span class={`status ${visualStatus}`}>{visualStatus}</span>
-    {#if cancellable && onCancel}
-      <button class="job-cancel" type="button" aria-label={`Cancel ${titleFor(job)}`} onclick={() => onCancel?.(job)}>Cancel</button>
-    {/if}
+    <span class="job-row-actions">
+      {#if cancellable && onCancel}
+        <button class="job-cancel" type="button" aria-label={`Cancel ${titleFor(job)}`} onclick={() => onCancel?.(job)}>Cancel</button>
+      {/if}
+      <span class={`status ${visualStatus}`}>{visualStatus}</span>
+    </span>
   </div>
   {#if percent !== undefined}
     <div class={`job-progress ${visualStatus}`} aria-label={`${percent}% complete`}>
@@ -107,7 +109,6 @@
     align-items: center;
     justify-content: flex-start;
     gap: 10px;
-    padding-right: 58px;
     box-sizing: border-box;
     font-size: 12.5px;
   }
@@ -127,9 +128,16 @@
     font-weight: 500;
   }
 
+  .job-row-actions {
+    margin-left: auto;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .status {
     flex: 0 0 auto;
-    margin-left: auto;
     font-family: var(--font-mono);
     font-size: 10.5px;
     letter-spacing: 0.12em;
@@ -180,9 +188,6 @@
   }
 
   .job-cancel {
-    position: absolute;
-    top: 9px;
-    right: 10px;
     min-height: 24px;
     padding: 2px 7px;
     border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
