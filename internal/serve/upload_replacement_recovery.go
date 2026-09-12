@@ -257,10 +257,8 @@ func restoreActivatedReplacementDestinations(files []savedUpload, activated []ac
 			return fmt.Errorf("inspect activated replacement destination: %w", err)
 		}
 		if !markerExists {
-			// Checkpoints created before durable replacement markers were added are
-			// still replayable while their activated destination remains present.
 			if finalExists {
-				continue
+				return errUploadConflict
 			}
 			return errors.New("activated replacement data and recovery marker are missing")
 		}
