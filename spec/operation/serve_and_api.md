@@ -55,16 +55,16 @@ While the Gooru CLI is powerful for direct user interaction, it is not suitable 
 
 ### 4.2. Synchronous vs. Asynchronous API Behavior
 
-The API will support a hybrid model to provide both speed for fast operations and robustness for slow ones. The choice is **always driven by the client**.
+The API will support a hybrid model to provide both speed for fast operations and robustness for slow ones. The choice is **always driven by the client** for endpoints that expose durable asynchronous execution.
 
 *   **Default Behavior (Synchronous):**
-    *   If a client sends a write request **without** the `Prefer: respond-async` header, the server will process it **synchronously**.
+    *   If an async-capable client mutation omits the `Prefer: respond-async` header, the server will process it **synchronously**.
     *   The server waits for the admitted durable operation to reach a terminal state and returns the domain result.
     *   **Response:** `200 OK` or `201 Created` with the full result in the body.
     *   **Use Case:** Ideal for operations the client expects to be fast (e.g., tagging a single file) or for simple scripts where blocking behavior is acceptable. The client is responsible for setting an appropriate HTTP timeout.
 
 *   **Asynchronous Opt-In:**
-    *   If a client sends a write request **with** the `Prefer: respond-async` HTTP header, the server will **always** handle it **asynchronously**.
+    *   If an async-capable client mutation sends the `Prefer: respond-async` HTTP header, the server will **always** handle it **asynchronously**.
     *   The server durably admits the operation and immediately responds without waiting for completion.
     *   **Response:** `202 Accepted` with a `BackgroundOperation` object containing a unique `id` for polling.
     *   **Use Case:** The recommended method for any potentially long-running operation (`relinkall`, batch operations on thousands of files) or for applications that must remain responsive (e.g., GUIs).
@@ -75,7 +75,7 @@ Long-running user-visible work is represented by durable operations. Clients can
 
 ### 4.4. API Endpoint Specification (v1)
 
-All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `Prefer: respond-async` header.
+Endpoints that offer durable asynchronous execution document `Prefer: respond-async` explicitly; ordinary synchronous mutating endpoints do not implicitly support it.
 
 #### Files & Tags
 
