@@ -79,6 +79,15 @@ func (c *Client) CreateBackgroundOperationWithTasks(operationRequest BackgroundO
 	return operation, tasks, nil
 }
 
+// ClaimBackgroundOperationProducer atomically grants one producer the right to
+// stage and attach the first child task for an admitted operation.
+func (c *Client) ClaimBackgroundOperationProducer(operationID string) (bool, error) {
+	if operationID == "" {
+		return false, fmt.Errorf("background operation id is required")
+	}
+	return c.store.ClaimBackgroundOperationProducer(operationID)
+}
+
 // AttachBackgroundTaskAndRevealOperation finishes producer admission after
 // expensive staging. The recovery checkpoint, first child task, and final
 // visibility state commit atomically. Producers normally attach hidden work;

@@ -18,8 +18,8 @@ const (
 	backgroundUploadCleanupPriority         = 100
 	backgroundUploadWaitInitialPollInterval = 25 * time.Millisecond
 	backgroundUploadWaitMaximumPollInterval = 250 * time.Millisecond
-	uploadReservationHeader                  = "X-Gooru-Upload-Reserve"
-	uploadOperationHeader                    = "X-Gooru-Upload-Operation-ID"
+	uploadReservationHeader                 = "X-Gooru-Upload-Reserve"
+	uploadOperationHeader                   = "X-Gooru-Upload-Operation-ID"
 )
 
 // durableUploadOperationStore is the producer/read boundary required by HTTP
@@ -31,6 +31,7 @@ type durableUploadOperationStore interface {
 	CreateBackgroundOperation(core.BackgroundOperationRequest) (core.BackgroundOperation, error)
 	SetBackgroundOperationCheckpoint(string, any) error
 	SetBackgroundOperationVisible(string, bool) error
+	ClaimBackgroundOperationProducer(string) (bool, error)
 	AttachBackgroundTaskAndRevealOperation(string, any, core.BackgroundTaskRequest) (core.BackgroundTask, error)
 }
 
@@ -49,6 +50,10 @@ type durableUploadCleanupStore interface {
 
 func (l *GooruLibrary) CreateBackgroundOperation(request core.BackgroundOperationRequest) (core.BackgroundOperation, error) {
 	return l.client.CreateBackgroundOperation(request)
+}
+
+func (l *GooruLibrary) ClaimBackgroundOperationProducer(operationID string) (bool, error) {
+	return l.client.ClaimBackgroundOperationProducer(operationID)
 }
 
 func (l *GooruLibrary) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request core.BackgroundTaskRequest) (core.BackgroundTask, error) {
@@ -242,12 +247,12 @@ func (s *Server) claimDurableUploadOperation(r *http.Request, operations durable
 	if state.Status != core.BackgroundWorkPending {
 		return core.BackgroundOperation{}, false, errors.New("upload reservation is not active")
 	}
-	if tasks, ok := operations.(durableUploadTaskReader); ok {
-		if _, found, err := tasks.GetBackgroundOperationTask(operationID); err != nil {
-			return core.BackgroundOperation{}, false, err
-		} else if found {
-			return core.BackgroundOperation{}, false, errors.New("upload reservation was already claimed")
-		}
+	claimed, err := operations.ClaimBackgroundOperationProducer(operationID)
+	if err != nil {
+		return core.BackgroundOperation{}, false, err
+	}
+	if !claimed {
+		return core.BackgroundOperation{}, false, errors.New("upload reservation was already claimed")
 	}
 	return core.BackgroundOperation{ID: state.ID, Kind: state.Kind, Visible: state.Visible, ProgressTotal: state.ProgressTotal, CreatedAt: state.CreatedAt}, false, nil
 }
