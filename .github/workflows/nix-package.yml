@@ -7,6 +7,8 @@ on:
       - 'frontend/package-lock.json'
       - 'flake.nix'
       - 'flake.lock'
+      - 'VERSION'
+      - 'internal/buildinfo/**'
       - '.github/workflows/nix-package.yml'
   push:
     branches: [develop]
@@ -15,6 +17,8 @@ on:
       - 'frontend/package-lock.json'
       - 'flake.nix'
       - 'flake.lock'
+      - 'VERSION'
+      - 'internal/buildinfo/**'
       - '.github/workflows/nix-package.yml'
 
 permissions:
