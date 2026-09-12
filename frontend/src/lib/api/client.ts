@@ -263,6 +263,7 @@ export class ApiClient {
     }
 
     return uploadMultipart<BackgroundOperation | UploadImportResponse>(`${baseURL}/uploads`, form, {
+      baseURL,
       csrfToken: this.csrfToken,
       preferAsync,
       onProgress,
@@ -303,6 +304,7 @@ export interface UploadOrderingMetadata {
 }
 
 interface UploadMultipartOptions {
+  baseURL: string;
   csrfToken: string;
   preferAsync: boolean;
   onProgress?: (progress: number) => void;
@@ -335,6 +337,21 @@ async function cancelReservedUpload(baseURL: string, csrfToken: string, operatio
   } catch {
     // Best effort: the XHR abort remains the first cancellation signal and the
     // server also rejects attachment when a durable cancellation reaches it.
+  }
+}
+
+async function uploadOperationWasCanceled(baseURL: string, operationID: string): Promise<boolean> {
+  try {
+    const params = new URLSearchParams({ id: operationID });
+    const response = await fetch(`${baseURL}/operations?${params.toString()}`, {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' }
+    });
+    if (!response.ok) return false;
+    const payload = await parseJSONResponse<{ items?: BackgroundOperation[] }>(response);
+    return payload?.items?.some((operation) => operation.id === operationID && operation.status === 'canceled') ?? false;
+  } catch {
+    return false;
   }
 }
 
@@ -372,8 +389,14 @@ function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipar
     });
 
     xhr.addEventListener('error', () => {
-      cancelReservation();
-      reject(new ApiError(0, 'network_error', 'Network error while uploading files'));
+      void (async () => {
+        if (options.operationID && await uploadOperationWasCanceled(options.baseURL, options.operationID)) {
+          reject(new ApiError(0, 'request_aborted', 'Upload was canceled'));
+          return;
+        }
+        cancelReservation();
+        reject(new ApiError(0, 'network_error', 'Network error while uploading files'));
+      })();
     });
     xhr.addEventListener('abort', () => {
       cancelReservation();
