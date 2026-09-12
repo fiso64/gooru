@@ -20,4 +20,14 @@ jobs:
           fetch-depth: 0
       - name: Implement and validate
         shell: bash
-        run: bash .github/maintainer-607-implement.sh
+        run: |
+          set -o pipefail
+          bash .github/maintainer-607-implement.sh 2>&1 | tee maintainer-607.log
+      - name: Upload validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maintainer-607-log-${{ github.run_id }}
+          path: maintainer-607.log
+          if-no-files-found: error
+          retention-days: 3
