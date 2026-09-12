@@ -351,7 +351,7 @@ async function parseJSONResponse<T>(response: Response): Promise<T | undefined> 
 
 function apiErrorFromResponse(response: Response, payload: unknown): ApiError {
   const errorPayload = payload as ApiErrorResponse | undefined;
-  const error = new ApiError(response.status, errorPayload?.error.code ?? 'http_error', errorPayload?.error.message ?? `Request failed with HTTP ${response.status}`);
+  const error = new ApiError(response.status, errorPayload?.error?.code ?? 'http_error', errorPayload?.error?.message ?? `Request failed with HTTP ${response.status}`);
   if (response.status === 401) unauthorizedHandler?.();
   return error;
 }
