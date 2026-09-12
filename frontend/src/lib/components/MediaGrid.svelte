@@ -149,6 +149,15 @@
     if (needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();
   });
 
+  $effect(() => {
+    // Bookmarked/history pages can become invalid after the result set shrinks. An
+    // out-of-range transport page is empty, which otherwise hides the pager and leaves
+    // no in-UI route back to valid results. Valid deep pages always have files, so only
+    // recover settled empty pages whose page number is beyond the known page count.
+    if (!pagedMode || isLoading || isError || files.length || pageNumber <= pageCount) return;
+    onPage(0);
+  });
+
   function selectPagedPage(page: number) {
     if (page < 1 || page > pageCount || page === pageNumber || isFetchingNextPage || isFetchingPreviousPage) return;
     onPage(page - 1);
