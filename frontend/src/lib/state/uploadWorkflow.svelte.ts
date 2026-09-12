@@ -282,6 +282,7 @@ export function createUploadWorkflow() {
     const batchQueueTotals = batchFiles.map(() => batchQueueTotal);
     let queued = false;
     let changedFiles = false;
+    let lastTransportProgress = -1;
 
     refreshStatus();
 
@@ -299,10 +300,14 @@ export function createUploadWorkflow() {
         queueIndex: batchQueueIndices,
         queueTotal: batchQueueTotals,
         onProgress: (progress) => {
+          if (progress === lastTransportProgress) return;
+          lastTransportProgress = progress;
           const fileProgress = perFileUploadProgress(batchFiles, progress);
           batchItemIndices.forEach((itemIndex, fileIndex) => {
             const current = items[itemIndex];
-            replaceItem(itemIndex, current ? uploadProgressItem([current], 0, fileProgress[fileIndex] ?? progress)[0] : undefined);
+            const nextProgress = fileProgress[fileIndex] ?? progress;
+            if (!current || (current.status === 'uploading' && current.progress === nextProgress)) return;
+            replaceItem(itemIndex, uploadProgressItem([current], 0, nextProgress)[0]);
           });
         },
         signal: controller.signal
