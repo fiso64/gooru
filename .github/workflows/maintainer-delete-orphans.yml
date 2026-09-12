@@ -1,0 +1,23 @@
+name: Maintainer temporary orphan branch cleanup
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/maintainer-delete-orphans.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete superseded maintainer branches
+        run: |
+          git push origin --delete \
+            maintainer/clarify-awaiting-review \
+            maintainer/diag-588-10k-boundary \
+            maintainer/diag-598-lease-renewal-flake \
+            maintainer/reapply-10k-upload-progress-churn
