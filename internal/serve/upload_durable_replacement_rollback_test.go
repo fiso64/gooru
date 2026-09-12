@@ -85,6 +85,27 @@ func TestRollbackDurableReplacementWithoutMarkerPreservesExistingDestination(t *
 	}
 }
 
+func TestRestoreActivatedReplacementDestinationsRejectsMarkerlessDestination(t *testing.T) {
+	root := t.TempDir()
+	stagedPath := filepath.Join(root, ".photo.jpg.tmp")
+	finalPath := filepath.Join(root, "photo.jpg")
+	if err := os.WriteFile(finalPath, []byte("racer"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	files := []savedUpload{{path: stagedPath, destinationPath: finalPath, replace: true}}
+	activated := []activatedSavedReplacement{{
+		index:       0,
+		replacement: activatedReplacement{finalPath: finalPath},
+	}}
+
+	if err := restoreActivatedReplacementDestinations(files, activated); !errors.Is(err, errUploadConflict) {
+		t.Fatalf("restore error = %v, want upload conflict", err)
+	}
+	if got := string(mustReadFile(t, finalPath)); got != "racer" {
+		t.Fatalf("restore changed markerless destination to %q", got)
+	}
+}
+
 func TestRollbackDurableReplacementRestoresOriginal(t *testing.T) {
 	root := t.TempDir()
 	stagingDir := filepath.Join(root, durableUploadStagingRootName, testDurableUploadOperationID)
