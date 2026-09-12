@@ -56,10 +56,10 @@ func TestBackgroundUploadTaskRequestsAlwaysIncludeMetadata(t *testing.T) {
 		t.Fatalf("tasks = %d, want metadata task only", len(tasks))
 	}
 	task := tasks[0]
-	if task.Kind != backgroundMediaMetadataTaskKind || task.SubjectKind != "content" || task.SubjectID != location.Hash {
+	if task.Kind != backgroundMediaMetadataTaskKind || task.SubjectKind != "location" || task.SubjectID != location.Path {
 		t.Fatalf("unexpected metadata task: %+v", task)
 	}
-	if task.DedupeKey != "metadata:"+location.Hash || task.InputKey != location.Hash || task.ResourceClass != backgroundThumbnailResourceClass {
+	if task.DedupeKey != "metadata:"+location.Path || task.InputKey != location.Hash || task.ResourceClass != backgroundThumbnailResourceClass {
 		t.Fatalf("unexpected metadata task identity: %+v", task)
 	}
 }

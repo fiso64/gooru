@@ -25,10 +25,10 @@ func uploadMediaMetadataDeferred(ctx context.Context) bool {
 
 func backgroundMediaMetadataTaskRequest(location types.LocationInfo) core.BackgroundTaskRequest {
 	return core.BackgroundTaskRequest{
-		DedupeKey:     "metadata:" + location.Hash,
+		DedupeKey:     "metadata:" + location.Path,
 		Kind:          backgroundMediaMetadataTaskKind,
-		SubjectKind:   "content",
-		SubjectID:     location.Hash,
+		SubjectKind:   "location",
+		SubjectID:     location.Path,
 		InputKey:      location.Hash,
 		ResourceClass: backgroundThumbnailResourceClass,
 		MaxAttempts:   5,
@@ -41,9 +41,6 @@ func (m *MediaService) backgroundUploadTaskRequests(location types.LocationInfo)
 }
 
 func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types.FileInfo, analysisPath string) error {
-	if file.Metadata != nil {
-		return nil
-	}
 	provider := l.metadata
 	if provider == nil {
 		provider = BasicMediaMetadataProvider{}
@@ -76,10 +73,10 @@ func (s *Server) backgroundMediaMetadataHandler(ctx context.Context, task core.B
 	if !ok || library == nil {
 		return fmt.Errorf("media metadata library is not configured")
 	}
-	if task.SubjectKind != "content" || strings.TrimSpace(task.SubjectID) == "" {
-		return fmt.Errorf("media metadata task has invalid content identity")
+	if task.SubjectKind != "location" || strings.TrimSpace(task.SubjectID) == "" {
+		return fmt.Errorf("media metadata task has invalid location identity")
 	}
-	file, err := library.GetFileByContentHash(ctx, task.SubjectID)
+	file, err := library.client.GetFileInfoByPath(task.SubjectID)
 	if errors.Is(err, core.ErrContentNotTracked) {
 		return nil
 	}
