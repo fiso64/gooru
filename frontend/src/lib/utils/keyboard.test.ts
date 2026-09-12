@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isEditableShortcutTarget, isInteractiveShortcutTarget, libraryShortcutAction } from './keyboard';
+import { isEditableShortcutTarget, isInteractiveShortcutTarget, libraryShortcutAction, searchShortcutAction } from './keyboard';
 
 type FakeNode = {
   tagName?: string;
@@ -7,6 +7,7 @@ type FakeNode = {
   controls?: boolean;
   parentElement?: FakeNode | null;
   role?: string;
+  ariaModal?: string;
   type?: string;
   getAttribute?: (name: string) => string | null;
 };
@@ -16,6 +17,7 @@ function node(properties: Omit<FakeNode, 'getAttribute'>): EventTarget {
   value.getAttribute = (name) => {
     if (name === 'role') return value.role ?? null;
     if (name === 'type') return value.type ?? null;
+    if (name === 'aria-modal') return (value as FakeNode & { ariaModal?: string }).ariaModal ?? null;
     return null;
   };
   return value as unknown as EventTarget;
@@ -38,6 +40,16 @@ describe('global shortcut target policy', () => {
     expect(isInteractiveShortcutTarget(node({ tagName: 'audio', controls: true }))).toBe(true);
     expect(isInteractiveShortcutTarget(node({ tagName: 'video', controls: false }))).toBe(false);
     expect(isInteractiveShortcutTarget(node({ tagName: 'div' }))).toBe(false);
+  });
+
+  it('scopes search shortcuts away from editors, modal dialogs, modifiers, and shifted keys', () => {
+    const modal = { tagName: 'div', getAttribute: (name: string) => name === 'role' ? 'dialog' : name === 'aria-modal' ? 'true' : null } as FakeNode;
+    expect(searchShortcutAction('/', node({ tagName: 'div' }))).toBe('focus-search');
+    expect(searchShortcutAction('f', node({ tagName: 'button' }))).toBe('filename-search');
+    expect(searchShortcutAction('/', node({ tagName: 'input' }))).toBeNull();
+    expect(searchShortcutAction('f', node({ tagName: 'span', parentElement: modal }))).toBeNull();
+    expect(searchShortcutAction('f', node({ tagName: 'div' }), true)).toBeNull();
+    expect(searchShortcutAction('f', node({ tagName: 'div' }), false, true)).toBeNull();
   });
 
   it('maps library action shortcuts without enabling tag actions for an empty selection', () => {

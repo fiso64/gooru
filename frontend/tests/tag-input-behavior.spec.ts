@@ -141,3 +141,21 @@ test('tag modal keeps open on first Escape and Space commits the literal prefix'
   await input.press('Escape');
   await expect(dialog).toHaveCount(0);
 });
+
+test('viewer +/- toggles tag mode only while the tag input is empty', async ({ page }) => {
+  await mockApp(page);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  let input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await input.focus();
+  await input.press('-');
+  input = page.getByRole('textbox', { name: 'Remove tags from one.jpg' });
+  await expect(input).toBeFocused();
+  await input.press('+');
+  input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await expect(input).toBeFocused();
+
+  await input.fill('rating:safe');
+  await input.press('-');
+  await expect(input).toHaveValue('rating:safe-');
+  await expect(page.getByRole('textbox', { name: 'Tags for one.jpg' })).toBeFocused();
+});

@@ -5,7 +5,7 @@
   import { parseSearchQuery, parseSearchToken, searchTokensToQuery, searchTokenToString, type SearchToken } from '$lib/search/tokens';
   import { rankCompletionCandidates } from '$lib/utils/completionRanking';
   import { plainTagSuggestions } from '$lib/utils/tagSuggestions';
-  import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { hasCommandModifier, searchShortcutAction } from '$lib/utils/keyboard';
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
@@ -69,12 +69,26 @@
     void tick().then(() => keepActiveCompletionVisible(suggestionsRef));
   });
 
+  function beginFilenameSearch() {
+    const retainedTokens = tokens.filter((token) => token.ns.toLowerCase() !== '@filename_contains');
+    if (retainedTokens.length !== tokens.length) syncCommit(retainedTokens);
+    draft = '@filename_contains:';
+    open = true;
+    active = 0;
+    onDraftInput(draft);
+    void tick().then(() => {
+      inputRef?.focus();
+      inputRef?.setSelectionRange(draft.length, draft.length);
+    });
+  }
+
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === '/' && !isEditableShortcutTarget(event.target)) {
-        event.preventDefault();
-        inputRef?.focus();
-      }
+      const action = searchShortcutAction(event.key, event.target, hasCommandModifier(event), event.shiftKey);
+      if (!action) return;
+      event.preventDefault();
+      if (action === 'filename-search') beginFilenameSearch();
+      else inputRef?.focus();
     };
     window.addEventListener('keydown', handleKeydown);
     return () => window.removeEventListener('keydown', handleKeydown);
