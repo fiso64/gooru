@@ -3,9 +3,9 @@ package database
 import "fmt"
 
 // ClearTerminalBackgroundOperations removes visible terminal operation history
-// together with its attached terminal task history. Active child work is an
-// additional safety barrier: even a corrupt/stale terminal operation row is kept
-// when it still owns pending or running work.
+// together with its attached terminal task history. Active attached or detached
+// operation-scoped work is an additional safety barrier: even a corrupt/stale
+// terminal operation row is kept while recovery or compensation is still active.
 func (s *Store) ClearTerminalBackgroundOperations() (int64, error) {
 	tx, err := s.Begin()
 	if err != nil {
@@ -26,6 +26,14 @@ func (s *Store) ClearTerminalBackgroundOperations() (int64, error) {
 				WHERE active.operation_id = operation.id
 				  AND active.status IN ('pending', 'running')
 			  )
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM background_tasks AS cleanup
+				WHERE cleanup.operation_id IS NULL
+				  AND cleanup.subject_kind = 'operation'
+				  AND cleanup.subject_id = operation.id
+				  AND cleanup.status IN ('pending', 'running')
+			  )
 		)
 	`)
 	if err != nil {
@@ -41,6 +49,14 @@ func (s *Store) ClearTerminalBackgroundOperations() (int64, error) {
 			FROM background_tasks AS active
 			WHERE active.operation_id = operation.id
 			  AND active.status IN ('pending', 'running')
+		  )
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM background_tasks AS cleanup
+			WHERE cleanup.operation_id IS NULL
+			  AND cleanup.subject_kind = 'operation'
+			  AND cleanup.subject_id = operation.id
+			  AND cleanup.status IN ('pending', 'running')
 		  )
 	`)
 	if err != nil {
