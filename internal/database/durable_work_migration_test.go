@@ -122,7 +122,7 @@ func TestAttachedProgressTotalMigrationRoundTrips(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("attach task using restored migration 033 trigger: %v", err)
 	}
-	var status string
+	var status BackgroundWorkStatus
 	var total int64
 	if err := db.QueryRow(`SELECT status, progress_total FROM background_operations WHERE id = 'roundtrip-op'`).Scan(&status, &total); err != nil {
 		t.Fatal(err)
