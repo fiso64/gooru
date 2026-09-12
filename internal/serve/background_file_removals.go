@@ -353,9 +353,16 @@ func (d *stagedFileDeletion) stage() error {
 }
 
 func (d *stagedFileDeletion) rollbackMissingOK() error {
-	exists, err := pathExists(d.stagedPath)
-	if err != nil || !exists {
+	stagedExists, err := pathExists(d.stagedPath)
+	if err != nil || !stagedExists {
 		return err
+	}
+	originalExists, err := pathExists(d.originalPath)
+	if err != nil {
+		return err
+	}
+	if originalExists {
+		return errors.New("cannot restore staged file because original path is occupied")
 	}
 	if err := os.Rename(d.stagedPath, d.originalPath); err != nil {
 		return err

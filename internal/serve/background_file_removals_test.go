@@ -42,3 +42,41 @@ func TestPersistedStagedFileDeletionCanCommitAfterOriginalIsGone(t *testing.T) {
 		t.Fatalf("staged file should be gone, stat err=%v", err)
 	}
 }
+
+func TestPersistedStagedFileDeletionRollbackDoesNotOverwriteReplacement(t *testing.T) {
+	root := t.TempDir()
+	original := filepath.Join(root, "file.jpg")
+	if err := os.WriteFile(original, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stagedPath := filepath.Join(root, ".gooru-delete-token", "file.jpg")
+	staged, err := persistedStagedFileDeletion(original, stagedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := staged.stage(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(original, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := staged.rollbackMissingOK(); err == nil {
+		t.Fatal("expected rollback to reject occupied original path")
+	}
+
+	got, err := os.ReadFile(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "replacement" {
+		t.Fatalf("replacement was modified: got %q", got)
+	}
+	stagedData, err := os.ReadFile(stagedPath)
+	if err != nil {
+		t.Fatalf("staged original should remain recoverable: %v", err)
+	}
+	if string(stagedData) != "original" {
+		t.Fatalf("staged original was modified: got %q", stagedData)
+	}
+}
