@@ -69,8 +69,8 @@
     align-items: center;
     gap: 8px;
     box-sizing: border-box;
-    margin-top: 18px;
-    padding: 0 24px 28px;
+    margin-top: auto;
+    padding: 18px 24px 28px;
   }
 
   .page-nav.embedded {

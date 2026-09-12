@@ -40,12 +40,6 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Server.FrontendDir == "" {
 		t.Fatal("server.frontend_dir should point at the static frontend build by default")
 	}
-	if cfg.Jobs.CompletedTTL == 0 {
-		t.Fatal("completed TTL was not parsed")
-	}
-	if cfg.Jobs.MaxQueued != 100 || cfg.Jobs.MaxRunning != 2 || cfg.Jobs.MaxResultBytes != 10<<20 {
-		t.Fatalf("unexpected job defaults: %+v", cfg.Jobs)
-	}
 	if cfg.Uploads.ConflictPolicy != "rename" {
 		t.Fatalf("unexpected upload conflict policy default %q", cfg.Uploads.ConflictPolicy)
 	}
@@ -121,11 +115,6 @@ media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"
   preview_size: 1280
-jobs:
-  completed_ttl: "30m"
-  max_queued: 5
-  max_running: 3
-  max_result_bytes: 1024
 tools:
   ffmpeg_path: "ffmpeg"
   ffprobe_path: "ffprobe"
@@ -149,8 +138,6 @@ media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"
   preview_size: 1280
-jobs:
-  completed_ttl: "30m"
 `)
 	_, err := LoadConfig(path, "", Overrides{AuthToken: " cli-token "})
 	if err == nil || !strings.Contains(err.Error(), "--auth-token is no longer supported") {
@@ -173,8 +160,6 @@ media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"
   preview_size: 1280
-jobs:
-  completed_ttl: "30m"
 `)
 	_, err := LoadConfig(path, "", Overrides{})
 	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
@@ -195,8 +180,6 @@ media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"
   preview_size: 1280
-jobs:
-  completed_ttl: "30m"
 `)
 	_, err := LoadConfig(path, "", Overrides{})
 	if err == nil || !strings.Contains(err.Error(), "no longer supported") {
@@ -224,8 +207,6 @@ media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"
   preview_size: 1280
-jobs:
-  completed_ttl: "1h"
 `)
 	_, err := LoadConfig(path, "", Overrides{})
 	if err == nil || !strings.Contains(err.Error(), "refusing auth.enabled=false") {
@@ -290,18 +271,15 @@ func TestLoadConfigRejectsUnsupportedThumbnailFormat(t *testing.T) {
 	}
 }
 
-func TestLoadConfigRejectsInvalidJobLimits(t *testing.T) {
-	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Jobs.MaxQueued = 0
-	cfg.Jobs.MaxRunning = 0
-	cfg.Jobs.MaxResultBytes = 0
-
-	err := cfg.Validate()
-	if err == nil ||
-		!strings.Contains(err.Error(), "jobs.max_queued") ||
-		!strings.Contains(err.Error(), "jobs.max_running") ||
-		!strings.Contains(err.Error(), "jobs.max_result_bytes") {
-		t.Fatalf("expected job limit validation errors, got %v", err)
+func TestLoadConfigRejectsRemovedUploadMaxQueued(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, path, `
+uploads:
+  max_queued: 100
+`)
+	_, err := LoadConfig(path, filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
+	if err == nil || !strings.Contains(err.Error(), "field max_queued not found") {
+		t.Fatalf("expected removed uploads.max_queued field to be rejected, got %v", err)
 	}
 }
 
@@ -329,8 +307,6 @@ media:
   thumbnail_sizes: [256]
   thumbnail_format: "jpeg"
   preview_size: 1280
-jobs:
-  completed_ttl: "1h"
 `)
 	_, err := LoadConfig(path, "", Overrides{})
 	if err == nil || !strings.Contains(err.Error(), "field typo_cors_origin not found") {

@@ -6,44 +6,52 @@
   let { onClose = () => undefined } = $props<{ onClose?: () => void }>();
   let dialogElement = $state<HTMLDivElement | undefined>();
 
-  const groups = [
-    {
-      name: 'Navigation',
-      items: [
-        { keys: ['1–9'], description: 'Open the matching visible sidebar item' },
-        { keys: ['/'], description: 'Focus search' },
-        { keys: ['b'], description: 'Save current search' },
-        { keys: ['?'], description: 'Show shortcuts' }
-      ]
-    },
-    {
-      name: 'Viewer',
-      items: [
-        { keys: ['j', '→'], description: 'Next file or comic page' },
-        { keys: ['k', '←'], description: 'Previous file or comic page' },
-        { keys: ['t'], description: 'Focus tag input in tag mode' },
-        { keys: ['u'], description: 'Focus tag input in untag mode' },
-        { keys: ['q'], description: 'Toggle original / preview media' },
-        { keys: ['v'], description: 'Cycle viewer fit mode' },
-        { keys: ['s'], description: 'Toggle smooth / nearest-neighbor scaling' },
-        { keys: ['1'], description: 'Fit media to window' },
-        { keys: ['2'], description: 'Show media at actual size' },
-        { keys: ['d'], description: 'Download original' },
-        { keys: ['Del'], description: 'Remove from library' },
-        { keys: ['⇧', 'Del'], description: 'Delete file from disk' },
-        { keys: ['Esc'], description: 'Close viewer' }
-      ]
-    },
-    {
-      name: 'Selection',
-      items: [
-        { keys: ['a'], description: 'Select all files in the current view' },
-        { keys: ['t'], description: 'Tag selected files' },
-        { keys: ['u'], description: 'Untag selected files' },
-        { keys: ['Del'], description: 'Remove selected files from library' },
-        { keys: ['⇧', 'Del'], description: 'Delete selected files from disk' }
-      ]
-    }
+  const navigationGroup = {
+    name: 'Navigation',
+    items: [
+      { keys: ['1–9'], description: 'Open the matching visible sidebar item' },
+      { keys: ['/'], description: 'Focus search' },
+      { keys: ['f'], description: 'Search filenames' },
+      { keys: ['b'], description: 'Save current search' },
+      { keys: ['?'], description: 'Show shortcuts' }
+    ]
+  } as const;
+
+  const viewerGroup = {
+    name: 'Viewer',
+    items: [
+      { keys: ['j', '→'], description: 'Next file or comic page' },
+      { keys: ['k', '←'], description: 'Previous file or comic page' },
+      { keys: ['t'], description: 'Focus tag input in tag mode' },
+      { keys: ['u'], description: 'Focus tag input in untag mode' },
+      { keys: ['+', '−'], description: 'Switch tag / untag mode while the tag input is empty' },
+      { keys: ['q'], description: 'Toggle original / preview media' },
+      { keys: ['v'], description: 'Cycle viewer fit mode' },
+      { keys: ['s'], description: 'Toggle smooth / nearest-neighbor scaling' },
+      { keys: ['1'], description: 'Fit media to window' },
+      { keys: ['2'], description: 'Show media at actual size' },
+      { keys: ['o'], description: 'Open original in new tab' },
+      { keys: ['d'], description: 'Download original' },
+      { keys: ['Del'], description: 'Remove from library' },
+      { keys: ['⇧', 'Del'], description: 'Delete file from disk' },
+      { keys: ['Esc'], description: 'Close viewer' }
+    ]
+  } as const;
+
+  const selectionGroup = {
+    name: 'Selection',
+    items: [
+      { keys: ['a'], description: 'Select all files in the current view' },
+      { keys: ['t'], description: 'Tag selected files' },
+      { keys: ['u'], description: 'Untag selected files' },
+      { keys: ['Del'], description: 'Remove selected files from library' },
+      { keys: ['⇧', 'Del'], description: 'Delete selected files from disk' }
+    ]
+  } as const;
+
+  const shortcutColumns = [
+    [navigationGroup, selectionGroup],
+    [viewerGroup]
   ] as const;
 
   onMount(() => {
@@ -65,20 +73,24 @@
     </div>
 
     <div class="shortcut-grid">
-      {#each groups as group}
-        <section class="shortcut-group">
-          <h3>{group.name}</h3>
-          {#each group.items as item}
-            <div class="shortcut-row">
-              <span class="shortcut-description">{item.description}</span>
-              <span class="shortcut-keys">
-                {#each item.keys as key}
-                  <span class="g-kbd">{key}</span>
-                {/each}
-              </span>
-            </div>
+      {#each shortcutColumns as column}
+        <div class="shortcut-column">
+          {#each column as group}
+            <section class="shortcut-group">
+              <h3>{group.name}</h3>
+              {#each group.items as item}
+                <div class="shortcut-row">
+                  <span class="shortcut-description">{item.description}</span>
+                  <span class="shortcut-keys">
+                    {#each item.keys as key}
+                      <span class="g-kbd">{key}</span>
+                    {/each}
+                  </span>
+                </div>
+              {/each}
+            </section>
           {/each}
-        </section>
+        </div>
       {/each}
     </div>
   </div>
@@ -97,7 +109,7 @@
   }
 
   .shortcut-modal {
-    width: min(980px, calc(100vw - 64px));
+    width: min(780px, calc(100vw - 64px));
     max-height: min(760px, calc(100vh - 64px));
     overflow: auto;
     padding: 28px 30px 32px;
@@ -125,8 +137,15 @@
 
   .shortcut-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 28px 42px;
+    grid-template-columns: repeat(2, minmax(250px, 1fr));
+    gap: 42px;
+  }
+
+  .shortcut-column {
+    display: grid;
+    align-content: start;
+    gap: 28px;
+    min-width: 0;
   }
 
   .shortcut-group h3 {
@@ -170,6 +189,10 @@
       width: calc(100vw - 24px);
       max-height: calc(100vh - 24px);
       padding: 22px 18px;
+    }
+    .shortcut-grid {
+      grid-template-columns: 1fr;
+      gap: 28px;
     }
   }
 </style>

@@ -8,17 +8,18 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
-// protectedVideoSeekablePath exposes one already-open logical source through a
-// short-lived, tokenized loopback HTTP endpoint. ffmpeg/ffprobe can then issue
-// ordinary seeks/range requests without plaintext disk materialization or
-// buffering an entire video in memory.
-func protectedVideoSeekablePath(name string, src io.ReadSeeker) (string, func(), bool, error) {
-	if _, err := src.Seek(0, io.SeekStart); err != nil {
-		return "", nil, false, err
+// logicalVideoSeekablePath exposes one already-open logical video source through
+// a short-lived, tokenized loopback HTTP endpoint. ffmpeg/ffprobe receive the
+// same seek/range semantics they get from an ordinary clear-mode pathname while
+// storage remains abstract: protected callers can back the source with the
+// authenticated encrypted random-access reader without plaintext materialization
+// or whole-video buffering.
+func logicalVideoSeekablePath(name string, src io.ReaderAt, size int64) (string, func(), bool, error) {
+	if src == nil || size < 0 {
+		return "", nil, false, nil
 	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -32,19 +33,21 @@ func protectedVideoSeekablePath(name string, src io.ReadSeeker) (string, func(),
 	}
 	ext := strings.ToLower(filepath.Ext(name))
 	path := "/" + hex.EncodeToString(tokenBytes) + "/source" + ext
-	var sourceMu sync.Mutex
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != path {
 			http.NotFound(w, r)
 			return
 		}
-		sourceMu.Lock()
-		defer sourceMu.Unlock()
-		if _, err := src.Seek(0, io.SeekStart); err != nil {
-			http.Error(w, "source unavailable", http.StatusInternalServerError)
-			return
-		}
-		http.ServeContent(w, r, "source"+ext, time.Time{}, src)
+
+		// Media backends may stop reading an initial response and immediately open
+		// a second Range request when seeking. A shared seek cursor protected for
+		// the lifetime of ServeContent deadlocks that pattern: the abandoned first
+		// response can block while writing and keep the Range request from seeking.
+		// ReaderAt is safe to project into an independent SectionReader per request,
+		// preserving bounded protected-file random access without serializing whole
+		// HTTP responses behind one cursor lock.
+		reader := io.NewSectionReader(src, 0, size)
+		http.ServeContent(w, r, "source"+ext, time.Time{}, reader)
 	})
 	server := &http.Server{Handler: handler}
 	go func() { _ = server.Serve(listener) }()

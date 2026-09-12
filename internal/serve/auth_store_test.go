@@ -207,29 +207,64 @@ func TestAuthEndpointsAreStableWhenAuthDisabled(t *testing.T) {
 
 func newAuthTestStore(t *testing.T) *AuthStore {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "auth.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	if err := database.RunMigrations(db); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
-	return NewAuthStore(db, time.Hour)
+	store := NewAuthStore(db, time.Hour)
+	store.hashPassword = fastTestHashPassword
+	store.verifyPassword = fastTestVerifyPassword
+	return store
+}
+
+func fastTestHashPassword(password string) (string, error) {
+	if err := ValidatePassword(password); err != nil {
+		return "", err
+	}
+	return "test-hash:" + password, nil
+}
+
+func fastTestVerifyPassword(encoded, password string) (bool, error) {
+	hash, err := fastTestHashPassword(password)
+	if err != nil {
+		return false, err
+	}
+	return encoded == hash, nil
 }
 
 func attachTestAuth(t *testing.T, server *Server) AuthSession {
 	t.Helper()
 	store := newAuthTestStore(t)
-	if _, err := store.CreateAdmin(context.Background(), "testadmin", "correct horse"); err != nil {
-		t.Fatalf("create test admin: %v", err)
-	}
-	auth, err := store.Login(context.Background(), "testadmin", "correct horse")
-	if err != nil {
-		t.Fatalf("login test admin: %v", err)
-	}
+	auth := newTestAuthSession(t, store)
 	server.SetAuthStore(store)
+	return auth
+}
+
+func newTestAuthSession(t *testing.T, store *AuthStore) AuthSession {
+	t.Helper()
+	ctx := context.Background()
+	now := store.now()
+	user := User{
+		ID:        "usr_test",
+		Username:  "testadmin",
+		Role:      adminRole,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if _, err := store.db.ExecContext(ctx, `
+INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)`, user.ID, user.Username, "unused-test-password-hash", user.Role, user.CreatedAt, user.UpdatedAt); err != nil {
+		t.Fatalf("insert test admin: %v", err)
+	}
+	auth, err := store.createSession(ctx, user)
+	if err != nil {
+		t.Fatalf("create test session: %v", err)
+	}
 	return auth
 }
 

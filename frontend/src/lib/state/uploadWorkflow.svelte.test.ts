@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from '$lib/api/types';
+import type { BackgroundOperation } from '$lib/api/operations';
 
 const { untrackSpy } = vi.hoisted(() => ({
   untrackSpy: vi.fn((value: unknown) => typeof value === 'function' ? (value as () => unknown)() : value)
@@ -10,252 +11,239 @@ vi.mock('svelte', async () => {
   return { ...actual, untrack: untrackSpy };
 });
 
-import { browserUploadConcurrency, createUploadWorkflow } from './uploadWorkflow.svelte';
+import { createUploadWorkflow, perFileUploadProgress } from './uploadWorkflow.svelte';
 
-function uploadFile(name: string): File {
-  return { name, size: 10, type: 'image/jpeg', lastModified: 0 } as File;
+function uploadFile(name: string, size = 10): File {
+  return { name, size, type: 'image/jpeg', lastModified: 0 } as File;
 }
 
-function pendingJob(id: string): Job {
+function pendingJob(id: string, completed = 0, total = 2): Job & BackgroundOperation {
   return {
     id,
     type: 'upload_import',
-    status: 'pending',
-    submitted_at: '2026-09-01T00:00:00Z'
+    kind: 'upload_import',
+    status: completed > 0 ? 'running' : 'pending',
+    progress: total > 0 ? completed / total : 0,
+    progress_total: total,
+    progress_completed: completed,
+    progress_completed_prefix: completed,
+    progress_failed: 0,
+    submitted_at: '2026-09-11T00:00:00Z',
+    created_at: '2026-09-11T00:00:00Z'
+  } as Job & BackgroundOperation;
+}
+
+function completedJob(id: string, name: string): Job {
+  return {
+    ...pendingJob(id, 1, 1),
+    status: 'completed',
+    progress: 1,
+    result: {
+      files: [{ name, size: 10, target_id: 'default', status: 'imported' }]
+    }
   } as Job;
 }
 
-describe('createUploadWorkflow', () => {
+describe('createUploadWorkflow aggregate uploads', () => {
   beforeEach(() => untrackSpy.mockClear());
+
+  it('projects aggregate multipart progress across files in request order', () => {
+    const files = [uploadFile('first.jpg', 10), uploadFile('second.jpg', 30)];
+    expect(perFileUploadProgress(files, 25)).toEqual([100, 0]);
+    expect(perFileUploadProgress(files, 50)).toEqual([100, 33]);
+    expect(perFileUploadProgress(files, 100)).toEqual([100, 100]);
+  });
 
   it('defaults browser uploads to rename conflicts', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg')]);
     let policy = '';
-
     await workflow.submit(async (variables) => {
       policy = variables.conflictPolicy;
-      return pendingJob('job-first');
+      return pendingJob('job-batch', 0, 1);
     });
-
     expect(policy).toBe('rename');
   });
 
-  it('appends later file selections to the staged batch', () => {
+  it('appends later file selections to one staged batch', () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg')]);
     workflow.select([uploadFile('second.jpg')]);
-
     expect(workflow.files.map((file) => file.name)).toEqual(['first.jpg', 'second.jpg']);
-    expect(workflow.items.map((item) => [item.name, item.status])).toEqual([
-      ['first.jpg', 'staged'],
-      ['second.jpg', 'staged']
-    ]);
   });
 
-  it('captures queue metadata before parallel workers and preserves it across target changes', async () => {
+  it('submits one durable operation with per-file queue metadata arrays', async () => {
     const now = vi.spyOn(Date, 'now');
     now.mockReturnValueOnce(1_700_000_000_000).mockReturnValueOnce(1_700_000_010_000).mockReturnValue(1_800_000_000_000);
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg')]);
     workflow.select([uploadFile('second.jpg')]);
     workflow.setTarget('archive', 'reverse_queue');
+    let calls = 0;
 
-    const calls: Array<{ name: string; queueTimeMs: number; queueFirstTimeMs: number; queueLastTimeMs: number; queueIndex: number; queueTotal: number; strategy: string }> = [];
     await workflow.submit(async (variables) => {
-      calls.push({
-        name: variables.files[0].name,
-        queueTimeMs: variables.queueTimeMs,
-        queueFirstTimeMs: variables.queueFirstTimeMs,
-        queueLastTimeMs: variables.queueLastTimeMs,
-        queueIndex: variables.queueIndex,
-        queueTotal: variables.queueTotal,
-        strategy: variables.addedAtStrategy
-      });
-      return pendingJob(`job-${variables.files[0].name}`);
+      calls += 1;
+      expect(variables.files.map((file) => file.name)).toEqual(['first.jpg', 'second.jpg']);
+      expect(variables.queueTimeMs).toEqual([1_700_000_000_000, 1_700_000_010_000]);
+      expect(variables.queueFirstTimeMs).toBe(1_700_000_000_000);
+      expect(variables.queueLastTimeMs).toBe(1_700_000_010_000);
+      expect(variables.queueIndex).toEqual([0, 1]);
+      expect(variables.queueTotal).toEqual([2, 2]);
+      expect(variables.addedAtStrategy).toBe('reverse_queue');
+      variables.onProgress?.(37);
+      expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
+        ['uploading', 74],
+        ['uploading', 0]
+      ]);
+      return pendingJob('job-batch');
     });
 
-    expect(calls).toEqual([
-      { name: 'first.jpg', queueTimeMs: 1_700_000_000_000, queueFirstTimeMs: 1_700_000_000_000, queueLastTimeMs: 1_700_000_010_000, queueIndex: 0, queueTotal: 2, strategy: 'reverse_queue' },
-      { name: 'second.jpg', queueTimeMs: 1_700_000_010_000, queueFirstTimeMs: 1_700_000_000_000, queueLastTimeMs: 1_700_000_010_000, queueIndex: 1, queueTotal: 2, strategy: 'reverse_queue' }
+    expect(calls).toBe(1);
+    expect(workflow.files).toEqual([]);
+    expect(workflow.activeJobIDs).toEqual(['job-batch']);
+    expect(workflow.items.map((item) => [item.status, item.progress, item.batchID])).toEqual([
+      ['queued', 100, 1],
+      ['queued', 100, 1]
     ]);
-    expect(workflow.items.map((item) => item.queueTimeMs)).toEqual([1_700_000_000_000, 1_700_000_010_000]);
     now.mockRestore();
   });
 
-  it('uploads each file independently with real per-file progress', async () => {
+  it('keeps completed transport progress monotonic while durable import runs', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
-    const calls: string[] = [];
+    await workflow.submit(async () => pendingJob('job-batch'));
 
-    await workflow.submit(async (variables) => {
-      const name = variables.files[0].name;
-      calls.push(name);
-      expect(variables.files).toHaveLength(1);
-      variables.onProgress?.(name === 'first.jpg' ? 37 : 64);
-      return pendingJob(`job-${name}`);
-    });
-
-    expect(calls).toEqual(['first.jpg', 'second.jpg']);
+    expect(workflow.applyJob(pendingJob('job-batch', 1, 2))).toEqual({ completed: false, changedFiles: false });
     expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
-      ['queued', 100],
-      ['queued', 100]
+      ['importing', 100],
+      ['importing', 100]
     ]);
-    expect(workflow.activeJobIDs).toEqual(['job-first.jpg', 'job-second.jpg']);
+    expect(workflow.activeJobID).toBe('job-batch');
   });
 
-  it('runs at most four browser transfers and starts queued siblings as slots free', async () => {
-    const workflow = createUploadWorkflow();
-    const names = Array.from({ length: 7 }, (_, index) => `file-${index + 1}.jpg`);
-    workflow.select(names.map(uploadFile));
-
-    let active = 0;
-    let maxActive = 0;
-    const started: string[] = [];
-    const release = new Map<string, () => void>();
-
-    const submission = workflow.submit(async (variables) => {
-      const name = variables.files[0].name;
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      started.push(name);
-      await new Promise<void>((resolve) => release.set(name, resolve));
-      active -= 1;
-      return pendingJob(`job-${name}`);
-    });
-
-    await vi.waitFor(() => expect(started).toHaveLength(browserUploadConcurrency));
-    expect(started).toEqual(names.slice(0, browserUploadConcurrency));
-    expect(active).toBe(browserUploadConcurrency);
-    expect(maxActive).toBe(browserUploadConcurrency);
-
-    release.get('file-2.jpg')?.();
-    await vi.waitFor(() => expect(started).toHaveLength(5));
-    expect(started[4]).toBe('file-5.jpg');
-    expect(active).toBe(browserUploadConcurrency);
-
-    release.get('file-1.jpg')?.();
-    await vi.waitFor(() => expect(started).toHaveLength(6));
-    expect(started[5]).toBe('file-6.jpg');
-    expect(active).toBe(browserUploadConcurrency);
-
-    release.get('file-4.jpg')?.();
-    await vi.waitFor(() => expect(started).toHaveLength(7));
-    expect(started[6]).toBe('file-7.jpg');
-    expect(active).toBe(browserUploadConcurrency);
-
-    for (const name of names.slice(2)) release.get(name)?.();
-    await submission;
-
-    expect(maxActive).toBe(browserUploadConcurrency);
-    expect(workflow.items.every((item) => item.status === 'queued')).toBe(true);
-    expect(workflow.activeJobIDs).toHaveLength(names.length);
-  });
-
-  it('continues with sibling files after a transport failure', async () => {
-    const workflow = createUploadWorkflow();
-    workflow.select([uploadFile('small-a.jpg'), uploadFile('huge.mp4'), uploadFile('small-b.jpg')]);
-
-    await workflow.submit(async (variables) => {
-      const name = variables.files[0].name;
-      if (name === 'huge.mp4') {
-        variables.onProgress?.(43);
-        throw new Error('Network error while uploading files');
-      }
-      variables.onProgress?.(100);
-      return pendingJob(`job-${name}`);
-    });
-
-    expect(workflow.items.map((item) => [item.name, item.status, item.progress])).toEqual([
-      ['small-a.jpg', 'queued', 100],
-      ['huge.mp4', 'error', 43],
-      ['small-b.jpg', 'queued', 100]
-    ]);
-    expect(workflow.items[1].error).toContain('Network error');
-    expect(workflow.activeJobIDs).toEqual(['job-small-a.jpg', 'job-small-b.jpg']);
-  });
-
-  it('does not let a new drop overwrite an active queued batch', async () => {
-    const workflow = createUploadWorkflow();
-    workflow.select([uploadFile('queued.jpg')]);
-    await workflow.submit(async () => pendingJob('job-queued'));
-
-    workflow.select([uploadFile('later.jpg')]);
-    expect(workflow.files.map((file) => file.name)).toEqual(['queued.jpg']);
-    expect(workflow.items.map((item) => item.name)).toEqual(['queued.jpg']);
-    expect(workflow.status).toContain('Upload in progress');
-  });
-
-  it('applies each tracked import job independently while polling the batch together', async () => {
+  it('maps one completed aggregate result back to all staged items', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
-    await workflow.submit(async (variables) => pendingJob(`job-${variables.files[0].name}`));
-
-    const running = {
-      ...pendingJob('job-first.jpg'),
-      status: 'running',
-      progress: 0.5
-    } as Job;
-
-    expect(workflow.applyJob(running)).toEqual({ completed: false, changedFiles: false });
-    expect(untrackSpy).toHaveBeenCalledWith(expect.any(Function));
-    expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
-      ['importing', 50],
-      ['queued', 100]
-    ]);
-    expect(workflow.activeJobID).toBe('job-first.jpg,job-second.jpg');
-  });
-
-  it('applies multiple completed jobs from one status response', async () => {
-    const workflow = createUploadWorkflow();
-    workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
-    await workflow.submit(async (variables) => pendingJob(`job-${variables.files[0].name}`));
-
-    const completed = (name: string) => ({
-      ...pendingJob(`job-${name}`),
-      status: 'completed',
-      result: { files: [{ name, size: 10, target_id: '', status: 'imported' }] }
-    }) as Job;
-
-    expect(workflow.applyJob({ items: [completed('first.jpg'), completed('second.jpg')] })).toEqual({ completed: true, changedFiles: true });
-    expect(workflow.activeJobIDs).toEqual([]);
-    expect(workflow.items.map((item) => item.status)).toEqual(['imported', 'imported']);
-  });
-
-  it('advances polling to the next job after one completes', async () => {
-    const workflow = createUploadWorkflow();
-    workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
-    await workflow.submit(async (variables) => pendingJob(`job-${variables.files[0].name}`));
-
+    await workflow.submit(async () => pendingJob('job-batch'));
     const completed = {
-      ...pendingJob('job-first.jpg'),
+      ...pendingJob('job-batch', 2, 2),
       status: 'completed',
+      progress: 1,
       result: {
-        files: [{ name: 'first.jpg', size: 10, target_id: '', status: 'imported' }]
+        files: [
+          { name: 'first.jpg', size: 10, target_id: 'default', status: 'imported' },
+          { name: 'second.jpg', size: 10, target_id: 'default', status: 'duplicate_existing' }
+        ]
       }
     } as Job;
 
     expect(workflow.applyJob(completed)).toEqual({ completed: true, changedFiles: true });
-    expect(workflow.activeJobID).toBe('job-second.jpg');
-    expect(workflow.items[0].status).toBe('imported');
-    expect(workflow.items[1].status).toBe('queued');
+    expect(workflow.activeJobIDs).toEqual([]);
+    expect(workflow.items.map((item) => [item.status, item.batchID])).toEqual([
+      ['imported', 1],
+      ['duplicate_existing', 1]
+    ]);
   });
 
-  it('cancels all per-file jobs from the existing batch cancel action', async () => {
+  it('marks the whole selection failed when the aggregate transport fails', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
-    await workflow.submit(async (variables) => pendingJob(`job-${variables.files[0].name}`));
-    const canceled: string[] = [];
+    await workflow.submit(async (variables) => {
+      variables.onProgress?.(43);
+      throw new Error('Network error while uploading files');
+    });
+    expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
+      ['error', 86],
+      ['error', 0]
+    ]);
+    expect(workflow.items.every((item) => item.error?.includes('Network error'))).toBe(true);
+  });
 
+  it('cancels the single durable operation for the whole batch', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
+    await workflow.submit(async () => pendingJob('job-batch'));
+    const canceled: string[] = [];
     const result = await workflow.cancel(async (id) => {
       canceled.push(id);
       return { ...pendingJob(id), status: 'canceled' } as Job;
     });
-
     expect(result).toEqual({ changed: true });
-    expect(canceled).toEqual(['job-first.jpg', 'job-second.jpg']);
-    expect(workflow.activeJobIDs).toEqual([]);
+    expect(canceled).toEqual(['job-batch']);
     expect(workflow.items.map((item) => item.status)).toEqual(['canceled', 'canceled']);
+  });
+
+  it('stages additional files while an older durable batch is active', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('queued.jpg')]);
+    await workflow.submit(async () => pendingJob('job-first', 0, 1));
+
+    workflow.select([uploadFile('later.jpg')]);
+
+    expect(workflow.files.map((file) => file.name)).toEqual(['later.jpg']);
+    expect(workflow.items.map((item) => [item.name, item.status, item.batchID])).toEqual([
+      ['queued.jpg', 'queued', 1],
+      ['later.jpg', 'staged', undefined]
+    ]);
+  });
+
+  it('submits a second batch while the first browser request is still in flight', async () => {
+    const workflow = createUploadWorkflow();
+    let releaseFirst: ((job: Job & BackgroundOperation) => void) | undefined;
+    const firstResponse = new Promise<Job & BackgroundOperation>((resolve) => { releaseFirst = resolve; });
+
+    workflow.select([uploadFile('first.jpg')]);
+    const firstSubmission = workflow.submit(async () => firstResponse);
+    expect(workflow.busy).toBe(true);
+    expect(workflow.files).toEqual([]);
+
+    workflow.select([uploadFile('second.jpg')]);
+    expect(workflow.files.map((file) => file.name)).toEqual(['second.jpg']);
+    await workflow.submit(async () => pendingJob('job-second', 0, 1));
+
+    expect(workflow.busy).toBe(true);
+    expect(workflow.activeJobID).toBe('job-second');
+    expect(workflow.items.map((item) => [item.name, item.batchID])).toEqual([
+      ['first.jpg', 1],
+      ['second.jpg', 2]
+    ]);
+
+    releaseFirst?.(pendingJob('job-first', 0, 1));
+    await firstSubmission;
+
+    expect(workflow.busy).toBe(false);
+    expect(workflow.files).toEqual([]);
+    expect(workflow.activeJobIDs).toEqual(['job-second', 'job-first']);
+  });
+
+  it('does not let an older job completion clear newer staged files', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg')]);
+    await workflow.submit(async () => pendingJob('job-first', 0, 1));
+    workflow.select([uploadFile('later.jpg')]);
+
+    expect(workflow.applyJob(completedJob('job-first', 'first.jpg'))).toEqual({ completed: true, changedFiles: true });
+
+    expect(workflow.files.map((file) => file.name)).toEqual(['later.jpg']);
+    expect(workflow.items.map((item) => [item.name, item.status])).toEqual([
+      ['first.jpg', 'imported'],
+      ['later.jpg', 'staged']
+    ]);
+  });
+
+  it('can clear newer staging while an older durable batch remains active', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg')]);
+    await workflow.submit(async () => pendingJob('job-first', 0, 1));
+    workflow.select([uploadFile('later.jpg')]);
+
+    workflow.clear('staged');
+
+    expect(workflow.files).toEqual([]);
+    expect(workflow.items.map((item) => [item.name, item.status])).toEqual([
+      ['first.jpg', 'queued']
+    ]);
+    expect(workflow.activeJobIDs).toEqual(['job-first']);
   });
 
   it('replaces managed target defaults while preserving user tags', () => {
@@ -290,16 +278,14 @@ describe('createUploadWorkflow', () => {
     expect(workflow.tags).toBe('user:custom');
   });
 
-  it('preserves initial tags after a completed upload batch', async () => {
+  it('preserves managed target defaults and user tags after direct completion', async () => {
     const workflow = createUploadWorkflow();
     workflow.setTarget('one', 'queue', ['project:inbox']);
     workflow.tags = 'project:inbox user:custom';
     workflow.select([uploadFile('first.jpg')]);
-
     await workflow.submit(async () => ({
       files: [{ name: 'first.jpg', size: 10, target_id: 'one', status: 'uploaded' }]
     } as never));
-
     expect(workflow.files).toEqual([]);
     expect(workflow.tags).toBe('project:inbox user:custom');
   });

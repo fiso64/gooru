@@ -40,6 +40,18 @@ func getDatabaseBackgroundOperation(client *Client, operationID string) (Backgro
 	return backgroundOperationStateFromDatabase(operation), true, nil
 }
 
+func getDatabaseBackgroundOperationTask(client *Client, operationID string) (BackgroundTaskState, bool, error) {
+	task, found, err := client.store.GetBackgroundTaskForOperation(operationID)
+	if err != nil || !found {
+		return BackgroundTaskState{}, found, err
+	}
+	return BackgroundTaskState{
+		BackgroundTask: backgroundTaskFromDatabase(task),
+		Status:         BackgroundWorkStatus(task.Status),
+		StartedAt:      task.StartedAt,
+	}, true, nil
+}
+
 func listDatabaseBackgroundOperations(client *Client, options BackgroundOperationListOptions) ([]BackgroundOperationState, error) {
 	operations, err := client.store.ListBackgroundOperations(options.VisibleOnly, options.Limit)
 	if err != nil {
@@ -56,10 +68,60 @@ func cancelDatabaseBackgroundOperation(client *Client, operationID string) (bool
 	return client.store.CancelBackgroundOperation(operationID, time.Now().UTC())
 }
 
+func cancelDatabaseBackgroundOperationWithDetails(client *Client, operationID string) (BackgroundOperationCancellation, error) {
+	result, err := client.store.CancelBackgroundOperationWithDetails(operationID, time.Now().UTC())
+	if err != nil {
+		return BackgroundOperationCancellation{}, err
+	}
+	return BackgroundOperationCancellation{Canceled: result.Canceled, RunningTasks: result.RunningTasks}, nil
+}
+
+func cancelDatabaseBackgroundOperationWithCleanupTask(client *Client, operationID, cleanupTaskID string, request BackgroundTaskRequest) (BackgroundOperationCancellation, error) {
+	result, err := client.store.CancelBackgroundOperationWithCleanupTask(operationID, time.Now().UTC(), databaseBackgroundTask(cleanupTaskID, request))
+	if err != nil {
+		return BackgroundOperationCancellation{}, err
+	}
+	return BackgroundOperationCancellation{Canceled: result.Canceled, RunningTasks: result.RunningTasks}, nil
+}
+
 func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string, request BackgroundTaskRequest) (BackgroundTask, bool, error) {
-	task, created, err := client.store.EnqueueBackgroundTask(q, database.NewBackgroundTask{
-		ID:            id,
-		OperationID:   request.OperationID,
+	task, created, err := client.store.EnqueueBackgroundTask(q, databaseBackgroundTask(id, request))
+	if err != nil {
+		return BackgroundTask{}, false, err
+	}
+	return backgroundTaskFromDatabase(task), created, nil
+}
+
+func attachDatabaseBackgroundTaskAndRevealOperation(client *Client, operationID string, checkpointJSON []byte, id string, request BackgroundTaskRequest) (BackgroundTask, error) {
+	task, err := client.store.AttachBackgroundTaskAndRevealOperation(operationID, checkpointJSON, databaseBackgroundTask(id, request))
+	if err != nil {
+		return BackgroundTask{}, err
+	}
+	return backgroundTaskFromDatabase(task), nil
+}
+
+func databaseBackgroundTask(id string, request BackgroundTaskRequest) database.NewBackgroundTask {
+	return database.NewBackgroundTask{
+		ID:                     id,
+		OperationID:            request.OperationID,
+		DedupeKey:              request.DedupeKey,
+		Kind:                   request.Kind,
+		SubjectKind:            request.SubjectKind,
+		SubjectID:              request.SubjectID,
+		InputKey:               request.InputKey,
+		ResourceClass:          request.ResourceClass,
+		Priority:               request.Priority,
+		AvailableAt:            request.AvailableAt,
+		MaxAttempts:            request.MaxAttempts,
+		TerminalFailureCleanup: databaseBackgroundTaskCleanup(request.TerminalFailureCleanup),
+	}
+}
+
+func databaseBackgroundTaskCleanup(request *BackgroundTaskCleanupRequest) *database.BackgroundTaskCleanup {
+	if request == nil {
+		return nil
+	}
+	return &database.BackgroundTaskCleanup{
 		DedupeKey:     request.DedupeKey,
 		Kind:          request.Kind,
 		SubjectKind:   request.SubjectKind,
@@ -67,17 +129,19 @@ func enqueueDatabaseBackgroundTask(client *Client, q databaseQuerier, id string,
 		InputKey:      request.InputKey,
 		ResourceClass: request.ResourceClass,
 		Priority:      request.Priority,
-		AvailableAt:   request.AvailableAt,
 		MaxAttempts:   request.MaxAttempts,
-	})
-	if err != nil {
-		return BackgroundTask{}, false, err
 	}
-	return backgroundTaskFromDatabase(task), created, nil
 }
 
 func cancelDatabaseBackgroundTask(client *Client, taskID string) (bool, error) {
 	return client.store.CancelBackgroundTask(taskID, time.Now().UTC())
+}
+
+func setDatabaseBackgroundOperationState(client *Client, tx *databaseTx, operationID string, checkpointJSON, resultJSON []byte) error {
+	if err := client.store.SetBackgroundOperationCheckpointTx(tx, operationID, checkpointJSON); err != nil {
+		return err
+	}
+	return client.store.SetBackgroundOperationResultTx(tx, operationID, resultJSON)
 }
 
 func newDatabaseBackgroundRuntime(client *Client, cfg BackgroundWorkerConfig) (BackgroundRuntime, error) {

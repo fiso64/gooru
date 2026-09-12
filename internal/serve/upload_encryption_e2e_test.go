@@ -21,14 +21,12 @@ import (
 func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
-		t.Fatalf("init db: %v", err)
-	}
+	writeInitializedTestDB(t, dbPath, types.StrategyFull)
 	client, err := core.New(dbPath, false)
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	uploadDir := filepath.Join(dir, "uploads")
 	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
@@ -38,6 +36,7 @@ func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 	cfg.Uploads.Enabled = true
 	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-protected-upload")
 
 	plaintext := tinyPNG(t, 7, 5, color.RGBA{R: 31, G: 101, B: 211, A: 255})
 	sourceModTime := time.Date(2021, time.March, 4, 5, 6, 7, 0, time.UTC)
@@ -138,14 +137,12 @@ func TestEncryptedUploadHonorsPlaintextSizeLimit(t *testing.T) {
 func TestEncryptedUploadDefaultConflictRenamesLogicalPathAfterHashDedup(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
-		t.Fatalf("init db: %v", err)
-	}
+	writeInitializedTestDB(t, dbPath, types.StrategyFull)
 	client, err := core.New(dbPath, false)
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	uploadDir := filepath.Join(dir, "uploads")
 	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
@@ -155,6 +152,7 @@ func TestEncryptedUploadDefaultConflictRenamesLogicalPathAfterHashDedup(t *testi
 	cfg.Uploads.Enabled = true
 	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-protected-conflict-upload")
 
 	upload := func(data []byte) UploadImportResponse {
 		t.Helper()

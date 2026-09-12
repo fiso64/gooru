@@ -31,6 +31,15 @@ type BackgroundOperationState struct {
 	ErrorMessage      string
 }
 
+// BackgroundTaskState is the read model for one durable child task. The embedded
+// BackgroundTask remains the narrow handler input while lifecycle fields let
+// orchestration code distinguish never-claimed work from a running owner.
+type BackgroundTaskState struct {
+	BackgroundTask
+	Status    BackgroundWorkStatus
+	StartedAt *time.Time
+}
+
 // BackgroundOperationListOptions controls bounded operation-history reads.
 type BackgroundOperationListOptions struct {
 	// VisibleOnly omits deliberately hidden implementation/background operations.
@@ -43,6 +52,12 @@ type BackgroundOperationListOptions struct {
 // operation. found=false means the operation does not exist.
 func (c *Client) GetBackgroundOperation(operationID string) (operation BackgroundOperationState, found bool, err error) {
 	return getDatabaseBackgroundOperation(c, operationID)
+}
+
+// GetBackgroundOperationTask returns the first durable child task attached to
+// an operation. found=false means no child has been attached.
+func (c *Client) GetBackgroundOperationTask(operationID string) (task BackgroundTaskState, found bool, err error) {
+	return getDatabaseBackgroundOperationTask(c, operationID)
 }
 
 // ListBackgroundOperations returns newest-first durable operation state. It is

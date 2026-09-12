@@ -21,7 +21,6 @@ async function mockAuthenticatedLibrary(page: Page) {
     contentType: 'application/json',
     body: JSON.stringify(session)
   }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
@@ -154,4 +153,11 @@ test('editorial preset keeps the regular serif heading weight', async ({ page })
   await expect(page.locator('.gooru-logo-default')).toBeVisible();
   await expect(page.locator('.gooru-logo-comic')).toBeHidden();
   await expect(page.locator('.gooru-logo-accent')).toBeVisible();
+});
+
+test('missing font_style defaults the web UI to comic', async ({ page }) => {
+  await mockAuthenticatedLibrary(page);
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
+  await page.goto('/');
+  await expect(page.locator('.gooru-root')).toHaveClass(/gooru-type-comic/);
 });

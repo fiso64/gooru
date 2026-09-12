@@ -21,14 +21,12 @@ import (
 func TestCBZUploadImportAndOpenGoldenPath(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
-		t.Fatalf("init db: %v", err)
-	}
+	writeInitializedTestDB(t, dbPath, types.StrategyFull)
 	client, err := core.New(dbPath, false)
 	if err != nil {
 		t.Fatalf("open client: %v", err)
 	}
-	defer client.Close()
+	t.Cleanup(func() { _ = client.Close() })
 
 	uploadDir := filepath.Join(dir, "uploads")
 	cfg := DefaultConfig(filepath.Join(dir, "serve.db"))
@@ -36,6 +34,7 @@ func TestCBZUploadImportAndOpenGoldenPath(t *testing.T) {
 	cfg.Uploads.Enabled = true
 	cfg.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: uploadDir}}
 	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-cbz-upload")
 
 	page := tinyPNG(t, 3, 2, color.White)
 	comicPath := writeComic(t, map[string][]byte{"pages/1.png": page})

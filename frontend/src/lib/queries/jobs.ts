@@ -1,11 +1,13 @@
 import { createMutation, createQuery } from '@tanstack/svelte-query';
-import { ApiClient } from '$lib/api/client';
 import type { Job } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
 import {
   backgroundOperationAsJob,
   cancelBackgroundOperation,
-  listBackgroundOperations
+  clearCompletedBackgroundOperations,
+  listBackgroundOperations,
+  listBackgroundOperationsByIDs,
+  type BackgroundOperationClearResponse
 } from '$lib/api/operations';
 import {
   uploadBackpressuredJobStatusRefetchMs,
@@ -33,9 +35,13 @@ export function jobsRefetchInterval(jobs: Job[] | undefined) {
   return jobs?.some(jobIsActive) ? 2000 : false;
 }
 
-export function jobsPageRefetchInterval(page: JobListPage | undefined) {
-  if (typeof page?.active_count === 'number') return page.active_count > 0 ? 2000 : false;
-  return jobsRefetchInterval(page?.items);
+export function jobsPageRefetchInterval(_page: JobListPage | undefined) {
+  // The visible operation list is also the discovery channel for work admitted
+  // elsewhere in the UI. Stopping the list poll when active_count reaches zero
+  // makes a later delete/upload operation invisible until another invalidation or
+  // full page refresh. Keep the existing active cadence while idle so new durable
+  // operations appear without relying on producer-specific cache coordination.
+  return 2000;
 }
 
 export function uploadJobRefetchInterval(jobIDs: string[]) {
@@ -45,27 +51,36 @@ export function uploadJobRefetchInterval(jobIDs: string[]) {
 }
 
 async function fetchJobBatch(ids: string[]) {
-  const params = new URLSearchParams();
-  for (const id of ids) params.append('id', id);
-  const response = await fetch(`/api/v1/jobs?${params.toString()}`, {
-    credentials: 'same-origin',
-    headers: { Accept: 'application/json' }
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch upload job status (${response.status})`);
-  }
-  return await response.json() as { items: Job[] };
+  const response = await listBackgroundOperationsByIDs(ids);
+  return { items: response.items.map(backgroundOperationAsJob) };
+}
+
+function jobsPageOffset(pageToken: string) {
+  const offset = Number.parseInt(pageToken, 10);
+  return Number.isFinite(offset) && offset > 0 ? offset : 0;
+}
+
+export function jobsPageRequestLimit(limit: number, pageToken: string) {
+  const start = jobsPageOffset(pageToken);
+  // The operations endpoint is newest-first but currently exposes only a bounded
+  // prefix, not a cursor. Fetch just enough prefix rows to cover this page plus
+  // one lookahead row so local pagination can preserve the existing next-page
+  // behavior without materializing and polling the full 1000-operation history.
+  return Math.min(1000, start + limit + 1);
+}
+
+export function jobsPageActiveCount(serverActiveCount: number | undefined, jobs: Job[]) {
+  return serverActiveCount ?? jobs.filter(jobIsActive).length;
 }
 
 async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
-  const response = await listBackgroundOperations(1000);
+  const start = jobsPageOffset(pageToken);
+  const response = await listBackgroundOperations(jobsPageRequestLimit(limit, pageToken));
   const jobs = response.items.map(backgroundOperationAsJob);
-  const offset = Number.parseInt(pageToken, 10);
-  const start = Number.isFinite(offset) && offset > 0 ? offset : 0;
   const end = start + limit;
   return {
     items: jobs.slice(start, end),
-    active_count: jobs.filter(jobIsActive).length,
+    active_count: jobsPageActiveCount(response.active_count, jobs),
     next_page_token: end < jobs.length ? String(end) : undefined
   };
 }
@@ -102,6 +117,15 @@ export function createJobsQuery(
   });
 }
 
+export function createClearCompletedJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<BackgroundOperationClearResponse, Error, void>(() => ({
+    mutationFn: () => clearCompletedBackgroundOperations(getCSRFToken()),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: jobKeys.all });
+    }
+  }));
+}
+
 export function createCancelJobMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<Job, Error, string>(() => ({
     mutationFn: async (id) => backgroundOperationAsJob(await cancelBackgroundOperation(id, getCSRFToken())),
@@ -113,15 +137,5 @@ export function createCancelJobMutation(getCSRFToken: () => string, queryClient:
       ]);
       return job;
     }
-  }));
-}
-
-// Upload result polling still uses the legacy JobManager until uploads become
-// durable-operation producers. Keep this mutation for callers outside the
-// durable operation history UI while that migration is incomplete.
-export function createClearJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
-  return createMutation<{ removed: number }, Error, string>(() => ({
-    mutationFn: (status) => new ApiClient(getCSRFToken()).clearJobs(status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: jobKeys.all })
   }));
 }

@@ -45,7 +45,6 @@ async function mockApp(page: Page) {
     loggedIn = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
@@ -72,6 +71,7 @@ async function mockApp(page: Page) {
   });
   await page.route('**/api/v1/files/one/thumbnail**', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" />' }));
   await page.route('**/api/v1/files/one/preview**', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" />' }));
+  await page.context().route('**/api/v1/files/one/content', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" />' }));
 
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
@@ -131,6 +131,22 @@ test('viewer shortcuts switch tag modes and dispatch file actions', async ({ pag
   await expect(page.getByRole('dialog', { name: 'Delete file' })).toBeVisible();
 });
 
+test('O opens the currently viewed original in a new browser tab', async ({ page }) => {
+  await mockApp(page);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  const preview = page.getByRole('dialog', { name: 'one.jpg' });
+  await expect(preview.getByTitle('Open original in new tab (O)')).toBeVisible();
+
+  const openedPromise = page.context().waitForEvent('page');
+  await preview.focus();
+  await page.keyboard.press('o');
+  const opened = await openedPromise;
+  await expect.poll(() => {
+    try { return new URL(opened.url()).pathname; } catch { return ''; }
+  }).toBe('/api/v1/files/one/content');
+  await opened.close();
+});
+
 test('shortcuts open as a modal and number keys follow visible sidebar order', async ({ page }) => {
   await mockApp(page);
 
@@ -144,7 +160,16 @@ test('shortcuts open as a modal and number keys follow visible sidebar order', a
   await expect(shortcuts.getByText('Focus search')).toBeVisible();
   await expect(shortcuts.getByText('Save current search')).toBeVisible();
   await expect(shortcuts.getByText('Toggle original / preview media')).toBeVisible();
+  await expect(shortcuts.getByText('Open original in new tab')).toBeVisible();
   await expect(shortcuts.getByRole('heading', { name: 'Shortcuts' })).toHaveCSS('font-size', '22px');
+
+  const shortcutColumns = shortcuts.locator('.shortcut-column');
+  await expect(shortcutColumns).toHaveCount(2);
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Navigation' })).toBeVisible();
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Selection' })).toBeVisible();
+  await expect(shortcutColumns.nth(0).getByRole('heading', { name: 'Viewer' })).toHaveCount(0);
+  await expect(shortcutColumns.nth(1).getByRole('heading', { name: 'Viewer' })).toBeVisible();
+
   await page.keyboard.press('Escape');
   await expect(shortcuts).toHaveCount(0);
 

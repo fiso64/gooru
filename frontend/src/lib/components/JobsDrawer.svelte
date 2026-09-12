@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
   import Icon from './Icon.svelte';
   import JobRow from './JobRow.svelte';
   import type { Job } from '$lib/api/types';
@@ -36,9 +37,7 @@
       <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Pause all coming soon" aria-label="Pause all coming soon">
         <Icon name="pause" size={13} />
       </button>
-      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" aria-label="Close jobs" onclick={onClose}>
-        <Icon name="close" size={13} />
-      </button>
+      <ClearCompletedJobsButton variant="icon" />
     </div>
   </div>
   <div class="jobs-list">

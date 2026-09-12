@@ -15,7 +15,7 @@
   import { authState } from '$lib/stores/auth';
   import { runtimeConfig, type PaginationMode } from '$lib/stores/runtimeConfig';
   import { createFileCountQuery, createFileFacetsQuery, createFilesQuery, createFileRemovalMutation, createFilesRemovalMutation, createTagMutation, pageTokenOffset, type FileSort } from '$lib/queries/files';
-  import { createCancelJobMutation, createClearJobsMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
+  import { createCancelJobMutation, createJobQuery, createJobsQuery } from '$lib/queries/jobs';
   import {
     createSavedSearchCreateMutation,
     createSavedSearchDeleteMutation,
@@ -114,7 +114,6 @@
   const filesRemovalMutation = createFilesRemovalMutation(() => $authState.csrfToken, queryClient);
   const uploadMutation = createUploadMutation(() => $authState.csrfToken);
   const cancelJobMutation = createCancelJobMutation(() => $authState.csrfToken, queryClient);
-  const clearJobsMutation = createClearJobsMutation(() => $authState.csrfToken, queryClient);
   const createSavedSearchMutation = createSavedSearchCreateMutation(() => $authState.csrfToken, queryClient);
   const updateSavedSearchMutation = createSavedSearchUpdateMutation(() => $authState.csrfToken, queryClient);
   const deleteSavedSearchMutation = createSavedSearchDeleteMutation(() => $authState.csrfToken, queryClient);
@@ -131,7 +130,8 @@
     ? (uploadResultsCountQuery.data?.total_count ?? gridSnapshotTotalCount)
     : gridSnapshotTotalCount);
   const liveLibraryCount = $derived(tagsQuery.data?.library_count ?? fileMetadata?.library_count ?? loadedFiles.length);
-  const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveCurrentQueryCount - uploadResultsFloor) : 0);
+  const uploadResultsBaseline = $derived(Math.max(uploadResultsFloor, gridSnapshotTotalCount));
+  const newUploadResultCount = $derived(trackUploadResults ? Math.max(0, liveCurrentQueryCount - uploadResultsBaseline) : 0);
   const pagedPageCount = $derived(Math.max(1, Math.ceil(gridSnapshotTotalCount / $runtimeConfig.itemsPerPage)));
   const selectedCount = $derived(library.selectedCount());
   const sidebarKindCounts = $derived(
@@ -476,7 +476,7 @@
   async function finishUploadMetadataRefresh() {
     stopUploadMetadataRefresh();
     const finalTotal = await refreshUploadMetadata(true);
-    if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsFloor) {
+    if (!upload.busy && !upload.activeJobIDs.length && finalTotal != null && finalTotal <= uploadResultsBaseline) {
       trackUploadResults = false;
     }
     return finalTotal;
@@ -495,7 +495,7 @@
   }
 
   async function submitUpload() {
-    if (!upload.files.length || upload.busy || upload.activeJobIDs.length) return;
+    if (!upload.files.length) return;
     cancelRequestedJobID = '';
     startUploadMetadataRefresh();
     try {
@@ -503,7 +503,7 @@
       if (result.changedFiles) beginTrackingUploadResults();
       if (result.queued) void jobsQuery.refetch();
     } finally {
-      if (!upload.activeJobIDs.length) await finishUploadMetadataRefresh();
+      if (!upload.busy && !upload.activeJobIDs.length) await finishUploadMetadataRefresh();
       uploadMutation.reset();
     }
   }
@@ -539,9 +539,6 @@
     await cancelJobMutation.mutateAsync(job.id);
   }
 
-  async function clearCompletedJobs() {
-    await clearJobsMutation.mutateAsync('completed');
-  }
 
   function actionDialogTitle() {
     switch (actionDialog.kind) {
@@ -691,7 +688,7 @@
         onRemove={upload.removeAt}
       />
     {:else if library.route === 'jobs'}
-      <JobsView jobs={jobsQuery.data?.items ?? []} {authScope} onCancel={cancelJob} onClearCompleted={clearCompletedJobs} />
+      <JobsView jobs={jobsQuery.data?.items ?? []} {authScope} onCancel={cancelJob} />
     {:else if library.route === 'settings'}
       <SettingsView username={$authState.user.username} onLogout={logout} onChangePassword={changePassword} />
     {:else if library.route === 'tags'}

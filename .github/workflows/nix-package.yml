@@ -26,6 +26,7 @@ concurrency:
 
 jobs:
   package:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4

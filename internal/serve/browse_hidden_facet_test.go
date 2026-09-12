@@ -15,9 +15,7 @@ import (
 func TestBrowseNegativeHiddenTagFacetsAtHTTPBoundary(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
-		t.Fatal(err)
-	}
+	writeInitializedTestDB(t, dbPath, types.StrategyFull)
 	client, err := core.New(dbPath, false)
 	if err != nil {
 		t.Fatal(err)

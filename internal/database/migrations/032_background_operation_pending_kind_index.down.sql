@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS background_operations_pending_kind_idx;

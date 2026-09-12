@@ -33,7 +33,6 @@ async function mockPagedLibrary(page: Page, fileCount = 273) {
   const requests: Array<{ offset: number; limit: number }> = [];
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ pagination_mode: 'paged', items_per_page: 25, grid_type: 'square', grid_size: 120 }) }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default' }] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
@@ -155,6 +154,19 @@ test('paged mode restores a direct page URL and browser history', async ({ page 
   await expect(page.getByRole('button', { name: 'Page 4', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
+test('stale out-of-range page URLs recover to the first valid page', async ({ page }) => {
+  const requests = await mockPagedLibrary(page, 26);
+  await page.goto('/?page=99');
+
+  await expect.poll(() => requests.some((request) => request.offset === 2450 && request.limit === 25)).toBe(true);
+  await expect.poll(() => requests.some((request) => request.offset === 0 && request.limit === 25)).toBe(true);
+  await expect(page).not.toHaveURL(/[?&]page=/);
+  await expect(page.getByRole('button', { name: /page-0\.jpg$/ })).toBeVisible();
+  await expect(page.getByText('26 files')).toBeVisible();
+  await expect(page.getByTestId('library-pager')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute('aria-current', 'page');
+});
+
 test('six-page pager keeps the last page reachable through middle pages on narrow screens', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 900 });
   const requests = await mockPagedLibrary(page, 150);
@@ -173,4 +185,21 @@ test('six-page pager keeps the last page reachable through middle pages on narro
     expect(lastPageBox).not.toBeNull();
     expect(lastPageBox!.x + lastPageBox!.width).toBeLessThanOrEqual(pagerBox!.x + pagerBox!.width + 0.5);
   }
+});
+
+test('short final page keeps controls at the viewport bottom without artificial scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const requests = await mockPagedLibrary(page, 26);
+  await page.goto('/?page=2');
+  await expect.poll(() => requests.some((request) => request.offset === 25 && request.limit === 25)).toBe(true);
+  await expect(page.getByRole('button', { name: /page-25\.jpg$/ })).toBeVisible();
+
+  const viewport = page.locator('main.main');
+  const pager = page.getByTestId('library-pager');
+  const metrics = await viewport.evaluate((node) => ({ clientHeight: node.clientHeight, scrollHeight: node.scrollHeight }));
+  expect(metrics.scrollHeight).toBe(metrics.clientHeight);
+  const [viewportBox, pagerBox] = await Promise.all([viewport.boundingBox(), pager.boundingBox()]);
+  expect(viewportBox).not.toBeNull();
+  expect(pagerBox).not.toBeNull();
+  expect(Math.abs((viewportBox!.y + viewportBox!.height) - (pagerBox!.y + pagerBox!.height))).toBeLessThan(2);
 });

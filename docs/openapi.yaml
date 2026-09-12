@@ -604,7 +604,7 @@ paths:
         "200":
           $ref: "#/components/responses/TagMutation"
         "202":
-          $ref: "#/components/responses/AsyncJob"
+          $ref: "#/components/responses/AsyncOperation"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -632,7 +632,7 @@ paths:
         "200":
           $ref: "#/components/responses/TagMutation"
         "202":
-          $ref: "#/components/responses/AsyncJob"
+          $ref: "#/components/responses/AsyncOperation"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -661,7 +661,7 @@ paths:
         "200":
           $ref: "#/components/responses/TagMutation"
         "202":
-          $ref: "#/components/responses/AsyncJob"
+          $ref: "#/components/responses/AsyncOperation"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -803,7 +803,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/UploadImportResponse"
         "202":
-          $ref: "#/components/responses/AsyncJob"
+          $ref: "#/components/responses/AsyncOperation"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1035,16 +1035,16 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-  /jobs:
+  /operations:
     get:
-      summary: List asynchronous jobs.
+      summary: List durable background operations.
       security:
         - sessionAuth: []
       parameters:
         - name: id
           in: query
           required: false
-          description: Specific asynchronous job IDs to return. May be repeated; at most 64 unique IDs are accepted.
+          description: Specific durable operation IDs to return. May be repeated; at most 64 unique IDs are accepted. Completed results are included for this bounded status-batch form.
           schema:
             type: array
             maxItems: 64
@@ -1052,32 +1052,21 @@ paths:
               type: string
           style: form
           explode: true
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [pending, running, completed, failed, canceled]
         - name: limit
           in: query
           required: false
           schema:
             type: integer
             minimum: 1
-            maximum: 200
-            default: 50
-        - name: page_token
-          in: query
-          required: false
-          schema:
-            type: string
+            maximum: 1000
+            default: 100
       responses:
         "200":
-          description: Jobs matching the optional status filter.
+          description: Visible durable operations matching the request.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/JobListResponse"
+                $ref: "#/components/schemas/BackgroundOperationListResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1085,38 +1074,34 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
     delete:
-      summary: Clear finished jobs.
+      summary: Clear visible terminal durable operation history.
+      description: Removes completed, failed, and canceled visible operations together with their terminal child task history. Pending/running operations, hidden implementation operations, and operations with active child tasks are retained.
       security:
         - sessionAuth: []
       parameters:
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [completed, failed, canceled]
-            default: completed
         - $ref: "#/components/parameters/CSRF"
       responses:
         "200":
-          description: Number of finished jobs removed.
+          description: Terminal operation history cleared.
           content:
             application/json:
               schema:
                 type: object
-                required: [removed]
+                required: [cleared]
                 properties:
-                  removed:
+                  cleared:
                     type: integer
-        "400":
-          $ref: "#/components/responses/BadRequest"
+                    format: int64
+                    minimum: 0
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-  /jobs/{id}:
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /operations/{id}:
     get:
-      summary: Get an asynchronous job.
+      summary: Get one durable background operation.
       security:
         - sessionAuth: []
       parameters:
@@ -1127,11 +1112,11 @@ paths:
             type: string
       responses:
         "200":
-          description: Job state.
+          description: Durable operation state, including a structured result when completed and available.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Job"
+                $ref: "#/components/schemas/BackgroundOperation"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1139,7 +1124,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
     delete:
-      summary: Cancel an asynchronous job.
+      summary: Cancel an active durable background operation.
       security:
         - sessionAuth: []
       parameters:
@@ -1151,17 +1136,18 @@ paths:
         - $ref: "#/components/parameters/CSRF"
       responses:
         "202":
-          description: Cancellation requested.
+          description: Operation canceled.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Job"
+                $ref: "#/components/schemas/BackgroundOperation"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
 components:
   parameters:
     CSRF:
@@ -1178,7 +1164,7 @@ components:
       schema:
         type: string
         enum: [respond-async]
-      description: Set to respond-async to enqueue the mutation and poll the returned job.
+      description: Set to respond-async to accept the mutation asynchronously; poll the returned durable operation as documented by the endpoint.
   securitySchemes:
     sessionAuth:
       type: apiKey
@@ -1210,7 +1196,7 @@ components:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
     ServiceUnavailable:
-      description: Service is temporarily unavailable, including a full job queue.
+      description: Service is temporarily unavailable, including a full durable-operation admission window.
       content:
         application/json:
           schema:
@@ -1227,12 +1213,13 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/TagMutationResponse"
-    AsyncJob:
-      description: Mutation was queued as an asynchronous job.
+    AsyncOperation:
+      description: Mutation was accepted as a durable background operation.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Job"
+            $ref: "#/components/schemas/BackgroundOperation"
+
     UnsupportedMedia:
       description: The requested media derivative cannot be generated for this file.
       content:
@@ -1567,22 +1554,45 @@ components:
                 items:
                   type: string
                 description: Visible editable tags and -tag exclusions prefilled for this upload target.
-    Job:
+    BackgroundOperation:
       type: object
-      required: [id, type, status, submitted_at]
+      required: [id, kind, status, progress_total, progress_completed, progress_failed, created_at]
       properties:
         id:
           type: string
-        type:
+        kind:
           type: string
         status:
           type: string
           enum: [pending, running, completed, failed, canceled]
+        stage:
+          type: string
+          enum: [receiving, importing]
+          description: Optional user-visible lifecycle stage for upload_import operations. Receiving is active synchronous request-body work; importing is durable queued/running processing.
+        progress_total:
+          type: integer
+          format: int64
+          minimum: 0
+        progress_completed:
+          type: integer
+          format: int64
+          minimum: 0
+        progress_completed_prefix:
+          type: integer
+          format: int64
+          minimum: 0
+          description: For upload_import operations, number of leading upload files whose analysis stage has completed. Omitted for other operation kinds.
+        progress_failed:
+          type: integer
+          format: int64
+          minimum: 0
         progress:
           type: number
+          format: double
           minimum: 0
           maximum: 1
-        submitted_at:
+          description: Optional overall operation progress fraction. Uploads omit this while receiving when the request length is unknown.
+        created_at:
           type: string
           format: date-time
         started_at:
@@ -1591,23 +1601,20 @@ components:
         finished_at:
           type: string
           format: date-time
+        error_code:
+          type: string
+        error_message:
+          type: string
         result: {}
-        error:
-          type: string
-    JobListResponse:
+    BackgroundOperationListResponse:
       type: object
-      required: [items, active_count]
+      required: [items]
       properties:
-        active_count:
-          type: integer
-          minimum: 0
-          description: Total retained jobs currently pending or running, independent of the visible page.
-        next_page_token:
-          type: string
         items:
           type: array
           items:
-            $ref: "#/components/schemas/Job"
+            $ref: "#/components/schemas/BackgroundOperation"
+
     BrowserURLState:
       type: object
       properties:
@@ -1670,6 +1677,7 @@ components:
         - modified_time
         - media_type
         - media_kind
+        - viewer_support
         - metadata
         - tags
         - media_urls
@@ -1702,7 +1710,11 @@ components:
           type: string
         media_kind:
           type: string
-          enum: [photo, video, gif, audio, other]
+          enum: [photo, video, gif, audio, comic, other]
+        viewer_support:
+          type: string
+          enum: [supported, unsupported_media_type]
+          description: Backend-owned indication of whether the built-in viewer supports this media type.
         metadata:
           $ref: "#/components/schemas/MediaMetadata"
         tags:

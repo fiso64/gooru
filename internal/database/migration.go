@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 //go:embed migrations
@@ -21,6 +22,12 @@ type embeddedMigration struct {
 	name    string
 	sql     string
 }
+
+var (
+	embeddedMigrationsOnce sync.Once
+	embeddedMigrations     []embeddedMigration
+	embeddedMigrationsErr  error
+)
 
 // RunMigrations applies embedded up migrations to the exact database connection
 // supplied by the caller. The runner deliberately depends only on database/sql,
@@ -62,6 +69,13 @@ func RunMigrations(db *sql.DB) error {
 }
 
 func loadEmbeddedMigrations() ([]embeddedMigration, error) {
+	embeddedMigrationsOnce.Do(func() {
+		embeddedMigrations, embeddedMigrationsErr = readEmbeddedMigrations()
+	})
+	return embeddedMigrations, embeddedMigrationsErr
+}
+
+func readEmbeddedMigrations() ([]embeddedMigration, error) {
 	entries, err := fs.ReadDir(migrationsFS, "migrations")
 	if err != nil {
 		return nil, fmt.Errorf("read embedded migrations: %w", err)
@@ -149,11 +163,16 @@ func applyMigration(db *sql.DB, migration embeddedMigration) error {
 		_ = tx.Rollback()
 		return fmt.Errorf("apply migration %s: %w", migration.name, err)
 	}
+	if _, err := tx.Exec(`DELETE FROM schema_migrations`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("clear migration version after %s: %w", migration.name, err)
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations (version, dirty) VALUES (?, ?)`, migration.version, false); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("mark migration %s clean: %w", migration.name, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration %s: %w", migration.name, err)
-	}
-	if err := setMigrationVersion(db, migration.version, false); err != nil {
-		return fmt.Errorf("mark migration %s clean: %w", migration.name, err)
 	}
 	return nil
 }

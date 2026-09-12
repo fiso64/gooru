@@ -8,7 +8,7 @@
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
-  import { partitionUploadRows, type IndexedUploadRow } from '$lib/state/uploadPanelRows';
+  import { groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
 
   let {
     uploadFiles,
@@ -54,7 +54,7 @@
     onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;
     onCancel: (jobID: string) => void;
-    onClear: () => void;
+    onClear: (scope: 'staged' | 'done') => void;
     onRemove: (index: number) => void;
   }>();
 
@@ -62,7 +62,7 @@
   let fileInput: HTMLInputElement | undefined;
   let tagDraft = $state('');
   let stagedPage = $state(0);
-  let queuePage = $state(0);
+  let queuePages = $state<Record<string, number>>({});
 
   const uploadListPageSize = 100;
   const indexedItems = $derived(uploadItems.map((item: UploadItem, index: number) => ({ item, index })));
@@ -75,23 +75,37 @@
   });
   const stagedRows = $derived(partitionedRows.staged);
   const queueRows = $derived(partitionedRows.queue);
+  const queueBatches = $derived.by(() => {
+    const rows = queueRows;
+    return untrack(() => groupUploadQueueRows(rows));
+  });
   const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
   const queueBytes = $derived(queueRows.reduce((sum: number, row: IndexedUploadRow) => sum + row.item.size, 0));
   const initialTags = $derived(parseTags(uploadTags));
   const selectedTargetID = $derived(effectiveUploadTargetID(targetID, targets));
-  const stagedPageCount = $derived(Math.max(1, Math.ceil(stagedRows.length / uploadListPageSize)));
-  const queuePageCount = $derived(Math.max(1, Math.ceil(queueRows.length / uploadListPageSize)));
-  const stagedVisibleRows = $derived.by(() => pageRows(stagedRows, stagedPage));
-  const queueVisibleRows = $derived.by(() => pageRows(queueRows, queuePage));
+  const stagedPageState = $derived.by(() => paginateUploadRows(stagedRows, stagedPage, uploadListPageSize));
+  const stagedPageCount = $derived(stagedPageState.pageCount);
+  const stagedVisibleRows = $derived(stagedPageState.rows);
 
-  function pageRows(rows: IndexedUploadRow[], page: number) {
-    const start = Math.max(0, page) * uploadListPageSize;
-    return rows.slice(start, start + uploadListPageSize);
+  function queueBatchKey(batch: UploadQueueBatch) {
+    return batch.batchID == null ? 'legacy' : String(batch.batchID);
+  }
+
+  function queueBatchPage(batch: UploadQueueBatch) {
+    return paginateUploadRows(batch.rows, queuePages[queueBatchKey(batch)] ?? 0, uploadListPageSize);
+  }
+
+  function setQueueBatchPage(batch: UploadQueueBatch, page: number) {
+    queuePages = { ...queuePages, [queueBatchKey(batch)]: Math.max(0, page) };
+  }
+
+  function batchLabel(batch: UploadQueueBatch) {
+    return batch.batchID == null ? 'Earlier upload' : `Batch ${batch.batchID}`;
   }
 
   $effect(() => {
-    if (stagedPage >= stagedPageCount) stagedPage = stagedPageCount - 1;
-    if (queuePage >= queuePageCount) queuePage = queuePageCount - 1;
+    if (stagedPage !== stagedPageState.page) stagedPage = stagedPageState.page;
+    if (!queueBatches.length && Object.keys(queuePages).length) queuePages = {};
   });
 
   function chooseFiles() {
@@ -254,8 +268,8 @@
           <div class="upload-list-head">
             <div class="g-eyebrow">Staged · {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'} · {formatBytes(stagedBytes)}</div>
             <div class="upload-list-actions">
-              <button class="g-btn g-btn-sm" type="button" onclick={onClear}><Icon name="close" size={12} /> Clear staged</button>
-              <button class="g-btn g-btn-primary g-btn-sm" type="submit" disabled={uploadBusy || Boolean(activeUploadJobID)}>
+              <button class="g-btn g-btn-sm" type="button" onclick={() => onClear('staged')}><Icon name="close" size={12} /> Clear staged</button>
+              <button class="g-btn g-btn-primary g-btn-sm" type="submit">
                 <Icon name="upload" size={12} /> Upload {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'}
               </button>
             </div>
@@ -265,7 +279,7 @@
               {#each stagedVisibleRows as row (row.index)}
                 {@const item = row.item}
                 <div class="upload-row upload-row-staged">
-                  <UploadMediaPreview file={uploadFiles[row.index]} {item} />
+                  <UploadMediaPreview file={item.previewFile} {item} />
                   <div><div class="name">{item.name}</div></div>
                   <div class="size">{formatBytes(item.size)}</div>
                   <div class="progress is-staged" aria-hidden="true"></div>
@@ -299,7 +313,7 @@
             <div class="g-eyebrow">Queue · {queueRows.length} {queueRows.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
             <div class="upload-list-actions upload-queue-actions">
               <button class="g-btn g-btn-sm" type="button" disabled title="Pause uploads coming soon"><Icon name="pause" size={12} /> Pause all</button>
-              <button class="g-btn g-btn-sm" type="button" disabled={Boolean(activeUploadJobID)} onclick={onClear}><Icon name="close" size={12} /> Clear done</button>
+              <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => onClear('done')}><Icon name="close" size={12} /> Clear done</button>
             </div>
             {#if activeUploadJobID}
               <button
@@ -312,36 +326,44 @@
               </button>
             {/if}
           </div>
-          <div class="g-card upload-list-card">
-            <div class="upload-list" data-testid="upload-queue-list">
-              {#each queueVisibleRows as row (row.index)}
-                {@const item = row.item}
-                <div class="upload-row">
-                  <UploadMediaPreview file={uploadFiles[row.index]} {item} />
-                  <div>
-                    <div class="name">{item.name}</div>
-                    {#if item.error}<div class="upload-error">{item.error}</div>{/if}
-                  </div>
-                  <div class="size">{formatBytes(item.size)}</div>
-                  <div class="progress" aria-label={`${statusLabel(item.status)} ${item.progress}%`}>
-                    <div style={`width: ${item.progress}%`}></div>
-                  </div>
-                  <div class={`status ${statusClass(item.status)}`}>{statusLabel(item.status)}</div>
+          <div class="upload-batches" data-testid="upload-queue-list">
+            {#each queueBatches as batch (batch.batchID ?? 'legacy')}
+              {@const pageState = queueBatchPage(batch)}
+              <div class="g-card upload-list-card upload-batch-card" data-testid="upload-queue-batch" data-batch-id={batch.batchID ?? 'legacy'}>
+                <div class="upload-list-head upload-batch-head">
+                  <div class="g-eyebrow">{batchLabel(batch)} · {batch.rows.length} {batch.rows.length === 1 ? 'file' : 'files'} · {formatBytes(batch.bytes)}</div>
                 </div>
-              {/each}
-            </div>
-            {#if queuePageCount > 1}
-              <div class="upload-list-pager">
-                <PageNav
-                  page={queuePage + 1}
-                  pageCount={queuePageCount}
-                  ariaLabel="Upload queue pages"
-                  embedded
-                  onPage={(page) => (queuePage = page - 1)}
-                />
-                <span>Showing {queueVisibleRows.length} at a time</span>
+                <div class="upload-list">
+                  {#each pageState.rows as row (row.index)}
+                    {@const item = row.item}
+                    <div class="upload-row">
+                      <UploadMediaPreview file={item.previewFile} {item} />
+                      <div>
+                        <div class="name">{item.name}</div>
+                        {#if item.error}<div class="upload-error">{item.error}</div>{/if}
+                      </div>
+                      <div class="size">{formatBytes(item.size)}</div>
+                      <div class="progress" aria-label={`${statusLabel(item.status)} ${item.progress}%`}>
+                        <div style={`width: ${item.progress}%`}></div>
+                      </div>
+                      <div class={`status ${statusClass(item.status)}`}>{statusLabel(item.status)}</div>
+                    </div>
+                  {/each}
+                </div>
+                {#if pageState.pageCount > 1}
+                  <div class="upload-list-pager">
+                    <PageNav
+                      page={pageState.page + 1}
+                      pageCount={pageState.pageCount}
+                      ariaLabel={`${batchLabel(batch)} upload queue pages`}
+                      embedded
+                      onPage={(page) => setQueueBatchPage(batch, page - 1)}
+                    />
+                    <span>Showing {pageState.rows.length} at a time</span>
+                  </div>
+                {/if}
               </div>
-            {/if}
+            {/each}
           </div>
         </section>
       {/if}
@@ -350,6 +372,16 @@
 </main>
 
 <style>
+  .upload-batches {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .upload-batch-head {
+    padding: 12px 14px 0;
+  }
+
   .upload-list-pager {
     display: flex;
     flex-direction: column;

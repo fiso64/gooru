@@ -41,7 +41,7 @@
   let runtimeConfiguredTheme = $state<ConfiguredUITheme>('default');
   let runtimeTheme = $state<UITheme>('default');
   let runtimeAccent = $state<AccentTheme | null>(null);
-  let runtimeFontStyle = $state<FontStyle>('editorial');
+  let runtimeFontStyle = $state<FontStyle>('comic');
   let runtimeGridSize = $state(defaultGridSize);
   let runtimeGridType = $state<GridType>('square');
   let faviconHref = $state('/favicon.svg');
@@ -51,7 +51,7 @@
     runtimeTheme = normalizeUITheme(config.ui_theme);
     const booruStyle = runtimeTheme === 'booru-style';
     runtimeAccent = booruStyle ? null : accentTheme(config.accent_color ?? '');
-    runtimeFontStyle = booruStyle ? 'modern' : (config.font_style ?? 'editorial');
+    runtimeFontStyle = booruStyle ? 'modern' : (config.font_style ?? 'comic');
     runtimeGridSize = config.grid_size ?? defaultGridSize;
     runtimeGridType = normalizeGridType(config.grid_type);
     setProtectedReadTransport(config.protected_mode ?? false);
@@ -88,10 +88,10 @@
   onMount(() => {
     const configPromise = fetch('/api/v1/ui-config', { credentials: 'same-origin' })
       .then(async (response) => {
-        if (!response.ok) return { accent_color: '', font_style: 'editorial', load_full_media_by_default: false, fullscreen_media_by_default: false } satisfies UIConfig;
+        if (!response.ok) return { accent_color: '', font_style: 'comic', load_full_media_by_default: false, fullscreen_media_by_default: false } satisfies UIConfig;
         return await response.json() as UIConfig;
       })
-      .catch(() => ({ accent_color: '', font_style: 'editorial', load_full_media_by_default: false, fullscreen_media_by_default: false }) satisfies UIConfig);
+      .catch(() => ({ accent_color: '', font_style: 'comic', load_full_media_by_default: false, fullscreen_media_by_default: false }) satisfies UIConfig);
     const sessionPromise = new ApiClient().me();
 
     void Promise.all([configPromise, sessionPromise])

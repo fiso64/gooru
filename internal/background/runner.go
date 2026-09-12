@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	"gooru.local/internal/database"
@@ -14,6 +16,12 @@ const (
 	defaultPollInterval  = 500 * time.Millisecond
 	defaultRetryDelay    = time.Second
 )
+
+// Every Runner shares one durable store, and expired-lease recovery is global.
+// Serialize both startup recovery and rare in-process recovery after lease loss so
+// SQLite WAL transactions do not race a read snapshot upgrade to the single writer
+// slot when several resource workers recover at once.
+var leaseRecoveryMu sync.Mutex
 
 type TaskStore interface {
 	RecoverExpiredBackgroundTaskLeases(time.Time) (int, error)
@@ -95,11 +103,33 @@ func NewRunner(cfg RunnerConfig) (*Runner, error) {
 }
 
 // Run recovers expired work once at startup and then continuously claims work from one
-// resource class until ctx is canceled. Existing HTTP JobManager behavior is intentionally
-// outside this boundary; callers can migrate producers/consumers independently.
+// resource class until ctx is canceled. Resource-class ownership keeps scheduling concerns
+// independent from the user-visible durable operation lifecycle.
 func (r *Runner) Run(ctx context.Context) error {
-	if _, err := r.store.RecoverExpiredBackgroundTaskLeases(r.now()); err != nil {
-		return fmt.Errorf("recover expired background work: %w", err)
+	leaseRecoveryMu.Lock()
+	var recovered int
+	for {
+		var recoverErr error
+		recovered, recoverErr = r.store.RecoverExpiredBackgroundTaskLeases(r.now())
+		if recoverErr == nil {
+			break
+		}
+		if !database.IsTransientSQLiteContention(recoverErr) {
+			leaseRecoveryMu.Unlock()
+			return fmt.Errorf("recover expired background work: %w", recoverErr)
+		}
+		r.logSQLiteContention(ctx, "startup_recovery", "")
+		if err := wait(ctx, r.pollInterval); err != nil {
+			leaseRecoveryMu.Unlock()
+			return nil
+		}
+	}
+	leaseRecoveryMu.Unlock()
+	if recovered > 0 {
+		slog.WarnContext(ctx, "recovered expired background task leases",
+			"count", recovered,
+			"startup_worker_id", r.workerID,
+		)
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -107,6 +137,13 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 		task, ok, err := r.store.ClaimNextBackgroundTask(r.resourceClass, r.workerID, r.now(), r.leaseDuration)
 		if err != nil {
+			if database.IsTransientSQLiteContention(err) {
+				r.logSQLiteContention(ctx, "claim", "")
+				if err := wait(ctx, r.pollInterval); err != nil {
+					return nil
+				}
+				continue
+			}
 			return fmt.Errorf("claim background task: %w", err)
 		}
 		if !ok {
@@ -124,10 +161,17 @@ func (r *Runner) Run(ctx context.Context) error {
 func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) error {
 	handler, ok := r.handlers[task.Kind]
 	if !ok {
-		now := r.now()
-		if _, err := r.store.FailBackgroundTask(task.ID, r.workerID, now, now.Add(r.retryDelay), "unsupported_task_kind", "no handler registered for task kind "+task.Kind); err != nil {
+		retrying, err := r.failClaimed(ctx, task, "unsupported_task_kind", "no handler registered for task kind "+task.Kind)
+		if err != nil {
+			if errors.Is(err, database.ErrBackgroundTaskLeaseLost) {
+				return r.recoverLeaseLoss(ctx, task.ID)
+			}
+			if ctx.Err() != nil {
+				return nil
+			}
 			return fmt.Errorf("fail unsupported background task %s: %w", task.ID, err)
 		}
+		r.logTaskFailure(ctx, task, "unsupported_task_kind", retrying)
 		return nil
 	}
 
@@ -140,12 +184,11 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 	err := handler(handlerCtx, task)
 	close(stopRenew)
 	renewErr := <-renewDone
-	finishedAt := r.now()
 
 	if renewErr != nil {
 		// Lease loss is the ownership boundary. Never write a handler outcome after it.
 		if errors.Is(renewErr, database.ErrBackgroundTaskLeaseLost) {
-			return nil
+			return r.recoverLeaseLoss(ctx, task.ID)
 		}
 		return fmt.Errorf("renew background task %s lease: %w", task.ID, renewErr)
 	}
@@ -155,8 +198,11 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 		return nil
 	}
 	if err == nil {
-		if err := r.store.CompleteBackgroundTask(task.ID, r.workerID, finishedAt); err != nil {
+		if err := r.completeClaimed(ctx, task); err != nil {
 			if errors.Is(err, database.ErrBackgroundTaskLeaseLost) {
+				return r.recoverLeaseLoss(ctx, task.ID)
+			}
+			if ctx.Err() != nil {
 				return nil
 			}
 			return fmt.Errorf("complete background task %s: %w", task.ID, err)
@@ -164,13 +210,140 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 		return nil
 	}
 
-	if _, failErr := r.store.FailBackgroundTask(task.ID, r.workerID, finishedAt, finishedAt.Add(r.retryDelay), "handler_failed", err.Error()); failErr != nil {
+	retrying, failErr := r.failClaimed(ctx, task, "handler_failed", err.Error())
+	if failErr != nil {
 		if errors.Is(failErr, database.ErrBackgroundTaskLeaseLost) {
+			return r.recoverLeaseLoss(ctx, task.ID)
+		}
+		if ctx.Err() != nil {
 			return nil
 		}
 		return fmt.Errorf("fail background task %s: %w", task.ID, failErr)
 	}
+	r.logTaskFailure(ctx, task, "handler_failed", retrying)
 	return nil
+}
+
+// recoverLeaseLoss makes runtime lease expiry self-healing. Without this path an expired
+// task discovered by renewal/finalization would remain in running state until the next
+// process restart, because ordinary claims only consider pending work.
+func (r *Runner) recoverLeaseLoss(ctx context.Context, taskID string) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	leaseRecoveryMu.Lock()
+	defer leaseRecoveryMu.Unlock()
+	for {
+		recovered, err := r.store.RecoverExpiredBackgroundTaskLeases(r.now())
+		if err == nil {
+			if recovered > 0 {
+				slog.WarnContext(ctx, "recovered expired background task leases after runtime lease loss",
+					"count", recovered,
+					"task_id", taskID,
+					"resource_class", r.resourceClass,
+					"worker_id", r.workerID,
+				)
+			}
+			return nil
+		}
+		if !database.IsTransientSQLiteContention(err) {
+			return fmt.Errorf("recover expired background work after lease loss: %w", err)
+		}
+		r.logSQLiteContention(ctx, "lease_loss_recovery", taskID)
+		if err := wait(ctx, r.pollInterval); err != nil {
+			return nil
+		}
+	}
+}
+
+func (r *Runner) completeClaimed(ctx context.Context, task database.BackgroundTask) error {
+	for {
+		err := r.store.CompleteBackgroundTask(task.ID, r.workerID, r.now())
+		if err == nil || errors.Is(err, database.ErrBackgroundTaskLeaseLost) {
+			return err
+		}
+		if !database.IsTransientSQLiteContention(err) {
+			return err
+		}
+		r.logSQLiteContention(ctx, "complete", task.ID)
+		if err := r.renewForFinalization(ctx, task.ID); err != nil {
+			return err
+		}
+		if err := wait(ctx, r.pollInterval); err != nil {
+			return err
+		}
+	}
+}
+
+func (r *Runner) failClaimed(ctx context.Context, task database.BackgroundTask, errorCode, errorMessage string) (bool, error) {
+	for {
+		now := r.now()
+		retrying, err := r.store.FailBackgroundTask(task.ID, r.workerID, now, now.Add(r.retryDelay), errorCode, errorMessage)
+		if err == nil || errors.Is(err, database.ErrBackgroundTaskLeaseLost) {
+			return retrying, err
+		}
+		if !database.IsTransientSQLiteContention(err) {
+			return false, err
+		}
+		r.logSQLiteContention(ctx, "fail", task.ID)
+		if err := r.renewForFinalization(ctx, task.ID); err != nil {
+			return false, err
+		}
+		if err := wait(ctx, r.pollInterval); err != nil {
+			return false, err
+		}
+	}
+}
+
+// renewForFinalization keeps ownership live while a completed handler waits for
+// SQLite writer contention to clear before its durable outcome can be committed.
+// If the lease expires while contention persists, lease loss wins and the stale
+// worker must leave the task for normal recovery/retry.
+func (r *Runner) renewForFinalization(ctx context.Context, taskID string) error {
+	for {
+		_, err := r.store.RenewBackgroundTaskLease(taskID, r.workerID, r.now(), r.leaseDuration)
+		if err == nil || errors.Is(err, database.ErrBackgroundTaskLeaseLost) {
+			return err
+		}
+		if !database.IsTransientSQLiteContention(err) {
+			return err
+		}
+		r.logSQLiteContention(ctx, "finalization_renew", taskID)
+		if err := wait(ctx, r.pollInterval); err != nil {
+			return err
+		}
+	}
+}
+
+// logTaskFailure makes hidden/background task failures diagnosable without
+// copying handler error strings into logs. Handler errors may contain protected
+// filesystem paths; the durable database remains the detailed diagnostic source.
+func (r *Runner) logTaskFailure(ctx context.Context, task database.BackgroundTask, errorCode string, retrying bool) {
+	args := []any{
+		"task_id", task.ID,
+		"operation_id", task.OperationID,
+		"kind", task.Kind,
+		"resource_class", r.resourceClass,
+		"worker_id", r.workerID,
+		"error_code", errorCode,
+	}
+	if retrying {
+		slog.DebugContext(ctx, "background task failed; retry scheduled", args...)
+		return
+	}
+	slog.WarnContext(ctx, "background task failed permanently", args...)
+}
+
+func (r *Runner) logSQLiteContention(ctx context.Context, phase, taskID string) {
+	args := []any{
+		"phase", phase,
+		"resource_class", r.resourceClass,
+		"worker_id", r.workerID,
+	}
+	if taskID != "" {
+		args = append(args, "task_id", taskID)
+	}
+	slog.DebugContext(ctx, "background task lifecycle delayed by sqlite contention", args...)
 }
 
 func (r *Runner) renewLease(ctx context.Context, cancel context.CancelFunc, taskID string, stop <-chan struct{}, done chan<- error) {
@@ -189,10 +362,33 @@ func (r *Runner) renewLease(ctx context.Context, cancel context.CancelFunc, task
 			done <- nil
 			return
 		case <-ticker.C:
-			if _, err := r.store.RenewBackgroundTaskLease(taskID, r.workerID, r.now(), r.leaseDuration); err != nil {
-				cancel()
-				done <- err
-				return
+			for {
+				_, err := r.store.RenewBackgroundTaskLease(taskID, r.workerID, r.now(), r.leaseDuration)
+				if err == nil {
+					break
+				}
+				if !database.IsTransientSQLiteContention(err) {
+					cancel()
+					done <- err
+					return
+				}
+				r.logSQLiteContention(ctx, "renew", taskID)
+				timer := time.NewTimer(r.pollInterval)
+				select {
+				case <-stop:
+					if !timer.Stop() {
+						<-timer.C
+					}
+					done <- nil
+					return
+				case <-ctx.Done():
+					if !timer.Stop() {
+						<-timer.C
+					}
+					done <- nil
+					return
+				case <-timer.C:
+				}
 			}
 		}
 	}

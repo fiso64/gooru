@@ -2,6 +2,8 @@ package gooru
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,7 +39,24 @@ func (c *Client) TagKnownFiles(files []types.LocationInfo, tags []string, progre
 // TagKnownFilesWithBackgroundTasks atomically registers known files and enqueues
 // durable follow-up work. If any task cannot be persisted, file registration and
 // tag mutations roll back with it.
+type BackgroundOperationTransactionState struct {
+	OperationID string
+	Checkpoint  any
+	Result      any
+}
+
+type BackgroundOperationTransactionStateBuilder func(affectedCount int) (BackgroundOperationTransactionState, error)
+
+type taggingTransactionFinalizer func(tx *databaseTx, affectedCount int64, movesHandled map[string]string) error
+
 func (c *Client) TagKnownFilesWithBackgroundTasks(files []types.LocationInfo, tags []string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+	return c.TagKnownFilesWithBackgroundTasksAndOperationState(files, tags, tasks, nil, progressCb)
+}
+
+// TagKnownFilesWithBackgroundTasksAndOperationState extends known-file
+// registration with one producer-owned operation checkpoint/result update
+// that commits in the same transaction as content, tags, and child tasks.
+func (c *Client) TagKnownFilesWithBackgroundTasksAndOperationState(files []types.LocationInfo, tags []string, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
 	result := types.TagOperationResult{}
 	if err := query.ValidateTags(tags); err != nil {
 		return result, err
@@ -62,7 +81,7 @@ func (c *Client) TagKnownFilesWithBackgroundTasks(files []types.LocationInfo, ta
 	if len(analysis.allFileData) == 0 {
 		return result, nil
 	}
-	affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag, tasks)
+	affectedCount, _, err := c.executeTaggingTransaction(analysis, tags, opTag, tasks, stateBuilder, nil)
 	if err != nil {
 		return result, err
 	}
@@ -541,7 +560,7 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 }
 
 // executeTaggingTransaction performs all database writes for a tagging operation.
-func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind, tasks []BackgroundTaskRequest) (int64, map[string]string, error) {
+func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, finalizer taggingTransactionFinalizer) (int64, map[string]string, error) {
 	movesHandled := make(map[string]string) // newPath -> oldPath
 	tx, err := c.store.Begin()
 	if err != nil {
@@ -599,6 +618,36 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 		}
 	}
 
+	// 5. Persist producer recovery state and the exact success payload before
+	// committing the domain mutation. A crash can therefore expose either the
+	// pre-import state or the complete replayable import state, never a split.
+	if stateBuilder != nil {
+		state, err := stateBuilder(int(affectedCount))
+		if err != nil {
+			return 0, nil, fmt.Errorf("build background operation transaction state: %w", err)
+		}
+		if state.OperationID == "" {
+			return 0, nil, errors.New("background operation transaction state requires an operation id")
+		}
+		checkpointJSON, err := json.Marshal(state.Checkpoint)
+		if err != nil {
+			return 0, nil, fmt.Errorf("encode background operation transaction checkpoint: %w", err)
+		}
+		resultJSON, err := json.Marshal(state.Result)
+		if err != nil {
+			return 0, nil, fmt.Errorf("encode background operation transaction result: %w", err)
+		}
+		if err := setDatabaseBackgroundOperationState(c, tx, state.OperationID, checkpointJSON, resultJSON); err != nil {
+			return 0, nil, fmt.Errorf("persist background operation transaction state: %w", err)
+		}
+	}
+
+	if finalizer != nil {
+		if err := finalizer(tx, affectedCount, movesHandled); err != nil {
+			return 0, nil, fmt.Errorf("finalize tagging transaction: %w", err)
+		}
+	}
+
 	return affectedCount, movesHandled, tx.Commit()
 }
 
@@ -617,7 +666,7 @@ func (c *Client) performTagOperation(filePaths []string, tags []string, progress
 	}
 
 	// Phase 3: The Transaction (all DB writes).
-	affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind, nil)
+	affectedCount, movesHandled, err := c.executeTaggingTransaction(analysis, tags, kind, nil, nil, nil)
 	if err != nil {
 		return result, err
 	}

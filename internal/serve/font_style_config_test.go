@@ -11,8 +11,8 @@ import (
 
 func TestFontStyleConfigDefaultsAndNormalizes(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	if cfg.UI.FontStyle != "editorial" {
-		t.Fatalf("default font style = %q, want editorial", cfg.UI.FontStyle)
+	if cfg.UI.FontStyle != "comic" {
+		t.Fatalf("default font style = %q, want comic", cfg.UI.FontStyle)
 	}
 
 	cfg.UI.FontStyle = " COMIC "

@@ -98,20 +98,16 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks := make([]core.BackgroundTaskRequest, 0, len(files))
-	for _, file := range files {
-		task, err := s.backgroundFileRemovalTask(request.Mode, file)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare durable file removal", nil)
-			return
-		}
-		tasks = append(tasks, task)
+	task, err := s.backgroundFileRemovalBatchTask(request.Mode, files)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare durable file removal", nil)
+		return
 	}
 	operation, _, err := removalLibrary.CreateBackgroundOperationWithTasks(core.BackgroundOperationRequest{
 		Kind:          "files." + request.Mode,
 		Visible:       true,
-		ProgressTotal: int64(len(tasks)),
-	}, tasks)
+		ProgressTotal: 1,
+	}, []core.BackgroundTaskRequest{task})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to enqueue selected file removal", nil)
 		return

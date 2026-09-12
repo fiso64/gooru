@@ -76,6 +76,7 @@
   let displayedFile = $state<FileItem | undefined>();
   let displayedImageSource = $state('');
   let waitingForTarget = $state(false);
+  let mediaError = $state('');
   let waitingTimer: ReturnType<typeof setTimeout> | undefined;
   let transitionGeneration = 0;
   let rotation = $state<number>(initialViewerPreferences.rotation);
@@ -100,6 +101,12 @@
   let zoom = $state(1);
   let panX = $state(0);
   let panY = $state(0);
+  let panDragPointerId: number | undefined;
+  let panDragStartClientX = 0;
+  let panDragStartClientY = 0;
+  let panDragStartX = 0;
+  let panDragStartY = 0;
+  let panDragging = $state(false);
 
   const renderedFile = $derived(displayedFile ?? file);
   const renderedImageSource = $derived(displayedFile ? displayedImageSource : imageSource);
@@ -137,6 +144,12 @@
   // manual zoom preserves the same absolute 32x ceiling and can always pass back through 1:1.
   const maximumZoom = $derived(fitMode === 'actual' && boundActualSizeToFit && geometry.scale > 0 ? Math.max(32, 32 / geometry.scale) : 32);
   const panLimits = $derived(viewerPanLimits(zoom));
+  const dragPanAvailable = $derived(
+    renderedFile.media_kind !== 'video'
+    && renderedFile.media_kind !== 'audio'
+    && !renderedFile.media_type.startsWith('audio/')
+    && (panLimits.x > 0.5 || panLimits.y > 0.5)
+  );
   const panSurfaceStyle = $derived(`width:${stageWidth + panLimits.x * 2}px;height:${stageHeight + panLimits.y * 2}px`);
   const visualStyle = $derived(viewerMediaStyle(geometry, { zoom }));
 
@@ -181,6 +194,14 @@
     };
   });
 
+  function viewerSupportsFile(target: FileItem) {
+    return target.viewer_support === 'supported';
+  }
+
+  function unsupportedViewerMessage(target: FileItem) {
+    return `No viewer is available for this file type (${target.media_type}).`;
+  }
+
   function clearWaitingTimer() {
     if (waitingTimer) clearTimeout(waitingTimer);
     waitingTimer = undefined;
@@ -200,16 +221,24 @@
     recordViewerRequest(generation);
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = viewerSupportsFile(targetFile) ? '' : unsupportedViewerMessage(targetFile);
 
     if (!displayedFile) {
       displayedFile = targetFile;
       displayedImageSource = targetImageSource;
+      if (!viewerSupportsFile(targetFile)) {
+        freezeGeneration += 1;
+        freezeVisible = false;
+        intrinsicWidth = 0;
+        intrinsicHeight = 0;
+        return;
+      }
       armWaitingTimer(generation);
       return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
     }
     if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
 
-    const rendersImage = targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(targetFile) && targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
       // Once rapid navigation has frozen a committed frame, keep that exact snapshot until the
       // latest requested target is presentable. Re-freezing from an in-flight <img> can capture
@@ -228,6 +257,15 @@
     // lifecycle clear the short loading state just as image load/error does below.
     displayedFile = targetFile;
     displayedImageSource = targetImageSource;
+    if (!viewerSupportsFile(targetFile)) {
+      clearWaitingTimer();
+      waitingForTarget = false;
+      freezeGeneration += 1;
+      freezeVisible = false;
+      intrinsicWidth = 0;
+      intrinsicHeight = 0;
+      return;
+    }
     armWaitingTimer(generation);
     return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
   });
@@ -235,7 +273,7 @@
   $effect(() => {
     const nextFile = renderedFile;
     renderedImageSource;
-    const rendersImage = nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(nextFile) && nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
     // Image transitions install target metadata geometry while the presentation shield preserves old pixels separately.
     // Non-image media waits for its own metadata path and starts with no image geometry.
     if (!rendersImage) {
@@ -297,6 +335,7 @@
     intrinsicHeight = image.naturalHeight;
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = '';
     // Keep the frozen old pixels until the next paint after the *latest* target load. Stale
     // completions from sources superseded by rapid navigation must never release the freeze.
     requestAnimationFrame(() => {
@@ -315,6 +354,7 @@
     // End this handoff explicitly so stale pixels never stand in for the current file.
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = 'Media file could not be loaded. It may be missing from disk.';
     freezeGeneration += 1;
     freezeVisible = false;
     intrinsicWidth = 0;
@@ -336,6 +376,7 @@
     const generation = transitionGeneration;
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = '';
     recordViewerPresentation(generation);
     onPresented?.(renderedImageSource);
   }
@@ -368,6 +409,7 @@
     if (!(media instanceof HTMLMediaElement) || !playableMatchesCurrentSource(media)) return;
     clearWaitingTimer();
     waitingForTarget = false;
+    mediaError = 'Media file could not be loaded. It may be missing from disk.';
   }
 
   function revealPlaybackControls() {
@@ -487,6 +529,48 @@
     const limits = viewerPanLimits(zoom);
     panX = limits.x - viewport.scrollLeft;
     panY = limits.y - viewport.scrollTop;
+  }
+
+  function beginPanDrag(event: PointerEvent) {
+    const viewport = panViewportElement;
+    if (event.button !== 0 || !dragPanAvailable || !viewport) return;
+    event.preventDefault();
+    stageElement?.focus({ preventScroll: true });
+    panDragPointerId = event.pointerId;
+    panDragStartClientX = event.clientX;
+    panDragStartClientY = event.clientY;
+    panDragStartX = panX;
+    panDragStartY = panY;
+    panDragging = true;
+    viewport.setPointerCapture(event.pointerId);
+  }
+
+  function dragPan(event: PointerEvent) {
+    if (panDragPointerId !== event.pointerId) return;
+    event.preventDefault();
+    const clamped = clampViewerPan(
+      panDragStartX + event.clientX - panDragStartClientX,
+      panDragStartY + event.clientY - panDragStartClientY,
+      zoom
+    );
+    panX = clamped.x;
+    panY = clamped.y;
+    syncNativePan();
+  }
+
+  function endPanDrag(event: PointerEvent) {
+    if (panDragPointerId !== event.pointerId) return;
+    event.preventDefault();
+    const viewport = panViewportElement;
+    if (viewport?.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    panDragPointerId = undefined;
+    panDragging = false;
+  }
+
+  function losePanDragCapture(event: PointerEvent) {
+    if (panDragPointerId !== event.pointerId) return;
+    panDragPointerId = undefined;
+    panDragging = false;
   }
 
   function reconcileViewerTransform() {
@@ -741,8 +825,21 @@
 <svelte:window onkeydown={handleViewerKeydown} />
 
 <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
-  <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
+  <div
+    bind:this={panViewportElement}
+    class="viewer-pan-viewport"
+    class:pannable={dragPanAvailable}
+    class:dragging={panDragging}
+    onwheel={handleViewerWheel}
+    onscroll={syncPanFromNativeScroll}
+    onpointerdown={beginPanDrag}
+    onpointermove={dragPan}
+    onpointerup={endPanDrag}
+    onpointercancel={endPanDrag}
+    onlostpointercapture={losePanDragCapture}
+  >
     <div class="viewer-pan-surface" style={panSurfaceStyle}>
+      {#if renderedFile.viewer_support !== 'unsupported_media_type'}
       {#if renderedFile.media_kind === 'video'}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video
@@ -782,9 +879,11 @@
           style={visualStyle}
           src={renderedImageSource}
           alt={renderedFile.name}
+          draggable={false}
           onload={syncImage}
           onerror={syncImageError}
         />
+      {/if}
       {/if}
     </div>
   </div>
@@ -828,6 +927,7 @@
   {/if}
 
   {#if waitingForTarget}<div class="viewer-loading-indicator" role="status" aria-live="polite">Loading media…</div>{/if}
+  {#if mediaError}<div class="viewer-media-error" role="alert">{mediaError}</div>{/if}
   {#if fitModeFeedback}<div class="viewer-mode-feedback" role="status" aria-live="polite">{fitModeFeedback}</div>{/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">
@@ -858,6 +958,20 @@
   }
 
   .viewer-pan-viewport::-webkit-scrollbar { display: none; }
+
+  .viewer-pan-viewport.pannable {
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .viewer-pan-viewport.pannable.dragging {
+    cursor: grabbing;
+    user-select: none;
+  }
+
+  :global(.viewer-stage:fullscreen.cursor-idle) .viewer-pan-viewport {
+    cursor: none;
+  }
 
   .viewer-pan-surface {
     position: relative;
@@ -910,7 +1024,8 @@
     opacity: 0.58;
   }
 
-  .viewer-loading-indicator {
+  .viewer-loading-indicator,
+  .viewer-media-error {
     position: absolute;
     z-index: 5;
     left: 50%;
@@ -922,6 +1037,11 @@
     color: #fff;
     font: 600 11px/1.2 var(--font-mono);
     pointer-events: none;
+  }
+
+  .viewer-media-error {
+    max-width: min(420px, calc(100% - 40px));
+    text-align: center;
   }
 
   .viewer-mode-feedback {

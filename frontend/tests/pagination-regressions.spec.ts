@@ -40,8 +40,6 @@ async function mockLibrary(page: Page, paginationMode: 'infinite' | 'paged', gri
     contentType: 'application/json',
     body: JSON.stringify({ grid_type: gridType, grid_size: 200, pagination_mode: paginationMode, items_per_page: 60 })
   }));
-  await page.route('**/api/v1/jobs?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default' }] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [], library_count: allFiles.length, facets: { kind: [{ value: 'photo', count: allFiles.length }] } }) }));

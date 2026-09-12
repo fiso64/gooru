@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -78,6 +79,33 @@ func (c *Client) CreateBackgroundOperationWithTasks(operationRequest BackgroundO
 	return operation, tasks, nil
 }
 
+// AttachBackgroundTaskAndRevealOperation finishes producer admission after
+// expensive staging. The recovery checkpoint, first child task, and final
+// visibility state commit atomically. Producers normally attach hidden work;
+// uploads may already be visible while their request body is still arriving.
+func (c *Client) AttachBackgroundTaskAndRevealOperation(operationID string, checkpoint any, request BackgroundTaskRequest) (BackgroundTask, error) {
+	if operationID == "" {
+		return BackgroundTask{}, fmt.Errorf("background operation id is required")
+	}
+	if request.OperationID != "" && request.OperationID != operationID {
+		return BackgroundTask{}, fmt.Errorf("background child task already belongs to operation %q", request.OperationID)
+	}
+	checkpointJSON, err := json.Marshal(checkpoint)
+	if err != nil {
+		return BackgroundTask{}, fmt.Errorf("encode background operation checkpoint: %w", err)
+	}
+	if request.DedupeKey == "" {
+		request.DedupeKey = "task:0"
+	}
+	request.OperationID = operationID
+	request.DedupeKey = operationID + ":" + request.DedupeKey
+	taskID, err := newBackgroundWorkID("task")
+	if err != nil {
+		return BackgroundTask{}, err
+	}
+	return attachDatabaseBackgroundTaskAndRevealOperation(c, operationID, checkpointJSON, taskID, request)
+}
+
 func (c *Client) createBackgroundOperation(q databaseQuerier, request BackgroundOperationRequest) (BackgroundOperation, error) {
 	id, err := newBackgroundWorkID("operation")
 	if err != nil {
@@ -106,11 +134,10 @@ type BackgroundTask struct {
 	InputKey    string
 }
 
-// BackgroundTaskRequest describes durable work to enqueue. DedupeKey is the
-// stable identity of active equivalent work; callers should include every input
-// that changes the promised result. AvailableAt is optional and defaults to now.
-type BackgroundTaskRequest struct {
-	OperationID   string
+// BackgroundTaskCleanupRequest describes detached compensation to enqueue
+// atomically if the owning task exhausts its retry budget. Compensation cannot
+// recursively own another compensation task.
+type BackgroundTaskCleanupRequest struct {
 	DedupeKey     string
 	Kind          string
 	SubjectKind   string
@@ -118,8 +145,24 @@ type BackgroundTaskRequest struct {
 	InputKey      string
 	ResourceClass string
 	Priority      int
-	AvailableAt   time.Time
 	MaxAttempts   int
+}
+
+// BackgroundTaskRequest describes durable work to enqueue. DedupeKey is the
+// stable identity of active equivalent work; callers should include every input
+// that changes the promised result. AvailableAt is optional and defaults to now.
+type BackgroundTaskRequest struct {
+	OperationID            string
+	DedupeKey              string
+	Kind                   string
+	SubjectKind            string
+	SubjectID              string
+	InputKey               string
+	ResourceClass          string
+	Priority               int
+	AvailableAt            time.Time
+	MaxAttempts            int
+	TerminalFailureCleanup *BackgroundTaskCleanupRequest
 }
 
 // EnqueueBackgroundTask persists durable work outside an existing transaction.

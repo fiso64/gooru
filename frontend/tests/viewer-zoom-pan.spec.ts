@@ -40,7 +40,6 @@ async function mockViewer(page: Page) {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
@@ -182,4 +181,39 @@ test('zoom minima respect fit and actual-size modes across normal and fullscreen
   await page.waitForTimeout(160);
   const fullscreenZoomed = await image.boundingBox();
   expect(fullscreenZoomed!.width).toBeGreaterThan(fullscreenFit!.width * 1.4);
+});
+
+test('dragging a zoomed image shows a hand cursor and pans it', async ({ page }) => {
+  const image = await mockViewer(page);
+  const stage = page.locator('.viewer-stage');
+  const panViewport = page.locator('.viewer-pan-viewport');
+  const stageBox = await stage.boundingBox();
+  expect(stageBox).not.toBeNull();
+
+  const centerX = stageBox!.x + stageBox!.width / 2;
+  const centerY = stageBox!.y + stageBox!.height / 2;
+  await page.mouse.move(centerX, centerY);
+  await wheelWithModifier(page, 'Control', -220);
+  await expect(panViewport).toHaveCSS('cursor', 'grab');
+  await expect(image).toHaveAttribute('draggable', 'false');
+
+  const beforeScroll = await panViewport.evaluate((node) => ({ left: node.scrollLeft, top: node.scrollTop }));
+  expect(beforeScroll.left).toBeGreaterThan(100);
+  expect(beforeScroll.top).toBeGreaterThan(100);
+  const beforeImage = await image.boundingBox();
+  expect(beforeImage).not.toBeNull();
+
+  await page.mouse.down();
+  await expect(panViewport).toHaveCSS('cursor', 'grabbing');
+  await page.mouse.move(centerX + 120, centerY + 80, { steps: 4 });
+  await expect.poll(() => panViewport.evaluate((node) => node.scrollLeft)).toBeLessThan(beforeScroll.left - 80);
+  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeLessThan(beforeScroll.top - 50);
+
+  const draggedImage = await image.boundingBox();
+  expect(draggedImage).not.toBeNull();
+  expect(draggedImage!.x).toBeGreaterThan(beforeImage!.x + 80);
+  expect(draggedImage!.y).toBeGreaterThan(beforeImage!.y + 50);
+
+  await page.mouse.up();
+  await expect(panViewport).toHaveCSS('cursor', 'grab');
 });

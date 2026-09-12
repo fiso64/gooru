@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -81,18 +82,21 @@ func (s *Server) backgroundThumbnailHandler(ctx context.Context, task core.Backg
 		return fmt.Errorf("thumbnail task has invalid content identity")
 	}
 	file, err := s.backgroundContent.GetFileByContentHash(ctx, task.SubjectID)
+	if errors.Is(err, core.ErrContentNotTracked) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	return s.media.ensureBrowsingThumbnail(file)
 }
 
-// NewBackgroundRuntime composes the serve process's durable media worker. The
-// HTTP server and worker share one MediaService, so eager and lazy generation use
-// identical keys, encryption policy, locking, and fallback behavior.
 func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (BackgroundRuntime, error) {
 	if client == nil {
 		return nil, fmt.Errorf("background client is required")
+	}
+	if err := recoverBackgroundOperationReservations(client, s.cfg.Uploads.Targets); err != nil {
+		return nil, err
 	}
 	mediaRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
 		ResourceClass: backgroundThumbnailResourceClass,
@@ -114,5 +118,26 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 	if err != nil {
 		return nil, err
 	}
-	return multiBackgroundRuntime{runtimes: []BackgroundRuntime{mediaRuntime, storageRuntime}}, nil
+	uploadRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
+		ResourceClass: backgroundUploadResourceClass,
+		WorkerID:      workerID + "-upload",
+		Handlers: map[string]core.BackgroundTaskHandler{
+			backgroundUploadTaskKind:        s.backgroundUploadHandler(client),
+			backgroundUploadCleanupTaskKind: s.backgroundUploadCleanupHandler(client),
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	metadataRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
+		ResourceClass: core.BackgroundTagMutationResourceClass,
+		WorkerID:      workerID + "-metadata",
+		Handlers: map[string]core.BackgroundTaskHandler{
+			core.BackgroundTagMutationTaskKind: s.backgroundTagMutationHandler,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return multiBackgroundRuntime{runtimes: []BackgroundRuntime{mediaRuntime, storageRuntime, uploadRuntime, metadataRuntime}}, nil
 }

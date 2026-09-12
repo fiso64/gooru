@@ -31,6 +31,17 @@ func (p hiddenTagQueryPolicy) baselineFor(queryText string) string {
 	return p.applyWithRequested("", p.requested(queryText))
 }
 
+func (p hiddenTagQueryPolicy) activeTags(queryText string) []string {
+	requested := p.requested(queryText)
+	active := make([]string, 0, len(p.tags))
+	for _, tag := range p.tags {
+		if _, ok := requested[tag]; !ok {
+			active = append(active, tag)
+		}
+	}
+	return active
+}
+
 func (p hiddenTagQueryPolicy) applyWithRequested(queryText string, requested map[string]struct{}) string {
 	if len(p.tags) == 0 {
 		return queryText
@@ -139,5 +150,22 @@ func (l *hiddenTagLibrary) LibraryCountForQuery(ctx context.Context, queryText s
 }
 
 func (l *hiddenTagLibrary) KindFacets(ctx context.Context, queryText string) ([]FacetValueDTO, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	active := l.policy.activeTags(queryText)
+	if len(active) > 0 {
+		facets, ok, err := l.client.KindFacetsForSimpleUserTagExcluding(queryText, active)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out := make([]FacetValueDTO, 0, len(facets))
+			for _, item := range facets {
+				out = append(out, FacetValueDTO{Value: item.Tag, Count: item.Count})
+			}
+			return out, nil
+		}
+	}
 	return l.GooruLibrary.KindFacets(ctx, l.policy.apply(queryText))
 }

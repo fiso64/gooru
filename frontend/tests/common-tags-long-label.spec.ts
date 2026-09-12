@@ -8,7 +8,6 @@ test('long common tag labels ellipsize without shrinking the tag icon', async ({
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [{ name: 'artist:this-is-an-extremely-long-common-tag-label-that-must-ellipsis', count: 100 }, { name: 'short', count: 50 }], library_count: 0, facets: { kind: [] } }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
 
   await page.goto('/');
   const row = page.locator('.common-tag-item').first();

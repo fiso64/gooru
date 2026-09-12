@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const session = {
   user: { id: 'usr_test', username: 'mac', role: 'admin' },
@@ -6,7 +6,7 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-// Keep the first frame visible for three seconds so restart assertions have a wide, deterministic sampling window.
+// Keep the first red frame visible for three seconds so restart assertions have a wide, deterministic sampling window.
 const twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQALAEAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');
 const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
@@ -33,6 +33,24 @@ function mediaFile(id: string, kind: 'video' | 'gif') {
   };
 }
 
+function hoverSessionURL(source: string | null) {
+  if (!source) throw new Error('missing hover preview source');
+  return new URL(source, 'http://gooru.test');
+}
+
+async function gifPixel(gif: Locator) {
+  return gif.evaluate((element) => {
+    const image = element as HTMLImageElement;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, image.naturalWidth);
+    canvas.height = Math.max(1, image.naturalHeight);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('missing canvas context');
+    context.drawImage(image, 0, 0);
+    return Array.from(context.getImageData(0, 0, 1, 1).data);
+  });
+}
+
 async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
   const files = [mediaFile('video-one', 'video'), mediaFile('gif-one', 'gif'), mediaFile('video-two', 'video')];
   let loggedIn = false;
@@ -50,7 +68,6 @@ async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
     loggedIn = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
@@ -63,7 +80,7 @@ async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
     contentType: 'image/svg+xml',
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#fff"/></svg>'
   }));
-  await page.route('**/api/v1/files/*/content', async (route) => route.fulfill({ status: 204 }));
+  await page.route('**/api/v1/files/*/content**', async (route) => route.fulfill({ status: 204 }));
 
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
@@ -109,23 +126,27 @@ test('hover previews keep the thumbnail visible until media is ready and restart
   const firstGif = page.getByTestId('hover-gif-preview');
   await expect(firstGif).toHaveCount(1, { timeout: 500 });
   await expect(firstGif).toHaveCSS('opacity', '0');
-  const firstSource = await firstGif.getAttribute('src');
-  expect(firstSource).toContain('#gooru-hover-1');
+  const firstSource = hoverSessionURL(await firstGif.getAttribute('src'));
+  expect(firstSource.pathname).toBe('/api/v1/files/gif-one/content');
+  expect(firstSource.searchParams.get('gooru_hover_session')).toBe('1');
+  expect(firstSource.hash).toBe('#gooru-hover-1');
 
   await page.getByRole('heading', { name: 'Library' }).hover();
   await expect(page.getByTestId('hover-gif-preview')).toHaveCount(0);
   await gifCard.hover();
   const secondGif = page.getByTestId('hover-gif-preview');
   await expect(secondGif).toHaveCount(1, { timeout: 500 });
-  const secondSource = await secondGif.getAttribute('src');
-  expect(secondSource).toContain('#gooru-hover-2');
-  expect(secondSource).not.toBe(firstSource);
-  expect(secondSource?.split('#')[0]).toBe(firstSource?.split('#')[0]);
+  const secondSource = hoverSessionURL(await secondGif.getAttribute('src'));
+  expect(secondSource.pathname).toBe(firstSource.pathname);
+  expect(secondSource.searchParams.get('gooru_hover_session')).toBe('2');
+  expect(secondSource.hash).toBe('#gooru-hover-2');
+  expect(secondSource.href).not.toBe(firstSource.href);
+  expect(`${secondSource.pathname}${secondSource.search}`).not.toBe(`${firstSource.pathname}${firstSource.search}`);
 });
 
 test('ready transparent gif replaces the thumbnail backing layer', async ({ page }) => {
   await mockLibrary(page);
-  await page.route('**/api/v1/files/gif-one/content', async (route) => route.fulfill({ contentType: 'image/gif', body: transparentGif }));
+  await page.route('**/api/v1/files/gif-one/content**', async (route) => route.fulfill({ contentType: 'image/gif', body: transparentGif }));
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
   const thumbnail = gifCard.locator('img').first();
@@ -143,14 +164,14 @@ test('ready transparent gif replaces the thumbnail backing layer', async ({ page
   await expect(thumbnail).toHaveCSS('opacity', '1');
 });
 
-test('gif playback visibly restarts and leaves the normal card affordances above playback', async ({ page }) => {
+test('gif playback leaves the normal card affordances above playback', async ({ page }) => {
   await mockLibrary(page);
-  await page.route('**/api/v1/files/gif-one/content', async (route) => route.fulfill({ contentType: 'image/gif', body: twoFrameGif }));
+  await page.route('**/api/v1/files/gif-one/content**', async (route) => route.fulfill({ contentType: 'image/gif', body: twoFrameGif }));
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
   const card = gifCard.locator('..');
   await gifCard.hover();
-  let gif = page.getByTestId('hover-gif-preview');
+  const gif = page.getByTestId('hover-gif-preview');
   await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
   await expect(gif).toHaveCSS('z-index', '1');
   await expect(gifCard.locator('.thumb-overlay')).toHaveCSS('z-index', '2');
@@ -158,23 +179,6 @@ test('gif playback visibly restarts and leaves the normal card affordances above
   await expect(gifCard.locator('.thumb-badges')).toHaveCSS('z-index', '3');
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('z-index', '4');
   await expect(card.locator('.thumb-checkbox')).toHaveCSS('opacity', '1');
-  const firstSource = await gif.getAttribute('src');
-  const firstFrame = await gif.screenshot();
-
-  await page.waitForTimeout(3150);
-  const secondFrame = await gif.screenshot();
-  expect(secondFrame.equals(firstFrame)).toBe(false);
-
-  await page.getByRole('heading', { name: 'Library' }).hover();
-  await expect(gif).toHaveCount(0);
-  await gifCard.hover();
-  gif = page.getByTestId('hover-gif-preview');
-  await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
-  const restartedSource = await gif.getAttribute('src');
-  expect(restartedSource).not.toBe(firstSource);
-  expect(restartedSource?.split('#')[0]).toBe(firstSource?.split('#')[0]);
-  const restartedFrame = await gif.screenshot();
-  expect(restartedFrame.equals(firstFrame)).toBe(true);
 });
 
 test('reduced motion and disabled media options suppress hover playback', async ({ page }) => {

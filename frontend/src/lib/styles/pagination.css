@@ -1,3 +1,4 @@
 .paged-virtual-grid {
+  min-height: 0;
   margin-bottom: 18px;
 }

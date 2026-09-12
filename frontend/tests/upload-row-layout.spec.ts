@@ -19,7 +19,6 @@ async function mockApp(page: Page) {
   });
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
@@ -27,11 +26,11 @@ async function mockApp(page: Page) {
   let uploadIndex = 0;
   await page.route('**/api/v1/uploads', async (route) => {
     uploadIndex += 1;
-    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: `job-${uploadIndex}`, type: 'upload_import', status: 'pending', submitted_at: '2026-09-02T00:00:00Z' }) });
+    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: `job-${uploadIndex}`, kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at: '2026-09-02T00:00:00Z' }) });
   });
-  await page.route('**/api/v1/jobs/job-*', async (route) => {
+  await page.route('**/api/v1/operations/job-*', async (route) => {
     const id = route.request().url().split('/').at(-1) ?? '';
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id, type: 'upload_import', status: 'pending', submitted_at: '2026-09-02T00:00:00Z' }) });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id, kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at: '2026-09-02T00:00:00Z' }) });
   });
 
   await page.goto('/');

@@ -153,8 +153,8 @@ GET /api/v1/files/{id}/thumbnail?size=256&format=jpeg
 GET /api/v1/files/{id}/preview
 GET /api/v1/files/{id}/content
 POST /api/v1/uploads
-GET /api/v1/jobs/{id}
-DELETE /api/v1/jobs/{id}
+GET /api/v1/operations/{id}
+DELETE /api/v1/operations/{id}
 ```
 
 Browser clients should use stable opaque file ids. They should not need to construct media URLs from raw filesystem paths.

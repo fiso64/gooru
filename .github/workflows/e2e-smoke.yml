@@ -1,0 +1,132 @@
+name: E2E Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Mixed-media upload/delete smoke
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 90
+    env:
+      GOTOOLCHAIN: local
+      GOORU_SMOKE_USERNAME: smoke-admin
+      GOORU_SMOKE_TIMEOUT_MS: '2700000'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Resolve artifact paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact_root="$GITHUB_WORKSPACE/artifacts/e2e-smoke"
+          mkdir -p "$artifact_root"
+          readme="$artifact_root/README.md"
+          if [[ ! -s "$readme" ]]; then
+            {
+              echo '# E2E smoke run history'
+              echo
+              echo 'Append-only stage summary for this workflow artifact. Each stage has a timestamped subdirectory.'
+              echo
+              echo '| Timestamp (UTC) | Run ID | Attempt | Commit | Runner | Files | Upload | Delete from disk | Result / logs |'
+              echo '| --- | ---: | ---: | --- | --- | ---: | ---: | ---: | --- |'
+            } >> "$readme"
+          fi
+          smoke_password="Sm0ke!$(node -e "process.stdout.write(require('crypto').randomBytes(24).toString('hex'))")"
+          echo "::add-mask::$smoke_password"
+          {
+            echo "GOORU_SMOKE_ARTIFACT_ROOT=$artifact_root"
+            echo "GOORU_SMOKE_PASSWORD=$smoke_password"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore stable datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/gooru/e2e-smoke
+          key: gooru-e2e-smoke-v1-${{ runner.os }}-200-400-800
+          restore-keys: |
+            gooru-e2e-smoke-v1-${{ runner.os }}-
+
+      - name: Generate missing datasets
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v nix >/dev/null || { echo "nix is required on the self-hosted runner" >&2; exit 1; }
+          python_out="$(nix build --no-link --print-out-paths nixpkgs#python3)"
+          pillow_out="$(nix build --no-link --print-out-paths nixpkgs#python3Packages.pillow)"
+          ffmpeg_out="$(nix build --no-link --print-out-paths nixpkgs#ffmpeg)"
+          pillow_site="$(find "$pillow_out/lib" -type d -name site-packages -print -quit)"
+          [[ -n "$pillow_site" ]] || { echo "Pillow site-packages directory not found" >&2; exit 1; }
+          for count in 200 400 800; do
+            PATH="$ffmpeg_out/bin:$PATH" PYTHONPATH="$pillow_site" \
+              "$python_out/bin/python3" scripts/e2e/generate_smoke_dataset.py \
+                --count "$count" \
+                --output "$HOME/.cache/gooru/e2e-smoke/v1-$count"
+          done
+
+      - name: Build frontend and daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend ci --prefer-offline --no-audit
+          npm --prefix frontend run build
+          mkdir -p .e2e/bin
+          go build -o .e2e/bin/gooru ./cmd/gooru
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
+
+      - name: Smoke 200 files
+        id: smoke200
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/e2e/run_smoke_stage.sh 200 false
+
+      - name: Smoke 400 files
+        id: smoke400
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/e2e/run_smoke_stage.sh 400 false
+
+      - name: Smoke 800 files with logs
+        id: smoke800
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/e2e/run_smoke_stage.sh 800 true
+
+      - name: Verify all smoke stages
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f "$GOORU_SMOKE_ARTIFACT_ROOT/README.md" ]]; then
+            cat "$GOORU_SMOKE_ARTIFACT_ROOT/README.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          failed=0
+          [[ "${{ steps.smoke200.outcome }}" == "success" ]] || failed=1
+          [[ "${{ steps.smoke400.outcome }}" == "success" ]] || failed=1
+          [[ "${{ steps.smoke800.outcome }}" == "success" ]] || failed=1
+          exit "$failed"
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/e2e-smoke/
+          if-no-files-found: error
+          retention-days: 14

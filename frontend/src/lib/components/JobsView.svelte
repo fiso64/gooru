@@ -1,5 +1,7 @@
 <script lang="ts">
+  import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
   import JobRow from './JobRow.svelte';
+  import PageNav from './PageNav.svelte';
   import { authState } from '$lib/stores/auth';
   import { createJobsQuery } from '$lib/queries/jobs';
   import type { Job } from '$lib/api/types';
@@ -7,17 +9,12 @@
   let {
     jobs,
     authScope,
-    onCancel,
-    onClearCompleted
+    onCancel
   } = $props<{
     jobs: Job[];
     authScope: number;
     onCancel: (job: Job) => void;
-    onClearCompleted: () => void;
   }>();
-  // Retain the prop while AuthenticatedApp still owns the legacy upload-job
-  // mutation. Durable operation history is intentionally not clearable.
-  void onClearCompleted;
 
   let pageIndex = $state(0);
   let pageTokens = $state(['']);
@@ -30,26 +27,50 @@
   );
   const pageJobs = $derived(pageQuery.data?.items ?? jobs);
   const hasNextPage = $derived(Boolean(pageQuery.data?.next_page_token));
+  const pageCount = $derived(Math.max(pageTokens.length, pageIndex + 1 + (hasNextPage ? 1 : 0)));
 
-  function nextPage() {
+  function selectPage(page: number) {
+    const targetIndex = page - 1;
+    if (targetIndex < 0 || targetIndex === pageIndex || pageQuery.isFetching) return;
+    if (targetIndex < pageTokens.length) {
+      pageIndex = targetIndex;
+      return;
+    }
     const next = pageQuery.data?.next_page_token;
-    if (!next) return;
-    pageTokens = [...pageTokens.slice(0, pageIndex + 1), next];
-    pageIndex += 1;
+    if (targetIndex === pageIndex + 1 && next) {
+      pageTokens = [...pageTokens.slice(0, pageIndex + 1), next];
+      pageIndex = targetIndex;
+    }
   }
 
-  function previousPage() {
-    if (pageIndex > 0) pageIndex -= 1;
+  function resetPagination() {
+    pageTokens = [''];
+    pageIndex = 0;
   }
 </script>
 
 <main class="main">
   <div class="page jobs-page">
     <div class="page-header jobs-page-header">
-      <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
-      <h1>Background work</h1>
-      <p>Durable operation history remains available across restarts.</p>
+      <div>
+        <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
+        <h1>Background work</h1>
+      </div>
+      <ClearCompletedJobsButton onCleared={resetPagination} />
     </div>
+
+    {#if pageCount > 1}
+      <div class="jobs-top-pager">
+        <PageNav
+          page={pageIndex + 1}
+          {pageCount}
+          onPage={selectPage}
+          disabled={pageQuery.isFetching}
+          ariaLabel="Jobs pages"
+          testId="jobs-pages-top"
+        />
+      </div>
+    {/if}
 
     <div class="g-card jobs-card" aria-busy={pageQuery.isFetching}>
       {#each pageJobs as job (job.id)}
@@ -59,12 +80,15 @@
       {/each}
     </div>
 
-    {#if pageIndex > 0 || hasNextPage}
-      <nav class="jobs-pager" aria-label="Jobs pages">
-        <button class="g-btn g-btn-ghost g-btn-sm" type="button" disabled={pageIndex === 0 || pageQuery.isFetching} onclick={previousPage}>Previous</button>
-        <span>Page {pageIndex + 1}</span>
-        <button class="g-btn g-btn-ghost g-btn-sm" type="button" disabled={!hasNextPage || pageQuery.isFetching} onclick={nextPage}>Next</button>
-      </nav>
+    {#if pageCount > 1}
+      <PageNav
+        page={pageIndex + 1}
+        {pageCount}
+        onPage={selectPage}
+        disabled={pageQuery.isFetching}
+        ariaLabel="Jobs pages"
+        testId="jobs-pages-bottom"
+      />
     {/if}
   </div>
 </main>
@@ -77,8 +101,16 @@
 
   .jobs-page-header {
     position: relative;
-    max-width: 56ch;
+    max-width: none;
     text-align: left;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .jobs-page-header h1 {
+    margin-bottom: 0;
   }
 
   .jobs-card {
@@ -95,14 +127,15 @@
     font-size: 11px;
   }
 
-  .jobs-pager {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    margin-top: 14px;
-    color: var(--text-3);
-    font-family: var(--font-mono);
-    font-size: 11px;
+  :global(.jobs-top-pager .page-nav) {
+    margin-top: 0;
+    padding: 0 0 14px;
+  }
+
+  @media (max-width: 600px) {
+    .jobs-page-header {
+      align-items: flex-start;
+      flex-direction: column;
+    }
   }
 </style>

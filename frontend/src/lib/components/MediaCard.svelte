@@ -103,7 +103,9 @@
 
   function withHoverSession(source: string, session: number) {
     if (!source) return source;
-    return `${source.split('#', 1)[0]}#gooru-hover-${session}`;
+    const base = source.split('#', 1)[0];
+    const separator = base.includes('?') ? '&' : '?';
+    return `${base}${separator}gooru_hover_session=${session}#gooru-hover-${session}`;
   }
 
   function fileExtension(name: string) {

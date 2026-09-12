@@ -47,6 +47,7 @@
   const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));
   const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));
   const tileVirtual = $derived(virtualMediaWindow(tileGeometry, paneHeight, paneScrollY, gridTop, layoutGridSize));
+  const tileVirtualHeight = $derived(pagedMode ? tileGeometry.localHeight : tileVirtual.totalHeight);
 
   onMount(() => { pixelRatio = Math.max(1, window.devicePixelRatio || 1); });
 
@@ -88,7 +89,15 @@
   }
 
   function handleGridKeydown(event: KeyboardEvent) {
-    if (!isGridDirection(event.key) || !(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('thumb-open')) return;
+    if (!(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('thumb-open')) return;
+    if (event.key === 'Escape') {
+      if (selectedCount > 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.target.blur();
+      return;
+    }
+    if (!isGridDirection(event.key)) return;
     const buttons = Array.from(gridHost?.querySelectorAll<HTMLButtonElement>('.thumb-open') ?? []);
     const currentIndex = buttons.indexOf(event.target);
     if (currentIndex < 0) return;
@@ -140,6 +149,15 @@
     if (needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();
   });
 
+  $effect(() => {
+    // Bookmarked/history pages can become invalid after the result set shrinks. An
+    // out-of-range transport page is empty, which otherwise hides the pager and leaves
+    // no in-UI route back to valid results. Valid deep pages always have files, so only
+    // recover settled empty pages whose page number is beyond the known page count.
+    if (!pagedMode || isLoading || isError || files.length || pageNumber <= pageCount) return;
+    onPage(0);
+  });
+
   function selectPagedPage(page: number) {
     if (page < 1 || page > pageCount || page === pageNumber || isFetchingNextPage || isFetchingPreviousPage) return;
     onPage(page - 1);
@@ -167,7 +185,7 @@
       </div>
     </div>
   {:else}
-    <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${tileVirtual.totalHeight}px;`}>
+    <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${tileVirtualHeight}px;`}>
       <div class="grid variable-media-grid" role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type="tile" onkeydown={handleGridKeydown}>
         {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} viewportRoot={mainHost} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} /></div>{/each}
       </div>

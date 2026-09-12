@@ -42,7 +42,6 @@ async function mockApp(page: Page) {
     loggedIn = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
-  await page.route('**/api/v1/jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
@@ -142,4 +141,14 @@ test('ArrowDown enters the tags grid without stealing arrows from the filter', a
   await expect(tagItems.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowRight');
   await expect(tagItems.nth(1)).toBeFocused();
+});
+
+test('Escape hides the grid keyboard cursor when no higher-priority exit is active', async ({ page }) => {
+  await mockApp(page);
+  await page.keyboard.press('ArrowDown');
+  const first = page.locator('.thumb-open').first();
+  await expect(first).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(first).not.toBeFocused();
 });

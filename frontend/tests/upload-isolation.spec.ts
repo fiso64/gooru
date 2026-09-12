@@ -28,9 +28,6 @@ async function mockShellApis(page: Page) {
   await page.route('**/api/v1/files?**', async (route) => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) });
   });
-  await page.route('**/api/v1/jobs', async (route) => {
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
-  });
   await page.route('**/api/v1/saved-searches', async (route) => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
@@ -43,11 +40,11 @@ async function mockShellApis(page: Page) {
   await page.route('**/api/v1/search/suggestions?**', async (route) => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
   });
-  await page.route('**/api/v1/jobs/job-*', async (route) => {
+  await page.route('**/api/v1/operations/job-*', async (route) => {
     const id = route.request().url().split('/').at(-1) ?? '';
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ id, type: 'upload_import', status: 'pending', submitted_at: '2026-09-02T00:00:00Z' })
+      body: JSON.stringify({ id, kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at: '2026-09-02T00:00:00Z' })
     });
   });
 }
@@ -79,7 +76,7 @@ test('isolates browser upload failures per file and keeps siblings active', asyn
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify({ id: `job-${successfulUploads}`, type: 'upload_import', status: 'pending', submitted_at: '2026-09-02T00:00:00Z' })
+      body: JSON.stringify({ id: `job-${successfulUploads}`, kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0, created_at: '2026-09-02T00:00:00Z' })
     });
   });
 

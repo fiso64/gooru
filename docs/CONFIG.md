@@ -66,7 +66,9 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, `path`, and optional `added_at_strategy`. |
 | `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
 | `uploads.preserve_modtime` | `true` | Preserve each browser-uploaded file's source modification timestamp on the stored destination. Source timestamps are still carried through upload processing when disabled. |
-| `uploads.conflict_policy` | `skip` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
+| `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
+
+Upload throughput concurrency is not currently configurable through YAML or a `serve` flag. The upload worker keeps mutation/replacement/protected-storage transitions serialized for correctness, while the safe per-file analysis/read/hash/status stage uses an internal bounded pool of four workers.
 
 Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `added_at_strategy`. The strategy defaults to `queue` and accepts `queue`, `reverse_queue`, or `modtime`.
 
@@ -109,14 +111,6 @@ uploads:
 | `media.preview_enabled` | `true` | Generate and serve derived viewer previews. When disabled, preview requests fall back to original media and the WebUI treats original media as the only viewer source. Grid thumbnails remain enabled. |
 | `media.preview_jpeg_quality` | `92` | JPEG quality for generated viewer previews, from `1` to `100`. This does not change grid-thumbnail JPEG quality. |
 
-## `jobs`
-
-| Option | Default | Description |
-| --- | --- | --- |
-| `jobs.completed_ttl` | `1h` | How long completed/failed/canceled in-memory jobs are retained. Go duration; must be positive. |
-| `jobs.max_queued` | `100` | Maximum number of pending jobs. Must be positive. |
-| `jobs.max_running` | `2` | Maximum number of concurrently running jobs. Must be positive. |
-| `jobs.max_result_bytes` | `10485760` (10 MiB) | Maximum result payload retained for a completed in-memory job. Oversized results are omitted from retained job state without changing a successful job to failed; synchronous API calls still receive their immediate result. Must be positive. |
 
 ## `tools`
 
@@ -133,7 +127,7 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | --- | --- | --- |
 | `ui.theme` | `default` | WebUI presentation: `default` keeps the standard Gooru interface, `booru-light` uses the booru-oriented light shell/viewer presentation, and `booru-dark` uses the same shared booru structure with the reference-derived dark palette. The booru variants ignore configured accent/font appearance while functional UI settings remain configurable. |
 | `ui.accent_color` | empty | Optional runtime UI accent in six-digit hex form such as `#2f80ed`. When empty, the built-in yellow accent is used. The UI derives readable foreground and translucent accent tokens from this color. |
-| `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
+| `ui.font_style` | `comic` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
 | `ui.grid_size` | `200`; `180` when omitted with a booru theme | Base gallery cell size in pixels. Must be between `64` and `1024`. `fit` uses this value directly; `square` and `tile` receive a fixed 40px layout boost. Explicit values apply to every theme. |
 | `ui.grid_type` | `square`; `fit` when omitted with a booru theme | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. An explicitly configured value always overrides the theme default. All modes keep a bounded virtual DOM for large libraries. |
 | `ui.pagination_mode` | `infinite`; `paged` when omitted with a booru theme | Library browsing mode: `infinite` incrementally appends results while scrolling; `paged` keeps only the current transport page in browser query state and shows Previous/Next controls. An explicit server value overrides the theme default, and the browser-local pagination preference remains the final per-browser override. |
@@ -201,11 +195,6 @@ media:
   preview_enabled: true
   preview_jpeg_quality: 92
 
-jobs:
-  completed_ttl: 1h
-  max_queued: 100
-  max_running: 2
-  max_result_bytes: 10485760
 
 tools:
   ffmpeg_path: ffmpeg
@@ -217,7 +206,7 @@ logging:
 ui:
   theme: default
   accent_color: "#2f80ed"
-  font_style: editorial
+  font_style: comic
   grid_size: 200
   grid_type: square
   pagination_mode: infinite

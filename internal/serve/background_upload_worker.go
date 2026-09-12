@@ -1,0 +1,199 @@
+package serve
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	core "gooru.local/gooru"
+)
+
+type backgroundUploadWorkerStore interface {
+	GetBackgroundOperation(string) (core.BackgroundOperationState, bool, error)
+	GetBackgroundOperationCheckpoint(string, any) (bool, error)
+	SetBackgroundOperationCheckpoint(string, any) error
+	SetBackgroundOperationResult(string, any) error
+}
+
+type backgroundUploadImporter interface {
+	importUploadedFiles(context.Context, []StagedUpload, []string, string, []activatedSavedReplacement) (UploadImportResponse, error)
+}
+
+func (s *Server) backgroundUploadHandler(store backgroundUploadWorkerStore) core.BackgroundTaskHandler {
+	return func(ctx context.Context, task core.BackgroundTask) error {
+		importer, ok := s.library.(backgroundUploadImporter)
+		if !ok {
+			return errors.New("durable upload import service is not configured")
+		}
+		return runBackgroundUploadTask(ctx, importer, store, task)
+	}
+}
+
+func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImporter, store backgroundUploadWorkerStore, task core.BackgroundTask) error {
+	if importer == nil {
+		return errors.New("durable upload import service is not configured")
+	}
+	if store == nil {
+		return errors.New("upload background operation store is not configured")
+	}
+	files, tags, err := decodeBackgroundUploadTask(task)
+	if err != nil {
+		return err
+	}
+
+	var checkpoint backgroundUploadCheckpoint
+	found, err := store.GetBackgroundOperationCheckpoint(task.OperationID, &checkpoint)
+	if err != nil {
+		return fmt.Errorf("load upload background checkpoint: %w", err)
+	}
+	if !found {
+		return errors.New("upload background checkpoint is missing")
+	}
+
+	var activated []activatedSavedReplacement
+	switch checkpoint.Phase {
+	case backgroundUploadPhaseStaged:
+		if err := prepareDurableReplacementRecoveryMarkers(files); err != nil {
+			return fmt.Errorf("prepare durable replacement recovery: %w", err)
+		}
+		activated, err = activateSavedDurableUploads(files)
+		if err != nil {
+			return err
+		}
+		checkpoint = backgroundUploadActivatedCheckpoint(activated, len(files), 0)
+		if err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {
+			canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
+			if stateErr != nil {
+				return errors.Join(fmt.Errorf("persist activated upload checkpoint: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
+			}
+			if canceled {
+				if cleanupErr := cleanupCanceledClaimedUpload(files, activated); cleanupErr != nil {
+					return cleanupErr
+				}
+				return nil
+			}
+			return fmt.Errorf("persist activated upload checkpoint: %w", err)
+		}
+	case backgroundUploadPhaseActivated:
+		activated, err = activatedSavedReplacementsFromCheckpoint(files, checkpoint)
+		if err != nil {
+			return err
+		}
+		if err := restoreDurableNonreplacementDestinations(files); err != nil {
+			return fmt.Errorf("restore activated durable uploads: %w", err)
+		}
+		if err := restoreActivatedReplacementDestinations(files, activated); err != nil {
+			return fmt.Errorf("restore activated upload replacements: %w", err)
+		}
+	case backgroundUploadPhaseImported:
+		if checkpoint.Response == nil {
+			return errors.New("imported upload checkpoint is missing response")
+		}
+		activated, err = activatedSavedReplacementsFromCheckpoint(files, checkpoint)
+		if err != nil {
+			return err
+		}
+		if err := settleDurableSavedReplacements(files, activated, *checkpoint.Response); err != nil {
+			return fmt.Errorf("settle imported upload replacements: %w", err)
+		}
+		if err := settleDurableNonreplacementActivations(files); err != nil {
+			return fmt.Errorf("settle imported durable uploads: %w", err)
+		}
+		if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
+			return fmt.Errorf("settle imported durable replacement recovery markers: %w", err)
+		}
+		if err := store.SetBackgroundOperationResult(task.OperationID, *checkpoint.Response); err != nil {
+			canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
+			if stateErr != nil {
+				return errors.Join(fmt.Errorf("publish upload background result: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
+			}
+			if canceled {
+				return nil
+			}
+			return fmt.Errorf("publish upload background result: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("upload background checkpoint has invalid phase %q", checkpoint.Phase)
+	}
+
+	response, err := importer.importUploadedFiles(ctx, durableStagedUploads(files), tags, task.OperationID, activated)
+	if err != nil {
+		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
+		if stateErr != nil {
+			return errors.Join(err, fmt.Errorf("inspect upload cancellation: %w", stateErr))
+		}
+		if canceled {
+			if cleanupErr := cleanupCanceledClaimedUpload(files, activated); cleanupErr != nil {
+				return cleanupErr
+			}
+			return nil
+		}
+		return err
+	}
+
+	checkpoint = backgroundUploadImportedCheckpoint(activated, response)
+	if err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {
+		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
+		if stateErr != nil {
+			return errors.Join(fmt.Errorf("persist imported upload checkpoint: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
+		}
+		if canceled {
+			if settleErr := settleDurableSavedReplacements(files, activated, response); settleErr != nil {
+				return fmt.Errorf("settle canceled upload replacements: %w", settleErr)
+			}
+			if settleErr := settleDurableNonreplacementActivations(files); settleErr != nil {
+				return fmt.Errorf("settle canceled durable uploads: %w", settleErr)
+			}
+			if settleErr := settleDurableReplacementRecoveryMarkers(files); settleErr != nil {
+				return fmt.Errorf("settle canceled durable replacement recovery markers: %w", settleErr)
+			}
+			return nil
+		}
+		return fmt.Errorf("persist imported upload checkpoint: %w", err)
+	}
+	if err := settleDurableSavedReplacements(files, activated, response); err != nil {
+		return fmt.Errorf("settle imported upload replacements: %w", err)
+	}
+	if err := settleDurableNonreplacementActivations(files); err != nil {
+		return fmt.Errorf("settle imported durable uploads: %w", err)
+	}
+	if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
+		return fmt.Errorf("settle imported durable replacement recovery markers: %w", err)
+	}
+	if err := store.SetBackgroundOperationResult(task.OperationID, response); err != nil {
+		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
+		if stateErr != nil {
+			return errors.Join(fmt.Errorf("publish upload background result: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
+		}
+		if canceled {
+			return nil
+		}
+		return fmt.Errorf("publish upload background result: %w", err)
+	}
+	return nil
+}
+
+func backgroundUploadOperationCanceled(store backgroundUploadWorkerStore, operationID string) (bool, error) {
+	state, found, err := store.GetBackgroundOperation(operationID)
+	if err != nil || !found {
+		return false, err
+	}
+	return state.Status == core.BackgroundWorkCanceled, nil
+}
+
+func cleanupCanceledClaimedUpload(files []savedUpload, activated []activatedSavedReplacement) error {
+	if err := rollbackDurableSavedReplacements(files, activated); err != nil {
+		return fmt.Errorf("rollback canceled upload replacements: %w", err)
+	}
+	if err := rollbackDurableNonreplacementActivations(files); err != nil {
+		return fmt.Errorf("rollback canceled durable uploads: %w", err)
+	}
+	if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
+		return fmt.Errorf("settle canceled durable replacement recovery markers: %w", err)
+	}
+	if err := removeCanceledSavedUploads(files); err != nil {
+		return fmt.Errorf("remove canceled staged uploads: %w", err)
+	}
+	return nil
+}

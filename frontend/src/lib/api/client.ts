@@ -1,6 +1,7 @@
 import createClient from 'openapi-fetch';
 import type { paths } from './openapi';
 import type { LibraryURLState } from '$lib/utils/appRoute';
+import type { BackgroundOperation } from './operations';
 import { useProtectedReadTransport } from './privacy';
 import type {
   ApiErrorResponse,
@@ -10,8 +11,6 @@ import type {
   FileListResponse,
   FileRemovalRequest,
   FileRemovalResponse,
-  Job,
-  JobListResponse,
   NamespacesResponse,
   SavedSearch,
   SavedSearchRequest,
@@ -27,8 +26,6 @@ import type {
 
 type FileSort = 'added' | 'name' | 'modified' | 'size' | 'kind';
 type SortOrder = 'asc' | 'desc';
-type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
-type ClearableJobStatus = 'completed' | 'failed' | 'canceled';
 
 export class ApiError extends Error {
   code: string;
@@ -233,7 +230,7 @@ export class ApiClient {
     conflictPolicy = 'skip',
     onProgress?: (progress: number) => void,
     ordering: UploadOrderingMetadata = {}
-  ): Promise<Job | UploadImportResponse> {
+  ): Promise<BackgroundOperation | UploadImportResponse> {
     const form = new FormData();
     for (const file of files) form.append('files', file, file.name);
     for (const file of files) form.append('source_modtime_ms', String(file.lastModified));
@@ -247,29 +244,16 @@ export class ApiClient {
     for (const value of ordering.queueIndex ?? []) if (Number.isInteger(value) && value >= 0) form.append('queue_index', String(value));
     for (const value of ordering.queueTotal ?? []) if (Number.isInteger(value) && value > 0) form.append('queue_total', String(value));
 
-    return uploadMultipart<Job | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
+    return uploadMultipart<BackgroundOperation | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
       csrfToken: this.csrfToken,
       preferAsync,
       onProgress
     });
   }
 
-  async getJob(id: string): Promise<Job> {
-    return this.unwrap(this.client.GET('/jobs/{id}', { params: { path: { id } } }));
-  }
 
-  async listJobs(status: JobStatus | '' = ''): Promise<JobListResponse> {
-    return this.unwrap(this.client.GET('/jobs', { params: { query: { status: status || undefined } } }));
-  }
 
-  async cancelJob(id: string): Promise<Job> {
-    return this.unwrap(this.client.DELETE('/jobs/{id}', { params: { header: this.csrfHeaderParam('DELETE'), path: { id } } }));
-  }
 
-  async clearJobs(status = 'completed'): Promise<{ removed: number }> {
-    const clearStatus = (['completed', 'failed', 'canceled'].includes(status) ? status : 'completed') as ClearableJobStatus;
-    return this.unwrap(this.client.DELETE('/jobs', { params: { header: this.csrfHeaderParam('DELETE'), query: { status: clearStatus } } }));
-  }
 
   private csrfHeaderParam(method: string): { 'X-Gooru-CSRF': string } {
     return { 'X-Gooru-CSRF': isMutatingMethod(method) ? this.csrfToken : '' };

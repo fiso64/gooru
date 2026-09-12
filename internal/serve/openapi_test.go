@@ -54,15 +54,17 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 		}
 	}
 
-	jobSchema := schema(t, spec, "Job")
-	jobRequired := stringSlice(t, jobSchema["required"])
-	if !containsString(jobRequired, "submitted_at") {
-		t.Fatalf("Job schema must require submitted_at, got %+v", jobRequired)
+	operationSchema := schema(t, spec, "BackgroundOperation")
+	operationRequired := stringSlice(t, operationSchema["required"])
+	for _, field := range []string{"id", "kind", "status", "progress_total", "progress_completed", "progress_failed", "created_at"} {
+		if !containsString(operationRequired, field) {
+			t.Fatalf("BackgroundOperation schema missing required %q in %+v", field, operationRequired)
+		}
 	}
-	jobProps := stringMap(t, jobSchema["properties"])
-	for _, field := range []string{"started_at", "finished_at", "result", "error"} {
-		if _, ok := jobProps[field]; !ok {
-			t.Fatalf("Job schema missing %q", field)
+	operationProps := stringMap(t, operationSchema["properties"])
+	for _, field := range []string{"started_at", "finished_at", "result", "error_code", "error_message"} {
+		if _, ok := operationProps[field]; !ok {
+			t.Fatalf("BackgroundOperation schema missing %q", field)
 		}
 	}
 
@@ -87,7 +89,8 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 	assertResponseSchemaRef(t, spec, "/saved-searches", "post", "201", "#/components/schemas/SavedSearch")
 	assertResponseSchemaRef(t, spec, "/saved-searches/{id}", "put", "200", "#/components/schemas/SavedSearch")
 	assertResponseSchemaRef(t, spec, "/files/{id}", "delete", "200", "#/components/schemas/DeleteFileResponse")
-	assertResponseSchemaRef(t, spec, "/jobs", "get", "200", "#/components/schemas/JobListResponse")
+	assertResponseSchemaRef(t, spec, "/operations", "get", "200", "#/components/schemas/BackgroundOperationListResponse")
+	assertResponseSchemaRef(t, spec, "/operations/{id}", "get", "200", "#/components/schemas/BackgroundOperation")
 
 	uploadFileProps := stringMap(t, stringMap(t, schema(t, spec, "UploadImportResponse")["properties"])["files"])
 	uploadFileItems := stringMap(t, uploadFileProps["items"])

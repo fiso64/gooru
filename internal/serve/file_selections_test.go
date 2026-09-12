@@ -93,6 +93,28 @@ func (l *snapshotTestLibrary) DeleteFileByPublicID(_ context.Context, id string)
 
 func (l *snapshotTestLibrary) CreateBackgroundOperationWithTasks(operation core.BackgroundOperationRequest, tasks []core.BackgroundTaskRequest) (core.BackgroundOperation, []core.BackgroundTask, error) {
 	for _, task := range tasks {
+		var envelope struct {
+			Version int `json:"version"`
+		}
+		if err := json.Unmarshal([]byte(task.InputKey), &envelope); err != nil {
+			return core.BackgroundOperation{}, nil, err
+		}
+		if envelope.Version == backgroundFileRemovalBatchVersion {
+			var input backgroundFileRemovalBatchInput
+			if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
+				return core.BackgroundOperation{}, nil, err
+			}
+			if input.Mode != "untrack" {
+				return core.BackgroundOperation{}, nil, errors.New("snapshot test library only supports queued untrack")
+			}
+			for _, file := range input.Files {
+				if _, err := l.DeleteFileByPublicID(context.Background(), file.PublicID); err != nil {
+					return core.BackgroundOperation{}, nil, err
+				}
+			}
+			continue
+		}
+
 		var input backgroundFileRemovalInput
 		if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
 			return core.BackgroundOperation{}, nil, err

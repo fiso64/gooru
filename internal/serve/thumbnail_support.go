@@ -24,7 +24,8 @@ type thumbnailSupport struct {
 // file kind a two-sided decision: clear-path support and protected-source
 // support cannot drift apart unnoticed.
 func thumbnailSupportForPath(path string) (thumbnailSupport, bool) {
-	if strings.EqualFold(filepath.Ext(path), ".cbz") {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext == ".cbz" {
 		return thumbnailSupport{kind: "comic", protectedAccess: protectedThumbnailComicArchive}, true
 	}
 
@@ -33,6 +34,11 @@ func thumbnailSupportForPath(path string) (thumbnailSupport, bool) {
 	case "photo", "gif":
 		return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSource}, true
 	case "video":
+		// All video containers use the same seek-capable ffmpeg contract. Clear
+		// mode supplies the ordinary pathname; protected mode supplies a short-lived
+		// seekable logical source backed by authenticated random access. Keeping the
+		// transport choice at the media-kind boundary prevents container-specific
+		// protected routing from drifting away from clear-mode support.
 		return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSeekableVideo}, true
 	default:
 		return thumbnailSupport{}, false

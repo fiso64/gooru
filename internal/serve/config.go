@@ -35,7 +35,6 @@ type Config struct {
 	Auth       AuthConfig       `yaml:"auth"`
 	Uploads    UploadsConfig    `yaml:"uploads"`
 	Media      MediaConfig      `yaml:"media"`
-	Jobs       JobsConfig       `yaml:"jobs"`
 	Tools      ToolsConfig      `yaml:"tools"`
 	Logging    LoggingConfig    `yaml:"logging"`
 	UI         UIConfig         `yaml:"ui"`
@@ -97,14 +96,6 @@ type MediaConfig struct {
 	PreviewSize        int    `yaml:"preview_size"`
 	PreviewEnabled     bool   `yaml:"preview_enabled"`
 	PreviewJPEGQuality int    `yaml:"preview_jpeg_quality"`
-}
-
-type JobsConfig struct {
-	CompletedTTLRaw string        `yaml:"completed_ttl"`
-	CompletedTTL    time.Duration `yaml:"-"`
-	MaxQueued       int           `yaml:"max_queued"`
-	MaxRunning      int           `yaml:"max_running"`
-	MaxResultBytes  int64         `yaml:"max_result_bytes"`
 }
 
 type ToolsConfig struct {
@@ -182,18 +173,11 @@ func DefaultConfig(dbPath string) Config {
 			PreviewEnabled:     true,
 			PreviewJPEGQuality: derivativeJPEGQuality,
 		},
-		Jobs: JobsConfig{
-			CompletedTTLRaw: "1h",
-			CompletedTTL:    time.Hour,
-			MaxQueued:       100,
-			MaxRunning:      2,
-			MaxResultBytes:  10 << 20,
-		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
 		UI: UIConfig{
 			Theme:                  DefaultUITheme,
-			FontStyle:              "editorial",
+			FontStyle:              "comic",
 			HoverPlayVideos:        false,
 			HoverPlayGIFs:          true,
 			GridSize:               DefaultGridSize,
@@ -343,26 +327,6 @@ func (cfg *Config) Validate() error {
 	if cfg.Media.ThumbnailFormat != "jpeg" && cfg.Media.ThumbnailFormat != "png" {
 		errs = append(errs, errors.New("media.thumbnail_format must be one of: jpeg, png"))
 	}
-	if cfg.Jobs.CompletedTTLRaw == "" {
-		cfg.Jobs.CompletedTTLRaw = "1h"
-	}
-	ttl, err := time.ParseDuration(cfg.Jobs.CompletedTTLRaw)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("jobs.completed_ttl must be a duration such as 1h: %w", err))
-	} else if ttl <= 0 {
-		errs = append(errs, errors.New("jobs.completed_ttl must be greater than zero"))
-	} else {
-		cfg.Jobs.CompletedTTL = ttl
-	}
-	if cfg.Jobs.MaxQueued <= 0 {
-		errs = append(errs, errors.New("jobs.max_queued must be greater than zero"))
-	}
-	if cfg.Jobs.MaxRunning <= 0 {
-		errs = append(errs, errors.New("jobs.max_running must be greater than zero"))
-	}
-	if cfg.Jobs.MaxResultBytes <= 0 {
-		errs = append(errs, errors.New("jobs.max_result_bytes must be greater than zero"))
-	}
 	if cfg.Uploads.Enabled && !hasUploadTarget(cfg.Uploads.Targets) {
 		errs = append(errs, errors.New("uploads.enabled requires at least one uploads.targets entry"))
 	}
@@ -468,7 +432,7 @@ func (cfg *Config) Validate() error {
 	}
 	cfg.UI.FontStyle = strings.ToLower(strings.TrimSpace(cfg.UI.FontStyle))
 	if cfg.UI.FontStyle == "" {
-		cfg.UI.FontStyle = "editorial"
+		cfg.UI.FontStyle = "comic"
 	}
 	switch cfg.UI.FontStyle {
 	case "editorial", "modern", "comic":

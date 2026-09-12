@@ -17,6 +17,23 @@ func (s *Store) SetBackgroundOperationResult(operationID string, resultJSON []by
 	if s == nil || s.DB == nil {
 		return errors.New("background operation store is required")
 	}
+	return s.setBackgroundOperationResult(s.DB, operationID, resultJSON)
+}
+
+// SetBackgroundOperationResultTx persists a success payload inside an
+// existing domain transaction so consumers can never observe a completed
+// mutation whose durable replay result was lost in a separate commit.
+func (s *Store) SetBackgroundOperationResultTx(tx *Tx, operationID string, resultJSON []byte) error {
+	if s == nil {
+		return errors.New("background operation store is required")
+	}
+	return s.setBackgroundOperationResult(tx, operationID, resultJSON)
+}
+
+func (s *Store) setBackgroundOperationResult(q Querier, operationID string, resultJSON []byte) error {
+	if q == nil {
+		return errors.New("background operation querier is required")
+	}
 	if operationID == "" {
 		return errors.New("background operation id is required")
 	}
@@ -26,7 +43,7 @@ func (s *Store) SetBackgroundOperationResult(operationID string, resultJSON []by
 	if len(resultJSON) > maxBackgroundOperationResultBytes {
 		return fmt.Errorf("background operation result exceeds %d bytes", maxBackgroundOperationResultBytes)
 	}
-	res, err := s.DB.Exec(`
+	res, err := q.Exec(`
 		UPDATE background_operations
 		SET result_json = ?
 		WHERE id = ? AND status IN ('pending', 'running')

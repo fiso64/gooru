@@ -14,6 +14,8 @@ func TestThumbnailSupportDeclaresProtectedAccessForEverySupportedKind(t *testing
 		{name: "jpeg", path: "photo.jpg", kind: "photo", access: protectedThumbnailSource},
 		{name: "gif", path: "animation.gif", kind: "gif", access: protectedThumbnailSource},
 		{name: "mp4", path: "video.mp4", kind: "video", access: protectedThumbnailSeekableVideo},
+		{name: "webm", path: "video.webm", kind: "video", access: protectedThumbnailSeekableVideo},
+		{name: "mkv", path: "video.mkv", kind: "video", access: protectedThumbnailSeekableVideo},
 		{name: "cbz", path: "comic.cbz", kind: "comic", access: protectedThumbnailComicArchive},
 	}
 

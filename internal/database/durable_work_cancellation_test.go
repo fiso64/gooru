@@ -36,9 +36,12 @@ func TestCancelBackgroundOperationCancelsActiveChildrenAndRejectsLateEnqueue(t *
 	}
 
 	canceledAt := now.Add(3 * time.Second)
-	canceled, err := store.CancelBackgroundOperation("op-cancel", canceledAt)
-	if err != nil || !canceled {
-		t.Fatalf("CancelBackgroundOperation = %v, %v", canceled, err)
+	cancellation, err := store.CancelBackgroundOperationWithDetails("op-cancel", canceledAt)
+	if err != nil || !cancellation.Canceled {
+		t.Fatalf("CancelBackgroundOperationWithDetails = %+v, %v", cancellation, err)
+	}
+	if cancellation.RunningTasks != 1 {
+		t.Fatalf("cancellation running tasks = %d, want 1", cancellation.RunningTasks)
 	}
 
 	var status string
@@ -83,8 +86,9 @@ func TestCancelBackgroundOperationCancelsActiveChildrenAndRejectsLateEnqueue(t *
 	}); err == nil || created || !strings.Contains(err.Error(), "background operation is canceled") {
 		t.Fatalf("late enqueue = created %v err %v, want canceled-operation rejection", created, err)
 	}
-	if canceled, err := store.CancelBackgroundOperation("op-cancel", canceledAt.Add(time.Second)); err != nil || canceled {
-		t.Fatalf("second operation cancel = %v, %v, want unchanged", canceled, err)
+	secondCancellation, err := store.CancelBackgroundOperationWithDetails("op-cancel", canceledAt.Add(time.Second))
+	if err != nil || secondCancellation.Canceled || secondCancellation.RunningTasks != 0 {
+		t.Fatalf("second operation cancel = %+v, %v, want unchanged", secondCancellation, err)
 	}
 }
 
