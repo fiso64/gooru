@@ -64,6 +64,8 @@ export function createUploadWorkflow() {
   let autoUpload = $state(false);
   let activeSubmissions = $state(0);
   let cancelBusy = $state(false);
+  let cancelPending = false;
+  let cancelPendingMutate: CancelJob | undefined;
   let status = $state('');
   let trackedJobs = $state<Record<string, number[]>>({});
   let statusCounts: UploadStatusCounts = {};
@@ -89,6 +91,8 @@ export function createUploadWorkflow() {
     autoUpload = false;
     activeSubmissions = 0;
     cancelBusy = false;
+    cancelPending = false;
+    cancelPendingMutate = undefined;
     status = '';
     trackedJobs = {};
     statusCounts = {};
@@ -295,12 +299,19 @@ export function createUploadWorkflow() {
       });
 
       if ('id' in response) {
-        trackedJobs = { ...trackedJobs, [response.id]: [...batchItemIndices] };
-        for (const itemIndex of batchItemIndices) {
-          const current = items[itemIndex];
-          replaceItem(itemIndex, current ? queuedItem([current], 0)[0] : undefined);
+        if (cancelPending && cancelPendingMutate) {
+          const canceledJob = await cancelPendingMutate(response.id);
+          const previousItems = batchItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
+          const canceledItems = itemsFromJob(previousItems, canceledJob);
+          batchItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, canceledItems[resultIndex]));
+        } else {
+          trackedJobs = { ...trackedJobs, [response.id]: [...batchItemIndices] };
+          for (const itemIndex of batchItemIndices) {
+            const current = items[itemIndex];
+            replaceItem(itemIndex, current ? queuedItem([current], 0)[0] : undefined);
+          }
+          queued = true;
         }
-        queued = true;
       } else {
         const previousItems = batchItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
         const resultItems = itemsFromResult(response, previousItems);
@@ -315,6 +326,11 @@ export function createUploadWorkflow() {
       }
     } finally {
       activeSubmissions = Math.max(0, activeSubmissions - 1);
+      if (activeSubmissions === 0 && cancelPending) {
+        cancelPending = false;
+        cancelPendingMutate = undefined;
+        cancelBusy = false;
+      }
       if (activeSubmissions === 0 && !hasActiveJobs()) finishBatch();
       else refreshStatus();
     }
@@ -323,9 +339,14 @@ export function createUploadWorkflow() {
 
   async function cancel(mutate: CancelJob, _jobID = Object.keys(trackedJobs)[0] ?? '') {
     const jobIDs = Object.keys(trackedJobs);
-    if (!jobIDs.length || cancelBusy) return { changed: false };
+    if ((!jobIDs.length && activeSubmissions === 0) || cancelBusy) return { changed: false };
     cancelBusy = true;
     let changed = false;
+    if (activeSubmissions > 0) {
+      cancelPending = true;
+      cancelPendingMutate = mutate;
+      changed = true;
+    }
     try {
       for (const jobID of jobIDs) {
         const itemIndices = trackedJobs[jobID];
@@ -347,7 +368,7 @@ export function createUploadWorkflow() {
       else refreshStatus();
       return { changed };
     } finally {
-      cancelBusy = false;
+      if (!cancelPending) cancelBusy = false;
     }
   }
 
