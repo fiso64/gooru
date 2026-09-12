@@ -125,12 +125,21 @@ func TestUploadDurablySchedulesAndGeneratesBrowsingThumbnail(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	state, found, err := server.backgroundOperations.GetBackgroundOperation(operation.ID)
-	if err != nil || !found {
-		t.Fatalf("load upload operation: found=%v err=%v", found, err)
-	}
-	if state.Status != core.BackgroundWorkCompleted {
-		t.Fatalf("upload operation status = %s, want completed", state.Status)
+	for {
+		state, found, err := server.backgroundOperations.GetBackgroundOperation(operation.ID)
+		if err != nil || !found {
+			t.Fatalf("load upload operation: found=%v err=%v", found, err)
+		}
+		if state.Status == core.BackgroundWorkCompleted {
+			break
+		}
+		if state.Status == core.BackgroundWorkFailed || state.Status == core.BackgroundWorkCanceled {
+			t.Fatalf("upload operation status = %s, want completed", state.Status)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("upload operation status = %s, want completed", state.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	thumbnail := httptest.NewRecorder()
