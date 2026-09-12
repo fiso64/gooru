@@ -71,7 +71,7 @@ The API will support a hybrid model to provide both speed for fast operations an
 
 ### 4.3. Durable Operation API
 
-Long-running user-visible work is represented by durable operations. Clients can list operations, inspect one operation, and cancel active work through `/api/v1/operations`. Operation state and aggregate progress survive server restarts; internal task/attempt rows are not exposed as top-level jobs.
+Long-running user-visible work is represented by durable operations. Clients can list operations, inspect one operation, cancel active work, and clear visible terminal operation history through `/api/v1/operations`. Clearing history removes succeeded, failed, and canceled user-visible operations together with their terminal child task history; pending/running work and hidden implementation operations are never cleared. Operation state and aggregate progress survive server restarts until terminal history is explicitly cleared; internal task/attempt rows are not exposed as top-level jobs.
 
 ### 4.4. API Endpoint Specification (v1)
 
@@ -108,6 +108,7 @@ All `POST`, `PUT`, `DELETE` endpoints that perform database writes support the `
 #### Durable Operations
 
 *   `GET /api/v1/operations`: Lists visible durable operations.
+*   `DELETE /api/v1/operations`: Clears visible terminal operation history (completed, failed, canceled) and its terminal child task history. Pending/running operations and operations with active child tasks are retained.
 *   `GET /api/v1/operations/{operation_id}`: Gets aggregate durable operation state and a completed result when available.
 *   `DELETE /api/v1/operations/{operation_id}`: Cancels active operation work where possible.
 
