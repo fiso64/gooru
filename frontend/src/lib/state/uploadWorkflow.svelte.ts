@@ -234,6 +234,15 @@ export function createUploadWorkflow() {
     status = uploadSummaryFromCounts(statusCounts) || 'Upload finished';
   }
 
+  function trackQueuedJob(jobID: string, itemIndices: number[], itemError = '') {
+    trackedJobs = { ...trackedJobs, [jobID]: [...itemIndices] };
+    for (const itemIndex of itemIndices) {
+      const current = items[itemIndex];
+      const queuedItemState = current ? queuedItem([current], 0)[0] : undefined;
+      replaceItem(itemIndex, queuedItemState && itemError ? { ...queuedItemState, error: itemError } : queuedItemState);
+    }
+  }
+
   async function submit(mutate: UploadMutate) {
     if (!files.length) return { queued: false, changedFiles: false };
 
@@ -300,16 +309,19 @@ export function createUploadWorkflow() {
 
       if ('id' in response) {
         if (cancelPending && cancelPendingMutate) {
-          const canceledJob = await cancelPendingMutate(response.id);
-          const previousItems = batchItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
-          const canceledItems = itemsFromJob(previousItems, canceledJob);
-          batchItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, canceledItems[resultIndex]));
-        } else {
-          trackedJobs = { ...trackedJobs, [response.id]: [...batchItemIndices] };
-          for (const itemIndex of batchItemIndices) {
-            const current = items[itemIndex];
-            replaceItem(itemIndex, current ? queuedItem([current], 0)[0] : undefined);
+          try {
+            const canceledJob = await cancelPendingMutate(response.id);
+            const previousItems = batchItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
+            const canceledItems = itemsFromJob(previousItems, canceledJob);
+            batchItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, canceledItems[resultIndex]));
+          } catch (error) {
+            const message = errorMessage(error);
+            trackQueuedJob(response.id, batchItemIndices, message);
+            status = message;
+            queued = true;
           }
+        } else {
+          trackQueuedJob(response.id, batchItemIndices);
           queued = true;
         }
       } else {
