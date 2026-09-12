@@ -93,7 +93,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		if err != nil {
 			return err
 		}
-		if err := settleSavedReplacements(activated, *checkpoint.Response); err != nil {
+		if err := settleDurableSavedReplacements(files, activated, *checkpoint.Response); err != nil {
 			return fmt.Errorf("settle imported upload replacements: %w", err)
 		}
 		if err := settleDurableNonreplacementActivations(files); err != nil {
@@ -139,7 +139,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 			return errors.Join(fmt.Errorf("persist imported upload checkpoint: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
 		}
 		if canceled {
-			if settleErr := settleSavedReplacements(activated, response); settleErr != nil {
+			if settleErr := settleDurableSavedReplacements(files, activated, response); settleErr != nil {
 				return fmt.Errorf("settle canceled upload replacements: %w", settleErr)
 			}
 			if settleErr := settleDurableNonreplacementActivations(files); settleErr != nil {
@@ -152,7 +152,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		}
 		return fmt.Errorf("persist imported upload checkpoint: %w", err)
 	}
-	if err := settleSavedReplacements(activated, response); err != nil {
+	if err := settleDurableSavedReplacements(files, activated, response); err != nil {
 		return fmt.Errorf("settle imported upload replacements: %w", err)
 	}
 	if err := settleDurableNonreplacementActivations(files); err != nil {
@@ -183,7 +183,7 @@ func backgroundUploadOperationCanceled(store backgroundUploadWorkerStore, operat
 }
 
 func cleanupCanceledClaimedUpload(files []savedUpload, activated []activatedSavedReplacement) error {
-	if err := rollbackSavedReplacements(activated); err != nil {
+	if err := rollbackDurableSavedReplacements(files, activated); err != nil {
 		return fmt.Errorf("rollback canceled upload replacements: %w", err)
 	}
 	if err := rollbackDurableNonreplacementActivations(files); err != nil {
