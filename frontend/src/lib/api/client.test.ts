@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiClient, ApiError, setUnauthorizedHandler } from './client';
 
 const originalXMLHttpRequest = globalThis.XMLHttpRequest;
+const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.XMLHttpRequest = originalXMLHttpRequest;
+  globalThis.fetch = originalFetch;
 });
 
 describe('ApiClient', () => {
@@ -114,6 +116,7 @@ describe('ApiClient', () => {
   });
 
   it('uploads multipart files through progress-capable browser transport', async () => {
+    const reservationRequests = installUploadReservationFetch('secret-token');
     const xhr = installUploadXHR({
       status: 202,
       response: { id: 'job-one', type: 'upload_import', status: 'pending' },
@@ -134,11 +137,14 @@ describe('ApiClient', () => {
     });
 
     expect(result).toMatchObject({ id: 'job-one', status: 'pending' });
+    expect(reservationRequests).toHaveLength(1);
+    expect(reservationRequests[0].headers.get('X-Gooru-Upload-Reserve')).toBe('true');
     expect(xhr.method).toBe('POST');
     expect(relativeURL(xhr.url)).toBe('/api/v1/uploads');
     expect(xhr.withCredentials).toBe(true);
     expect(xhr.headers.get('X-Gooru-CSRF')).toBe('secret-token');
     expect(xhr.headers.get('Prefer')).toBe('respond-async');
+    expect(xhr.headers.get('X-Gooru-Upload-Operation-ID')).toBe('operation-reserved');
     expect(xhr.body).toBeInstanceOf(FormData);
     expect((xhr.body as FormData).get('conflict_policy')).toBe('rename');
     expect((xhr.body as FormData).get('tags')).toBe('reviewed');
@@ -156,6 +162,7 @@ describe('ApiClient', () => {
   it('maps upload API errors from XMLHttpRequest responses', async () => {
     const unauthorized = vi.fn();
     setUnauthorizedHandler(unauthorized);
+    installUploadReservationFetch('expired-token');
     installUploadXHR({
       status: 401,
       response: { error: { code: 'unauthorized', message: 'session expired' } }
@@ -231,6 +238,20 @@ class FakeXHR extends FakeEventTarget {
     this.responseText = JSON.stringify(this.config.response);
     this.emit('load');
   }
+}
+
+function installUploadReservationFetch(csrfToken: string) {
+  const requests: Request[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    expect(relativeURL(request.url)).toBe('/api/v1/uploads');
+    expect(request.method).toBe('POST');
+    expect(request.headers.get('X-Gooru-CSRF')).toBe(csrfToken);
+    expect(request.headers.get('X-Gooru-Upload-Reserve')).toBe('true');
+    return Response.json({ id: 'operation-reserved', kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0 }, { status: 201 });
+  }) as typeof fetch;
+  return requests;
 }
 
 function installUploadXHR(config: FakeXHRConfig): FakeXHR {

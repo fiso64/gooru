@@ -23,9 +23,10 @@ class UploadXHR extends FakeEventTarget {
   withCredentials = false;
   upload = new FakeEventTarget() as unknown as XMLHttpRequestUpload;
   body: XMLHttpRequestBodyInit | null = null;
+  headers = new Headers();
 
   open() {}
-  setRequestHeader() {}
+  setRequestHeader(name: string, value: string) { this.headers.set(name, value); }
   abort() { this.emit('abort'); }
   send(body?: Document | XMLHttpRequestBodyInit | null) {
     this.body = body as XMLHttpRequestBodyInit | null;
@@ -36,9 +37,11 @@ class UploadXHR extends FakeEventTarget {
 
 let xhr: UploadXHR;
 const originalXHR = globalThis.XMLHttpRequest;
+const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.XMLHttpRequest = originalXHR;
+  globalThis.fetch = originalFetch;
 });
 
 function installXHR() {
@@ -46,6 +49,12 @@ function installXHR() {
   globalThis.XMLHttpRequest = class {
     constructor() { return xhr as unknown as XMLHttpRequest; }
   } as unknown as typeof XMLHttpRequest;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init);
+    expect(new URL(request.url).pathname).toBe('/api/v1/uploads');
+    expect(request.headers.get('X-Gooru-Upload-Reserve')).toBe('true');
+    return Response.json({ id: 'operation-reserved', kind: 'upload_import', status: 'pending', progress_total: 1, progress_completed: 0, progress_failed: 0 }, { status: 201 });
+  }) as typeof fetch;
 }
 
 function files(count: number) {
@@ -63,6 +72,7 @@ describe('upload ordering multipart metadata', () => {
     });
 
     const form = xhr.body as FormData;
+    expect(xhr.headers.get('X-Gooru-Upload-Operation-ID')).toBe('operation-reserved');
     expect(form.getAll('queue_index')).toEqual([]);
     expect(form.getAll('queue_total')).toEqual([]);
     expect(form.getAll('files')).toHaveLength(4);
