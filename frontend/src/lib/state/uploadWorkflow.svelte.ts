@@ -17,6 +17,7 @@ import {
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
 import type { BackgroundOperation } from '$lib/api/operations';
+import { ApiError } from '$lib/api/client';
 import type { UploadVariables } from '$lib/queries/library';
 import { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
@@ -337,7 +338,7 @@ export function createUploadWorkflow() {
         changedFiles = true;
       }
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || (error instanceof ApiError && error.code === 'request_aborted')) {
         for (const itemIndex of batchItemIndices) {
           const current = items[itemIndex];
           if (current) replaceItem(itemIndex, { ...current, status: 'canceled', error: '' });
