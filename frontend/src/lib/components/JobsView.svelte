@@ -99,7 +99,7 @@
 
 <style>
   .jobs-page {
-    width: min(100%, 600px);
+    width: min(100%, 720px);
     margin-inline: 0;
   }
 
@@ -116,6 +116,7 @@
 
   .jobs-page-header h1 {
     margin-bottom: 0;
+    white-space: nowrap;
   }
 
   .jobs-page-actions {
