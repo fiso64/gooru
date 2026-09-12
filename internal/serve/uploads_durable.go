@@ -100,9 +100,14 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	reservationID := strings.TrimSpace(r.Header.Get(uploadOperationHeader))
 	operation, created, err := s.claimDurableUploadOperation(r, operations)
 	if err != nil {
-		writeError(w, http.StatusConflict, "invalid_upload_reservation", err.Error(), nil)
+		if reservationID == "" {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to accept upload", nil)
+		} else {
+			writeError(w, http.StatusConflict, "invalid_upload_reservation", err.Error(), nil)
+		}
 		return
 	}
 	attached := false
