@@ -113,7 +113,8 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundFileRemovalResourceClass,
 		WorkerID:      workerID + "-storage",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundFileRemovalTaskKind: s.backgroundFileRemovalHandler,
+			backgroundFileRemovalTaskKind:        s.backgroundFileRemovalHandler,
+			backgroundFileRemovalCleanupTaskKind: s.backgroundFileRemovalCleanupHandler(client),
 		},
 	})
 	if err != nil {

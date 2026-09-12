@@ -38,7 +38,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	var backgroundOperations backgroundOperationReader
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
 		backgroundContent = gooruLibrary
-		backgroundOperations = gooruLibrary
+		backgroundOperations = &durableFileRemovalOperationStore{GooruLibrary: gooruLibrary}
 		gooruLibrary.backgroundTasks = media.backgroundTaskRequests
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
