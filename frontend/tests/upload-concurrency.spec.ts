@@ -157,7 +157,6 @@ test('browser submits one selected batch and releases it after durable admission
   expect(waiting).toBeDefined();
   active -= 1;
   await fulfillAggregateUpload(waiting!, 'job-batch', names);
-
   await expect.poll(() => active).toBe(0);
   await expect(page.locator('.upload-row .status').filter({ hasText: 'queued' })).toHaveCount(names.length);
   await expect.poll(() => statusBatchRequests).toBeGreaterThan(0);
@@ -244,7 +243,7 @@ test('submits a newer batch while an older browser request is still in flight an
   await expect(batches.nth(0)).toContainText('second.jpg');
   await expect(batches.nth(1)).toHaveAttribute('data-batch-id', '1');
   await expect(batches.nth(1)).toContainText('first.jpg');
-  await expect(page.getByRole('button', { name: 'Pause all' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Pause all' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Clear done' })).toHaveCount(1);
   await expect(page.getByRole('button', { name: /^Cancel$/ })).toHaveCount(1);
 });

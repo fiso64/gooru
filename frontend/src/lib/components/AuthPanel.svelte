@@ -31,13 +31,7 @@
   <div class="login-v2-card">
     <div class="login-v2-id">
       <div class="login-v2-mark"><Logo size={16} /></div>
-      <div class="login-v2-id-meta">
-        <span>server</span>
-        <span class="sep">&middot;</span>
-        <span>ready</span>
-        <span class="sep">&middot;</span>
-        <span>gpl-3.0</span>
-      </div>
+      <div class="login-v2-id-meta"><span>agpl-3.0</span></div>
     </div>
 
     <form class="login-v2-form" onsubmit={(event) => { event.preventDefault(); onLogin(); }}>
@@ -78,11 +72,9 @@
     <div class="login-v2-foot">
       <div><span class="mono">first run?</span><span> on the server: </span><code>gooru user create-admin</code></div>
       <div class="login-v2-foot-links">
-        <span class="login-v2-link-placeholder" aria-disabled="true">docs</span>
+        <a href="https://github.com/fiso64/gooru/tree/develop/docs" target="_blank" rel="noreferrer">docs</a>
         <span class="sep">&middot;</span>
-        <span class="login-v2-link-placeholder" aria-disabled="true">source</span>
-        <span class="sep">&middot;</span>
-        <span class="login-v2-link-placeholder" aria-disabled="true">changelog</span>
+        <a href="https://github.com/fiso64/gooru" target="_blank" rel="noreferrer">source</a>
       </div>
     </div>
   </div>
@@ -110,7 +102,7 @@
 </div>
 
 <style>
-  .login-v2-link-placeholder {
+  .login-v2-foot-links a {
     color: var(--text-3);
   }
 

@@ -1099,6 +1099,38 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /operations/cancel-all:
+    delete:
+      summary: Cancel all visible active durable background operations.
+      description: Cancels every visible pending or running durable operation. Terminal history and hidden implementation operations are not affected.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      responses:
+        "200":
+          description: Active visible operations canceled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [canceled]
+                properties:
+                  canceled:
+                    type: integer
+                    minimum: 0
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          description: Active operations could not be listed or canceled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /operations/{id}:
     get:
       summary: Get one durable background operation.
