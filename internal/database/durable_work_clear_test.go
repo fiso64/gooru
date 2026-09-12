@@ -21,6 +21,7 @@ func TestClearTerminalBackgroundOperationsRemovesOnlySafeVisibleHistory(t *testi
 		{id: "running", visible: true, status: BackgroundWorkRunning},
 		{id: "hidden-completed", visible: false, status: BackgroundWorkCompleted},
 		{id: "terminal-with-active-child", visible: true, status: BackgroundWorkCompleted},
+		{id: "terminal-with-detached-cleanup", visible: true, status: BackgroundWorkCanceled},
 	}
 	for index, item := range operations {
 		if _, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{
@@ -50,6 +51,16 @@ func TestClearTerminalBackgroundOperationsRemovesOnlySafeVisibleHistory(t *testi
 	}); err != nil || !created {
 		t.Fatalf("enqueue active child = (%v, %v)", created, err)
 	}
+	if _, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
+		ID:          "task-detached-cleanup",
+		DedupeKey:   "detached-cleanup:task",
+		Kind:        "cleanup",
+		SubjectKind: "operation",
+		SubjectID:   "terminal-with-detached-cleanup",
+		CreatedAt:   now,
+	}); err != nil || !created {
+		t.Fatalf("enqueue detached cleanup = (%v, %v)", created, err)
+	}
 
 	cleared, err := store.ClearTerminalBackgroundOperations()
 	if err != nil {
@@ -64,7 +75,7 @@ func TestClearTerminalBackgroundOperationsRemovesOnlySafeVisibleHistory(t *testi
 			t.Fatalf("operation %s after clear = found %v, err %v", id, found, err)
 		}
 	}
-	for _, id := range []string{"pending", "running", "hidden-completed", "terminal-with-active-child"} {
+	for _, id := range []string{"pending", "running", "hidden-completed", "terminal-with-active-child", "terminal-with-detached-cleanup"} {
 		if _, found, err := store.GetBackgroundOperation(id); err != nil || !found {
 			t.Fatalf("operation %s after clear = found %v, err %v", id, found, err)
 		}
@@ -82,5 +93,12 @@ func TestClearTerminalBackgroundOperationsRemovesOnlySafeVisibleHistory(t *testi
 	}
 	if activeTaskCount != 1 {
 		t.Fatalf("active child task count = %d, want 1", activeTaskCount)
+	}
+	var detachedCleanupCount int
+	if err := db.QueryRow(`SELECT count(*) FROM background_tasks WHERE id = 'task-detached-cleanup'`).Scan(&detachedCleanupCount); err != nil {
+		t.Fatal(err)
+	}
+	if detachedCleanupCount != 1 {
+		t.Fatalf("detached cleanup task count = %d, want 1", detachedCleanupCount)
 	}
 }
