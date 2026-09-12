@@ -66,6 +66,15 @@ func TestBackgroundOperationLateChildReopensTerminalHistory(t *testing.T) {
 		}); err != nil || !created {
 			t.Fatalf("enqueue child %d = created %v err %v", index, created, err)
 		}
+		if index == 2 {
+			op := readBackgroundOperationLifecycle(t, store, operationID)
+			if op.Status != BackgroundWorkPending || op.FinishedAt != nil || op.ErrorCode != "" {
+				t.Fatalf("operation did not reopen when late child became durable: %+v", op)
+			}
+			if got, found, err := store.GetBackgroundOperationResult(operationID); err != nil || found || got != nil {
+				t.Fatalf("late-enqueue operation result = (%q, %v, %v), want hidden and invalidated", got, found, err)
+			}
+		}
 		claimed, ok, err := store.ClaimNextBackgroundTask("io", "worker", now.Add(time.Duration(index)*time.Second), time.Minute)
 		if err != nil || !ok {
 			t.Fatalf("claim child %d = ok %v err %v", index, ok, err)
@@ -78,7 +87,7 @@ func TestBackgroundOperationLateChildReopensTerminalHistory(t *testing.T) {
 		if index == 2 {
 			op := readBackgroundOperationLifecycle(t, store, operationID)
 			if op.Status != BackgroundWorkRunning || op.FinishedAt != nil || op.ErrorCode != "" {
-				t.Fatalf("operation did not reopen for late child: %+v", op)
+				t.Fatalf("operation did not start late child: %+v", op)
 			}
 			if got, found, err := store.GetBackgroundOperationResult(operationID); err != nil || found || got != nil {
 				t.Fatalf("reopened operation result = (%q, %v, %v), want hidden and invalidated", got, found, err)
@@ -100,5 +109,43 @@ func TestBackgroundOperationLateChildReopensTerminalHistory(t *testing.T) {
 	}
 	if got, found, err := store.GetBackgroundOperationResult(operationID); err != nil || found || got != nil {
 		t.Fatalf("late-child completion resurrected stale result = (%q, %v, %v)", got, found, err)
+	}
+}
+
+func TestBackgroundOperationLateChildReopensFailedHistoryOnEnqueue(t *testing.T) {
+	store := newDurableLifecycleTestStore(t)
+	now := time.Date(2026, time.September, 12, 5, 45, 0, 0, time.UTC)
+	const operationID = "operation-late-child-after-failure"
+	if _, err := store.CreateBackgroundOperation(store.DB, NewBackgroundOperation{
+		ID: operationID, Kind: "dynamic", Visible: true, ProgressTotal: 1, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := store.EnqueueBackgroundTask(store.DB, NewBackgroundTask{
+		ID: "failed-generation-1", OperationID: operationID, DedupeKey: "failed-generation-1", Kind: "dynamic", ResourceClass: "io", MaxAttempts: 1, CreatedAt: now,
+	}); err != nil || !created {
+		t.Fatalf("enqueue failing child = created %v err %v", created, err)
+	}
+	claimed, ok, err := store.ClaimNextBackgroundTask("io", "worker-a", now, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim failing child = ok %v err %v", ok, err)
+	}
+	failedAt := now.Add(time.Second)
+	if retry, err := store.FailBackgroundTask(claimed.ID, "worker-a", failedAt, time.Time{}, "decode", "permanent"); err != nil || retry {
+		t.Fatalf("terminal failure = retry %v err %v", retry, err)
+	}
+	op := readBackgroundOperationLifecycle(t, store, operationID)
+	if op.Status != BackgroundWorkFailed || op.FinishedAt == nil || op.ErrorCode != "child_task_failed" {
+		t.Fatalf("operation did not fail: %+v", op)
+	}
+
+	if _, created, err := store.EnqueueBackgroundTask(store.DB, NewBackgroundTask{
+		ID: "failed-generation-2", OperationID: operationID, DedupeKey: "failed-generation-2", Kind: "dynamic", ResourceClass: "io", CreatedAt: failedAt.Add(time.Second),
+	}); err != nil || !created {
+		t.Fatalf("enqueue late child after failure = created %v err %v", created, err)
+	}
+	op = readBackgroundOperationLifecycle(t, store, operationID)
+	if op.Status != BackgroundWorkPending || op.FinishedAt != nil || op.ErrorCode != "" || op.ErrorMessage != "" {
+		t.Fatalf("failed operation did not reopen when late child became durable: %+v", op)
 	}
 }

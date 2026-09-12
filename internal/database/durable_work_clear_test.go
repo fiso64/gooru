@@ -47,10 +47,23 @@ func TestClearTerminalBackgroundOperationsRemovesOnlySafeVisibleHistory(t *testi
 	if _, err := db.Exec(`UPDATE background_tasks SET status = 'completed', finished_at = ? WHERE id = ?`, workTimeValue(now.Add(time.Minute)), terminalTask.ID); err != nil {
 		t.Fatal(err)
 	}
+	// Late child insertion now reopens a completed/failed parent immediately.
+	// Re-terminalize after constructing the terminal child fixture so this test
+	// continues to exercise deletion of a genuinely terminal operation history.
+	if _, err := db.Exec(`UPDATE background_operations SET status = 'completed', finished_at = ? WHERE id = 'completed'`, workTimeValue(now.Add(time.Minute))); err != nil {
+		t.Fatal(err)
+	}
 	if _, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
 		ID: "task-active", OperationID: "terminal-with-active-child", DedupeKey: "active:task", Kind: "test", CreatedAt: now,
 	}); err != nil || !created {
 		t.Fatalf("enqueue active child = (%v, %v)", created, err)
+	}
+	// ClearTerminalBackgroundOperations deliberately protects against stale or
+	// corrupt terminal rows that still have active children. Construct that
+	// invalid state explicitly after enqueue instead of relying on enqueue to
+	// leave a terminal parent stale.
+	if _, err := db.Exec(`UPDATE background_operations SET status = 'completed', finished_at = ? WHERE id = 'terminal-with-active-child'`, workTimeValue(now.Add(time.Minute))); err != nil {
+		t.Fatal(err)
 	}
 	if _, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
 		ID:          "task-detached-cleanup-active",
