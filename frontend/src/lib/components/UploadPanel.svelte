@@ -7,6 +7,7 @@
   import UploadMediaPreview from './UploadMediaPreview.svelte';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
+  import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
   import { groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
 
@@ -168,7 +169,16 @@
     return status.replace(/_/g, ' ');
   }
 
+  function handleShortcut(event: KeyboardEvent) {
+    if (event.defaultPrevented || stagedRows.length === 0) return;
+    if (uploadShortcutAction(event.key, event.target, event.ctrlKey, event.metaKey, event.altKey, event.shiftKey) !== 'submit-upload') return;
+    event.preventDefault();
+    onSubmit();
+  }
+
 </script>
+
+<svelte:window onkeydown={handleShortcut} />
 
 <main class="main">
   <div class="page">

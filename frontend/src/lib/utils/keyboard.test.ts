@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isEditableShortcutTarget, isInteractiveShortcutTarget, libraryShortcutAction, searchShortcutAction } from './keyboard';
+import { isEditableShortcutTarget, isInteractiveShortcutTarget, libraryShortcutAction, searchShortcutAction, uploadShortcutAction } from './keyboard';
 
 type FakeNode = {
   tagName?: string;
@@ -50,6 +50,17 @@ describe('global shortcut target policy', () => {
     expect(searchShortcutAction('f', node({ tagName: 'span', parentElement: modal }))).toBeNull();
     expect(searchShortcutAction('f', node({ tagName: 'div' }), true)).toBeNull();
     expect(searchShortcutAction('f', node({ tagName: 'div' }), false, true)).toBeNull();
+  });
+
+  it('routes ctrl+enter to upload except when a modal owns the event', () => {
+    const modal = { tagName: 'div', getAttribute: (name: string) => name === 'role' ? 'dialog' : name === 'aria-modal' ? 'true' : null } as FakeNode;
+    expect(uploadShortcutAction('Enter', node({ tagName: 'div' }), true)).toBe('submit-upload');
+    expect(uploadShortcutAction('Enter', node({ tagName: 'input' }), true)).toBe('submit-upload');
+    expect(uploadShortcutAction('Enter', node({ tagName: 'span', parentElement: modal }), true)).toBeNull();
+    expect(uploadShortcutAction('Enter', node({ tagName: 'div' }))).toBeNull();
+    expect(uploadShortcutAction('Enter', node({ tagName: 'div' }), true, true)).toBeNull();
+    expect(uploadShortcutAction('Enter', node({ tagName: 'div' }), true, false, true)).toBeNull();
+    expect(uploadShortcutAction('Enter', node({ tagName: 'div' }), true, false, false, true)).toBeNull();
   });
 
   it('maps library action shortcuts without enabling tag actions for an empty selection', () => {
