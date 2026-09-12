@@ -9,9 +9,11 @@ import (
 )
 
 func TestBuildInfoEndpoint(t *testing.T) {
-	oldVersion, oldRevision, oldDirty := buildinfo.Version, buildinfo.Revision, buildinfo.Dirty
-	t.Cleanup(func() { buildinfo.Version, buildinfo.Revision, buildinfo.Dirty = oldVersion, oldRevision, oldDirty })
-	buildinfo.Version, buildinfo.Revision, buildinfo.Dirty = "1.2.3", "0123456789abcdef", "false"
+	oldVersion, oldRevision, oldDirty, oldDevelopment := buildinfo.Version, buildinfo.Revision, buildinfo.Dirty, buildinfo.Development
+	t.Cleanup(func() {
+		buildinfo.Version, buildinfo.Revision, buildinfo.Dirty, buildinfo.Development = oldVersion, oldRevision, oldDirty, oldDevelopment
+	})
+	buildinfo.Version, buildinfo.Revision, buildinfo.Dirty, buildinfo.Development = "1.2.3", "0123456789abcdef", "false", "false"
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/build", nil)
 	rec := httptest.NewRecorder()
 	NewServer(Config{}).Handler().ServeHTTP(rec, req)
@@ -22,7 +24,7 @@ func TestBuildInfoEndpoint(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != "1.2.3" || got.Revision != "0123456789abcdef" || got.Development {
+	if got.Version != "1.2.3" || got.Revision != "0123456789abcdef" || got.Dirty || got.Development {
 		t.Fatalf("unexpected build info: %+v", got)
 	}
 }
