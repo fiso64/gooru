@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS background_tasks_reopen_terminal_operation_after_insert;
