@@ -231,6 +231,16 @@ export class ApiClient {
     onProgress?: (progress: number) => void,
     ordering: UploadOrderingMetadata = {}
   ): Promise<BackgroundOperation | UploadImportResponse> {
+    const baseURL = absoluteBaseURL(this.baseURL);
+    const reservation = preferAsync ? await reserveUploadOperation(baseURL, this.csrfToken) : undefined;
+    const cancelReservation = reservation
+      ? () => cancelReservedUpload(baseURL, this.csrfToken, reservation.id)
+      : undefined;
+    if (ordering.signal?.aborted) {
+      await cancelReservation?.();
+      throw new ApiError(0, 'request_aborted', 'Upload was canceled');
+    }
+
     const form = new FormData();
     for (const file of files) form.append('files', file, file.name);
     for (const file of files) form.append('source_modtime_ms', String(file.lastModified));
@@ -252,17 +262,15 @@ export class ApiClient {
       for (const value of queueTotals) if (Number.isInteger(value) && value > 0) form.append('queue_total', String(value));
     }
 
-    return uploadMultipart<BackgroundOperation | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
+    return uploadMultipart<BackgroundOperation | UploadImportResponse>(`${baseURL}/uploads`, form, {
       csrfToken: this.csrfToken,
       preferAsync,
       onProgress,
-      signal: ordering.signal
+      signal: ordering.signal,
+      operationID: reservation?.id,
+      cancelReservation
     });
   }
-
-
-
-
 
   private csrfHeaderParam(method: string): { 'X-Gooru-CSRF': string } {
     return { 'X-Gooru-CSRF': isMutatingMethod(method) ? this.csrfToken : '' };
@@ -299,6 +307,35 @@ interface UploadMultipartOptions {
   preferAsync: boolean;
   onProgress?: (progress: number) => void;
   signal?: AbortSignal;
+  operationID?: string;
+  cancelReservation?: () => Promise<void>;
+}
+
+async function reserveUploadOperation(baseURL: string, csrfToken: string): Promise<BackgroundOperation> {
+  const response = await fetch(`${baseURL}/uploads`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'X-Gooru-CSRF': csrfToken,
+      'X-Gooru-Upload-Reserve': 'true'
+    }
+  });
+  const payload = await parseJSONResponse<BackgroundOperation>(response);
+  if (!response.ok || !payload?.id) throw apiErrorFromResponse(response, payload);
+  return payload;
+}
+
+async function cancelReservedUpload(baseURL: string, csrfToken: string, operationID: string): Promise<void> {
+  try {
+    await fetch(`${baseURL}/operations/${encodeURIComponent(operationID)}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      headers: { 'X-Gooru-CSRF': csrfToken }
+    });
+  } catch {
+    // Best effort: the XHR abort remains the first cancellation signal and the
+    // server also rejects attachment when a durable cancellation reaches it.
+  }
 }
 
 function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipartOptions): Promise<T> {
@@ -308,12 +345,14 @@ function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipar
     xhr.withCredentials = true;
     if (options.csrfToken) xhr.setRequestHeader('X-Gooru-CSRF', options.csrfToken);
     if (options.preferAsync) xhr.setRequestHeader('Prefer', 'respond-async');
+    if (options.operationID) xhr.setRequestHeader('X-Gooru-Upload-Operation-ID', options.operationID);
 
     xhr.upload.addEventListener('progress', (event) => {
       if (!event.lengthComputable || event.total <= 0) return;
       options.onProgress?.(Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100))));
     });
 
+    const cancelReservation = () => { void options.cancelReservation?.(); };
     xhr.addEventListener('load', () => {
       const payload = parseXHRPayload(xhr.responseText);
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -321,6 +360,7 @@ function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipar
         resolve(payload as T);
         return;
       }
+      cancelReservation();
       const errorPayload = payload as ApiErrorResponse | undefined;
       const apiError = new ApiError(
         xhr.status,
@@ -331,14 +371,24 @@ function uploadMultipart<T>(url: string, form: FormData, options: UploadMultipar
       reject(apiError);
     });
 
-    xhr.addEventListener('error', () => reject(new ApiError(0, 'network_error', 'Network error while uploading files')));
-    xhr.addEventListener('abort', () => reject(new ApiError(0, 'request_aborted', 'Upload was canceled')));
+    xhr.addEventListener('error', () => {
+      cancelReservation();
+      reject(new ApiError(0, 'network_error', 'Network error while uploading files'));
+    });
+    xhr.addEventListener('abort', () => {
+      cancelReservation();
+      reject(new ApiError(0, 'request_aborted', 'Upload was canceled'));
+    });
 
     if (options.signal?.aborted) {
+      cancelReservation();
       reject(new ApiError(0, 'request_aborted', 'Upload was canceled'));
       return;
     }
-    const abortUpload = () => xhr.abort();
+    const abortUpload = () => {
+      cancelReservation();
+      xhr.abort();
+    };
     options.signal?.addEventListener('abort', abortUpload, { once: true });
     xhr.addEventListener('loadend', () => options.signal?.removeEventListener('abort', abortUpload), { once: true });
     xhr.send(form);
