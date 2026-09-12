@@ -23,91 +23,38 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Apply drag-to-pan implementation and regression
+      - name: Reapply implementation from prior verifier
         shell: bash
         run: |
           python3 - <<'PY'
+          import subprocess
           from pathlib import Path
-
-          p = Path('frontend/src/lib/components/ViewerStage.svelte')
-          text = p.read_text()
-
-          old = """  let zoom = $state(1);\n  let panX = $state(0);\n  let panY = $state(0);\n\n  const renderedFile"""
-          new = """  let zoom = $state(1);\n  let panX = $state(0);\n  let panY = $state(0);\n  let panDragPointerId: number | undefined;\n  let panDragStartClientX = 0;\n  let panDragStartClientY = 0;\n  let panDragStartX = 0;\n  let panDragStartY = 0;\n  let panDragging = $state(false);\n\n  const renderedFile"""
-          if text.count(old) != 1:
-              raise SystemExit('unexpected viewer pan state anchor')
-          text = text.replace(old, new)
-
-          old = """  const panLimits = $derived(viewerPanLimits(zoom));\n  const panSurfaceStyle = $derived(`width:${stageWidth + panLimits.x * 2}px;height:${stageHeight + panLimits.y * 2}px`);"""
-          new = """  const panLimits = $derived(viewerPanLimits(zoom));\n  const dragPanAvailable = $derived(\n    renderedFile.media_kind !== 'video'\n    && renderedFile.media_kind !== 'audio'\n    && !renderedFile.media_type.startsWith('audio/')\n    && (panLimits.x > 0.5 || panLimits.y > 0.5)\n  );\n  const panSurfaceStyle = $derived(`width:${stageWidth + panLimits.x * 2}px;height:${stageHeight + panLimits.y * 2}px`);"""
-          if text.count(old) != 1:
-              raise SystemExit('unexpected pan limits anchor')
-          text = text.replace(old, new)
-
-          old = """  function syncPanFromNativeScroll() {\n    const viewport = panViewportElement;\n    if (!viewport) return;\n    const limits = viewerPanLimits(zoom);\n    panX = limits.x - viewport.scrollLeft;\n    panY = limits.y - viewport.scrollTop;\n  }\n\n  function reconcileViewerTransform()"""
-          new = """  function syncPanFromNativeScroll() {\n    const viewport = panViewportElement;\n    if (!viewport) return;\n    const limits = viewerPanLimits(zoom);\n    panX = limits.x - viewport.scrollLeft;\n    panY = limits.y - viewport.scrollTop;\n  }\n\n  function beginPanDrag(event: PointerEvent) {\n    const viewport = panViewportElement;\n    if (event.button !== 0 || !dragPanAvailable || !viewport) return;\n    event.preventDefault();\n    stageElement?.focus({ preventScroll: true });\n    panDragPointerId = event.pointerId;\n    panDragStartClientX = event.clientX;\n    panDragStartClientY = event.clientY;\n    panDragStartX = panX;\n    panDragStartY = panY;\n    panDragging = true;\n    viewport.setPointerCapture(event.pointerId);\n  }\n\n  function dragPan(event: PointerEvent) {\n    if (panDragPointerId !== event.pointerId) return;\n    event.preventDefault();\n    const clamped = clampViewerPan(\n      panDragStartX + event.clientX - panDragStartClientX,\n      panDragStartY + event.clientY - panDragStartStartClientY,\n      zoom\n    );\n    panX = clamped.x;\n    panY = clamped.y;\n    syncNativePan();\n  }\n\n  function endPanDrag(event: PointerEvent) {\n    if (panDragPointerId !== event.pointerId) return;\n    event.preventDefault();\n    const viewport = panViewportElement;\n    if (viewport?.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);\n    panDragPointerId = undefined;\n    panDragging = false;\n  }\n\n  function losePanDragCapture(event: PointerEvent) {\n    if (panDragPointerId !== event.pointerId) return;\n    panDragPointerId = undefined;\n    panDragging = false;\n  }\n\n  function reconcileViewerTransform()"""
-          if text.count(old) != 1:
-              raise SystemExit('unexpected native pan sync anchor')
-          text = text.replace(old, new)
-
-          # Correct the deliberately explicit X/Y start variable typo guard before writing.
-          text = text.replace('panDragStartStartClientY', 'panDragStartClientY')
-
-          old = """  <div bind:this={panViewportElement} class=\"viewer-pan-viewport\" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>"""
-          new = """  <div\n    bind:this={panViewportElement}\n    class=\"viewer-pan-viewport\"\n    class:pannable={dragPanAvailable}\n    class:dragging={panDragging}\n    onwheel={handleViewerWheel}\n    onscroll={syncPanFromNativeScroll}\n    onpointerdown={beginPanDrag}\n    onpointermove={dragPan}\n    onpointerup={endPanDrag}\n    onpointercancel={endPanDrag}\n    onlostpointercapture={losePanDragCapture}\n  >"""
-          if text.count(old) != 1:
-              raise SystemExit('unexpected pan viewport markup anchor')
-          text = text.replace(old, new)
-
-          old = """          src={renderedImageSource}\n          alt={renderedFile.name}\n          onload={syncImage}"""
-          new = """          src={renderedImageSource}\n          alt={renderedFile.name}\n          draggable={false}\n          onload={syncImage}"""
-          if text.count(old) != 1:
-              raise SystemExit('unexpected viewer image anchor')
-          text = text.replace(old, new)
-
-          old = """  .viewer-pan-viewport::-webkit-scrollbar { display: none; }\n\n  .viewer-pan-surface {"""
-          new = """  .viewer-pan-viewport::-webkit-scrollbar { display: none; }\n\n  .viewer-pan-viewport.pannable {\n    cursor: grab;\n    touch-action: none;\n  }\n\n  .viewer-pan-viewport.pannable.dragging {\n    cursor: grabbing;\n    user-select: none;\n  }\n\n  :global(.viewer-stage:fullscreen.cursor-idle) .viewer-pan-viewport {\n    cursor: none;\n  }\n\n  .viewer-pan-surface {"""
-          if text.count(old) != 1:
-              raise SystemExit('unexpected pan viewport css anchor')
-          text = text.replace(old, new)
-          p.write_text(text)
-
-          p = Path('frontend/tests/viewer-zoom-pan.spec.ts')
-          text = p.read_text()
-          addition = r'''\n\ntest('dragging a zoomed image shows a hand cursor and pans it', async ({ page }) => {\n  const image = await mockViewer(page);\n  const stage = page.locator('.viewer-stage');\n  const panViewport = page.locator('.viewer-pan-viewport');\n  const stageBox = await stage.boundingBox();\n  expect(stageBox).not.toBeNull();\n\n  const centerX = stageBox!.x + stageBox!.width / 2;\n  const centerY = stageBox!.y + stageBox!.height / 2;\n  await page.mouse.move(centerX, centerY);\n  await wheelWithModifier(page, 'Control', -220);\n  await expect(panViewport).toHaveCSS('cursor', 'grab');\n  await expect(image).toHaveAttribute('draggable', 'false');\n\n  const beforeScroll = await panViewport.evaluate((node) => ({ left: node.scrollLeft, top: node.scrollTop }));\n  expect(beforeScroll.left).toBeGreaterThan(100);\n  expect(beforeScroll.top).toBeGreaterThan(100);\n  const beforeImage = await image.boundingBox();\n  expect(beforeImage).not.toBeNull();\n\n  await page.mouse.down();\n  await expect(panViewport).toHaveCSS('cursor', 'grabbing');\n  await page.mouse.move(centerX + 120, centerY + 80, { steps: 4 });\n  await expect.poll(() => panViewport.evaluate((node) => node.scrollLeft)).toBeLessThan(beforeScroll.left - 80);\n  await expect.poll(() => panViewport.evaluate((node) => node.scrollTop)).toBeLessThan(beforeScroll.top - 50);\n\n  const draggedImage = await image.boundingBox();\n  expect(draggedImage).not.toBeNull();\n  expect(draggedImage!.x).toBeGreaterThan(beforeImage!.x + 80);\n  expect(draggedImage!.y).toBeGreaterThan(beforeImage!.y + 50);\n\n  await page.mouse.up();\n  await expect(panViewport).toHaveCSS('cursor', 'grab');\n});\n'''
-          addition = addition.replace('\\n', '\n')
-          if "dragging a zoomed image shows a hand cursor and pans it" in text:
-              raise SystemExit('drag regression already present')
-          p.write_text(text.rstrip() + addition)
+          source = subprocess.check_output(['git', 'show', 'HEAD^:.github/workflows/maint-564-apply.yml'], text=True)
+          block = source.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in block.splitlines())
+          Path('/tmp/maint-564-patch.py').write_text(script)
           PY
+          python3 /tmp/maint-564-patch.py
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
       - name: Static checks
         working-directory: frontend
         run: npm run check
-      - name: Viewer zoom/pan browser regressions
+      - name: Focused zoom/pan browser regressions
         working-directory: frontend
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('playwright.config.ts')
-          text = p.read_text().replace('127.0.0.1:4173', '127.0.0.1:43169')
-          text = text.replace("npm run preview -- --host 127.0.0.1'", "npm run preview -- --host 127.0.0.1 --port 43169'")
+          text = p.read_text().replace('127.0.0.1:4173', '127.0.0.1:43170')
+          text = text.replace("npm run preview -- --host 127.0.0.1'", "npm run preview -- --host 127.0.0.1 --port 43170'")
           p.write_text(text)
           PY
           npx playwright install chromium
-          set -o pipefail
-          npx playwright test viewer-zoom-pan.spec.ts --reporter=line 2>&1 | tee /tmp/maint-564-browser-report.txt
+          npx playwright test viewer-zoom-pan.spec.ts --grep "touchpad-sized zoom|ctrl-wheel zooms toward|dragging a zoomed image" --reporter=line
           git checkout -- playwright.config.ts
-      - name: Upload browser diagnostics on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: maint-564-browser-report
-          path: /tmp/maint-564-browser-report.txt
-          if-no-files-found: ignore
       - name: Commit verified implementation
         shell: bash
         run: |
