@@ -13,7 +13,8 @@
     existingTags,
     mode = 'add',
     onInput,
-    onCommit
+    onCommit,
+    onModeToggle
   } = $props<{
     fileID: string;
     fileName: string;
@@ -25,6 +26,7 @@
     mode?: 'add' | 'remove';
     onInput: (value: string) => void;
     onCommit: (value: string) => void;
+    onModeToggle?: () => void;
   }>();
 
   const candidates = $derived(mode === 'remove' ? existingTags.map((name: string) => ({ name })) : tags);
@@ -33,7 +35,22 @@
 
 <div class="tag-editor">
   <div class="lightbox-tag-input" class:untag-mode={mode === 'remove'}>
-    {#if mode === 'remove'}
+    {#if onModeToggle}
+      <button
+        class="tag-mode-toggle"
+        type="button"
+        aria-label={mode === 'remove' ? `Switch to adding tags for ${fileName}` : `Switch to removing tags from ${fileName}`}
+        title={mode === 'remove' ? 'Switch to tag mode' : 'Switch to untag mode'}
+        disabled={busy}
+        onclick={onModeToggle}
+      >
+        {#if mode === 'remove'}
+          <span class="tag-mode-sign" aria-hidden="true">−</span>
+        {:else}
+          <Icon name="plus" size={12} />
+        {/if}
+      </button>
+    {:else if mode === 'remove'}
       <span class="tag-mode-sign" aria-hidden="true">−</span>
     {:else}
       <Icon name="plus" size={12} />
@@ -62,6 +79,31 @@
     position: relative;
   }
 
+  .tag-mode-toggle {
+    width: 12px;
+    height: 18px;
+    flex: 0 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+  }
+
+  .tag-mode-toggle:focus-visible {
+    outline: 2px solid var(--accent-line);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  .tag-mode-toggle:disabled {
+    cursor: default;
+    opacity: 0.55;
+  }
+
   .tag-mode-sign {
     width: 12px;
     flex: 0 0 12px;
@@ -70,6 +112,7 @@
     text-align: center;
   }
 
+  .untag-mode .tag-mode-toggle,
   .untag-mode .tag-mode-sign {
     color: var(--danger);
   }
