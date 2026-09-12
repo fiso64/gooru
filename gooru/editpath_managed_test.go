@@ -73,8 +73,13 @@ func TestEditPathRenamesManagedLogicalLocation(t *testing.T) {
 	if updated.Size != info.Size || updated.ModTime != info.ModTime.Unix() {
 		t.Fatalf("metadata = size %d modtime %d, want size %d modtime %d", updated.Size, updated.ModTime, info.Size, info.ModTime.Unix())
 	}
-	if updated.Extension != ".dat" {
-		t.Fatalf("extension = %q, want .dat", updated.Extension)
+
+	var gotExtension string
+	if err := client.store.QueryRow(`SELECT extension FROM locations WHERE id = ?`, original.ID).Scan(&gotExtension); err != nil {
+		t.Fatal(err)
+	}
+	if gotExtension != ".dat" {
+		t.Fatalf("extension = %q, want .dat", gotExtension)
 	}
 
 	var gotPhysical string
