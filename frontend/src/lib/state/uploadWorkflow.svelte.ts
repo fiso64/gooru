@@ -7,7 +7,6 @@ import {
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
   stagedUploadItems,
-  uploadingItem,
   uploadProgressItem,
   uploadSummaryFromCounts,
   type UploadAddedAtStrategy,
@@ -261,7 +260,7 @@ export function createUploadWorkflow() {
     const nextItems = [...items];
     for (const itemIndex of batchItemIndices) {
       const current = nextItems[itemIndex];
-      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'waiting', progress: 0, error: '' };
+      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'uploading', progress: 0, error: '' };
     }
     items = nextItems;
     files = [];
@@ -284,10 +283,6 @@ export function createUploadWorkflow() {
     let queued = false;
     let changedFiles = false;
 
-    for (const itemIndex of batchItemIndices) {
-      const current = items[itemIndex];
-      replaceItem(itemIndex, current ? uploadingItem([current], 0)[0] : undefined);
-    }
     refreshStatus();
 
     try {
