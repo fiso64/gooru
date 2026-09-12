@@ -94,8 +94,18 @@ async function signIn(page: Page) {
   await page.getByRole('button', { name: 'Upload' }).click();
 }
 
+async function fulfillUploadReservation(route: Route, id: string) {
+  expect(route.request().headers()['x-gooru-upload-reserve']).toBe('true');
+  await route.fulfill({
+    status: 201,
+    contentType: 'application/json',
+    body: JSON.stringify(operationResponse(id, 'pending'))
+  });
+}
+
 async function fulfillAggregateUpload(route: Route, id: string, names: string[]) {
   expect(route.request().headers()['prefer']).toBe('respond-async');
+  expect(route.request().headers()['x-gooru-upload-operation-id']).toBeTruthy();
   await route.fulfill({
     status: 202,
     contentType: 'application/json',
@@ -111,10 +121,16 @@ test('browser submits one selected batch and releases it after durable admission
   let active = 0;
   let maxActive = 0;
   let requestCount = 0;
+  let reservationCount = 0;
   let waiting: Route | undefined;
   let uploadBody = '';
 
   await page.route('**/api/v1/uploads', async (route) => {
+    if (route.request().headers()['x-gooru-upload-reserve'] === 'true') {
+      reservationCount += 1;
+      await fulfillUploadReservation(route, `reservation-${reservationCount}`);
+      return;
+    }
     requestCount += 1;
     active += 1;
     maxActive = Math.max(maxActive, active);
@@ -133,6 +149,7 @@ test('browser submits one selected batch and releases it after durable admission
   await page.getByRole('button', { name: /Upload 7 files/ }).click();
 
   await expect.poll(() => requestCount).toBe(1);
+  expect(reservationCount).toBe(1);
   expect(active).toBe(1);
   expect(maxActive).toBe(1);
   for (const name of names) expect(uploadBody).toContain(`filename="${name}"`);
@@ -158,7 +175,13 @@ test('large staged WebUI upload completes through one durable operation lookup',
   }, undefined, names);
 
   let requestCount = 0;
+  let reservationCount = 0;
   await page.route('**/api/v1/uploads', async (route) => {
+    if (route.request().headers()['x-gooru-upload-reserve'] === 'true') {
+      reservationCount += 1;
+      await fulfillUploadReservation(route, `reservation-${reservationCount}`);
+      return;
+    }
     requestCount += 1;
     await fulfillAggregateUpload(route, 'job-batch', names);
   });
@@ -174,6 +197,7 @@ test('large staged WebUI upload completes through one durable operation lookup',
   await page.getByRole('button', { name: /Upload 130 files/ }).click();
 
   await expect.poll(() => requestCount).toBe(1);
+  expect(reservationCount).toBe(1);
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(100, { timeout: 5000 });
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.locator('[data-testid="upload-queue-list"] .status').filter({ hasText: 'imported' })).toHaveCount(30, { timeout: 5000 });
@@ -187,8 +211,14 @@ test('large staged WebUI upload completes through one durable operation lookup',
 test('submits a newer batch while an older browser request is still in flight and groups it first', async ({ page }) => {
   await mockApp(page, 'pending');
 
+  let reservationCount = 0;
   const waiting: Route[] = [];
   await page.route('**/api/v1/uploads', async (route) => {
+    if (route.request().headers()['x-gooru-upload-reserve'] === 'true') {
+      reservationCount += 1;
+      await fulfillUploadReservation(route, `reservation-${reservationCount}`);
+      return;
+    }
     waiting.push(route);
   });
 
@@ -203,6 +233,7 @@ test('submits a newer batch while an older browser request is still in flight an
   await expect(secondSubmit).toBeEnabled();
   await secondSubmit.click();
   await expect.poll(() => waiting.length).toBe(2);
+  expect(reservationCount).toBe(2);
 
   await fulfillAggregateUpload(waiting[1]!, 'job-second', ['second.jpg']);
   await fulfillAggregateUpload(waiting[0]!, 'job-first', ['first.jpg']);
