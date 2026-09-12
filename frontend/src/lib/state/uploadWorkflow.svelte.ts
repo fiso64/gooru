@@ -62,14 +62,15 @@ export function createUploadWorkflow() {
   let conflictPolicy = $state('rename');
   let addedAtStrategy = $state<UploadAddedAtStrategy>('queue');
   let autoUpload = $state(false);
-  let busy = $state(false);
+  let activeSubmissions = $state(0);
   let cancelBusy = $state(false);
   let status = $state('');
   let trackedJobs = $state<Record<string, number[]>>({});
   let statusCounts: UploadStatusCounts = {};
+  let nextBatchID = 0;
 
   $effect(() => {
-    if (!busy) return;
+    if (activeSubmissions <= 0) return;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
@@ -86,11 +87,12 @@ export function createUploadWorkflow() {
     conflictPolicy = 'rename';
     addedAtStrategy = 'queue';
     autoUpload = false;
-    busy = false;
+    activeSubmissions = 0;
     cancelBusy = false;
     status = '';
     trackedJobs = {};
     statusCounts = {};
+    nextBatchID = 0;
   }
 
   function clear(scope: UploadClearScope = 'all') {
@@ -101,7 +103,7 @@ export function createUploadWorkflow() {
       statusCounts = {};
       return;
     }
-    if (busy || hasActiveJobs()) return;
+    if (scope === 'done' && (activeSubmissions > 0 || hasActiveJobs())) return;
 
     if (scope === 'staged') {
       files = [];
@@ -129,9 +131,7 @@ export function createUploadWorkflow() {
   }
 
   function pollJobID() {
-    const ids = Object.keys(trackedJobs);
-    if (busy && ids.length < uploadJobStatusBatchSize) return '';
-    return ids.slice(0, uploadJobStatusBatchSize).join(',');
+    return Object.keys(trackedJobs).slice(0, uploadJobStatusBatchSize).join(',');
   }
 
   function replaceItem(index: number, next: UploadItem | undefined) {
@@ -145,10 +145,6 @@ export function createUploadWorkflow() {
   function select(nextFiles: FileList | File[] | null) {
     const additions = nextFiles ? Array.from(nextFiles) : [];
     if (!additions.length) return;
-    if (busy || hasActiveJobs()) {
-      status = 'Upload in progress; add more files after it finishes';
-      return;
-    }
 
     const queueTimeMs = Date.now();
     files = [...files, ...additions];
@@ -199,7 +195,7 @@ export function createUploadWorkflow() {
       delete nextTrackedJobs[job.id];
       trackedJobs = nextTrackedJobs;
       const changedFiles = job.status === 'completed';
-      if (!busy && !hasActiveJobs()) finishBatch();
+      if (activeSubmissions === 0 && !hasActiveJobs()) finishBatch();
       else refreshStatus();
       return { completed: true, changedFiles };
     });
@@ -231,31 +227,31 @@ export function createUploadWorkflow() {
   }
 
   function finishBatch() {
-    files = [];
     status = uploadSummaryFromCounts(statusCounts) || 'Upload finished';
   }
 
   async function submit(mutate: UploadMutate) {
-    if (!files.length || busy || hasActiveJobs()) return { queued: false, changedFiles: false };
-    busy = true;
-    trackedJobs = {};
+    if (!files.length) return { queued: false, changedFiles: false };
 
-    if (!items.length) items = stagedUploadItems(files, targetID);
+    const batchFiles = [...files];
+    if (!items.length) items = stagedUploadItems(batchFiles, targetID);
     const batchItemIndices = items.flatMap((item, itemIndex) => item.status === 'staged' ? [itemIndex] : []);
-    if (batchItemIndices.length !== files.length) {
-      busy = false;
+    if (batchItemIndices.length !== batchFiles.length) {
       status = 'Upload queue changed unexpectedly; please restage the pending files';
       return { queued: false, changedFiles: false };
     }
+
+    const batchID = ++nextBatchID;
     const nextItems = [...items];
     for (const itemIndex of batchItemIndices) {
       const current = nextItems[itemIndex];
-      if (current) nextItems[itemIndex] = { ...current, status: 'waiting', progress: 0, error: '' };
+      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'waiting', progress: 0, error: '' };
     }
     items = nextItems;
+    files = [];
+    activeSubmissions += 1;
     statusCounts = countUploadStatuses(items);
 
-    const batchFiles = [...files];
     const parsedTags = parseTags(tags);
     const batchTargetID = targetID;
     const batchConflictPolicy = conflictPolicy;
@@ -317,11 +313,11 @@ export function createUploadWorkflow() {
         const current = items[itemIndex];
         if (current) replaceItem(itemIndex, { ...current, status: 'error', error: message });
       }
+    } finally {
+      activeSubmissions = Math.max(0, activeSubmissions - 1);
+      if (activeSubmissions === 0 && !hasActiveJobs()) finishBatch();
+      else refreshStatus();
     }
-
-    busy = false;
-    if (hasActiveJobs()) refreshStatus();
-    else finishBatch();
     return { queued, changedFiles };
   }
 
@@ -347,7 +343,7 @@ export function createUploadWorkflow() {
           status = message;
         }
       }
-      if (!busy && !hasActiveJobs()) finishBatch();
+      if (activeSubmissions === 0 && !hasActiveJobs()) finishBatch();
       else refreshStatus();
       return { changed };
     } finally {
@@ -367,7 +363,7 @@ export function createUploadWorkflow() {
     set addedAtStrategy(value: UploadAddedAtStrategy) { addedAtStrategy = value; },
     get autoUpload() { return autoUpload; },
     set autoUpload(value: boolean) { autoUpload = value; },
-    get busy() { return busy; },
+    get busy() { return activeSubmissions > 0; },
     get cancelBusy() { return cancelBusy; },
     get status() { return status; },
     get activeJobID() { return pollJobID(); },

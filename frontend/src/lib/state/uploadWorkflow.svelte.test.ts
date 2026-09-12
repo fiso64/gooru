@@ -33,6 +33,17 @@ function pendingJob(id: string, completed = 0, total = 2): Job & BackgroundOpera
   } as Job & BackgroundOperation;
 }
 
+function completedJob(id: string, name: string): Job {
+  return {
+    ...pendingJob(id, 1, 1),
+    status: 'completed',
+    progress: 1,
+    result: {
+      files: [{ name, size: 10, target_id: 'default', status: 'imported' }]
+    }
+  } as Job;
+}
+
 describe('createUploadWorkflow aggregate uploads', () => {
   beforeEach(() => untrackSpy.mockClear());
 
@@ -88,10 +99,11 @@ describe('createUploadWorkflow aggregate uploads', () => {
     });
 
     expect(calls).toBe(1);
+    expect(workflow.files).toEqual([]);
     expect(workflow.activeJobIDs).toEqual(['job-batch']);
-    expect(workflow.items.map((item) => [item.status, item.progress])).toEqual([
-      ['queued', 100],
-      ['queued', 100]
+    expect(workflow.items.map((item) => [item.status, item.progress, item.batchID])).toEqual([
+      ['queued', 100, 1],
+      ['queued', 100, 1]
     ]);
     now.mockRestore();
   });
@@ -127,7 +139,10 @@ describe('createUploadWorkflow aggregate uploads', () => {
 
     expect(workflow.applyJob(completed)).toEqual({ completed: true, changedFiles: true });
     expect(workflow.activeJobIDs).toEqual([]);
-    expect(workflow.items.map((item) => item.status)).toEqual(['imported', 'duplicate_existing']);
+    expect(workflow.items.map((item) => [item.status, item.batchID])).toEqual([
+      ['imported', 1],
+      ['duplicate_existing', 1]
+    ]);
   });
 
   it('marks the whole selection failed when the aggregate transport fails', async () => {
@@ -158,13 +173,77 @@ describe('createUploadWorkflow aggregate uploads', () => {
     expect(workflow.items.map((item) => item.status)).toEqual(['canceled', 'canceled']);
   });
 
-  it('does not let a new drop overwrite an active aggregate batch', async () => {
+  it('stages additional files while an older durable batch is active', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('queued.jpg')]);
-    await workflow.submit(async () => pendingJob('job-batch', 0, 1));
+    await workflow.submit(async () => pendingJob('job-first', 0, 1));
+
     workflow.select([uploadFile('later.jpg')]);
-    expect(workflow.files.map((file) => file.name)).toEqual(['queued.jpg']);
-    expect(workflow.status).toContain('Upload in progress');
+
+    expect(workflow.files.map((file) => file.name)).toEqual(['later.jpg']);
+    expect(workflow.items.map((item) => [item.name, item.status, item.batchID])).toEqual([
+      ['queued.jpg', 'queued', 1],
+      ['later.jpg', 'staged', undefined]
+    ]);
+  });
+
+  it('submits a second batch while the first browser request is still in flight', async () => {
+    const workflow = createUploadWorkflow();
+    let releaseFirst: ((job: Job & BackgroundOperation) => void) | undefined;
+    const firstResponse = new Promise<Job & BackgroundOperation>((resolve) => { releaseFirst = resolve; });
+
+    workflow.select([uploadFile('first.jpg')]);
+    const firstSubmission = workflow.submit(async () => firstResponse);
+    expect(workflow.busy).toBe(true);
+    expect(workflow.files).toEqual([]);
+
+    workflow.select([uploadFile('second.jpg')]);
+    expect(workflow.files.map((file) => file.name)).toEqual(['second.jpg']);
+    await workflow.submit(async () => pendingJob('job-second', 0, 1));
+
+    expect(workflow.busy).toBe(true);
+    expect(workflow.activeJobID).toBe('job-second');
+    expect(workflow.items.map((item) => [item.name, item.batchID])).toEqual([
+      ['first.jpg', 1],
+      ['second.jpg', 2]
+    ]);
+
+    releaseFirst?.(pendingJob('job-first', 0, 1));
+    await firstSubmission;
+
+    expect(workflow.busy).toBe(false);
+    expect(workflow.files).toEqual([]);
+    expect(workflow.activeJobIDs).toEqual(['job-second', 'job-first']);
+  });
+
+  it('does not let an older job completion clear newer staged files', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg')]);
+    await workflow.submit(async () => pendingJob('job-first', 0, 1));
+    workflow.select([uploadFile('later.jpg')]);
+
+    expect(workflow.applyJob(completedJob('job-first', 'first.jpg'))).toEqual({ completed: true, changedFiles: true });
+
+    expect(workflow.files.map((file) => file.name)).toEqual(['later.jpg']);
+    expect(workflow.items.map((item) => [item.name, item.status])).toEqual([
+      ['first.jpg', 'imported'],
+      ['later.jpg', 'staged']
+    ]);
+  });
+
+  it('can clear newer staging while an older durable batch remains active', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg')]);
+    await workflow.submit(async () => pendingJob('job-first', 0, 1));
+    workflow.select([uploadFile('later.jpg')]);
+
+    workflow.clear('staged');
+
+    expect(workflow.files).toEqual([]);
+    expect(workflow.items.map((item) => [item.name, item.status])).toEqual([
+      ['first.jpg', 'queued']
+    ]);
+    expect(workflow.activeJobIDs).toEqual(['job-first']);
   });
 
   it('replaces managed target defaults while preserving user tags', () => {
