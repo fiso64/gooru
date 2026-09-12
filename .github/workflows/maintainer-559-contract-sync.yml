@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   sync:
-    if: github.actor == 'fiso64' && !contains(github.event.head_commit.message, 'sync generated operations contract')
+    if: github.actor == 'fiso64'
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
