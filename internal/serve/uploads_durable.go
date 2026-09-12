@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	core "gooru.local/gooru"
@@ -13,10 +14,12 @@ import (
 )
 
 const (
-	backgroundUploadCleanupTaskKind          = "upload.cleanup"
-	backgroundUploadCleanupPriority          = 100
-	backgroundUploadWaitInitialPollInterval  = 25 * time.Millisecond
-	backgroundUploadWaitMaximumPollInterval  = 250 * time.Millisecond
+	backgroundUploadCleanupTaskKind         = "upload.cleanup"
+	backgroundUploadCleanupPriority         = 100
+	backgroundUploadWaitInitialPollInterval = 25 * time.Millisecond
+	backgroundUploadWaitMaximumPollInterval = 250 * time.Millisecond
+	uploadReservationHeader                  = "X-Gooru-Upload-Reserve"
+	uploadOperationHeader                    = "X-Gooru-Upload-Operation-ID"
 )
 
 // durableUploadOperationStore is the producer/read boundary required by HTTP
@@ -92,9 +95,14 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	operation, err := operations.CreateBackgroundOperation(core.BackgroundOperationRequest{Kind: backgroundUploadImportOperationKind, Visible: false, ProgressTotal: 1})
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get(uploadReservationHeader)), "true") {
+		s.reserveDurableUpload(w, operations)
+		return
+	}
+
+	operation, created, err := s.claimDurableUploadOperation(r, operations)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to accept upload", nil)
+		writeError(w, http.StatusConflict, "invalid_upload_reservation", err.Error(), nil)
 		return
 	}
 	attached := false
@@ -108,9 +116,11 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to initialize upload progress", nil)
 		return
 	}
-	if err := operations.SetBackgroundOperationVisible(operation.ID, true); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to publish upload operation", nil)
-		return
+	if created {
+		if err := operations.SetBackgroundOperationVisible(operation.ID, true); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to publish upload operation", nil)
+			return
+		}
 	}
 	r.Body = newUploadReceivingProgressReadCloser(r.Body, operation.ID, r.ContentLength, operations)
 
@@ -176,6 +186,65 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) reserveDurableUpload(w http.ResponseWriter, operations durableUploadOperationStore) {
+	operation, err := operations.CreateBackgroundOperation(core.BackgroundOperationRequest{Kind: backgroundUploadImportOperationKind, Visible: false, ProgressTotal: 1})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to reserve upload", nil)
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = operations.CancelBackgroundOperation(operation.ID)
+		}
+	}()
+	if err := operations.SetBackgroundOperationCheckpoint(operation.ID, backgroundUploadReceivingCheckpoint(0, 0)); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to initialize upload reservation", nil)
+		return
+	}
+	if err := operations.SetBackgroundOperationVisible(operation.ID, true); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to publish upload reservation", nil)
+		return
+	}
+	state, found, err := operations.GetBackgroundOperation(operation.ID)
+	if err != nil || !found {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load upload reservation", nil)
+		return
+	}
+	committed = true
+	w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
+	writeJSON(w, http.StatusCreated, s.backgroundOperationDTO(state))
+}
+
+func (s *Server) claimDurableUploadOperation(r *http.Request, operations durableUploadOperationStore) (core.BackgroundOperation, bool, error) {
+	operationID := strings.TrimSpace(r.Header.Get(uploadOperationHeader))
+	if operationID == "" {
+		operation, err := operations.CreateBackgroundOperation(core.BackgroundOperationRequest{Kind: backgroundUploadImportOperationKind, Visible: false, ProgressTotal: 1})
+		return operation, true, err
+	}
+	if !validDurableUploadOperationID(operationID) {
+		return core.BackgroundOperation{}, false, errors.New("upload reservation is invalid")
+	}
+	state, found, err := operations.GetBackgroundOperation(operationID)
+	if err != nil {
+		return core.BackgroundOperation{}, false, err
+	}
+	if !found || state.Kind != backgroundUploadImportOperationKind || !state.Visible {
+		return core.BackgroundOperation{}, false, errors.New("upload reservation was not found")
+	}
+	if state.Status != core.BackgroundWorkPending {
+		return core.BackgroundOperation{}, false, errors.New("upload reservation is not active")
+	}
+	if tasks, ok := operations.(durableUploadTaskReader); ok {
+		if _, found, err := tasks.GetBackgroundOperationTask(operationID); err != nil {
+			return core.BackgroundOperation{}, false, err
+		} else if found {
+			return core.BackgroundOperation{}, false, errors.New("upload reservation was already claimed")
+		}
+	}
+	return core.BackgroundOperation{ID: state.ID, Kind: state.Kind, Visible: state.Visible, ProgressTotal: state.ProgressTotal, CreatedAt: state.CreatedAt}, false, nil
 }
 
 func (s *Server) cancelBackgroundOperation(operationID string) (bool, error) {
