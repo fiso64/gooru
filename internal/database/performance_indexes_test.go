@@ -98,3 +98,20 @@ func TestExtensionFilterDefaultSortUsesCoveringOrderIndex(t *testing.T) {
 		t.Fatalf("extension-filtered default library query still spills into a temporary ORDER BY sort:\n%s", plan)
 	}
 }
+
+func TestBackgroundOperationAdmissionUsesPendingKindIndex(t *testing.T) {
+	db := migratedPerformanceDB(t)
+	defer db.Close()
+
+	plan := explainPlan(t, db, `
+		SELECT COUNT(*)
+		FROM background_operations
+		WHERE kind = ? AND status = 'pending'
+	`, "upload")
+	if !strings.Contains(plan, "background_operations_pending_kind_idx") {
+		t.Fatalf("pending background operation admission count did not use kind index:\n%s", plan)
+	}
+	if strings.Contains(plan, "SCAN background_operations") {
+		t.Fatalf("pending background operation admission count still scans operation history:\n%s", plan)
+	}
+}
