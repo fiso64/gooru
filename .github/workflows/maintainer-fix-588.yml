@@ -44,28 +44,19 @@ jobs:
           path = Path('frontend/src/lib/state/uploadWorkflow.svelte.ts')
           text = path.read_text()
           old_import = "  uploadingItem,\n"
-          old_stage = """    const batchID = ++nextBatchID;
-    const nextItems = [...items];
-    for (const itemIndex of batchItemIndices) {
-      const current = nextItems[itemIndex];
-      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'waiting', progress: 0, error: '' };
-    }
-    items = nextItems;
-"""
-          new_stage = """    const batchID = ++nextBatchID;
-    const nextItems = [...items];
-    for (const itemIndex of batchItemIndices) {
-      const current = nextItems[itemIndex];
-      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'uploading', progress: 0, error: '' };
-    }
-    items = nextItems;
-"""
-          old_loop = """    for (const itemIndex of batchItemIndices) {
-      const current = items[itemIndex];
-      replaceItem(itemIndex, current ? uploadingItem([current], 0)[0] : undefined);
-    }
-    refreshStatus();
-"""
+          old_stage = ("    const batchID = ++nextBatchID;\n"
+                       "    const nextItems = [...items];\n"
+                       "    for (const itemIndex of batchItemIndices) {\n"
+                       "      const current = nextItems[itemIndex];\n"
+                       "      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'waiting', progress: 0, error: '' };\n"
+                       "    }\n"
+                       "    items = nextItems;\n")
+          new_stage = old_stage.replace("status: 'waiting'", "status: 'uploading'")
+          old_loop = ("    for (const itemIndex of batchItemIndices) {\n"
+                      "      const current = items[itemIndex];\n"
+                      "      replaceItem(itemIndex, current ? uploadingItem([current], 0)[0] : undefined);\n"
+                      "    }\n"
+                      "    refreshStatus();\n")
           if text.count(old_import) != 1 or text.count(old_stage) != 1 or text.count(old_loop) != 1:
               raise SystemExit('expected uploadWorkflow source blocks were not found exactly once')
           text = text.replace(old_import, '', 1).replace(old_stage, new_stage, 1).replace(old_loop, '    refreshStatus();\n', 1)
