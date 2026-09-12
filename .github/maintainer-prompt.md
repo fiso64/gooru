@@ -57,7 +57,7 @@ When an existing task is selected for substantive work for the first time in a r
 
 ## #29 recovery state
 
-**Never overwrite #29 from memory, stale context, or a reconstructed copy. Immediately before every edit, fetch/read its current body fresh and base the edit on that exact contents.** Keep it compact: current priority/resume point, explicit owner holds/focus not safely recoverable from live state, and relevant unfinished branches with no PR. Detailed history belongs in issues, PRs, commits/tests/review discussions. Do not use #29 comments for maintainer-written recovery state; the trusted moderator-state comment is reserved for the mechanical moderator index.
+**Never overwrite #29 from memory, stale context, or a reconstructed copy. Immediately before every edit, fetch/read its current body fresh and base the edit on that exact contents.** Keep it compact: current priority/resume point, explicit owner holds/focus not safely recoverable from live state, and relevant unfinished branches with no PR. Detailed history belongs in issues, PRs, commits/tests/review discussions. NEVER use #29 comments for maintainer-written recovery state (ONLY the issue body itself); the trusted moderator-state comment is reserved for the mechanical moderator index.
 
 Known stale recovery claims are a maintenance defect, not harmless cache. Whenever live discovery proves a #29 statement stale, correct or remove it at that same checkpoint rather than waiting for an eventual end-of-task update.
 
