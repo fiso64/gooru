@@ -188,6 +188,11 @@
   transition-property: filter, opacity !important;
 }
 
+/* Keep the normal pointer over pannable media; the component switches to a hand only while dragging. */
+.viewer-stage:not(.cursor-idle) .viewer-pan-viewport.pannable:not(.dragging) {
+  cursor: default;
+}
+
 /* Viewer display controls remain keyboard-driven; keep chrome out of the media surface. */
 .viewer-mode-controls {
   display: none !important;
