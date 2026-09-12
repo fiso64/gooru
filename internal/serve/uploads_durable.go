@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	backgroundUploadCleanupTaskKind = "upload.cleanup"
-	backgroundUploadCleanupPriority = 100
+	backgroundUploadCleanupTaskKind          = "upload.cleanup"
+	backgroundUploadCleanupPriority          = 100
+	backgroundUploadWaitInitialPollInterval  = 25 * time.Millisecond
+	backgroundUploadWaitMaximumPollInterval  = 250 * time.Millisecond
 )
 
 // durableUploadOperationStore is the producer/read boundary required by HTTP
@@ -295,7 +297,8 @@ func removeCanceledSavedUploads(files []savedUpload) error {
 }
 
 func waitForDurableUpload(ctx context.Context, operations backgroundOperationReader, operationID string) (UploadImportResponse, error) {
-	ticker := time.NewTicker(25 * time.Millisecond)
+	pollInterval := backgroundUploadWaitInitialPollInterval
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
 		state, found, err := operations.GetBackgroundOperation(operationID)
@@ -328,6 +331,16 @@ func waitForDurableUpload(ctx context.Context, operations backgroundOperationRea
 		case <-ctx.Done():
 			return UploadImportResponse{}, ctx.Err()
 		case <-ticker.C:
+			pollInterval = nextBackgroundUploadWaitPollInterval(pollInterval)
+			ticker.Reset(pollInterval)
 		}
 	}
+}
+
+func nextBackgroundUploadWaitPollInterval(current time.Duration) time.Duration {
+	next := current * 2
+	if next > backgroundUploadWaitMaximumPollInterval {
+		return backgroundUploadWaitMaximumPollInterval
+	}
+	return next
 }
