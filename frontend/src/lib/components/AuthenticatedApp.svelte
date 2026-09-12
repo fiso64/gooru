@@ -495,7 +495,7 @@
   }
 
   async function submitUpload() {
-    if (!upload.files.length || upload.busy || upload.activeJobIDs.length) return;
+    if (!upload.files.length) return;
     cancelRequestedJobID = '';
     startUploadMetadataRefresh();
     try {
@@ -503,7 +503,7 @@
       if (result.changedFiles) beginTrackingUploadResults();
       if (result.queued) void jobsQuery.refetch();
     } finally {
-      if (!upload.activeJobIDs.length) await finishUploadMetadataRefresh();
+      if (!upload.busy && !upload.activeJobIDs.length) await finishUploadMetadataRefresh();
       uploadMutation.reset();
     }
   }

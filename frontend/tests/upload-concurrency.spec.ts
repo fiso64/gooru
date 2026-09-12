@@ -182,3 +182,38 @@ test('large staged WebUI upload completes through one durable operation lookup',
   expect(largestStatusBatch).toBe(1);
   expect(requestCount).toBe(1);
 });
+
+
+test('submits a newer batch while an older browser request is still in flight and groups it first', async ({ page }) => {
+  await mockApp(page, 'pending');
+
+  const waiting: Route[] = [];
+  await page.route('**/api/v1/uploads', async (route) => {
+    waiting.push(route);
+  });
+
+  await signIn(page);
+  const input = page.locator('input[type="file"]');
+  await input.setInputFiles({ name: 'first.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('first') });
+  await page.getByRole('button', { name: /Upload 1 file/ }).click();
+  await expect.poll(() => waiting.length).toBe(1);
+
+  await input.setInputFiles({ name: 'second.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('second') });
+  const secondSubmit = page.getByRole('button', { name: /Upload 1 file/ });
+  await expect(secondSubmit).toBeEnabled();
+  await secondSubmit.click();
+  await expect.poll(() => waiting.length).toBe(2);
+
+  await fulfillAggregateUpload(waiting[1]!, 'job-second', ['second.jpg']);
+  await fulfillAggregateUpload(waiting[0]!, 'job-first', ['first.jpg']);
+
+  const batches = page.getByTestId('upload-queue-batch');
+  await expect(batches).toHaveCount(2);
+  await expect(batches.nth(0)).toHaveAttribute('data-batch-id', '2');
+  await expect(batches.nth(0)).toContainText('second.jpg');
+  await expect(batches.nth(1)).toHaveAttribute('data-batch-id', '1');
+  await expect(batches.nth(1)).toContainText('first.jpg');
+  await expect(page.getByRole('button', { name: 'Pause all' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Clear done' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /^Cancel$/ })).toHaveCount(1);
+});
