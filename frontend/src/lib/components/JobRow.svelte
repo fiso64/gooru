@@ -15,6 +15,11 @@
   const visualStatus = $derived(
     job.status === 'completed' ? 'done' : job.status === 'failed' ? 'error' : job.status === 'pending' ? 'queued' : job.status
   );
+  const affectedCount = $derived(
+    job.stage === 'receiving' || !job.progress_total || job.progress_total < 1
+      ? undefined
+      : Math.trunc(job.progress_total)
+  );
 
   function titleFor(job: Job) {
     const type = job.type;
@@ -67,6 +72,7 @@
   {/if}
   <div class="job-meta">
     {#if percent !== undefined}<span>{percent}%</span>{/if}
+    {#if affectedCount !== undefined}<span>{affectedCount.toLocaleString()} file{affectedCount === 1 ? '' : 's'}</span>{/if}
     {#if detail}<span class="job-detail">{detail}</span>{/if}
   </div>
 </div>
@@ -83,10 +89,16 @@
     align-items: stretch;
     gap: 7px;
     text-align: left;
+    transition: background 0.12s ease;
   }
 
   .job-row:first-child {
     border-top: 0;
+  }
+
+  .job-row:hover,
+  .job-row:focus-within {
+    background: color-mix(in srgb, var(--surface-2) 58%, transparent);
   }
 
   .job-row-head {
@@ -117,15 +129,15 @@
 
   .status {
     flex: 0 0 auto;
+    margin-left: auto;
     font-family: var(--font-mono);
     font-size: 10.5px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--text-3);
-    transition: opacity 0.12s;
   }
 
-  .status.running { color: var(--accent); }
+  .status.running { color: var(--info, oklch(0.72 0.15 250)); }
   .status.done { color: var(--ok); }
   .status.error { color: var(--danger); }
 
@@ -143,6 +155,7 @@
     transition: width 0.3s ease;
   }
 
+  .job-progress.running > div { background: var(--info, oklch(0.72 0.15 250)); }
   .job-progress.done > div { background: var(--ok); }
   .job-progress.error > div { background: var(--danger); }
   .job-progress.canceled > div { background: var(--text-3); }
@@ -188,11 +201,6 @@
   .job-row:focus-within .job-cancel {
     opacity: 1;
     pointer-events: auto;
-  }
-
-  .job-row:hover .status,
-  .job-row:focus-within .status {
-    opacity: 0;
   }
 
   .job-cancel:hover {

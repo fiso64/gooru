@@ -40,7 +40,7 @@ async function mockApp(page: Page) {
   return requests;
 }
 
-test('drawer stays bounded while jobs tab pages through large durable operation history', async ({ page }) => {
+test('drawer stays bounded while jobs tab reuses page navigation above and below durable history', async ({ page }) => {
   const requests = await mockApp(page);
   await page.goto('/');
 
@@ -55,22 +55,29 @@ test('drawer stays bounded while jobs tab pages through large durable operation 
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
-  await expect(page.getByText('Page 1', { exact: true })).toBeVisible();
   await expect.poll(() => requests.includes(51)).toBe(true);
 
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(page.getByText('Page 2', { exact: true })).toBeVisible();
+  const topPager = page.getByTestId('jobs-pages-top');
+  const bottomPager = page.getByTestId('jobs-pages-bottom');
+  await expect(topPager).toBeVisible();
+  await expect(bottomPager).toBeVisible();
+  await expect(topPager.getByRole('button', { name: 'Page 1' })).toHaveAttribute('aria-current', 'page');
+  await expect(bottomPager.getByRole('button', { name: 'Page 1' })).toHaveAttribute('aria-current', 'page');
+
+  await topPager.getByRole('button', { name: 'Next page' }).click();
+  await expect(topPager.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
+  await expect(bottomPager.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
   await expect.poll(() => requests.includes(101)).toBe(true);
 
-  await page.getByRole('button', { name: 'Next', exact: true }).click();
-  await expect(page.getByText('Page 3', { exact: true })).toBeVisible();
+  await bottomPager.getByRole('button', { name: 'Next page' }).click();
+  await expect(topPager.getByRole('button', { name: 'Page 3' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(20);
-  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
+  await expect(bottomPager.getByRole('button', { name: 'Next page' })).toBeDisabled();
   await expect.poll(() => requests.includes(151)).toBe(true);
   expect(requests).not.toContain(1000);
 
-  await page.getByRole('button', { name: 'Previous', exact: true }).click();
-  await expect(page.getByText('Page 2', { exact: true })).toBeVisible();
+  await topPager.getByRole('button', { name: 'Previous page' }).click();
+  await expect(bottomPager.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
 });

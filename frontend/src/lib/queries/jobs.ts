@@ -4,8 +4,10 @@ import type { QueryClient } from '@tanstack/query-core';
 import {
   backgroundOperationAsJob,
   cancelBackgroundOperation,
+  clearCompletedBackgroundOperations,
   listBackgroundOperations,
-  listBackgroundOperationsByIDs
+  listBackgroundOperationsByIDs,
+  type BackgroundOperationClearResponse
 } from '$lib/api/operations';
 import {
   uploadBackpressuredJobStatusRefetchMs,
@@ -113,6 +115,15 @@ export function createJobsQuery(
       refetchInterval: (query) => jobsPageRefetchInterval(query.state.data)
     };
   });
+}
+
+export function createClearCompletedJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<BackgroundOperationClearResponse, Error, void>(() => ({
+    mutationFn: () => clearCompletedBackgroundOperations(getCSRFToken()),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: jobKeys.all });
+    }
+  }));
 }
 
 export function createCancelJobMutation(getCSRFToken: () => string, queryClient: QueryClient) {

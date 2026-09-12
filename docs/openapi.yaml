@@ -1073,6 +1073,32 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+    delete:
+      summary: Clear visible terminal durable operation history.
+      description: Removes completed, failed, and canceled visible operations together with their terminal child task history. Pending/running operations, hidden implementation operations, and operations with active child tasks are retained.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      responses:
+        "200":
+          description: Terminal operation history cleared.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cleared]
+                properties:
+                  cleared:
+                    type: integer
+                    format: int64
+                    minimum: 0
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /operations/{id}:
     get:
       summary: Get one durable background operation.

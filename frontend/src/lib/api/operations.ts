@@ -24,6 +24,10 @@ interface BackgroundOperationListResponse {
   active_count?: number;
 }
 
+export interface BackgroundOperationClearResponse {
+  cleared: number;
+}
+
 async function operationRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: 'same-origin',
@@ -51,6 +55,13 @@ export function listBackgroundOperationsByIDs(ids: string[]) {
   const params = new URLSearchParams();
   for (const id of ids) params.append('id', id);
   return operationRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
+}
+
+export function clearCompletedBackgroundOperations(csrfToken: string) {
+  return operationRequest<BackgroundOperationClearResponse>('/api/v1/operations', {
+    method: 'DELETE',
+    headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
+  });
 }
 
 export function cancelBackgroundOperation(id: string, csrfToken: string) {
