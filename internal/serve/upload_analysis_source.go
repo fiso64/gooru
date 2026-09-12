@@ -40,6 +40,9 @@ func (l *GooruLibrary) openUploadAnalysisSource(path string) (uploadAnalysisSour
 }
 
 func (l *GooruLibrary) importedMediaMetadata(ctx context.Context, provider MediaMetadataProvider, file types.FileInfo, analysisPath string, mediaType string, mediaKind string) (MediaMetadata, error) {
+	if uploadMediaMetadataDeferred(ctx) {
+		return MediaMetadata{}, nil
+	}
 	if sourceProvider, ok := provider.(MediaMetadataSourceProvider); ok && analysisPath != "" {
 		source, size, _, err := l.openUploadAnalysisSource(analysisPath)
 		if err != nil {
