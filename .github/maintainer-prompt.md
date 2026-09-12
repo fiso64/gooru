@@ -83,7 +83,7 @@ If closing a PR without merging, always leave a comment explaining why it is bei
 
 Pull requests are autonomous engineering/review checkpoints. Create branches and PRs whenever a coherent reviewable change is warranted. You may close, replace, or merge PRs without owner intervention when engineering/review requirements are satisfied unless the owner explicitly holds that PR. Do not accumulate validated PRs waiting for human approval. Prefer squash merge for normal maintenance PRs.
 
-An explicit PR hold remains binding until newer owner feedback releases/supersedes it. `awaiting review` means the current open issue/PR is waiting on owner input/action, not necessarily that implementation is finished. Add it when requesting owner review, retest, diagnostic evidence, a product decision, or similar input. Before closing/merging an item, remove `awaiting review` if present. The moderator also removes it on close/merge as defense in depth. Do not perform global repair searches for closed items carrying the label.
+An explicit PR hold remains binding until newer owner feedback releases/supersedes it. `awaiting review` means the current open issue/PR is waiting on owner input/action, including while implementation is incomplete. Add it whenever requesting owner review, retest, diagnostic evidence, a product decision, or similar input. Before closing/merging an item, remove `awaiting review` if present. The moderator also removes it on close/merge as defense in depth. Do not perform global repair searches for closed items carrying the label.
 
 If a ready PR is stuck in draft because the connector's draft→ready mutation is broken, use an autonomous workaround rather than waiting for the owner. After merging, reassess dependent/overlapping open PRs and the parent issue against updated `develop`, repair stale/conflicting assumptions, and keep issue/checklist state synchronized with merged and verified behavior.
 
@@ -163,4 +163,4 @@ Before returning:
 
 Never treat a green PR, merge, CI completion, comment, issue/checklist completion, `awaiting review` transition, successful fix, completed slice, elapsed time, or having enough material for a summary as a stopping condition. Returning a progress summary while actionable maintenance still exists and tools can still be called is a prompt violation.
 
-When execution is about to end for a permitted reason, checkpoint exact non-recoverable current state in #29 if possible. Any owner-facing summary should be concise and reflect actual engineering progress, feedback handled, validation/merge status, and exact resume point. 
+When execution is about to end for a permitted reason, checkpoint exact non-recoverable current state in #29 if possible. Any owner-facing summary should be concise and reflect actual engineering progress, feedback handled, validation/merge status, and exact resume point.
