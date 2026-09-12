@@ -1,0 +1,264 @@
+[1A[2K[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/AuthenticatedApp.svelte:52:51 This reference only captures the initial value of `pagedMode`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally[39m
+[WebServer] 50: 
+[WebServer] 51:   const queryClient = useQueryClient();
+[WebServer] 52:   const library = createLibraryWorkflow(undefined, pagedMode);
+[WebServer]                                                                 ^
+[WebServer] 53:   const searchDraft = library.searchDraft;
+[WebServer] 54:   const submittedSearch = library.submittedSearch;
+
+[1A[2K[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/MediaGrid.svelte:173:6 Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_element_interactions[39m
+
+[1A[2K[WebServer] 171:   {:else if !tileMode}
+[WebServer] 172:     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${squareVirtual.totalHeight}px;`}>
+[WebServer] 173:       <div class={`grid${fitMode ? ' fit-media-grid' : ''}`} role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type={$runtimeConfig.gridType} style={`transform: translateY(${squareVirtual.offsetTop}px);`} onkeydown={handleGridKeydown}>
+[WebServer]                  ^
+[WebServer] 174:         {#if isFetchingPreviousPage}<div class="thumb skeleton"></div>{/if}
+[WebServer] 175:         {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} viewportRoot={mainHost} fitMedia={fitMode} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} />{/each}
+[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/MediaGrid.svelte:180:6 Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_element_interactions[39m
+[WebServer] 178:   {:else}
+[WebServer] 179:     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${tileVirtualHeight}px;`}>
+[WebServer] 180:       <div class="grid variable-media-grid" role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type="tile" onkeydown={handleGridKeydown}>
+[WebServer]                  ^
+[WebServer] 181:         {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} viewportRoot={mainHost} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} /></div>{/each}
+[WebServer] 182:       </div>
+
+[1A[2K[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/PreviewDialog.svelte:284:0 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+[WebServer] https://svelte.dev/e/a11y_click_events_have_key_events[39m
+
+[1A[2K[WebServer] 282: <svelte:window onkeydown={handleViewerKeydown} />
+[WebServer] 283: 
+[WebServer] 284: <div
+[WebServer]          ^
+[WebServer] 285:   bind:this={dialogElement}
+[WebServer] 286:   class="lightbox"
+
+[1A[2K[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/AppShell.svelte:361:8 `<div>` with a dragover or drop handler must have an ARIA role
+[WebServer] https://svelte.dev/e/a11y_no_static_element_interactions[39m
+
+[1A[2K[WebServer] 359:       </div>
+[WebServer] 360:       {#each orderedSavedSearches as saved (saved.id)}
+[WebServer] 361:         <div
+[WebServer]                  ^
+[WebServer] 362:           class="sidebar-saved-row"
+[WebServer] 363:           class:drag-target={Boolean(draggedSavedSearchID) && draggedSavedSearchID !== saved.id}
+
+[1A[2K[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/TagsView.svelte:77:2 `<div>` with a keydown handler must have an ARIA role
+[WebServer] https://svelte.dev/e/a11y_no_static_element_interactions[39m
+[WebServer] 75: 
+[WebServer] 76: <main class="main">
+[WebServer] 77:   <div bind:this={tagPage} class="page" onkeydown={handleGridKeydown}>
+[WebServer]             ^
+[WebServer] 78:     <div class="page-header">
+[WebServer] 79:       <div class="g-eyebrow g-eyebrow-accent">Tags</div>
+
+[1A[2K[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/ViewerStage.svelte:67:29 This reference only captures the initial value of `comicEntered`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally[39m
+[WebServer] 65:   let stageElement = $state<HTMLDivElement | undefined>();
+[WebServer] 66:   let comicTransition = $state<'' | 'entering' | 'exiting'>('');
+[WebServer] 67:   let previousComicEntered = comicEntered;
+[WebServer]                                              ^
+[WebServer] 68:   let panViewportElement = $state<HTMLDivElement | undefined>();
+[WebServer] 69:   let imageElement = $state<HTMLImageElement | undefined>();
+
+[1A[2K[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/ViewerStage.svelte:773:0 `<div>` with a pointermove handler must have an ARIA role
+[WebServer] https://svelte.dev/e/a11y_no_static_element_interactions[39m
+[WebServer] 771: <svelte:window onkeydown={handleViewerKeydown} />
+[WebServer] 772: 
+[WebServer] 773: <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
+[WebServer]            ^
+[WebServer] 774:   <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
+[WebServer] 775:     <div class="viewer-pan-surface" style={panSurfaceStyle}>
+[WebServer] [33m5:30:44 AM [vite-plugin-svelte] src/lib/components/ViewerStage.svelte:839:4 `<div>` with a pointerenter handler must have an ARIA role
+[WebServer] https://svelte.dev/e/a11y_no_static_element_interactions[39m
+[WebServer] 837: 
+[WebServer] 838:   {#if renderedFile.media_kind === 'video' || comicEntered}
+[WebServer] 839:     <div class="lightbox-video-controls" class:comic-controls={comicEntered} class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
+[WebServer]                ^
+[WebServer] 840:       {#if comicEntered}
+[WebServer] 841:         <button class="video-play comic-exit" type="button" aria-label="Exit comic (Space)" onclick={(event) => { onToggleComic?.(); restoreStageFocusAfterPointer(event); }}>
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/PasswordDialog.svelte:78:0 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+[WebServer] https://svelte.dev/e/a11y_click_events_have_key_events[39m
+[WebServer] 76: <svelte:window onkeydown={handleKeydown} />
+[WebServer] 77: 
+[WebServer] 78: <div
+[WebServer]         ^
+[WebServer] 79:   class="modal-backdrop"
+[WebServer] 80:   role="dialog"
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/SearchBar.svelte:312:0 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+[WebServer] https://svelte.dev/e/a11y_click_events_have_key_events[39m
+[WebServer] 310: </script>
+[WebServer] 311: 
+[WebServer] 312: <div
+[WebServer]          ^
+[WebServer] 313:   class="searchbar"
+[WebServer] 314:   role="combobox"
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/DropdownPicker.svelte:56:0 Non-interactive element `<details>` should not be assigned mouse or keyboard event listeners
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_element_interactions[39m
+[WebServer] 54: </script>
+[WebServer] 55: 
+[WebServer] 56: <details bind:this={picker} onkeydown={handleKeydown} style="position: relative; width: 100%;">
+[WebServer]               ^
+[WebServer] 57:   <summary class="g-input" aria-label={triggerAriaLabel} style="cursor: pointer; list-style: none;">
+[WebServer] 58:     {selected?.label ?? options[0]?.label ?? placeholder}
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/AuthenticatedApp.svelte:52:51 This reference only captures the initial value of `pagedMode`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally[39m
+[WebServer] 50: 
+[WebServer] 51:   const queryClient = useQueryClient();
+[WebServer] 52:   const library = createLibraryWorkflow(undefined, pagedMode);
+[WebServer]                                                                 ^
+[WebServer] 53:   const searchDraft = library.searchDraft;
+[WebServer] 54:   const submittedSearch = library.submittedSearch;
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/AppShell.svelte:361:8 `<div>` with a dragover or drop handler must have an ARIA role
+[WebServer] https://svelte.dev/e/a11y_no_static_element_interactions[39m
+[WebServer] 359:       </div>
+[WebServer] 360:       {#each orderedSavedSearches as saved (saved.id)}
+[WebServer] 361:         <div
+[WebServer]                  ^
+[WebServer] 362:           class="sidebar-saved-row"
+[WebServer] 363:           class:drag-target={Boolean(draggedSavedSearchID) && draggedSavedSearchID !== saved.id}
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/MediaGrid.svelte:173:6 Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_element_interactions[39m
+[WebServer] 171:   {:else if !tileMode}
+[WebServer] 172:     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${squareVirtual.totalHeight}px;`}>
+[WebServer] 173:       <div class={`grid${fitMode ? ' fit-media-grid' : ''}`} role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type={$runtimeConfig.gridType} style={`transform: translateY(${squareVirtual.offsetTop}px);`} onkeydown={handleGridKeydown}>
+[WebServer]                  ^
+[WebServer] 174:         {#if isFetchingPreviousPage}<div class="thumb skeleton"></div>{/if}
+[WebServer] 175:         {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} viewportRoot={mainHost} fitMedia={fitMode} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} />{/each}
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/MediaGrid.svelte:180:6 Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_element_interactions[39m
+[WebServer] 178:   {:else}
+[WebServer] 179:     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${tileVirtualHeight}px;`}>
+[WebServer] 180:       <div class="grid variable-media-grid" role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type="tile" onkeydown={handleGridKeydown}>
+[WebServer]                  ^
+[WebServer] 181:         {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} viewportRoot={mainHost} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} /></div>{/each}
+[WebServer] 182:       </div>
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/TagsView.svelte:77:2 `<div>` with a keydown handler must have an ARIA role
+[WebServer] https://svelte.dev/e/a11y_no_static_element_interactions[39m
+[WebServer] 75: 
+[WebServer] 76: <main class="main">
+[WebServer] 77:   <div bind:this={tagPage} class="page" onkeydown={handleGridKeydown}>
+[WebServer]             ^
+[WebServer] 78:     <div class="page-header">
+[WebServer] 79:       <div class="g-eyebrow g-eyebrow-accent">Tags</div>
+
+[1A[2K[WebServer] [33m5:30:45 AM [vite-plugin-svelte] src/lib/components/PreviewDialog.svelte:284:0 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+[WebServer] https://svelte.dev/e/a11y_click_events_have_key_events[39m
+[WebServer] 282: <svelte:window onkeydown={handleViewerKeydown} />
+[WebServer] 283: 
+[WebServer] 284: <div
+[WebServer]          ^
+[WebServer] 285:   bind:this={dialogElement}
+[WebServer] 286:   class="lightbox"
+
+[1A[2K[WebServer] [33m5:30:46 AM [vite-plugin-svelte] src/lib/components/SearchBar.svelte:312:0 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+[WebServer] https://svelte.dev/e/a11y_click_events_have_key_events[39m
+[WebServer] 310: </script>
+[WebServer] 311: 
+[WebServer] 312: <div
+[WebServer]          ^
+[WebServer] 313:   class="searchbar"
+[WebServer] 314:   role="combobox"
+
+[1A[2K[WebServer] [33m5:30:46 AM [vite-plugin-svelte] src/lib/components/PasswordDialog.svelte:78:0 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+[WebServer] https://svelte.dev/e/a11y_click_events_have_key_events[39m
+[WebServer] 76: <svelte:window onkeydown={handleKeydown} />
+[WebServer] 77: 
+[WebServer] 78: <div
+[WebServer]         ^
+[WebServer] 79:   class="modal-backdrop"
+[WebServer] 80:   role="dialog"
+
+[1A[2K[WebServer] [33m5:30:46 AM [vite-plugin-svelte] src/lib/components/ViewerStage.svelte:67:29 This reference only captures the initial value of `comicEntered`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally[39m
+[WebServer] 65:   let stageElement = $state<HTMLDivElement | undefined>();
+[WebServer] 66:   let comicTransition = $state<'' | 'entering' | 'exiting'>('');
+[WebServer] 67:   let previousComicEntered = comicEntered;
+[WebServer]                                              ^
+[WebServer] 68:   let panViewportElement = $state<HTMLDivElement | undefined>();
+[WebServer] 69:   let imageElement = $state<HTMLImageElement | undefined>();
+
+[1A[2K[WebServer] [33m5:30:46 AM [vite-plugin-svelte] src/lib/components/ViewerStage.svelte:773:0 `<div>` with a pointermove handler must have an ARIA role
+[WebServer] https://svelte.dev/e/a11y_no_static_element_interactions[39m
+[WebServer] 771: <svelte:window onkeydown={handleViewerKeydown} />
+[WebServer] 772: 
+[WebServer] 773: <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
+[WebServer]            ^
+[WebServer] 774:   <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
+[WebServer] 775:     <div class="viewer-pan-surface" style={panSurfaceStyle}>
+[WebServer] [33m5:30:46 AM [vite-plugin-svelte] src/lib/components/ViewerStage.svelte:839:4 `<div>` with a pointerenter handler must have an ARIA role
+[WebServer] https://svelte.dev/e/a11y_no_static_element_interactions[39m
+[WebServer] 837: 
+[WebServer] 838:   {#if renderedFile.media_kind === 'video' || comicEntered}
+[WebServer] 839:     <div class="lightbox-video-controls" class:comic-controls={comicEntered} class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
+[WebServer]                ^
+[WebServer] 840:       {#if comicEntered}
+[WebServer] 841:         <button class="video-play comic-exit" type="button" aria-label="Exit comic (Space)" onclick={(event) => { onToggleComic?.(); restoreStageFocusAfterPointer(event); }}>
+
+[1A[2K[WebServer] [33m5:30:46 AM [vite-plugin-svelte] src/lib/components/DropdownPicker.svelte:56:0 Non-interactive element `<details>` should not be assigned mouse or keyboard event listeners
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_element_interactions[39m
+[WebServer] 54: </script>
+[WebServer] 55: 
+[WebServer] 56: <details bind:this={picker} onkeydown={handleKeydown} style="position: relative; width: 100%;">
+[WebServer]               ^
+[WebServer] 57:   <summary class="g-input" aria-label={triggerAriaLabel} style="cursor: pointer; list-style: none;">
+[WebServer] 58:     {selected?.label ?? options[0]?.label ?? placeholder}
+
+
+Running 6 tests using 3 workers
+
+[1A[2K[1/6] [chromium] › tests/grid-keyboard-cursor.spec.ts:146:1 › Escape hides the grid keyboard cursor when no higher-priority exit is active
+[1A[2K[2/6] [chromium] › tests/font-style.spec.ts:158:1 › missing font_style defaults the web UI to comic
+[1A[2K[3/6] [chromium] › tests/paged-library.spec.ts:62:1 › paged mode uses centered numbered controls with direct page navigation
+[1A[2K[WebServer] [2m5:30:49 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/ui-config[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K[WebServer] [2m5:30:50 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/operations?limit=21[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K[WebServer] [2m5:30:50 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/operations?limit=21[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K[4/6] [chromium] › tests/shortcut-focus.spec.ts:271:1 › filename search shortcut replaces only filename_contains and viewer shortcuts do not steal search focus
+[1A[2K[WebServer] [2m5:30:50 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/operations?limit=21[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K[5/6] [chromium] › tests/tag-input-behavior.spec.ts:145:1 › viewer +/- toggles tag mode only while the tag input is empty
+[1A[2K[WebServer] [2m5:30:50 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/ui-config[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K[WebServer] [2m5:30:50 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/operations?limit=21[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K[WebServer] [2m5:30:50 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/operations?limit=21[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K[WebServer] [2m5:30:51 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/operations?limit=21[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K[6/6] [chromium] › tests/paged-library.spec.ts:177:1 › short final page keeps controls at the viewport bottom without artificial scrolling
+[1A[2K[WebServer] [2m5:30:51 AM[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/operations?limit=21[39m
+[WebServer] Error: connect ECONNREFUSED 127.0.0.1:5678
+[WebServer]     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:2017:16)
+
+[1A[2K  6 passed (8.3s)
+
+EXIT_STATUS=0
