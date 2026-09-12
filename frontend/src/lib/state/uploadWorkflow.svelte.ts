@@ -22,6 +22,7 @@ import type { UploadVariables } from '$lib/queries/library';
 import { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
 export { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
+export const maxFilesPerMultipartUpload = 1000;
 
 type UploadMutate = (variables: UploadVariables) => Promise<BackgroundOperation | UploadImportResponse>;
 type CancelJob = (jobID: string) => Promise<Job>;
@@ -279,75 +280,87 @@ export function createUploadWorkflow() {
     const batchQueueFirstTimeMs = Math.min(...batchQueueTimes);
     const batchQueueLastTimeMs = Math.max(...batchQueueTimes);
     const batchQueueTotal = batchFiles.length;
-    const batchQueueIndices = batchFiles.map((_, index) => index);
-    const batchQueueTotals = batchFiles.map(() => batchQueueTotal);
     let queued = false;
     let changedFiles = false;
-    let lastTransportProgress = -1;
+    let currentChunkStart = 0;
 
     refreshStatus();
 
     try {
-      const response = await mutate({
-        files: batchFiles,
-        tags: parsedTags,
-        preferAsync: true,
-        targetID: batchTargetID,
-        conflictPolicy: batchConflictPolicy,
-        addedAtStrategy: batchAddedAtStrategy,
-        queueTimeMs: batchQueueTimes,
-        queueFirstTimeMs: batchQueueFirstTimeMs,
-        queueLastTimeMs: batchQueueLastTimeMs,
-        queueIndex: batchQueueIndices,
-        queueTotal: batchQueueTotals,
-        onProgress: (progress) => {
-          if (progress === lastTransportProgress) return;
-          lastTransportProgress = progress;
-          const fileProgress = perFileUploadProgress(batchFiles, progress);
-          batchItemIndices.forEach((itemIndex, fileIndex) => {
-            const current = items[itemIndex];
-            const nextProgress = fileProgress[fileIndex] ?? progress;
-            if (!current || (current.status === 'uploading' && current.progress === nextProgress)) return;
-            replaceItem(itemIndex, uploadProgressItem([current], 0, nextProgress)[0]);
-          });
-        },
-        signal: controller.signal
-      });
-
-      if ('id' in response) {
-        if (cancelPending && cancelPendingMutate) {
-          try {
-            const canceledJob = await cancelPendingMutate(response.id);
-            const previousItems = batchItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
-            const canceledItems = itemsFromJob(previousItems, canceledJob);
-            batchItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, canceledItems[resultIndex]));
-          } catch (error) {
-            const message = errorMessage(error);
-            trackQueuedJob(response.id, batchItemIndices, message);
-            status = message;
-            queued = true;
-          }
-        } else {
-          trackQueuedJob(response.id, batchItemIndices);
-          queued = true;
+      for (currentChunkStart = 0; currentChunkStart < batchFiles.length; currentChunkStart += maxFilesPerMultipartUpload) {
+        if (controller.signal.aborted || cancelPending) {
+          throw new ApiError(0, 'request_aborted', 'Upload was canceled');
         }
-      } else {
-        const previousItems = batchItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
-        const resultItems = itemsFromResult(response, previousItems);
-        batchItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, resultItems[resultIndex]));
-        changedFiles = true;
+        const chunkEnd = Math.min(batchFiles.length, currentChunkStart + maxFilesPerMultipartUpload);
+        const chunkFiles = batchFiles.slice(currentChunkStart, chunkEnd);
+        const chunkItemIndices = batchItemIndices.slice(currentChunkStart, chunkEnd);
+        const chunkQueueTimes = batchQueueTimes.slice(currentChunkStart, chunkEnd);
+        const chunkQueueIndices = chunkFiles.map((_, index) => currentChunkStart + index);
+        const chunkQueueTotals = chunkFiles.map(() => batchQueueTotal);
+        let lastTransportProgress = -1;
+
+        const response = await mutate({
+          files: chunkFiles,
+          tags: parsedTags,
+          preferAsync: true,
+          targetID: batchTargetID,
+          conflictPolicy: batchConflictPolicy,
+          addedAtStrategy: batchAddedAtStrategy,
+          queueTimeMs: chunkQueueTimes,
+          queueFirstTimeMs: batchQueueFirstTimeMs,
+          queueLastTimeMs: batchQueueLastTimeMs,
+          queueIndex: chunkQueueIndices,
+          queueTotal: chunkQueueTotals,
+          onProgress: (progress) => {
+            if (progress === lastTransportProgress) return;
+            lastTransportProgress = progress;
+            const fileProgress = perFileUploadProgress(chunkFiles, progress);
+            chunkItemIndices.forEach((itemIndex, fileIndex) => {
+              const current = items[itemIndex];
+              const nextProgress = fileProgress[fileIndex] ?? progress;
+              if (!current || (current.status === 'uploading' && current.progress === nextProgress)) return;
+              replaceItem(itemIndex, uploadProgressItem([current], 0, nextProgress)[0]);
+            });
+          },
+          signal: controller.signal
+        });
+
+        if ('id' in response) {
+          if (cancelPending && cancelPendingMutate) {
+            try {
+              const canceledJob = await cancelPendingMutate(response.id);
+              const previousItems = chunkItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
+              const canceledItems = itemsFromJob(previousItems, canceledJob);
+              chunkItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, canceledItems[resultIndex]));
+            } catch (error) {
+              const message = errorMessage(error);
+              trackQueuedJob(response.id, chunkItemIndices, message);
+              status = message;
+              queued = true;
+            }
+            throw new ApiError(0, 'request_aborted', 'Upload was canceled');
+          }
+          trackQueuedJob(response.id, chunkItemIndices);
+          queued = true;
+        } else {
+          const previousItems = chunkItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
+          const resultItems = itemsFromResult(response, previousItems);
+          chunkItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, resultItems[resultIndex]));
+          changedFiles = true;
+        }
       }
     } catch (error) {
+      const affectedItemIndices = batchItemIndices.slice(currentChunkStart);
       if (controller.signal.aborted || (error instanceof ApiError && error.code === 'request_aborted')) {
-        for (const itemIndex of batchItemIndices) {
+        for (const itemIndex of affectedItemIndices) {
           const current = items[itemIndex];
-          if (current) replaceItem(itemIndex, { ...current, status: 'canceled', error: '' });
+          if (current && current.status === 'uploading') replaceItem(itemIndex, { ...current, status: 'canceled', error: '' });
         }
       } else {
         const message = errorMessage(error);
-        for (const itemIndex of batchItemIndices) {
+        for (const itemIndex of affectedItemIndices) {
           const current = items[itemIndex];
-          if (current) replaceItem(itemIndex, { ...current, status: 'error', error: message });
+          if (current && current.status === 'uploading') replaceItem(itemIndex, { ...current, status: 'error', error: message });
         }
       }
     } finally {
