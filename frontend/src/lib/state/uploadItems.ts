@@ -22,6 +22,7 @@ export interface UploadItem {
   size: number;
   type: string;
   previewFile?: File;
+  batchID?: number;
   targetID?: string;
   queueTimeMs?: number;
   status: UploadItemStatus;
@@ -109,6 +110,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       size: file.size,
       type: prior?.type ?? '',
       previewFile: prior?.previewFile,
+      batchID: prior?.batchID,
       targetID: file.target_id,
       queueTimeMs: prior?.queueTimeMs,
       status: file.status,
