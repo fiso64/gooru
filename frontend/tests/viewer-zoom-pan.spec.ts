@@ -183,7 +183,7 @@ test('zoom minima respect fit and actual-size modes across normal and fullscreen
   expect(fullscreenZoomed!.width).toBeGreaterThan(fullscreenFit!.width * 1.4);
 });
 
-test('dragging a zoomed image shows a hand cursor and pans it', async ({ page }) => {
+test('dragging a zoomed image shows a hand cursor only while dragging and pans it', async ({ page }) => {
   const image = await mockViewer(page);
   const stage = page.locator('.viewer-stage');
   const panViewport = page.locator('.viewer-pan-viewport');
@@ -194,7 +194,7 @@ test('dragging a zoomed image shows a hand cursor and pans it', async ({ page })
   const centerY = stageBox!.y + stageBox!.height / 2;
   await page.mouse.move(centerX, centerY);
   await wheelWithModifier(page, 'Control', -220);
-  await expect(panViewport).toHaveCSS('cursor', 'grab');
+  await expect(panViewport).toHaveCSS('cursor', 'default');
   await expect(image).toHaveAttribute('draggable', 'false');
 
   const beforeScroll = await panViewport.evaluate((node) => ({ left: node.scrollLeft, top: node.scrollTop }));
@@ -215,5 +215,5 @@ test('dragging a zoomed image shows a hand cursor and pans it', async ({ page })
   expect(draggedImage!.y).toBeGreaterThan(beforeImage!.y + 50);
 
   await page.mouse.up();
-  await expect(panViewport).toHaveCSS('cursor', 'grab');
+  await expect(panViewport).toHaveCSS('cursor', 'default');
 });
