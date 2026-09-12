@@ -101,6 +101,12 @@
   let zoom = $state(1);
   let panX = $state(0);
   let panY = $state(0);
+  let panDragPointerId: number | undefined;
+  let panDragStartClientX = 0;
+  let panDragStartClientY = 0;
+  let panDragStartX = 0;
+  let panDragStartY = 0;
+  let panDragging = $state(false);
 
   const renderedFile = $derived(displayedFile ?? file);
   const renderedImageSource = $derived(displayedFile ? displayedImageSource : imageSource);
@@ -138,6 +144,12 @@
   // manual zoom preserves the same absolute 32x ceiling and can always pass back through 1:1.
   const maximumZoom = $derived(fitMode === 'actual' && boundActualSizeToFit && geometry.scale > 0 ? Math.max(32, 32 / geometry.scale) : 32);
   const panLimits = $derived(viewerPanLimits(zoom));
+  const dragPanAvailable = $derived(
+    renderedFile.media_kind !== 'video'
+    && renderedFile.media_kind !== 'audio'
+    && !renderedFile.media_type.startsWith('audio/')
+    && (panLimits.x > 0.5 || panLimits.y > 0.5)
+  );
   const panSurfaceStyle = $derived(`width:${stageWidth + panLimits.x * 2}px;height:${stageHeight + panLimits.y * 2}px`);
   const visualStyle = $derived(viewerMediaStyle(geometry, { zoom }));
 
@@ -519,6 +531,48 @@
     panY = limits.y - viewport.scrollTop;
   }
 
+  function beginPanDrag(event: PointerEvent) {
+    const viewport = panViewportElement;
+    if (event.button !== 0 || !dragPanAvailable || !viewport) return;
+    event.preventDefault();
+    stageElement?.focus({ preventScroll: true });
+    panDragPointerId = event.pointerId;
+    panDragStartClientX = event.clientX;
+    panDragStartClientY = event.clientY;
+    panDragStartX = panX;
+    panDragStartY = panY;
+    panDragging = true;
+    viewport.setPointerCapture(event.pointerId);
+  }
+
+  function dragPan(event: PointerEvent) {
+    if (panDragPointerId !== event.pointerId) return;
+    event.preventDefault();
+    const clamped = clampViewerPan(
+      panDragStartX + event.clientX - panDragStartClientX,
+      panDragStartY + event.clientY - panDragStartClientY,
+      zoom
+    );
+    panX = clamped.x;
+    panY = clamped.y;
+    syncNativePan();
+  }
+
+  function endPanDrag(event: PointerEvent) {
+    if (panDragPointerId !== event.pointerId) return;
+    event.preventDefault();
+    const viewport = panViewportElement;
+    if (viewport?.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    panDragPointerId = undefined;
+    panDragging = false;
+  }
+
+  function losePanDragCapture(event: PointerEvent) {
+    if (panDragPointerId !== event.pointerId) return;
+    panDragPointerId = undefined;
+    panDragging = false;
+  }
+
   function reconcileViewerTransform() {
     const nextZoom = Math.max(minimumZoom, zoom);
     const clamped = clampViewerPan(panX, panY, nextZoom);
@@ -771,7 +825,19 @@
 <svelte:window onkeydown={handleViewerKeydown} />
 
 <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
-  <div bind:this={panViewportElement} class="viewer-pan-viewport" onwheel={handleViewerWheel} onscroll={syncPanFromNativeScroll}>
+  <div
+    bind:this={panViewportElement}
+    class="viewer-pan-viewport"
+    class:pannable={dragPanAvailable}
+    class:dragging={panDragging}
+    onwheel={handleViewerWheel}
+    onscroll={syncPanFromNativeScroll}
+    onpointerdown={beginPanDrag}
+    onpointermove={dragPan}
+    onpointerup={endPanDrag}
+    onpointercancel={endPanDrag}
+    onlostpointercapture={losePanDragCapture}
+  >
     <div class="viewer-pan-surface" style={panSurfaceStyle}>
       {#if renderedFile.viewer_support !== 'unsupported_media_type'}
       {#if renderedFile.media_kind === 'video'}
@@ -813,6 +879,7 @@
           style={visualStyle}
           src={renderedImageSource}
           alt={renderedFile.name}
+          draggable={false}
           onload={syncImage}
           onerror={syncImageError}
         />
@@ -891,6 +958,20 @@
   }
 
   .viewer-pan-viewport::-webkit-scrollbar { display: none; }
+
+  .viewer-pan-viewport.pannable {
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .viewer-pan-viewport.pannable.dragging {
+    cursor: grabbing;
+    user-select: none;
+  }
+
+  :global(.viewer-stage:fullscreen.cursor-idle) .viewer-pan-viewport {
+    cursor: none;
+  }
 
   .viewer-pan-surface {
     position: relative;
