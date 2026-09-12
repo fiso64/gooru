@@ -21,9 +21,9 @@ var rehashCmd = &cobra.Command{
 	Short: "Updates a file's content hash and preserves its tags.",
 	Long: `Updates the database record for one or more files that have been modified on disk.
 
-This command calculates the new content hash for a file and atomically transfers
-all existing tags from the old content record to the new one. This is the primary
-way to preserve a file's tagged identity after its content has changed.
+This command calculates the new content hash for a file and atomically preserves
+its existing tags on the new content record. This is the primary way to preserve
+a file's tagged identity after its content has changed.
 
 This command only operates on paths that are already known to the database. It
 will not add new, untracked files.`,
@@ -34,14 +34,12 @@ will not add new, untracked files.`,
 			return fmt.Errorf("error expanding file arguments: %w", err)
 		}
 
-		if len(expansionResult.NotFound) > 0 {
-			for _, notFound := range expansionResult.NotFound {
-				display.Errorf("path not found: %s", notFound)
-			}
-			return fmt.Errorf("aborted due to path errors")
-		}
-
-		files := expansionResult.Found
+		// Managed WebUI uploads may have a canonical logical path that is not a
+		// filesystem path. Keep unmatched literal arguments so the service can
+		// resolve them through the database's managed-storage mapping. Ordinary
+		// typos remain harmless: the service reports them as not tracked.
+		files := append([]string{}, expansionResult.Found...)
+		files = append(files, expansionResult.NotFound...)
 		if len(files) == 0 {
 			fmt.Println("No matching files found to rehash.")
 			return nil
@@ -59,14 +57,13 @@ will not add new, untracked files.`,
 			case types.StatusRehashed:
 				rehashedCount++
 			case types.StatusSkippedNotInDB:
-				// This is a critical piece of user guidance. Always show it, regardless of progress flag.
 				fmt.Printf("Skipped '%s': path not found in database. To update the location of a moved file, use: 'gooru editpath <oldpath> <newpath>'\n", path)
 			case types.StatusMetadataUpdated:
 				updatedCount++
 			}
 		}
 
-		svc.RehashFiles(files, progressCb, rehashUseMetadata)
+		svc.RehashTrackedFiles(files, progressCb, rehashUseMetadata)
 
 		if rehashedCount > 0 || updatedCount > 0 {
 			fmt.Printf("Rehash complete. %d file(s) rehashed, %d metadata record(s) updated.\n", rehashedCount, updatedCount)
