@@ -154,6 +154,19 @@ test('paged mode restores a direct page URL and browser history', async ({ page 
   await expect(page.getByRole('button', { name: 'Page 4', exact: true })).toHaveAttribute('aria-current', 'page');
 });
 
+test('stale out-of-range page URLs recover to the first valid page', async ({ page }) => {
+  const requests = await mockPagedLibrary(page, 26);
+  await page.goto('/?page=99');
+
+  await expect.poll(() => requests.some((request) => request.offset === 2450 && request.limit === 25)).toBe(true);
+  await expect.poll(() => requests.some((request) => request.offset === 0 && request.limit === 25)).toBe(true);
+  await expect(page).not.toHaveURL(/[?&]page=/);
+  await expect(page.getByRole('button', { name: /page-0\.jpg$/ })).toBeVisible();
+  await expect(page.getByText('26 files')).toBeVisible();
+  await expect(page.getByTestId('library-pager')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute('aria-current', 'page');
+});
+
 test('six-page pager keeps the last page reachable through middle pages on narrow screens', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 900 });
   const requests = await mockPagedLibrary(page, 150);
