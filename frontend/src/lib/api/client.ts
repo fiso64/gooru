@@ -241,8 +241,16 @@ export class ApiClient {
     for (const value of ordering.queueTimeMs ?? []) if (Number.isFinite(value) && value > 0) form.append('queue_time_ms', String(Math.trunc(value)));
     if (Number.isFinite(ordering.queueFirstTimeMs) && (ordering.queueFirstTimeMs ?? 0) > 0) form.append('queue_first_time_ms', String(Math.trunc(ordering.queueFirstTimeMs!)));
     if (Number.isFinite(ordering.queueLastTimeMs) && (ordering.queueLastTimeMs ?? 0) > 0) form.append('queue_last_time_ms', String(Math.trunc(ordering.queueLastTimeMs!)));
-    for (const value of ordering.queueIndex ?? []) if (Number.isInteger(value) && value >= 0) form.append('queue_index', String(value));
-    for (const value of ordering.queueTotal ?? []) if (Number.isInteger(value) && value > 0) form.append('queue_total', String(value));
+    const queueIndices = ordering.queueIndex ?? [];
+    const queueTotals = ordering.queueTotal ?? [];
+    const canonicalIndices = queueIndices.length === files.length && queueIndices.every((value, index) => value === index);
+    const canonicalTotals = queueTotals.length === files.length && queueTotals.every((value) => value === files.length);
+    if (!canonicalIndices) {
+      for (const value of queueIndices) if (Number.isInteger(value) && value >= 0) form.append('queue_index', String(value));
+    }
+    if (!canonicalTotals) {
+      for (const value of queueTotals) if (Number.isInteger(value) && value > 0) form.append('queue_total', String(value));
+    }
 
     return uploadMultipart<BackgroundOperation | UploadImportResponse>(`${absoluteBaseURL(this.baseURL)}/uploads`, form, {
       csrfToken: this.csrfToken,
@@ -343,7 +351,7 @@ async function parseJSONResponse<T>(response: Response): Promise<T | undefined> 
 
 function apiErrorFromResponse(response: Response, payload: unknown): ApiError {
   const errorPayload = payload as ApiErrorResponse | undefined;
-  const error = new ApiError(response.status, errorPayload?.error?.code ?? 'http_error', errorPayload?.error?.message ?? `Request failed with HTTP ${response.status}`);
+  const error = new ApiError(response.status, errorPayload?.error.code ?? 'http_error', errorPayload?.error.message ?? `Request failed with HTTP ${response.status}`);
   if (response.status === 401) unauthorizedHandler?.();
   return error;
 }
