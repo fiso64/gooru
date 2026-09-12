@@ -2,6 +2,8 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
+	"strings"
 
 	"gooru.local/types"
 )
@@ -29,4 +31,61 @@ func (s *Store) GetLocationSourceByPath(path string) (types.LocationInfo, error)
 		loc.StoragePath = storagePath.String
 	}
 	return loc, nil
+}
+
+// BatchGetLocationSourcesByPaths returns tracked logical locations together with
+// optional managed physical storage paths in bounded batches. This avoids an
+// N+1 lookup when callers need to test many tracked sources at once.
+func (s *Store) BatchGetLocationSourcesByPaths(paths []string) (map[string]types.LocationInfo, error) {
+	locations := make(map[string]types.LocationInfo)
+	if len(paths) == 0 {
+		return locations, nil
+	}
+
+	const columns = 1
+	batchSize := maxVars / columns
+	for i := 0; i < len(paths); i += batchSize {
+		end := i + batchSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+		batch := paths[i:end]
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+		query := fmt.Sprintf(`
+			SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.extension, l.tags_cache,
+			       msl.physical_path
+			FROM locations l
+			LEFT JOIN managed_storage_locations msl ON msl.location_id = l.id
+			WHERE l.path IN (%s)`, placeholders)
+		args := make([]interface{}, len(batch))
+		for j, path := range batch {
+			args[j] = path
+		}
+
+		rows, err := s.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var loc types.LocationInfo
+			var storagePath sql.NullString
+			if err := rows.Scan(
+				&loc.Path, &loc.Hash, &loc.Size, &loc.ModTime, &loc.Extension, &loc.TagsCache, &storagePath,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if storagePath.Valid {
+				loc.StoragePath = storagePath.String
+			}
+			locations[loc.Path] = loc
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return locations, nil
 }
