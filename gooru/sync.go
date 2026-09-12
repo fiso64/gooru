@@ -151,6 +151,7 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		if err != nil {
 			continue
 		}
+		delete(fsPaths, source.StoragePath)
 		fsPaths[path] = logicalMetadata{size: info.Size, modTime: info.ModTime.Unix()}
 	}
 
@@ -220,13 +221,16 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	// A managed location whose physical source still exists is not missing merely
 	// because its canonical logical path is intentionally absent. Synthesize that
 	// logical identity into the planner's filesystem view so the first pass cannot
-	// propose a destructive move/delete for a live managed upload.
+	// propose a destructive move/delete for a live managed upload. If the backing
+	// path is itself inside a scanned directory, remove that physical alias first
+	// so it cannot also be proposed as a separate ordinary location.
 	for path, dbInfo := range dbLocationsInScope {
 		source, ok := trackedSources[path]
 		if !ok || source.StoragePath == "" {
 			continue
 		}
 		if _, err := os.Stat(source.StoragePath); err == nil || !os.IsNotExist(err) {
+			delete(fsLocations, source.StoragePath)
 			fsLocations[path] = dbInfo
 		}
 	}

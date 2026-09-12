@@ -165,4 +165,12 @@ func TestRelinkRepairsMovedManagedPhysicalSource(t *testing.T) {
 	if needsRelink {
 		t.Fatal("managed source still needs relink after physical-path repair")
 	}
+
+	result, err = client.Relink([]string{scanDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ProposedMoves) != 0 || len(result.ProposedAdds) != 0 || len(result.ProposedDeletes) != 0 {
+		t.Fatalf("repaired managed source produced follow-up relink changes: %+v", result)
+	}
 }
