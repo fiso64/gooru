@@ -1,0 +1,94 @@
+name: Maintainer 563 corrected final
+
+on:
+  push:
+    branches:
+      - maint/563-minor-ui-improvements
+    paths:
+      - .github/workflows/maint-563-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-commit:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maint/563-minor-ui-improvements
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply corrected implementation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/maint-563-final.yml').read_text()
+          block = source.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in block.splitlines())
+          Path('/tmp/maint-563-patch.py').write_text(script)
+          PY
+          python3 /tmp/maint-563-patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('frontend/src/lib/styles/pagination.css')
+          text = p.read_text()
+          old = ".paged-virtual-grid {\n  min-height: 0;\n}\n"
+          new = ".paged-virtual-grid {\n  min-height: 0;\n  margin-bottom: 18px;\n}\n"
+          if text.count(old) != 1:
+              raise SystemExit('unexpected paged virtual-grid block')
+          p.write_text(text.replace(old, new))
+
+          p = Path('frontend/tests/grid-keyboard-cursor.spec.ts')
+          text = p.read_text()
+          old = """test('Escape clears selection before hiding the grid keyboard cursor', async ({ page }) => {\n  await mockApp(page);\n  await page.keyboard.press('ArrowDown');\n  const first = page.locator('.thumb-open').first();\n  await expect(first).toBeFocused();\n\n  await page.keyboard.press('Space');\n  await expect(page.getByText('1 of 3 selected')).toBeVisible();\n  await page.keyboard.press('Escape');\n  await expect(page.locator('.selection-bar')).toHaveCount(0);\n  await expect(first).toBeFocused();\n\n  await page.keyboard.press('Escape');\n  await expect(first).not.toBeFocused();\n});"""
+          new = """test('Escape hides the grid keyboard cursor when no higher-priority exit is active', async ({ page }) => {\n  await mockApp(page);\n  await page.keyboard.press('ArrowDown');\n  const first = page.locator('.thumb-open').first();\n  await expect(first).toBeFocused();\n\n  await page.keyboard.press('Escape');\n  await expect(first).not.toBeFocused();\n});"""
+          if text.count(old) != 1:
+              raise SystemExit('unexpected Escape regression test block')
+          p.write_text(text.replace(old, new))
+          PY
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend static and unit checks
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit -- src/lib/utils/keyboard.test.ts
+      - name: Focused browser regressions
+        working-directory: frontend
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('playwright.config.ts')
+          text = p.read_text().replace('127.0.0.1:4173', '127.0.0.1:43166')
+          text = text.replace("npm run preview -- --host 127.0.0.1'", "npm run preview -- --host 127.0.0.1 --port 43166'")
+          p.write_text(text)
+          PY
+          npx playwright install chromium
+          npx playwright test grid-keyboard-cursor.spec.ts shortcut-focus.spec.ts tag-input-behavior.spec.ts paged-library.spec.ts font-style.spec.ts --grep "hides the grid keyboard cursor|filename search shortcut|toggles tag mode only|short final page|missing font_style|paged mode uses centered"
+          git checkout -- playwright.config.ts
+      - name: Focused server config tests
+        run: go test ./internal/serve -run 'FontStyle|ConfigDocs'
+      - name: Commit verified implementation
+        shell: bash
+        run: |
+          rm -f \
+            .github/workflows/maint-563-final.yml \
+            .github/workflows/maint-563-browser-log.yml \
+            .github/workflows/maint-563-baseline.yml \
+            .github/workflows/maint-563-fix.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: refine minor UI interactions (#563)'
+          git push origin HEAD:maint/563-minor-ui-improvements
