@@ -95,7 +95,7 @@
             group = lib.mkOption {
               type = lib.types.str;
               default = "gooru";
-              description = "Group account under which Gooru runs.";
+              description = "Group under which Gooru runs.";
             };
 
             settings = lib.mkOption {
