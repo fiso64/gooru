@@ -11,7 +11,7 @@ vi.mock('svelte', async () => {
   return { ...actual, untrack: untrackSpy };
 });
 
-import { createUploadWorkflow } from './uploadWorkflow.svelte';
+import { createUploadWorkflow, maxFilesPerMultipartUpload } from './uploadWorkflow.svelte';
 
 function uploadFile(index: number): File {
   return {
@@ -22,14 +22,14 @@ function uploadFile(index: number): File {
   } as File;
 }
 
-function pendingJob(id: string): Job & BackgroundOperation {
+function pendingJob(id: string, total: number): Job & BackgroundOperation {
   return {
     id,
     type: 'upload_import',
     kind: 'upload_import',
     status: 'pending',
     progress: 0,
-    progress_total: 10_000,
+    progress_total: total,
     progress_completed: 0,
     progress_completed_prefix: 0,
     progress_failed: 0,
@@ -41,31 +41,34 @@ function pendingJob(id: string): Job & BackgroundOperation {
 describe('large upload transport progress', () => {
   beforeEach(() => untrackSpy.mockClear());
 
-  it('mutates only rows whose displayed progress changes and ignores duplicate aggregate events', async () => {
+  it('mutates only rows whose displayed progress changes and ignores duplicate aggregate events per bounded chunk', async () => {
     const workflow = createUploadWorkflow();
     workflow.select(Array.from({ length: 10_000 }, (_, index) => uploadFile(index)));
+    let callIndex = 0;
 
     await workflow.submit(async (variables) => {
+      callIndex += 1;
+      expect(variables.files).toHaveLength(maxFilesPerMultipartUpload);
       const assignSpy = vi.spyOn(Object, 'assign');
       try {
         assignSpy.mockClear();
         variables.onProgress?.(1);
-        expect(assignSpy).toHaveBeenCalledTimes(100);
-        expect(workflow.items.filter((item) => item.progress === 100)).toHaveLength(100);
+        expect(assignSpy).toHaveBeenCalledTimes(10);
 
         variables.onProgress?.(1);
-        expect(assignSpy).toHaveBeenCalledTimes(100);
+        expect(assignSpy).toHaveBeenCalledTimes(10);
 
         variables.onProgress?.(2);
-        expect(assignSpy).toHaveBeenCalledTimes(200);
-        expect(workflow.items.filter((item) => item.progress === 100)).toHaveLength(200);
+        expect(assignSpy).toHaveBeenCalledTimes(20);
       } finally {
         assignSpy.mockRestore();
       }
-      return pendingJob('job-large');
+      return pendingJob(`job-large-${callIndex}`, variables.files.length);
     });
 
-    expect(workflow.activeJobIDs).toEqual(['job-large']);
+    expect(callIndex).toBe(10);
+    expect(workflow.activeJobIDs).toEqual(Array.from({ length: 10 }, (_, index) => `job-large-${index + 1}`));
     expect(workflow.items).toHaveLength(10_000);
+    expect(workflow.items.every((item) => item.status === 'queued')).toBe(true);
   });
 });
