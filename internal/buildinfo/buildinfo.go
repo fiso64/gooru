@@ -6,12 +6,14 @@ import (
 	"strings"
 )
 
-// Version, Revision, and Dirty are overridden with -ldflags by release and
-// package builds. Source builds intentionally identify themselves as dev.
+// Version, Revision, Dirty, and Development are overridden with -ldflags by
+// release and package builds. Source builds intentionally identify themselves
+// as development builds.
 var (
-	Version  = "0.0.0-dev"
-	Revision = ""
-	Dirty    = ""
+	Version     = "0.0.0-dev"
+	Revision    = ""
+	Dirty       = ""
+	Development = ""
 )
 
 type Info struct {
@@ -46,7 +48,12 @@ func Current() Info {
 	if revision == "" {
 		revision = "unknown"
 	}
-	return Info{Version: version, Revision: revision, Dirty: dirty, Development: strings.Contains(version, "dev") || dirty || revision == "unknown"}
+	developmentText := strings.TrimSpace(Development)
+	development := strings.Contains(version, "dev") || dirty || revision == "unknown"
+	if developmentText != "" {
+		development = strings.EqualFold(developmentText, "true")
+	}
+	return Info{Version: version, Revision: revision, Dirty: dirty, Development: development}
 }
 
 func ShortRevision(revision string) string {
