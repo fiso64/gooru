@@ -1,0 +1,38 @@
+name: maintainer-clarify-awaiting-review
+
+on:
+  push:
+    branches:
+      - maintainer/clarify-awaiting-review
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'maint: clarify awaiting-review handoff'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/clarify-awaiting-review
+          fetch-depth: 0
+      - name: Clarify awaiting-review semantics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/maintainer-prompt.md')
+          s = p.read_text()
+          old = '`awaiting review` means the current open issue/PR is waiting on owner input/action, not necessarily that implementation is finished. Add it when requesting owner review, retest, diagnostic evidence, a product decision, or similar input.'
+          new = '`awaiting review` means the current open issue/PR is waiting on owner input/action, not necessarily that implementation is finished. Apply it whenever the next step depends on owner review, retest, diagnostic evidence, a product decision, or similar input, even if the issue remains unfixed.'
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one target paragraph, found {s.count(old)}')
+          p.write_text(s.replace(old, new))
+          PY
+          rm .github/workflows/maintainer-clarify-awaiting-review.yml
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/maintainer-prompt.md .github/workflows/maintainer-clarify-awaiting-review.yml
+          git commit -m 'maint: clarify awaiting-review handoff'
+          git push origin HEAD:maintainer/clarify-awaiting-review
