@@ -3,10 +3,12 @@ import type { Job } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
 import {
   backgroundOperationAsJob,
+  cancelActiveBackgroundOperations,
   cancelBackgroundOperation,
   clearCompletedBackgroundOperations,
   listBackgroundOperations,
   listBackgroundOperationsByIDs,
+  type BackgroundOperationCancelAllResponse,
   type BackgroundOperationClearResponse
 } from '$lib/api/operations';
 import {
@@ -122,6 +124,19 @@ export function createClearCompletedJobsMutation(getCSRFToken: () => string, que
     mutationFn: () => clearCompletedBackgroundOperations(getCSRFToken()),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: jobKeys.all });
+    }
+  }));
+}
+
+export function createCancelActiveJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<BackgroundOperationCancelAllResponse, Error, void>(() => ({
+    mutationFn: () => cancelActiveBackgroundOperations(getCSRFToken()),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: jobKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ['files'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', 'tags'] })
+      ]);
     }
   }));
 }
