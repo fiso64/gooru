@@ -208,6 +208,9 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	if filepath.Clean(initialDir) != filepath.Clean(targetDir) {
 		_ = os.Remove(initialDir)
 	}
+	if err := r.Context().Err(); err != nil {
+		return nil, saved, errUploadReceivingCanceled
+	}
 	if len(saved) == 1 && saved[0].status == "error" {
 		if saved[0].error == errUploadTooLarge.Error() {
 			return parseUploadTags(tagValues), saved, nil
