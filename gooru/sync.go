@@ -54,7 +54,21 @@ func (c *Client) EditPath(oldPath, newPath string) error {
 		return fmt.Errorf("could not resolve new path '%s': %w", newPath, err)
 	}
 
-	logicalInfo, err := c.hasher.FileMetadata(absNewPath)
+	// Managed uploads keep a canonical logical path in locations while their
+	// bytes live at a separate physical storage path. Renaming that logical
+	// identity must inspect the stored source rather than requiring the new
+	// logical path to exist on disk. Ordinary locations still inspect newPath,
+	// which is the file the user moved/renamed before invoking editpath.
+	sourcePath := absNewPath
+	tracked, err := c.store.GetLocationSourceByPath(absOldPath)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("could not inspect old tracked path '%s': %w", oldPath, err)
+	}
+	if err == nil && tracked.StoragePath != "" {
+		sourcePath = tracked.StoragePath
+	}
+
+	logicalInfo, err := c.hasher.FileMetadata(sourcePath)
 	if err != nil {
 		return fmt.Errorf("could not inspect new path '%s': %w", newPath, err)
 	}
