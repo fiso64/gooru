@@ -25,3 +25,7 @@
   opacity: 1;
   pointer-events: auto;
 }
+
+.gooru-root .login-v2-foot-links a:hover {
+  text-decoration: underline;
+}
