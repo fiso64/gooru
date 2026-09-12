@@ -11,6 +11,32 @@ import (
 	"gooru.local/internal/database"
 )
 
+type leaseRenewalContentionStore struct {
+	*database.Store
+	contentionObserved chan struct{}
+	renewedAfter       chan struct{}
+	sawContention      bool
+}
+
+func (s *leaseRenewalContentionStore) RenewBackgroundTaskLease(taskID, workerID string, now time.Time, leaseDuration time.Duration) (time.Time, error) {
+	leaseUntil, err := s.Store.RenewBackgroundTaskLease(taskID, workerID, now, leaseDuration)
+	if database.IsTransientSQLiteContention(err) {
+		if !s.sawContention {
+			s.sawContention = true
+			close(s.contentionObserved)
+		}
+		return leaseUntil, err
+	}
+	if err == nil && s.sawContention {
+		select {
+		case <-s.renewedAfter:
+		default:
+			close(s.renewedAfter)
+		}
+	}
+	return leaseUntil, err
+}
+
 func TestRunnerSurvivesRealSQLiteWriterContention(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gooru.db")
 	store, err := database.NewStore(dbPath, false)
@@ -112,14 +138,25 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 		t.Fatalf("acquire writer lock: %v", err)
 	}
 
+	observedStore := &leaseRenewalContentionStore{
+		Store:              store,
+		contentionObserved: make(chan struct{}),
+		renewedAfter:       make(chan struct{}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	releaseDone := make(chan error, 1)
 	go func() {
-		time.Sleep(55 * time.Millisecond)
-		releaseDone <- writerTx.Commit()
+		select {
+		case <-observedStore.contentionObserved:
+			releaseDone <- writerTx.Commit()
+		case <-ctx.Done():
+			releaseDone <- ctx.Err()
+		}
 	}()
 
 	runner, err := NewRunner(RunnerConfig{
-		Store:         store,
+		Store:         observedStore,
 		ResourceClass: "image",
 		WorkerID:      "worker-lifecycle",
 		LeaseDuration: 120 * time.Millisecond,
@@ -127,10 +164,10 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 		Handlers: map[string]Handler{
 			"thumbnail": func(ctx context.Context, _ database.BackgroundTask) error {
 				select {
-				case <-time.After(80 * time.Millisecond):
+				case <-observedStore.renewedAfter:
 					return nil
 				case <-ctx.Done():
-					return fmt.Errorf("handler canceled during transient contention: %w", ctx.Err())
+					return fmt.Errorf("handler canceled before lease recovered from transient contention: %w", ctx.Err())
 				}
 			},
 		},
@@ -138,7 +175,7 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
-	if err := runner.runClaimed(context.Background(), claimed); err != nil {
+	if err := runner.runClaimed(ctx, claimed); err != nil {
 		t.Fatalf("run claimed task through renewal contention: %v", err)
 	}
 	if err := <-releaseDone; err != nil {
