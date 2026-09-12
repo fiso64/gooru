@@ -69,9 +69,6 @@
   const indexedItems = $derived(uploadItems.map((item: UploadItem, index: number) => ({ item, index })));
   const partitionedRows = $derived.by(() => {
     const rows = indexedItems;
-    // Staged-vs-queue membership changes only when the workflow structurally
-    // replaces/adds/removes rows. Per-row status/progress changes should not
-    // make a 10K queue re-run its category filters.
     return untrack(() => partitionUploadRows(rows));
   });
   const stagedRows = $derived(partitionedRows.staged);
@@ -109,73 +106,18 @@
     if (!queueBatches.length && Object.keys(queuePages).length) queuePages = {};
   });
 
-  function chooseFiles() {
-    fileInput?.click();
-  }
-
-  function hasFiles(event: DragEvent) {
-    return Array.from(event.dataTransfer?.types ?? []).includes('Files');
-  }
-
-  function handleDragOver(event: DragEvent) {
-    if (!hasFiles(event)) return;
-    event.preventDefault();
-    dragActive = true;
-  }
-
-  function handleDragLeave(event: DragEvent) {
-    const nextTarget = event.relatedTarget as Node | null;
-    if (nextTarget && (event.currentTarget as HTMLElement).contains(nextTarget)) return;
-    dragActive = false;
-  }
-
-  function handleDrop(event: DragEvent) {
-    if (!hasFiles(event)) return;
-    event.preventDefault();
-    dragActive = false;
-    onFiles(event.dataTransfer?.files ?? null);
-  }
-
-  function picked(event: Event) {
-    const input = event.currentTarget as HTMLInputElement;
-    onFiles(input.files);
-    input.value = '';
-  }
-
-  function commitInitialTag(tagInput: string) {
-    onTagsInput(Array.from(new Set([...initialTags, ...parseTags(tagInput)])).join(' '));
-    tagDraft = '';
-  }
-
-  function removeInitialTag(tag: string) {
-    onTagsInput(initialTags.filter((candidate) => candidate !== tag).join(' '));
-  }
-
-  function itemIcon(item: UploadItem) {
-    if (item.type?.startsWith('video/')) return 'video';
-    if (item.type?.startsWith('audio/')) return 'audio';
-    if (item.type === 'image/gif') return 'gif';
-    if (item.name.match(/\.(zip|tar|gz)$/i)) return 'folder';
-    return 'photo';
-  }
-
-  function statusClass(status: string) {
-    if (status === 'imported' || status === 'uploaded') return 'ok';
-    if (status === 'error') return 'err';
-    return '';
-  }
-
-  function statusLabel(status: string) {
-    return status.replace(/_/g, ' ');
-  }
-
-  function handleShortcut(event: KeyboardEvent) {
-    if (event.defaultPrevented || stagedRows.length === 0) return;
-    if (uploadShortcutAction(event.key, event.target, event.ctrlKey, event.metaKey, event.altKey, event.shiftKey) !== 'submit-upload') return;
-    event.preventDefault();
-    onSubmit();
-  }
-
+  function chooseFiles() { fileInput?.click(); }
+  function hasFiles(event: DragEvent) { return Array.from(event.dataTransfer?.types ?? []).includes('Files'); }
+  function handleDragOver(event: DragEvent) { if (!hasFiles(event)) return; event.preventDefault(); dragActive = true; }
+  function handleDragLeave(event: DragEvent) { const nextTarget = event.relatedTarget as Node | null; if (nextTarget && (event.currentTarget as HTMLElement).contains(nextTarget)) return; dragActive = false; }
+  function handleDrop(event: DragEvent) { if (!hasFiles(event)) return; event.preventDefault(); dragActive = false; onFiles(event.dataTransfer?.files ?? null); }
+  function picked(event: Event) { const input = event.currentTarget as HTMLInputElement; onFiles(input.files); input.value = ''; }
+  function commitInitialTag(tagInput: string) { onTagsInput(Array.from(new Set([...initialTags, ...parseTags(tagInput)])).join(' ')); tagDraft = ''; }
+  function removeInitialTag(tag: string) { onTagsInput(initialTags.filter((candidate) => candidate !== tag).join(' ')); }
+  function itemIcon(item: UploadItem) { if (item.type?.startsWith('video/')) return 'video'; if (item.type?.startsWith('audio/')) return 'audio'; if (item.type === 'image/gif') return 'gif'; if (item.name.match(/\.(zip|tar|gz)$/i)) return 'folder'; return 'photo'; }
+  function statusClass(status: string) { if (status === 'imported' || status === 'uploaded') return 'ok'; if (status === 'error') return 'err'; return ''; }
+  function statusLabel(status: string) { return status.replace(/_/g, ' '); }
+  function handleShortcut(event: KeyboardEvent) { if (event.defaultPrevented || stagedRows.length === 0) return; if (uploadShortcutAction(event.key, event.target, event.ctrlKey, event.metaKey, event.altKey, event.shiftKey) !== 'submit-upload') return; event.preventDefault(); onSubmit(); }
 </script>
 
 <svelte:window onkeydown={handleShortcut} />
@@ -190,77 +132,34 @@
 
     <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); onSubmit(); }}>
       <section class="g-card upload-config-card">
-        <div class="field-row">
-          <span>Target</span>
-          <div class="field-control">
-            <UploadTargetPicker targets={targets} selectedID={selectedTargetID} onSelect={onTargetInput} />
-          </div>
-        </div>
-
+        <div class="field-row"><span>Target</span><div class="field-control"><UploadTargetPicker targets={targets} selectedID={selectedTargetID} onSelect={onTargetInput} /></div></div>
         <div class="field-row">
           <span>Initial tags</span>
           <div class="field-control upload-tags-control">
             {#each initialTags as tag}
               {@const separator = tag.indexOf(':')}
               <span class="g-tag">
-                {#if separator > 0}
-                  <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
-                {:else}
-                  <span>{tag}</span>
-                {/if}
-                <button class="g-tag-x" type="button" aria-label={`Remove ${tag}`} onclick={() => removeInitialTag(tag)}>
-                  <Icon name="close" size={11} />
-                </button>
+                {#if separator > 0}<span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>{:else}<span>{tag}</span>{/if}
+                <button class="g-tag-x" type="button" aria-label={`Remove ${tag}`} onclick={() => removeInitialTag(tag)}><Icon name="close" size={11} /></button>
               </span>
             {/each}
-
-            <TagAutocompleteInput
-              value={tagDraft}
-              {tags}
-              existing={initialTags}
-              placeholder="add tag — e.g. subject:portrait"
-              ariaLabel="Initial tags"
-              onInput={(value) => (tagDraft = value)}
-              onCommit={commitInitialTag}
-              onRemoveLast={removeInitialTag}
-            />
+            <TagAutocompleteInput value={tagDraft} {tags} existing={initialTags} placeholder="add tag — e.g. subject:portrait" ariaLabel="Initial tags" onInput={(value) => (tagDraft = value)} onCommit={commitInitialTag} onRemoveLast={removeInitialTag} />
           </div>
         </div>
-
         <div class="field-row">
           <span>Added time</span>
-          <div class="field-control">
-            <div class="seg" aria-label="Library added time strategy">
-              {#each [{ value: 'queue', label: 'Queue' }, { value: 'reverse_queue', label: 'Reverse queue' }, { value: 'modtime', label: 'File modified' }] as option}
-                <button type="button" class={addedAtStrategy === option.value ? 'is-active' : ''} onclick={() => onAddedAtStrategyInput(option.value as 'queue' | 'reverse_queue' | 'modtime')}>{option.label}</button>
-              {/each}
-            </div>
-          </div>
+          <div class="field-control"><div class="seg" aria-label="Library added time strategy">
+            {#each [{ value: 'queue', label: 'Queue' }, { value: 'reverse_queue', label: 'Reverse queue' }, { value: 'modtime', label: 'File modified' }] as option}
+              <button type="button" class={addedAtStrategy === option.value ? 'is-active' : ''} onclick={() => onAddedAtStrategyInput(option.value as 'queue' | 'reverse_queue' | 'modtime')}>{option.label}</button>
+            {/each}
+          </div></div>
         </div>
-
       </section>
 
-      <section
-        class={`upload-zone ${dragActive ? 'is-drag' : ''}`}
-        role="group"
-        aria-label="File upload drop zone"
-        style="position: relative;"
-        ondragover={handleDragOver}
-        ondragleave={handleDragLeave}
-        ondrop={handleDrop}
-      >
+      <section class={`upload-zone ${dragActive ? 'is-drag' : ''}`} role="group" aria-label="File upload drop zone" style="position: relative;" ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop}>
         <input bind:this={fileInput} type="file" multiple hidden onchange={picked} />
-        <button
-          type="button"
-          aria-label="Browse files from drop zone"
-          style="position: absolute; inset: 0; z-index: 0; border: 0; background: transparent; cursor: pointer;"
-          onclick={chooseFiles}
-        ></button>
-        <div
-          class="seg"
-          aria-label="Upload drop behavior"
-          style="position: absolute; top: 12px; right: 12px; z-index: 2;"
-        >
+        <button type="button" aria-label="Browse files from drop zone" style="position: absolute; inset: 0; z-index: 0; border: 0; background: transparent; cursor: pointer;" onclick={chooseFiles}></button>
+        <div class="seg" aria-label="Upload drop behavior" style="position: absolute; top: 12px; right: 12px; z-index: 2;">
           <button type="button" class={!autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(false)}>Stage first</button>
           <button type="button" class={autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(true)}>Auto-upload</button>
         </div>
@@ -279,40 +178,17 @@
             <div class="g-eyebrow">Staged · {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'} · {formatBytes(stagedBytes)}</div>
             <div class="upload-list-actions">
               <button class="g-btn g-btn-sm" type="button" onclick={() => onClear('staged')}><Icon name="close" size={12} /> Clear staged</button>
-              <button class="g-btn g-btn-primary g-btn-sm" type="submit">
-                <Icon name="upload" size={12} /> Upload {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'}
-              </button>
+              <button class="g-btn g-btn-primary g-btn-sm" type="submit"><Icon name="upload" size={12} /> Upload {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'}</button>
             </div>
           </div>
           <div class="g-card upload-list-card">
             <div class="upload-list" data-testid="staged-upload-list">
               {#each stagedVisibleRows as row (row.index)}
                 {@const item = row.item}
-                <div class="upload-row upload-row-staged">
-                  <UploadMediaPreview file={item.previewFile} {item} />
-                  <div><div class="name">{item.name}</div></div>
-                  <div class="size">{formatBytes(item.size)}</div>
-                  <div class="progress is-staged" aria-hidden="true"></div>
-                  <div class="status">
-                    <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => onRemove(row.index)}>
-                      <Icon name="close" size={11} />
-                    </button>
-                  </div>
-                </div>
+                <div class="upload-row upload-row-staged"><UploadMediaPreview file={item.previewFile} {item} /><div><div class="name">{item.name}</div></div><div class="size">{formatBytes(item.size)}</div><div class="progress is-staged" aria-hidden="true"></div><div class="status"><button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => onRemove(row.index)}><Icon name="close" size={11} /></button></div></div>
               {/each}
             </div>
-            {#if stagedPageCount > 1}
-              <div class="upload-list-pager">
-                <PageNav
-                  page={stagedPage + 1}
-                  pageCount={stagedPageCount}
-                  ariaLabel="Staged upload pages"
-                  embedded
-                  onPage={(page) => (stagedPage = page - 1)}
-                />
-                <span>Showing {stagedVisibleRows.length} at a time</span>
-              </div>
-            {/if}
+            {#if stagedPageCount > 1}<div class="upload-list-pager"><PageNav page={stagedPage + 1} pageCount={stagedPageCount} ariaLabel="Staged upload pages" embedded onPage={(page) => (stagedPage = page - 1)} /><span>Showing {stagedVisibleRows.length} at a time</span></div>{/if}
           </div>
         </section>
       {/if}
@@ -322,56 +198,26 @@
           <div class:has-active-job={uploadBusy || Boolean(activeUploadJobID)} class="upload-list-head upload-queue-head">
             <div class="g-eyebrow">Queue · {queueRows.length} {queueRows.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
             <div class="upload-list-actions upload-queue-actions">
-              <button class="g-btn g-btn-sm" type="button" disabled title="Pause uploads coming soon"><Icon name="pause" size={12} /> Pause all</button>
+              {#if uploadBusy || activeUploadJobID}
+                <button class="g-btn g-btn-sm" type="button" disabled={cancelBusy || cancelRequested} onclick={() => onCancel(activeUploadJobID)}>
+                  <Icon name="close" size={12} /> {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
+                </button>
+              {/if}
               <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => onClear('done')}><Icon name="close" size={12} /> Clear done</button>
             </div>
-            {#if uploadBusy || activeUploadJobID}
-              <button
-                class="g-btn g-btn-sm upload-cancel-action"
-                type="button"
-                disabled={cancelBusy || cancelRequested}
-                onclick={() => onCancel(activeUploadJobID)}
-              >
-                {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
-              </button>
-            {/if}
           </div>
           <div class="upload-batches" data-testid="upload-queue-list">
             {#each queueBatches as batch (batch.batchID ?? 'legacy')}
               {@const pageState = queueBatchPage(batch)}
               <div class="g-card upload-list-card upload-batch-card" data-testid="upload-queue-batch" data-batch-id={batch.batchID ?? 'legacy'}>
-                <div class="upload-list-head upload-batch-head">
-                  <div class="g-eyebrow">{batchLabel(batch)} · {batch.rows.length} {batch.rows.length === 1 ? 'file' : 'files'} · {formatBytes(batch.bytes)}</div>
-                </div>
+                <div class="upload-list-head upload-batch-head"><div class="g-eyebrow">{batchLabel(batch)} · {batch.rows.length} {batch.rows.length === 1 ? 'file' : 'files'} · {formatBytes(batch.bytes)}</div></div>
                 <div class="upload-list">
                   {#each pageState.rows as row (row.index)}
                     {@const item = row.item}
-                    <div class="upload-row">
-                      <UploadMediaPreview file={item.previewFile} {item} />
-                      <div>
-                        <div class="name">{item.name}</div>
-                        {#if item.error}<div class="upload-error">{item.error}</div>{/if}
-                      </div>
-                      <div class="size">{formatBytes(item.size)}</div>
-                      <div class="progress" aria-label={`${statusLabel(item.status)} ${item.progress}%`}>
-                        <div style={`width: ${item.progress}%`}></div>
-                      </div>
-                      <div class={`status ${statusClass(item.status)}`}>{statusLabel(item.status)}</div>
-                    </div>
+                    <div class="upload-row"><UploadMediaPreview file={item.previewFile} {item} /><div><div class="name">{item.name}</div>{#if item.error}<div class="upload-error">{item.error}</div>{/if}</div><div class="size">{formatBytes(item.size)}</div><div class="progress" aria-label={`${statusLabel(item.status)} ${item.progress}%`}><div style={`width: ${item.progress}%`}></div></div><div class={`status ${statusClass(item.status)}`}>{statusLabel(item.status)}</div></div>
                   {/each}
                 </div>
-                {#if pageState.pageCount > 1}
-                  <div class="upload-list-pager">
-                    <PageNav
-                      page={pageState.page + 1}
-                      pageCount={pageState.pageCount}
-                      ariaLabel={`${batchLabel(batch)} upload queue pages`}
-                      embedded
-                      onPage={(page) => setQueueBatchPage(batch, page - 1)}
-                    />
-                    <span>Showing {pageState.rows.length} at a time</span>
-                  </div>
-                {/if}
+                {#if pageState.pageCount > 1}<div class="upload-list-pager"><PageNav page={pageState.page + 1} pageCount={pageState.pageCount} ariaLabel={`${batchLabel(batch)} upload queue pages`} embedded onPage={(page) => setQueueBatchPage(batch, page - 1)} /><span>Showing {pageState.rows.length} at a time</span></div>{/if}
               </div>
             {/each}
           </div>
@@ -382,23 +228,7 @@
 </main>
 
 <style>
-  .upload-batches {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .upload-batch-head {
-    padding: 12px 14px 0;
-  }
-
-  .upload-list-pager {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    color: var(--text-3);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding-bottom: 10px;
-  }
+  .upload-batches { display: flex; flex-direction: column; gap: 12px; }
+  .upload-batch-head { padding: 12px 14px 0; }
+  .upload-list-pager { display: flex; flex-direction: column; align-items: center; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; padding-bottom: 10px; }
 </style>
