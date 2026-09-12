@@ -114,6 +114,10 @@ func (s *Server) backgroundMediaMetadataHandler(ctx context.Context, task core.B
 		if err != nil {
 			return err
 		}
+		file, err = library.client.ResolveManagedStorage(file)
+		if err != nil {
+			return fmt.Errorf("resolve media metadata storage: %w", err)
+		}
 		if err := library.cacheMediaMetadataForFile(ctx, file, fileStoragePath(file)); err != nil {
 			return err
 		}
