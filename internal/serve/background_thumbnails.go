@@ -102,7 +102,8 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundThumbnailResourceClass,
 		WorkerID:      workerID + "-media",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundThumbnailTaskKind: s.backgroundThumbnailHandler,
+			backgroundThumbnailTaskKind:     s.backgroundThumbnailHandler,
+			backgroundMediaMetadataTaskKind: s.backgroundMediaMetadataHandler,
 		},
 	})
 	if err != nil {
@@ -122,7 +123,7 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundUploadResourceClass,
 		WorkerID:      workerID + "-upload",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundUploadTaskKind:        s.backgroundUploadHandler(client),
+			backgroundUploadTaskKind:        s.backgroundUploadHandler(backgroundUploadFinalizingStore{backgroundUploadWorkerStore: client, tasks: client}),
 			backgroundUploadCleanupTaskKind: s.backgroundUploadCleanupHandler(client),
 		},
 	})

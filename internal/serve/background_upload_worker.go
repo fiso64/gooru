@@ -117,7 +117,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		return fmt.Errorf("upload background checkpoint has invalid phase %q", checkpoint.Phase)
 	}
 
-	response, err := importer.importUploadedFiles(ctx, durableStagedUploads(files), tags, task.OperationID, activated)
+	response, err := importer.importUploadedFiles(withDeferredUploadMediaMetadata(ctx), durableStagedUploads(files), tags, task.OperationID, activated)
 	if err != nil {
 		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 		if stateErr != nil {
