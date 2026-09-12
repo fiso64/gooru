@@ -2,11 +2,24 @@ package serve
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 )
+
+type cancelingReadableUploadBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (b *cancelingReadableUploadBody) Read(p []byte) (int, error) {
+	b.once.Do(b.cancel)
+	return b.ReadCloser.Read(p)
+}
 
 func TestDurableUploadCanceledRequestDoesNotAttachAfterReadableBodyStages(t *testing.T) {
 	targetDir := t.TempDir()
@@ -15,8 +28,8 @@ func TestDurableUploadCanceledRequestDoesNotAttachAfterReadableBodyStages(t *tes
 	req := uploadRequest(t, map[string]string{"photo.jpg": "hello"}, nil)
 	req.Header.Set("Prefer", "respond-async")
 	ctx, cancel := context.WithCancel(req.Context())
-	cancel()
 	req = req.WithContext(ctx)
+	req.Body = &cancelingReadableUploadBody{ReadCloser: req.Body, cancel: cancel}
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, req)
