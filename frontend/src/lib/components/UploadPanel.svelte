@@ -198,13 +198,13 @@
           <div class:has-active-job={uploadBusy || Boolean(activeUploadJobID)} class="upload-list-head upload-queue-head">
             <div class="g-eyebrow">Queue · {queueRows.length} {queueRows.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
             <div class="upload-list-actions upload-queue-actions">
+              {#if uploadBusy || activeUploadJobID}
+                <button class="g-btn g-btn-sm" type="button" disabled={cancelBusy || cancelRequested} onclick={() => onCancel(activeUploadJobID)}>
+                  <Icon name="close" size={12} /> {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
+                </button>
+              {/if}
               <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => onClear('done')}><Icon name="close" size={12} /> Clear done</button>
             </div>
-            {#if uploadBusy || activeUploadJobID}
-              <button class="g-btn g-btn-sm upload-cancel-action" type="button" disabled={cancelBusy || cancelRequested} onclick={() => onCancel(activeUploadJobID)}>
-                {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
-              </button>
-            {/if}
           </div>
           <div class="upload-batches" data-testid="upload-queue-list">
             {#each queueBatches as batch (batch.batchID ?? 'legacy')}
@@ -231,4 +231,5 @@
   .upload-batches { display: flex; flex-direction: column; gap: 12px; }
   .upload-batch-head { padding: 12px 14px 0; }
   .upload-list-pager { display: flex; flex-direction: column; align-items: center; color: var(--text-3); font-family: var(--font-mono); font-size: 11px; padding-bottom: 10px; }
+  .upload-queue-head.has-active-job:hover .upload-queue-actions { opacity: 1; pointer-events: auto; }
 </style>
