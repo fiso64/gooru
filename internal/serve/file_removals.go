@@ -79,7 +79,7 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 	// validate every selected path before moving or untracking any one of them.
 	if request.Mode == "delete" {
 		for _, file := range files {
-			if !s.canDeleteFilePath(file.Path) {
+			if !s.canDeleteFilePath(fileStoragePath(file)) {
 				writeError(w, http.StatusConflict, "file_not_managed", "one or more selected files are outside configured upload targets; untrack them instead", nil)
 				return
 			}
