@@ -39,7 +39,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
 		backgroundContent = gooruLibrary
 		backgroundOperations = gooruLibrary
-		gooruLibrary.backgroundTasks = media.backgroundUploadTaskRequests
+		gooruLibrary.backgroundTasks = media.backgroundTaskRequests
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
 		if err := gooruLibrary.configureManagedUploadRoots(cfg.Uploads.Targets); err != nil {

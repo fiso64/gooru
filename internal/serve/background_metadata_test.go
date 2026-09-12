@@ -45,21 +45,15 @@ func TestDeferredUploadMediaMetadataSkipsSynchronousExtraction(t *testing.T) {
 	}
 }
 
-func TestBackgroundUploadTaskRequestsAlwaysIncludeMetadata(t *testing.T) {
-	cfg := DefaultConfig("")
-	cfg.Media.ThumbnailSizes = nil
-	media := NewMediaService(cfg)
-	location := types.LocationInfo{Path: "/library/photo.jpg", Hash: "content-hash"}
-
-	tasks := media.backgroundUploadTaskRequests(location)
-	if len(tasks) != 1 {
-		t.Fatalf("tasks = %d, want metadata task only", len(tasks))
+func TestBackgroundMediaMetadataTaskBelongsToUploadOperation(t *testing.T) {
+	request := backgroundMediaMetadataTaskRequest("operation-id")
+	if request.OperationID != "operation-id" || request.SubjectKind != "operation" || request.SubjectID != "operation-id" {
+		t.Fatalf("unexpected finalizer ownership: %+v", request)
 	}
-	task := tasks[0]
-	if task.Kind != backgroundMediaMetadataTaskKind || task.SubjectKind != "location" || task.SubjectID != location.Path {
-		t.Fatalf("unexpected metadata task: %+v", task)
+	if request.Kind != backgroundMediaMetadataTaskKind || request.ResourceClass != backgroundThumbnailResourceClass {
+		t.Fatalf("unexpected finalizer routing: %+v", request)
 	}
-	if task.DedupeKey != "metadata:"+location.Path || task.InputKey != location.Hash || task.ResourceClass != backgroundThumbnailResourceClass {
-		t.Fatalf("unexpected metadata task identity: %+v", task)
+	if request.DedupeKey != "operation-id:metadata-finalize" {
+		t.Fatalf("unexpected finalizer dedupe key: %q", request.DedupeKey)
 	}
 }

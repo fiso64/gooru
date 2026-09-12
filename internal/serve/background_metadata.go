@@ -2,15 +2,16 @@ package serve
 
 import (
 	"context"
-	"errors"
+	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	core "gooru.local/gooru"
 	"gooru.local/types"
 )
 
-const backgroundMediaMetadataTaskKind = "media.metadata"
+const backgroundMediaMetadataTaskKind = "upload.metadata-finalize"
 
 type deferUploadMediaMetadataContextKey struct{}
 
@@ -23,21 +24,35 @@ func uploadMediaMetadataDeferred(ctx context.Context) bool {
 	return deferred
 }
 
-func backgroundMediaMetadataTaskRequest(location types.LocationInfo) core.BackgroundTaskRequest {
+type backgroundTaskEnqueuer interface {
+	EnqueueBackgroundTask(core.BackgroundTaskRequest) (core.BackgroundTask, bool, error)
+}
+
+type backgroundUploadFinalizingStore struct {
+	backgroundUploadWorkerStore
+	tasks backgroundTaskEnqueuer
+}
+
+func (s backgroundUploadFinalizingStore) SetBackgroundOperationResult(operationID string, result any) error {
+	if s.tasks != nil {
+		if _, _, err := s.tasks.EnqueueBackgroundTask(backgroundMediaMetadataTaskRequest(operationID)); err != nil {
+			return fmt.Errorf("enqueue upload metadata finalizer: %w", err)
+		}
+	}
+	return s.backgroundUploadWorkerStore.SetBackgroundOperationResult(operationID, result)
+}
+
+func backgroundMediaMetadataTaskRequest(operationID string) core.BackgroundTaskRequest {
 	return core.BackgroundTaskRequest{
-		DedupeKey:     "metadata:" + location.Path,
+		OperationID:   operationID,
+		DedupeKey:     operationID + ":metadata-finalize",
 		Kind:          backgroundMediaMetadataTaskKind,
-		SubjectKind:   "location",
-		SubjectID:     location.Path,
-		InputKey:      location.Hash,
+		SubjectKind:   "operation",
+		SubjectID:     operationID,
+		InputKey:      operationID,
 		ResourceClass: backgroundThumbnailResourceClass,
 		MaxAttempts:   5,
 	}
-}
-
-func (m *MediaService) backgroundUploadTaskRequests(location types.LocationInfo) []core.BackgroundTaskRequest {
-	tasks := append([]core.BackgroundTaskRequest(nil), m.backgroundTaskRequests(location)...)
-	return append(tasks, backgroundMediaMetadataTaskRequest(location))
 }
 
 func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types.FileInfo, analysisPath string) error {
@@ -73,15 +88,35 @@ func (s *Server) backgroundMediaMetadataHandler(ctx context.Context, task core.B
 	if !ok || library == nil {
 		return fmt.Errorf("media metadata library is not configured")
 	}
-	if task.SubjectKind != "location" || strings.TrimSpace(task.SubjectID) == "" {
-		return fmt.Errorf("media metadata task has invalid location identity")
+	if task.SubjectKind != "operation" || strings.TrimSpace(task.SubjectID) == "" || task.SubjectID != task.OperationID {
+		return fmt.Errorf("media metadata task has invalid operation identity")
 	}
-	file, err := library.client.GetFileInfoByPath(task.SubjectID)
-	if errors.Is(err, core.ErrContentNotTracked) {
-		return nil
-	}
+	var checkpoint backgroundUploadCheckpoint
+	found, err := library.client.GetBackgroundOperationCheckpoint(task.OperationID, &checkpoint)
 	if err != nil {
 		return err
 	}
-	return library.cacheMediaMetadataForFile(ctx, file, fileStoragePath(file))
+	if !found || checkpoint.Phase != backgroundUploadPhaseImported || checkpoint.Response == nil {
+		return fmt.Errorf("media metadata task is missing imported upload checkpoint")
+	}
+	for _, uploaded := range checkpoint.Response.Files {
+		if uploaded.Status != "imported" {
+			continue
+		}
+		target, err := s.uploadTarget(uploaded.TargetID)
+		if err != nil {
+			return err
+		}
+		file, err := library.client.GetFileInfoByPath(filepath.Join(target.Path, uploaded.Name))
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := library.cacheMediaMetadataForFile(ctx, file, fileStoragePath(file)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
