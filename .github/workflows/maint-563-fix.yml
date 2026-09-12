@@ -1,4 +1,4 @@
-name: Maintainer 563 browser capture
+name: Maintainer 563 final verification
 
 on:
   push:
@@ -11,8 +11,10 @@ permissions:
   contents: write
 
 jobs:
-  capture:
+  verify-and-commit:
     runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,31 +58,38 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci --prefer-offline --no-audit
-      - name: Capture focused browser regressions
+      - name: Frontend static and unit checks
+        working-directory: frontend
+        run: |
+          npm run check
+          npm run test:unit -- src/lib/utils/keyboard.test.ts
+      - name: Focused browser regressions
         working-directory: frontend
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('playwright.config.ts')
-          text = p.read_text().replace('127.0.0.1:4173', '127.0.0.1:43167')
-          text = text.replace("npm run preview -- --host 127.0.0.1'", "npm run preview -- --host 127.0.0.1 --port 43167'")
+          text = p.read_text().replace('127.0.0.1:4173', '127.0.0.1:43168')
+          text = text.replace("npm run preview -- --host 127.0.0.1'", "npm run preview -- --host 127.0.0.1 --port 43168'")
           p.write_text(text)
           PY
           npx playwright install chromium
-          set +e
-          npx playwright test grid-keyboard-cursor.spec.ts shortcut-focus.spec.ts tag-input-behavior.spec.ts paged-library.spec.ts font-style.spec.ts --grep "hides the grid keyboard cursor|filename search shortcut|toggles tag mode only|short final page|missing font_style|paged mode uses centered" --reporter=line 2>&1 | tee /tmp/maint-563-browser-report.txt
-          status=${PIPESTATUS[0]}
-          set -e
-          printf '\nEXIT_STATUS=%s\n' "$status" >> /tmp/maint-563-browser-report.txt
+          npx playwright test grid-keyboard-cursor.spec.ts shortcut-focus.spec.ts tag-input-behavior.spec.ts paged-library.spec.ts font-style.spec.ts --grep "hides the grid keyboard cursor|filename search shortcut|toggles tag mode only|short final page|missing font_style|paged mode uses centered"
           git checkout -- playwright.config.ts
-      - name: Commit inspectable diagnostic
+      - name: Focused server config tests
+        run: go test ./internal/serve -run 'FontStyle|ConfigDocs'
+      - name: Commit verified implementation
         shell: bash
         run: |
-          git reset --hard HEAD
-          cp /tmp/maint-563-browser-report.txt maint-563-browser-report.txt
+          rm -f \
+            .github/workflows/maint-563-final.yml \
+            .github/workflows/maint-563-browser-log.yml \
+            .github/workflows/maint-563-baseline.yml \
+            .github/workflows/maint-563-fix.yml \
+            maint-563-browser-report.txt
           git config user.name 'chatgpt-codex-connector'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add maint-563-browser-report.txt
-          git commit -m 'chore: capture #563 browser report'
+          git add -A
+          git commit -m 'fix: refine minor UI interactions (#563)'
           git push origin HEAD:maint/563-minor-ui-improvements
