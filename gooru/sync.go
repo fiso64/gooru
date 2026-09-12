@@ -140,6 +140,22 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		}
 	}
 
+	// A physical managed-storage alias is already represented by its canonical
+	// logical location. Hide aliases found by the filesystem walk even when that
+	// logical location is outside the directories being checked; otherwise the
+	// backing object looks like an extra ordinary file forever.
+	scannedPaths := make([]string, 0, len(fsPaths))
+	for path := range fsPaths {
+		scannedPaths = append(scannedPaths, path)
+	}
+	managedAliases, err := c.store.BatchGetManagedLocationSourcesByPhysicalPaths(scannedPaths)
+	if err != nil {
+		return false, fmt.Errorf("could not look up managed backing aliases for pre-check: %w", err)
+	}
+	for physicalPath := range managedAliases {
+		delete(fsPaths, physicalPath)
+	}
+
 	// Managed locations use their logical path as database identity but keep the
 	// bytes at StoragePath. Add their logical identity to the comparison only
 	// when the physical source can be inspected through the configured policy.
@@ -207,6 +223,14 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 		return result, fmt.Errorf("could not build size-to-hash map: %w", err)
 	}
 	fsLocations, filesScanned := scanning.DirsConcurrently(absDirs, sizeToHashes, c.hasher)
+
+	managedAliases, err := c.store.BatchGetManagedLocationSourcesByPhysicalPaths(locationPaths(fsLocations))
+	if err != nil {
+		return result, fmt.Errorf("could not look up managed backing aliases: %w", err)
+	}
+	for physicalPath := range managedAliases {
+		delete(fsLocations, physicalPath)
+	}
 
 	fsHashes := uniqueHashes(fsLocations)
 	knownPathsByHash, err := c.store.BatchGetPathsForHashes(c.store, fsHashes)

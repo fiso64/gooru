@@ -90,6 +90,60 @@ func (s *Store) BatchGetLocationSourcesByPaths(paths []string) (map[string]types
 	return locations, nil
 }
 
+// BatchGetManagedLocationSourcesByPhysicalPaths returns managed locations keyed
+// by the physical paths supplied by a filesystem scan. Relink uses this to hide
+// backing-store aliases that are already represented by canonical logical
+// locations, even when those logical paths are outside the current scan scope.
+func (s *Store) BatchGetManagedLocationSourcesByPhysicalPaths(paths []string) (map[string]types.LocationInfo, error) {
+	locations := make(map[string]types.LocationInfo)
+	if len(paths) == 0 {
+		return locations, nil
+	}
+
+	const columns = 1
+	batchSize := maxVars / columns
+	for i := 0; i < len(paths); i += batchSize {
+		end := i + batchSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+		batch := paths[i:end]
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
+		query := fmt.Sprintf(`
+			SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.extension, l.tags_cache,
+			       msl.physical_path
+			FROM managed_storage_locations msl
+			JOIN locations l ON l.id = msl.location_id
+			WHERE msl.physical_path IN (%s)`, placeholders)
+		args := make([]interface{}, len(batch))
+		for j, path := range batch {
+			args[j] = path
+		}
+
+		rows, err := s.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var loc types.LocationInfo
+			if err := rows.Scan(
+				&loc.Path, &loc.Hash, &loc.Size, &loc.ModTime, &loc.Extension, &loc.TagsCache, &loc.StoragePath,
+			); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			locations[loc.StoragePath] = loc
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	return locations, nil
+}
+
 // UpdateRelinkedLocation applies a relink move while respecting managed storage
 // indirection. For a managed location, the planner's destination is the newly
 // discovered physical source, so repair that mapping and preserve the canonical
