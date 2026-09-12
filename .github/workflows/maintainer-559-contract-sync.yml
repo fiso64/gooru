@@ -1,0 +1,53 @@
+name: Maintainer 559 contract sync
+
+on:
+  push:
+    branches:
+      - maintainer/559-job-ui
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.actor == 'fiso64' && !contains(github.event.head_commit.message, 'sync generated operations contract')
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Patch OpenAPI contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/openapi.yaml')
+          text = path.read_text(encoding='utf-8')
+          marker = '  /operations/{id}:\n'
+          if marker not in text:
+              raise SystemExit('operations/{id} marker not found')
+          if 'summary: Clear visible terminal durable operation history.' not in text:
+              block = '''    delete:\n      summary: Clear visible terminal durable operation history.\n      description: Removes completed, failed, and canceled visible operations together with their terminal child task history. Pending/running operations, hidden implementation operations, and operations with active child tasks are retained.\n      security:\n        - sessionAuth: []\n      parameters:\n        - $ref: "#/components/parameters/CSRF"\n      responses:\n        "200":\n          description: Terminal operation history cleared.\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [cleared]\n                properties:\n                  cleared:\n                    type: integer\n                    format: int64\n                    minimum: 0\n        "401":\n          $ref: "#/components/responses/Unauthorized"\n        "403":\n          $ref: "#/components/responses/Forbidden"\n        "503":\n          $ref: "#/components/responses/ServiceUnavailable"\n'''
+              text = text.replace(marker, block + marker, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Regenerate frontend API types
+        working-directory: frontend
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run generate:api
+      - name: Remove temporary workflow and commit contract sync
+        shell: bash
+        run: |
+          git rm .github/workflows/maintainer-559-contract-sync.yml
+          git config user.name "fiso64"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add docs/openapi.yaml frontend/src/lib/api/openapi.ts
+          git commit -m "docs(api): sync generated operations contract"
+          git push origin HEAD:maintainer/559-job-ui
