@@ -35,22 +35,33 @@ async function login(page: Page) {
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
 
-test('jobs view stays compact and left-aligns row content', async ({ page }) => {
+test('jobs view stays compact and aligns the header and status to the card edges', async ({ page }) => {
   await login(page);
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
-  await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
+  const heading = page.getByRole('heading', { name: 'Background work' });
+  await expect(heading).toBeVisible();
 
   const mainBox = await page.locator('main.main').boundingBox();
   const pageBox = await page.locator('.jobs-page').boundingBox();
   const cardBox = await page.locator('.jobs-card').boundingBox();
+  const headingBox = await heading.boundingBox();
   const nameBox = await page.locator('.job-row .name').boundingBox();
+  const statusBox = await page.locator('.job-row .status').boundingBox();
   expect(mainBox).not.toBeNull();
   expect(pageBox).not.toBeNull();
   expect(cardBox).not.toBeNull();
+  expect(headingBox).not.toBeNull();
   expect(nameBox).not.toBeNull();
+  expect(statusBox).not.toBeNull();
   expect(pageBox!.width).toBeLessThanOrEqual(600.5);
   expect(pageBox!.x - mainBox!.x).toBeLessThan(48);
+  expect(Math.abs(headingBox!.x - cardBox!.x)).toBeLessThan(2);
   expect(nameBox!.x - cardBox!.x).toBeLessThan(32);
+  expect(cardBox!.x + cardBox!.width - (statusBox!.x + statusBox!.width)).toBeLessThan(32);
+
+  await page.locator('.job-row').hover();
+  await expect(page.getByRole('button', { name: 'Cancel Delete Files' })).toHaveCSS('opacity', '1');
+  await expect(page.locator('.job-row .status')).toBeVisible();
 });
 
 test('jobs drawer overlays the library without changing page geometry', async ({ page }) => {
