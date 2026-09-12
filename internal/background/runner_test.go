@@ -202,6 +202,9 @@ func TestRunnerCancelsHandlerAndDoesNotWriteOutcomeAfterLeaseLoss(t *testing.T) 
 	if store.renewed == 0 {
 		t.Fatal("expected lease renewal attempt")
 	}
+	if store.recovered != 1 {
+		t.Fatalf("recover calls after lease loss = %d, want 1", store.recovered)
+	}
 	if len(store.completed) != 0 || len(store.failed) != 0 {
 		t.Fatalf("outcome written after lease loss: completed=%#v failed=%#v", store.completed, store.failed)
 	}
