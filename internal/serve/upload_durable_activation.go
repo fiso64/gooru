@@ -27,7 +27,7 @@ func activateSavedDurableUploads(files []savedUpload) ([]activatedSavedReplaceme
 		}
 	}
 
-	activated, err := activateSavedReplacements(files)
+	activated, err := activateSavedDurableReplacements(files)
 	if err != nil {
 		rollbackErr := restoreDurableNonreplacementActivations(files)
 		if rollbackErr != nil {
@@ -36,7 +36,7 @@ func activateSavedDurableUploads(files []savedUpload) ([]activatedSavedReplaceme
 		return nil, err
 	}
 	if err := finalizeDurableNonreplacementActivations(files); err != nil {
-		replacementRollbackErr := rollbackSavedReplacements(activated)
+		replacementRollbackErr := rollbackDurableSavedReplacements(files, activated)
 		durableRollbackErr := restoreDurableNonreplacementActivations(files)
 		if replacementRollbackErr != nil || durableRollbackErr != nil {
 			return nil, errors.Join(

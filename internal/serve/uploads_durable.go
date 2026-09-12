@@ -241,7 +241,10 @@ func cleanupCanceledDurableUpload(store durableUploadCleanupStore, operationID s
 
 	switch checkpoint.Phase {
 	case backgroundUploadPhaseStaged:
-		activated, err := activateSavedReplacements(files)
+		if err := prepareDurableReplacementRecoveryMarkers(files); err != nil {
+			return fmt.Errorf("prepare canceled durable replacement recovery: %w", err)
+		}
+		activated, err := activateSavedDurableReplacements(files)
 		if err != nil {
 			return fmt.Errorf("recover canceled staged upload replacements: %w", err)
 		}
@@ -260,7 +263,7 @@ func cleanupCanceledDurableUpload(store durableUploadCleanupStore, operationID s
 		if err != nil {
 			return fmt.Errorf("recover canceled imported upload replacements: %w", err)
 		}
-		if err := settleSavedReplacements(activated, *checkpoint.Response); err != nil {
+		if err := settleDurableSavedReplacements(files, activated, *checkpoint.Response); err != nil {
 			return fmt.Errorf("settle canceled imported upload replacements: %w", err)
 		}
 		if err := settleDurableNonreplacementActivations(files); err != nil {

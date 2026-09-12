@@ -69,6 +69,174 @@ func prepareDurableReplacementRecoveryMarkers(files []savedUpload) error {
 	return nil
 }
 
+// activateSavedDurableReplacements preserves the existing replacement
+// activation semantics, but uses durable ownership-aware rollback if a later
+// replacement in the same batch fails to activate.
+func activateSavedDurableReplacements(files []savedUpload) ([]activatedSavedReplacement, error) {
+	activated := make([]activatedSavedReplacement, 0)
+	for i, file := range files {
+		if !file.replace {
+			continue
+		}
+		replacement, err := activateReplacement(file.path, file.destinationPath)
+		if err != nil {
+			rollbackErr := rollbackDurableSavedReplacements(files, activated)
+			if rollbackErr != nil {
+				return nil, fmt.Errorf("%w; durable replacement rollback failed: %v", err, rollbackErr)
+			}
+			return nil, err
+		}
+		activated = append(activated, activatedSavedReplacement{index: i, replacement: replacement})
+	}
+	return activated, nil
+}
+
+func settleDurableSavedReplacements(files []savedUpload, activated []activatedSavedReplacement, response UploadImportResponse) error {
+	var errs []error
+	for _, item := range activated {
+		if item.index < 0 || item.index >= len(files) {
+			errs = append(errs, errors.New("activated replacement index is out of range"))
+			continue
+		}
+		if item.index < len(response.Files) && response.Files[item.index].Status == "imported" {
+			commitReplacement(item.replacement)
+			continue
+		}
+		if err := rollbackDurableReplacement(files[item.index], item.replacement); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func rollbackDurableSavedReplacements(files []savedUpload, activated []activatedSavedReplacement) error {
+	var errs []error
+	for i := len(activated) - 1; i >= 0; i-- {
+		item := activated[i]
+		if item.index < 0 || item.index >= len(files) {
+			errs = append(errs, errors.New("activated replacement index is out of range"))
+			continue
+		}
+		if err := rollbackDurableReplacement(files[item.index], item.replacement); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// rollbackDurableReplacement only removes a destination when the durable marker
+// proves it is the uploaded inode. A different destination is treated as a
+// conflict and preserved, with the original backup left available for recovery.
+func rollbackDurableReplacement(file savedUpload, replacement activatedReplacement) error {
+	markerInfo, markerExists, err := durableReplacementRegularFile(file.path + durableUploadActivatedMarkerSuffix)
+	if err != nil {
+		return fmt.Errorf("inspect durable replacement recovery marker: %w", err)
+	}
+	backupInfo, backupExists, err := durableReplacementRegularFile(replacement.backupPath)
+	if err != nil {
+		return fmt.Errorf("inspect preserved original before replacement rollback: %w", err)
+	}
+	finalInfo, finalExists, err := durableReplacementRegularFile(replacement.finalPath)
+	if err != nil {
+		return fmt.Errorf("inspect replacement rollback destination: %w", err)
+	}
+	if !markerExists {
+		return rollbackDurableReplacementWithoutMarker(replacement, backupInfo, backupExists, finalInfo, finalExists)
+	}
+
+	if replacement.hadOriginal && !backupExists {
+		if !finalExists {
+			return errors.New("failed to restore original file after replacement failure")
+		}
+		if os.SameFile(markerInfo, finalInfo) {
+			return errors.New("preserved original is missing during durable replacement rollback")
+		}
+		// A previous rollback already restored the original (or a later actor
+		// replaced it). With no backup left, never delete the current path.
+		return nil
+	}
+
+	if replacement.hadOriginal && backupExists && finalExists && os.SameFile(backupInfo, finalInfo) {
+		if err := os.Remove(replacement.backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return errors.New("failed to finalize original file restoration")
+		}
+		return nil
+	}
+
+	if finalExists {
+		if !os.SameFile(markerInfo, finalInfo) {
+			return errUploadConflict
+		}
+		if err := os.Remove(replacement.finalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return errors.New("failed to remove rejected replacement")
+		}
+	}
+
+	if replacement.hadOriginal {
+		if !backupExists {
+			return errors.New("failed to restore original file after replacement failure")
+		}
+		if err := os.Link(replacement.backupPath, replacement.finalPath); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return errUploadConflict
+			}
+			return errors.New("failed to restore original file after replacement failure")
+		}
+		if err := os.Remove(replacement.backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return errors.New("failed to finalize original file restoration")
+		}
+		return nil
+	}
+
+	_ = os.Remove(replacement.backupPath)
+	if err := os.Remove(replacement.noOriginalMarkerPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.New("failed to clear replacement state after rollback")
+	}
+	return nil
+}
+
+// rollbackDurableReplacementWithoutMarker handles checkpoints created before
+// durable ownership markers existed. Without inode proof it never removes an
+// existing destination; it can only restore a missing destination from the
+// preserved original or finish an already-restored rollback.
+func rollbackDurableReplacementWithoutMarker(replacement activatedReplacement, backupInfo os.FileInfo, backupExists bool, finalInfo os.FileInfo, finalExists bool) error {
+	if replacement.hadOriginal {
+		if !backupExists {
+			if finalExists {
+				return nil
+			}
+			return errors.New("failed to restore original file after replacement failure")
+		}
+		if finalExists {
+			if os.SameFile(backupInfo, finalInfo) {
+				if err := os.Remove(replacement.backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return errors.New("failed to finalize original file restoration")
+				}
+				return nil
+			}
+			return errUploadConflict
+		}
+		if err := os.Link(replacement.backupPath, replacement.finalPath); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				return errUploadConflict
+			}
+			return errors.New("failed to restore original file after replacement failure")
+		}
+		if err := os.Remove(replacement.backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return errors.New("failed to finalize original file restoration")
+		}
+		return nil
+	}
+	if finalExists {
+		return errUploadConflict
+	}
+	_ = os.Remove(replacement.backupPath)
+	if err := os.Remove(replacement.noOriginalMarkerPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.New("failed to clear replacement state after rollback")
+	}
+	return nil
+}
+
 // restoreActivatedReplacementDestinations reconstructs logical replacement
 // destinations from their durable marker before an activated task is retried.
 // Existing destinations must be the same inode; a different file wins as a
@@ -89,10 +257,8 @@ func restoreActivatedReplacementDestinations(files []savedUpload, activated []ac
 			return fmt.Errorf("inspect activated replacement destination: %w", err)
 		}
 		if !markerExists {
-			// Checkpoints created before durable replacement markers were added are
-			// still replayable while their activated destination remains present.
 			if finalExists {
-				continue
+				return errUploadConflict
 			}
 			return errors.New("activated replacement data and recovery marker are missing")
 		}
