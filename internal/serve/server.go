@@ -82,6 +82,7 @@ func (s *Server) HTTPServer() *http.Server {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/build", methodHandler(http.MethodGet, s.handleBuildInfo))
 	mux.HandleFunc("/api/v1/health", methodHandler(http.MethodGet, s.handleHealth))
 	mux.HandleFunc("/api/v1/ui-config", methodHandler(http.MethodGet, s.handleUIConfig))
 	mux.Handle("/api/v1/auth/login", requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleAuthLogin)))
