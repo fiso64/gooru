@@ -111,3 +111,41 @@ func TestBackgroundOperationLateChildReopensTerminalHistory(t *testing.T) {
 		t.Fatalf("late-child completion resurrected stale result = (%q, %v, %v)", got, found, err)
 	}
 }
+
+func TestBackgroundOperationLateChildReopensFailedHistoryOnEnqueue(t *testing.T) {
+	store := newDurableLifecycleTestStore(t)
+	now := time.Date(2026, time.September, 12, 5, 45, 0, 0, time.UTC)
+	const operationID = "operation-late-child-after-failure"
+	if _, err := store.CreateBackgroundOperation(store.DB, NewBackgroundOperation{
+		ID: operationID, Kind: "dynamic", Visible: true, ProgressTotal: 1, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := store.EnqueueBackgroundTask(store.DB, NewBackgroundTask{
+		ID: "failed-generation-1", OperationID: operationID, DedupeKey: "failed-generation-1", Kind: "dynamic", ResourceClass: "io", MaxAttempts: 1, CreatedAt: now,
+	}); err != nil || !created {
+		t.Fatalf("enqueue failing child = created %v err %v", created, err)
+	}
+	claimed, ok, err := store.ClaimNextBackgroundTask("io", "worker-a", now, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim failing child = ok %v err %v", ok, err)
+	}
+	failedAt := now.Add(time.Second)
+	if retry, err := store.FailBackgroundTask(claimed.ID, "worker-a", failedAt, time.Time{}, "decode", "permanent"); err != nil || retry {
+		t.Fatalf("terminal failure = retry %v err %v", retry, err)
+	}
+	op := readBackgroundOperationLifecycle(t, store, operationID)
+	if op.Status != BackgroundWorkFailed || op.FinishedAt == nil || op.ErrorCode != "child_task_failed" {
+		t.Fatalf("operation did not fail: %+v", op)
+	}
+
+	if _, created, err := store.EnqueueBackgroundTask(store.DB, NewBackgroundTask{
+		ID: "failed-generation-2", OperationID: operationID, DedupeKey: "failed-generation-2", Kind: "dynamic", ResourceClass: "io", CreatedAt: failedAt.Add(time.Second),
+	}); err != nil || !created {
+		t.Fatalf("enqueue late child after failure = created %v err %v", created, err)
+	}
+	op = readBackgroundOperationLifecycle(t, store, operationID)
+	if op.Status != BackgroundWorkPending || op.FinishedAt != nil || op.ErrorCode != "" || op.ErrorMessage != "" {
+		t.Fatalf("failed operation did not reopen when late child became durable: %+v", op)
+	}
+}
