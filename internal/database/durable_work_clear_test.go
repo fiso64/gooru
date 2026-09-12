@@ -22,6 +22,7 @@ func TestClearTerminalBackgroundOperationsRemovesOnlySafeVisibleHistory(t *testi
 		{id: "hidden-completed", visible: false, status: BackgroundWorkCompleted},
 		{id: "terminal-with-active-child", visible: true, status: BackgroundWorkCompleted},
 		{id: "terminal-with-detached-cleanup", visible: true, status: BackgroundWorkCanceled},
+		{id: "terminal-with-terminal-detached-cleanup", visible: true, status: BackgroundWorkCanceled},
 	}
 	for index, item := range operations {
 		if _, err := store.CreateBackgroundOperation(db, NewBackgroundOperation{
@@ -52,25 +53,47 @@ func TestClearTerminalBackgroundOperationsRemovesOnlySafeVisibleHistory(t *testi
 		t.Fatalf("enqueue active child = (%v, %v)", created, err)
 	}
 	if _, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
-		ID:          "task-detached-cleanup",
-		DedupeKey:   "detached-cleanup:task",
+		ID:          "task-detached-cleanup-active",
+		DedupeKey:   "detached-cleanup-active:task",
 		Kind:        "cleanup",
 		SubjectKind: "operation",
 		SubjectID:   "terminal-with-detached-cleanup",
 		CreatedAt:   now,
 	}); err != nil || !created {
-		t.Fatalf("enqueue detached cleanup = (%v, %v)", created, err)
+		t.Fatalf("enqueue active detached cleanup = (%v, %v)", created, err)
+	}
+	terminalDetachedTask, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
+		ID:          "task-detached-cleanup-terminal",
+		DedupeKey:   "detached-cleanup-terminal:task",
+		Kind:        "cleanup",
+		SubjectKind: "operation",
+		SubjectID:   "terminal-with-terminal-detached-cleanup",
+		CreatedAt:   now,
+	})
+	if err != nil || !created {
+		t.Fatalf("enqueue terminal detached cleanup = (%+v, %v, %v)", terminalDetachedTask, created, err)
+	}
+	finishedAt := workTimeValue(now.Add(time.Minute))
+	if _, err := db.Exec(`UPDATE background_tasks SET status = 'completed', finished_at = ? WHERE id = ?`, finishedAt, terminalDetachedTask.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO background_task_attempts (
+			task_id, attempt_number, worker_id, started_at, finished_at, outcome
+		) VALUES (?, 1, 'worker', ?, ?, 'completed')
+	`, terminalDetachedTask.ID, workTimeValue(now), finishedAt); err != nil {
+		t.Fatal(err)
 	}
 
 	cleared, err := store.ClearTerminalBackgroundOperations()
 	if err != nil {
 		t.Fatalf("ClearTerminalBackgroundOperations: %v", err)
 	}
-	if cleared != 3 {
-		t.Fatalf("cleared = %d, want 3", cleared)
+	if cleared != 4 {
+		t.Fatalf("cleared = %d, want 4", cleared)
 	}
 
-	for _, id := range []string{"completed", "failed", "canceled"} {
+	for _, id := range []string{"completed", "failed", "canceled", "terminal-with-terminal-detached-cleanup"} {
 		if _, found, err := store.GetBackgroundOperation(id); err != nil || found {
 			t.Fatalf("operation %s after clear = found %v, err %v", id, found, err)
 		}
@@ -95,10 +118,24 @@ func TestClearTerminalBackgroundOperationsRemovesOnlySafeVisibleHistory(t *testi
 		t.Fatalf("active child task count = %d, want 1", activeTaskCount)
 	}
 	var detachedCleanupCount int
-	if err := db.QueryRow(`SELECT count(*) FROM background_tasks WHERE id = 'task-detached-cleanup'`).Scan(&detachedCleanupCount); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM background_tasks WHERE id = 'task-detached-cleanup-active'`).Scan(&detachedCleanupCount); err != nil {
 		t.Fatal(err)
 	}
 	if detachedCleanupCount != 1 {
-		t.Fatalf("detached cleanup task count = %d, want 1", detachedCleanupCount)
+		t.Fatalf("active detached cleanup task count = %d, want 1", detachedCleanupCount)
+	}
+	var terminalDetachedCleanupCount int
+	if err := db.QueryRow(`SELECT count(*) FROM background_tasks WHERE id = ?`, terminalDetachedTask.ID).Scan(&terminalDetachedCleanupCount); err != nil {
+		t.Fatal(err)
+	}
+	if terminalDetachedCleanupCount != 0 {
+		t.Fatalf("terminal detached cleanup task count = %d, want 0", terminalDetachedCleanupCount)
+	}
+	var terminalDetachedAttemptCount int
+	if err := db.QueryRow(`SELECT count(*) FROM background_task_attempts WHERE task_id = ?`, terminalDetachedTask.ID).Scan(&terminalDetachedAttemptCount); err != nil {
+		t.Fatal(err)
+	}
+	if terminalDetachedAttemptCount != 0 {
+		t.Fatalf("terminal detached cleanup attempt count = %d, want 0", terminalDetachedAttemptCount)
 	}
 }
