@@ -8,19 +8,8 @@ import (
 	"gooru.local/types"
 )
 
-func TestRelinkDoesNotMoveLiveManagedLocationToDuplicate(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "gooru.db")
-	if err := Init(dbPath, types.StrategyFull, false); err != nil {
-		t.Fatal(err)
-	}
-	client, err := New(dbPath, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	contents := []byte("same managed contents")
-	physicalPath := filepath.Join(t.TempDir(), "managed.bin")
+func addManagedTestLocation(t *testing.T, client *Client, logicalPath, physicalPath string, contents []byte) {
+	t.Helper()
 	if err := os.WriteFile(physicalPath, contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -32,12 +21,10 @@ func TestRelinkDoesNotMoveLiveManagedLocationToDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	logicalPath := filepath.Join(t.TempDir(), "library", "upload.bin") // deliberately absent on disk
-	if _, err := client.store.Exec(`INSERT INTO contents (hash) VALUES (?)`, hash); err != nil {
+	if _, err := client.store.Exec(`INSERT OR IGNORE INTO contents (hash) VALUES (?)`, hash); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.store.GetOrCreateLocation(client.store, hash, logicalPath, info.Size, info.ModTime.Unix(), ".bin"); err != nil {
+	if err := client.store.GetOrCreateLocation(client.store, hash, logicalPath, info.Size, info.ModTime.Unix(), filepath.Ext(logicalPath)); err != nil {
 		t.Fatal(err)
 	}
 	managed, err := client.store.GetFileInfoByPath(logicalPath)
@@ -47,6 +34,28 @@ func TestRelinkDoesNotMoveLiveManagedLocationToDuplicate(t *testing.T) {
 	if _, err := client.store.Exec(`INSERT INTO managed_storage_locations (location_id, physical_path) VALUES (?, ?)`, managed.ID, physicalPath); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func newManagedRelinkClient(t *testing.T) *Client {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	if err := Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(dbPath, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Close() })
+	return client
+}
+
+func TestRelinkDoesNotMoveLiveManagedLocationToDuplicate(t *testing.T) {
+	client := newManagedRelinkClient(t)
+	contents := []byte("same managed contents")
+	physicalPath := filepath.Join(t.TempDir(), "managed.bin")
+	logicalPath := filepath.Join(t.TempDir(), "library", "upload.bin") // deliberately absent on disk
+	addManagedTestLocation(t, client, logicalPath, physicalPath, contents)
 
 	scanDir := t.TempDir()
 	duplicatePath := filepath.Join(scanDir, "duplicate.bin")
@@ -66,5 +75,39 @@ func TestRelinkDoesNotMoveLiveManagedLocationToDuplicate(t *testing.T) {
 	}
 	if len(result.ProposedAdds) != 1 || result.ProposedAdds[0].Path != duplicatePath {
 		t.Fatalf("adds = %+v, want duplicate %q", result.ProposedAdds, duplicatePath)
+	}
+}
+
+func TestRelinkDoesNotDeleteLiveManagedLocationInScope(t *testing.T) {
+	client := newManagedRelinkClient(t)
+	scanDir := t.TempDir()
+	logicalPath := filepath.Join(scanDir, "managed", "upload.bin") // deliberately absent on disk
+	physicalPath := filepath.Join(t.TempDir(), "managed.bin")
+	addManagedTestLocation(t, client, logicalPath, physicalPath, []byte("managed contents"))
+
+	result, err := client.Relink([]string{scanDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.ProposedMoves) != 0 || len(result.ProposedAdds) != 0 || len(result.ProposedDeletes) != 0 {
+		t.Fatalf("live managed location produced relink changes: %+v", result)
+	}
+}
+
+func TestNeedsRelinkUsesManagedPhysicalSource(t *testing.T) {
+	client := newManagedRelinkClient(t)
+	scanDir := t.TempDir()
+	logicalPath := filepath.Join(scanDir, "managed", "upload.bin") // deliberately absent on disk
+	physicalPath := filepath.Join(t.TempDir(), "managed.bin")
+	addManagedTestLocation(t, client, logicalPath, physicalPath, []byte("managed contents"))
+
+	for _, verifyHash := range []bool{false, true} {
+		needsRelink, err := client.NeedsRelink([]string{scanDir}, verifyHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if needsRelink {
+			t.Fatalf("NeedsRelink(alwaysVerifyHash=%v) = true for unchanged managed source", verifyHash)
+		}
 	}
 }
