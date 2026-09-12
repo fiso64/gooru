@@ -1,0 +1,24 @@
+name: Diagnose upload reservation claim API
+
+on:
+  push:
+    branches: [maintainer/fix-602-upload-reservation-claim]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect durable-operation schema and API paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== background_operations schema ==='
+          grep -R -n -C 8 'CREATE TABLE.*background_operations\|background_operations (' . --exclude-dir=.git || true
+          echo '=== attachment API references ==='
+          grep -R -n -C 3 'AttachBackgroundTaskAndRevealOperation' . --exclude-dir=.git || true
+          echo '=== checkpoint API references ==='
+          grep -R -n -C 3 'SetBackgroundOperationCheckpoint' . --exclude-dir=.git || true
