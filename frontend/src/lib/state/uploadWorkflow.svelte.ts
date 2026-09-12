@@ -12,6 +12,7 @@ import {
   uploadSummaryFromCounts,
   type UploadAddedAtStrategy,
   type UploadItem,
+  type UploadItemStatus,
   type UploadStatusCounts
 } from './uploadItems';
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
@@ -26,6 +27,17 @@ type UploadMutate = (variables: UploadVariables) => Promise<BackgroundOperation 
 type CancelJob = (jobID: string) => Promise<Job>;
 type JobBatch = { items: Job[] };
 type JobApplyResult = { completed: boolean; changedFiles: boolean };
+type UploadClearScope = 'all' | 'staged' | 'done';
+
+const doneUploadStatuses = new Set<UploadItemStatus>([
+  'imported',
+  'uploaded',
+  'duplicate_existing',
+  'duplicate_in_batch',
+  'skipped',
+  'error',
+  'canceled'
+]);
 
 export function perFileUploadProgress(files: File[], aggregateProgress: number): number[] {
   if (!files.length) return [];
@@ -81,11 +93,24 @@ export function createUploadWorkflow() {
     statusCounts = {};
   }
 
-  function clear() {
-    files = [];
-    items = [];
-    status = '';
-    statusCounts = {};
+  function clear(scope: UploadClearScope = 'all') {
+    if (scope === 'all') {
+      files = [];
+      items = [];
+      status = '';
+      statusCounts = {};
+      return;
+    }
+    if (busy || hasActiveJobs()) return;
+
+    if (scope === 'staged') {
+      files = [];
+      items = items.filter((item) => item.status !== 'staged');
+    } else {
+      items = items.filter((item) => !doneUploadStatuses.has(item.status));
+    }
+    statusCounts = countUploadStatuses(items);
+    status = items.some((item) => item.status !== 'staged') ? uploadSummaryFromCounts(statusCounts) : '';
   }
 
   function removeAt(index: number) {

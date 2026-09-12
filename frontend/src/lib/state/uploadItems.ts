@@ -21,6 +21,7 @@ export interface UploadItem {
   name: string;
   size: number;
   type: string;
+  previewFile?: File;
   targetID?: string;
   queueTimeMs?: number;
   status: UploadItemStatus;
@@ -41,6 +42,7 @@ export function stagedUploadItems(files: File[], targetID = '', queueTimeMs = Da
     name: file.name,
     size: file.size,
     type: file.type,
+    previewFile: file,
     targetID,
     queueTimeMs,
     status: 'staged',
@@ -106,6 +108,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       name: file.name,
       size: file.size,
       type: prior?.type ?? '',
+      previewFile: prior?.previewFile,
       targetID: file.target_id,
       queueTimeMs: prior?.queueTimeMs,
       status: file.status,

@@ -57,4 +57,44 @@ describe('upload workflow history', () => {
       ['third.jpg', 'staged']
     ]);
   });
+
+  it('keeps each local preview attached to its row across completion and later staging', async () => {
+    const first = uploadFile('first.jpg');
+    const second = uploadFile('second.jpg');
+    const workflow = createUploadWorkflow();
+
+    workflow.select([first]);
+    await workflow.submit(async () => uploaded('first.jpg'));
+    workflow.select([second]);
+
+    expect(workflow.files).toEqual([second]);
+    expect(workflow.items.map((item) => item.previewFile)).toEqual([first, second]);
+  });
+
+  it('clears staged and completed rows independently', async () => {
+    const first = uploadFile('first.jpg');
+    const second = uploadFile('second.jpg');
+    const workflow = createUploadWorkflow();
+
+    workflow.select([first]);
+    await workflow.submit(async () => uploaded('first.jpg'));
+    workflow.select([second]);
+
+    workflow.clear('done');
+    expect(workflow.files).toEqual([second]);
+    expect(workflow.items.map((item) => [item.name, item.status])).toEqual([
+      ['second.jpg', 'staged']
+    ]);
+
+    await workflow.submit(async () => uploaded('second.jpg'));
+    const third = uploadFile('third.jpg');
+    workflow.select([third]);
+    workflow.clear('staged');
+
+    expect(workflow.files).toEqual([]);
+    expect(workflow.items.map((item) => [item.name, item.status])).toEqual([
+      ['second.jpg', 'uploaded']
+    ]);
+    expect(workflow.items[0].previewFile).toBe(second);
+  });
 });
