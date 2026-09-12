@@ -142,3 +142,13 @@ test('ArrowDown enters the tags grid without stealing arrows from the filter', a
   await page.keyboard.press('ArrowRight');
   await expect(tagItems.nth(1)).toBeFocused();
 });
+
+test('Escape hides the grid keyboard cursor when no higher-priority exit is active', async ({ page }) => {
+  await mockApp(page);
+  await page.keyboard.press('ArrowDown');
+  const first = page.locator('.thumb-open').first();
+  await expect(first).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(first).not.toBeFocused();
+});

@@ -174,7 +174,7 @@ func DefaultConfig(dbPath string) Config {
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
 		UI: UIConfig{
-			FontStyle:              "editorial",
+			FontStyle:              "comic",
 			HoverPlayVideos:        false,
 			HoverPlayGIFs:          true,
 			GridSize:               DefaultGridSize,
@@ -420,7 +420,7 @@ func (cfg *Config) Validate() error {
 	}
 	cfg.UI.FontStyle = strings.ToLower(strings.TrimSpace(cfg.UI.FontStyle))
 	if cfg.UI.FontStyle == "" {
-		cfg.UI.FontStyle = "editorial"
+		cfg.UI.FontStyle = "comic"
 	}
 	switch cfg.UI.FontStyle {
 	case "editorial", "modern", "comic":

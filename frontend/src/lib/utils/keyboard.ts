@@ -50,6 +50,27 @@ export function hasCommandModifier(event: KeyboardEvent) {
   return event.altKey || event.ctrlKey || event.metaKey;
 }
 
+function isModalShortcutTarget(target: EventTarget | null) {
+  return shortcutAncestors(target).some((node) =>
+    node.getAttribute?.('role')?.toLowerCase() === 'dialog'
+    && node.getAttribute?.('aria-modal')?.toLowerCase() === 'true'
+  );
+}
+
+export type SearchShortcutAction = 'focus-search' | 'filename-search' | null;
+
+export function searchShortcutAction(
+  key: string,
+  target: EventTarget | null,
+  modified = false,
+  shiftKey = false
+): SearchShortcutAction {
+  if (modified || shiftKey || isEditableShortcutTarget(target) || isModalShortcutTarget(target)) return null;
+  if (key === '/') return 'focus-search';
+  if (key.toLowerCase() === 'f') return 'filename-search';
+  return null;
+}
+
 export type LibraryShortcutAction = 'select-all' | 'tag-selected' | 'untag-selected' | 'untrack-selected' | 'delete-selected' | null;
 
 export function libraryShortcutAction(key: string, selectedCount: number, shiftKey = false): LibraryShortcutAction {

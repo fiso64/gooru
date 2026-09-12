@@ -173,3 +173,20 @@ test('six-page pager keeps the last page reachable through middle pages on narro
     expect(lastPageBox!.x + lastPageBox!.width).toBeLessThanOrEqual(pagerBox!.x + pagerBox!.width + 0.5);
   }
 });
+
+test('short final page keeps controls at the viewport bottom without artificial scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const requests = await mockPagedLibrary(page, 26);
+  await page.goto('/?page=2');
+  await expect.poll(() => requests.some((request) => request.offset === 25 && request.limit === 25)).toBe(true);
+  await expect(page.getByRole('button', { name: /page-25\.jpg$/ })).toBeVisible();
+
+  const viewport = page.locator('main.main');
+  const pager = page.getByTestId('library-pager');
+  const metrics = await viewport.evaluate((node) => ({ clientHeight: node.clientHeight, scrollHeight: node.scrollHeight }));
+  expect(metrics.scrollHeight).toBe(metrics.clientHeight);
+  const [viewportBox, pagerBox] = await Promise.all([viewport.boundingBox(), pager.boundingBox()]);
+  expect(viewportBox).not.toBeNull();
+  expect(pagerBox).not.toBeNull();
+  expect(Math.abs((viewportBox!.y + viewportBox!.height) - (pagerBox!.y + pagerBox!.height))).toBeLessThan(2);
+});

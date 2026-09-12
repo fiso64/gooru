@@ -126,7 +126,7 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | Option | Default | Description |
 | --- | --- | --- |
 | `ui.accent_color` | empty | Optional runtime UI accent in six-digit hex form such as `#2f80ed`. When empty, the built-in yellow accent is used. The UI derives readable foreground and translucent accent tokens from this color. |
-| `ui.font_style` | `editorial` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
+| `ui.font_style` | `comic` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
 | `ui.grid_size` | `200` | Base gallery cell size in pixels. Must be between `64` and `1024`. `fit` uses this value directly; `square` and `tile` receive a fixed 40px layout boost, so the default effective square width / tile row target is 240px. |
 | `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |
 | `ui.pagination_mode` | `infinite` | Library browsing mode: `infinite` incrementally appends results while scrolling; `paged` keeps only the current transport page in browser query state and shows Previous/Next controls. |
@@ -204,7 +204,7 @@ logging:
 
 ui:
   accent_color: "#2f80ed"
-  font_style: editorial
+  font_style: comic
   grid_size: 200
   grid_type: square
   pagination_mode: infinite

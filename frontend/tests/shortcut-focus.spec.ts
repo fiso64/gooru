@@ -267,3 +267,28 @@ test('Space after navigating to video controls the current item instead of the o
   await expect.poll(() => viewerMediaState(page)).toEqual({ paused: true, currentTime: 4, playCalls: 0, pauseCalls: 1 });
   await expect(page.getByRole('dialog', { name: 'clip.mp4' })).toBeVisible();
 });
+
+test('filename search shortcut replaces only filename_contains and viewer shortcuts do not steal search focus', async ({ page }) => {
+  await mockApp(page);
+  const search = page.getByLabel('Search library');
+  await search.fill('alpha');
+  await search.press('Enter');
+  await search.fill('@filename_contains:old.jpg');
+  await search.press('Enter');
+  await search.press('Escape');
+
+  await page.keyboard.press('f');
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('@filename_contains:');
+  await expect(page.getByRole('button', { name: 'Remove alpha' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove @filename_contains:old.jpg' })).toHaveCount(0);
+  await expect.poll(() => search.evaluate((node) => (node as HTMLInputElement).selectionStart)).toBe('@filename_contains:'.length);
+
+  await search.press('Escape');
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  const stage = page.locator('.viewer-stage');
+  await stage.focus();
+  await page.keyboard.press('/');
+  await expect(search).not.toBeFocused();
+  await expect(stage).toBeFocused();
+});
