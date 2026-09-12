@@ -97,6 +97,10 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 	if err != nil {
 		return false, err
 	}
+	trackedSources, err := c.store.BatchGetLocationSourcesByPaths(locationPaths(dbLocations))
+	if err != nil {
+		return false, fmt.Errorf("could not look up tracked sources for pre-check: %w", err)
+	}
 
 	// IMPORTANT: Get the size-to-hash map to filter the FS walk, exactly like the full Relink scan does.
 	// This ensures both functions see the same set of "relevant" files on disk.
@@ -136,6 +140,20 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		}
 	}
 
+	// Managed locations use their logical path as database identity but keep the
+	// bytes at StoragePath. Add their logical identity to the comparison only
+	// when the physical source can be inspected through the configured policy.
+	for path, source := range trackedSources {
+		if source.StoragePath == "" {
+			continue
+		}
+		info, err := c.hasher.FileMetadata(source.StoragePath)
+		if err != nil {
+			continue
+		}
+		fsPaths[path] = logicalMetadata{size: info.Size, modTime: info.ModTime.Unix()}
+	}
+
 	// Now that both fsPaths and dbLocations are looking at the same conceptual set of files,
 	// the comparison logic will be correct.
 
@@ -152,7 +170,11 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		}
 
 		if alwaysVerifyHash {
-			currentHash, err := c.hasher.HashFile(path)
+			sourcePath := path
+			if source, ok := trackedSources[path]; ok && source.StoragePath != "" {
+				sourcePath = source.StoragePath
+			}
+			currentHash, err := c.hasher.HashFile(sourcePath)
 			if err != nil {
 				return true, nil // Can't hash the file, treat as changed.
 			}
@@ -190,12 +212,26 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	if err != nil {
 		return result, fmt.Errorf("could not look up old paths for found content: %w", err)
 	}
-	knownSources, err := c.store.BatchGetLocationSourcesByPaths(uniqueKnownPaths(knownPathsByHash))
+	trackedSources, err := c.store.BatchGetLocationSourcesByPaths(relinkSourcePaths(knownPathsByHash, dbLocationsInScope))
 	if err != nil {
 		return result, fmt.Errorf("could not look up tracked sources for found content: %w", err)
 	}
 
-	missingKnownPath := missingPaths(knownPathsByHash, knownSources)
+	// A managed location whose physical source still exists is not missing merely
+	// because its canonical logical path is intentionally absent. Synthesize that
+	// logical identity into the planner's filesystem view so the first pass cannot
+	// propose a destructive move/delete for a live managed upload.
+	for path, dbInfo := range dbLocationsInScope {
+		source, ok := trackedSources[path]
+		if !ok || source.StoragePath == "" {
+			continue
+		}
+		if _, err := os.Stat(source.StoragePath); err == nil || !os.IsNotExist(err) {
+			fsLocations[path] = dbInfo
+		}
+	}
+
+	missingKnownPath := missingPaths(knownPathsByHash, trackedSources)
 	return relink.Plan(relink.PlanInput{
 		DBLocations:      dbLocationsInScope,
 		FSLocations:      fsLocations,
@@ -218,6 +254,14 @@ func uniqueHashes(locations map[string]types.LocationInfo) []string {
 	return hashes
 }
 
+func locationPaths(locations map[string]types.LocationInfo) []string {
+	paths := make([]string, 0, len(locations))
+	for path := range locations {
+		paths = append(paths, path)
+	}
+	return paths
+}
+
 func uniqueKnownPaths(pathsByHash map[string][]string) []string {
 	seen := make(map[string]struct{})
 	paths := make([]string, 0)
@@ -229,6 +273,22 @@ func uniqueKnownPaths(pathsByHash map[string][]string) []string {
 			seen[path] = struct{}{}
 			paths = append(paths, path)
 		}
+	}
+	return paths
+}
+
+func relinkSourcePaths(pathsByHash map[string][]string, dbLocations map[string]types.LocationInfo) []string {
+	paths := uniqueKnownPaths(pathsByHash)
+	seen := make(map[string]struct{}, len(paths)+len(dbLocations))
+	for _, path := range paths {
+		seen[path] = struct{}{}
+	}
+	for path := range dbLocations {
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
 	}
 	return paths
 }
