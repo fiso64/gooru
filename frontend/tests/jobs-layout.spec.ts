@@ -45,18 +45,21 @@ test('jobs view stays compact and aligns the header and status to the card edges
   const pageBox = await page.locator('.jobs-page').boundingBox();
   const cardBox = await page.locator('.jobs-card').boundingBox();
   const headingBox = await heading.boundingBox();
+  const actionsBox = await page.locator('.jobs-page-actions').boundingBox();
   const nameBox = await page.locator('.job-row .name').boundingBox();
   const statusBox = await page.locator('.job-row .status').boundingBox();
   expect(mainBox).not.toBeNull();
   expect(pageBox).not.toBeNull();
   expect(cardBox).not.toBeNull();
   expect(headingBox).not.toBeNull();
+  expect(actionsBox).not.toBeNull();
   expect(nameBox).not.toBeNull();
   expect(statusBox).not.toBeNull();
   expect(pageBox!.width).toBeGreaterThanOrEqual(819.5);
   expect(pageBox!.width).toBeLessThanOrEqual(820.5);
   expect(Math.abs((pageBox!.x + pageBox!.width / 2) - (mainBox!.x + mainBox!.width / 2))).toBeLessThan(1);
   expect(Math.abs(headingBox!.x - cardBox!.x)).toBeLessThan(2);
+  expect(Math.abs((headingBox!.y + headingBox!.height / 2) - (actionsBox!.y + actionsBox!.height / 2))).toBeLessThan(1);
   expect(nameBox!.x - cardBox!.x).toBeLessThan(32);
   expect(cardBox!.x + cardBox!.width - (statusBox!.x + statusBox!.width)).toBeLessThan(32);
 
