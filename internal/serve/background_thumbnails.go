@@ -124,7 +124,7 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundUploadResourceClass,
 		WorkerID:      workerID + "-upload",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundUploadTaskKind:        s.backgroundUploadHandler(backgroundUploadFinalizingStore{backgroundUploadWorkerStore: client, tasks: client}),
+			backgroundUploadTaskKind:        s.backgroundUploadHandler(newBackgroundUploadFinalizingStore(client, client)),
 			backgroundUploadCleanupTaskKind: s.backgroundUploadCleanupHandlerV2(client),
 		},
 	})
