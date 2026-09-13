@@ -1,0 +1,38 @@
+name: Maintainer 622 staging isolation
+
+on:
+  push:
+    branches:
+      - maintainer/622-logical-upload-session
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/622-logical-upload-session
+          fetch-depth: 0
+      - name: Check staging slice formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(gofmt -l internal/serve/upload_durable_staging.go internal/serve/upload_durable_staging_test.go)"
+      - name: Test durable staging behavior
+        run: go test ./internal/serve -run '^(TestStageDurableMultipartUpload|TestActivateDurableUploadDestination|TestChooseDurableUploadDestination|TestDurableStagedUploads)' -count=1
+      - name: Test serve package
+        run: go test ./internal/serve -count=1
+      - name: Remove temporary validation workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "fiso64"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git rm .github/workflows/maintainer-622-staging-isolation.yml
+          git commit -m "chore: remove temporary staging validation"
+          git push origin HEAD:maintainer/622-logical-upload-session
