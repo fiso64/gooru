@@ -27,7 +27,10 @@
     () => pageToken
   );
   const pageJobs = $derived(pageQuery.data?.items ?? (pageIndex === 0 ? jobs : []));
-  const totalCount = $derived(pageQuery.data?.total_count ?? pageJobs.length);
+  // While a new page query is loading, preserve only the minimum count needed to
+  // keep the selected page valid. Reusing previous query data here could expose
+  // rows across an auth-scope change.
+  const totalCount = $derived(pageQuery.data?.total_count ?? Math.max(pageJobs.length, pageIndex * pageSize + 1));
   const pageCount = $derived(Math.max(1, Math.ceil(totalCount / pageSize)));
 
   $effect(() => {

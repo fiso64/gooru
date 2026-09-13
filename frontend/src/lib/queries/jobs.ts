@@ -112,7 +112,6 @@ export function createJobsQuery(
       queryKey: jobKeys.list(getAuthScope(), limit, pageToken),
       enabled: getAuthenticated() && getEnabled(),
       queryFn: () => fetchJobsPage(limit, pageToken),
-      placeholderData: (previousData) => previousData,
       refetchInterval: (query) => jobsPageRefetchInterval(query.state.data)
     };
   });
