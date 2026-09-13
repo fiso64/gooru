@@ -65,8 +65,11 @@ test('drawer stays bounded while jobs tab uses true server paging above and belo
   await expect(drawer.locator('.job-row')).toHaveCount(20);
   await expect.poll(() => requested(requests, 20, 0)).toBe(true);
   expect(requests.every((request) => request.limit <= 50)).toBe(true);
+  const viewAll = drawer.getByRole('button', { name: 'View all' });
+  await expect(viewAll).toBeVisible();
 
-  await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
+  await viewAll.click();
+  await expect(drawer).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
   await expect.poll(() => requested(requests, 50, 0)).toBe(true);

@@ -27,6 +27,7 @@
     tagCount,
     jobsActiveCount,
     jobs,
+    jobsTotalCount,
     jobsDrawerOpen,
     kindCounts,
     comicCount,
@@ -54,6 +55,7 @@
     tagCount: number;
     jobsActiveCount: number;
     jobs: Job[];
+    jobsTotalCount: number;
     jobsDrawerOpen: boolean;
     kindCounts: Array<{ value: string; count: number }>;
     comicCount: number;
@@ -214,6 +216,11 @@
     onRoute('library');
   }
 
+  function openAllJobs() {
+    onCloseJobs();
+    onRoute('jobs');
+  }
+
   function openCommonTag(tag: string) {
     onSearchCommit(tag);
   }
@@ -306,7 +313,7 @@
   </header>
 
   {#if jobsDrawerOpen}
-    <div id="jobs-drawer"><JobsDrawer {jobs} onClose={onCloseJobs} onCancel={onCancelJob} /></div>
+    <div id="jobs-drawer"><JobsDrawer {jobs} totalCount={jobsTotalCount} onViewAll={openAllJobs} onClose={onCloseJobs} onCancel={onCancelJob} /></div>
   {/if}
 
   <aside class="sidebar">

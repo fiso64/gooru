@@ -642,6 +642,7 @@
     tagCount={tagsQuery.data?.tags.length ?? 0}
     jobsActiveCount={jobsQuery.data?.active_count ?? activeJobs.length}
     jobs={jobsQuery.data?.items ?? []}
+    jobsTotalCount={jobsQuery.data?.total_count ?? (jobsQuery.data?.items.length ?? 0)}
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
     comicCount={comicCount}

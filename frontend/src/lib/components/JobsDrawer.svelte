@@ -6,10 +6,14 @@
 
   let {
     jobs,
+    totalCount,
+    onViewAll,
     onClose,
     onCancel
   } = $props<{
     jobs: Job[];
+    totalCount: number;
+    onViewAll: () => void;
     onClose: () => void;
     onCancel: (job: Job) => void;
   }>();
@@ -44,6 +48,9 @@
     {:else}
       <div class="jobs-empty">No jobs have been recorded.</div>
     {/each}
+    {#if totalCount > jobs.length}
+      <button class="jobs-view-all" type="button" data-testid="jobs-view-all" onclick={onViewAll}>View all</button>
+    {/if}
   </div>
 </div>
 
@@ -99,6 +106,24 @@
     font-family: var(--font-mono);
     font-size: 11px;
     text-align: center;
+  }
+
+  .jobs-view-all {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--border);
+    padding: 11px 14px;
+    background: transparent;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    text-align: center;
+  }
+
+  .jobs-view-all:hover,
+  .jobs-view-all:focus-visible {
+    background: var(--bg-3);
   }
 
   @media (max-width: 700px) {
