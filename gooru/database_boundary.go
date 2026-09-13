@@ -164,7 +164,7 @@ func newDatabaseBackgroundRuntime(client *Client, cfg BackgroundWorkerConfig) (B
 		}
 	}
 	return background.NewRunner(background.RunnerConfig{
-		Store:         client.store,
+		Store:         newBackgroundChangeTaskStore(client),
 		ResourceClass: cfg.ResourceClass,
 		WorkerID:      cfg.WorkerID,
 		Handlers:      handlers,

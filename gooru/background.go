@@ -33,7 +33,11 @@ type BackgroundOperationRequest struct {
 // transaction. Producers that must atomically create an operation with domain
 // state and tasks should use createBackgroundOperation from the core mutation.
 func (c *Client) CreateBackgroundOperation(request BackgroundOperationRequest) (BackgroundOperation, error) {
-	return c.createBackgroundOperation(c.store.DB, request)
+	operation, err := c.createBackgroundOperation(c.store.DB, request)
+	if err == nil && operation.Visible {
+		c.notifyBackgroundOperationChange()
+	}
+	return operation, err
 }
 
 // CreateBackgroundOperationWithTasks atomically creates one logical operation
@@ -76,6 +80,9 @@ func (c *Client) CreateBackgroundOperationWithTasks(operationRequest BackgroundO
 	if err := tx.Commit(); err != nil {
 		return BackgroundOperation{}, nil, fmt.Errorf("commit background operation transaction: %w", err)
 	}
+	if operation.Visible {
+		c.notifyBackgroundOperationChange()
+	}
 	return operation, tasks, nil
 }
 
@@ -112,7 +119,11 @@ func (c *Client) AttachBackgroundTaskAndRevealOperation(operationID string, chec
 	if err != nil {
 		return BackgroundTask{}, err
 	}
-	return attachDatabaseBackgroundTaskAndRevealOperation(c, operationID, checkpointJSON, taskID, request)
+	task, err := attachDatabaseBackgroundTaskAndRevealOperation(c, operationID, checkpointJSON, taskID, request)
+	if err == nil {
+		c.notifyBackgroundOperationChange()
+	}
+	return task, err
 }
 
 func (c *Client) createBackgroundOperation(q databaseQuerier, request BackgroundOperationRequest) (BackgroundOperation, error) {
@@ -127,7 +138,11 @@ func (c *Client) createBackgroundOperation(q databaseQuerier, request Background
 // pending/running child work. A running worker loses its lease and receives
 // context cancellation through BackgroundRuntime's renewal boundary.
 func (c *Client) CancelBackgroundOperation(operationID string) (bool, error) {
-	return cancelDatabaseBackgroundOperation(c, operationID)
+	canceled, err := cancelDatabaseBackgroundOperation(c, operationID)
+	if err == nil && canceled {
+		c.notifyBackgroundOperationChange()
+	}
+	return canceled, err
 }
 
 // BackgroundTask is the core-facing input for one claimed durable task. It
@@ -178,7 +193,11 @@ type BackgroundTaskRequest struct {
 // It returns the active equivalent task with created=false when DedupeKey is
 // already pending or running.
 func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
-	return c.enqueueBackgroundTask(c.store.DB, request)
+	task, created, err = c.enqueueBackgroundTask(c.store.DB, request)
+	if err == nil && created && request.OperationID != "" {
+		c.notifyBackgroundOperationChange()
+	}
+	return task, created, err
 }
 
 // enqueueBackgroundTask is the transaction-aware core primitive used by
@@ -196,7 +215,11 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 // lower-level cancellation primitive for consumers that expose per-item cancel;
 // canceling the parent operation is preferred for whole-operation cancellation.
 func (c *Client) CancelBackgroundTask(taskID string) (bool, error) {
-	return cancelDatabaseBackgroundTask(c, taskID)
+	canceled, err := cancelDatabaseBackgroundTask(c, taskID)
+	if err == nil && canceled {
+		c.notifyBackgroundOperationChange()
+	}
+	return canceled, err
 }
 
 func newBackgroundWorkID(prefix string) (string, error) {
