@@ -1567,6 +1567,8 @@ export interface paths {
                     /** @description Specific durable operation IDs to return. May be repeated; at most 64 unique IDs are accepted. Completed results are included for this bounded status-batch form. */
                     id?: string[];
                     limit?: number;
+                    /** @description Zero-based number of visible operations to skip. */
+                    offset?: number;
                 };
                 header?: never;
                 path?: never;
@@ -1623,6 +1625,48 @@ export interface paths {
                 503: components["responses"]["ServiceUnavailable"];
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream durable background operation change signals.
+         * @description Sends payload-free `operations` server-sent events after committed Jobs-visible operation or task state changes, plus an initial reconciliation signal and periodic keepalive comments. Requires an authenticated administrator session.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Long-lived server-sent event stream of Jobs invalidation signals. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": string;
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;

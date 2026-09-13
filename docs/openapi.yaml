@@ -1080,6 +1080,14 @@ paths:
             minimum: 1
             maximum: 1000
             default: 100
+        - name: offset
+          in: query
+          required: false
+          description: Zero-based number of visible operations to skip.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         "200":
           description: Visible durable operations matching the request.
@@ -1113,6 +1121,25 @@ paths:
                     type: integer
                     format: int64
                     minimum: 0
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /operations/events:
+    get:
+      summary: Stream durable background operation change signals.
+      description: Sends payload-free `operations` server-sent events after committed Jobs-visible operation or task state changes, plus an initial reconciliation signal and periodic keepalive comments. Requires an authenticated administrator session.
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Long-lived server-sent event stream of Jobs invalidation signals.
+          content:
+            text/event-stream:
+              schema:
+                type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
