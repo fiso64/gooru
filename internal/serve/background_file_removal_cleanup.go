@@ -33,7 +33,24 @@ func (s *Server) backgroundFileRemovalCleanupHandler(store durableUploadTaskRead
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if task.OperationID != "" || task.Kind != backgroundFileRemovalCleanupTaskKind || task.SubjectKind != "operation" || task.SubjectID == "" {
+		if task.OperationID != "" || task.Kind != backgroundFileRemovalCleanupTaskKind {
+			return errors.New("file removal cleanup task has invalid identity")
+		}
+		if task.InputKey != "" {
+			// Terminal failure cleanup embeds the immutable delete payload so the
+			// runner can compensate a single failed/expired attempt without replaying
+			// the destructive task or needing to discover its operation ID.
+			if task.SubjectKind != "file_batch" || task.SubjectID != "selection" {
+				return errors.New("terminal file removal cleanup task has invalid identity")
+			}
+			return s.cleanupCanceledFileRemoval(ctx, core.BackgroundTask{
+				Kind:        backgroundFileRemovalTaskKind,
+				SubjectKind: task.SubjectKind,
+				SubjectID:   task.SubjectID,
+				InputKey:    task.InputKey,
+			})
+		}
+		if task.SubjectKind != "operation" || task.SubjectID == "" {
 			return errors.New("file removal cleanup task has invalid operation identity")
 		}
 		original, found, err := store.GetBackgroundOperationTask(task.SubjectID)
