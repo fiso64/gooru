@@ -469,14 +469,13 @@ func (s *Store) GetAllContentHashes() (map[string]struct{}, error) {
 	return hashes, nil
 }
 
-// GetSizeToHashesMap retrieves a map of file sizes to a list of hashes of files with that size.
-func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
-	rows, err := s.Query("SELECT size_bytes, content_hash FROM locations")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+type sizeToHashesRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}
 
+func sizeToHashesMapFromRows(rows sizeToHashesRows) (map[int64][]string, error) {
 	// Using a map to a map to easily handle unique hashes per size
 	tempMap := make(map[int64]map[string]struct{})
 
@@ -491,8 +490,11 @@ func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
 		}
 		tempMap[size][hash] = struct{}{}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-	// Convert to the final structure
+	// Convert to the final structure only after the full authoritative query succeeded.
 	finalMap := make(map[int64][]string)
 	for size, hashes := range tempMap {
 		finalMap[size] = make([]string, 0, len(hashes))
@@ -501,6 +503,16 @@ func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
 		}
 	}
 	return finalMap, nil
+}
+
+// GetSizeToHashesMap retrieves a map of file sizes to a list of hashes of files with that size.
+func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
+	rows, err := s.Query("SELECT size_bytes, content_hash FROM locations")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return sizeToHashesMapFromRows(rows)
 }
 
 // GetLocationsForDirs retrieves a map of all known paths to their content hashes for the given directories.

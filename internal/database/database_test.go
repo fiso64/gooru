@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"io"
 	"log"
 	"os"
@@ -170,5 +171,44 @@ func TestTagSuggestionsUseUniqueFileAggregatesForBaseAndNamespace(t *testing.T) 
 	}
 	if len(namespaces) != 1 || namespaces[0].Tag != "animal:" || namespaces[0].Count != 3 {
 		t.Fatalf("namespace suggestions=%#v want animal: count 3", namespaces)
+	}
+}
+
+type sizeToHashesRowsStub struct {
+	sizes       []int64
+	hashes      []string
+	index       int
+	terminalErr error
+}
+
+func (r *sizeToHashesRowsStub) Next() bool {
+	return r.index < len(r.sizes)
+}
+
+func (r *sizeToHashesRowsStub) Scan(dest ...any) error {
+	*(dest[0].(*int64)) = r.sizes[r.index]
+	*(dest[1].(*string)) = r.hashes[r.index]
+	r.index++
+	return nil
+}
+
+func (r *sizeToHashesRowsStub) Err() error {
+	return r.terminalErr
+}
+
+func TestSizeToHashesMapFromRowsPropagatesTerminalError(t *testing.T) {
+	terminalErr := errors.New("terminal row iteration failure")
+	rows := &sizeToHashesRowsStub{
+		sizes:       []int64{123},
+		hashes:      []string{"hash-one"},
+		terminalErr: terminalErr,
+	}
+
+	got, err := sizeToHashesMapFromRows(rows)
+	if !errors.Is(err, terminalErr) {
+		t.Fatalf("error = %v, want terminal iterator error", err)
+	}
+	if got != nil {
+		t.Fatalf("map = %#v, want nil on terminal iterator error", got)
 	}
 }
