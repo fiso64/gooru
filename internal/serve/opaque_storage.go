@@ -78,7 +78,8 @@ func protectedManagedStoragePathForRoot(root, opaqueName string) (string, error)
 	if _, err := hex.DecodeString(opaqueName); err != nil {
 		return "", fmt.Errorf("invalid opaque managed storage name")
 	}
-	rootAbs, err := filepath.Abs(strings.TrimSpace(root))
+	rootClean := filepath.Clean(root)
+	rootAbs, err := filepath.Abs(rootClean)
 	if err != nil {
 		return "", fmt.Errorf("resolve managed upload target: %w", err)
 	}
@@ -87,8 +88,12 @@ func protectedManagedStoragePathForRoot(root, opaqueName string) (string, error)
 	if !ok {
 		return "", fmt.Errorf("cannot safely resolve managed upload target")
 	}
-	shardDir := filepath.Join(rootAbs, protectedManagedNamespace, opaqueName[:2])
-	if err := requireResolvedManagedContainment(resolvedRoot, shardDir); err != nil {
+	shardDir := filepath.Join(rootClean, protectedManagedNamespace, opaqueName[:2])
+	shardAbs, err := filepath.Abs(shardDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve protected managed storage shard: %w", err)
+	}
+	if err := requireResolvedManagedContainment(resolvedRoot, shardAbs); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(shardDir, 0o700); err != nil {
@@ -96,7 +101,7 @@ func protectedManagedStoragePathForRoot(root, opaqueName string) (string, error)
 	}
 	// Resolve again after creation so an existing namespace/shard symlink cannot
 	// silently redirect the directory creation outside the configured target.
-	if err := requireResolvedManagedContainment(resolvedRoot, shardDir); err != nil {
+	if err := requireResolvedManagedContainment(resolvedRoot, shardAbs); err != nil {
 		return "", err
 	}
 	return filepath.Join(shardDir, opaqueName), nil
@@ -255,6 +260,10 @@ func managedUploadTargetRoot(targets []UploadTarget, path string) (string, bool,
 			return "", false, fmt.Errorf("resolve managed upload target: %w", err)
 		}
 		root = filepath.Clean(root)
+		rel, err := filepath.Rel(root, pathAbs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			continue
+		}
 		resolvedRoot, ok := resolvedContainmentPath(root)
 		if !ok {
 			return "", false, fmt.Errorf("cannot safely resolve managed upload target")
