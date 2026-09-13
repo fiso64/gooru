@@ -22,14 +22,14 @@ const (
 )
 
 type backgroundUploadCheckpoint struct {
-	Phase                  string                                   `json:"phase"`
+	Phase                  string                                  `json:"phase"`
 	Replacements           []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
 	Response               *UploadImportResponse                   `json:"response,omitempty"`
-	FileTotal              int                                      `json:"file_total,omitempty"`
-	FilesCompleted         int                                      `json:"files_completed,omitempty"`
-	FilesCompletedPrefix   int                                      `json:"files_completed_prefix,omitempty"`
-	TransportBytesTotal    int64                                    `json:"transport_bytes_total,omitempty"`
-	TransportBytesReceived int64                                    `json:"transport_bytes_received,omitempty"`
+	FileTotal              int                                     `json:"file_total,omitempty"`
+	FilesCompleted         int                                     `json:"files_completed,omitempty"`
+	FilesCompletedPrefix   int                                     `json:"files_completed_prefix,omitempty"`
+	TransportBytesTotal    int64                                   `json:"transport_bytes_total,omitempty"`
+	TransportBytesReceived int64                                   `json:"transport_bytes_received,omitempty"`
 }
 
 type backgroundUploadReplacementCheckpoint struct {
