@@ -1,0 +1,467 @@
+name: Maintainer 622 segmented upload aggregation
+
+on:
+  push:
+    branches:
+      - maintainer/622-logical-upload-session
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'ci: apply segmented upload aggregation'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply aggregation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          operations = Path('internal/serve/background_operations.go')
+          text = operations.read_text()
+          old_result = 'found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)'
+          new_result = 'found, err := s.backgroundOperationResult(operation, &result)'
+          if text.count(old_result) != 2:
+              raise SystemExit(f'expected 2 result call sites, found {text.count(old_result)}')
+          text = text.replace(old_result, new_result)
+          old_upload_gate = '''\tif operation.Kind != backgroundUploadImportOperationKind || s.backgroundOperations == nil {
+\t\treturn dto
+\t}
+'''
+          new_upload_gate = old_upload_gate + '''\tif operation.ProgressTotal > 1 {
+\t\tif segmented, ok := s.segmentedUploadOperationDTO(operation, dto); ok {
+\t\t\treturn segmented
+\t\t}
+\t}
+'''
+          if text.count(old_upload_gate) != 1:
+              raise SystemExit(f'expected 1 upload DTO gate, found {text.count(old_upload_gate)}')
+          text = text.replace(old_upload_gate, new_upload_gate, 1)
+          operations.write_text(text)
+
+          Path('internal/serve/background_upload_aggregate.go').write_text(r'''package serve
+
+import (
+    "encoding/json"
+    "fmt"
+
+    core "gooru.local/gooru"
+)
+
+type backgroundUploadSegmentProjectionReader interface {
+    GetBackgroundTask(string) (core.BackgroundTaskState, bool, error)
+    GetBackgroundTaskCheckpoint(string, any) (bool, error)
+}
+
+type backgroundUploadSegmentResultReader interface {
+    GetBackgroundTask(string) (core.BackgroundTaskState, bool, error)
+    GetBackgroundTaskResult(string, any) (bool, error)
+}
+
+func (l *GooruLibrary) GetBackgroundTaskCheckpoint(taskID string, destination any) (bool, error) {
+    return l.client.GetBackgroundTaskCheckpoint(taskID, destination)
+}
+
+func (l *GooruLibrary) GetBackgroundTaskResult(taskID string, destination any) (bool, error) {
+    return l.client.GetBackgroundTaskResult(taskID, destination)
+}
+
+func (s *Server) backgroundOperationResult(operation core.BackgroundOperationState, destination any) (bool, error) {
+    if operation.Kind == backgroundUploadImportOperationKind && operation.ProgressTotal > 1 {
+        if reader, ok := s.backgroundOperations.(backgroundUploadSegmentResultReader); ok {
+            return aggregateSegmentedUploadResult(reader, operation, destination)
+        }
+    }
+    return s.backgroundOperations.GetBackgroundOperationResult(operation.ID, destination)
+}
+
+func aggregateSegmentedUploadResult(reader backgroundUploadSegmentResultReader, operation core.BackgroundOperationState, destination any) (bool, error) {
+    response := UploadImportResponse{}
+    for segmentIndex := int64(0); segmentIndex < operation.ProgressTotal; segmentIndex++ {
+        taskID := durableUploadSegmentTaskID(operation.ID, segmentIndex)
+        task, found, err := reader.GetBackgroundTask(taskID)
+        if err != nil {
+            return false, fmt.Errorf("load upload segment %d: %w", segmentIndex, err)
+        }
+        if !found {
+            return false, fmt.Errorf("completed upload segment %d is missing", segmentIndex)
+        }
+        if !durableUploadSegmentTaskMatches(task, operation.ID) {
+            return false, fmt.Errorf("upload segment %d has invalid task identity", segmentIndex)
+        }
+        var segment UploadImportResponse
+        found, err = reader.GetBackgroundTaskResult(taskID, &segment)
+        if err != nil {
+            return false, fmt.Errorf("load upload segment %d result: %w", segmentIndex, err)
+        }
+        if !found {
+            return false, fmt.Errorf("completed upload segment %d result is missing", segmentIndex)
+        }
+        response.Files = append(response.Files, segment.Files...)
+        response.AffectedCount += segment.AffectedCount
+        response.Notifications = append(response.Notifications, segment.Notifications...)
+    }
+    encoded, err := json.Marshal(response)
+    if err != nil {
+        return false, fmt.Errorf("encode segmented upload result: %w", err)
+    }
+    if err := json.Unmarshal(encoded, destination); err != nil {
+        return false, fmt.Errorf("decode segmented upload result: %w", err)
+    }
+    return true, nil
+}
+
+func (s *Server) segmentedUploadOperationDTO(operation core.BackgroundOperationState, dto BackgroundOperationDTO) (BackgroundOperationDTO, bool) {
+    reader, ok := s.backgroundOperations.(backgroundUploadSegmentProjectionReader)
+    if !ok || operation.ProgressTotal <= 1 {
+        return dto, false
+    }
+
+    expected := operation.ProgressTotal
+    admitted := int64(0)
+    segmentProgress := 0.0
+    allFileProgress := true
+    totalFiles := int64(0)
+    completedFiles := int64(0)
+    completedPrefix := int64(0)
+    prefixOpen := true
+
+    for segmentIndex := int64(0); segmentIndex < expected; segmentIndex++ {
+        taskID := durableUploadSegmentTaskID(operation.ID, segmentIndex)
+        task, found, err := reader.GetBackgroundTask(taskID)
+        if err != nil {
+            return dto, false
+        }
+        if !found {
+            allFileProgress = false
+            continue
+        }
+        if !durableUploadSegmentTaskMatches(task, operation.ID) {
+            return dto, false
+        }
+        admitted++
+
+        var checkpoint backgroundUploadCheckpoint
+        found, err = reader.GetBackgroundTaskCheckpoint(taskID, &checkpoint)
+        if err != nil {
+            return dto, false
+        }
+        if !found {
+            allFileProgress = false
+            if task.Status == core.BackgroundWorkCompleted {
+                segmentProgress += 1
+            }
+            continue
+        }
+        segmentProgress += segmentedUploadCheckpointProgress(task.Status, checkpoint)
+
+        if checkpoint.FileTotal <= 0 {
+            allFileProgress = false
+            continue
+        }
+        total := int64(checkpoint.FileTotal)
+        completed := int64(checkpoint.FilesCompleted)
+        prefix := int64(checkpoint.FilesCompletedPrefix)
+        if task.Status == core.BackgroundWorkCompleted || checkpoint.Phase == backgroundUploadPhaseImported {
+            completed = total
+            prefix = total
+        }
+        if completed < 0 {
+            completed = 0
+        }
+        if completed > total {
+            completed = total
+        }
+        if prefix < 0 {
+            prefix = 0
+        }
+        if prefix > completed {
+            prefix = completed
+        }
+        totalFiles += total
+        completedFiles += completed
+        if prefixOpen {
+            completedPrefix += prefix
+            if prefix < total {
+                prefixOpen = false
+            }
+        }
+    }
+
+    if admitted < expected {
+        dto.Stage = "receiving"
+        if operationReader, ok := s.backgroundOperations.(backgroundOperationCheckpointReader); ok {
+            var receiving backgroundUploadCheckpoint
+            if found, err := operationReader.GetBackgroundOperationCheckpoint(operation.ID, &receiving); err == nil && found &&
+                receiving.Phase == backgroundUploadPhaseReceiving && receiving.TransportBytesTotal > 0 &&
+                receiving.TransportBytesReceived > 0 && receiving.TransportBytesReceived < receiving.TransportBytesTotal {
+                received := receiving.TransportBytesReceived
+                if received > receiving.TransportBytesTotal {
+                    received = receiving.TransportBytesTotal
+                }
+                segmentProgress += 0.5 * float64(received) / float64(receiving.TransportBytesTotal)
+            }
+        }
+    } else {
+        dto.Stage = "importing"
+    }
+
+    progress := segmentProgress / float64(expected)
+    if admitted == expected && allFileProgress && totalFiles > 0 {
+        dto.ProgressTotal = totalFiles
+        dto.ProgressCompleted = completedFiles
+        dto.ProgressCompletedPrefix = completedPrefix
+        if operation.Status != core.BackgroundWorkFailed && operation.Status != core.BackgroundWorkCanceled {
+            dto.ProgressFailed = 0
+        }
+        progress = 0.5 + 0.5*float64(completedFiles)/float64(totalFiles)
+    }
+    if operation.Status == core.BackgroundWorkCompleted {
+        progress = 1
+    }
+    if progress < 0 {
+        progress = 0
+    }
+    if progress > 1 {
+        progress = 1
+    }
+    dto.Progress = &progress
+    if dto.Status == core.BackgroundWorkPending && (admitted > 0 || progress > 0) {
+        dto.Status = core.BackgroundWorkRunning
+    }
+    return dto, true
+}
+
+func segmentedUploadCheckpointProgress(status core.BackgroundWorkStatus, checkpoint backgroundUploadCheckpoint) float64 {
+    if status == core.BackgroundWorkCompleted || checkpoint.Phase == backgroundUploadPhaseImported {
+        return 1
+    }
+    switch checkpoint.Phase {
+    case backgroundUploadPhaseStaged:
+        return 0.5
+    case backgroundUploadPhaseActivated:
+        if checkpoint.FileTotal <= 0 {
+            return 0.5
+        }
+        completed := checkpoint.FilesCompleted
+        if completed < 0 {
+            completed = 0
+        }
+        if completed > checkpoint.FileTotal {
+            completed = checkpoint.FileTotal
+        }
+        return 0.5 + 0.5*float64(completed)/float64(checkpoint.FileTotal)
+    default:
+        return 0
+    }
+}
+''')
+
+          Path('internal/serve/background_upload_aggregate_test.go').write_text(r'''package serve
+
+import (
+    "encoding/json"
+    "math"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    "time"
+
+    core "gooru.local/gooru"
+)
+
+type fakeSegmentedUploadReader struct {
+    *fakeBackgroundOperationReader
+    tasks           map[string]core.BackgroundTaskState
+    taskCheckpoints map[string]backgroundUploadCheckpoint
+    taskResults     map[string]UploadImportResponse
+}
+
+func (f *fakeSegmentedUploadReader) GetBackgroundTask(id string) (core.BackgroundTaskState, bool, error) {
+    task, ok := f.tasks[id]
+    return task, ok, nil
+}
+
+func (f *fakeSegmentedUploadReader) GetBackgroundTaskCheckpoint(id string, destination any) (bool, error) {
+    checkpoint, ok := f.taskCheckpoints[id]
+    if !ok {
+        return false, nil
+    }
+    *(destination.(*backgroundUploadCheckpoint)) = checkpoint
+    return true, nil
+}
+
+func (f *fakeSegmentedUploadReader) GetBackgroundTaskResult(id string, destination any) (bool, error) {
+    result, ok := f.taskResults[id]
+    if !ok {
+        return false, nil
+    }
+    encoded, err := json.Marshal(result)
+    if err != nil {
+        return false, err
+    }
+    if err := json.Unmarshal(encoded, destination); err != nil {
+        return false, err
+    }
+    return true, nil
+}
+
+func TestHandleOperationAggregatesCompletedSegmentedUploadResultInOrder(t *testing.T) {
+    operationID := "operation-segmented-result"
+    finishedAt := time.Now().UTC()
+    operation := core.BackgroundOperationState{
+        ID: operationID, Kind: backgroundUploadImportOperationKind, Visible: true,
+        Status: core.BackgroundWorkCompleted, ProgressTotal: 3,
+        ProgressCompleted: 3, CreatedAt: finishedAt.Add(-time.Second), FinishedAt: &finishedAt,
+    }
+    base := &fakeBackgroundOperationReader{
+        byID: map[string]core.BackgroundOperationState{operationID: operation},
+        checkpoints: map[string]backgroundUploadCheckpoint{
+            operationID: backgroundUploadReceivingCheckpoint(100, 100),
+        },
+    }
+    reader := &fakeSegmentedUploadReader{
+        fakeBackgroundOperationReader: base,
+        tasks:           map[string]core.BackgroundTaskState{},
+        taskCheckpoints: map[string]backgroundUploadCheckpoint{},
+        taskResults:     map[string]UploadImportResponse{},
+    }
+    segmentFiles := [][]UploadedFileDTO{
+        {{Name: "a.jpg", TargetID: "default", Status: "imported"}, {Name: "b.jpg", TargetID: "default", Status: "duplicate_existing"}},
+        {{Name: "c.jpg", TargetID: "default", Status: "imported"}},
+        {{Name: "d.jpg", TargetID: "default", Status: "imported"}},
+    }
+    for segmentIndex, files := range segmentFiles {
+        index := int64(segmentIndex)
+        taskID := durableUploadSegmentTaskID(operationID, index)
+        reader.tasks[taskID] = segmentedUploadTestTask(operationID, index, core.BackgroundWorkCompleted)
+        reader.taskCheckpoints[taskID] = backgroundUploadCheckpoint{
+            Phase: backgroundUploadPhaseImported, FileTotal: len(files), FilesCompleted: len(files), FilesCompletedPrefix: len(files),
+        }
+        affected := 0
+        for _, file := range files {
+            if file.Status == "imported" {
+                affected++
+            }
+        }
+        reader.taskResults[taskID] = UploadImportResponse{
+            Files: files, AffectedCount: affected, Notifications: make([]NotificationDTO, segmentIndex%2),
+        }
+    }
+
+    server := &Server{backgroundOperations: reader}
+    request := httptest.NewRequest(http.MethodGet, "/api/v1/operations/"+operationID, nil)
+    response := httptest.NewRecorder()
+    server.handleOperation(response, request)
+    if response.Code != http.StatusOK {
+        t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+    }
+    var payload struct {
+        Result UploadImportResponse `json:"result"`
+    }
+    if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+        t.Fatal(err)
+    }
+    if payload.Result.AffectedCount != 3 || len(payload.Result.Files) != 4 {
+        t.Fatalf("aggregate result = %+v", payload.Result)
+    }
+    wantNames := []string{"a.jpg", "b.jpg", "c.jpg", "d.jpg"}
+    for index, want := range wantNames {
+        if got := payload.Result.Files[index].Name; got != want {
+            t.Fatalf("result file %d = %q, want %q", index, got, want)
+        }
+    }
+    if len(payload.Result.Notifications) != 1 {
+        t.Fatalf("notifications = %d, want 1", len(payload.Result.Notifications))
+    }
+}
+
+func TestHandleOperationsProjectsSegmentedUploadAcrossAdmittedAndMissingChildren(t *testing.T) {
+    operationID := "operation-segmented-progress"
+    operation := core.BackgroundOperationState{
+        ID: operationID, Kind: backgroundUploadImportOperationKind, Visible: true,
+        Status: core.BackgroundWorkRunning, ProgressTotal: 3, ProgressCompleted: 1,
+        CreatedAt: time.Now().UTC(),
+    }
+    base := &fakeBackgroundOperationReader{
+        operations: []core.BackgroundOperationState{operation},
+        checkpoints: map[string]backgroundUploadCheckpoint{
+            operationID: backgroundUploadReceivingCheckpoint(400, 100),
+        },
+    }
+    reader := &fakeSegmentedUploadReader{
+        fakeBackgroundOperationReader: base,
+        tasks:           map[string]core.BackgroundTaskState{},
+        taskCheckpoints: map[string]backgroundUploadCheckpoint{},
+        taskResults:     map[string]UploadImportResponse{},
+    }
+    task0 := durableUploadSegmentTaskID(operationID, 0)
+    reader.tasks[task0] = segmentedUploadTestTask(operationID, 0, core.BackgroundWorkCompleted)
+    reader.taskCheckpoints[task0] = backgroundUploadCheckpoint{Phase: backgroundUploadPhaseImported, FileTotal: 2, FilesCompleted: 2, FilesCompletedPrefix: 2}
+    task2 := durableUploadSegmentTaskID(operationID, 2)
+    reader.tasks[task2] = segmentedUploadTestTask(operationID, 2, core.BackgroundWorkRunning)
+    reader.taskCheckpoints[task2] = backgroundUploadCheckpoint{Phase: backgroundUploadPhaseActivated, FileTotal: 4, FilesCompleted: 2, FilesCompletedPrefix: 1}
+
+    server := &Server{backgroundOperations: reader}
+    request := httptest.NewRequest(http.MethodGet, "/api/v1/operations", nil)
+    response := httptest.NewRecorder()
+    server.handleOperations(response, request)
+    if response.Code != http.StatusOK {
+        t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+    }
+    var payload BackgroundOperationListResponse
+    if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+        t.Fatal(err)
+    }
+    if len(payload.Items) != 1 {
+        t.Fatalf("items = %+v", payload.Items)
+    }
+    item := payload.Items[0]
+    if item.Stage != "receiving" || item.Progress == nil || math.Abs(*item.Progress-0.625) > 1e-9 {
+        t.Fatalf("partial segmented projection = %+v", item)
+    }
+    if item.ProgressTotal != 3 || item.ProgressCompleted != 1 {
+        t.Fatalf("partial progress counters = %+v", item)
+    }
+
+    task1 := durableUploadSegmentTaskID(operationID, 1)
+    reader.tasks[task1] = segmentedUploadTestTask(operationID, 1, core.BackgroundWorkPending)
+    reader.taskCheckpoints[task1] = backgroundUploadCheckpoint{Phase: backgroundUploadPhaseStaged, FileTotal: 4}
+    projected, ok := server.segmentedUploadOperationDTO(operation, backgroundOperationDTO(operation))
+    if !ok {
+        t.Fatal("all-admitted segmented upload was not projected")
+    }
+    if projected.Stage != "importing" || projected.Progress == nil || math.Abs(*projected.Progress-0.7) > 1e-9 {
+        t.Fatalf("all-admitted segmented projection = %+v", projected)
+    }
+    if projected.ProgressTotal != 10 || projected.ProgressCompleted != 4 || projected.ProgressCompletedPrefix != 2 {
+        t.Fatalf("all-admitted file counters = %+v", projected)
+    }
+}
+
+func segmentedUploadTestTask(operationID string, segmentIndex int64, status core.BackgroundWorkStatus) core.BackgroundTaskState {
+    taskID := durableUploadSegmentTaskID(operationID, segmentIndex)
+    return core.BackgroundTaskState{
+        BackgroundTask: core.BackgroundTask{
+            ID: taskID, OperationID: operationID, Kind: backgroundUploadTaskKind,
+            SubjectKind: "operation", SubjectID: operationID,
+        },
+        Status: status,
+    }
+}
+''')
+
+          Path('.github/workflows/maintainer-622-segment-aggregation.yml').unlink()
+          PY
+          gofmt -w internal/serve/background_operations.go internal/serve/background_upload_aggregate.go internal/serve/background_upload_aggregate_test.go
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(upload): aggregate segmented job state"
+          git push origin HEAD:maintainer/622-logical-upload-session
