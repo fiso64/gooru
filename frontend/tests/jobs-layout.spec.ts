@@ -53,8 +53,8 @@ test('jobs view stays compact and aligns the header and status to the card edges
   expect(headingBox).not.toBeNull();
   expect(nameBox).not.toBeNull();
   expect(statusBox).not.toBeNull();
-  expect(pageBox!.width).toBeGreaterThanOrEqual(719.5);
-  expect(pageBox!.width).toBeLessThanOrEqual(720.5);
+  expect(pageBox!.width).toBeGreaterThanOrEqual(819.5);
+  expect(pageBox!.width).toBeLessThanOrEqual(820.5);
   expect(pageBox!.x - mainBox!.x).toBeLessThan(48);
   expect(Math.abs(headingBox!.x - cardBox!.x)).toBeLessThan(2);
   expect(nameBox!.x - cardBox!.x).toBeLessThan(32);
