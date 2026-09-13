@@ -94,8 +94,8 @@
 
 <style>
   .jobs-page {
-    width: min(100%, 720px);
-    margin-inline: 0;
+    width: min(100%, 820px);
+    margin-inline: auto;
   }
 
   .jobs-page-header {
@@ -104,7 +104,7 @@
     text-align: left;
     display: flex;
     flex-direction: row;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
   }
