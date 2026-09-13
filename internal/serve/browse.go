@@ -758,8 +758,10 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 				dto.Metadata = metadata
 			}
 		} else if s.meta != nil {
-			if metadata, err := s.meta.Metadata(ctx, file, mediaType, mediaKind); err == nil {
-				dto.Metadata = metadata
+			if pathProvider, ok := s.meta.(MediaMetadataPathProvider); ok {
+				if metadata, err := pathProvider.Metadata(ctx, file, mediaType, mediaKind); err == nil {
+					dto.Metadata = metadata
+				}
 			}
 		}
 	}
