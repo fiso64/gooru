@@ -114,15 +114,23 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reservationID := strings.TrimSpace(r.Header.Get(uploadOperationHeader))
-	operation, created, err := s.claimDurableUploadOperation(r, operations)
+	admission, err := s.admitDurableUpload(r, operations)
 	if err != nil {
-		if reservationID == "" {
+		if reservationID == "" && len(r.Header.Values(uploadSegmentIndexHeader)) == 0 {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to accept upload", nil)
 		} else {
 			writeError(w, http.StatusConflict, "invalid_upload_reservation", err.Error(), nil)
 		}
 		return
 	}
+	operation := admission.operation
+	if admission.alreadyAttached {
+		if err := writeDurableUploadAccepted(w, s, operations, operation.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load upload operation", nil)
+		}
+		return
+	}
+
 	attached := false
 	defer func() {
 		if !attached {
@@ -134,7 +142,7 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to initialize upload progress", nil)
 		return
 	}
-	if created {
+	if admission.created {
 		if err := operations.SetBackgroundOperationVisible(operation.ID, true); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to publish upload operation", nil)
 			return
@@ -168,25 +176,42 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare uploaded files", nil)
 		return
 	}
-	if _, err := operations.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(len(saved)), taskRequest); err != nil {
-		removeSavedUploads(saved)
-		if state, found, stateErr := operations.GetBackgroundOperation(operation.ID); stateErr == nil && found && state.Status == core.BackgroundWorkCanceled {
-			writeError(w, http.StatusRequestTimeout, "request_canceled", "upload was canceled", nil)
+	if admission.segmented {
+		segmentStore := any(operations).(durableUploadSegmentStore)
+		if _, _, err := segmentStore.AttachBackgroundTaskToOperation(operation.ID, admission.taskID, backgroundUploadInitialCheckpoint(len(saved)), taskRequest); err != nil {
+			removeSavedUploads(saved)
+			_ = cleanupDurableUploadStagingDirs(saved)
+			if state, found, stateErr := operations.GetBackgroundOperation(operation.ID); stateErr == nil && found && state.Status == core.BackgroundWorkCanceled {
+				writeError(w, http.StatusRequestTimeout, "request_canceled", "upload was canceled", nil)
+				return
+			}
+			if existing, found, readErr := segmentStore.GetBackgroundTask(admission.taskID); readErr == nil && found && durableUploadSegmentTaskMatches(existing, operation.ID) {
+				attached = true
+				if err := writeDurableUploadAccepted(w, s, operations, operation.ID); err != nil {
+					writeError(w, http.StatusInternalServerError, "internal_error", "failed to load upload operation", nil)
+				}
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files", nil)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files", nil)
-		return
+	} else {
+		if _, err := operations.AttachBackgroundTaskAndRevealOperation(operation.ID, backgroundUploadInitialCheckpoint(len(saved)), taskRequest); err != nil {
+			removeSavedUploads(saved)
+			if state, found, stateErr := operations.GetBackgroundOperation(operation.ID); stateErr == nil && found && state.Status == core.BackgroundWorkCanceled {
+				writeError(w, http.StatusRequestTimeout, "request_canceled", "upload was canceled", nil)
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to queue uploaded files", nil)
+			return
+		}
 	}
 	attached = true
 
 	if PreferAsync(r) {
-		state, found, err := operations.GetBackgroundOperation(operation.ID)
-		if err != nil || !found {
+		if err := writeDurableUploadAccepted(w, s, operations, operation.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load upload operation", nil)
-			return
 		}
-		w.Header().Set("Location", "/api/v1/operations/"+operation.ID)
-		writeJSON(w, http.StatusAccepted, s.backgroundOperationDTO(state))
 		return
 	}
 
