@@ -1343,38 +1343,9 @@ func (s *Store) BatchGetTags(q Querier, parsedTags []types.ParsedTag) (map[strin
 }
 
 func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (map[string]int64, error) {
-	tagIDMap := make(map[string]int64)
-
-	// 1. First, try to fetch all existing tags in one query
-	if len(parsedTags) > 0 {
-		var placeholders []string
-		var args []interface{}
-		for _, t := range parsedTags {
-			placeholders = append(placeholders, "(?, ?)")
-			args = append(args, t.Key, t.Value)
-		}
-		query := `SELECT id, key, value FROM tags WHERE (key, value) IN (` + strings.Join(placeholders, ",") + `)`
-
-		rows, err := q.Query(query, args...)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var id int64
-			var key, value string
-			if err := rows.Scan(&id, &key, &value); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			var tagStr string
-			if value == "" {
-				tagStr = key
-			} else {
-				tagStr = key + ":" + value
-			}
-			tagIDMap[tagStr] = id
-		}
-		rows.Close()
+	tagIDMap, err := s.BatchGetTags(q, parsedTags)
+	if err != nil {
+		return nil, err
 	}
 
 	// 2. Insert any tags that weren't found
