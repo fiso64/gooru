@@ -106,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/tags/namespaces", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleTagNamespaces)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
 	mux.Handle("/api/v1/operations/cancel-all", s.adminProtected(http.HandlerFunc(s.handleCancelAllOperations)))
+	mux.Handle("/api/v1/operations/events", s.adminProtected(http.HandlerFunc(s.handleOperationEvents)))
 	mux.Handle("/api/v1/operations", s.adminProtected(http.HandlerFunc(s.handleOperations)))
 	mux.Handle("/api/v1/operations/", s.adminProtected(http.HandlerFunc(s.handleOperation)))
 	mux.HandleFunc("/", s.handleFrontend)
