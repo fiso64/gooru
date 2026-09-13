@@ -2,7 +2,7 @@ import createClient from 'openapi-fetch';
 import type { paths } from './openapi';
 import type { LibraryURLState } from '$lib/utils/appRoute';
 import type { BackgroundOperation } from './operations';
-import { useProtectedReadTransport } from './privacy';
+import { selectProtectedReadTransport } from './privacy';
 import type {
   ApiErrorResponse,
   AuthMeResponse,
@@ -88,8 +88,23 @@ export class ApiClient {
   }
 
   async listFiles(params: ListFilesParams = {}): Promise<FileListResponse> {
-    if (useProtectedReadTransport()) {
-      return this.unwrap(
+    return selectProtectedReadTransport({
+      clearQuery: () => this.unwrap<FileListResponse>(
+        this.client.GET('/files', {
+          params: {
+            query: {
+              query: params.query || undefined,
+              limit: params.limit,
+              page_token: params.pageToken,
+              sort: params.sort,
+              order: params.order,
+              include_facets: params.includeFacets || undefined
+            }
+          },
+          signal: params.signal
+        })
+      ),
+      protectedBody: () => this.unwrap<FileListResponse>(
         this.client.POST('/files/search', {
           body: {
             query: params.query || undefined,
@@ -101,23 +116,8 @@ export class ApiClient {
           },
           signal: params.signal
         })
-      );
-    }
-    return this.unwrap(
-      this.client.GET('/files', {
-        params: {
-          query: {
-            query: params.query || undefined,
-            limit: params.limit,
-            page_token: params.pageToken,
-            sort: params.sort,
-            order: params.order,
-            include_facets: params.includeFacets || undefined
-          }
-        },
-        signal: params.signal
-      })
-    );
+      )
+    });
   }
 
   async createURLState(state: LibraryURLState, signal?: AbortSignal): Promise<string> {
@@ -147,17 +147,17 @@ export class ApiClient {
   }
 
   async searchSuggestions(q = '', limit?: number, existing = '', signal?: AbortSignal): Promise<SuggestionsResponse> {
-    if (useProtectedReadTransport()) {
-      return this.unwrap(
+    return selectProtectedReadTransport({
+      clearQuery: () => this.unwrap<SuggestionsResponse>(
+        this.client.GET('/search/suggestions', {
+          params: { query: { q: q || undefined, limit, existing: existing || undefined } },
+          signal
+        })
+      ),
+      protectedBody: () => this.unwrap<SuggestionsResponse>(
         this.client.POST('/search/suggestions', { body: { q: q || undefined, limit, existing: existing || undefined }, signal })
-      );
-    }
-    return this.unwrap(
-      this.client.GET('/search/suggestions', {
-        params: { query: { q: q || undefined, limit, existing: existing || undefined } },
-        signal
-      })
-    );
+      )
+    });
   }
 
   async tagNamespaces(): Promise<NamespacesResponse> {
