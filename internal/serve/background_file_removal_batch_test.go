@@ -152,6 +152,12 @@ func (l *replayBatchRemovalLibrary) DeleteFilesByPublicIDs(_ context.Context, pu
 	return 0, nil
 }
 
+func newReplayBatchRemovalServer(root string, library *replayBatchRemovalLibrary) *Server {
+	cfg := DefaultConfig(filepath.Join(root, "gooru.db"))
+	cfg.Uploads.Targets = []UploadTarget{{ID: "managed", Name: "Managed", Path: root}}
+	return NewServerWithLibrary(cfg, library)
+}
+
 func TestBackgroundFileRemovalBatchReplayAfterDatabaseCommitPreservesReplacement(t *testing.T) {
 	root := t.TempDir()
 	originalPath := filepath.Join(root, "a.jpg")
@@ -164,7 +170,7 @@ func TestBackgroundFileRemovalBatchReplayAfterDatabaseCommitPreservesReplacement
 	}
 
 	library := &replayBatchRemovalLibrary{lookupErr: ErrNotFound}
-	server := NewServerWithLibrary(DefaultConfig(filepath.Join(root, "gooru.db")), library)
+	server := newReplayBatchRemovalServer(root, library)
 	files := []backgroundFileRemovalBatchFile{{
 		PublicID:     "file_a",
 		OriginalPath: originalPath,
@@ -204,7 +210,7 @@ func TestBackgroundFileRemovalBatchRetryDoesNotDeleteTrackedOriginalAfterRollbac
 	}
 
 	library := &replayBatchRemovalLibrary{lookupFile: types.FileInfo{PublicID: "file_a", Path: originalPath}}
-	server := NewServerWithLibrary(DefaultConfig(filepath.Join(root, "gooru.db")), library)
+	server := newReplayBatchRemovalServer(root, library)
 	files := []backgroundFileRemovalBatchFile{{
 		PublicID:     "file_a",
 		OriginalPath: originalPath,
@@ -237,7 +243,7 @@ func TestBackgroundFileRemovalLegacyReplayAfterDatabaseCommitPreservesReplacemen
 	}
 
 	library := &replayBatchRemovalLibrary{lookupErr: ErrNotFound, singleDeleteErr: ErrNotFound}
-	server := NewServerWithLibrary(DefaultConfig(filepath.Join(root, "gooru.db")), library)
+	server := newReplayBatchRemovalServer(root, library)
 	input := backgroundFileRemovalInput{PublicID: "file_a", OriginalPath: originalPath, StagingPath: stagingPath}
 	if err := server.resumeManagedFileDeletion(context.Background(), input); err != nil {
 		t.Fatal(err)
@@ -270,7 +276,7 @@ func TestBackgroundFileRemovalLegacyRetryDoesNotDeleteTrackedOriginalAfterRollba
 	}
 
 	library := &replayBatchRemovalLibrary{lookupFile: types.FileInfo{PublicID: "file_a", Path: originalPath}}
-	server := NewServerWithLibrary(DefaultConfig(filepath.Join(root, "gooru.db")), library)
+	server := newReplayBatchRemovalServer(root, library)
 	input := backgroundFileRemovalInput{PublicID: "file_a", OriginalPath: originalPath, StagingPath: stagingPath}
 	err := server.resumeManagedFileDeletion(context.Background(), input)
 	if err == nil || !strings.Contains(err.Error(), "original path is occupied before database removal") {
