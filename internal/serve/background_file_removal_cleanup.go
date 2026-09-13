@@ -110,7 +110,10 @@ func (s *Server) reconcileCanceledStagedFileRemoval(ctx context.Context, publicI
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	stagedExists, err := pathExists(stagedPath)
+	if err := s.validatePersistedDeletionParent(originalPath); err != nil {
+		return err
+	}
+	stagedExists, err := safeStagedDeletionEntryExists(stagedPath)
 	if err != nil {
 		return fmt.Errorf("check canceled file removal staging path: %w", err)
 	}
