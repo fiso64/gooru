@@ -233,3 +233,44 @@ func TestClient_RelinkFailsClosedOnScanErrors(t *testing.T) {
 		assert.Empty(t, result.ProposedDeletes)
 	})
 }
+
+func TestClient_RelinkTreatsWildcardDirectoriesLiterally(t *testing.T) {
+	tests := []struct {
+		name        string
+		targetName  string
+		siblingName string
+	}{
+		{name: "underscore", targetName: "scope_a", siblingName: "scopeXa"},
+		{name: "percent", targetName: "scope%a", siblingName: "scopeZZa"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dbPath := setupTestDB(t)
+			client, err := gooru.New(dbPath, false)
+			require.NoError(t, err)
+			defer client.Close()
+
+			parent := t.TempDir()
+			targetDir := filepath.Join(parent, tt.targetName)
+			siblingDir := filepath.Join(parent, tt.siblingName)
+			require.NoError(t, os.Mkdir(targetDir, 0o755))
+			require.NoError(t, os.Mkdir(siblingDir, 0o755))
+
+			targetPath := createTestFile(t, targetDir, "target.txt", "target contents")
+			siblingPath := createTestFile(t, siblingDir, "sibling.txt", "sibling contents")
+			_, err = client.TagFiles([]string{targetPath, siblingPath}, []string{"tag1"}, nil, false)
+			require.NoError(t, err)
+
+			needsRelink, err := client.NeedsRelink([]string{targetDir}, false)
+			require.NoError(t, err)
+			assert.False(t, needsRelink, "LIKE-compatible sibling must stay outside literal relink scope")
+
+			result, err := client.Relink([]string{targetDir})
+			require.NoError(t, err)
+			assert.Empty(t, result.ProposedMoves)
+			assert.Empty(t, result.ProposedAdds)
+			assert.Empty(t, result.ProposedDeletes, "out-of-scope sibling must never be proposed for deletion")
+		})
+	}
+}
