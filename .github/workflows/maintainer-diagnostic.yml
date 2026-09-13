@@ -1,0 +1,20 @@
+name: Maintainer diagnostic
+
+on:
+  push:
+    branches:
+      - maintainer/554-metadata-source-capability
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Metadata provider references
+        run: |
+          git grep -n -E 'MediaMetadata(Source)?Provider|MediaMetadataPathProvider|\.meta\.Metadata|\.metadata\.Metadata' -- internal/serve cmd || true
+      - name: Compile affected Go packages
+        run: go test ./internal/serve ./cmd/gooru ./cmd/gooru/cmd
