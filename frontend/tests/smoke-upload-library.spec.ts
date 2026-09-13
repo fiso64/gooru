@@ -200,23 +200,21 @@ async function uploadTaggedFiles(page: Page, files: string[], uploadTag: string,
     await uploadButton.click();
     const uploadQueue = page.locator('section.upload-queue-section');
     await expect(uploadQueue).toBeVisible({ timeout: operationTimeout });
-    await expect.poll(async () => {
-      return successfulUploadCount((await uploadQueue.getAttribute('aria-label')) ?? '');
-    }, { timeout: operationTimeout, message: `all ${files.length} uploads should reach a successful terminal state` }).toBe(files.length);
 
-    if (chunkSize !== undefined) {
+    if (chunkSize === undefined) {
+      await expect.poll(async () => {
+        return successfulUploadCount((await uploadQueue.getAttribute('aria-label')) ?? '');
+      }, { timeout: operationTimeout, message: `all ${files.length} uploads should reach a successful terminal state` }).toBe(files.length);
+    } else {
       const segmentCount = Math.ceil(files.length / chunkSize);
-      if (segmentCount > 1) {
-        expect(reservedSegmentCounts, `chunk size ${chunkSize} should reserve ${segmentCount} segments`).toEqual([segmentCount]);
-        expect(segmentIndices, `chunk size ${chunkSize} should submit each segment once`).toEqual(
-          Array.from({ length: segmentCount }, (_, index) => index)
-        );
-        expect(normalMultipartRequests, `chunk size ${chunkSize} should only use segmented multipart requests`).toBe(0);
-      } else {
-        expect(reservedSegmentCounts, `chunk size ${chunkSize} should not use segmented upload`).toEqual([]);
-        expect(segmentIndices, `chunk size ${chunkSize} should not use segment-indexed requests`).toEqual([]);
-        expect(normalMultipartRequests, `chunk size ${chunkSize} should submit one normal multipart request`).toBe(1);
-      }
+      const expectedRequests = segmentCount > 1
+        ? { reservedSegmentCounts: [segmentCount], segmentIndices: Array.from({ length: segmentCount }, (_, index) => index), normalMultipartRequests: 0 }
+        : { reservedSegmentCounts: [], segmentIndices: [], normalMultipartRequests: 1 };
+      await expect.poll(() => ({
+        reservedSegmentCounts: [...reservedSegmentCounts],
+        segmentIndices: [...segmentIndices],
+        normalMultipartRequests
+      }), { timeout: operationTimeout, message: `chunk size ${chunkSize} should use the expected multipart request shape` }).toEqual(expectedRequests);
     }
 
     return elapsed(uploadStartedAt, uploadStartNs);
