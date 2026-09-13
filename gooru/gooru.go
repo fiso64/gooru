@@ -207,7 +207,7 @@ func resolvePath(filePath string) (string, error) {
 		return "", err
 	}
 
-	// NEW: Check if this is a virtual path and resolve it to a real one.
+	// NEW: Check if this is a virtual path and resolve it to a real path.
 	realPath, wasVirtual, err := resolveIfVirtual(absPath)
 	if err != nil {
 		// Propagate specific errors from the virtual resolution, like os.ErrNotExist.
@@ -222,5 +222,23 @@ func resolvePath(filePath string) (string, error) {
 		absPath = realPath
 	}
 
+	// Now, check for filesystem errors other than NotExist (e.g., permission denied) on the real path.
+	// We ignore NotExist because the service layer is equipped to handle it.
+	if _, err := os.Lstat(absPath); err != nil && !os.IsNotExist(err) {
+		return "", err // Return the actual filesystem error.
+	}
+
 	return absPath, nil
+}
+
+func toAbsolutePaths(paths []string) ([]string, error) {
+	absPaths := make([]string, len(paths))
+	for i, p := range paths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return nil, err
+		}
+		absPaths[i] = abs
+	}
+	return absPaths, nil
 }
