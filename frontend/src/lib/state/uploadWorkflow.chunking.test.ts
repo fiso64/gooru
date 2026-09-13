@@ -12,7 +12,12 @@ vi.mock('svelte', async () => {
   return { ...actual, untrack: untrackSpy };
 });
 
-import { createUploadWorkflow, maxFilesPerMultipartUpload } from './uploadWorkflow.svelte';
+import {
+  createUploadWorkflow,
+  maxFilesPerGeckoMultipartUpload,
+  maxFilesPerMultipartUpload,
+  multipartUploadChunkSize
+} from './uploadWorkflow.svelte';
 
 function uploadFile(index: number): File {
   return { name: `file-${index}.jpg`, size: 10, type: 'image/jpeg', lastModified: index } as File;
@@ -36,6 +41,12 @@ function pendingJob(id: string, total: number): Job & BackgroundOperation {
 
 describe('createUploadWorkflow bounded multipart submissions', () => {
   beforeEach(() => untrackSpy.mockClear());
+
+  it('uses a conservative multipart bound only for Gecko browsers', () => {
+    expect(multipartUploadChunkSize('Mozilla/5.0 (X11; Linux x86_64; rv:154.0) Gecko/20100101 Firefox/154.0')).toBe(maxFilesPerGeckoMultipartUpload);
+    expect(multipartUploadChunkSize('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36')).toBe(maxFilesPerMultipartUpload);
+    expect(multipartUploadChunkSize('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15')).toBe(maxFilesPerMultipartUpload);
+  });
 
   it('splits a large selection into bounded requests while preserving global queue metadata', async () => {
     const workflow = createUploadWorkflow();
