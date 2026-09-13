@@ -26,7 +26,7 @@ class FakeEventSource {
 afterEach(() => vi.useRealTimers());
 
 describe('subscribeJobsEvents', () => {
-  it('uses one operations stream and coalesces refreshes to the 500 ms minimum interval', () => {
+  it('uses one operations stream and coalesces refreshes to the 200 ms minimum interval', () => {
     vi.useFakeTimers();
     let clock = 0;
     let source: FakeEventSource | undefined;
@@ -47,7 +47,7 @@ describe('subscribeJobsEvents', () => {
     expect(vi.getTimerCount()).toBe(1);
 
     clock = jobsRefreshMinIntervalMs;
-    vi.advanceTimersByTime(400);
+    vi.advanceTimersByTime(100);
     expect(refresh).toHaveBeenCalledTimes(2);
 
     stop();
