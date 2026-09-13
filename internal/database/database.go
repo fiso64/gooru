@@ -21,6 +21,13 @@ func splitTags(cache string) []string {
 	return strings.Split(cache, " ")
 }
 
+// escapeLikeLiteral escapes SQLite LIKE metacharacters so filesystem paths are
+// matched literally. The trailing wildcard is added separately by the caller.
+func escapeLikeLiteral(value string) string {
+	replacer := strings.NewReplacer("~", "~~", "%", "~%", "_", "~_")
+	return replacer.Replace(value)
+}
+
 type Store struct {
 	DB             *sql.DB
 	dataSourceName string
@@ -500,19 +507,26 @@ func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
 func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInfo, error) {
 	locations := make(map[string]types.LocationInfo)
 	for _, dir := range dirs {
-		rows, err := s.Query("SELECT path, content_hash, size_bytes, mod_time, extension, tags_cache FROM locations WHERE path LIKE ?", dir+string(filepath.Separator)+"%")
+		pattern := escapeLikeLiteral(dir+string(filepath.Separator)) + "%"
+		err := func() error {
+			rows, err := s.Query("SELECT path, content_hash, size_bytes, mod_time, extension, tags_cache FROM locations WHERE path LIKE ? ESCAPE '~'", pattern)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+
+			for rows.Next() {
+				var path string
+				var info types.LocationInfo
+				if err := rows.Scan(&path, &info.Hash, &info.Size, &info.ModTime, &info.Extension, &info.TagsCache); err != nil {
+					return err
+				}
+				locations[path] = info
+			}
+			return rows.Err()
+		}()
 		if err != nil {
 			return nil, err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var path string
-			var info types.LocationInfo
-			if err := rows.Scan(&path, &info.Hash, &info.Size, &info.ModTime, &info.Extension, &info.TagsCache); err != nil {
-				return nil, err
-			}
-			locations[path] = info
 		}
 	}
 	return locations, nil
