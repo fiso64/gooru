@@ -103,6 +103,13 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare durable file removal", nil)
 		return
 	}
+	if request.Mode == "delete" {
+		task, err = backgroundFileRemovalApplyDeleteRetryPolicy(task)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare durable file deletion recovery", nil)
+			return
+		}
+	}
 	operation, _, err := removalLibrary.CreateBackgroundOperationWithTasks(core.BackgroundOperationRequest{
 		Kind:          "files." + request.Mode,
 		Visible:       true,
