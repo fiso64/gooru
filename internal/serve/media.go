@@ -106,17 +106,7 @@ type MediaService struct {
 }
 
 func NewMediaService(cfg Config) *MediaService {
-	resolver, resolverErr := newMediaSourceResolver(cfg)
-	store, storeErr := newDerivativeStore(cfg)
-	return &MediaService{
-		cfg:                 cfg,
-		thumbnailer:         NewMediaThumbnailer(cfg),
-		thumbnailGeneration: newThumbnailGenerationPolicy(cfg.Encryption.Enabled),
-		sourceResolver:      resolver,
-		sourceResolverErr:   resolverErr,
-		derivatives:         store,
-		derivativeStoreErr:  storeErr,
-	}
+	return newComposedMediaServiceFromConfig(cfg)
 }
 
 func newMediaSourceResolver(cfg Config) (*filesource.Resolver, error) {
