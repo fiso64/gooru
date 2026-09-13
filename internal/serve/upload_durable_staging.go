@@ -186,6 +186,21 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	}
 
 	reserved := make(map[string]struct{}, len(streamed))
+	if segmentIndex, segmented, segmentErr := durableUploadSegmentIndex(r); segmentErr != nil {
+		return nil, saved, multipartUploadError{message: segmentErr.Error(), err: segmentErr}
+	} else if segmented {
+		segmentStore, ok := any(s.backgroundOperations).(durableUploadSegmentStore)
+		if !ok {
+			return nil, saved, multipartUploadError{message: "segmented upload service is not configured", err: errors.New("segmented upload service is not configured")}
+		}
+		priorReserved, reserveErr := durableUploadPriorSegmentDestinations(segmentStore, operationID, segmentIndex)
+		if reserveErr != nil {
+			return nil, saved, multipartUploadError{message: "failed to load prior upload segment destinations", err: reserveErr}
+		}
+		for path := range priorReserved {
+			reserved[path] = struct{}{}
+		}
+	}
 	for i := range streamed {
 		file := &streamed[i]
 		if file.status == "error" {
