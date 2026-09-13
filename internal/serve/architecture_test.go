@@ -43,11 +43,12 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 		"upload_stream.go": {
 			"(*Server).stageMultipartUpload": true,
 			"(*Server).streamUploadPart":     true,
+			"moveStreamedUploadIntoDir":      true,
 		},
 		"uploads.go": {
-			"(*Server).saveUploadedFiles":      true,
-			"createUploadDestination":          true,
-			"createReplacementStateMarker":     true,
+			"(*Server).saveUploadedFiles":  true,
+			"createUploadDestination":      true,
+			"createReplacementStateMarker": true,
 		},
 	}
 
