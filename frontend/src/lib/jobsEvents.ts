@@ -1,5 +1,5 @@
 export const jobsEventsURL = '/api/v1/operations/events';
-export const jobsRefreshMinIntervalMs = 500;
+export const jobsRefreshMinIntervalMs = 200;
 
 type JobsEventSource = {
   addOperationListener: (listener: () => void) => void;
@@ -23,7 +23,7 @@ function createBrowserEventSource(url: string): JobsEventSource {
 
 // The SSE stream is a payload-free invalidation hint, not an event log. Every
 // signal re-reads the shared jobs cache, while bursts are coalesced so request
-// starts remain at least 500 ms apart.
+// starts remain at least 200 ms apart.
 export function subscribeJobsEvents(refresh: () => void | Promise<unknown>, options: JobsEventsOptions = {}) {
   const createEventSource = options.createEventSource ?? createBrowserEventSource;
   const now = options.now ?? (() => Date.now());

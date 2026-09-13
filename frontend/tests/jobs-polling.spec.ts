@@ -124,7 +124,7 @@ test('refreshes active operations from one throttled SSE signal stream', async (
     testWindow.__emitOperationEvent?.();
     testWindow.__emitOperationEvent?.();
   });
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(100);
   expect(operationRequests).toBe(firstRefreshRequests);
   await expect.poll(() => operationRequests, { timeout: 1200 }).toBe(firstRefreshRequests + 1);
 });

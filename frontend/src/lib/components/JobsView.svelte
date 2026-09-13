@@ -51,13 +51,13 @@
 <main class="main">
   <div class="page jobs-page">
     <div class="page-header jobs-page-header">
-      <div>
-        <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
+      <div class="g-eyebrow g-eyebrow-accent">Jobs</div>
+      <div class="jobs-title-row">
         <h1>Background work</h1>
-      </div>
-      <div class="jobs-page-actions">
-        <CancelActiveJobsButton />
-        <ClearCompletedJobsButton onCleared={resetPagination} />
+        <div class="jobs-page-actions">
+          <CancelActiveJobsButton />
+          <ClearCompletedJobsButton onCleared={resetPagination} />
+        </div>
       </div>
     </div>
 
@@ -105,8 +105,11 @@
     position: relative;
     max-width: none;
     text-align: left;
+    display: block;
+  }
+
+  .jobs-title-row {
     display: flex;
-    flex-direction: row;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
@@ -143,7 +146,7 @@
   }
 
   @media (max-width: 600px) {
-    .jobs-page-header {
+    .jobs-title-row {
       align-items: flex-start;
       flex-direction: column;
     }

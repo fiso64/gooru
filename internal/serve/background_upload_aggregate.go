@@ -26,12 +26,16 @@ func (l *GooruLibrary) GetBackgroundTaskResult(taskID string, destination any) (
 }
 
 func (s *Server) backgroundOperationResult(operation core.BackgroundOperationState, destination any) (bool, error) {
+	found, err := s.backgroundOperations.GetBackgroundOperationResult(operation.ID, destination)
+	if err != nil || found {
+		return found, err
+	}
 	if operation.Kind == backgroundUploadImportOperationKind && operation.ProgressTotal > 1 {
 		if reader, ok := s.backgroundOperations.(backgroundUploadSegmentResultReader); ok {
 			return aggregateSegmentedUploadResult(reader, operation, destination)
 		}
 	}
-	return s.backgroundOperations.GetBackgroundOperationResult(operation.ID, destination)
+	return false, nil
 }
 
 func aggregateSegmentedUploadResult(reader backgroundUploadSegmentResultReader, operation core.BackgroundOperationState, destination any) (bool, error) {
