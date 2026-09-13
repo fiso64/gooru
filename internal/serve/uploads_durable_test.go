@@ -171,20 +171,23 @@ func newDurableUploadHandlerTestServer(t *testing.T, targetDir string, store *du
 
 func singleDurableStagedPath(t *testing.T, stagingDir string) string {
 	t.Helper()
-	entries, err := os.ReadDir(stagingDir)
-	if err != nil {
-		t.Fatalf("read durable staging directory: %v", err)
-	}
-	files := make([]os.DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			files = append(files, entry)
+	files := make([]string, 0, 1)
+	err := filepath.WalkDir(stagingDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
+		if !entry.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk durable staging directory: %v", err)
 	}
 	if len(files) != 1 {
 		t.Fatalf("durable staging files = %d, want 1", len(files))
 	}
-	return filepath.Join(stagingDir, files[0].Name())
+	return files[0]
 }
 
 func TestClaimDurableUploadOperationRejectsDuplicateProducerClaim(t *testing.T) {
