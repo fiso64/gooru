@@ -12,9 +12,11 @@ export function jobAffectedCount(job: Job): number | undefined {
       }, 0);
     }
 
-    const value = result.affected_count;
-    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-      return Math.trunc(value);
+    if (job.type !== 'upload_import' || job.status === 'completed') {
+      const value = result.affected_count;
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+        return Math.trunc(value);
+      }
     }
   }
 
