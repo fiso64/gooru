@@ -41,6 +41,30 @@ func (p *recordingImportMetadataProvider) MetadataFromSource(_ context.Context, 
 	return MediaMetadata{ImageWidth: &width, ImageHeight: &height}, nil
 }
 
+func TestImportedMediaMetadataUsesDirectPathForClearSamePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(path, []byte("media"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	provider := &recordingImportMetadataProvider{}
+	library := &GooruLibrary{}
+	file := types.FileInfo{Path: path}
+
+	if _, err := library.importedMediaMetadata(context.Background(), provider, file, path, "video/mp4", "video"); err != nil {
+		t.Fatalf("extract clear metadata: %v", err)
+	}
+	if provider.sourceUsed {
+		t.Fatal("clear same-path metadata unexpectedly used the logical source path")
+	}
+	if provider.path != path {
+		t.Fatalf("metadata provider path = %q, want %q", provider.path, path)
+	}
+	if provider.mediaType != "video/mp4" || provider.mediaKind != "video" {
+		t.Fatalf("metadata classification = %q/%q, want video/mp4/video", provider.mediaType, provider.mediaKind)
+	}
+}
+
 func TestGooruUploadImportSeparatesAnalysisSourceFromRegisteredDestination(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
