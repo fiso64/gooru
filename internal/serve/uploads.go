@@ -654,10 +654,22 @@ type protectedUploadMove struct {
 }
 
 func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUpload, tags []string) (UploadImportResponse, error) {
-	return l.importUploadedFiles(ctx, files, tags, "", nil)
+	return l.importUploadedFiles(ctx, files, tags, backgroundUploadImportState{}, nil)
 }
 
-func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUpload, tags []string, operationID string, activated []activatedSavedReplacement) (UploadImportResponse, error) {
+func (l *GooruLibrary) setBackgroundUploadImportCheckpoint(state backgroundUploadImportState, checkpoint backgroundUploadCheckpoint) error {
+	if state.taskID != "" {
+		if err := l.client.SetBackgroundTaskCheckpoint(state.taskID, checkpoint); err != nil {
+			return err
+		}
+	}
+	if state.operationID != "" {
+		return l.client.SetBackgroundOperationCheckpoint(state.operationID, checkpoint)
+	}
+	return nil
+}
+
+func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUpload, tags []string, state backgroundUploadImportState, activated []activatedSavedReplacement) (UploadImportResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return UploadImportResponse{}, err
 	}
@@ -668,10 +680,10 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	analysisPathByDestination := make(map[string]string, len(files))
 	opaqueStorageByLogical := make(map[string]protectedUploadMove, len(files))
 	analyses, analysisErr := l.analyzeUploadedFiles(ctx, files, func(completed, completedPrefix int) error {
-		if operationID == "" || !shouldPersistUploadProgress(completed, len(files)) {
+		if (state.operationID == "" && state.taskID == "") || !shouldPersistUploadProgress(completed, len(files)) {
 			return nil
 		}
-		return l.client.SetBackgroundOperationCheckpoint(operationID, backgroundUploadActivatedCheckpoint(activated, len(files), completed, completedPrefix))
+		return l.setBackgroundUploadImportCheckpoint(state, backgroundUploadActivatedCheckpoint(activated, len(files), completed, completedPrefix))
 	})
 	if analysisErr != nil {
 		return UploadImportResponse{}, analysisErr
@@ -776,13 +788,13 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	}
 	var result types.TagOperationResult
 	var err error
-	if operationID == "" {
+	if state.operationID == "" && state.taskID == "" {
 		result, err = l.client.TagKnownFilesWithBackgroundTasks(importLocations, tags, backgroundTasks, progress)
 	} else {
 		result, err = l.client.TagKnownFilesWithBackgroundTasksAndOperationState(importLocations, tags, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
 			response.AffectedCount = affectedCount
 			checkpoint := backgroundUploadImportedCheckpoint(activated, response)
-			return core.BackgroundOperationTransactionState{OperationID: operationID, Checkpoint: checkpoint, Result: response}, nil
+			return core.BackgroundOperationTransactionState{OperationID: state.operationID, TaskID: state.taskID, Checkpoint: checkpoint, Result: response}, nil
 		}, progress)
 	}
 	if err != nil {

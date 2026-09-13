@@ -29,6 +29,22 @@ type backgroundUploadRecoveryState struct {
 	mirrorOperation bool
 }
 
+type backgroundUploadImportState struct {
+	operationID string
+	taskID      string
+}
+
+func (r backgroundUploadRecoveryState) importState() backgroundUploadImportState {
+	state := backgroundUploadImportState{}
+	if r.taskStore != nil {
+		state.taskID = r.taskID
+	}
+	if r.mirrorOperation {
+		state.operationID = r.operationID
+	}
+	return state
+}
+
 func loadBackgroundUploadRecoveryState(store backgroundUploadWorkerStore, task core.BackgroundTask) (backgroundUploadRecoveryState, backgroundUploadCheckpoint, error) {
 	operation, found, err := store.GetBackgroundOperation(task.OperationID)
 	if err != nil {
@@ -100,7 +116,7 @@ func (r backgroundUploadRecoveryState) setResult(result UploadImportResponse) er
 }
 
 type backgroundUploadImporter interface {
-	importUploadedFiles(context.Context, []StagedUpload, []string, string, []activatedSavedReplacement) (UploadImportResponse, error)
+	importUploadedFiles(context.Context, []StagedUpload, []string, backgroundUploadImportState, []activatedSavedReplacement) (UploadImportResponse, error)
 }
 
 func (s *Server) backgroundUploadHandler(store backgroundUploadWorkerStore) core.BackgroundTaskHandler {
@@ -197,7 +213,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		return fmt.Errorf("upload background checkpoint has invalid phase %q", checkpoint.Phase)
 	}
 
-	response, err := importer.importUploadedFiles(withDeferredUploadMediaMetadata(ctx), durableStagedUploads(files), tags, task.OperationID, activated)
+	response, err := importer.importUploadedFiles(withDeferredUploadMediaMetadata(ctx), durableStagedUploads(files), tags, recovery.importState(), activated)
 	if err != nil {
 		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 		if stateErr != nil {

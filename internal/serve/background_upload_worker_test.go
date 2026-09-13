@@ -13,17 +13,17 @@ import (
 )
 
 type recordingUploadImporter struct {
-	calls       int
-	response    UploadImportResponse
-	err         error
-	operationID string
-	activated   int
-	before      func()
+	calls     int
+	response  UploadImportResponse
+	err       error
+	state     backgroundUploadImportState
+	activated int
+	before    func()
 }
 
-func (i *recordingUploadImporter) importUploadedFiles(_ context.Context, _ []StagedUpload, _ []string, operationID string, activated []activatedSavedReplacement) (UploadImportResponse, error) {
+func (i *recordingUploadImporter) importUploadedFiles(_ context.Context, _ []StagedUpload, _ []string, state backgroundUploadImportState, activated []activatedSavedReplacement) (UploadImportResponse, error) {
 	i.calls++
-	i.operationID = operationID
+	i.state = state
 	i.activated = len(activated)
 	if i.before != nil {
 		i.before()
@@ -32,14 +32,14 @@ func (i *recordingUploadImporter) importUploadedFiles(_ context.Context, _ []Sta
 }
 
 type recordingUploadWorkerStore struct {
-	checkpoint              backgroundUploadCheckpoint
-	found                   bool
-	result                  UploadImportResponse
-	events                  []string
-	operationStatus         core.BackgroundWorkStatus
-	progressTotal           int64
-	checkpointErr           error
-	resultErr               error
+	checkpoint               backgroundUploadCheckpoint
+	found                    bool
+	result                   UploadImportResponse
+	events                   []string
+	operationStatus          core.BackgroundWorkStatus
+	progressTotal            int64
+	checkpointErr            error
+	resultErr                error
 	operationCheckpointReads int
 }
 
@@ -156,8 +156,8 @@ func TestRunBackgroundUploadTaskMultiTaskUsesOnlyTaskScopedRecoveryState(t *test
 	}
 	store := &recordingTaskUploadWorkerStore{
 		recordingUploadWorkerStore: base,
-		taskCheckpoint:            backgroundUploadInitialCheckpoint(),
-		taskFound:                 true,
+		taskCheckpoint:             backgroundUploadInitialCheckpoint(),
+		taskFound:                  true,
 	}
 	importer := &recordingUploadImporter{response: response}
 
@@ -176,6 +176,9 @@ func TestRunBackgroundUploadTaskMultiTaskUsesOnlyTaskScopedRecoveryState(t *test
 	}
 	if !reflect.DeepEqual(base.result, UploadImportResponse{}) {
 		t.Fatalf("operation result unexpectedly changed: %#v", base.result)
+	}
+	if importer.state.taskID != "task-test" || importer.state.operationID != "" {
+		t.Fatalf("multi-task import state = %+v, want task-only task-test", importer.state)
 	}
 }
 
@@ -249,8 +252,8 @@ func TestRunBackgroundUploadTaskUsesOperationAwareImportBeforePublishingResult(t
 	if importer.calls != 1 {
 		t.Fatalf("import calls = %d, want 1", importer.calls)
 	}
-	if importer.operationID != operationID {
-		t.Fatalf("operation-aware import id = %q, want %q", importer.operationID, operationID)
+	if importer.state.operationID != operationID || importer.state.taskID != "" {
+		t.Fatalf("legacy import state = %+v, want operation-only %q", importer.state, operationID)
 	}
 	wantEvents := []string{"checkpoint:activated", "checkpoint:imported", "result"}
 	if !reflect.DeepEqual(store.events, wantEvents) {

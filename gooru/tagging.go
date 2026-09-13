@@ -41,6 +41,7 @@ func (c *Client) TagKnownFiles(files []types.LocationInfo, tags []string, progre
 // tag mutations roll back with it.
 type BackgroundOperationTransactionState struct {
 	OperationID string
+	TaskID      string
 	Checkpoint  any
 	Result      any
 }
@@ -54,8 +55,8 @@ func (c *Client) TagKnownFilesWithBackgroundTasks(files []types.LocationInfo, ta
 }
 
 // TagKnownFilesWithBackgroundTasksAndOperationState extends known-file
-// registration with one producer-owned operation checkpoint/result update
-// that commits in the same transaction as content, tags, and child tasks.
+// registration with producer-owned operation and/or task checkpoint/result
+// updates that commit in the same transaction as content, tags, and child tasks.
 func (c *Client) TagKnownFilesWithBackgroundTasksAndOperationState(files []types.LocationInfo, tags []string, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
 	result := types.TagOperationResult{}
 	if err := query.ValidateTags(tags); err != nil {
@@ -626,19 +627,26 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 		if err != nil {
 			return 0, nil, fmt.Errorf("build background operation transaction state: %w", err)
 		}
-		if state.OperationID == "" {
-			return 0, nil, errors.New("background operation transaction state requires an operation id")
+		if state.OperationID == "" && state.TaskID == "" {
+			return 0, nil, errors.New("background transaction state requires an operation or task id")
 		}
 		checkpointJSON, err := json.Marshal(state.Checkpoint)
 		if err != nil {
-			return 0, nil, fmt.Errorf("encode background operation transaction checkpoint: %w", err)
+			return 0, nil, fmt.Errorf("encode background transaction checkpoint: %w", err)
 		}
 		resultJSON, err := json.Marshal(state.Result)
 		if err != nil {
-			return 0, nil, fmt.Errorf("encode background operation transaction result: %w", err)
+			return 0, nil, fmt.Errorf("encode background transaction result: %w", err)
 		}
-		if err := setDatabaseBackgroundOperationState(c, tx, state.OperationID, checkpointJSON, resultJSON); err != nil {
-			return 0, nil, fmt.Errorf("persist background operation transaction state: %w", err)
+		if state.TaskID != "" {
+			if err := setDatabaseBackgroundTaskState(c, tx, state.TaskID, checkpointJSON, resultJSON); err != nil {
+				return 0, nil, fmt.Errorf("persist background task transaction state: %w", err)
+			}
+		}
+		if state.OperationID != "" {
+			if err := setDatabaseBackgroundOperationState(c, tx, state.OperationID, checkpointJSON, resultJSON); err != nil {
+				return 0, nil, fmt.Errorf("persist background operation transaction state: %w", err)
+			}
 		}
 	}
 

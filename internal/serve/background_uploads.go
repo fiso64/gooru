@@ -1,6 +1,8 @@
 package serve
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -210,6 +212,10 @@ func backgroundUploadTaskRequest(operationID string, files []savedUpload, tags [
 	if err != nil {
 		return core.BackgroundTaskRequest{}, fmt.Errorf("encode upload background task: %w", err)
 	}
+	terminalCleanup, err := backgroundUploadTerminalFailureCleanup(operationID)
+	if err != nil {
+		return core.BackgroundTaskRequest{}, err
+	}
 	return core.BackgroundTaskRequest{
 		DedupeKey:              "import",
 		Kind:                   backgroundUploadTaskKind,
@@ -218,14 +224,18 @@ func backgroundUploadTaskRequest(operationID string, files []savedUpload, tags [
 		InputKey:               string(encoded),
 		ResourceClass:          backgroundUploadResourceClass,
 		MaxAttempts:            5,
-		TerminalFailureCleanup: backgroundUploadTerminalFailureCleanup(operationID),
+		TerminalFailureCleanup: terminalCleanup,
 	}, nil
 }
 
-func backgroundUploadTerminalFailureCleanup(operationID string) *core.BackgroundTaskCleanupRequest {
+func backgroundUploadTerminalFailureCleanup(operationID string) (*core.BackgroundTaskCleanupRequest, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, fmt.Errorf("generate upload terminal cleanup identity: %w", err)
+	}
 	cleanup := backgroundUploadCleanupTaskRequest(operationID)
 	return &core.BackgroundTaskCleanupRequest{
-		DedupeKey:     cleanup.DedupeKey,
+		DedupeKey:     cleanup.DedupeKey + ":task:" + hex.EncodeToString(nonce[:]),
 		Kind:          cleanup.Kind,
 		SubjectKind:   cleanup.SubjectKind,
 		SubjectID:     cleanup.SubjectID,
@@ -233,7 +243,7 @@ func backgroundUploadTerminalFailureCleanup(operationID string) *core.Background
 		ResourceClass: cleanup.ResourceClass,
 		Priority:      cleanup.Priority,
 		MaxAttempts:   cleanup.MaxAttempts,
-	}
+	}, nil
 }
 
 func decodeBackgroundUploadTask(task core.BackgroundTask) ([]savedUpload, []string, error) {

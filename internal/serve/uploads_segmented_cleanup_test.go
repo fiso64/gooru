@@ -59,6 +59,30 @@ func TestSegmentedCanceledUploadCleanupProcessesLaterChild(t *testing.T) {
 	}
 }
 
+func TestSegmentedTerminalFailureCleanupOnlyProcessesFailedChild(t *testing.T) {
+	client, operationID := newSegmentedCleanupTestOperation(t, 2)
+	defer client.Close()
+
+	attachSegmentedCleanupTestTask(t, client, operationID, 0, backgroundUploadInitialCheckpoint())
+	attachSegmentedCleanupTestTask(t, client, operationID, 1, backgroundUploadCheckpoint{Phase: "invalid-sibling-phase"})
+
+	server := NewServer(DefaultConfig(""))
+	sourceTaskID := durableUploadSegmentTaskID(operationID, 0)
+	task := segmentedCleanupTestTask(operationID)
+	task.ID = sourceTaskID + ":terminal-cleanup"
+	if err := server.backgroundUploadCleanupHandlerV2(client)(context.Background(), task); err != nil {
+		t.Fatalf("cleanup failed segment: %v", err)
+	}
+
+	sibling, found, err := client.GetBackgroundTask(durableUploadSegmentTaskID(operationID, 1))
+	if err != nil || !found {
+		t.Fatalf("load sibling after failed-child cleanup = found %v err %v", found, err)
+	}
+	if sibling.Status != core.BackgroundWorkPending {
+		t.Fatalf("sibling status = %q, want pending", sibling.Status)
+	}
+}
+
 func newSegmentedCleanupTestOperation(t *testing.T, segmentCount int64) (*core.Client, string) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "gooru.db")

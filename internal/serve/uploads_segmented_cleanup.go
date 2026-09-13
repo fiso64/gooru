@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	core "gooru.local/gooru"
 )
@@ -27,8 +28,8 @@ func (s segmentedDurableUploadTaskCheckpointStore) GetBackgroundOperationCheckpo
 
 // backgroundUploadCleanupHandlerV2 preserves the legacy single-child recovery
 // path while recovering each deterministic child independently for segmented
-// logical uploads. Segments that were never admitted have no durable child and
-// are intentionally skipped.
+// logical uploads. Operation cancellation recovers every admitted child, while
+// terminal-failure compensation recovers only the child that exhausted retries.
 func (s *Server) backgroundUploadCleanupHandlerV2(store durableUploadCleanupStore) core.BackgroundTaskHandler {
 	legacy := s.backgroundUploadCleanupHandler(store)
 	segmented, ok := any(store).(segmentedDurableUploadCleanupStore)
@@ -50,6 +51,28 @@ func (s *Server) backgroundUploadCleanupHandlerV2(store durableUploadCleanupStor
 		}
 		if !found || operation.ProgressTotal <= 1 {
 			return legacy(ctx, task)
+		}
+
+		if sourceTaskID, terminalFailure := strings.CutSuffix(task.ID, ":terminal-cleanup"); terminalFailure {
+			child, found, err := segmented.GetBackgroundTask(sourceTaskID)
+			if err != nil {
+				return fmt.Errorf("load failed upload segment: %w", err)
+			}
+			if !found {
+				return errors.New("failed upload segment task is missing")
+			}
+			if !durableUploadSegmentTaskMatches(child, task.SubjectID) {
+				return errors.New("failed upload segment has invalid durable task identity")
+			}
+			checkpointStore := segmentedDurableUploadTaskCheckpointStore{
+				durableUploadCleanupStore: store,
+				checkpointStore:            segmented,
+				taskID:                     sourceTaskID,
+			}
+			if err := cleanupCanceledDurableUpload(checkpointStore, task.SubjectID, child.BackgroundTask); err != nil {
+				return fmt.Errorf("cleanup failed upload segment: %w", err)
+			}
+			return nil
 		}
 
 		for segmentIndex := int64(0); segmentIndex < operation.ProgressTotal; segmentIndex++ {
