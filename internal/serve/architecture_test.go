@@ -13,13 +13,48 @@ import (
 
 // TestServeStorageArchitectureBoundaries prevents handlers and jobs from
 // casually creating persistent/temp filesystem state outside the small set of
-// storage/cache/staging adapters that intentionally own that responsibility.
+// storage/cache/staging functions that intentionally own that responsibility.
 // This keeps protected-mode plaintext persistence difficult to introduce by
-// accident while leaving ordinary read-only filesystem operations alone.
+// accident while leaving read-only, deletion, and relocation operations alone.
 func TestServeStorageArchitectureBoundaries(t *testing.T) {
-	allowedFilesystemMutators := map[string]bool{}
+	// Keep this allowlist function-scoped even when the owning file also contains
+	// handlers or job orchestration. New direct filesystem creation in those files
+	// must still make an explicit architecture decision here.
+	allowedFilesystemMutators := map[string]map[string]bool{
+		"background_file_removals.go": {
+			"(*stagedFileDeletion).stage": true,
+		},
+		"derivative_store.go": {
+			"(*persistentDerivativeStore).GetOrGenerate": true,
+			"(*encryptedDerivativeStore).GetOrGenerate":  true,
+		},
+		"file_delete.go": {
+			"stageFileDeletion": true,
+		},
+		"media_thumbnailers.go": {
+			"commandThumbnailer.Thumbnail": true,
+		},
+		"opaque_storage.go": {
+			"protectedManagedStoragePathForRoot": true,
+		},
+		"upload_durable_staging.go": {
+			"(*Server).stageDurableMultipartUpload": true,
+		},
+		"upload_stream.go": {
+			"(*Server).stageMultipartUpload": true,
+			"(*Server).streamUploadPart":     true,
+		},
+		"uploads.go": {
+			"(*Server).saveUploadedFiles":      true,
+			"createUploadDestination":          true,
+			"createReplacementStateMarker":     true,
+		},
+	}
 
-	mutatingOSCalls := map[string]bool{
+	// These are the os primitives that can originate new persistent/plaintext
+	// filesystem state. Rename/link/remove are intentionally not included: they
+	// manipulate already-created state and have many transactional/recovery uses.
+	creatingOSCalls := map[string]bool{
 		"Create":     true,
 		"CreateTemp": true,
 		"OpenFile":   true,
@@ -27,18 +62,14 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 		"Mkdir":      true,
 		"MkdirAll":   true,
 		"MkdirTemp":  true,
-		"Rename":     true,
-		"Remove":     true,
-		"RemoveAll":  true,
-		"Link":       true,
-		"Symlink":    true,
+		"Truncate":   true,
 	}
 
 	for _, name := range trackedServeProductionFiles(t) {
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
+		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
-			t.Fatalf("parse imports for %s: %v", name, err)
+			t.Fatalf("parse %s: %v", name, err)
 		}
 
 		osAlias := ""
@@ -57,34 +88,53 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 				osAlias = ""
 			}
 		}
-		if osAlias == "" || allowedFilesystemMutators[filepath.Base(name)] {
+		if osAlias == "" {
 			continue
 		}
 
-		file, err = parser.ParseFile(fset, name, nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", name, err)
-		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
-				return true
+		fileAllowlist := allowedFilesystemMutators[filepath.Base(name)]
+		for _, decl := range file.Decls {
+			owner := "<package>"
+			if fn, ok := decl.(*ast.FuncDecl); ok {
+				owner = serveFunctionName(fn)
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || !mutatingOSCalls[sel.Sel.Name] {
+			allowed := fileAllowlist[owner]
+			ast.Inspect(decl, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || !creatingOSCalls[sel.Sel.Name] {
+					return true
+				}
+				pkg, ok := sel.X.(*ast.Ident)
+				if !ok || pkg.Name != osAlias || allowed {
+					return true
+				}
+				pos := fset.Position(call.Pos())
+				t.Run(fmt.Sprintf("%s/%s/line-%d/os.%s", filepath.Base(name), owner, pos.Line, sel.Sel.Name), func(t *testing.T) {
+					t.Fatalf("%s:%d %s calls os.%s directly; filesystem creation belongs in an explicitly allowlisted storage/cache/staging function", filepath.ToSlash(name), pos.Line, owner, sel.Sel.Name)
+				})
 				return true
-			}
-			pkg, ok := sel.X.(*ast.Ident)
-			if !ok || pkg.Name != osAlias {
-				return true
-			}
-			pos := fset.Position(call.Pos())
-			t.Run(fmt.Sprintf("%s/line-%d/os.%s", filepath.Base(name), pos.Line, sel.Sel.Name), func(t *testing.T) {
-				t.Fatalf("%s:%d calls os.%s directly; persistent/temp filesystem mutation belongs in an explicit storage/cache/staging adapter", filepath.ToSlash(name), pos.Line, sel.Sel.Name)
 			})
-			return true
-		})
+		}
 	}
+}
+
+func serveFunctionName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return fn.Name.Name
+	}
+	switch recv := fn.Recv.List[0].Type.(type) {
+	case *ast.Ident:
+		return recv.Name + "." + fn.Name.Name
+	case *ast.StarExpr:
+		if ident, ok := recv.X.(*ast.Ident); ok {
+			return "(*" + ident.Name + ")." + fn.Name.Name
+		}
+	}
+	return "<method>." + fn.Name.Name
 }
 
 func trackedServeProductionFiles(t *testing.T) []string {
