@@ -181,3 +181,55 @@ func TestClient_Relink(t *testing.T) {
 		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
 }
+
+func TestClient_RelinkFailsClosedOnScanErrors(t *testing.T) {
+	t.Run("missing scan root", func(t *testing.T) {
+		dbPath := setupTestDB(t)
+		client, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		defer client.Close()
+
+		root := t.TempDir()
+		path := createTestFile(t, root, "tracked.txt", "tracked contents")
+		_, err = client.TagFiles([]string{path}, []string{"tag1"}, nil, false)
+		require.NoError(t, err)
+		require.NoError(t, os.RemoveAll(root))
+
+		result, err := client.Relink([]string{root})
+		require.Error(t, err)
+		assert.Empty(t, result.ProposedMoves)
+		assert.Empty(t, result.ProposedAdds)
+		assert.Empty(t, result.ProposedDeletes)
+	})
+
+	t.Run("protected source inspection failure", func(t *testing.T) {
+		dbPath := setupTestDB(t)
+		root := t.TempDir()
+		path := createTestFile(t, root, "tracked.bin", "plaintext tracked contents")
+
+		plainClient, err := gooru.New(dbPath, false)
+		require.NoError(t, err)
+		_, err = plainClient.TagFiles([]string{path}, []string{"tag1"}, nil, false)
+		require.NoError(t, err)
+		require.NoError(t, plainClient.Close())
+
+		client, err := gooru.NewWithOptions(dbPath, false, gooru.OpenOptions{
+			Content: gooru.ContentSourceOptions{
+				EncryptionKey:  bytes.Repeat([]byte{0x6b}, 32),
+				ProtectedRoots: []string{root},
+			},
+		})
+		require.NoError(t, err)
+		defer client.Close()
+
+		needsRelink, err := client.NeedsRelink([]string{root}, false)
+		require.Error(t, err)
+		assert.False(t, needsRelink)
+
+		result, err := client.Relink([]string{root})
+		require.Error(t, err)
+		assert.Empty(t, result.ProposedMoves)
+		assert.Empty(t, result.ProposedAdds)
+		assert.Empty(t, result.ProposedDeletes)
+	})
+}

@@ -1,6 +1,7 @@
 package scanning
 
 import (
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"runtime"
@@ -24,9 +25,10 @@ type result struct {
 // DirsConcurrently intelligently scans directories, only hashing files whose
 // logical plaintext size matches a known file. Physical encrypted-container
 // size is never used for identity filtering.
-func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *hashing.Hasher) (map[string]types.LocationInfo, int) {
+func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *hashing.Hasher) (map[string]types.LocationInfo, int, error) {
 	jobs := make(chan job)
 	results := make(chan result)
+	walkErrs := make(chan error, len(dirs))
 
 	var wg sync.WaitGroup
 	numWorkers := runtime.NumCPU()
@@ -40,21 +42,24 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *ha
 		walkWg.Add(1)
 		go func(d string) {
 			defer walkWg.Done()
-			_ = filepath.WalkDir(d, func(path string, de fs.DirEntry, err error) error {
+			if err := filepath.WalkDir(d, func(path string, de fs.DirEntry, err error) error {
 				if err != nil {
-					return nil // Skip files we can't access.
+					return err
 				}
 				if !de.IsDir() {
 					jobs <- job{path: path}
 				}
 				return nil
-			})
+			}); err != nil {
+				walkErrs <- fmt.Errorf("walk %q: %w", d, err)
+			}
 		}(dir)
 	}
 
 	go func() {
 		walkWg.Wait()
 		close(jobs)
+		close(walkErrs)
 	}()
 
 	go func() {
@@ -64,14 +69,29 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *ha
 
 	foundFiles := make(map[string]types.LocationInfo)
 	filesScanned := 0
+	var firstErr error
 	for res := range results {
 		filesScanned++
-		if res.err == nil && !res.skipped {
+		if res.err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("inspect %q: %w", res.path, res.err)
+			}
+			continue
+		}
+		if !res.skipped {
 			foundFiles[res.path] = res.info
 		}
 	}
+	for err := range walkErrs {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr != nil {
+		return nil, filesScanned, firstErr
+	}
 
-	return foundFiles, filesScanned
+	return foundFiles, filesScanned, nil
 }
 
 func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHashes map[int64][]string, hasher *hashing.Hasher) {
