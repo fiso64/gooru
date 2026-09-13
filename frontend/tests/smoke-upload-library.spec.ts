@@ -6,7 +6,7 @@ const fileCount = Number(process.env.GOORU_SMOKE_FILE_COUNT ?? '2000');
 const datasetDir = process.env.GOORU_SMOKE_DATASET_DIR;
 const artifactDir = process.env.GOORU_SMOKE_ARTIFACT_DIR;
 const username = process.env.GOORU_SMOKE_USERNAME ?? 'smoke-admin';
-const password = process.env.GOORU_SMOKE_PASSWORD;
+const password = process.env.GOORU_SMOKE_PASSWORD ?? '';
 if (!password) throw new Error('GOORU_SMOKE_PASSWORD is required');
 const tag = process.env.GOORU_SMOKE_TAG ?? `e2e:smoke-${Date.now()}`;
 const operationTimeout = Number(process.env.GOORU_SMOKE_TIMEOUT_MS ?? String(45 * 60 * 1000));
@@ -299,7 +299,7 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
   }
 });
 
-test('upload the same 20 files with chunk size 20, then chunk size 4', async ({ page }) => {
+test.only('upload the same 20 files with chunk size 20, then chunk size 4', async ({ page }) => {
   await signIn(page);
   const files = datasetFiles().slice(0, 20);
   expect(files).toHaveLength(20);
