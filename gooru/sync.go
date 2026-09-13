@@ -121,12 +121,12 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 	for _, dir := range absDirs {
 		walkErr := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return nil // Skip unreadable files/dirs
+				return err
 			}
 			if !d.IsDir() {
 				info, err := c.hasher.FileMetadata(path)
 				if err != nil {
-					return nil // Skip files we can't inspect through the configured source policy
+					return fmt.Errorf("inspect %q: %w", path, err)
 				}
 				// The core filtering logic that must match Relink's scanner.
 				if _, ok := sizeToHashes[info.Size]; ok {
@@ -165,7 +165,7 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		}
 		info, err := c.hasher.FileMetadata(source.StoragePath)
 		if err != nil {
-			continue
+			return false, fmt.Errorf("inspect managed source %q: %w", source.StoragePath, err)
 		}
 		delete(fsPaths, source.StoragePath)
 		fsPaths[path] = logicalMetadata{size: info.Size, modTime: info.ModTime.Unix()}
@@ -193,7 +193,7 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 			}
 			currentHash, err := c.hasher.HashFile(sourcePath)
 			if err != nil {
-				return true, nil // Can't hash the file, treat as changed.
+				return false, fmt.Errorf("hash %q during relink pre-check: %w", sourcePath, err)
 			}
 			if currentHash != dbInfo.Hash {
 				return true, nil // Content hash mismatch.
@@ -222,7 +222,10 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	if err != nil {
 		return result, fmt.Errorf("could not build size-to-hash map: %w", err)
 	}
-	fsLocations, filesScanned := scanning.DirsConcurrently(absDirs, sizeToHashes, c.hasher)
+	fsLocations, filesScanned, err := scanning.DirsConcurrently(absDirs, sizeToHashes, c.hasher)
+	if err != nil {
+		return result, fmt.Errorf("scan relink directories: %w", err)
+	}
 
 	managedAliases, err := c.store.BatchGetManagedLocationSourcesByPhysicalPaths(locationPaths(fsLocations))
 	if err != nil {
