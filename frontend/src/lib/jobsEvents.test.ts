@@ -4,15 +4,14 @@ import { jobsEventsURL, jobsRefreshMinIntervalMs, subscribeJobsEvents } from './
 class FakeEventSource {
   readonly url: string;
   closed = false;
-  private operationsListener: EventListener | undefined;
+  private operationsListener: (() => void) | undefined;
 
   constructor(url: string) {
     this.url = url;
   }
 
-  addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
-    if (type !== 'operations') return;
-    this.operationsListener = typeof listener === 'function' ? listener : (event) => listener.handleEvent(event);
+  addOperationListener(listener: () => void) {
+    this.operationsListener = listener;
   }
 
   close() {
@@ -20,7 +19,7 @@ class FakeEventSource {
   }
 
   emitOperation() {
-    this.operationsListener?.(new Event('operations'));
+    this.operationsListener?.();
   }
 }
 

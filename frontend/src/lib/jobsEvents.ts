@@ -1,7 +1,10 @@
 export const jobsEventsURL = '/api/v1/operations/events';
 export const jobsRefreshMinIntervalMs = 500;
 
-type JobsEventSource = Pick<EventSource, 'addEventListener' | 'close'>;
+type JobsEventSource = {
+  addOperationListener: (listener: () => void) => void;
+  close: () => void;
+};
 
 type JobsEventsOptions = {
   createEventSource?: (url: string) => JobsEventSource;
@@ -10,11 +13,19 @@ type JobsEventsOptions = {
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void;
 };
 
+function createBrowserEventSource(url: string): JobsEventSource {
+  const source = new EventSource(url);
+  return {
+    addOperationListener: (listener) => source.addEventListener('operations', listener),
+    close: () => source.close()
+  };
+}
+
 // The SSE stream is a payload-free invalidation hint, not an event log. Every
 // signal re-reads the shared jobs cache, while bursts are coalesced so request
 // starts remain at least 500 ms apart.
 export function subscribeJobsEvents(refresh: () => void | Promise<unknown>, options: JobsEventsOptions = {}) {
-  const createEventSource = options.createEventSource ?? ((url: string) => new EventSource(url));
+  const createEventSource = options.createEventSource ?? createBrowserEventSource;
   const now = options.now ?? (() => Date.now());
   const setTimer = options.setTimer ?? ((callback, delay) => setTimeout(callback, delay));
   const clearTimer = options.clearTimer ?? ((timer) => clearTimeout(timer));
@@ -40,7 +51,7 @@ export function subscribeJobsEvents(refresh: () => void | Promise<unknown>, opti
     timer = setTimer(refreshNow, delay);
   };
 
-  source.addEventListener('operations', scheduleRefresh);
+  source.addOperationListener(scheduleRefresh);
   return () => {
     closed = true;
     if (timer !== undefined) clearTimer(timer);
