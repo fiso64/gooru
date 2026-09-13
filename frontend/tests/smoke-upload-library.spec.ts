@@ -147,27 +147,52 @@ async function verifyFirstPageThumbnails(page: import('@playwright/test').Page, 
   await viewport.evaluate((node) => node.scrollTo({ top: 0 }));
 }
 
-test.describe.configure({ mode: 'serial' });
-test.setTimeout(operationTimeout + 5 * 60 * 1000);
+type Page = import('@playwright/test').Page;
 
-test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async ({ page }) => {
-  saveTimings();
+async function signIn(page: Page) {
+  await page.goto('/');
+  await page.getByLabel('Username').fill(username);
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeVisible();
+}
+
+async function uploadTaggedFiles(page: Page, files: string[], uploadTag: string, chunkSize?: number): Promise<Timing> {
+  const segmentIndices: number[] = [];
+  const reservedSegmentCounts: number[] = [];
+  let normalMultipartRequests = 0;
+  const trackUploadRequest = (request: import('@playwright/test').Request) => {
+    if (request.method() !== 'POST' || new URL(request.url()).pathname !== '/api/v1/uploads') return;
+    const headers = request.headers();
+    if (headers['x-gooru-upload-reserve'] === 'true' && headers['x-gooru-upload-segment-count']) {
+      reservedSegmentCounts.push(Number(headers['x-gooru-upload-segment-count']));
+    }
+    if (headers['x-gooru-upload-segment-index'] !== undefined) {
+      segmentIndices.push(Number(headers['x-gooru-upload-segment-index']));
+    } else if (headers['x-gooru-upload-reserve'] !== 'true') {
+      normalMultipartRequests += 1;
+    }
+  };
+
+  if (chunkSize !== undefined) {
+    page.on('request', trackUploadRequest);
+    await page.evaluate((forcedChunkSize) => {
+      (window as unknown as { __gooruUploadChunkSize?: number }).__gooruUploadChunkSize = forcedChunkSize;
+    }, chunkSize);
+  }
+
   try {
-    await page.goto('/');
-    await page.getByLabel('Username').fill(username);
-    await page.getByLabel('Password').fill(password);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByRole('button', { name: 'Upload', exact: true })).toBeVisible();
-
     await page.getByRole('button', { name: 'Upload', exact: true }).click();
-    const tagInput = page.getByLabel('Initial tags');
-    await tagInput.fill(tag);
-    await tagInput.press('Enter');
-    await expect(page.getByRole('button', { name: `Remove ${tag}` })).toBeVisible();
+    const clearDone = page.getByRole('button', { name: 'Clear done' });
+    if (await clearDone.isVisible()) await clearDone.click();
 
-    const files = datasetFiles();
+    const tagInput = page.getByLabel('Initial tags');
+    await tagInput.fill(uploadTag);
+    await tagInput.press('Enter');
+    await expect(page.getByRole('button', { name: `Remove ${uploadTag}` })).toBeVisible();
+
     await page.locator('input[type="file"]').setInputFiles(files);
-    const uploadButton = page.getByRole('button', { name: `Upload ${fileCount} files` });
+    const uploadButton = page.getByRole('button', { name: `Upload ${files.length} files` });
     await expect(uploadButton).toBeEnabled({ timeout: operationTimeout });
 
     const uploadStartedAt = new Date();
@@ -177,57 +202,113 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
     await expect(uploadQueue).toBeVisible({ timeout: operationTimeout });
     await expect.poll(async () => {
       return successfulUploadCount((await uploadQueue.getAttribute('aria-label')) ?? '');
-    }, { timeout: operationTimeout, message: `all ${fileCount} uploads should reach a successful terminal state` }).toBe(fileCount);
-    timingReport.upload = elapsed(uploadStartedAt, uploadStartNs);
+    }, { timeout: operationTimeout, message: `all ${files.length} uploads should reach a successful terminal state` }).toBe(files.length);
+
+    if (chunkSize !== undefined) {
+      const segmentCount = Math.ceil(files.length / chunkSize);
+      if (segmentCount > 1) {
+        expect(reservedSegmentCounts, `chunk size ${chunkSize} should reserve ${segmentCount} segments`).toEqual([segmentCount]);
+        expect(segmentIndices, `chunk size ${chunkSize} should submit each segment once`).toEqual(
+          Array.from({ length: segmentCount }, (_, index) => index)
+        );
+        expect(normalMultipartRequests, `chunk size ${chunkSize} should only use segmented multipart requests`).toBe(0);
+      } else {
+        expect(reservedSegmentCounts, `chunk size ${chunkSize} should not use segmented upload`).toEqual([]);
+        expect(segmentIndices, `chunk size ${chunkSize} should not use segment-indexed requests`).toEqual([]);
+        expect(normalMultipartRequests, `chunk size ${chunkSize} should submit one normal multipart request`).toBe(1);
+      }
+    }
+
+    return elapsed(uploadStartedAt, uploadStartNs);
+  } finally {
+    if (chunkSize !== undefined) {
+      page.off('request', trackUploadRequest);
+      await page.evaluate(() => {
+        delete (window as unknown as { __gooruUploadChunkSize?: number }).__gooruUploadChunkSize;
+      });
+    }
+  }
+}
+
+async function browseAndDeleteTaggedFiles(page: Page, uploadTag: string, expectedCount: number, verifyThumbnails = false): Promise<Timing> {
+  await page.locator('.sidebar button.sidebar-item').filter({ hasText: 'Library' }).click();
+  const search = page.getByLabel('Search library');
+  await search.fill(uploadTag);
+  await search.press('Enter');
+
+  const formattedCount = expectedCount.toLocaleString('en-US');
+  await expect(page.getByTestId('library-header-count')).toHaveText(`${formattedCount} matching · ${formattedCount} files`, { timeout: operationTimeout });
+
+  const grid = page.getByTestId('virtual-media-grid');
+  await expect(grid.locator('.thumb')).not.toHaveCount(0, { timeout: operationTimeout });
+  if (verifyThumbnails) await verifyFirstPageThumbnails(page, Math.min(expectedCount, 100));
+
+  await grid.locator('.thumb-checkbox').first().click();
+  const selectAll = page.getByRole('button', { name: new RegExp(`Select all ${formattedCount}$`) });
+  await selectAll.click();
+  await expect(page.locator('.selection-summary')).toContainText(`${expectedCount} selected`, { timeout: operationTimeout });
+
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText(`Permanently delete ${expectedCount} selected file`);
+  const confirmDelete = page.getByRole('button', { name: 'Delete files', exact: true });
+  await expect(confirmDelete).toBeEnabled();
+
+  const deleteStartedAt = new Date();
+  const deleteStartNs = process.hrtime.bigint();
+  const removalAdmissionPromise = page.waitForResponse((response) => {
+    const request = response.request();
+    return request.method() === 'DELETE' && new URL(response.url()).pathname === '/api/v1/files';
+  });
+  await confirmDelete.click();
+  const removalAdmission = await removalAdmissionPromise;
+  expect(removalAdmission.ok(), 'bulk delete admission should succeed').toBe(true);
+  const removalPayload = await removalAdmission.json() as { operation_id?: string };
+  expect(removalPayload.operation_id, 'bulk delete should return an async operation id').toBeTruthy();
+  await waitForRemovalOperation(page, removalPayload.operation_id!);
+  const deletionTiming = elapsed(deleteStartedAt, deleteStartNs);
+
+  // Deletion is asynchronous and the live grid is not required to refresh itself.
+  // Verify persistence only after a full refresh, then re-apply the initial-tag search.
+  await page.reload();
+  const refreshedSearch = page.getByLabel('Search library');
+  await refreshedSearch.fill(uploadTag);
+  await refreshedSearch.press('Enter');
+  await expect(page.getByRole('heading', { name: 'No results' })).toBeVisible({ timeout: operationTimeout });
+  await expect(page.locator('[data-testid="virtual-media-grid"] .thumb')).toHaveCount(0);
+  await expect(page.getByTestId('library-header-count')).toHaveText('0 matching · 0 files', { timeout: operationTimeout });
+
+  return deletionTiming;
+}
+
+test.describe.configure({ mode: 'serial' });
+test.setTimeout(operationTimeout + 5 * 60 * 1000);
+
+test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async ({ page }) => {
+  saveTimings();
+  try {
+    await signIn(page);
+    const files = datasetFiles();
+
+    timingReport.upload = await uploadTaggedFiles(page, files, tag);
     saveTimings();
 
-    await page.locator('.sidebar button.sidebar-item').filter({ hasText: 'Library' }).click();
-    const search = page.getByLabel('Search library');
-    await search.fill(tag);
-    await search.press('Enter');
-
-    const formattedCount = fileCount.toLocaleString('en-US');
-    await expect(page.getByTestId('library-header-count')).toHaveText(`${formattedCount} matching · ${formattedCount} files`, { timeout: operationTimeout });
-
-    const grid = page.getByTestId('virtual-media-grid');
-    await expect(grid.locator('.thumb')).not.toHaveCount(0, { timeout: operationTimeout });
-    await verifyFirstPageThumbnails(page, Math.min(fileCount, 100));
-
-    await grid.locator('.thumb-checkbox').first().click();
-    const selectAll = page.getByRole('button', { name: new RegExp(`Select all ${formattedCount}$`) });
-    await selectAll.click();
-    await expect(page.locator('.selection-summary')).toContainText(`${fileCount} selected`, { timeout: operationTimeout });
-
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect(page.getByRole('dialog')).toContainText(`Permanently delete ${fileCount} selected file`);
-    const confirmDelete = page.getByRole('button', { name: 'Delete files', exact: true });
-    await expect(confirmDelete).toBeEnabled();
-
-    const deleteStartedAt = new Date();
-    const deleteStartNs = process.hrtime.bigint();
-    const removalAdmissionPromise = page.waitForResponse((response) => {
-      const request = response.request();
-      return request.method() === 'DELETE' && new URL(response.url()).pathname === '/api/v1/files';
-    });
-    await confirmDelete.click();
-    const removalAdmission = await removalAdmissionPromise;
-    expect(removalAdmission.ok(), 'bulk delete admission should succeed').toBe(true);
-    const removalPayload = await removalAdmission.json() as { operation_id?: string };
-    expect(removalPayload.operation_id, 'bulk delete should return an async operation id').toBeTruthy();
-    await waitForRemovalOperation(page, removalPayload.operation_id!);
-    timingReport.delete_from_disk = elapsed(deleteStartedAt, deleteStartNs);
+    timingReport.delete_from_disk = await browseAndDeleteTaggedFiles(page, tag, fileCount, true);
     saveTimings();
-
-    // Deletion is asynchronous and the live grid is not required to refresh itself.
-    // Verify persistence only after a full refresh, then re-apply the initial-tag search.
-    await page.reload();
-    const refreshedSearch = page.getByLabel('Search library');
-    await refreshedSearch.fill(tag);
-    await refreshedSearch.press('Enter');
-    await expect(page.getByRole('heading', { name: 'No results' })).toBeVisible({ timeout: operationTimeout });
-    await expect(page.locator('[data-testid="virtual-media-grid"] .thumb')).toHaveCount(0);
-    await expect(page.getByTestId('library-header-count')).toHaveText('0 matching · 0 files', { timeout: operationTimeout });
   } finally {
     saveTimings();
+  }
+});
+
+test('upload the same 20 files with chunk size 20, then chunk size 4', async ({ page }) => {
+  await signIn(page);
+  const files = datasetFiles().slice(0, 20);
+  expect(files).toHaveLength(20);
+
+  for (const chunkSize of [20, 4] as const) {
+    await test.step(`upload 20 files with chunk size ${chunkSize}`, async () => {
+      const chunkTag = `${tag}:chunk-${chunkSize}`;
+      await uploadTaggedFiles(page, files, chunkTag, chunkSize);
+      await browseAndDeleteTaggedFiles(page, chunkTag, files.length);
+    });
   }
 });
