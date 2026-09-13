@@ -26,6 +26,10 @@ export const maxFilesPerMultipartUpload = 1000;
 export const maxFilesPerGeckoMultipartUpload = 16;
 
 export function multipartUploadChunkSize(userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): number {
+  const forced = (globalThis as unknown as { __gooruUploadChunkSize?: number }).__gooruUploadChunkSize;
+  if (typeof forced === 'number' && Number.isInteger(forced) && forced > 0) {
+    return forced;
+  }
   return /\bGecko\/\d/i.test(userAgent) ? maxFilesPerGeckoMultipartUpload : maxFilesPerMultipartUpload;
 }
 
