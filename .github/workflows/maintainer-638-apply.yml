@@ -1,0 +1,175 @@
+name: Maintainer 638 apply
+
+on:
+  push:
+    branches:
+      - maintainer/638-relink-size-iterator
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply focused iterator fix and regression
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          database = Path('internal/database/database.go')
+          text = database.read_text()
+          old = '''// GetSizeToHashesMap retrieves a map of file sizes to a list of hashes of files with that size.
+          func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
+          \trows, err := s.Query("SELECT size_bytes, content_hash FROM locations")
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tdefer rows.Close()
+
+          \t// Using a map to a map to easily handle unique hashes per size
+          \ttempMap := make(map[int64]map[string]struct{})
+
+          \tfor rows.Next() {
+          \t\tvar size int64
+          \t\tvar hash string
+          \t\tif err := rows.Scan(&size, &hash); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tif _, ok := tempMap[size]; !ok {
+          \t\t\ttempMap[size] = make(map[string]struct{})
+          \t\t}
+          \t\ttempMap[size][hash] = struct{}{}
+          \t}
+
+          \t// Convert to the final structure
+          \tfinalMap := make(map[int64][]string)
+          \tfor size, hashes := range tempMap {
+          \t\tfinalMap[size] = make([]string, 0, len(hashes))
+          \t\tfor hash := range hashes {
+          \t\t\tfinalMap[size] = append(finalMap[size], hash)
+          \t\t}
+          \t}
+          \treturn finalMap, nil
+          }
+          '''
+          new = '''type sizeToHashesRows interface {
+          \tNext() bool
+          \tScan(dest ...any) error
+          \tErr() error
+          }
+
+          func sizeToHashesMapFromRows(rows sizeToHashesRows) (map[int64][]string, error) {
+          \t// Using a map to a map to easily handle unique hashes per size
+          \ttempMap := make(map[int64]map[string]struct{})
+
+          \tfor rows.Next() {
+          \t\tvar size int64
+          \t\tvar hash string
+          \t\tif err := rows.Scan(&size, &hash); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tif _, ok := tempMap[size]; !ok {
+          \t\t\ttempMap[size] = make(map[string]struct{})
+          \t\t}
+          \t\ttempMap[size][hash] = struct{}{}
+          \t}
+          \tif err := rows.Err(); err != nil {
+          \t\treturn nil, err
+          \t}
+
+          \t// Convert to the final structure only after the full authoritative query succeeded.
+          \tfinalMap := make(map[int64][]string)
+          \tfor size, hashes := range tempMap {
+          \t\tfinalMap[size] = make([]string, 0, len(hashes))
+          \t\tfor hash := range hashes {
+          \t\t\tfinalMap[size] = append(finalMap[size], hash)
+          \t\t}
+          \t}
+          \treturn finalMap, nil
+          }
+
+          // GetSizeToHashesMap retrieves a map of file sizes to a list of hashes of files with that size.
+          func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
+          \trows, err := s.Query("SELECT size_bytes, content_hash FROM locations")
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tdefer rows.Close()
+          \treturn sizeToHashesMapFromRows(rows)
+          }
+          '''
+          if old not in text:
+              raise SystemExit('GetSizeToHashesMap source block did not match expected develop state')
+          database.write_text(text.replace(old, new, 1))
+
+          test = Path('internal/database/database_test.go')
+          text = test.read_text()
+          import_old = 'import (\n\t"database/sql"\n'
+          import_new = 'import (\n\t"database/sql"\n\t"errors"\n'
+          if import_old not in text:
+              raise SystemExit('database_test.go import block did not match expected state')
+          text = text.replace(import_old, import_new, 1)
+          addition = r'''
+
+          type sizeToHashesRowsStub struct {
+          	sizes       []int64
+          	hashes      []string
+          	index       int
+          	terminalErr error
+          }
+
+          func (r *sizeToHashesRowsStub) Next() bool {
+          	return r.index < len(r.sizes)
+          }
+
+          func (r *sizeToHashesRowsStub) Scan(dest ...any) error {
+          	*(dest[0].(*int64)) = r.sizes[r.index]
+          	*(dest[1].(*string)) = r.hashes[r.index]
+          	r.index++
+          	return nil
+          }
+
+          func (r *sizeToHashesRowsStub) Err() error {
+          	return r.terminalErr
+          }
+
+          func TestSizeToHashesMapFromRowsPropagatesTerminalError(t *testing.T) {
+          	terminalErr := errors.New("terminal row iteration failure")
+          	rows := &sizeToHashesRowsStub{
+          		sizes:       []int64{123},
+          		hashes:      []string{"hash-one"},
+          		terminalErr: terminalErr,
+          	}
+
+          	got, err := sizeToHashesMapFromRows(rows)
+          	if !errors.Is(err, terminalErr) {
+          		t.Fatalf("error = %v, want terminal iterator error", err)
+          	}
+          	if got != nil {
+          		t.Fatalf("map = %#v, want nil on terminal iterator error", got)
+          	}
+          }
+          '''
+          if 'TestSizeToHashesMapFromRowsPropagatesTerminalError' in text:
+              raise SystemExit('regression test already present unexpectedly')
+          test.write_text(text + addition)
+          PY
+          gofmt -w internal/database/database.go internal/database/database_test.go
+      - name: Validate
+        run: go test -count=1 ./...
+      - name: Commit cleaned implementation
+        shell: bash
+        run: |
+          rm .github/workflows/maintainer-638-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/database/database.go internal/database/database_test.go .github/workflows/maintainer-638-apply.yml
+          git commit -m "Fail closed on relink size iterator errors"
+          git push origin HEAD:maintainer/638-relink-size-iterator
