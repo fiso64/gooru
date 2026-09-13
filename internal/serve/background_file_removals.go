@@ -172,7 +172,10 @@ func (s *Server) resumeManagedFileDeletionBatch(ctx context.Context, files []bac
 		if err != nil {
 			return rollbackFlatStagedFiles(stagedFiles, err)
 		}
-		stagedExists, err := pathExists(staged.stagedPath)
+		if err := s.validatePersistedDeletionParent(staged.originalPath); err != nil {
+			return rollbackFlatStagedFiles(stagedFiles, err)
+		}
+		stagedExists, err := safeStagedDeletionEntryExists(staged.stagedPath)
 		if err != nil {
 			return rollbackFlatStagedFiles(stagedFiles, err)
 		}
@@ -279,7 +282,7 @@ func (d *flatStagedFileDeletion) stage() error {
 }
 
 func (d *flatStagedFileDeletion) rollbackMissingOK() error {
-	stagedExists, err := pathExists(d.stagedPath)
+	stagedExists, err := safeStagedDeletionEntryExists(d.stagedPath)
 	if err != nil || !stagedExists {
 		return err
 	}
@@ -294,6 +297,10 @@ func (d *flatStagedFileDeletion) rollbackMissingOK() error {
 }
 
 func (d *flatStagedFileDeletion) commitMissingOK() error {
+	stagedExists, err := safeStagedDeletionEntryExists(d.stagedPath)
+	if err != nil || !stagedExists {
+		return err
+	}
 	if err := os.Remove(d.stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -305,7 +312,13 @@ func (s *Server) resumeManagedFileDeletion(ctx context.Context, input background
 	if err != nil {
 		return err
 	}
-	stagedExists, err := pathExists(staged.stagedPath)
+	if err := s.validatePersistedDeletionParent(staged.originalPath); err != nil {
+		return err
+	}
+	if _, err := validateDeletionStagingDirectory(staged.stagingDir); err != nil {
+		return err
+	}
+	stagedExists, err := safeStagedDeletionEntryExists(staged.stagedPath)
 	if err != nil {
 		return err
 	}
@@ -366,11 +379,8 @@ func persistedStagedFileDeletion(originalPath, stagedPath string) (*stagedFileDe
 }
 
 func (d *stagedFileDeletion) stage() error {
-	if err := os.Mkdir(d.stagingDir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("prepare file deletion: %w", err)
+	if err := ensureDeletionStagingDirectory(d.stagingDir); err != nil {
+		return err
 	}
 	if err := os.Rename(d.originalPath, d.stagedPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -382,7 +392,11 @@ func (d *stagedFileDeletion) stage() error {
 }
 
 func (d *stagedFileDeletion) rollbackMissingOK() error {
-	stagedExists, err := pathExists(d.stagedPath)
+	stagingDirExists, err := validateDeletionStagingDirectory(d.stagingDir)
+	if err != nil || !stagingDirExists {
+		return err
+	}
+	stagedExists, err := safeStagedDeletionEntryExists(d.stagedPath)
 	if err != nil || !stagedExists {
 		return err
 	}
@@ -401,8 +415,18 @@ func (d *stagedFileDeletion) rollbackMissingOK() error {
 }
 
 func (d *stagedFileDeletion) commitMissingOK() error {
-	if err := os.Remove(d.stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	stagingDirExists, err := validateDeletionStagingDirectory(d.stagingDir)
+	if err != nil || !stagingDirExists {
 		return err
+	}
+	stagedExists, err := safeStagedDeletionEntryExists(d.stagedPath)
+	if err != nil {
+		return err
+	}
+	if stagedExists {
+		if err := os.Remove(d.stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	if err := os.Remove(d.stagingDir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
