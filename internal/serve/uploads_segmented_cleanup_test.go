@@ -98,9 +98,8 @@ func attachSegmentedCleanupTestTask(t *testing.T, client *core.Client, operation
 
 func segmentedCleanupTestTask(operationID string) core.BackgroundTask {
 	return core.BackgroundTask{
-		Kind:          backgroundUploadCleanupTaskKind,
-		SubjectKind:   "operation",
-		SubjectID:     operationID,
-		ResourceClass: backgroundUploadResourceClass,
+		Kind:        backgroundUploadCleanupTaskKind,
+		SubjectKind: "operation",
+		SubjectID:   operationID,
 	}
 }
