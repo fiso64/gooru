@@ -11,11 +11,6 @@ import {
   type BackgroundOperationCancelAllResponse,
   type BackgroundOperationClearResponse
 } from '$lib/api/operations';
-import {
-  uploadBackpressuredJobStatusRefetchMs,
-  uploadJobStatusBatchSize,
-  uploadJobStatusRefetchMs
-} from '$lib/uploadBackpressure';
 
 export interface JobListPage {
   items: Job[];
@@ -27,30 +22,11 @@ export interface JobListPage {
 export const jobKeys = {
   all: ['jobs'] as const,
   list: (scope: number, limit: number, pageToken: string) => ['jobs', 'list', scope, limit, pageToken] as const,
-  detail: (scope: number, id: string) => ['job', scope, id] as const
+  detail: (scope: number, id: string) => ['jobs', 'detail', scope, id] as const
 };
 
 function jobIsActive(job: Job) {
   return job.status === 'pending' || job.status === 'running';
-}
-
-export function jobsRefetchInterval(jobs: Job[] | undefined) {
-  return jobs?.some(jobIsActive) ? 2000 : false;
-}
-
-export function jobsPageRefetchInterval(_page: JobListPage | undefined) {
-  // The visible operation list is also the discovery channel for work admitted
-  // elsewhere in the UI. Stopping the list poll when active_count reaches zero
-  // makes a later delete/upload operation invisible until another invalidation or
-  // full page refresh. Keep the existing active cadence while idle so new durable
-  // operations appear without relying on producer-specific cache coordination.
-  return 2000;
-}
-
-export function uploadJobRefetchInterval(jobIDs: string[]) {
-  return jobIDs.length >= uploadJobStatusBatchSize
-    ? uploadBackpressuredJobStatusRefetchMs
-    : uploadJobStatusRefetchMs;
 }
 
 async function fetchJobBatch(ids: string[]) {
@@ -92,8 +68,7 @@ export function createJobQuery(_getCSRFToken: () => string, getJobID: () => stri
     return {
       queryKey: jobKeys.detail(getAuthScope(), jobID),
       enabled: jobIDs.length > 0,
-      queryFn: () => fetchJobBatch(jobIDs),
-      refetchInterval: uploadJobRefetchInterval(jobIDs)
+      queryFn: () => fetchJobBatch(jobIDs)
     };
   });
 }
@@ -111,8 +86,7 @@ export function createJobsQuery(
     return {
       queryKey: jobKeys.list(getAuthScope(), limit, pageToken),
       enabled: getAuthenticated() && getEnabled(),
-      queryFn: () => fetchJobsPage(limit, pageToken),
-      refetchInterval: (query) => jobsPageRefetchInterval(query.state.data)
+      queryFn: () => fetchJobsPage(limit, pageToken)
     };
   });
 }
