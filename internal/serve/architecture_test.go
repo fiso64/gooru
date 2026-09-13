@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -50,7 +51,9 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 				osAlias = imp.Name.Name
 			}
 			if osAlias == "." {
-				t.Errorf("%s dot-imports os, bypassing the serve storage architecture check", name)
+				t.Run(filepath.Base(name)+"/dot-import-os", func(t *testing.T) {
+					t.Fatalf("%s dot-imports os, bypassing the serve storage architecture check", name)
+				})
 				osAlias = ""
 			}
 		}
@@ -76,7 +79,9 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 				return true
 			}
 			pos := fset.Position(call.Pos())
-			t.Errorf("%s:%d calls os.%s directly; persistent/temp filesystem mutation belongs in an explicit storage/cache/staging adapter", filepath.ToSlash(name), pos.Line, sel.Sel.Name)
+			t.Run(fmt.Sprintf("%s/line-%d/os.%s", filepath.Base(name), pos.Line, sel.Sel.Name), func(t *testing.T) {
+				t.Fatalf("%s:%d calls os.%s directly; persistent/temp filesystem mutation belongs in an explicit storage/cache/staging adapter", filepath.ToSlash(name), pos.Line, sel.Sel.Name)
+			})
 			return true
 		})
 	}
