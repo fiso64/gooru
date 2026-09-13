@@ -223,9 +223,22 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]BackgroundOperationDTO, 0, len(operations))
 	for _, operation := range operations {
-		if operation.Visible {
-			items = append(items, s.backgroundOperationDTO(operation))
+		if !operation.Visible {
+			continue
 		}
+		dto := s.backgroundOperationDTO(operation)
+		if operation.Status == core.BackgroundWorkCompleted {
+			var result json.RawMessage
+			found, err := s.backgroundOperationResult(operation, &result)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
+				return
+			}
+			if found {
+				dto.Result = result
+			}
+		}
+		items = append(items, dto)
 	}
 	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items, ActiveCount: &activeCount})
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import type { Job } from '$lib/api/types';
+  import { jobAffectedCount } from '$lib/jobs';
 
   let {
     job,
@@ -15,11 +16,7 @@
   const visualStatus = $derived(
     job.status === 'completed' ? 'done' : job.status === 'failed' ? 'error' : job.status === 'pending' ? 'queued' : job.status
   );
-  const affectedCount = $derived(
-    job.stage === 'receiving' || !job.progress_total || job.progress_total < 1
-      ? undefined
-      : Math.trunc(job.progress_total)
-  );
+  const affectedCount = $derived(jobAffectedCount(job));
 
   function titleFor(job: Job) {
     const type = job.type;
