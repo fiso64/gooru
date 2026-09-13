@@ -7,9 +7,11 @@ import (
 
 // AttachBackgroundTaskToOperation attaches one caller-stable child task and its
 // initial recovery checkpoint to an existing logical operation. The stable task
-// ID is the idempotency key for transport retries: repeating the same immutable
-// task returns created=false without overwriting recovery state that may already
-// have advanced. Dedupe keys remain scoped to the parent operation.
+// ID is the idempotency identity for transport retries: repeating the same
+// immutable task returns created=false without overwriting recovery state that
+// may already have advanced. The operation-scoped dedupe key is derived from
+// that stable task ID so sibling children can safely share a logical request
+// dedupe key such as "import" without colliding with one another.
 func (c *Client) AttachBackgroundTaskToOperation(operationID, taskID string, checkpoint any, request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
 	if operationID == "" {
 		return BackgroundTask{}, false, fmt.Errorf("background operation id is required")
@@ -24,10 +26,7 @@ func (c *Client) AttachBackgroundTaskToOperation(operationID, taskID string, che
 	if err != nil {
 		return BackgroundTask{}, false, fmt.Errorf("encode background task checkpoint: %w", err)
 	}
-	if request.DedupeKey == "" {
-		request.DedupeKey = "task:" + taskID
-	}
 	request.OperationID = operationID
-	request.DedupeKey = operationID + ":" + request.DedupeKey
+	request.DedupeKey = operationID + ":task:" + taskID
 	return attachDatabaseBackgroundTaskToOperation(c, operationID, checkpointJSON, taskID, request)
 }

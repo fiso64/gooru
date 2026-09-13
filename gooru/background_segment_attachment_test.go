@@ -12,7 +12,7 @@ func TestAttachBackgroundTaskToOperationScopesStableChildAndCheckpoint(t *testin
 		t.Fatal(err)
 	}
 	request := BackgroundTaskRequest{
-		DedupeKey:     "segment:0",
+		DedupeKey:     "import",
 		Kind:          "upload.import",
 		SubjectKind:   "operation",
 		SubjectID:     op.ID,
@@ -31,7 +31,7 @@ func TestAttachBackgroundTaskToOperationScopesStableChildAndCheckpoint(t *testin
 	if err := client.store.DB.QueryRow(`SELECT dedupe_key FROM background_tasks WHERE id = ?`, task.ID).Scan(&dedupe); err != nil {
 		t.Fatal(err)
 	}
-	if want := op.ID + ":segment:0"; dedupe != want {
+	if want := op.ID + ":task:stable-segment-0"; dedupe != want {
 		t.Fatalf("task dedupe = %q, want %q", dedupe, want)
 	}
 	var checkpoint map[string]any
@@ -59,6 +59,22 @@ func TestAttachBackgroundTaskToOperationScopesStableChildAndCheckpoint(t *testin
 	encoded, _ = json.Marshal(checkpoint)
 	if string(encoded) != `{"phase":"staged","segment":0}` {
 		t.Fatalf("idempotent retry rewrote checkpoint: %s", encoded)
+	}
+
+	siblingRequest := request
+	siblingRequest.InputKey = `{"segment":1}`
+	sibling, created, err := client.AttachBackgroundTaskToOperation(op.ID, "stable-segment-1", map[string]any{"phase": "staged", "segment": 1}, siblingRequest)
+	if err != nil {
+		t.Fatalf("attach sibling with shared logical dedupe key: %v", err)
+	}
+	if !created || sibling.ID != "stable-segment-1" || sibling.OperationID != op.ID {
+		t.Fatalf("stable sibling = %#v created=%v", sibling, created)
+	}
+	if err := client.store.DB.QueryRow(`SELECT dedupe_key FROM background_tasks WHERE id = ?`, sibling.ID).Scan(&dedupe); err != nil {
+		t.Fatal(err)
+	}
+	if want := op.ID + ":task:stable-segment-1"; dedupe != want {
+		t.Fatalf("sibling dedupe = %q, want %q", dedupe, want)
 	}
 }
 
