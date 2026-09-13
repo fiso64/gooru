@@ -50,9 +50,13 @@ func (c *Client) ExecuteBackgroundTagMutationFiles(operationID string, files []t
 		if err != nil {
 			return fmt.Errorf("read managed file metadata for %q: %w", file.Path, err)
 		}
-		hash, err := c.hasher.HashFile(file.StoragePath)
-		if err != nil {
-			return fmt.Errorf("hash managed file %q: %w", file.Path, err)
+		hash := file.Hash
+		metadataChanged := metadata.Size != file.Size || metadata.ModTime.Unix() != file.ModTime
+		if hash == "" || metadataChanged {
+			hash, err = c.hasher.HashFile(file.StoragePath)
+			if err != nil {
+				return fmt.Errorf("hash managed file %q: %w", file.Path, err)
+			}
 		}
 		isModification := hash != file.Hash
 		var orphanedTags []string
@@ -82,7 +86,7 @@ func (c *Client) ExecuteBackgroundTagMutationFiles(operationID string, files []t
 	}
 
 	if len(externalPaths) > 0 {
-		externalAnalysis, err := c.analyzeFileStates(externalPaths, nil, false)
+		externalAnalysis, err := c.analyzeFileStates(externalPaths, nil, true)
 		if err != nil {
 			return err
 		}
