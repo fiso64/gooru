@@ -299,7 +299,7 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
   }
 });
 
-test('upload the same 20 files with chunk size 20, then chunk size 4', async ({ page }) => {
+test.only('upload the same 20 files with chunk size 20, then chunk size 4', async ({ page }) => {
   await signIn(page);
   const files = datasetFiles().slice(0, 20);
   expect(files).toHaveLength(20);

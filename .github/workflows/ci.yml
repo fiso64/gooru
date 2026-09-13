@@ -74,3 +74,59 @@ jobs:
           retention-days: 7
       - name: Build
         run: npm run build
+
+  chunk-size-smoke:
+    name: Chunk-size smoke verification
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+      GOORU_SMOKE_USERNAME: smoke-admin
+      GOORU_SMOKE_PASSWORD: ChunkVerify1234
+      GOORU_SMOKE_TIMEOUT_MS: '300000'
+      GOORU_SMOKE_ARTIFACT_ROOT: ${{ github.workspace }}/artifacts/chunk-size-smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm --prefix frontend ci --prefer-offline --no-audit
+      - name: Generate 100-file smoke dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          python_out="$(nix build --no-link --print-out-paths nixpkgs#python3)"
+          pillow_out="$(nix build --no-link --print-out-paths nixpkgs#python3Packages.pillow)"
+          ffmpeg_out="$(nix build --no-link --print-out-paths nixpkgs#ffmpeg)"
+          pillow_site="$(find "$pillow_out/lib" -type d -name site-packages -print -quit)"
+          PATH="$ffmpeg_out/bin:$PATH" PYTHONPATH="$pillow_site" \
+            "$python_out/bin/python3" scripts/e2e/generate_smoke_dataset.py \
+              --count 100 \
+              --output "$HOME/.cache/gooru/e2e-smoke/v1-100"
+      - name: Build frontend and daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend run build
+          mkdir -p .e2e/bin
+          go build -o .e2e/bin/gooru ./cmd/gooru
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
+      - name: Run 20 then 4 chunk-size smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOORU_SMOKE_ARTIFACT_ROOT"
+          bash scripts/e2e/run_smoke_stage.sh 100 true
+      - name: Upload chunk-size smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chunk-size-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/chunk-size-smoke/
+          if-no-files-found: warn
+          retention-days: 7
