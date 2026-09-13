@@ -7,12 +7,8 @@ type backgroundOperationChangeBus struct {
 	subscribers map[chan struct{}]struct{}
 }
 
-var backgroundOperationChangeBuses sync.Map
-
 func (c *Client) backgroundOperationChangeBus() *backgroundOperationChangeBus {
-	candidate := &backgroundOperationChangeBus{subscribers: make(map[chan struct{}]struct{})}
-	actual, _ := backgroundOperationChangeBuses.LoadOrStore(c, candidate)
-	return actual.(*backgroundOperationChangeBus)
+	return &c.backgroundOperationChanges
 }
 
 // SubscribeBackgroundOperationChanges returns a process-local, payload-free
@@ -23,6 +19,9 @@ func (c *Client) SubscribeBackgroundOperationChanges() (<-chan struct{}, func())
 	bus := c.backgroundOperationChangeBus()
 	changes := make(chan struct{}, 1)
 	bus.mu.Lock()
+	if bus.subscribers == nil {
+		bus.subscribers = make(map[chan struct{}]struct{})
+	}
 	bus.subscribers[changes] = struct{}{}
 	bus.mu.Unlock()
 
@@ -39,11 +38,7 @@ func (c *Client) SubscribeBackgroundOperationChanges() (<-chan struct{}, func())
 }
 
 func (c *Client) notifyBackgroundOperationChange() {
-	value, ok := backgroundOperationChangeBuses.Load(c)
-	if !ok {
-		return
-	}
-	bus := value.(*backgroundOperationChangeBus)
+	bus := c.backgroundOperationChangeBus()
 	bus.mu.Lock()
 	defer bus.mu.Unlock()
 	for subscriber := range bus.subscribers {
