@@ -35,6 +35,20 @@ describe('jobAffectedCount', () => {
     ).toBe(2);
   });
 
+  it('keeps running upload progress authoritative over partial results', () => {
+    expect(
+      jobAffectedCount(
+        job({
+          type: 'upload_import',
+          status: 'running',
+          stage: 'importing',
+          progress_total: 42,
+          result: { affected_count: 0, files: [] }
+        })
+      )
+    ).toBe(0);
+  });
+
   it('does not present generic durable task cardinality as files', () => {
     expect(jobAffectedCount(job({ progress_total: 1 }))).toBeUndefined();
   });
