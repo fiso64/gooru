@@ -334,7 +334,7 @@
     bind:this={inputRef}
     class="searchbar-input"
     value={draft}
-    placeholder={tokens.length === 0 ? 'tag, namespace:value, -exclude — try "subject:" or "hero"' : ''}
+    placeholder={tokens.length === 0 ? 'tag, namespace:value, -exclude, @metatag' : ''}
     spellcheck="false"
     autocapitalize="off"
     autocomplete="off"

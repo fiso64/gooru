@@ -185,7 +185,7 @@
     <div class="page-header">
       <div class="g-eyebrow g-eyebrow-accent">Upload</div>
       <h1>Import media into your library</h1>
-      <p>Files are content-hashed on receipt. Duplicates are detected automatically. Initial tags can be applied here.</p>
+      <p>Files are content-hashed on receipt. Duplicates are detected automatically.</p>
     </div>
 
     <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); onSubmit(); }}>
