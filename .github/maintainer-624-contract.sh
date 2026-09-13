@@ -27,10 +27,11 @@ new_limit = old_limit + '''        - name: offset
             minimum: 0
             default: 0
 '''
-if section.count(old_limit) != 1 or '        - name: offset\n' in section:
-    raise SystemExit('unexpected /operations limit/offset contract state')
-section = section.replace(old_limit, new_limit, 1)
-text = text[:start] + section + text[end:]
+if '        - name: offset\n' not in section:
+    if section.count(old_limit) != 1:
+        raise SystemExit('unexpected /operations limit contract state')
+    section = section.replace(old_limit, new_limit, 1)
+    text = text[:start] + section + text[end:]
 
 events = '''  /operations/events:
     get:
@@ -53,18 +54,11 @@ events = '''  /operations/events:
           $ref: "#/components/responses/ServiceUnavailable"
 '''
 anchor = '  /operations/cancel-all:\n'
-if '  /operations/events:\n' in text or text.count(anchor) != 1:
-    raise SystemExit('unexpected operations/events contract state')
-text = text.replace(anchor, events + anchor, 1)
+if '  /operations/events:\n' not in text:
+    if text.count(anchor) != 1:
+        raise SystemExit('unexpected operations/cancel-all contract state')
+    text = text.replace(anchor, events + anchor, 1)
 openapi.write_text(text)
-
-ci = Path('.github/workflows/ci.yml')
-ci_text = ci.read_text()
-old = 'jobs-layout.spec.ts jobs-pagination.spec.ts jobs-history-controls.spec.ts'
-new = 'jobs-layout.spec.ts jobs-pagination.spec.ts jobs-polling.spec.ts jobs-history-controls.spec.ts'
-if ci_text.count(old) != 1 or 'jobs-pagination.spec.ts jobs-polling.spec.ts' in ci_text:
-    raise SystemExit('unexpected browser regression command state')
-ci.write_text(ci_text.replace(old, new, 1))
 PY
 
 cd frontend
@@ -75,11 +69,15 @@ cd ..
 git diff --check
 git status --short
 
-rm .github/workflows/maintainer-624-contract.yml .github/maintainer-624-contract.sh
+if git diff --quiet -- docs/openapi.yaml frontend/src/lib/api/openapi.ts; then
+  echo 'OpenAPI contract already synchronized.'
+  exit 0
+fi
+
 git config user.name 'github-actions[bot]'
 git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-git add .github/workflows/ci.yml docs/openapi.yaml frontend/src/lib/api/openapi.ts .github/workflows/maintainer-624-contract.yml .github/maintainer-624-contract.sh
+git add docs/openapi.yaml frontend/src/lib/api/openapi.ts
 git diff --cached --check
 git diff --cached --name-only
-git commit -m 'Sync jobs API contract and browser coverage'
+git commit -m 'Sync jobs API contract'
 git push origin HEAD:maintainer/624-jobs-api-ui
