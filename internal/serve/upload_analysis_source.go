@@ -44,20 +44,18 @@ func (l *GooruLibrary) importedMediaMetadata(ctx context.Context, provider Media
 	if uploadMediaMetadataDeferred(ctx) {
 		return MediaMetadata{}, nil
 	}
-	if !l.encryption.Enabled && analysisPath != "" && filepath.Clean(analysisPath) == filepath.Clean(file.Path) {
-		return provider.Metadata(ctx, file, mediaType, mediaKind)
+	if analysisPath == "" {
+		analysisPath = fileStoragePath(file)
 	}
-	if sourceProvider, ok := provider.(MediaMetadataSourceProvider); ok && analysisPath != "" {
-		source, size, _, err := l.openUploadAnalysisSource(analysisPath)
-		if err != nil {
-			return MediaMetadata{}, err
+	if !l.encryption.Enabled && filepath.Clean(analysisPath) == filepath.Clean(file.Path) {
+		if pathProvider, ok := provider.(MediaMetadataPathProvider); ok {
+			return pathProvider.Metadata(ctx, file, mediaType, mediaKind)
 		}
-		defer source.Close()
-		return sourceProvider.MetadataFromSource(ctx, file, source, size, mediaType, mediaKind)
 	}
-	analysisFile := file
-	if analysisPath != "" {
-		analysisFile.Path = analysisPath
+	source, size, _, err := l.openUploadAnalysisSource(analysisPath)
+	if err != nil {
+		return MediaMetadata{}, err
 	}
-	return provider.Metadata(ctx, analysisFile, mediaType, mediaKind)
+	defer source.Close()
+	return provider.MetadataFromSource(ctx, file, source, size, mediaType, mediaKind)
 }

@@ -31,17 +31,18 @@ type MediaMetadata struct {
 	PageCount     *int     `json:"page_count,omitempty"`
 }
 
+// MediaMetadataProvider extracts metadata from an authenticated logical media
+// source. Source support is the minimum provider capability so new providers
+// cannot accidentally work only when a plaintext pathname is available.
 type MediaMetadataProvider interface {
-	Metadata(ctx context.Context, file types.FileInfo, mediaType string, mediaKind string) (MediaMetadata, error)
+	MetadataFromSource(ctx context.Context, file types.FileInfo, source io.ReaderAt, size int64, mediaType string, mediaKind string) (MediaMetadata, error)
 }
 
-// MediaMetadataSourceProvider extends MediaMetadataProvider for callers that
-// already have authenticated plaintext bytes but intentionally do not have a
-// plaintext filesystem path. The logical file metadata is still passed
-// separately so classification and storage identity remain path-based.
-type MediaMetadataSourceProvider interface {
-	MediaMetadataProvider
-	MetadataFromSource(ctx context.Context, file types.FileInfo, source io.ReaderAt, size int64, mediaType string, mediaKind string) (MediaMetadata, error)
+// MediaMetadataPathProvider is an optional clear-mode optimization for tools
+// that benefit materially from receiving the real plaintext pathname (for
+// example ffprobe). Protected and distinct staging sources never use it.
+type MediaMetadataPathProvider interface {
+	Metadata(ctx context.Context, file types.FileInfo, mediaType string, mediaKind string) (MediaMetadata, error)
 }
 
 type BasicMediaMetadataProvider struct {
@@ -57,16 +58,11 @@ func (p BasicMediaMetadataProvider) Metadata(ctx context.Context, file types.Fil
 		return MediaMetadata{}, err
 	}
 	if strings.EqualFold(filepath.Ext(file.Path), ".cbz") {
-		archive, err := openComicArchive(fileStoragePath(file))
-		if err != nil {
-			return MediaMetadata{}, err
-		}
-		defer archive.Close()
-		return comicArchiveMetadata(archive)
+		return p.metadataFromPathSource(ctx, file, mediaType, mediaKind)
 	}
 	switch mediaKind {
 	case "photo", "gif":
-		return p.imageMetadata(ctx, file)
+		return p.metadataFromPathSource(ctx, file, mediaType, mediaKind)
 	case "video":
 		return p.videoMetadata(ctx, file)
 	default:
@@ -106,6 +102,22 @@ func (p BasicMediaMetadataProvider) MetadataFromSource(ctx context.Context, file
 	}
 }
 
+func (p BasicMediaMetadataProvider) metadataFromPathSource(ctx context.Context, file types.FileInfo, mediaType string, mediaKind string) (MediaMetadata, error) {
+	f, err := os.Open(fileStoragePath(file))
+	if err != nil {
+		return MediaMetadata{}, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return MediaMetadata{}, err
+	}
+	if info.IsDir() {
+		return MediaMetadata{}, fmt.Errorf("media metadata source is a directory")
+	}
+	return p.MetadataFromSource(ctx, file, f, info.Size(), mediaType, mediaKind)
+}
+
 func comicArchiveMetadata(archive *comicArchive) (MediaMetadata, error) {
 	count := len(archive.pages)
 	meta := MediaMetadata{PageCount: &count}
@@ -126,24 +138,6 @@ func comicArchiveMetadata(archive *comicArchive) (MediaMetadata, error) {
 	meta.ImageWidth = &width
 	meta.ImageHeight = &height
 	return meta, nil
-}
-
-func (p BasicMediaMetadataProvider) imageMetadata(ctx context.Context, file types.FileInfo) (MediaMetadata, error) {
-	if err := ctx.Err(); err != nil {
-		return MediaMetadata{}, err
-	}
-	f, err := os.Open(fileStoragePath(file))
-	if err != nil {
-		return MediaMetadata{}, err
-	}
-	defer f.Close()
-	cfg, _, err := image.DecodeConfig(f)
-	if err != nil {
-		return MediaMetadata{}, err
-	}
-	width := cfg.Width
-	height := cfg.Height
-	return MediaMetadata{ImageWidth: &width, ImageHeight: &height}, nil
 }
 
 func (p BasicMediaMetadataProvider) videoMetadata(ctx context.Context, file types.FileInfo) (MediaMetadata, error) {
