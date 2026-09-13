@@ -200,7 +200,6 @@ async function uploadTaggedFiles(page: Page, files: string[], uploadTag: string,
     await uploadButton.click();
     const uploadQueue = page.locator('section.upload-queue-section');
     await expect(uploadQueue).toBeVisible({ timeout: operationTimeout });
-
     if (chunkSize === undefined) {
       await expect.poll(async () => {
         return successfulUploadCount((await uploadQueue.getAttribute('aria-label')) ?? '');
@@ -236,6 +235,9 @@ async function browseAndDeleteTaggedFiles(page: Page, uploadTag: string, expecte
 
   const formattedCount = expectedCount.toLocaleString('en-US');
   await expect(page.getByTestId('library-header-count')).toHaveText(`${formattedCount} matching · ${formattedCount} files`, { timeout: operationTimeout });
+
+  const refreshResults = page.getByRole('button', { name: /new items · Refresh results$/ });
+  if (await refreshResults.isVisible()) await refreshResults.click();
 
   const grid = page.getByTestId('virtual-media-grid');
   await expect(grid.locator('.thumb')).not.toHaveCount(0, { timeout: operationTimeout });
