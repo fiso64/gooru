@@ -23,6 +23,11 @@ import { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
 export { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 export const maxFilesPerMultipartUpload = 1000;
+export const maxFilesPerGeckoMultipartUpload = 16;
+
+export function multipartUploadChunkSize(userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): number {
+  return /\bGecko\/\d/i.test(userAgent) ? maxFilesPerGeckoMultipartUpload : maxFilesPerMultipartUpload;
+}
 
 type UploadMutate = (variables: UploadVariables) => Promise<BackgroundOperation | UploadImportResponse>;
 type CancelJob = (jobID: string) => Promise<Job>;
@@ -283,15 +288,16 @@ export function createUploadWorkflow() {
     let queued = false;
     let changedFiles = false;
     let currentChunkStart = 0;
+    const chunkSize = multipartUploadChunkSize();
 
     refreshStatus();
 
     try {
-      for (currentChunkStart = 0; currentChunkStart < batchFiles.length; currentChunkStart += maxFilesPerMultipartUpload) {
+      for (currentChunkStart = 0; currentChunkStart < batchFiles.length; currentChunkStart += chunkSize) {
         if (controller.signal.aborted || cancelPending) {
           throw new ApiError(0, 'request_aborted', 'Upload was canceled');
         }
-        const chunkEnd = Math.min(batchFiles.length, currentChunkStart + maxFilesPerMultipartUpload);
+        const chunkEnd = Math.min(batchFiles.length, currentChunkStart + chunkSize);
         const chunkFiles = batchFiles.slice(currentChunkStart, chunkEnd);
         const chunkItemIndices = batchItemIndices.slice(currentChunkStart, chunkEnd);
         const chunkQueueTimes = batchQueueTimes.slice(currentChunkStart, chunkEnd);
