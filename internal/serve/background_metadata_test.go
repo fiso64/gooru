@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"gooru.local/types"
@@ -12,6 +13,12 @@ type countingMediaMetadataProvider struct {
 }
 
 func (p *countingMediaMetadataProvider) Metadata(context.Context, types.FileInfo, string, string) (MediaMetadata, error) {
+	p.calls++
+	width := 1
+	return MediaMetadata{ImageWidth: &width}, nil
+}
+
+func (p *countingMediaMetadataProvider) MetadataFromSource(context.Context, types.FileInfo, io.ReaderAt, int64, string, string) (MediaMetadata, error) {
 	p.calls++
 	width := 1
 	return MediaMetadata{ImageWidth: &width}, nil
