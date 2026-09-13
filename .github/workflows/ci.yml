@@ -47,6 +47,7 @@ jobs:
           tests = []
           packages = []
           failures = []
+          outputs = []
           with open("/tmp/go-test.json", encoding="utf-8") as f:
               for line in f:
                   try:
@@ -57,6 +58,9 @@ jobs:
                   elapsed = rec.get("Elapsed")
                   package = rec.get("Package", "")
                   test = rec.get("Test")
+                  output = rec.get("Output")
+                  if output:
+                      outputs.append((package, test, output.rstrip("\n")))
                   if action == "pass" and elapsed is not None:
                       if test:
                           tests.append((float(elapsed), package, test))
@@ -77,6 +81,15 @@ jobs:
               print("\nFailures:")
               for package, test in failures:
                   print(f"{package}  {test}")
+
+              failing_packages = {package for package, _ in failures if package}
+              print("\nFailure output:")
+              for package, test, output in outputs:
+                  if package in failing_packages:
+                      where = package
+                      if test:
+                          where += f"  {test}"
+                      print(f"[{where}] {output}")
           PY
           exit "$status"
       - name: Build
