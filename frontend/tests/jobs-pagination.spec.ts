@@ -19,9 +19,11 @@ function operation(index: number) {
   };
 }
 
+type OperationRequest = { limit: number; offset: number };
+
 async function mockApp(page: Page) {
   const operations = Array.from({ length: 120 }, (_, index) => operation(index)).reverse();
-  const requests: number[] = [];
+  const requests: OperationRequest[] = [];
 
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
@@ -33,14 +35,26 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/operations?**', async (route) => {
     const url = new URL(route.request().url());
     const limit = Number(url.searchParams.get('limit') ?? '0');
-    requests.push(limit);
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: operations.slice(0, limit) }) });
+    const offset = Number(url.searchParams.get('offset') ?? '0');
+    requests.push({ limit, offset });
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        items: operations.slice(offset, offset + limit),
+        active_count: operations.filter((item) => item.status === 'pending' || item.status === 'running').length,
+        total_count: operations.length
+      })
+    });
   });
 
   return requests;
 }
 
-test('drawer stays bounded while jobs tab reuses page navigation above and below durable history', async ({ page }) => {
+function requested(requests: OperationRequest[], limit: number, offset: number) {
+  return requests.some((request) => request.limit === limit && request.offset === offset);
+}
+
+test('drawer stays bounded while jobs tab uses true server paging above and below durable history', async ({ page }) => {
   const requests = await mockApp(page);
   await page.goto('/');
 
@@ -49,13 +63,13 @@ test('drawer stays bounded while jobs tab reuses page navigation above and below
   const drawer = page.locator('#jobs-drawer .jobs-drawer');
   await expect(drawer).toBeVisible();
   await expect(drawer.locator('.job-row')).toHaveCount(20);
-  await expect.poll(() => requests.includes(21)).toBe(true);
-  expect(requests).not.toContain(1000);
+  await expect.poll(() => requested(requests, 20, 0)).toBe(true);
+  expect(requests.every((request) => request.limit <= 50)).toBe(true);
 
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
-  await expect.poll(() => requests.includes(51)).toBe(true);
+  await expect.poll(() => requested(requests, 50, 0)).toBe(true);
 
   const topPager = page.getByTestId('jobs-pages-top');
   const bottomPager = page.getByTestId('jobs-pages-bottom');
@@ -68,14 +82,13 @@ test('drawer stays bounded while jobs tab reuses page navigation above and below
   await expect(topPager.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
   await expect(bottomPager.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(50);
-  await expect.poll(() => requests.includes(101)).toBe(true);
+  await expect.poll(() => requested(requests, 50, 50)).toBe(true);
 
   await bottomPager.getByRole('button', { name: 'Next page' }).click();
   await expect(topPager.getByRole('button', { name: 'Page 3' })).toHaveAttribute('aria-current', 'page');
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(20);
   await expect(bottomPager.getByRole('button', { name: 'Next page' })).toBeDisabled();
-  await expect.poll(() => requests.includes(151)).toBe(true);
-  expect(requests).not.toContain(1000);
+  await expect.poll(() => requested(requests, 50, 100)).toBe(true);
 
   await topPager.getByRole('button', { name: 'Previous page' }).click();
   await expect(bottomPager.getByRole('button', { name: 'Page 2' })).toHaveAttribute('aria-current', 'page');
