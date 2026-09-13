@@ -94,7 +94,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm --prefix frontend ci --prefer-offline --no-audit
-      - name: Generate 20-file smoke dataset
+      - name: Generate 100-file smoke dataset
         shell: bash
         run: |
           set -euo pipefail
@@ -104,8 +104,8 @@ jobs:
           pillow_site="$(find "$pillow_out/lib" -type d -name site-packages -print -quit)"
           PATH="$ffmpeg_out/bin:$PATH" PYTHONPATH="$pillow_site" \
             "$python_out/bin/python3" scripts/e2e/generate_smoke_dataset.py \
-              --count 20 \
-              --output "$HOME/.cache/gooru/e2e-smoke/v1-20"
+              --count 100 \
+              --output "$HOME/.cache/gooru/e2e-smoke/v1-100"
       - name: Build frontend and daemon
         shell: bash
         run: |
@@ -121,4 +121,4 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$GOORU_SMOKE_ARTIFACT_ROOT"
-          bash scripts/e2e/run_smoke_stage.sh 20 true
+          bash scripts/e2e/run_smoke_stage.sh 100 true
