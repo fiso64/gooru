@@ -105,7 +105,7 @@ async function fulfillUploadReservation(route: Route, id: string) {
 
 async function fulfillAggregateUpload(route: Route, id: string, names: string[]) {
   expect(route.request().headers()['prefer']).toBe('respond-async');
-  expect(route.request().headers()['x-gooru-upload-operation-id']).toBeTruthy();
+  expect(route.request().headers()['x-gooru-upload-operation-id']).toBe(id);
   await route.fulfill({
     status: 202,
     contentType: 'application/json',
@@ -156,7 +156,7 @@ test('browser submits one selected batch and releases it after durable admission
 
   expect(waiting).toBeDefined();
   active -= 1;
-  await fulfillAggregateUpload(waiting!, 'job-batch', names);
+  await fulfillAggregateUpload(waiting!, 'reservation-1', names);
   await expect.poll(() => active).toBe(0);
   await expect(page.locator('.upload-row .status').filter({ hasText: 'queued' })).toHaveCount(names.length);
   await expect.poll(() => statusBatchRequests).toBeGreaterThan(0);
@@ -182,7 +182,7 @@ test('large staged WebUI upload completes through one durable operation lookup',
       return;
     }
     requestCount += 1;
-    await fulfillAggregateUpload(route, 'job-batch', names);
+    await fulfillAggregateUpload(route, 'reservation-1', names);
   });
 
   await signIn(page);
@@ -234,8 +234,8 @@ test('submits a newer batch while an older browser request is still in flight an
   await expect.poll(() => waiting.length).toBe(2);
   expect(reservationCount).toBe(2);
 
-  await fulfillAggregateUpload(waiting[1]!, 'job-second', ['second.jpg']);
-  await fulfillAggregateUpload(waiting[0]!, 'job-first', ['first.jpg']);
+  await fulfillAggregateUpload(waiting[1]!, 'reservation-2', ['second.jpg']);
+  await fulfillAggregateUpload(waiting[0]!, 'reservation-1', ['first.jpg']);
 
   const batches = page.getByTestId('upload-queue-batch');
   await expect(batches).toHaveCount(2);
