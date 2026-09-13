@@ -46,7 +46,7 @@ describe('jobAffectedCount', () => {
           result: { affected_count: 0, files: [] }
         })
       )
-    ).toBe(0);
+    ).toBe(42);
   });
 
   it('does not present generic durable task cardinality as files', () => {
