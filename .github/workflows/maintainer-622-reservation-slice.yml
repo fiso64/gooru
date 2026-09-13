@@ -1,0 +1,183 @@
+name: Maintainer 622 reservation slice
+
+on:
+  push:
+    branches:
+      - maintainer/622-logical-upload-session
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/622-logical-upload-session
+          fetch-depth: 0
+      - name: Apply reservation cardinality slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/serve/uploads_durable.go')
+          text = path.read_text()
+
+          old = '"net/http"\n\t"os"\n\t"strings"'
+          new = '"net/http"\n\t"os"\n\t"strconv"\n\t"strings"'
+          assert text.count(old) == 1, 'unexpected imports shape'
+          text = text.replace(old, new, 1)
+
+          old = '\tuploadReservationHeader                 = "X-Gooru-Upload-Reserve"\n\tuploadOperationHeader                   = "X-Gooru-Upload-Operation-ID"'
+          new = '\tuploadReservationHeader                 = "X-Gooru-Upload-Reserve"\n\tuploadSegmentCountHeader                = "X-Gooru-Upload-Segment-Count"\n\tuploadOperationHeader                   = "X-Gooru-Upload-Operation-ID"'
+          assert text.count(old) == 1, 'unexpected upload header constants shape'
+          text = text.replace(old, new, 1)
+
+          old = '''\tif strings.EqualFold(strings.TrimSpace(r.Header.Get(uploadReservationHeader)), "true") {
+\t\ts.reserveDurableUpload(w, operations)
+\t\treturn
+\t}'''
+          new = '''\tif strings.EqualFold(strings.TrimSpace(r.Header.Get(uploadReservationHeader)), "true") {
+\t\tsegmentCount, err := durableUploadReservationSegmentCount(r)
+\t\tif err != nil {
+\t\t\twriteError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+\t\t\treturn
+\t\t}
+\t\ts.reserveDurableUpload(w, operations, segmentCount)
+\t\treturn
+\t}'''
+          assert text.count(old) == 1, 'unexpected reservation dispatch shape'
+          text = text.replace(old, new, 1)
+
+          old = '''func (s *Server) reserveDurableUpload(w http.ResponseWriter, operations durableUploadOperationStore) {
+\toperation, err := operations.CreateBackgroundOperation(core.BackgroundOperationRequest{Kind: backgroundUploadImportOperationKind, Visible: false, ProgressTotal: 1})'''
+          new = '''func durableUploadReservationSegmentCount(r *http.Request) (int64, error) {
+\tvalues := r.Header.Values(uploadSegmentCountHeader)
+\tif len(values) == 0 {
+\t\treturn 1, nil
+\t}
+\tif len(values) != 1 {
+\t\treturn 0, errors.New("upload segment count must be one positive integer")
+\t}
+\tvalue := strings.TrimSpace(values[0])
+\tif value == "" {
+\t\treturn 0, errors.New("upload segment count must be a positive integer")
+\t}
+\tsegmentCount, err := strconv.ParseInt(value, 10, 64)
+\tif err != nil || segmentCount <= 0 {
+\t\treturn 0, errors.New("upload segment count must be a positive integer")
+\t}
+\treturn segmentCount, nil
+}
+
+func (s *Server) reserveDurableUpload(w http.ResponseWriter, operations durableUploadOperationStore, segmentCount int64) {
+\toperation, err := operations.CreateBackgroundOperation(core.BackgroundOperationRequest{Kind: backgroundUploadImportOperationKind, Visible: false, ProgressTotal: segmentCount})'''
+          assert text.count(old) == 1, 'unexpected reservation function shape'
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+
+          test_path = Path('internal/serve/uploads_durable_reservation_test.go')
+          assert not test_path.exists(), 'reservation test file already exists'
+          test_path.write_text(r'''package serve
+
+import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
+)
+
+func TestDurableUploadReservationDefaultsSegmentCountToOne(t *testing.T) {
+    store := newDurableUploadTestStore()
+    server := newDurableUploadHandlerTestServer(t, t.TempDir(), store)
+    req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", nil)
+    req.Header.Set(uploadReservationHeader, "true")
+    rec := httptest.NewRecorder()
+
+    server.Handler().ServeHTTP(rec, req)
+
+    if rec.Code != http.StatusCreated {
+        t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+    }
+    if got := store.createdRequest.ProgressTotal; got != 1 {
+        t.Fatalf("progress total = %d, want 1", got)
+    }
+}
+
+func TestDurableUploadReservationUsesExpectedSegmentCount(t *testing.T) {
+    store := newDurableUploadTestStore()
+    server := newDurableUploadHandlerTestServer(t, t.TempDir(), store)
+    req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", nil)
+    req.Header.Set(uploadReservationHeader, "true")
+    req.Header.Set(uploadSegmentCountHeader, "625")
+    rec := httptest.NewRecorder()
+
+    server.Handler().ServeHTTP(rec, req)
+
+    if rec.Code != http.StatusCreated {
+        t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+    }
+    if got := store.createdRequest.ProgressTotal; got != 625 {
+        t.Fatalf("progress total = %d, want 625", got)
+    }
+}
+
+func TestDurableUploadReservationRejectsInvalidSegmentCount(t *testing.T) {
+    for _, value := range []string{"", "0", "-1", "not-a-number", "1.5"} {
+        t.Run(value, func(t *testing.T) {
+            store := newDurableUploadTestStore()
+            server := newDurableUploadHandlerTestServer(t, t.TempDir(), store)
+            req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", nil)
+            req.Header.Set(uploadReservationHeader, "true")
+            req.Header[uploadSegmentCountHeader] = []string{value}
+            rec := httptest.NewRecorder()
+
+            server.Handler().ServeHTTP(rec, req)
+
+            assertAPIError(t, rec, http.StatusBadRequest, "invalid_request")
+            if store.createdRequest.Kind != "" {
+                t.Fatalf("invalid segment count created operation: %+v", store.createdRequest)
+            }
+            if store.visibleCalls != 0 || store.checkpointCalls != 0 {
+                t.Fatalf("invalid segment count published reservation: visible=%d checkpoints=%d", store.visibleCalls, store.checkpointCalls)
+            }
+        })
+    }
+}
+
+func TestDurableUploadReservationRejectsMultipleSegmentCounts(t *testing.T) {
+    store := newDurableUploadTestStore()
+    server := newDurableUploadHandlerTestServer(t, t.TempDir(), store)
+    req := httptest.NewRequest(http.MethodPost, "/api/v1/uploads", nil)
+    req.Header.Set(uploadReservationHeader, "true")
+    req.Header[uploadSegmentCountHeader] = []string{"1", "2"}
+    rec := httptest.NewRecorder()
+
+    server.Handler().ServeHTTP(rec, req)
+
+    assertAPIError(t, rec, http.StatusBadRequest, "invalid_request")
+    if store.createdRequest.Kind != "" {
+        t.Fatalf("multiple segment counts created operation: %+v", store.createdRequest)
+    }
+}
+''')
+          PY
+          gofmt -w internal/serve/uploads_durable.go internal/serve/uploads_durable_reservation_test.go
+      - name: Test reservation behavior
+        run: go test ./internal/serve -run '^TestDurableUploadReservation' -count=1
+      - name: Test serve package
+        run: go test ./internal/serve -count=1
+      - name: Commit validated slice and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "fiso64"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git rm .github/workflows/maintainer-622-reservation-slice.yml
+          git add internal/serve/uploads_durable.go internal/serve/uploads_durable_reservation_test.go
+          git commit -m "feat: reserve logical upload segment capacity"
+          git push origin HEAD:maintainer/622-logical-upload-session
