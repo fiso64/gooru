@@ -33,6 +33,26 @@ type backgroundUploadFinalizingStore struct {
 	tasks backgroundTaskEnqueuer
 }
 
+type backgroundUploadTaskFinalizingStore struct {
+	backgroundUploadFinalizingStore
+	backgroundUploadTaskStateStore
+}
+
+func newBackgroundUploadFinalizingStore(store backgroundUploadWorkerStore, tasks backgroundTaskEnqueuer) backgroundUploadWorkerStore {
+	finalizing := backgroundUploadFinalizingStore{
+		backgroundUploadWorkerStore: store,
+		tasks:                       tasks,
+	}
+	taskStore, ok := store.(backgroundUploadTaskStateStore)
+	if !ok {
+		return finalizing
+	}
+	return backgroundUploadTaskFinalizingStore{
+		backgroundUploadFinalizingStore: finalizing,
+		backgroundUploadTaskStateStore:  taskStore,
+	}
+}
+
 func (s backgroundUploadFinalizingStore) SetBackgroundOperationResult(operationID string, result any) error {
 	if s.tasks != nil {
 		if _, _, err := s.tasks.EnqueueBackgroundTask(backgroundMediaMetadataTaskRequest(operationID)); err != nil {
