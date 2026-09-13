@@ -3,7 +3,7 @@ import type { Job } from '$lib/api/types';
 export function jobAffectedCount(job: Job): number | undefined {
   if (job.result && typeof job.result === 'object' && !Array.isArray(job.result)) {
     const result = job.result as Record<string, unknown>;
-    if (job.type === 'upload_import' && Array.isArray(result.files)) {
+    if (job.type === 'upload_import' && job.status === 'completed' && Array.isArray(result.files)) {
       return result.files.reduce((count, file) => {
         if (file && typeof file === 'object' && !Array.isArray(file)) {
           return (file as Record<string, unknown>).status === 'imported' ? count + 1 : count;
