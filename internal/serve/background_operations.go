@@ -188,7 +188,7 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 			dto := s.backgroundOperationDTO(operation)
 			if operation.Status == core.BackgroundWorkCompleted {
 				var result json.RawMessage
-				found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)
+				found, err := s.backgroundOperationResult(operation, &result)
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
 					return
@@ -279,7 +279,7 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 	dto := s.backgroundOperationDTO(operation)
 	if operation.Status == core.BackgroundWorkCompleted {
 		var result json.RawMessage
-		found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)
+		found, err := s.backgroundOperationResult(operation, &result)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
 			return
@@ -299,6 +299,11 @@ func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState)
 	dto := backgroundOperationDTO(operation)
 	if operation.Kind != backgroundUploadImportOperationKind || s.backgroundOperations == nil {
 		return dto
+	}
+	if operation.ProgressTotal > 1 {
+		if segmented, ok := s.segmentedUploadOperationDTO(operation, dto); ok {
+			return segmented
+		}
 	}
 	reader, ok := s.backgroundOperations.(backgroundOperationCheckpointReader)
 	if !ok {

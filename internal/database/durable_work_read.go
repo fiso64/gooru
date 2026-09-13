@@ -33,6 +33,30 @@ func (s *Store) GetBackgroundOperation(id string) (BackgroundOperation, bool, er
 	return operation, true, nil
 }
 
+// GetBackgroundTask returns one durable task by its stable task ID. The bool
+// distinguishes a missing task from a read failure without exposing sql.ErrNoRows
+// to callers that need to recognize idempotent transport retries.
+func (s *Store) GetBackgroundTask(id string) (BackgroundTask, bool, error) {
+	if id == "" {
+		return BackgroundTask{}, false, errors.New("background task id is required")
+	}
+	task, err := scanBackgroundTask(s.DB.QueryRow(`
+		SELECT id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
+		       resource_class, priority, status, available_at, lease_owner, lease_expires_at,
+		       created_at, started_at, finished_at, attempt_count, max_attempts,
+		       last_error_code, last_error_message
+		FROM background_tasks
+		WHERE id = ?
+	`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return BackgroundTask{}, false, nil
+	}
+	if err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("read background task: %w", err)
+	}
+	return task, true, nil
+}
+
 // ListBackgroundOperations returns newest-first durable operation state. When
 // visibleOnly is true, hidden implementation/background operations are omitted.
 // A non-positive limit uses a bounded default; very large limits are capped so a

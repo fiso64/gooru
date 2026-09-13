@@ -44,6 +44,24 @@ describe('effectiveUploadTargetID', () => {
 });
 
 describe('upload import progress', () => {
+  it('keeps durably admitted pending work queued until a worker starts it', () => {
+    const items = [queueItem(0), queueItem(1)].map((item) => ({ ...item, status: 'queued' as const, progress: 100 }));
+    const job = {
+      id: 'upload-one',
+      type: 'upload_import',
+      status: 'pending',
+      progress_total: 2,
+      progress_completed: 0,
+      progress_failed: 0,
+      submitted_at: '2026-09-11T00:00:00Z'
+    } as Job;
+
+    expect(itemsFromJob(items, job).map((item) => [item.status, item.progress])).toEqual([
+      ['queued', 100],
+      ['queued', 100]
+    ]);
+  });
+
   it('marks only the completed file prefix at 100 percent', () => {
     const items = [queueItem(0), queueItem(1), queueItem(2)];
     const job = {

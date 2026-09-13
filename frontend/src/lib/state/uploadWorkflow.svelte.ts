@@ -244,7 +244,8 @@ export function createUploadWorkflow() {
   }
 
   function trackQueuedJob(jobID: string, itemIndices: number[], itemError = '') {
-    trackedJobs = { ...trackedJobs, [jobID]: [...itemIndices] };
+    const existingIndices = trackedJobs[jobID] ?? [];
+    trackedJobs = { ...trackedJobs, [jobID]: [...existingIndices, ...itemIndices] };
     for (const itemIndex of itemIndices) {
       const current = items[itemIndex];
       const queuedItemState = current ? queuedItem([current], 0)[0] : undefined;
@@ -289,6 +290,8 @@ export function createUploadWorkflow() {
     let changedFiles = false;
     let currentChunkStart = 0;
     const chunkSize = multipartUploadChunkSize();
+    const segmentCount = Math.ceil(batchFiles.length / chunkSize);
+    let logicalOperationID = '';
 
     refreshStatus();
 
@@ -303,6 +306,7 @@ export function createUploadWorkflow() {
         const chunkQueueTimes = batchQueueTimes.slice(currentChunkStart, chunkEnd);
         const chunkQueueIndices = chunkFiles.map((_, index) => currentChunkStart + index);
         const chunkQueueTotals = chunkFiles.map(() => batchQueueTotal);
+        const segmentIndex = Math.floor(currentChunkStart / chunkSize);
         let lastTransportProgress = -1;
 
         const response = await mutate({
@@ -317,6 +321,9 @@ export function createUploadWorkflow() {
           queueLastTimeMs: batchQueueLastTimeMs,
           queueIndex: chunkQueueIndices,
           queueTotal: chunkQueueTotals,
+          operationID: segmentCount > 1 && logicalOperationID ? logicalOperationID : undefined,
+          segmentIndex: segmentCount > 1 ? segmentIndex : undefined,
+          segmentCount,
           onProgress: (progress) => {
             if (progress === lastTransportProgress) return;
             lastTransportProgress = progress;
@@ -332,21 +339,23 @@ export function createUploadWorkflow() {
         });
 
         if ('id' in response) {
+          const jobID = logicalOperationID || response.id;
+          if (segmentCount > 1 && !logicalOperationID) logicalOperationID = response.id;
           if (cancelPending && cancelPendingMutate) {
             try {
-              const canceledJob = await cancelPendingMutate(response.id);
+              const canceledJob = await cancelPendingMutate(jobID);
               const previousItems = chunkItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
               const canceledItems = itemsFromJob(previousItems, canceledJob);
               chunkItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, canceledItems[resultIndex]));
             } catch (error) {
               const message = errorMessage(error);
-              trackQueuedJob(response.id, chunkItemIndices, message);
+              trackQueuedJob(jobID, chunkItemIndices, message);
               status = message;
               queued = true;
             }
             throw new ApiError(0, 'request_aborted', 'Upload was canceled');
           }
-          trackQueuedJob(response.id, chunkItemIndices);
+          trackQueuedJob(jobID, chunkItemIndices);
           queued = true;
         } else {
           const previousItems = chunkItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));

@@ -48,7 +48,7 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
     expect(multipartUploadChunkSize('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15')).toBe(maxFilesPerMultipartUpload);
   });
 
-  it('splits a large selection into bounded requests while preserving global queue metadata', async () => {
+  it('splits a large selection into bounded requests while preserving one logical job and global queue metadata', async () => {
     const workflow = createUploadWorkflow();
     const files = Array.from({ length: maxFilesPerMultipartUpload * 2 + 1 }, (_, index) => uploadFile(index));
     workflow.select(files);
@@ -59,6 +59,9 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
       queueTimeMs: number[];
       queueFirstTimeMs?: number;
       queueLastTimeMs?: number;
+      operationID?: string;
+      segmentIndex?: number;
+      segmentCount?: number;
     }> = [];
 
     await workflow.submit(async (variables) => {
@@ -68,25 +71,54 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
         queueTotal: [...(variables.queueTotal ?? [])],
         queueTimeMs: [...(variables.queueTimeMs ?? [])],
         queueFirstTimeMs: variables.queueFirstTimeMs,
-        queueLastTimeMs: variables.queueLastTimeMs
+        queueLastTimeMs: variables.queueLastTimeMs,
+        operationID: variables.operationID,
+        segmentIndex: variables.segmentIndex,
+        segmentCount: variables.segmentCount
       });
-      return pendingJob(`job-${calls.length}`, variables.files.length);
+      return pendingJob('job-logical', 3);
     });
 
     expect(calls.map((call) => call.names.length)).toEqual([1000, 1000, 1]);
     expect(calls[0]?.queueIndex).toEqual(Array.from({ length: 1000 }, (_, index) => index));
     expect(calls[1]?.queueIndex).toEqual(Array.from({ length: 1000 }, (_, index) => index + 1000));
     expect(calls[2]?.queueIndex).toEqual([2000]);
+    expect(calls.map((call) => call.segmentIndex)).toEqual([0, 1, 2]);
+    expect(calls.map((call) => call.segmentCount)).toEqual([3, 3, 3]);
+    expect(calls.map((call) => call.operationID)).toEqual([undefined, 'job-logical', 'job-logical']);
     for (const call of calls) {
       expect(call.queueTotal).toEqual(Array.from({ length: call.names.length }, () => 2001));
       expect(call.queueTimeMs).toHaveLength(call.names.length);
       expect(call.queueFirstTimeMs).toBe(call.queueLastTimeMs);
     }
-    expect(workflow.activeJobIDs).toEqual(['job-1', 'job-2', 'job-3']);
+    expect(workflow.activeJobIDs).toEqual(['job-logical']);
     expect(workflow.items.map((item) => item.status)).toEqual(Array.from({ length: 2001 }, () => 'queued'));
   });
 
-  it('cancels admitted chunks and stops submitting later chunks', async () => {
+  it('keeps one visible job whether a selection uses one request or several', async () => {
+    const small = createUploadWorkflow();
+    small.select(Array.from({ length: 10 }, (_, index) => uploadFile(index)));
+    await small.submit(async (variables) => {
+      expect(variables.segmentCount).toBe(1);
+      expect(variables.segmentIndex).toBeUndefined();
+      expect(variables.operationID).toBeUndefined();
+      return pendingJob('small-job', 1);
+    });
+
+    const large = createUploadWorkflow();
+    large.select(Array.from({ length: maxFilesPerMultipartUpload + 1 }, (_, index) => uploadFile(index)));
+    let requests = 0;
+    await large.submit(async () => {
+      requests += 1;
+      return pendingJob('large-job', 2);
+    });
+
+    expect(requests).toBe(2);
+    expect(small.activeJobIDs).toEqual(['small-job']);
+    expect(large.activeJobIDs).toEqual(['large-job']);
+  });
+
+  it('cancels the admitted logical job and stops submitting later segments', async () => {
     const workflow = createUploadWorkflow();
     workflow.select(Array.from({ length: maxFilesPerMultipartUpload * 2 + 1 }, (_, index) => uploadFile(index)));
     let callCount = 0;
@@ -95,7 +127,14 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
 
     const submission = workflow.submit(async (variables) => {
       callCount += 1;
-      if (callCount === 1) return pendingJob('job-first', variables.files.length);
+      if (callCount === 1) {
+        expect(variables.operationID).toBeUndefined();
+        expect(variables.segmentIndex).toBe(0);
+        expect(variables.segmentCount).toBe(3);
+        return pendingJob('job-first', 3);
+      }
+      expect(variables.operationID).toBe('job-first');
+      expect(variables.segmentIndex).toBe(1);
       resolveSecondStarted();
       return new Promise<BackgroundOperation>((_resolve, reject) => {
         const rejectCanceled = () => reject(new ApiError(0, 'request_aborted', 'Upload was canceled'));
@@ -108,7 +147,7 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
     const canceled: string[] = [];
     const cancellation = workflow.cancel(async (id) => {
       canceled.push(id);
-      return { ...pendingJob(id, 1000), status: 'canceled' } as Job;
+      return { ...pendingJob(id, 3), status: 'canceled' } as Job;
     });
 
     await Promise.all([submission, cancellation]);

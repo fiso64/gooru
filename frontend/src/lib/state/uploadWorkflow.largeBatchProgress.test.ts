@@ -41,7 +41,7 @@ function pendingJob(id: string, total: number): Job & BackgroundOperation {
 describe('large upload transport progress', () => {
   beforeEach(() => untrackSpy.mockClear());
 
-  it('mutates only rows whose displayed progress changes and ignores duplicate aggregate events per bounded chunk', async () => {
+  it('mutates only rows whose displayed progress changes and ignores duplicate aggregate events per bounded segment', async () => {
     const workflow = createUploadWorkflow();
     workflow.select(Array.from({ length: 10_000 }, (_, index) => uploadFile(index)));
     let callIndex = 0;
@@ -49,6 +49,9 @@ describe('large upload transport progress', () => {
     await workflow.submit(async (variables) => {
       callIndex += 1;
       expect(variables.files).toHaveLength(maxFilesPerMultipartUpload);
+      expect(variables.segmentCount).toBe(10);
+      expect(variables.segmentIndex).toBe(callIndex - 1);
+      expect(variables.operationID).toBe(callIndex === 1 ? undefined : 'job-large');
       const assignSpy = vi.spyOn(Object, 'assign');
       try {
         assignSpy.mockClear();
@@ -63,11 +66,11 @@ describe('large upload transport progress', () => {
       } finally {
         assignSpy.mockRestore();
       }
-      return pendingJob(`job-large-${callIndex}`, variables.files.length);
+      return pendingJob('job-large', 10);
     });
 
     expect(callIndex).toBe(10);
-    expect(workflow.activeJobIDs).toEqual(Array.from({ length: 10 }, (_, index) => `job-large-${index + 1}`));
+    expect(workflow.activeJobIDs).toEqual(['job-large']);
     expect(workflow.items).toHaveLength(10_000);
     expect(workflow.items.every((item) => item.status === 'queued')).toBe(true);
   });

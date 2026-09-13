@@ -266,9 +266,9 @@ func encodeBackgroundTaskCleanup(cleanup *BackgroundTaskCleanup) (string, error)
 	return string(encoded), nil
 }
 
-// GetBackgroundTaskForOperation returns the first durable child task for one
-// logical operation. Upload-import operations deliberately own one child; callers
-// that need arbitrary task history should use a separate bounded list API.
+// GetBackgroundTaskForOperation returns the earliest durable child task for one
+// logical operation. Callers that need arbitrary task history should use a separate
+// bounded list API rather than treating this representative child as exhaustive.
 func (s *Store) GetBackgroundTaskForOperation(operationID string) (BackgroundTask, bool, error) {
 	if operationID == "" {
 		return BackgroundTask{}, false, errors.New("background operation id is required")
