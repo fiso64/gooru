@@ -20,6 +20,8 @@ jobs:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
+      - name: Upload worker recovery tests
+        run: go test -count=1 -run TestRunBackgroundUploadTask ./internal/serve
       - name: Focused tests
         run: go test -count=1 ./internal/database ./gooru ./internal/serve
       - name: Build
