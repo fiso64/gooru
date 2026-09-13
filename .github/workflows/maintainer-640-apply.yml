@@ -1,0 +1,50 @@
+name: Maintainer 640 apply
+
+on:
+  push:
+    branches:
+      - maintainer/640-tag-lookup-fail-closed
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply focused fail-closed tag lookup fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          start_marker = 'func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (map[string]int64, error) {\n'
+          insert_marker = '\t// 2. Insert any tags that weren\'t found\n'
+          start = text.index(start_marker) + len(start_marker)
+          insert = text.index(insert_marker, start)
+          old = text[start:insert]
+          expected_prefix = '\ttagIDMap := make(map[string]int64)\n\n\t// 1. First, try to fetch all existing tags in one query\n'
+          if not old.startswith(expected_prefix):
+              raise SystemExit('BatchGetOrCreateTags existing lookup did not match expected state')
+          new = '\ttagIDMap, err := s.BatchGetTags(q, parsedTags)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n'
+          path.write_text(text[:start] + new + text[insert:])
+          PY
+          gofmt -w internal/database/database.go
+      - name: Validate
+        run: go test -count=1 ./...
+      - name: Commit cleaned implementation
+        shell: bash
+        run: |
+          rm .github/workflows/maintainer-640-apply.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add internal/database/database.go .github/workflows/maintainer-640-apply.yml
+          git commit -m "Fail closed on existing tag lookup errors"
+          git push origin HEAD:maintainer/640-tag-lookup-fail-closed
