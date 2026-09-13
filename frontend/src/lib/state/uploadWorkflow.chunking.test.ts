@@ -48,6 +48,19 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
     expect(multipartUploadChunkSize('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15')).toBe(maxFilesPerMultipartUpload);
   });
 
+  it('allows forced chunk size override via window.__gooruUploadChunkSize', () => {
+    const globalObj = globalThis as unknown as { __gooruUploadChunkSize?: number };
+    const previous = globalObj.__gooruUploadChunkSize;
+    try {
+      globalObj.__gooruUploadChunkSize = 4;
+      expect(multipartUploadChunkSize('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36')).toBe(4);
+      expect(multipartUploadChunkSize('Mozilla/5.0 (X11; Linux x86_64; rv:154.0) Gecko/20100101 Firefox/154.0')).toBe(4);
+    } finally {
+      if (previous === undefined) delete globalObj.__gooruUploadChunkSize;
+      else globalObj.__gooruUploadChunkSize = previous;
+    }
+  });
+
   it('splits a large selection into bounded requests while preserving one logical job and global queue metadata', async () => {
     const workflow = createUploadWorkflow();
     const files = Array.from({ length: maxFilesPerMultipartUpload * 2 + 1 }, (_, index) => uploadFile(index));
