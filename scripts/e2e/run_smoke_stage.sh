@@ -31,13 +31,13 @@ if [[ "$retain_logs" == "true" ]]; then
   playwright_output="$artifact_dir/playwright"
   logs_label="retained"
 else
-  daemon_log="/dev/null"
+  daemon_log="$run_dir/daemon.log"
   playwright_output="$run_dir/playwright"
   logs_label="not retained"
 fi
 
-printf 'run_id=%s\nrun_attempt=%s\ncommit=%s\nrunner=%s\nfile_count=%s\nlogs=%s\n' \
-  "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" "$RUNNER_NAME" "$count" "$logs_label" \
+printf 'run_id=%s\nrun_attempt=%s\ncommit=%s\nrunner=%s\nfile_count=%s\nretain_logs=%s\n' \
+  "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" "$RUNNER_NAME" "$count" "$retain_logs" \
   > "$artifact_dir/run.txt"
 
 cat > "$config" <<EOF
@@ -118,6 +118,22 @@ else
       ) || stage_status=$?
     fi
   fi
+fi
+
+if (( stage_status != 0 )) && [[ "$retain_logs" != "true" ]]; then
+  if [[ -f "$daemon_log" ]]; then
+    cp "$daemon_log" "$artifact_dir/daemon.log"
+  fi
+  if [[ -d "$playwright_output" ]]; then
+    cp -a "$playwright_output" "$artifact_dir/playwright"
+  fi
+  logs_label="retained after failure"
+fi
+
+if (( stage_status != 0 )) && [[ -s "$daemon_log" ]]; then
+  echo "::group::Daemon log tail ($count-file smoke stage)"
+  tail -n 200 "$daemon_log"
+  echo "::endgroup::"
 fi
 
 upload_ms="not-completed"
