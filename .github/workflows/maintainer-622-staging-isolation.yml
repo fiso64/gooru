@@ -1,4 +1,4 @@
-name: Maintainer 622 staging isolation
+name: Maintainer 622 staging cleanup
 
 on:
   push:
@@ -18,116 +18,74 @@ jobs:
         with:
           ref: maintainer/622-logical-upload-session
           fetch-depth: 0
-      - name: Apply staging cleanup fix and regressions
+      - name: Adapt staging path test helper
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          source = Path('internal/serve/uploads_durable.go')
-          text = source.read_text()
-          old_import = '''\t"net/http"\n\t"os"\n\t"strconv"\n'''
-          new_import = '''\t"net/http"\n\t"os"\n\t"path/filepath"\n\t"strconv"\n'''
-          assert text.count(old_import) == 1, 'unexpected uploads_durable.go import shape'
-          text = text.replace(old_import, new_import, 1)
-          old_cleanup = '''func removeCanceledSavedUploads(files []savedUpload) error {\n\tfailures := 0\n\tfor _, file := range files {\n\t\tif file.status == "skipped" || file.status == "error" {\n\t\t\tcontinue\n\t\t}\n\t\tif err := os.Remove(file.path); err != nil && !errors.Is(err, os.ErrNotExist) {\n\t\t\tfailures++\n\t\t}\n\t}\n\tif failures > 0 {\n\t\treturn fmt.Errorf("remove %d canceled staged upload files", failures)\n\t}\n\treturn nil\n}\n'''
-          new_cleanup = '''func removeCanceledSavedUploads(files []savedUpload) error {\n\tfailures := 0\n\tfor _, file := range files {\n\t\tif file.status == "skipped" || file.status == "error" {\n\t\t\tcontinue\n\t\t}\n\t\tif err := os.Remove(file.path); err != nil && !errors.Is(err, os.ErrNotExist) {\n\t\t\tfailures++\n\t\t}\n\t}\n\tif failures > 0 {\n\t\treturn fmt.Errorf("remove %d canceled staged upload files", failures)\n\t}\n\tif err := cleanupDurableUploadStagingDirs(files); err != nil {\n\t\treturn fmt.Errorf("prune canceled staged upload directories: %w", err)\n\t}\n\treturn nil\n}\n\nfunc cleanupDurableUploadStagingDirs(files []savedUpload) error {\n\tfor _, file := range files {\n\t\tif file.status == "skipped" || file.status == "error" || file.path == "" {\n\t\t\tcontinue\n\t\t}\n\n\t\tfileDir := filepath.Clean(filepath.Dir(file.path))\n\t\toperationDir := fileDir\n\t\tif strings.HasPrefix(filepath.Base(fileDir), "request-") {\n\t\t\toperationDir = filepath.Dir(fileDir)\n\t\t}\n\t\tif !validDurableUploadOperationID(filepath.Base(operationDir)) {\n\t\t\tcontinue\n\t\t}\n\t\tstagingRoot := filepath.Dir(operationDir)\n\t\tif filepath.Base(stagingRoot) != durableUploadStagingRootName {\n\t\t\tcontinue\n\t\t}\n\n\t\tif filepath.Clean(fileDir) != filepath.Clean(operationDir) {\n\t\t\tif err := removeEmptyDurableUploadStagingDir(fileDir); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\tif err := removeEmptyDurableUploadStagingDir(operationDir); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif err := removeEmptyDurableUploadStagingDir(stagingRoot); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturn nil\n}\n\nfunc removeEmptyDurableUploadStagingDir(path string) error {\n\tentries, err := os.ReadDir(path)\n\tif errors.Is(err, os.ErrNotExist) {\n\t\treturn nil\n\t}\n\tif err != nil {\n\t\treturn err\n\t}\n\tif len(entries) != 0 {\n\t\treturn nil\n\t}\n\tif err := os.Remove(path); err != nil {\n\t\tif errors.Is(err, os.ErrNotExist) {\n\t\t\treturn nil\n\t\t}\n\t\tentries, readErr := os.ReadDir(path)\n\t\tif readErr == nil && len(entries) != 0 {\n\t\t\treturn nil\n\t\t}\n\t\treturn err\n\t}\n\treturn nil\n}\n'''
-          assert text.count(old_cleanup) == 1, 'unexpected removeCanceledSavedUploads shape'
-          source.write_text(text.replace(old_cleanup, new_cleanup, 1))
-
-          tests = Path('internal/serve/uploads_durable_test.go')
-          text = tests.read_text()
-          old_helper = '''func singleDurableStagedPath(t *testing.T, stagingDir string) string {\n\tt.Helper()\n\tentries, err := os.ReadDir(stagingDir)\n\tif err != nil {\n\t\tt.Fatalf("read durable staging directory: %v", err)\n\t}\n\tfiles := make([]os.DirEntry, 0, len(entries))\n\tfor _, entry := range entries {\n\t\tif !entry.IsDir() {\n\t\t\tfiles = append(files, entry)\n\t\t}\n\t}\n\tif len(files) != 1 {\n\t\tt.Fatalf("durable staging files = %d, want 1", len(files))\n\t}\n\treturn filepath.Join(stagingDir, files[0].Name())\n}\n'''
-          new_helper = '''func singleDurableStagedPath(t *testing.T, stagingDir string) string {\n\tt.Helper()\n\tfiles := make([]string, 0, 1)\n\terr := filepath.WalkDir(stagingDir, func(path string, entry os.DirEntry, err error) error {\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif !entry.IsDir() {\n\t\t\tfiles = append(files, path)\n\t\t}\n\t\treturn nil\n\t})\n\tif err != nil {\n\t\tt.Fatalf("walk durable staging directory: %v", err)\n\t}\n\tif len(files) != 1 {\n\t\tt.Fatalf("durable staging files = %d, want 1", len(files))\n\t}\n\treturn files[0]\n}\n'''
-          assert text.count(old_helper) == 1, 'unexpected singleDurableStagedPath helper shape'
-          text = text.replace(old_helper, new_helper, 1)
-          regression = r'''
-
-func TestRemoveCanceledSavedUploadsPrunesOnlyEmptyRecognizedStagingDirs(t *testing.T) {
-	root := t.TempDir()
-	stagingRoot := filepath.Join(root, durableUploadStagingRootName)
-	operationDir := filepath.Join(stagingRoot, "operation-prune-test")
-	firstRequestDir := filepath.Join(operationDir, "request-first")
-	secondRequestDir := filepath.Join(operationDir, "request-second")
-	if err := os.MkdirAll(firstRequestDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(secondRequestDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	firstPath := filepath.Join(firstRequestDir, "first.jpg")
-	secondPath := filepath.Join(secondRequestDir, "second.jpg")
-	if err := os.WriteFile(firstPath, []byte("first"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(secondPath, []byte("second"), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := removeCanceledSavedUploads([]savedUpload{{path: firstPath}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(firstRequestDir); !os.IsNotExist(err) {
-		t.Fatalf("empty request staging dir should be pruned: %v", err)
-	}
-	if got := string(mustReadFile(t, secondPath)); got != "second" {
-		t.Fatalf("sibling staged content = %q, want second", got)
-	}
-	if _, err := os.Stat(operationDir); err != nil {
-		t.Fatalf("operation staging dir with sibling request should remain: %v", err)
-	}
-
-	if err := removeCanceledSavedUploads([]savedUpload{{path: secondPath}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(stagingRoot); !os.IsNotExist(err) {
-		t.Fatalf("empty staging hierarchy should be pruned: %v", err)
-	}
-}
-
-func TestRemoveCanceledSavedUploadsPrunesLegacyOperationStaging(t *testing.T) {
-	root := t.TempDir()
-	stagingRoot := filepath.Join(root, durableUploadStagingRootName)
-	operationDir := filepath.Join(stagingRoot, "operation-legacy-test")
-	if err := os.MkdirAll(operationDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	legacyPath := filepath.Join(operationDir, "legacy.jpg")
-	if err := os.WriteFile(legacyPath, []byte("legacy"), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := removeCanceledSavedUploads([]savedUpload{{path: legacyPath}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(stagingRoot); !os.IsNotExist(err) {
-		t.Fatalf("legacy staging hierarchy should be pruned: %v", err)
-	}
-}
-'''
-          marker = 'func TestRemoveCanceledSavedUploadsPrunesOnlyEmptyRecognizedStagingDirs'
-          assert marker not in text, 'staging cleanup regression already exists'
-          tests.write_text(text.rstrip() + regression + '\n')
+          path = Path('internal/serve/uploads_durable_test.go')
+          text = path.read_text()
+          old = '''func singleDurableStagedPath(t *testing.T, stagingDir string) string {
+          \tt.Helper()
+          \tentries, err := os.ReadDir(stagingDir)
+          \tif err != nil {
+          \t\tt.Fatalf("read durable staging directory: %v", err)
+          \t}
+          \tfiles := make([]os.DirEntry, 0, len(entries))
+          \tfor _, entry := range entries {
+          \t\tif !entry.IsDir() {
+          \t\t\tfiles = append(files, entry)
+          \t\t}
+          \t}
+          \tif len(files) != 1 {
+          \t\tt.Fatalf("durable staging files = %d, want 1", len(files))
+          \t}
+          \treturn filepath.Join(stagingDir, files[0].Name())
+          }
+          '''
+          new = '''func singleDurableStagedPath(t *testing.T, stagingDir string) string {
+          \tt.Helper()
+          \tfiles := make([]string, 0, 1)
+          \terr := filepath.WalkDir(stagingDir, func(path string, entry os.DirEntry, err error) error {
+          \t\tif err != nil {
+          \t\t\treturn err
+          \t\t}
+          \t\tif !entry.IsDir() {
+          \t\t\tfiles = append(files, path)
+          \t\t}
+          \t\treturn nil
+          \t})
+          \tif err != nil {
+          \t\tt.Fatalf("walk durable staging directory: %v", err)
+          \t}
+          \tif len(files) != 1 {
+          \t\tt.Fatalf("durable staging files = %d, want 1", len(files))
+          \t}
+          \treturn files[0]
+          }
+          '''
+          assert text.count(old) == 1, 'unexpected singleDurableStagedPath helper shape'
+          path.write_text(text.replace(old, new, 1))
           PY
-          gofmt -w internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go
-      - name: Check diff
+          gofmt -w internal/serve/uploads_durable_test.go
+      - name: Check staging cleanup diff
         shell: bash
         run: |
           set -euo pipefail
           git diff --check
-          test -z "$(gofmt -l internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go internal/serve/upload_durable_staging.go internal/serve/upload_durable_staging_test.go)"
+          test -z "$(gofmt -l internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go internal/serve/uploads_durable_staging_cleanup_test.go internal/serve/upload_durable_staging.go internal/serve/upload_durable_staging_test.go)"
       - name: Test durable staging and cancellation
         run: go test ./internal/serve -run '^(TestStageDurableMultipartUpload|TestActivateDurableUploadDestination|TestChooseDurableUploadDestination|TestDurableStagedUploads|TestDurableUploadAsync|TestRemoveCanceledSavedUploads)' -count=1
       - name: Test serve package
         run: go test ./internal/serve -count=1
-      - name: Commit validated cleanup and remove workflow
+      - name: Persist helper and remove workflow
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "fiso64"
           git config user.email "64778819+fiso64@users.noreply.github.com"
           git rm .github/workflows/maintainer-622-staging-isolation.yml
-          git add internal/serve/uploads_durable.go internal/serve/uploads_durable_test.go
-          git commit -m "fix: prune canceled upload staging directories"
+          git add internal/serve/uploads_durable_test.go
+          git commit -m "test: support isolated upload staging paths"
           git push origin HEAD:maintainer/622-logical-upload-session
