@@ -17,6 +17,24 @@ describe('jobAffectedCount', () => {
     expect(jobAffectedCount(job({ progress_total: 1, result: { affected_count: 17 } }))).toBe(17);
   });
 
+  it('derives completed upload counts from imported file results', () => {
+    expect(
+      jobAffectedCount(
+        job({
+          type: 'upload_import',
+          result: {
+            affected_count: 0,
+            files: [
+              { name: 'one.jpg', status: 'imported' },
+              { name: 'two.jpg', status: 'duplicate_existing' },
+              { name: 'three.jpg', status: 'imported' }
+            ]
+          }
+        })
+      )
+    ).toBe(2);
+  });
+
   it('does not present generic durable task cardinality as files', () => {
     expect(jobAffectedCount(job({ progress_total: 1 }))).toBeUndefined();
   });
