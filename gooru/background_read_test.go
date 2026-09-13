@@ -53,6 +53,34 @@ func TestBackgroundOperationReadExposesLifecycleState(t *testing.T) {
 	}
 }
 
+func TestBackgroundTaskReadByStableID(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	operation, tasks, err := client.CreateBackgroundOperationWithTasks(
+		BackgroundOperationRequest{Kind: "upload_import", Visible: true, ProgressTotal: 1},
+		[]BackgroundTaskRequest{{Kind: "upload.import", SubjectKind: "operation", SubjectID: "logical-upload", InputKey: "segment-0"}},
+	)
+	if err != nil {
+		t.Fatalf("create operation with task: %v", err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("created tasks = %d, want 1", len(tasks))
+	}
+
+	state, found, err := client.GetBackgroundTask(tasks[0].ID)
+	if err != nil || !found {
+		t.Fatalf("get task %q: found=%t err=%v", tasks[0].ID, found, err)
+	}
+	if state.ID != tasks[0].ID || state.OperationID != operation.ID || state.Kind != "upload.import" || state.SubjectID != "logical-upload" || state.InputKey != "segment-0" || state.Status != BackgroundWorkPending {
+		t.Fatalf("unexpected task state: %+v", state)
+	}
+	if _, found, err := client.GetBackgroundTask("task-missing"); err != nil || found {
+		t.Fatalf("missing task: found=%t err=%v", found, err)
+	}
+	if _, found, err := client.GetBackgroundTask(""); err != nil || found {
+		t.Fatalf("empty task id: found=%t err=%v", found, err)
+	}
+}
+
 func TestListBackgroundOperationsFiltersHiddenAndOrdersNewestFirst(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 	visibleOld, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "visible-old", Visible: true})
