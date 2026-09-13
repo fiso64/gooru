@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ const (
 	backgroundUploadWaitInitialPollInterval = 25 * time.Millisecond
 	backgroundUploadWaitMaximumPollInterval = 250 * time.Millisecond
 	uploadReservationHeader                 = "X-Gooru-Upload-Reserve"
+	uploadSegmentCountHeader                = "X-Gooru-Upload-Segment-Count"
 	uploadOperationHeader                   = "X-Gooru-Upload-Operation-ID"
 )
 
@@ -101,7 +103,12 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.EqualFold(strings.TrimSpace(r.Header.Get(uploadReservationHeader)), "true") {
-		s.reserveDurableUpload(w, operations)
+		segmentCount, err := durableUploadReservationSegmentCount(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
+			return
+		}
+		s.reserveDurableUpload(w, operations, segmentCount)
 		return
 	}
 
@@ -198,8 +205,27 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Server) reserveDurableUpload(w http.ResponseWriter, operations durableUploadOperationStore) {
-	operation, err := operations.CreateBackgroundOperation(core.BackgroundOperationRequest{Kind: backgroundUploadImportOperationKind, Visible: false, ProgressTotal: 1})
+func durableUploadReservationSegmentCount(r *http.Request) (int64, error) {
+	values := r.Header.Values(uploadSegmentCountHeader)
+	if len(values) == 0 {
+		return 1, nil
+	}
+	if len(values) != 1 {
+		return 0, errors.New("upload segment count must be one positive integer")
+	}
+	value := strings.TrimSpace(values[0])
+	if value == "" {
+		return 0, errors.New("upload segment count must be a positive integer")
+	}
+	segmentCount, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || segmentCount <= 0 {
+		return 0, errors.New("upload segment count must be a positive integer")
+	}
+	return segmentCount, nil
+}
+
+func (s *Server) reserveDurableUpload(w http.ResponseWriter, operations durableUploadOperationStore, segmentCount int64) {
+	operation, err := operations.CreateBackgroundOperation(core.BackgroundOperationRequest{Kind: backgroundUploadImportOperationKind, Visible: false, ProgressTotal: segmentCount})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to reserve upload", nil)
 		return
