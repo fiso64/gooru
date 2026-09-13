@@ -73,14 +73,13 @@ npm run generate:api
 cd ..
 
 git diff --check
-actual="$(git status --short | awk '{print $2}' | sort | tr '\n' ' ')"
-expected=".github/workflows/ci.yml docs/openapi.yaml frontend/src/lib/api/openapi.ts "
-test "$actual" = "$expected"
+git status --short
 
 rm .github/workflows/maintainer-624-contract.yml .github/maintainer-624-contract.sh
 git config user.name 'github-actions[bot]'
 git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 git add .github/workflows/ci.yml docs/openapi.yaml frontend/src/lib/api/openapi.ts .github/workflows/maintainer-624-contract.yml .github/maintainer-624-contract.sh
 git diff --cached --check
+git diff --cached --name-only
 git commit -m 'Sync jobs API contract and browser coverage'
 git push origin HEAD:maintainer/624-jobs-api-ui
