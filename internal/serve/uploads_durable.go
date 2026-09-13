@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -397,6 +398,67 @@ func removeCanceledSavedUploads(files []savedUpload) error {
 	}
 	if failures > 0 {
 		return fmt.Errorf("remove %d canceled staged upload files", failures)
+	}
+	if err := cleanupDurableUploadStagingDirs(files); err != nil {
+		return fmt.Errorf("prune canceled staged upload directories: %w", err)
+	}
+	return nil
+}
+
+func cleanupDurableUploadStagingDirs(files []savedUpload) error {
+	for _, file := range files {
+		if file.status == "skipped" || file.status == "error" || file.path == "" {
+			continue
+		}
+
+		fileDir := filepath.Clean(filepath.Dir(file.path))
+		operationDir := fileDir
+		if strings.HasPrefix(filepath.Base(fileDir), "request-") {
+			operationDir = filepath.Dir(fileDir)
+		}
+		if !validDurableUploadOperationID(filepath.Base(operationDir)) {
+			continue
+		}
+		stagingRoot := filepath.Dir(operationDir)
+		if filepath.Base(stagingRoot) != durableUploadStagingRootName {
+			continue
+		}
+
+		if filepath.Clean(fileDir) != filepath.Clean(operationDir) {
+			if err := removeEmptyDurableUploadStagingDir(fileDir); err != nil {
+				return err
+			}
+		}
+		if err := removeEmptyDurableUploadStagingDir(operationDir); err != nil {
+			return err
+		}
+		if err := removeEmptyDurableUploadStagingDir(stagingRoot); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func removeEmptyDurableUploadStagingDir(path string) error {
+	entries, err := os.ReadDir(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(entries) != 0 {
+		return nil
+	}
+	if err := os.Remove(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		entries, readErr := os.ReadDir(path)
+		if readErr == nil && len(entries) != 0 {
+			return nil
+		}
+		return err
 	}
 	return nil
 }
