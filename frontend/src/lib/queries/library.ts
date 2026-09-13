@@ -1,5 +1,6 @@
 import { createMutation, createQuery } from '@tanstack/svelte-query';
 import { ApiClient } from '$lib/api/client';
+import { uploadSegmentedFiles } from '$lib/api/segmentedUploads';
 import type { SavedSearch, SavedSearchRequest, UploadImportResponse } from '$lib/api/types';
 import type { BackgroundOperation } from '$lib/api/operations';
 import type { UploadAddedAtStrategy } from '$lib/state/uploadItems';
@@ -99,14 +100,36 @@ export interface UploadVariables {
   queueLastTimeMs: number;
   queueIndex: number[];
   queueTotal: number[];
+  operationID?: string;
+  segmentIndex?: number;
+  segmentCount?: number;
   onProgress?: (progress: number) => void;
   signal?: AbortSignal;
 }
 
 export function createUploadMutation(getCSRFToken: () => string) {
   return createMutation<BackgroundOperation | UploadImportResponse, Error, UploadVariables>(() => ({
-    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, onProgress, signal }) =>
-      new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress, {
+    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, operationID, segmentIndex, segmentCount, onProgress, signal }) => {
+      if (preferAsync && segmentCount !== undefined && segmentCount > 1 && segmentIndex !== undefined) {
+        return uploadSegmentedFiles(getCSRFToken(), {
+          files,
+          tags,
+          targetID,
+          conflictPolicy,
+          addedAtStrategy,
+          queueTimeMs,
+          queueFirstTimeMs,
+          queueLastTimeMs,
+          queueIndex,
+          queueTotal,
+          operationID,
+          segmentIndex,
+          segmentCount,
+          onProgress,
+          signal
+        });
+      }
+      return new ApiClient(getCSRFToken()).uploadFiles(files, tags, preferAsync, targetID, conflictPolicy, onProgress, {
         addedAtStrategy,
         queueTimeMs,
         queueFirstTimeMs,
@@ -114,7 +137,8 @@ export function createUploadMutation(getCSRFToken: () => string) {
         queueIndex,
         queueTotal,
         signal
-      })
+      });
+    }
   }));
 }
 
