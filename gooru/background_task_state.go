@@ -10,7 +10,11 @@ func (c *Client) SetBackgroundTaskCheckpoint(taskID string, checkpoint any) erro
 	if err != nil {
 		return err
 	}
-	return c.store.SetBackgroundTaskCheckpoint(taskID, encoded)
+	if err := c.store.SetBackgroundTaskCheckpoint(taskID, encoded); err != nil {
+		return err
+	}
+	c.notifyBackgroundOperationChange()
+	return nil
 }
 
 // GetBackgroundTaskCheckpoint loads producer-owned restart-recovery state for a
@@ -33,7 +37,11 @@ func (c *Client) SetBackgroundTaskResult(taskID string, result any) error {
 	if err != nil {
 		return err
 	}
-	return c.store.SetBackgroundTaskResult(taskID, encoded)
+	if err := c.store.SetBackgroundTaskResult(taskID, encoded); err != nil {
+		return err
+	}
+	c.notifyBackgroundOperationChange()
+	return nil
 }
 
 // GetBackgroundTaskResult loads a completed task's structured result.
