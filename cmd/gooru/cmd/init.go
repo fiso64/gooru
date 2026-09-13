@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -74,6 +75,10 @@ strategy for the new database. This choice is permanent and cannot be changed la
 			}
 		}
 
+		if err := ensureDatabaseParent(dbPath); err != nil {
+			return fmt.Errorf("failed to create database directory: %w", err)
+		}
+
 		fmt.Printf("\nInitializing new database at %s with '%s' hashing...\n", dbPath, strategy)
 		err = gooru.Init(dbPath, strategy, verbose)
 		if err != nil {
@@ -83,6 +88,10 @@ strategy for the new database. This choice is permanent and cannot be changed la
 		fmt.Println("Database initialized successfully.")
 		return nil
 	},
+}
+
+func ensureDatabaseParent(dbPath string) error {
+	return os.MkdirAll(filepath.Dir(dbPath), 0700)
 }
 
 func init() {
