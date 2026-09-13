@@ -93,16 +93,17 @@ func (GoImageThumbnailer) ThumbnailSourceQuality(name string, src io.ReadSeeker,
 }
 
 type MediaService struct {
-	cfg                 Config
-	thumbnailer         Thumbnailer
-	thumbnailGeneration thumbnailGenerationPolicy
-	sourceResolver      *filesource.Resolver
-	sourceResolverErr   error
-	derivatives         derivativeStore
-	derivativeStoreErr  error
-	comicMu             sync.Mutex
-	comicCache          map[string]*cachedComicArchive
-	comicTick           uint64
+	cfg                        Config
+	thumbnailer                Thumbnailer
+	thumbnailGeneration        thumbnailGenerationPolicy
+	thumbnailQualityGeneration thumbnailQualityGenerationPolicy
+	sourceResolver             *filesource.Resolver
+	sourceResolverErr          error
+	derivatives                derivativeStore
+	derivativeStoreErr         error
+	comicMu                    sync.Mutex
+	comicCache                 map[string]*cachedComicArchive
+	comicTick                  uint64
 }
 
 func NewMediaService(cfg Config) *MediaService {
@@ -255,19 +256,10 @@ func (m *MediaService) writeThumbnailGenerationError(w http.ResponseWriter, err 
 func (m *MediaService) generateDerivative(file types.FileInfo, dst io.Writer, size int, format string, kind string) error {
 	if kind == "preview" && format == "jpeg" && m.cfg.Media.PreviewJPEGQuality != derivativeJPEGQuality {
 		mediaKind := mediaKindForType(mediaTypeForPath(file.Path))
-		if mediaKind == "photo" || mediaKind == "gif" {
-			if m.cfg.Encryption.Enabled {
-				sourceThumbnailer, ok := m.thumbnailer.(SourceQualityThumbnailer)
-				if ok {
-					source, err := m.openMediaSource(fileStoragePath(file))
-					if err != nil {
-						return err
-					}
-					defer source.Close()
-					return sourceThumbnailer.ThumbnailSourceQuality(file.Path, source, dst, size, format, m.cfg.Media.PreviewJPEGQuality)
-				}
-			} else if qualityThumbnailer, ok := m.thumbnailer.(QualityThumbnailer); ok {
-				return qualityThumbnailer.ThumbnailQuality(file.Path, dst, size, format, m.cfg.Media.PreviewJPEGQuality)
+		if (mediaKind == "photo" || mediaKind == "gif") && m.thumbnailQualityGeneration != nil {
+			handled, err := m.thumbnailQualityGeneration(m, file, dst, size, format, m.cfg.Media.PreviewJPEGQuality)
+			if handled {
+				return err
 			}
 		}
 	}
