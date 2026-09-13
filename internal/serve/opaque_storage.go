@@ -78,11 +78,39 @@ func protectedManagedStoragePathForRoot(root, opaqueName string) (string, error)
 	if _, err := hex.DecodeString(opaqueName); err != nil {
 		return "", fmt.Errorf("invalid opaque managed storage name")
 	}
-	shardDir := filepath.Join(filepath.Clean(root), protectedManagedNamespace, opaqueName[:2])
+	rootAbs, err := filepath.Abs(strings.TrimSpace(root))
+	if err != nil {
+		return "", fmt.Errorf("resolve managed upload target: %w", err)
+	}
+	rootAbs = filepath.Clean(rootAbs)
+	resolvedRoot, ok := resolvedContainmentPath(rootAbs)
+	if !ok {
+		return "", fmt.Errorf("cannot safely resolve managed upload target")
+	}
+	shardDir := filepath.Join(rootAbs, protectedManagedNamespace, opaqueName[:2])
+	if err := requireResolvedManagedContainment(resolvedRoot, shardDir); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(shardDir, 0o700); err != nil {
 		return "", fmt.Errorf("create protected managed storage shard: %w", err)
 	}
+	// Resolve again after creation so an existing namespace/shard symlink cannot
+	// silently redirect the directory creation outside the configured target.
+	if err := requireResolvedManagedContainment(resolvedRoot, shardDir); err != nil {
+		return "", err
+	}
 	return filepath.Join(shardDir, opaqueName), nil
+}
+
+func requireResolvedManagedContainment(resolvedRoot, path string) error {
+	resolvedPath, ok := resolvedContainmentPath(path)
+	if !ok {
+		return fmt.Errorf("cannot safely resolve protected managed storage path")
+	}
+	if !pathContainsOrEquals(resolvedRoot, resolvedPath) {
+		return fmt.Errorf("protected managed storage path escapes managed upload target")
+	}
+	return nil
 }
 
 // IsProtectedManagedStoragePath reports whether path has the exact reserved
@@ -93,6 +121,7 @@ func IsProtectedManagedStoragePath(targets []UploadTarget, path string) bool {
 		return false
 	}
 	pathAbs = filepath.Clean(pathAbs)
+	resolvedPath, pathResolved := resolvedContainmentPath(pathAbs)
 	for _, target := range targets {
 		if strings.TrimSpace(target.Path) == "" {
 			continue
@@ -110,7 +139,11 @@ func IsProtectedManagedStoragePath(targets []UploadTarget, path string) bool {
 		if len(parts) != 2 || len(parts[0]) != 2 || len(parts[1]) != opaqueManagedNameBytes*2 || parts[0] != parts[1][:2] {
 			continue
 		}
-		if _, err := hex.DecodeString(parts[1]); err == nil {
+		if _, err := hex.DecodeString(parts[1]); err != nil {
+			continue
+		}
+		resolvedRoot, rootResolved := resolvedContainmentPath(root)
+		if pathResolved && rootResolved && pathContainsOrEquals(resolvedRoot, resolvedPath) {
 			return true
 		}
 	}
@@ -208,6 +241,10 @@ func managedUploadTargetRoot(targets []UploadTarget, path string) (string, bool,
 		return "", false, fmt.Errorf("resolve logical managed upload path: %w", err)
 	}
 	pathAbs = filepath.Clean(pathAbs)
+	resolvedPath, ok := resolvedContainmentPath(pathAbs)
+	if !ok {
+		return "", false, fmt.Errorf("cannot safely resolve logical managed upload path")
+	}
 	best := ""
 	for _, target := range targets {
 		if strings.TrimSpace(target.Path) == "" {
@@ -218,8 +255,11 @@ func managedUploadTargetRoot(targets []UploadTarget, path string) (string, bool,
 			return "", false, fmt.Errorf("resolve managed upload target: %w", err)
 		}
 		root = filepath.Clean(root)
-		rel, err := filepath.Rel(root, pathAbs)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		resolvedRoot, ok := resolvedContainmentPath(root)
+		if !ok {
+			return "", false, fmt.Errorf("cannot safely resolve managed upload target")
+		}
+		if !pathContainsOrEquals(resolvedRoot, resolvedPath) {
 			continue
 		}
 		if len(root) > len(best) {
