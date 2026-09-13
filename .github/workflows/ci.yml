@@ -122,3 +122,11 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOORU_SMOKE_ARTIFACT_ROOT"
           bash scripts/e2e/run_smoke_stage.sh 100 true
+      - name: Upload chunk-size smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chunk-size-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/chunk-size-smoke/
+          if-no-files-found: warn
+          retention-days: 7
