@@ -5,5 +5,8 @@ func attachDatabaseBackgroundTaskToOperation(client *Client, operationID string,
 	if err != nil {
 		return BackgroundTask{}, false, err
 	}
+	if created {
+		client.notifyBackgroundOperationChange()
+	}
 	return backgroundTaskFromDatabase(task), created, nil
 }

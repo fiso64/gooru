@@ -1,8 +1,11 @@
 package gooru
 
-// ClearTerminalBackgroundOperations removes visible terminal operation history
-// and its attached terminal task history. Pending/running operations are never
-// cleared, and the database layer additionally refuses rows with active children.
+// ClearTerminalBackgroundOperations removes completed, failed, and canceled
+// operation history while leaving active durable work untouched.
 func (c *Client) ClearTerminalBackgroundOperations() (int64, error) {
-	return c.store.ClearTerminalBackgroundOperations()
+	cleared, err := c.store.ClearTerminalBackgroundOperations()
+	if err == nil && cleared > 0 {
+		c.notifyBackgroundOperationChange()
+	}
+	return cleared, err
 }

@@ -22,6 +22,7 @@ export interface BackgroundOperation {
 interface BackgroundOperationListResponse {
   items: BackgroundOperation[];
   active_count?: number;
+  total_count?: number;
 }
 
 export interface BackgroundOperationClearResponse {
@@ -50,8 +51,10 @@ async function operationRequest<T>(path: string, init?: RequestInit): Promise<T>
   return payload;
 }
 
-export function listBackgroundOperations(limit = 1000) {
-  const params = new URLSearchParams({ limit: String(limit) });
+export function listBackgroundOperations(limit = 1000, offset = 0) {
+  const normalizedLimit = Math.max(1, Math.min(1000, Math.trunc(limit)));
+  const normalizedOffset = Math.max(0, Math.trunc(offset));
+  const params = new URLSearchParams({ limit: String(normalizedLimit), offset: String(normalizedOffset) });
   return operationRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
 }
 

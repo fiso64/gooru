@@ -17,35 +17,33 @@
     onCancel: (job: Job) => void;
   }>();
 
+  const pageSize = 50;
   let pageIndex = $state(0);
-  let pageTokens = $state(['']);
-  const pageToken = $derived(pageTokens[pageIndex] ?? '');
+  const pageToken = $derived(pageIndex === 0 ? '' : String(pageIndex * pageSize));
   const pageQuery = createJobsQuery(
     () => Boolean($authState.user),
     () => authScope,
-    () => 50,
+    () => pageSize,
     () => pageToken
   );
-  const pageJobs = $derived(pageQuery.data?.items ?? jobs);
-  const hasNextPage = $derived(Boolean(pageQuery.data?.next_page_token));
-  const pageCount = $derived(Math.max(pageTokens.length, pageIndex + 1 + (hasNextPage ? 1 : 0)));
+  const pageJobs = $derived(pageQuery.data?.items ?? (pageIndex === 0 ? jobs : []));
+  // While a new page query is loading, preserve only the minimum count needed to
+  // keep the selected page valid. Reusing previous query data here could expose
+  // rows across an auth-scope change.
+  const totalCount = $derived(pageQuery.data?.total_count ?? Math.max(pageJobs.length, pageIndex * pageSize + 1));
+  const pageCount = $derived(Math.max(1, Math.ceil(totalCount / pageSize)));
+
+  $effect(() => {
+    if (pageIndex >= pageCount) pageIndex = Math.max(0, pageCount - 1);
+  });
 
   function selectPage(page: number) {
     const targetIndex = page - 1;
-    if (targetIndex < 0 || targetIndex === pageIndex || pageQuery.isFetching) return;
-    if (targetIndex < pageTokens.length) {
-      pageIndex = targetIndex;
-      return;
-    }
-    const next = pageQuery.data?.next_page_token;
-    if (targetIndex === pageIndex + 1 && next) {
-      pageTokens = [...pageTokens.slice(0, pageIndex + 1), next];
-      pageIndex = targetIndex;
-    }
+    if (targetIndex < 0 || targetIndex >= pageCount || targetIndex === pageIndex || pageQuery.isFetching) return;
+    pageIndex = targetIndex;
   }
 
   function resetPagination() {
-    pageTokens = [''];
     pageIndex = 0;
   }
 </script>
@@ -99,8 +97,8 @@
 
 <style>
   .jobs-page {
-    width: min(100%, 720px);
-    margin-inline: 0;
+    width: min(100%, 820px);
+    margin-inline: auto;
   }
 
   .jobs-page-header {
@@ -109,7 +107,7 @@
     text-align: left;
     display: flex;
     flex-direction: row;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
   }

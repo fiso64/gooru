@@ -103,7 +103,7 @@
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library' && sidebarBaseQuery !== $submittedSearch);
   const uploadResultsCountQuery = createFileCountQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && trackUploadResults);
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
-  const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
+  const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope, () => 50);
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
   const tagsQuery = createTagsQuery(() => Boolean($authState.user), () => authScope);
   const uploadTargetsQuery = createUploadTargetsQuery(() => Boolean($authState.user), () => authScope);
@@ -641,7 +641,8 @@
     libraryCount={liveLibraryCount}
     tagCount={tagsQuery.data?.tags.length ?? 0}
     jobsActiveCount={jobsQuery.data?.active_count ?? activeJobs.length}
-    jobs={jobsQuery.data?.items ?? []}
+    jobs={(jobsQuery.data?.items ?? []).slice(0, 20)}
+    jobsTotalCount={jobsQuery.data?.total_count ?? (jobsQuery.data?.items.length ?? 0)}
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
     comicCount={comicCount}

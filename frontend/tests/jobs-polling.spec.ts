@@ -6,6 +6,11 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
+type OperationEventTestWindow = Window & typeof globalThis & {
+  __emitOperationEvent?: () => void;
+  __operationEventSourceCount?: number;
+};
+
 async function mockAuth(page: Page) {
   let loggedIn = false;
   await page.route('**/api/v1/auth/me', async (route) => {
@@ -30,6 +35,37 @@ async function mockShellApis(page: Page) {
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
 }
 
+async function mockOperationEvents(page: Page) {
+  await page.addInitScript(() => {
+    const testWindow = window as OperationEventTestWindow;
+    let currentSource: FakeEventSource | undefined;
+
+    class FakeEventSource {
+      private operationsListener: (() => void) | undefined;
+
+      constructor(_url: string) {
+        currentSource = this;
+        testWindow.__operationEventSourceCount = (testWindow.__operationEventSourceCount ?? 0) + 1;
+      }
+
+      addEventListener(type: string, listener: () => void) {
+        if (type === 'operations') this.operationsListener = listener;
+      }
+
+      close() {
+        if (currentSource === this) currentSource = undefined;
+      }
+
+      emitOperation() {
+        this.operationsListener?.();
+      }
+    }
+
+    Object.defineProperty(window, 'EventSource', { value: FakeEventSource, configurable: true });
+    testWindow.__emitOperationEvent = () => currentSource?.emitOperation();
+  });
+}
+
 async function signIn(page: Page) {
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
@@ -41,6 +77,7 @@ async function signIn(page: Page) {
 test('does not keep polling operations on idle screens', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
+  await mockOperationEvents(page);
   let operationRequests = 0;
   await page.route('**/api/v1/operations?**', async (route) => {
     operationRequests += 1;
@@ -51,15 +88,17 @@ test('does not keep polling operations on idle screens', async ({ page }) => {
   await page.getByRole('button', { name: 'Tags' }).click();
   await expect(page.getByRole('heading', { name: 'Tags' })).toBeVisible();
   await expect.poll(() => operationRequests).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => (window as OperationEventTestWindow).__operationEventSourceCount ?? 0)).toBe(1);
   await page.waitForTimeout(200);
   const settledRequests = operationRequests;
   await page.waitForTimeout(2300);
   expect(operationRequests).toBe(settledRequests);
 });
 
-test('keeps polling while an operation is active', async ({ page }) => {
+test('refreshes active operations from one throttled SSE signal stream', async ({ page }) => {
   await mockAuth(page);
   await mockShellApis(page);
+  await mockOperationEvents(page);
   let operationRequests = 0;
   await page.route('**/api/v1/operations?**', async (route) => {
     operationRequests += 1;
@@ -70,7 +109,22 @@ test('keeps polling while an operation is active', async ({ page }) => {
   });
 
   await signIn(page);
-  await page.waitForTimeout(200);
+  await expect.poll(() => operationRequests).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => (window as OperationEventTestWindow).__operationEventSourceCount ?? 0)).toBe(1);
+  await page.waitForTimeout(100);
   const initialRequests = operationRequests;
-  await expect.poll(() => operationRequests, { timeout: 3500 }).toBeGreaterThan(initialRequests);
+
+  await page.evaluate(() => (window as OperationEventTestWindow).__emitOperationEvent?.());
+  await expect.poll(() => operationRequests).toBe(initialRequests + 1);
+  const firstRefreshRequests = operationRequests;
+
+  await page.evaluate(() => {
+    const testWindow = window as OperationEventTestWindow;
+    testWindow.__emitOperationEvent?.();
+    testWindow.__emitOperationEvent?.();
+    testWindow.__emitOperationEvent?.();
+  });
+  await page.waitForTimeout(200);
+  expect(operationRequests).toBe(firstRefreshRequests);
+  await expect.poll(() => operationRequests, { timeout: 1200 }).toBe(firstRefreshRequests + 1);
 });

@@ -32,5 +32,9 @@ func (c *Client) CreateBackgroundOperationWithPendingLimit(request BackgroundOpe
 	if !admitted {
 		return BackgroundOperation{}, ErrBackgroundOperationPendingLimit
 	}
-	return backgroundOperationFromDatabase(operation), nil
+	result := backgroundOperationFromDatabase(operation)
+	if result.Visible {
+		c.notifyBackgroundOperationChange()
+	}
+	return result, nil
 }
