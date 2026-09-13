@@ -17,35 +17,30 @@
     onCancel: (job: Job) => void;
   }>();
 
+  const pageSize = 50;
   let pageIndex = $state(0);
-  let pageTokens = $state(['']);
-  const pageToken = $derived(pageTokens[pageIndex] ?? '');
+  const pageToken = $derived(pageIndex === 0 ? '' : String(pageIndex * pageSize));
   const pageQuery = createJobsQuery(
     () => Boolean($authState.user),
     () => authScope,
-    () => 50,
+    () => pageSize,
     () => pageToken
   );
-  const pageJobs = $derived(pageQuery.data?.items ?? jobs);
-  const hasNextPage = $derived(Boolean(pageQuery.data?.next_page_token));
-  const pageCount = $derived(Math.max(pageTokens.length, pageIndex + 1 + (hasNextPage ? 1 : 0)));
+  const pageJobs = $derived(pageQuery.data?.items ?? (pageIndex === 0 ? jobs : []));
+  const totalCount = $derived(pageQuery.data?.total_count ?? pageJobs.length);
+  const pageCount = $derived(Math.max(1, Math.ceil(totalCount / pageSize)));
+
+  $effect(() => {
+    if (pageIndex >= pageCount) pageIndex = Math.max(0, pageCount - 1);
+  });
 
   function selectPage(page: number) {
     const targetIndex = page - 1;
-    if (targetIndex < 0 || targetIndex === pageIndex || pageQuery.isFetching) return;
-    if (targetIndex < pageTokens.length) {
-      pageIndex = targetIndex;
-      return;
-    }
-    const next = pageQuery.data?.next_page_token;
-    if (targetIndex === pageIndex + 1 && next) {
-      pageTokens = [...pageTokens.slice(0, pageIndex + 1), next];
-      pageIndex = targetIndex;
-    }
+    if (targetIndex < 0 || targetIndex >= pageCount || targetIndex === pageIndex || pageQuery.isFetching) return;
+    pageIndex = targetIndex;
   }
 
   function resetPagination() {
-    pageTokens = [''];
     pageIndex = 0;
   }
 </script>

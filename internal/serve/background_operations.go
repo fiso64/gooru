@@ -61,6 +61,7 @@ type BackgroundOperationDTO struct {
 type BackgroundOperationListResponse struct {
 	Items       []BackgroundOperationDTO `json:"items"`
 	ActiveCount *int                     `json:"active_count,omitempty"`
+	TotalCount  *int                     `json:"total_count,omitempty"`
 }
 
 type BackgroundOperationClearResponse struct {
@@ -211,7 +212,16 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	operations, err := s.backgroundOperations.ListBackgroundOperations(core.BackgroundOperationListOptions{VisibleOnly: true, Limit: limit})
+	offset := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("offset")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, "invalid_request", "offset must be a non-negative integer", nil)
+			return
+		}
+		offset = parsed
+	}
+	operations, err := s.backgroundOperations.ListBackgroundOperations(core.BackgroundOperationListOptions{VisibleOnly: true, Limit: limit, Offset: offset})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operations", nil)
 		return
@@ -219,6 +229,11 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 	activeCount, err := s.activeBackgroundOperationCount(operations)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to count active background operations", nil)
+		return
+	}
+	totalCount, err := s.backgroundOperationTotalCount()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to count background operations", nil)
 		return
 	}
 	items := make([]BackgroundOperationDTO, 0, len(operations))
@@ -240,7 +255,7 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, dto)
 	}
-	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items, ActiveCount: &activeCount})
+	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items, ActiveCount: &activeCount, TotalCount: totalCount})
 }
 
 func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {

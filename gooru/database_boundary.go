@@ -53,7 +53,7 @@ func getDatabaseBackgroundOperationTask(client *Client, operationID string) (Bac
 }
 
 func listDatabaseBackgroundOperations(client *Client, options BackgroundOperationListOptions) ([]BackgroundOperationState, error) {
-	operations, err := client.store.ListBackgroundOperations(options.VisibleOnly, options.Limit)
+	operations, err := client.store.ListBackgroundOperationsPage(options.VisibleOnly, options.Limit, options.Offset)
 	if err != nil {
 		return nil, err
 	}

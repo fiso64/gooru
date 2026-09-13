@@ -20,6 +20,7 @@ import {
 export interface JobListPage {
   items: Job[];
   active_count: number;
+  total_count: number;
   next_page_token?: string;
 }
 
@@ -57,33 +58,30 @@ async function fetchJobBatch(ids: string[]) {
   return { items: response.items.map(backgroundOperationAsJob) };
 }
 
-function jobsPageOffset(pageToken: string) {
+export function jobsPageOffset(pageToken: string) {
   const offset = Number.parseInt(pageToken, 10);
   return Number.isFinite(offset) && offset > 0 ? offset : 0;
-}
-
-export function jobsPageRequestLimit(limit: number, pageToken: string) {
-  const start = jobsPageOffset(pageToken);
-  // The operations endpoint is newest-first but currently exposes only a bounded
-  // prefix, not a cursor. Fetch just enough prefix rows to cover this page plus
-  // one lookahead row so local pagination can preserve the existing next-page
-  // behavior without materializing and polling the full 1000-operation history.
-  return Math.min(1000, start + limit + 1);
 }
 
 export function jobsPageActiveCount(serverActiveCount: number | undefined, jobs: Job[]) {
   return serverActiveCount ?? jobs.filter(jobIsActive).length;
 }
 
+export function jobsPageTotalCount(serverTotalCount: number | undefined, offset: number, jobs: Job[]) {
+  return serverTotalCount ?? offset + jobs.length;
+}
+
 async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
   const start = jobsPageOffset(pageToken);
-  const response = await listBackgroundOperations(jobsPageRequestLimit(limit, pageToken));
+  const response = await listBackgroundOperations(limit, start);
   const jobs = response.items.map(backgroundOperationAsJob);
-  const end = start + limit;
+  const totalCount = jobsPageTotalCount(response.total_count, start, jobs);
+  const nextOffset = start + jobs.length;
   return {
-    items: jobs.slice(start, end),
+    items: jobs,
     active_count: jobsPageActiveCount(response.active_count, jobs),
-    next_page_token: end < jobs.length ? String(end) : undefined
+    total_count: totalCount,
+    next_page_token: nextOffset < totalCount ? String(nextOffset) : undefined
   };
 }
 
