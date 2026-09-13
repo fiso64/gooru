@@ -33,15 +33,20 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	if err != nil {
 		return nil, nil, multipartUploadError{code: "invalid_upload_target", message: err.Error(), err: err}
 	}
-	initialDir, err := durableUploadStagingDir(stagingTarget.Path, operationID)
+	initialOperationDir, err := durableUploadStagingDir(stagingTarget.Path, operationID)
 	if err != nil {
 		return nil, nil, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
 	}
-	if err := os.MkdirAll(initialDir, 0700); err != nil {
+	if err := os.MkdirAll(initialOperationDir, 0700); err != nil {
+		return nil, nil, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
+	}
+	initialDir, err := os.MkdirTemp(initialOperationDir, "request-")
+	if err != nil {
 		return nil, nil, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
 	}
 	ownedStagingTarget := stagingTarget
 	ownedStagingTarget.Path = initialDir
+	stagingDirs := []string{initialDir}
 
 	var targetID, conflictRequested, addedAtStrategyRequested string
 	var queueFirstTimeValue, queueLastTimeValue string
@@ -57,7 +62,9 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 		if retErr != nil {
 			removeStreamedUploads(streamed)
 			removeSavedUploads(saved)
-			_ = os.RemoveAll(initialDir)
+			for _, dir := range stagingDirs {
+				_ = os.RemoveAll(dir)
+			}
 		}
 	}()
 
@@ -137,15 +144,23 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	if err != nil {
 		return nil, saved, multipartUploadError{code: "invalid_upload_target", message: err.Error(), err: err}
 	}
-	targetDir, err := durableUploadStagingDir(target.Path, operationID)
+	targetOperationDir, err := durableUploadStagingDir(target.Path, operationID)
 	if err != nil {
 		return nil, saved, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
 	}
 	if err := os.MkdirAll(target.Path, 0700); err != nil {
 		return nil, saved, multipartUploadError{message: "failed to prepare upload directory", err: err}
 	}
-	if err := os.MkdirAll(targetDir, 0700); err != nil {
-		return nil, saved, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
+	targetDir := initialDir
+	if filepath.Clean(stagingTarget.Path) != filepath.Clean(target.Path) {
+		if err := os.MkdirAll(targetOperationDir, 0700); err != nil {
+			return nil, saved, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
+		}
+		targetDir, err = os.MkdirTemp(targetOperationDir, "request-")
+		if err != nil {
+			return nil, saved, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
+		}
+		stagingDirs = append(stagingDirs, targetDir)
 	}
 	addedAtStrategy, err := uploadAddedAtStrategy(addedAtStrategyRequested, target.AddedAtStrategy)
 	if err != nil {

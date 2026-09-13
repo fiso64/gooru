@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -29,14 +30,39 @@ func TestStageDurableMultipartUploadDoesNotPublishDestinationBeforeAttachment(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if filepath.Clean(filepath.Dir(saved[0].path)) != filepath.Clean(wantDir) {
-		t.Fatalf("staged path = %q, want operation staging dir %q", saved[0].path, wantDir)
+	requestDir := filepath.Dir(saved[0].path)
+	if filepath.Clean(filepath.Dir(requestDir)) != filepath.Clean(wantDir) {
+		t.Fatalf("staged path = %q, want request staging directory below %q", saved[0].path, wantDir)
 	}
 	if saved[0].destinationPath != destination {
 		t.Fatalf("destination path = %q, want %q", saved[0].destinationPath, destination)
 	}
 	if got := string(mustReadFile(t, saved[0].path)); got != "hello" {
 		t.Fatalf("staged content = %q, want hello", got)
+	}
+}
+
+func TestStageDurableMultipartUploadFailureDoesNotRemoveSiblingRequestStaging(t *testing.T) {
+	root := t.TempDir()
+	server := newUploadTestServer(t, root, true, &recordingUploadLibrary{})
+	firstReq := uploadRequest(t, map[string]string{"first.jpg": "first"}, nil)
+	_, firstSaved, err := server.stageDurableMultipartUpload(firstReq, testDurableUploadOperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstSaved) != 1 {
+		t.Fatalf("first saved files = %d, want 1", len(firstSaved))
+	}
+
+	failedReq := uploadRequest(t, map[string]string{"second.jpg": "second"}, nil)
+	ctx, cancel := context.WithCancel(failedReq.Context())
+	cancel()
+	failedReq = failedReq.WithContext(ctx)
+	if _, _, err := server.stageDurableMultipartUpload(failedReq, testDurableUploadOperationID); !errors.Is(err, errUploadReceivingCanceled) {
+		t.Fatalf("failed sibling error = %v, want %v", err, errUploadReceivingCanceled)
+	}
+	if got := string(mustReadFile(t, firstSaved[0].path)); got != "first" {
+		t.Fatalf("surviving staged content = %q, want first", got)
 	}
 }
 
