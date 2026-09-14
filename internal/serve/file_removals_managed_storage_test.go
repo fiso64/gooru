@@ -1,11 +1,13 @@
 package serve
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	core "gooru.local/gooru"
 	"gooru.local/types"
 )
 
@@ -53,9 +55,12 @@ func TestMixedRemovalTaskDeletesManagedAndOnlyUntracksExternal(t *testing.T) {
 	}
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Uploads.Targets = []UploadTarget{{ID: "managed", Name: "Managed", Path: managedRoot}}
-	server := NewServerWithLibrary(cfg, emptyLibrary{})
+	library := &replayBatchRemovalLibrary{
+		lookupFile: types.FileInfo{PublicID: "managed", Path: managedPath},
+	}
+	server := NewServerWithLibrary(cfg, library)
 
-	task, err := server.backgroundFileRemovalBatchTask("delete_or_untrack", []types.FileInfo{
+	request, err := server.backgroundFileRemovalBatchTask("delete_or_untrack", []types.FileInfo{
 		{PublicID: "managed", Path: managedPath},
 		{PublicID: "external", Path: externalPath},
 	})
@@ -63,7 +68,7 @@ func TestMixedRemovalTaskDeletesManagedAndOnlyUntracksExternal(t *testing.T) {
 		t.Fatal(err)
 	}
 	var input backgroundFileRemovalBatchInput
-	if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
+	if err := json.Unmarshal([]byte(request.InputKey), &input); err != nil {
 		t.Fatal(err)
 	}
 	if input.Version != backgroundFileRemovalMixedBatchVersion || input.Mode != "delete_or_untrack" || len(input.Files) != 2 {
@@ -74,5 +79,25 @@ func TestMixedRemovalTaskDeletesManagedAndOnlyUntracksExternal(t *testing.T) {
 	}
 	if input.Files[1].OriginalPath != "" || input.Files[1].StagingPath != "" {
 		t.Fatalf("external file must only be untracked: %+v", input.Files[1])
+	}
+
+	task := core.BackgroundTask{
+		ID:          "task-mixed",
+		Kind:        request.Kind,
+		SubjectKind: request.SubjectKind,
+		SubjectID:   request.SubjectID,
+		InputKey:    request.InputKey,
+	}
+	if err := server.backgroundFileRemovalHandler(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(managedPath); !os.IsNotExist(err) {
+		t.Fatalf("managed file must be deleted, stat err=%v", err)
+	}
+	if got, err := os.ReadFile(externalPath); err != nil || string(got) != "data" {
+		t.Fatalf("external file must remain untouched, content=%q err=%v", got, err)
+	}
+	if library.deleteCalls != 1 || len(library.deletedIDs) != 2 || library.deletedIDs[0] != "managed" || library.deletedIDs[1] != "external" {
+		t.Fatalf("mixed removal must untrack both files in one batch: calls=%d ids=%v", library.deleteCalls, library.deletedIDs)
 	}
 }
