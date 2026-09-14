@@ -123,6 +123,23 @@ describe('upload panel rows', () => {
     expect(summarizeUploadQueueBatch(batch!).progress).toBe(75);
   });
 
+  it('summarizes very large durable batches without proportional scratch arrays or argument spreading', () => {
+    const rows = Array.from({ length: 150_000 }, (_, index) => {
+      const row = uploadRow(index, 8);
+      row.item.status = 'importing';
+      row.item.progress = 100;
+      row.item.operationProgress = index === 149_999 ? 23 : 57;
+      return row;
+    });
+    const [batch] = groupUploadQueueRows(rows);
+
+    const summary = summarizeUploadQueueBatch(batch!);
+
+    expect(summary.progress).toBe(23);
+    expect(summary.counts).toEqual({ importing: 150_000 });
+    expect(summary.status).toBe('150000 importing');
+  });
+
   it('paginates each batch independently and clamps stale page indices', () => {
     const rows = Array.from({ length: 205 }, (_, index) => uploadRow(index, 7));
 
