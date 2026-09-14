@@ -133,6 +133,23 @@
 </aside>
 
 <style>
+  :global(.lightbox-tag-list .g-tag-search) {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  :global(.lightbox-tag-list .g-tag-search:focus-visible) {
+    outline: 2px solid var(--accent-line);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
   .viewer-sidebar-tag-status {
     color: var(--text-3);
     font-family: var(--font-mono);
