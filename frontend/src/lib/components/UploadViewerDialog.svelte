@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import TagAutocompleteInput from './TagAutocompleteInput.svelte';
+  import TagEditor from './TagEditor.svelte';
   import ViewerStage from './ViewerStage.svelte';
   import { ApiClient } from '$lib/api/client';
   import type { FileItem } from '$lib/api/types';
@@ -8,7 +8,8 @@
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import type { UploadItem } from '$lib/state/uploadItems';
   import { uploadItemHasLocalViewer, uploadViewerNeighborIndex, type UploadViewerScope } from '$lib/state/uploadViewer';
-  import { errorMessage, formatBytes, parseTags } from '$lib/utils/format';
+  import { errorMessage, formatBytes, groupTags, parseTags } from '$lib/utils/format';
+  import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { viewerImageSource, type ViewerStageMedia } from '$lib/utils/media';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
 
@@ -37,6 +38,7 @@
   let remoteLoading = $state(false);
   let remoteError = $state('');
   let tagDraft = $state('');
+  let tagMode = $state<'add' | 'remove'>('add');
   let tagOverride = $state<string[] | undefined>();
   let observedIndex = $state(-1);
 
@@ -65,12 +67,16 @@
   const viewerFile = $derived<ViewerStageMedia | undefined>(remoteFile ?? localMedia);
   const imageSource = $derived(viewerFile ? viewerImageSource(viewerFile, false) : '');
   const currentTags = $derived(tagOverride ?? activeItem?.tags ?? remoteFile?.tags ?? []);
+  const tagGroups = $derived(groupTags(currentTags));
+  const hasTagNamespaces = $derived(tagGroups.some((group) => Boolean(group.namespace)));
   const kindLabel = $derived(remoteFile?.media_kind ?? localMedia?.media_kind ?? 'media');
+  const tagEditorID = $derived(`upload-${activeIndex}`);
 
   $effect(() => {
     if (activeIndex === observedIndex) return;
     observedIndex = activeIndex;
     tagDraft = '';
+    tagMode = 'add';
     tagOverride = undefined;
   });
 
@@ -120,25 +126,59 @@
     if (nextIndex != null && nextIndex !== activeIndex) onIndex(nextIndex);
   }
 
-  function commitTag(value: string) {
-    const additions = parseTags(value);
-    if (!additions.length) return;
-    const nextTags = Array.from(new Set([...currentTags, ...additions]));
+  function setDesiredTags(nextTags: string[]) {
     tagOverride = nextTags;
-    tagDraft = '';
     onItemTagsInput(activeIndex, nextTags);
+  }
+
+  function commitTag(value: string) {
+    const changed = parseTags(value);
+    if (!changed.length) return;
+    if (tagMode === 'remove') {
+      const removed = new Set(changed);
+      setDesiredTags(currentTags.filter((tag) => !removed.has(tag)));
+    } else {
+      setDesiredTags(Array.from(new Set([...currentTags, ...changed])));
+    }
+    tagDraft = '';
   }
 
   function removeTag(tag: string) {
-    const nextTags = currentTags.filter((candidate: string) => candidate !== tag);
-    tagOverride = nextTags;
-    onItemTagsInput(activeIndex, nextTags);
+    setDesiredTags(currentTags.filter((candidate: string) => candidate !== tag));
+  }
+
+  function focusTagInput(mode: 'add' | 'remove' = 'add') {
+    tagMode = mode;
+    document.getElementById(`tags-${tagEditorID}`)?.focus();
   }
 
   function handleWindowKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || event.key !== 'Escape') return;
-    event.preventDefault();
-    onClose();
+    if (event.defaultPrevented || hasCommandModifier(event)) return;
+    const tagInputID = `tags-${tagEditorID}`;
+    if (
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      && event.target instanceof HTMLInputElement
+      && event.target.id === tagInputID
+      && event.target.value === ''
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.target.blur();
+      move(event.key === 'ArrowLeft' ? -1 : 1);
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (isEditableShortcutTarget(event.target)) return;
+    const key = event.key.toLowerCase();
+    if (key === 't' || key === 'u') {
+      event.preventDefault();
+      event.stopPropagation();
+      focusTagInput(key === 'u' ? 'remove' : 'add');
+    }
   }
 </script>
 
@@ -146,68 +186,84 @@
 
 {#if activeItem}
   <div
-    class="upload-viewer-backdrop"
+    class="lightbox upload-viewer-backdrop"
     role="dialog"
     aria-modal="true"
     aria-labelledby="upload-viewer-title"
     tabindex="-1"
     onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}
   >
-    <aside class="upload-viewer-aside">
-      <div class="upload-viewer-head">
+    <aside class="lightbox-aside">
+      <div class="panel-row">
         <div class="g-eyebrow g-eyebrow-accent">{scope === 'staged' ? 'Staged' : 'Queue'} · {kindLabel}</div>
         <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" aria-label="Close upload preview" onclick={onClose}>
           <Icon name="close" size={14} />
         </button>
       </div>
 
-      <h2 id="upload-viewer-title" class="upload-viewer-name">{activeItem.name}</h2>
-      <dl class="upload-viewer-meta">
+      <h2 id="upload-viewer-title" class="lightbox-name">{activeItem.name}</h2>
+      <dl class="lightbox-meta">
+        {#if remoteFile?.safe_display_path}<dt>Path</dt><dd class="path">{remoteFile.safe_display_path}</dd>{/if}
         <dt>Size</dt><dd>{formatBytes(activeItem.size)}</dd>
         <dt>Status</dt><dd>{activeItem.status.replace(/_/g, ' ')}</dd>
         <dt>Mime</dt><dd>{activeItem.type || remoteFile?.media_type || 'unknown'}</dd>
         {#if activeItem.batchID != null}<dt>Batch</dt><dd>{activeItem.batchID}</dd>{/if}
+        {#if remoteFile?.content_id}<dt>Id</dt><dd class="hash">{remoteFile.content_id}</dd>{/if}
       </dl>
 
       <hr class="g-divider" />
 
-      <div class="upload-viewer-tags">
-        <div class="g-eyebrow">Tags · {currentTags.length}</div>
-        <div class="upload-viewer-tag-list">
-          {#each currentTags as tag}
-            {@const separator = tag.indexOf(':')}
-            <span class="g-tag">
-              {#if separator > 0}
-                <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
-              {:else}
-                <span>{tag}</span>
-              {/if}
-              <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${activeItem.name}`} onclick={() => removeTag(tag)}>
-                <Icon name="close" size={11} />
-              </button>
-            </span>
-          {/each}
+      <div class="lightbox-tags">
+        <div class="lightbox-tag-group-head lightbox-tags-head">
+          <span>Tags · {currentTags.length}</span>
+          <span class="lightbox-tag-tools">
+            <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Tag history coming soon"><Icon name="info" size={13} /></button>
+            <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Tag suggestions coming soon"><Icon name="sliders" size={13} /></button>
+          </span>
         </div>
-        <div class="upload-viewer-tag-input">
-          <TagAutocompleteInput
-            value={tagDraft}
-            {tags}
-            existing={currentTags}
-            placeholder="add tag"
-            ariaLabel={`Add tag to ${activeItem.name}`}
-            onInput={(value) => (tagDraft = value)}
-            onCommit={commitTag}
-            onRemoveLast={removeTag}
-          />
-        </div>
+
+        {#each tagGroups as group (group.namespace)}
+          <div class="lightbox-tag-group">
+            {#if group.namespace || hasTagNamespaces}
+              <div class="lightbox-tag-group-head"><span>{group.namespace || 'OTHER'}</span><span>{group.tags.length}</span></div>
+            {/if}
+            <div class="lightbox-tag-list">
+              {#each group.tags as tag}
+                <span class="g-tag">
+                  {#if tag.includes(':')}
+                    <span class="ns">{tag.split(':')[0]}:</span><span>{tag.slice(tag.indexOf(':') + 1)}</span>
+                  {:else}
+                    <span>{tag}</span>
+                  {/if}
+                  <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${activeItem.name}`} onclick={() => removeTag(tag)}>
+                    <Icon name="close" size={11} />
+                  </button>
+                </span>
+              {/each}
+            </div>
+          </div>
+        {/each}
+
+        <TagEditor
+          fileID={tagEditorID}
+          fileName={activeItem.name}
+          draft={tagDraft}
+          busy={false}
+          error={activeItem.tagSyncError ?? ''}
+          {tags}
+          existingTags={currentTags}
+          mode={tagMode}
+          onInput={(value) => (tagDraft = value)}
+          onCommit={commitTag}
+          onModeToggle={() => focusTagInput(tagMode === 'add' ? 'remove' : 'add')}
+        />
         {#if activeItem.tagSyncPending}
           <div class="upload-viewer-sync">{activeItem.remoteFileID ? 'Saving tag changes…' : 'Tag changes will apply when import completes'}</div>
         {/if}
-        {#if activeItem.tagSyncError}<div class="upload-viewer-error" role="alert">{activeItem.tagSyncError}</div>{/if}
       </div>
     </aside>
 
-    <section class="upload-viewer-stage-wrap">
+    <section class="lightbox-stage upload-viewer-stage-wrap">
       {#if viewerFile}
         <ViewerStage
           file={viewerFile}
@@ -217,6 +273,7 @@
           initialScaling={$runtimeConfig.viewerScaling}
           onPrev={() => move(-1)}
           onNext={() => move(1)}
+          keyboardNavigation
           onFullscreenExit={onClose}
         />
       {:else if remoteLoading}
@@ -230,64 +287,26 @@
         <div class="upload-viewer-remote-warning" role="status">Imported copy unavailable: {remoteError}. Showing the local staged copy.</div>
       {/if}
     </section>
+
+    <aside class="lightbox-rail upload-viewer-rail" aria-hidden="true"></aside>
   </div>
 {/if}
 
 <style>
   .upload-viewer-backdrop {
     position: fixed;
-    inset: 0;
     z-index: 80;
-    display: grid;
-    grid-template-columns: minmax(260px, 340px) 1fr;
-    background: color-mix(in srgb, var(--bg-1) 88%, transparent);
-    backdrop-filter: blur(10px);
   }
 
-  .upload-viewer-aside {
-    min-width: 0;
-    overflow: auto;
-    padding: 18px;
-    border-right: 1px solid var(--border);
-    background: var(--bg-2);
-  }
-
-  .upload-viewer-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-
-  .upload-viewer-name {
-    margin: 12px 0 18px;
-    overflow-wrap: anywhere;
-    font-size: 18px;
-  }
-
-  .upload-viewer-meta {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 7px 12px;
-    margin: 0;
+  .upload-viewer-sync {
+    color: var(--text-3);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10px;
   }
-
-  .upload-viewer-meta dt { color: var(--text-3); }
-  .upload-viewer-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; text-align: right; }
-
-  .upload-viewer-tags { display: grid; gap: 10px; }
-  .upload-viewer-tag-list { display: flex; flex-wrap: wrap; gap: 5px; }
-  .upload-viewer-tag-input { min-height: 34px; }
-  .upload-viewer-sync { color: var(--text-3); font-family: var(--font-mono); font-size: 10px; }
-  .upload-viewer-error { color: var(--danger); font-family: var(--font-mono); font-size: 11px; }
 
   .upload-viewer-stage-wrap {
-    position: relative;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
   }
 
   .upload-viewer-message {
@@ -316,8 +335,7 @@
     font-size: 10px;
   }
 
-  @media (max-width: 760px) {
-    .upload-viewer-backdrop { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    .upload-viewer-aside { max-height: 42vh; border-right: 0; border-bottom: 1px solid var(--border); }
+  .upload-viewer-rail {
+    min-width: 0;
   }
 </style>
