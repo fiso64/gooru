@@ -108,14 +108,6 @@ export function setUploadItemTagsInPlace(items: UploadItem[], index: number, tag
   current.tagSyncPending = current.status !== 'staged' && hasUploadItemTagSyncDelta(current);
 }
 
-export function markUploadItemTagsSyncedInPlace(items: UploadItem[], index: number, syncedTags: string[]): void {
-  const current = items[index];
-  if (!current) return;
-  current.tagSyncBaseTags = normalizeUploadItemTags(syncedTags);
-  current.tagSyncPending = hasUploadItemTagSyncDelta(current);
-  current.tagSyncError = '';
-}
-
 export function markUploadItemTagSyncAppliedInPlace(
   items: UploadItem[],
   index: number,
