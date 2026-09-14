@@ -36,14 +36,20 @@ func (GovipsImageThumbnailer) ThumbnailQuality(src string, dst io.Writer, size i
 	if err := ensureGovipsStarted(); err != nil {
 		return &UnsupportedMediaError{Backend: "govips", Reason: "govips startup failed", Err: err}
 	}
-	image, err := vips.NewImageFromFile(src)
+	probe, err := vips.NewImageFromFile(src)
 	if err != nil {
-		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to load image", Err: err}
+		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to inspect image", Err: err}
+	}
+	width, height, err := govipsThumbnailBounds(probe, size)
+	probe.Close()
+	if err != nil {
+		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to size image thumbnail", Err: err}
+	}
+	image, err := vips.NewThumbnailWithSizeFromFile(src, width, height, vips.InterestingNone, vips.SizeDown)
+	if err != nil {
+		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to load image thumbnail", Err: err}
 	}
 	defer image.Close()
-	if err := resizeGovipsThumbnail(image, size); err != nil {
-		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to resize image thumbnail", Err: err}
-	}
 	return exportGovipsThumbnail(image, dst, format, quality)
 }
 
@@ -58,37 +64,50 @@ func thumbnailImageSourcePrimary(_ string, src io.ReadSeeker, dst io.Writer, siz
 	if err != nil {
 		return err
 	}
-	image, err := vips.NewImageFromBuffer(buf)
+	probe, err := vips.NewImageFromBuffer(buf)
+	if err != nil {
+		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to inspect logical image source", Err: err}
+	}
+	width, height, err := govipsThumbnailBounds(probe, size)
+	probe.Close()
+	if err != nil {
+		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to size logical image source", Err: err}
+	}
+	image, err := vips.NewThumbnailWithSizeFromBuffer(buf, width, height, vips.InterestingNone, vips.SizeDown)
 	if err != nil {
 		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to load logical image source", Err: err}
 	}
 	defer image.Close()
-	if err := resizeGovipsThumbnail(image, size); err != nil {
-		return &UnsupportedMediaError{Backend: "govips", Reason: "failed to resize logical image source", Err: err}
-	}
 	return exportGovipsThumbnail(image, dst, format, quality)
 }
 
-func resizeGovipsThumbnail(image *vips.ImageRef, size int) error {
+func govipsThumbnailBounds(image *vips.ImageRef, size int) (int, int, error) {
 	if size <= 0 {
-		return fmt.Errorf("thumbnail size must be positive")
-	}
-	if err := image.AutoRotate(); err != nil {
-		return err
+		return 0, 0, fmt.Errorf("thumbnail size must be positive")
 	}
 	width := image.Width()
 	height := image.Height()
 	if width <= 0 || height <= 0 {
-		return fmt.Errorf("invalid image dimensions %dx%d", width, height)
+		return 0, 0, fmt.Errorf("invalid image dimensions %dx%d", width, height)
+	}
+	if orientation := image.Orientation(); orientation >= 5 && orientation <= 8 {
+		width, height = height, width
 	}
 	shortSide := width
 	if height < shortSide {
 		shortSide = height
 	}
 	if shortSide <= size {
-		return nil
+		return width, height, nil
 	}
-	return image.Resize(float64(size)/float64(shortSide), vips.KernelLanczos3)
+	if width <= height {
+		return size, ceilScaledDimension(size, height, width), nil
+	}
+	return ceilScaledDimension(size, width, height), size, nil
+}
+
+func ceilScaledDimension(size, dimension, shortSide int) int {
+	return int((int64(size)*int64(dimension) + int64(shortSide) - 1) / int64(shortSide))
 }
 
 func exportGovipsThumbnail(image *vips.ImageRef, dst io.Writer, format string, quality int) error {
