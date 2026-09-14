@@ -111,6 +111,7 @@ type UIConfig struct {
 	Theme                    string   `yaml:"theme"`
 	AccentColor              string   `yaml:"accent_color"`
 	FontStyle                string   `yaml:"font_style"`
+	FontStyleConfigured      bool     `yaml:"-"`
 	GridSize                 int      `yaml:"grid_size"`
 	GridType                 string   `yaml:"grid_type"`
 	HiddenTags               []string `yaml:"hidden_tags"`

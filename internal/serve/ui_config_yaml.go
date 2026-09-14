@@ -14,8 +14,8 @@ func isBooruUITheme(value string) bool {
 }
 
 // UnmarshalYAML preserves the generated/default UI values while retaining whether
-// theme-sensitive functional settings were actually present in YAML. Booru themes
-// can therefore choose their own defaults without overriding explicit user settings.
+// theme-sensitive settings were actually present in YAML. Booru themes can therefore
+// choose their own defaults without overriding explicit user settings.
 func (cfg *UIConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type plainUIConfig UIConfig
 	next := plainUIConfig(*cfg)
@@ -27,6 +27,7 @@ func (cfg *UIConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err := unmarshal(&fields); err != nil {
 		return err
 	}
+	_, next.FontStyleConfigured = fields["font_style"]
 	if isBooruUITheme(next.Theme) {
 		if _, configured := fields["grid_type"]; !configured {
 			next.GridType = "fit"

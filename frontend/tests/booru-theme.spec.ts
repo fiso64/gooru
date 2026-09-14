@@ -27,13 +27,32 @@ const file = {
   can_delete: false
 };
 
-async function mockBooruApp(page: Page, theme: 'booru-light' | 'booru-dark' = 'booru-light') {
+type MockOptions = {
+  accentColor?: string;
+  fontStyle?: 'editorial' | 'modern' | 'comic';
+  fontStyleConfigured?: boolean;
+  authenticated?: boolean;
+};
+
+async function mockThemeApp(
+  page: Page,
+  theme: 'default' | 'booru-light' | 'booru-dark' = 'booru-light',
+  options: MockOptions = {}
+) {
+  const {
+    accentColor = '',
+    fontStyle = 'comic',
+    fontStyleConfigured = false,
+    authenticated = true
+  } = options;
+
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
       ui_theme: theme,
-      accent_color: '#0c2238',
-      font_style: 'comic',
+      accent_color: accentColor,
+      font_style: fontStyle,
+      font_style_configured: fontStyleConfigured,
       grid_size: 200,
       grid_type: 'square',
       pagination_mode: 'infinite',
@@ -42,7 +61,7 @@ async function mockBooruApp(page: Page, theme: 'booru-light' | 'booru-dark' = 'b
   }));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify(session)
+    body: JSON.stringify(authenticated ? session : { user: null, csrf_token: '' })
   }));
   for (const path of ['jobs', 'saved-searches']) {
     await page.route(`**/api/v1/${path}`, async (route) => route.fulfill({
@@ -68,23 +87,26 @@ async function mockBooruApp(page: Page, theme: 'booru-light' | 'booru-dark' = 'b
   await page.route('**/api/v1/files/booru-image/preview', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: svg }));
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  if (authenticated) await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  else await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 }
 
-test('booru-light uses the shared booru shell and reference light presentation', async ({ page }) => {
-  await mockBooruApp(page, 'booru-light');
+test('booru-light uses the shared booru shell with native fonts and yellow brand accent by default', async ({ page }) => {
+  await mockThemeApp(page, 'booru-light');
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-theme-booru-style/);
   await expect(root).toHaveClass(/gooru-theme-booru-light/);
   await expect(root).not.toHaveClass(/gooru-theme-booru-dark/);
-  await expect(root).toHaveClass(/gooru-type-modern/);
+  await expect(root).not.toHaveClass(/gooru-type-/);
+  await expect(root).toHaveAttribute('style', /--brand-accent:\s*#ffd060/);
   await expect(root).not.toHaveAttribute('style', /--accent:/);
 
   await expect(page.locator('.topbar')).toHaveCount(0);
   await expect(page.locator('.booru-brand')).toContainText('Gooru');
+  await expect(page.locator('.booru-brand')).toHaveCSS('font-family', /Tahoma/);
   await expect(page.locator('.booru-brand-mark')).toHaveCount(1);
-  await expect(page.locator('.booru-brand-mark')).toHaveAttribute('src', '/favicon.svg');
+  await expect(page.locator('.booru-brand-mark')).toHaveCSS('background-color', 'rgb(255, 208, 96)');
   await expect(page.locator('.booru-main-nav')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   await expect(page.locator('.booru-subnav')).toHaveCSS('background-color', 'rgb(244, 246, 255)');
   await expect(page.locator('.booru-app-shell')).toHaveCSS('grid-template-columns', /288px/);
@@ -92,6 +114,7 @@ test('booru-light uses the shared booru shell and reference light presentation',
   await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('border-radius', '0px');
 
   const searchInput = page.locator('.booru-sidebar .searchbar-input');
+  await expect(searchInput).toHaveCSS('font-family', /Verdana/);
   await expect(searchInput).toHaveAttribute('placeholder', '');
   await expect(page.locator('.booru-sidebar .searchbar-pill')).toHaveCount(0);
   await expect(page.locator('.booru-sidebar .searchbar-shortcut')).toHaveCount(0);
@@ -140,12 +163,59 @@ test('booru-light uses the shared booru shell and reference light presentation',
   await expect(page.locator('.lightbox-rail .g-btn').first()).toHaveCSS('border-radius', '0px');
 });
 
+test('booru login uses the same yellow spiral brand accent by default', async ({ page }) => {
+  await mockThemeApp(page, 'booru-light', { authenticated: false });
+
+  const root = page.locator('.gooru-root');
+  await expect(root).toHaveAttribute('style', /--brand-accent:\s*#ffd060/);
+  await expect(page.locator('.login-v2-spirals path')).toHaveCSS('stroke', 'rgb(255, 208, 96)');
+  await expect(page.locator('.login-v2-mark .gooru-logo-accent-fill')).toHaveCSS('fill', 'rgb(255, 208, 96)');
+  await expect(page.locator('link[rel="icon"]').last()).toHaveAttribute('href', /\/favicon\.svg$/);
+});
+
+test('booru custom accent recolors only spiral branding and favicon', async ({ page }) => {
+  await mockThemeApp(page, 'booru-light', { accentColor: '#0c2238' });
+
+  const root = page.locator('.gooru-root');
+  await expect(root).toHaveAttribute('style', /--brand-accent:\s*#0c2238/);
+  await expect(root).not.toHaveAttribute('style', /--accent:\s*#0c2238/);
+  await expect(page.locator('.booru-brand-mark')).toHaveCSS('background-color', 'rgb(12, 34, 56)');
+  await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Tags' })).toHaveCSS('color', 'rgb(0, 117, 248)');
+  const booruAccent = await root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
+  expect(booruAccent).toBe('#0075f8');
+  await expect(page.locator('link[rel="icon"]').last()).toHaveAttribute('href', /^data:image\/svg\+xml,/);
+});
+
+test('default theme keeps applying configured accent to the full UI token', async ({ page }) => {
+  await mockThemeApp(page, 'default', { accentColor: '#0c2238', authenticated: false, fontStyleConfigured: true });
+
+  const root = page.locator('.gooru-root');
+  await expect(root).toHaveClass(/gooru-theme-default/);
+  await expect(root).toHaveAttribute('style', /--brand-accent:\s*#0c2238/);
+  await expect(root).toHaveAttribute('style', /--accent:\s*#0c2238/);
+  const defaultAccent = await root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
+  expect(defaultAccent).toBe('#0c2238');
+  await expect(page.locator('.login-v2-spirals path')).toHaveCSS('stroke', 'rgb(12, 34, 56)');
+  await expect(page.locator('link[rel="icon"]').last()).toHaveAttribute('href', /^data:image\/svg\+xml,/);
+});
+
+test('booru explicit font style overrides native typography without changing palette', async ({ page }) => {
+  await mockThemeApp(page, 'booru-light', { fontStyle: 'modern', fontStyleConfigured: true });
+
+  const root = page.locator('.gooru-root');
+  await expect(root).toHaveClass(/gooru-type-modern/);
+  await expect(page.locator('.booru-brand')).toHaveCSS('font-family', /IBM Plex Sans/);
+  await expect(page.locator('.booru-sidebar .searchbar-input')).toHaveCSS('font-family', /IBM Plex Sans/);
+  await expect(page.locator('.booru-main-nav').getByRole('button', { name: 'Tags' })).toHaveCSS('color', 'rgb(0, 117, 248)');
+});
+
 test('booru-dark follows the committed reference dark palette on shell and viewer surfaces', async ({ page }) => {
-  await mockBooruApp(page, 'booru-dark');
+  await mockThemeApp(page, 'booru-dark');
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-theme-booru-style/);
   await expect(root).toHaveClass(/gooru-theme-booru-dark/);
+  await expect(root).not.toHaveClass(/gooru-type-/);
   await expect(root).not.toHaveAttribute('style', /--accent:/);
   await expect(root).toHaveCSS('background-color', 'rgb(30, 30, 44)');
   await expect(page.locator('.booru-main-nav')).toHaveCSS('background-color', 'rgb(30, 30, 44)');
@@ -154,6 +224,7 @@ test('booru-dark follows the committed reference dark palette on shell and viewe
   await expect(page.locator('.booru-nav-tab').first()).toHaveCSS('color', 'rgb(75, 180, 255)');
   await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('background-color', 'rgb(63, 64, 88)');
   await expect(page.locator('.booru-sidebar .searchbar')).toHaveCSS('border-color', 'rgb(119, 120, 146)');
+  await expect(page.locator('.booru-brand-mark')).toHaveCSS('background-color', 'rgb(255, 208, 96)');
 
   const card = page.locator('.thumb').filter({ has: page.getByAltText('sample.png') });
   await card.getByRole('button', { name: 'Preview sample.png' }).click();

@@ -8,6 +8,7 @@ type UIConfigResponse struct {
 	UITheme                  string   `json:"ui_theme"`
 	AccentColor              string   `json:"accent_color,omitempty"`
 	FontStyle                string   `json:"font_style"`
+	FontStyleConfigured      bool     `json:"font_style_configured"`
 	LoadFullMediaByDefault   bool     `json:"load_full_media_by_default"`
 	FullscreenMediaByDefault bool     `json:"fullscreen_media_by_default"`
 	HoverPlayVideos          bool     `json:"hover_play_videos"`
@@ -34,6 +35,7 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		UITheme:                  s.cfg.UI.Theme,
 		AccentColor:              s.cfg.UI.AccentColor,
 		FontStyle:                s.cfg.UI.FontStyle,
+		FontStyleConfigured:      s.cfg.UI.FontStyleConfigured,
 		LoadFullMediaByDefault:   s.cfg.UI.LoadFullMediaByDefault,
 		FullscreenMediaByDefault: s.cfg.UI.FullscreenMediaByDefault,
 		HoverPlayVideos:          s.cfg.UI.HoverPlayVideos,
