@@ -14,6 +14,12 @@ export function partitionUploadRows(rows: IndexedUploadRow[]): { staged: Indexed
   return { staged, queue };
 }
 
+export function filterUploadRows(rows: IndexedUploadRow[], query: string): IndexedUploadRow[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return rows;
+  return rows.filter((row) => row.item.name.toLowerCase().includes(normalizedQuery));
+}
+
 export function groupUploadQueueRows(rows: IndexedUploadRow[]): UploadQueueBatch[] {
   const batches = new Map<number | undefined, UploadQueueBatch>();
   for (const row of rows) {
