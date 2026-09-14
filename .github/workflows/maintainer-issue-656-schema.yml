@@ -1,0 +1,59 @@
+name: Maintainer issue 656 schema fix
+
+on:
+  push:
+    branches:
+      - maintainer/issue-656-untrack-external-delete
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/issue-656-untrack-external-delete
+      - name: Align response schema
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+          marker = '    FileRemovalResponse:'
+          before, sep, after = text.partition(marker)
+          if not sep:
+              raise SystemExit('FileRemovalResponse schema marker not found')
+          old = '          enum: [untrack, delete]\n'
+          if old not in after:
+              raise SystemExit('FileRemovalResponse mode enum not found')
+          after = after.replace(old, '          enum: [untrack, delete, delete_or_untrack]\n', 1)
+          p.write_text(before + sep + after)
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Regenerate API client
+        working-directory: frontend
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run generate:api
+      - name: Validate backend regression
+        run: go test -count=1 ./internal/serve -run 'TestMixedRemovalTaskDeletesManagedAndOnlyUntracksExternal|TestDeleteModeRejectsFileOutsideUploadTargets'
+      - name: Validate generated frontend contract
+        working-directory: frontend
+        run: npm run check
+      - name: Commit schema fix
+        run: |
+          rm .github/workflows/maintainer-issue-656-schema.yml
+          git config user.name "OpenAI Maintainer"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: align mixed removal response schema"
+          git push origin HEAD:maintainer/issue-656-untrack-external-delete
