@@ -132,7 +132,7 @@ test('staged viewer ignores visual filtering and edits the underlying row tags',
   const dialog = page.getByRole('dialog', { name: 'alpha.png' });
   await expect(dialog).toBeVisible();
 
-  await page.getByRole('button', { name: 'Next media' }).click();
+  await dialog.getByRole('button', { name: 'Next file' }).click();
   await expect(page.getByRole('dialog', { name: 'beta.png' })).toBeVisible();
 
   const viewerTagInput = page.getByLabel('Add tag to beta.png');
@@ -159,8 +159,9 @@ test('queue viewer navigates across upload batches as one set', async ({ page })
   await expect(page.getByRole('button', { name: 'Preview second.png' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Preview first.png' }).click();
-  await expect(page.getByRole('dialog', { name: 'first.png' })).toBeVisible();
-  await page.getByRole('button', { name: 'Next media' }).click();
+  const dialog = page.getByRole('dialog', { name: 'first.png' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Next file' }).click();
   await expect(page.getByRole('dialog', { name: 'second.png' })).toBeVisible();
 });
 
@@ -176,12 +177,15 @@ test('duplicate viewer removes pre-existing remote tags with a delta mutation', 
 
   await expect(page.getByText('duplicate existing', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Preview duplicate.png' }).click();
-  await expect(page.getByRole('dialog', { name: 'duplicate.png' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Remove remote:existing from duplicate.png' })).toBeVisible();
+  const dialog = page.getByRole('dialog', { name: 'duplicate.png' });
+  await expect(dialog).toBeVisible();
+  const remoteTagRemove = dialog.getByRole('button', { name: 'Remove remote:existing from duplicate.png' });
+  await expect(remoteTagRemove).toBeVisible();
 
-  await page.getByRole('button', { name: 'Remove remote:existing from duplicate.png' }).click();
+  await remoteTagRemove.click();
   await expect.poll(() => tagMutations).toEqual([
     { method: 'DELETE', body: { file_ids: ['file-existing'], tags: ['remote:existing'] } }
   ]);
-  await expect(page.getByRole('button', { name: 'Remove remote:existing from duplicate.png' })).toHaveCount(0);
+  await expect(remoteTagRemove).toHaveCount(0);
+  await expect(page.getByTestId('upload-queue-batch').getByRole('button', { name: 'Remove remote:existing from duplicate.png' })).toHaveCount(0);
 });
