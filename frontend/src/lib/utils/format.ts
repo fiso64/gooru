@@ -49,14 +49,21 @@ export function mediaDuration(file: FileItem) {
 
 export function groupTags(tags: string[]) {
   const groups = new Map<string, string[]>();
+  const other: string[] = [];
   for (const tag of tags) {
     const index = tag.indexOf(':');
     const ns = index > 0 ? tag.slice(0, index) : '';
+    if (!ns) {
+      other.push(tag);
+      continue;
+    }
     const list = groups.get(ns) ?? [];
     list.push(tag);
     groups.set(ns, list);
   }
-  return Array.from(groups.entries()).map(([namespace, items]) => ({ namespace, tags: items }));
+  const result = Array.from(groups.entries()).map(([namespace, items]) => ({ namespace, tags: items }));
+  if (other.length) result.push({ namespace: '', tags: other });
+  return result;
 }
 
 export function isTerminalJob(job: Job) {
