@@ -39,6 +39,19 @@ func TestBackgroundUploadTaskPreservesExplicitEmptyItemTags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build background upload task: %v", err)
 	}
+
+	var raw struct {
+		Files []struct {
+			Tags json.RawMessage `json:"tags"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(request.InputKey), &raw); err != nil {
+		t.Fatalf("decode raw background upload task JSON: %v", err)
+	}
+	if len(raw.Files) != 1 || string(raw.Files[0].Tags) != "[]" {
+		t.Fatalf("explicit empty item tags durable JSON = %q; want []", raw.Files[0].Tags)
+	}
+
 	var input backgroundUploadTaskInput
 	if err := json.Unmarshal([]byte(request.InputKey), &input); err != nil {
 		t.Fatalf("decode background upload task JSON: %v", err)

@@ -665,7 +665,8 @@ func cloneUploadTags(tags *[]string) *[]string {
 	if tags == nil {
 		return nil
 	}
-	copyTags := append([]string(nil), (*tags)...)
+	copyTags := make([]string, len(*tags))
+	copy(copyTags, *tags)
 	return &copyTags
 }
 
