@@ -36,6 +36,21 @@ export interface BackgroundOperationCancelAllResponse {
   canceled: number;
 }
 
+export interface MaintenanceJob {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface MaintenanceJobListResponse {
+  items: MaintenanceJob[];
+}
+
+export interface MaintenanceJobRunResponse {
+  job: MaintenanceJob;
+  created: boolean;
+}
+
 async function operationRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: 'same-origin',
@@ -84,6 +99,17 @@ export function cancelActiveBackgroundOperations(csrfToken: string) {
 export function cancelBackgroundOperation(id: string, csrfToken: string) {
   return operationRequest<BackgroundOperation>(`/api/v1/operations/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
+  });
+}
+
+export function listMaintenanceJobs() {
+  return operationRequest<MaintenanceJobListResponse>('/api/v1/maintenance-jobs');
+}
+
+export function runMaintenanceJob(id: string, csrfToken: string) {
+  return operationRequest<MaintenanceJobRunResponse>(`/api/v1/maintenance-jobs/${encodeURIComponent(id)}`, {
+    method: 'POST',
     headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
   });
 }

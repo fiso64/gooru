@@ -7,6 +7,12 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
+const maintenanceJob = {
+  id: 'media-metadata-sweep',
+  name: 'Extract media metadata',
+  description: 'Scan tracked files that are missing media metadata and enqueue durable extraction work.'
+};
+
 type OperationEventTestWindow = Window & typeof globalThis & {
   __emitOperationEvent?: () => void;
   __operationEventSourceCount?: number;
@@ -34,6 +40,7 @@ async function mockShellApis(page: Page) {
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/maintenance-jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [maintenanceJob] }) }));
 }
 
 async function mockOperationEvents(page: Page) {
@@ -136,4 +143,40 @@ test('refreshes active operations from one throttled SSE signal stream', async (
   await page.waitForTimeout(100);
   expect(operationRequests).toBe(firstRefreshRequests);
   await expect.poll(() => operationRequests, { timeout: 1200 }).toBe(firstRefreshRequests + 1);
+});
+
+test('discovers and invokes a maintenance job from the Jobs controls', async ({ page }) => {
+  await mockAuth(page);
+  await mockShellApis(page);
+  await mockOperationEvents(page);
+  await page.route('**/api/v1/operations?**', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ items: [], active_count: 0, total_count: 0 })
+    });
+  });
+
+  let invokedPath = '';
+  let csrfHeader = '';
+  await page.route('**/api/v1/maintenance-jobs/*', async (route) => {
+    invokedPath = new URL(route.request().url()).pathname;
+    csrfHeader = route.request().headers()['x-gooru-csrf'] ?? '';
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ job: maintenanceJob, created: true })
+    });
+  });
+
+  await signIn(page);
+  await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
+  const maintenanceSelect = page.getByLabel('Maintenance job');
+  await expect(maintenanceSelect).toHaveValue(maintenanceJob.id);
+  await expect(maintenanceSelect.locator('option:checked')).toHaveText(maintenanceJob.name);
+
+  await page.locator('.maintenance-actions').getByRole('button', { name: 'Run' }).click();
+
+  await expect.poll(() => invokedPath).toBe('/api/v1/maintenance-jobs/media-metadata-sweep');
+  expect(csrfHeader).toBe(session.csrf_token);
+  await expect(page.getByText('Extract media metadata queued.')).toBeVisible();
 });

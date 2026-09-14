@@ -3,9 +3,11 @@
   import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
   import JobRow from './JobRow.svelte';
   import PageNav from './PageNav.svelte';
+  import { listMaintenanceJobs, runMaintenanceJob, type MaintenanceJob } from '$lib/api/operations';
   import { authState } from '$lib/stores/auth';
   import { createJobsQuery } from '$lib/queries/jobs';
   import type { Job } from '$lib/api/types';
+  import { errorMessage } from '$lib/utils/format';
 
   let {
     jobs,
@@ -33,6 +35,53 @@
   const totalCount = $derived(pageQuery.data?.total_count ?? Math.max(pageJobs.length, pageIndex * pageSize + 1));
   const pageCount = $derived(Math.max(1, Math.ceil(totalCount / pageSize)));
 
+  let maintenanceJobs = $state<MaintenanceJob[]>([]);
+  let selectedMaintenanceJobID = $state('');
+  let maintenanceLoading = $state(false);
+  let maintenanceRunning = $state(false);
+  let maintenanceMessage = $state('');
+  let maintenanceError = $state('');
+
+  $effect(() => {
+    const user = $authState.user;
+    const scope = authScope;
+    if (!user) {
+      maintenanceJobs = [];
+      selectedMaintenanceJobID = '';
+      maintenanceLoading = false;
+      maintenanceMessage = '';
+      maintenanceError = '';
+      return;
+    }
+
+    let canceled = false;
+    maintenanceLoading = true;
+    maintenanceMessage = '';
+    maintenanceError = '';
+    void listMaintenanceJobs()
+      .then((result) => {
+        if (canceled) return;
+        maintenanceJobs = result.items;
+        if (!result.items.some((job) => job.id === selectedMaintenanceJobID)) {
+          selectedMaintenanceJobID = result.items[0]?.id ?? '';
+        }
+      })
+      .catch((cause) => {
+        if (canceled) return;
+        maintenanceJobs = [];
+        selectedMaintenanceJobID = '';
+        maintenanceError = errorMessage(cause);
+      })
+      .finally(() => {
+        if (!canceled) maintenanceLoading = false;
+      });
+
+    void scope;
+    return () => {
+      canceled = true;
+    };
+  });
+
   $effect(() => {
     if (pageIndex >= pageCount) pageIndex = Math.max(0, pageCount - 1);
   });
@@ -46,6 +95,25 @@
   function resetPagination() {
     pageIndex = 0;
   }
+
+  async function runSelectedMaintenanceJob() {
+    if (!selectedMaintenanceJobID || maintenanceRunning) return;
+    maintenanceRunning = true;
+    maintenanceMessage = '';
+    maintenanceError = '';
+    try {
+      const result = await runMaintenanceJob(selectedMaintenanceJobID, $authState.csrfToken);
+      maintenanceMessage = result.created
+        ? `${result.job.name} queued.`
+        : `${result.job.name} has no pending work or is already active.`;
+      resetPagination();
+      await pageQuery.refetch();
+    } catch (cause) {
+      maintenanceError = errorMessage(cause);
+    } finally {
+      maintenanceRunning = false;
+    }
+  }
 </script>
 
 <main class="main">
@@ -55,10 +123,41 @@
       <div class="jobs-title-row">
         <h1>Background work</h1>
         <div class="jobs-page-actions">
+          <div class="maintenance-actions">
+            <select
+              class="maintenance-select"
+              aria-label="Maintenance job"
+              bind:value={selectedMaintenanceJobID}
+              disabled={maintenanceLoading || maintenanceRunning || maintenanceJobs.length === 0}
+            >
+              {#if maintenanceLoading}
+                <option value="">Loading maintenance jobs…</option>
+              {:else if maintenanceJobs.length === 0}
+                <option value="">No maintenance jobs</option>
+              {:else}
+                {#each maintenanceJobs as job (job.id)}
+                  <option value={job.id}>{job.name}</option>
+                {/each}
+              {/if}
+            </select>
+            <button
+              class="g-btn g-btn-sm"
+              type="button"
+              onclick={runSelectedMaintenanceJob}
+              disabled={maintenanceLoading || maintenanceRunning || !selectedMaintenanceJobID}
+            >
+              {maintenanceRunning ? 'Running…' : 'Run'}
+            </button>
+          </div>
           <CancelActiveJobsButton />
           <ClearCompletedJobsButton onCleared={resetPagination} />
         </div>
       </div>
+      {#if maintenanceMessage || maintenanceError}
+        <div class:maintenance-error={Boolean(maintenanceError)} class="maintenance-status" aria-live="polite">
+          {maintenanceError || maintenanceMessage}
+        </div>
+      {/if}
     </div>
 
     {#if pageCount > 1}
@@ -120,10 +219,35 @@
     white-space: nowrap;
   }
 
-  .jobs-page-actions {
+  .jobs-page-actions,
+  .maintenance-actions {
     display: flex;
     gap: 8px;
     align-items: center;
+  }
+
+  .maintenance-select {
+    min-width: 190px;
+    max-width: 250px;
+    height: 30px;
+    padding: 0 28px 0 9px;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-sm);
+    background: var(--surface-1);
+    color: var(--text-1);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .maintenance-status {
+    margin-top: 8px;
+    color: var(--text-3);
+    font-size: 11px;
+    text-align: right;
+  }
+
+  .maintenance-error {
+    color: var(--danger);
   }
 
   .jobs-card {
@@ -145,7 +269,7 @@
     padding: 0 0 14px;
   }
 
-  @media (max-width: 600px) {
+  @media (max-width: 760px) {
     .jobs-title-row {
       align-items: flex-start;
       flex-direction: column;
@@ -153,6 +277,21 @@
 
     .jobs-page-actions {
       flex-wrap: wrap;
+    }
+
+    .maintenance-status {
+      text-align: left;
+    }
+  }
+
+  @media (max-width: 460px) {
+    .maintenance-actions {
+      width: 100%;
+    }
+
+    .maintenance-select {
+      min-width: 0;
+      flex: 1;
     }
   }
 </style>

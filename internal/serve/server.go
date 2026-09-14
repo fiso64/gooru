@@ -26,6 +26,7 @@ type Server struct {
 	managedFiles         *managedfile.Writer
 	backgroundContent    contentHashLibrary
 	backgroundOperations backgroundOperationReader
+	maintenanceJobs      maintenanceJobRunner
 }
 
 func NewServer(cfg Config) *Server {
@@ -37,9 +38,11 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	media := newComposedMediaServiceFromConfig(cfg)
 	var backgroundContent contentHashLibrary
 	var backgroundOperations backgroundOperationReader
+	var maintenanceJobs maintenanceJobRunner
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
 		backgroundContent = gooruLibrary
 		backgroundOperations = &durableFileRemovalOperationStore{GooruLibrary: gooruLibrary}
+		maintenanceJobs = gooruLibrary
 		gooruLibrary.backgroundTasks = media.backgroundTaskRequests
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
@@ -64,6 +67,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		managedFiles:         managedFiles,
 		backgroundContent:    backgroundContent,
 		backgroundOperations: backgroundOperations,
+		maintenanceJobs:      maintenanceJobs,
 	}
 }
 
@@ -112,6 +116,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/saved-searches", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleSavedSearches))))
 	mux.Handle("/api/v1/tags/namespaces", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleTagNamespaces)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
+	mux.Handle("/api/v1/maintenance-jobs", s.adminProtected(http.HandlerFunc(s.handleMaintenanceJobs)))
+	mux.Handle("/api/v1/maintenance-jobs/", s.adminProtected(http.HandlerFunc(s.handleMaintenanceJob)))
 	mux.Handle("/api/v1/operations/cancel-all", s.adminProtected(http.HandlerFunc(s.handleCancelAllOperations)))
 	mux.Handle("/api/v1/operations/events", s.adminProtected(http.HandlerFunc(s.handleOperationEvents)))
 	mux.Handle("/api/v1/operations", s.adminProtected(http.HandlerFunc(s.handleOperations)))
