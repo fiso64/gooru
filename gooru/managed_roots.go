@@ -14,9 +14,10 @@ import (
 const managedRootMetaPrefix = "managed_upload_root:"
 
 // ReconcileManagedRoots remembers the filesystem root associated with each
-// stable managed-upload target ID and rebases tracked locations atomically
-// when that root changes. The range predicate keeps a million-file move on
-// the indexed locations.path column instead of walking every row in Go.
+// stable managed-upload target ID, rebases tracked locations atomically when a
+// root changes, and refreshes target membership from canonical logical paths.
+// The range predicates keep million-file moves and membership rebuilds on the
+// indexed locations.path column instead of walking every row in Go.
 func (c *Client) ReconcileManagedRoots(roots map[string]string) (int, error) {
 	ids := make([]string, 0, len(roots))
 	normalized := make(map[string]string, len(roots))
@@ -30,19 +31,52 @@ func (c *Client) ReconcileManagedRoots(roots map[string]string) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("resolve managed root %q: %w", id, err)
 		}
+		cleaned := filepath.Clean(abs)
+		if previous, exists := normalized[id]; exists {
+			if previous != cleaned {
+				return 0, fmt.Errorf("managed root %q is configured more than once", id)
+			}
+			continue
+		}
 		ids = append(ids, id)
-		normalized[id] = filepath.Clean(abs)
+		normalized[id] = cleaned
 	}
 	sort.Strings(ids)
-	if len(ids) == 0 {
-		return 0, nil
-	}
 
 	tx, err := c.store.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
+
+	rows, err := tx.Query(`SELECT key FROM meta WHERE key LIKE ?`, managedRootMetaPrefix+"%")
+	if err != nil {
+		return 0, fmt.Errorf("list remembered managed roots: %w", err)
+	}
+	var staleKeys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan remembered managed root: %w", err)
+		}
+		id := strings.TrimPrefix(key, managedRootMetaPrefix)
+		if _, exists := normalized[id]; !exists {
+			staleKeys = append(staleKeys, key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("list remembered managed roots: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("close remembered managed roots: %w", err)
+	}
+	for _, key := range staleKeys {
+		if _, err := tx.Exec(`DELETE FROM meta WHERE key = ?`, key); err != nil {
+			return 0, fmt.Errorf("forget stale managed root %q: %w", key, err)
+		}
+	}
 
 	moved := 0
 	for _, id := range ids {
@@ -73,10 +107,46 @@ func (c *Client) ReconcileManagedRoots(roots map[string]string) (int, error) {
 		}
 		moved += count
 	}
+
+	if _, err := tx.Exec(`DELETE FROM managed_storage_target_locations`); err != nil {
+		return 0, fmt.Errorf("clear managed target memberships: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM managed_storage_targets`); err != nil {
+		return 0, fmt.Errorf("clear managed target catalog: %w", err)
+	}
+	for _, id := range ids {
+		root := normalized[id]
+		prefix, upper := managedRootRange(root)
+		if _, err := tx.Exec(`
+			INSERT INTO managed_storage_targets (target_id, root_path, path_prefix, path_upper)
+			VALUES (?, ?, ?, ?)`, id, root, prefix, upper); err != nil {
+			return 0, fmt.Errorf("record managed target %q: %w", id, err)
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO managed_storage_target_locations (target_id, location_id)
+			SELECT ?, id
+			FROM locations
+			WHERE path = ? OR (path >= ? AND path < ?)`, id, root, prefix, upper); err != nil {
+			return 0, fmt.Errorf("rebuild managed target %q membership: %w", id, err)
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return moved, nil
+}
+
+func managedRootRange(root string) (string, string) {
+	sep := string(os.PathSeparator)
+	prefix := root
+	if !strings.HasSuffix(prefix, sep) {
+		prefix += sep
+	}
+	// filepath separators are single-byte ASCII on supported platforms. The
+	// immediate successor creates an exact indexed lexical prefix range.
+	upper := prefix[:len(prefix)-1] + string(os.PathSeparator+1)
+	return prefix, upper
 }
 
 func rebaseManagedRootTx(tx interface {
@@ -85,14 +155,7 @@ func rebaseManagedRootTx(tx interface {
 	if oldRoot == newRoot {
 		return 0, nil
 	}
-	sep := string(os.PathSeparator)
-	prefix := oldRoot
-	if !strings.HasSuffix(prefix, sep) {
-		prefix += sep
-	}
-	// filepath separators are single-byte ASCII on supported platforms. The
-	// immediate successor creates an exact indexed lexical prefix range.
-	upper := prefix[:len(prefix)-1] + string(os.PathSeparator+1)
+	prefix, upper := managedRootRange(oldRoot)
 	res, err := tx.Exec(`
 		UPDATE locations
 		SET path = CASE

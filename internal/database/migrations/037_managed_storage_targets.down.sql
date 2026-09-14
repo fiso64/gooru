@@ -1,0 +1,4 @@
+DROP TRIGGER IF EXISTS managed_storage_target_locations_after_location_path_update;
+DROP TRIGGER IF EXISTS managed_storage_target_locations_after_location_insert;
+DROP TABLE IF EXISTS managed_storage_target_locations;
+DROP TABLE IF EXISTS managed_storage_targets;

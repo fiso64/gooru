@@ -9,6 +9,8 @@ const (
 	MetaTagTagged           = "tagged"
 	MetaTagFilenameContains = "filename_contains"
 	MetaTagSaved            = "saved"
+	MetaTagExternal         = "external"
+	MetaTagInTarget         = "in_target"
 )
 
 type MetaTagDefinition struct {
@@ -27,6 +29,8 @@ var metaTagDefinitions = []MetaTagDefinition{
 	{Name: MetaTagTagged, Syntax: "@tagged", Hint: "has tags", RequiresValue: false},
 	{Name: MetaTagFilenameContains, Syntax: "@filename_contains:", Hint: "filename contains", RequiresValue: true},
 	{Name: MetaTagSaved, Syntax: "@saved:", Hint: "saved search", RequiresValue: true},
+	{Name: MetaTagExternal, Syntax: "@external", Hint: "outside managed upload targets", RequiresValue: false},
+	{Name: MetaTagInTarget, Syntax: "@in_target:", Hint: "managed upload target", RequiresValue: true},
 }
 
 // MetaTags returns the backend-owned catalog of reserved query syntax exposed by
