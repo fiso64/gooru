@@ -12,7 +12,7 @@ function uploadFile(name: string): File {
 }
 
 describe('upload workflow row removal', () => {
-  it('keeps the remaining queue summary when a completed result row is removed', async () => {
+  it('recomputes the queue summary as completed result rows are removed', async () => {
     const workflow = createUploadWorkflow();
     workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
 
@@ -28,5 +28,9 @@ describe('upload workflow row removal', () => {
     workflow.removeAt(0);
     expect(workflow.items.map((item) => item.name)).toEqual(['second.jpg']);
     expect(workflow.status).toBe('1 imported');
+
+    workflow.removeAt(0);
+    expect(workflow.items).toEqual([]);
+    expect(workflow.status).toBe('');
   });
 });
