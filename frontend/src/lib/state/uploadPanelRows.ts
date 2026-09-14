@@ -1,7 +1,8 @@
-import type { UploadItem } from './uploadItems';
+import { countUploadStatuses, uploadSummaryFromCounts, type UploadItem, type UploadStatusCounts } from './uploadItems';
 
 export type IndexedUploadRow = { item: UploadItem; index: number };
 export type UploadQueueBatch = { batchID?: number; rows: IndexedUploadRow[]; bytes: number };
+export type UploadQueueBatchSummary = { progress: number; counts: UploadStatusCounts; status: string };
 export type UploadRowPage = { page: number; pageCount: number; rows: IndexedUploadRow[] };
 
 export function partitionUploadRows(rows: IndexedUploadRow[]): { staged: IndexedUploadRow[]; queue: IndexedUploadRow[] } {
@@ -37,6 +38,17 @@ export function groupUploadQueueRows(rows: IndexedUploadRow[]): UploadQueueBatch
     if (right.batchID == null) return -1;
     return right.batchID - left.batchID;
   });
+}
+
+export function summarizeUploadQueueBatch(batch: UploadQueueBatch): UploadQueueBatchSummary {
+  const items = batch.rows.map((row) => row.item);
+  const counts = countUploadStatuses(items);
+  if (!items.length) return { progress: 0, counts, status: '' };
+
+  const progress = Math.round(
+    items.reduce((sum, item) => sum + Math.max(0, Math.min(100, item.progress)), 0) / items.length
+  );
+  return { progress, counts, status: uploadSummaryFromCounts(counts) };
 }
 
 export function paginateUploadRows(rows: IndexedUploadRow[], requestedPage: number, requestedPageSize: number): UploadRowPage {
