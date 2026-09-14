@@ -2,14 +2,10 @@ package gooru
 
 import "gooru.local/types"
 
-func (c *Client) ListPendingMediaMetadataContentHashes(limit int) ([]string, error) {
-	return c.store.ListPendingMediaMetadataContentHashes(limit)
+func (c *Client) ListPendingMediaMetadataFiles(afterLocationID int64, limit int) ([]types.FileInfo, error) {
+	return c.store.ListPendingMediaMetadataFiles(afterLocationID, limit)
 }
 
-func (c *Client) GetMediaMetadataByContentHash(hash string) (types.MediaMetadata, bool, error) {
-	return c.store.GetMediaMetadataByContentHash(hash)
-}
-
-func (c *Client) UpsertMediaMetadataForContentHash(hash string, meta types.MediaMetadata) error {
-	return c.store.UpsertMediaMetadataForContentHash(hash, meta)
+func (c *Client) UpsertMediaMetadataForLocation(locationID int64, expectedHash, expectedPath string, meta types.MediaMetadata) (bool, error) {
+	return c.store.UpsertMediaMetadataForLocation(locationID, expectedHash, expectedPath, meta)
 }

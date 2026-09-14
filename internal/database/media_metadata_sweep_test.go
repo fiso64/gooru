@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"io"
 	"log"
 	"testing"
@@ -9,65 +10,141 @@ import (
 	"gooru.local/types"
 )
 
-func TestMediaMetadataSweepReusesAndFansOutByContentHash(t *testing.T) {
+func newMediaMetadataSweepTestStore(t *testing.T) (*Store, *sql.DB) {
+	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
 	if err := RunMigrations(db); err != nil {
+		db.Close()
 		t.Fatalf("RunMigrations: %v", err)
 	}
-	store := &Store{DB: db, logger: log.New(io.Discard, "", 0)}
-	if _, err := db.Exec(`INSERT INTO contents (hash) VALUES ('same'), ('other')`); err != nil {
+	return &Store{DB: db, logger: log.New(io.Discard, "", 0)}, db
+}
+
+func TestMediaMetadataSweepPaginatesPendingLocations(t *testing.T) {
+	store, db := newMediaMetadataSweepTestStore(t)
+	defer db.Close()
+
+	if _, err := db.Exec(`INSERT INTO contents (hash) VALUES ('same')`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 130; i++ {
+		path := fmt.Sprintf("/%03d.jpg", i)
+		if _, err := db.Exec(`
+			INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension)
+			VALUES (?, 'same', ?, 1, 1, '.jpg')`, fmt.Sprintf("file_%03d", i), path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first, err := store.ListPendingMediaMetadataFiles(0, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 128 {
+		t.Fatalf("first pending page length = %d, want 128", len(first))
+	}
+	second, err := store.ListPendingMediaMetadataFiles(first[len(first)-1].ID, 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 2 {
+		t.Fatalf("second pending page length = %d, want 2", len(second))
+	}
+	if second[0].ID <= first[len(first)-1].ID {
+		t.Fatalf("keyset cursor did not advance: first last=%d second first=%d", first[len(first)-1].ID, second[0].ID)
+	}
+}
+
+func TestMediaMetadataSweepTreatsSameHashLocationsIndependently(t *testing.T) {
+	store, db := newMediaMetadataSweepTestStore(t)
+	defer db.Close()
+
+	if _, err := db.Exec(`INSERT INTO contents (hash) VALUES ('same')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`
 		INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES
 		('file_a', 'same', '/a.jpg', 1, 1, '.jpg'),
-		('file_b', 'same', '/b.jpg', 1, 1, '.jpg'),
-		('file_c', 'other', '/c.bin', 1, 1, '.bin')`); err != nil {
+		('file_b', 'same', '/b.bin', 1, 1, '.bin')`); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := store.ListPendingMediaMetadataFiles(0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("pending locations = %d, want 2", len(files))
+	}
+	if files[0].Hash != files[1].Hash || files[0].Path == files[1].Path {
+		t.Fatalf("unexpected same-hash locations: %#v", files)
+	}
+
+	photo := types.MediaMetadata{MediaKind: "photo", MimeType: "image/jpeg"}
+	wrote, err := store.UpsertMediaMetadataForLocation(files[0].ID, files[0].Hash, files[0].Path, photo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !wrote {
+		t.Fatal("expected first location metadata write")
+	}
+	files, err = store.ListPendingMediaMetadataFiles(0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Path != "/b.bin" {
+		t.Fatalf("remaining pending locations = %#v, want only /b.bin", files)
+	}
+}
+
+func TestMediaMetadataSweepRejectsStaleLocationWrite(t *testing.T) {
+	store, db := newMediaMetadataSweepTestStore(t)
+	defer db.Close()
+
+	if _, err := db.Exec(`INSERT INTO contents (hash) VALUES ('old'), ('new')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`
-		INSERT INTO media_metadata (location_id, media_kind, mime_type, image_width, image_height)
-		SELECT id, 'photo', 'image/jpeg', 640, 480 FROM locations WHERE path = '/a.jpg'`); err != nil {
+		INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension)
+		VALUES ('file_a', 'old', '/a.jpg', 1, 1, '.jpg')`); err != nil {
 		t.Fatal(err)
 	}
+	files, err := store.ListPendingMediaMetadataFiles(0, 10)
+	if err != nil || len(files) != 1 {
+		t.Fatalf("pending files = %#v err=%v", files, err)
+	}
+	file := files[0]
 
-	hashes, err := store.ListPendingMediaMetadataContentHashes(10)
+	if _, err := db.Exec(`UPDATE locations SET content_hash = 'new' WHERE id = ?`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	wrote, err := store.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, types.MediaMetadata{MediaKind: "photo", MimeType: "image/jpeg"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hashes) != 2 || hashes[0] != "same" || hashes[1] != "other" {
-		t.Fatalf("pending hashes = %#v, want [same other]", hashes)
-	}
-	cached, found, err := store.GetMediaMetadataByContentHash("same")
-	if err != nil || !found {
-		t.Fatalf("cached metadata found=%v err=%v", found, err)
-	}
-	if cached.ImageWidth == nil || *cached.ImageWidth != 640 {
-		t.Fatalf("cached image width = %v, want 640", cached.ImageWidth)
-	}
-	if err := store.UpsertMediaMetadataForContentHash("same", cached); err != nil {
-		t.Fatal(err)
-	}
-	var sameRows int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE l.content_hash = 'same'`).Scan(&sameRows); err != nil {
-		t.Fatal(err)
-	}
-	if sameRows != 2 {
-		t.Fatalf("same-hash metadata rows = %d, want 2", sameRows)
+	if wrote {
+		t.Fatal("stale rehash write unexpectedly succeeded")
 	}
 
-	if err := store.UpsertMediaMetadataForContentHash("other", types.MediaMetadata{MediaKind: "other", MimeType: "application/octet-stream"}); err != nil {
+	if _, err := db.Exec(`UPDATE locations SET content_hash = 'old', path = '/a.bin', extension = '.bin' WHERE id = ?`, file.ID); err != nil {
 		t.Fatal(err)
 	}
-	hashes, err = store.ListPendingMediaMetadataContentHashes(10)
+	wrote, err = store.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, types.MediaMetadata{MediaKind: "photo", MimeType: "image/jpeg"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hashes) != 0 {
-		t.Fatalf("pending hashes after unsupported marker = %#v, want none", hashes)
+	if wrote {
+		t.Fatal("stale rename write unexpectedly succeeded")
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM media_metadata WHERE location_id = ?`, file.ID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("stale metadata rows = %d, want 0", count)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -15,8 +14,8 @@ import (
 )
 
 const (
-	backgroundMediaMetadataTaskKind      = "upload.metadata-finalize"
-	backgroundMediaMetadataSweepTaskKind = "media.metadata-sweep"
+	backgroundMediaMetadataTaskKind       = "upload.metadata-finalize"
+	backgroundMediaMetadataSweepTaskKind  = "media.metadata-sweep"
 	backgroundMediaMetadataSweepBatchSize = 64
 )
 
@@ -143,49 +142,53 @@ func (s *Server) backgroundMediaMetadataSweepHandler(ctx context.Context, task c
 	if task.SubjectKind != "library" || task.SubjectID != "media-metadata" {
 		return fmt.Errorf("media metadata sweep task has invalid subject")
 	}
+
+	var afterLocationID int64
+	var firstErr error
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		hashes, err := library.client.ListPendingMediaMetadataContentHashes(backgroundMediaMetadataSweepBatchSize)
+		files, err := library.client.ListPendingMediaMetadataFiles(afterLocationID, backgroundMediaMetadataSweepBatchSize)
 		if err != nil {
 			return fmt.Errorf("list pending media metadata: %w", err)
 		}
-		if len(hashes) == 0 {
-			return nil
+		if len(files) == 0 {
+			return firstErr
 		}
-		for _, hash := range hashes {
+		for _, file := range files {
+			// Advance the keyset cursor before doing fallible work so one bad file
+			// cannot prevent later locations from being attempted in this run.
+			afterLocationID = file.ID
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			cached, found, err := library.client.GetMediaMetadataByContentHash(hash)
+
+			resolved, err := library.client.ResolveManagedStorage(file)
 			if err != nil {
-				return fmt.Errorf("reuse media metadata for %s: %w", hash, err)
-			}
-			if found {
-				if err := library.client.UpsertMediaMetadataForContentHash(hash, cached); err != nil {
-					return fmt.Errorf("fan out cached media metadata for %s: %w", hash, err)
+				if firstErr == nil {
+					firstErr = fmt.Errorf("resolve media metadata storage for location %d: %w", file.ID, err)
 				}
 				continue
 			}
-
-			file, err := library.client.GetFileInfoByContentHash(hash)
-			if errors.Is(err, core.ErrContentNotTracked) {
+			metadata, err := library.mediaMetadataForFile(ctx, resolved, fileStoragePath(resolved))
+			if err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("extract media metadata for location %d: %w", file.ID, err)
+				}
 				continue
 			}
+			wrote, err := library.client.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, metadata)
 			if err != nil {
-				return fmt.Errorf("resolve media metadata content %s: %w", hash, err)
+				if firstErr == nil {
+					firstErr = fmt.Errorf("persist media metadata for location %d: %w", file.ID, err)
+				}
+				continue
 			}
-			file, err = library.client.ResolveManagedStorage(file)
-			if err != nil {
-				return fmt.Errorf("resolve media metadata storage for %s: %w", hash, err)
-			}
-			metadata, err := library.mediaMetadataForFile(ctx, file, fileStoragePath(file))
-			if err != nil {
-				return fmt.Errorf("extract media metadata for %s: %w", hash, err)
-			}
-			if err := library.client.UpsertMediaMetadataForContentHash(hash, metadata); err != nil {
-				return fmt.Errorf("persist media metadata for %s: %w", hash, err)
+			if !wrote {
+				// The location was removed, rehashed, or renamed while metadata was
+				// being extracted. Leave its current identity for a later sweep.
+				continue
 			}
 		}
 	}
