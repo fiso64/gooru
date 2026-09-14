@@ -2,7 +2,10 @@ package serve
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -11,7 +14,11 @@ import (
 	"gooru.local/types"
 )
 
-const backgroundMediaMetadataTaskKind = "upload.metadata-finalize"
+const (
+	backgroundMediaMetadataTaskKind      = "upload.metadata-finalize"
+	backgroundMediaMetadataSweepTaskKind = "media.metadata-sweep"
+	backgroundMediaMetadataSweepBatchSize = 64
+)
 
 type deferUploadMediaMetadataContextKey struct{}
 
@@ -75,7 +82,27 @@ func backgroundMediaMetadataTaskRequest(operationID string) core.BackgroundTaskR
 	}
 }
 
-func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types.FileInfo, analysisPath string) error {
+func backgroundMediaMetadataRegistrationHook(event core.FileRegistrationEvent) ([]core.BackgroundTaskRequest, error) {
+	if len(event.ContentHashes) == 0 {
+		return nil, nil
+	}
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, fmt.Errorf("build media metadata sweep wake: %w", err)
+	}
+	wakeID := hex.EncodeToString(nonce[:])
+	return []core.BackgroundTaskRequest{{
+		DedupeKey:     "media-metadata-sweep:" + wakeID,
+		Kind:          backgroundMediaMetadataSweepTaskKind,
+		SubjectKind:   "library",
+		SubjectID:     "media-metadata",
+		InputKey:      wakeID,
+		ResourceClass: backgroundThumbnailResourceClass,
+		MaxAttempts:   5,
+	}}, nil
+}
+
+func (l *GooruLibrary) mediaMetadataForFile(ctx context.Context, file types.FileInfo, analysisPath string) (types.MediaMetadata, error) {
 	provider := l.metadata
 	if provider == nil {
 		provider = BasicMediaMetadataProvider{}
@@ -84,10 +111,9 @@ func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types
 	mediaKind := mediaKindForType(mediaType)
 	metadata, err := l.importedMediaMetadata(ctx, provider, file, analysisPath, mediaType, mediaKind)
 	if err != nil {
-		return err
+		return types.MediaMetadata{}, err
 	}
-	return l.client.UpsertMediaMetadata(types.MediaMetadata{
-		LocationID:      file.ID,
+	return types.MediaMetadata{
 		MediaKind:       mediaKind,
 		MimeType:        mediaType,
 		ImageWidth:      metadata.ImageWidth,
@@ -97,7 +123,72 @@ func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types
 		DurationSeconds: metadata.VideoDuration,
 		FrameCount:      metadata.FrameCount,
 		PageCount:       metadata.PageCount,
-	})
+	}, nil
+}
+
+func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types.FileInfo, analysisPath string) error {
+	metadata, err := l.mediaMetadataForFile(ctx, file, analysisPath)
+	if err != nil {
+		return err
+	}
+	metadata.LocationID = file.ID
+	return l.client.UpsertMediaMetadata(metadata)
+}
+
+func (s *Server) backgroundMediaMetadataSweepHandler(ctx context.Context, task core.BackgroundTask) error {
+	library, ok := s.backgroundContent.(*GooruLibrary)
+	if !ok || library == nil {
+		return fmt.Errorf("media metadata library is not configured")
+	}
+	if task.SubjectKind != "library" || task.SubjectID != "media-metadata" {
+		return fmt.Errorf("media metadata sweep task has invalid subject")
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		hashes, err := library.client.ListPendingMediaMetadataContentHashes(backgroundMediaMetadataSweepBatchSize)
+		if err != nil {
+			return fmt.Errorf("list pending media metadata: %w", err)
+		}
+		if len(hashes) == 0 {
+			return nil
+		}
+		for _, hash := range hashes {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			cached, found, err := library.client.GetMediaMetadataByContentHash(hash)
+			if err != nil {
+				return fmt.Errorf("reuse media metadata for %s: %w", hash, err)
+			}
+			if found {
+				if err := library.client.UpsertMediaMetadataForContentHash(hash, cached); err != nil {
+					return fmt.Errorf("fan out cached media metadata for %s: %w", hash, err)
+				}
+				continue
+			}
+
+			file, err := library.client.GetFileInfoByContentHash(hash)
+			if errors.Is(err, core.ErrContentNotTracked) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("resolve media metadata content %s: %w", hash, err)
+			}
+			file, err = library.client.ResolveManagedStorage(file)
+			if err != nil {
+				return fmt.Errorf("resolve media metadata storage for %s: %w", hash, err)
+			}
+			metadata, err := library.mediaMetadataForFile(ctx, file, fileStoragePath(file))
+			if err != nil {
+				return fmt.Errorf("extract media metadata for %s: %w", hash, err)
+			}
+			if err := library.client.UpsertMediaMetadataForContentHash(hash, metadata); err != nil {
+				return fmt.Errorf("persist media metadata for %s: %w", hash, err)
+			}
+		}
+	}
 }
 
 func (s *Server) backgroundMediaMetadataHandler(ctx context.Context, task core.BackgroundTask) error {
