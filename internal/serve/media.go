@@ -48,7 +48,7 @@ type SourceQualityThumbnailer interface {
 type GoImageThumbnailer struct{}
 
 func (GoImageThumbnailer) BackendVersion() string {
-	return "go-image-v3"
+	return "go-image-v4"
 }
 
 func (t GoImageThumbnailer) Thumbnail(src string, dst io.Writer, size int, format string) error {
@@ -330,10 +330,10 @@ func scaleImage(src image.Image, maxSize int) image.Image {
 		return src
 	}
 	targetW, targetH := width, height
-	if width >= height && width > maxSize {
+	if width <= height && width > maxSize {
 		targetW = maxSize
 		targetH = maxSize * height / width
-	} else if height > width && height > maxSize {
+	} else if height < width && height > maxSize {
 		targetH = maxSize
 		targetW = maxSize * width / height
 	}

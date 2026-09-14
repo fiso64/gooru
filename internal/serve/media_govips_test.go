@@ -25,7 +25,7 @@ func TestImageThumbnailerUsesGovipsPrimary(t *testing.T) {
 	if err := thumbnailer.Thumbnail(imagePath, &out, 16, "jpeg"); err != nil {
 		t.Fatalf("expected govips backend to generate thumbnail: %v", err)
 	}
-	assertBoundedGovipsThumbnail(t, out.Bytes(), 16)
+	assertShortSideGovipsThumbnail(t, out.Bytes(), 16)
 }
 
 func TestGovipsThumbnailerReadsLogicalSourceBuffer(t *testing.T) {
@@ -41,10 +41,10 @@ func TestGovipsThumbnailerReadsLogicalSourceBuffer(t *testing.T) {
 	if err := thumbnailImageSourcePrimary(imagePath, bytes.NewReader(input), &out, 16, "jpeg", derivativeJPEGQuality); err != nil {
 		t.Fatalf("expected govips to generate thumbnail from logical source buffer: %v", err)
 	}
-	assertBoundedGovipsThumbnail(t, out.Bytes(), 16)
+	assertShortSideGovipsThumbnail(t, out.Bytes(), 16)
 }
 
-func assertBoundedGovipsThumbnail(t *testing.T, data []byte, size int) {
+func assertShortSideGovipsThumbnail(t *testing.T, data []byte, size int) {
 	t.Helper()
 	if len(data) == 0 {
 		t.Fatal("empty govips thumbnail")
@@ -54,7 +54,11 @@ func assertBoundedGovipsThumbnail(t *testing.T, data []byte, size int) {
 		t.Fatalf("decode govips thumbnail: %v", err)
 	}
 	bounds := img.Bounds()
-	if bounds.Dx() > size || bounds.Dy() > size {
-		t.Fatalf("expected bounded govips thumbnail, got %dx%d", bounds.Dx(), bounds.Dy())
+	shortSide := bounds.Dx()
+	if bounds.Dy() < shortSide {
+		shortSide = bounds.Dy()
+	}
+	if shortSide != size {
+		t.Fatalf("expected short side %d, got %dx%d", size, bounds.Dx(), bounds.Dy())
 	}
 }
