@@ -560,6 +560,43 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 	return affectedCount, nil
 }
 
+func (c *Client) persistTaggingFollowUpInTx(tx *databaseTx, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, affectedCount int64) error {
+	for _, task := range tasks {
+		if _, _, err := c.enqueueBackgroundTask(tx, task); err != nil {
+			return fmt.Errorf("failed to enqueue background task: %w", err)
+		}
+	}
+	if stateBuilder == nil {
+		return nil
+	}
+	state, err := stateBuilder(int(affectedCount))
+	if err != nil {
+		return fmt.Errorf("build background operation transaction state: %w", err)
+	}
+	if state.OperationID == "" && state.TaskID == "" {
+		return errors.New("background transaction state requires an operation or task id")
+	}
+	checkpointJSON, err := json.Marshal(state.Checkpoint)
+	if err != nil {
+		return fmt.Errorf("encode background transaction checkpoint: %w", err)
+	}
+	resultJSON, err := json.Marshal(state.Result)
+	if err != nil {
+		return fmt.Errorf("encode background transaction result: %w", err)
+	}
+	if state.TaskID != "" {
+		if err := setDatabaseBackgroundTaskState(c, tx, state.TaskID, checkpointJSON, resultJSON); err != nil {
+			return fmt.Errorf("persist background task transaction state: %w", err)
+		}
+	}
+	if state.OperationID != "" {
+		if err := setDatabaseBackgroundOperationState(c, tx, state.OperationID, checkpointJSON, resultJSON); err != nil {
+			return fmt.Errorf("persist background operation transaction state: %w", err)
+		}
+	}
+	return nil
+}
+
 // executeTaggingTransaction performs all database writes for a tagging operation.
 func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []string, kind opKind, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, finalizer taggingTransactionFinalizer) (int64, map[string]string, error) {
 	movesHandled := make(map[string]string) // newPath -> oldPath
@@ -612,42 +649,10 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 		return 0, nil, err
 	}
 
-	// 4. Persist durable follow-up work in the same transaction as content registration.
-	for _, task := range tasks {
-		if _, _, err := c.enqueueBackgroundTask(tx, task); err != nil {
-			return 0, nil, fmt.Errorf("failed to enqueue background task: %w", err)
-		}
-	}
-
-	// 5. Persist producer recovery state and the exact success payload before
-	// committing the domain mutation. A crash can therefore expose either the
-	// pre-import state or the complete replayable import state, never a split.
-	if stateBuilder != nil {
-		state, err := stateBuilder(int(affectedCount))
-		if err != nil {
-			return 0, nil, fmt.Errorf("build background operation transaction state: %w", err)
-		}
-		if state.OperationID == "" && state.TaskID == "" {
-			return 0, nil, errors.New("background transaction state requires an operation or task id")
-		}
-		checkpointJSON, err := json.Marshal(state.Checkpoint)
-		if err != nil {
-			return 0, nil, fmt.Errorf("encode background transaction checkpoint: %w", err)
-		}
-		resultJSON, err := json.Marshal(state.Result)
-		if err != nil {
-			return 0, nil, fmt.Errorf("encode background transaction result: %w", err)
-		}
-		if state.TaskID != "" {
-			if err := setDatabaseBackgroundTaskState(c, tx, state.TaskID, checkpointJSON, resultJSON); err != nil {
-				return 0, nil, fmt.Errorf("persist background task transaction state: %w", err)
-			}
-		}
-		if state.OperationID != "" {
-			if err := setDatabaseBackgroundOperationState(c, tx, state.OperationID, checkpointJSON, resultJSON); err != nil {
-				return 0, nil, fmt.Errorf("persist background operation transaction state: %w", err)
-			}
-		}
+	// 4. Persist durable follow-up work and producer recovery state in the same
+	// transaction as content registration.
+	if err := c.persistTaggingFollowUpInTx(tx, tasks, stateBuilder, affectedCount); err != nil {
+		return 0, nil, err
 	}
 
 	if finalizer != nil {

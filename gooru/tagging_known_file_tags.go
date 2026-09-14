@@ -1,8 +1,6 @@
 package gooru
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 
 	"gooru.local/internal/query"
@@ -64,37 +62,8 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(fil
 	if err != nil {
 		return result, err
 	}
-	for _, task := range tasks {
-		if _, _, err := c.enqueueBackgroundTask(tx, task); err != nil {
-			return result, fmt.Errorf("failed to enqueue background task: %w", err)
-		}
-	}
-	if stateBuilder != nil {
-		state, err := stateBuilder(int(affectedCount))
-		if err != nil {
-			return result, fmt.Errorf("build background operation transaction state: %w", err)
-		}
-		if state.OperationID == "" && state.TaskID == "" {
-			return result, errors.New("background transaction state requires an operation or task id")
-		}
-		checkpointJSON, err := json.Marshal(state.Checkpoint)
-		if err != nil {
-			return result, fmt.Errorf("encode background transaction checkpoint: %w", err)
-		}
-		resultJSON, err := json.Marshal(state.Result)
-		if err != nil {
-			return result, fmt.Errorf("encode background transaction result: %w", err)
-		}
-		if state.TaskID != "" {
-			if err := setDatabaseBackgroundTaskState(c, tx, state.TaskID, checkpointJSON, resultJSON); err != nil {
-				return result, fmt.Errorf("persist background task transaction state: %w", err)
-			}
-		}
-		if state.OperationID != "" {
-			if err := setDatabaseBackgroundOperationState(c, tx, state.OperationID, checkpointJSON, resultJSON); err != nil {
-				return result, fmt.Errorf("persist background operation transaction state: %w", err)
-			}
-		}
+	if err := c.persistTaggingFollowUpInTx(tx, tasks, stateBuilder, affectedCount); err != nil {
+		return result, err
 	}
 	if err := tx.Commit(); err != nil {
 		return result, err
