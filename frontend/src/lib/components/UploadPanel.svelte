@@ -9,7 +9,7 @@
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
-  import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
+  import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, summarizeUploadQueueBatch, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
 
   let {
     uploadFiles,
@@ -426,9 +426,16 @@
           <div class="upload-batches" data-testid="upload-queue-list">
             {#each queueBatches as batch (batch.batchID ?? 'legacy')}
               {@const pageState = queueBatchPage(batch)}
+              {@const batchSummary = summarizeUploadQueueBatch(batch)}
               <div class="g-card upload-list-card upload-batch-card" data-testid="upload-queue-batch" data-batch-id={batch.batchID ?? 'legacy'}>
                 <div class="upload-list-head upload-batch-head">
-                  <div class="g-eyebrow">{batchLabel(batch)} · {batch.rows.length} {batch.rows.length === 1 ? 'file' : 'files'} · {formatBytes(batch.bytes)}</div>
+                  <div>
+                    <div class="g-eyebrow">{batchLabel(batch)} · {batch.rows.length} {batch.rows.length === 1 ? 'file' : 'files'} · {formatBytes(batch.bytes)}</div>
+                    <div class="upload-batch-status">{batchSummary.status || 'Waiting'} · {batchSummary.progress}%</div>
+                  </div>
+                  <div class="progress upload-batch-progress" aria-label={`${batchLabel(batch)} ${batchSummary.progress}%`}>
+                    <div style={`width: ${batchSummary.progress}%`}></div>
+                  </div>
                 </div>
                 <div class="upload-list">
                   {#each pageState.rows as row (row.index)}
@@ -498,7 +505,22 @@
   }
 
   .upload-batch-head {
+    gap: 14px;
     padding: 12px 14px 0;
+  }
+
+  .upload-batch-status {
+    margin-top: 4px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: lowercase;
+  }
+
+  .upload-batch-progress {
+    flex: 1 1 180px;
+    max-width: 280px;
+    min-width: 140px;
   }
 
   .upload-list-pager {
