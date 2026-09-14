@@ -98,6 +98,18 @@ func TestGooruUploadImportReturnsStableFileIdentities(t *testing.T) {
 	if batchDuplicateID != importedID {
 		t.Fatalf("same-batch duplicate id = %q, want canonical imported id %q", batchDuplicateID, importedID)
 	}
+
+	updatedExisting, err := client.GetFileInfoByPath(existingPath)
+	if err != nil {
+		t.Fatalf("reload existing duplicate: %v", err)
+	}
+	tagSet := make(map[string]bool, len(updatedExisting.Tags))
+	for _, tag := range updatedExisting.Tags {
+		tagSet[tag] = true
+	}
+	if !tagSet["state:existing"] || !tagSet["uploaded"] {
+		t.Fatalf("existing duplicate tags = %v, want preserved state:existing plus uploaded", updatedExisting.Tags)
+	}
 }
 
 type uploadIdentityReplayImporter struct {

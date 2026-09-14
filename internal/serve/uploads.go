@@ -765,6 +765,11 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
 			}
 			dto.Status = "duplicate_existing"
+			if len(tags) > 0 {
+				if _, err := l.mutateTagPaths(TagOperationAdd, []string{existing.Path}, tags); err != nil {
+					return UploadImportResponse{}, fmt.Errorf("tag duplicate upload %q: %w", file.Name, err)
+				}
+			}
 			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
 			discardDuplicateUpload(file, trackedAtPath)
 			response.Files = append(response.Files, dto)
