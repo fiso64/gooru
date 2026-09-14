@@ -21,7 +21,7 @@ func TestStorageTargetSuggestions(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			items := storageTargetSuggestions(test.prefix, targets, test.limit)
-			got := make([]string, 0, len(items))
+			var got []string
 			for _, item := range items {
 				got = append(got, item.Name)
 			}
