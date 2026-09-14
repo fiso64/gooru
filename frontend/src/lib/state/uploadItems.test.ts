@@ -201,7 +201,7 @@ describe('large upload queue updates', () => {
     expect(items[9_999]).toBe(untouchedItem);
     expect(items.slice(0, 4).map((item) => item.progress)).toEqual([100, 100, 100, 100]);
     expect(counts).toEqual({ waiting: 9_996, uploading: 4 });
-    expect(uploadSummaryFromCounts(counts)).toBe('9996 waiting / 4 uploading / 1 imported'.replace(' / 1 imported', ''));
+    expect(uploadSummaryFromCounts(counts)).toBe('9996 waiting / 4 uploading');
 
     replaceUploadItemInPlace(items, 0, { ...items[0], status: 'imported', progress: 100 }, counts);
     expect(items[0]).toBe(activeItems[0]);
