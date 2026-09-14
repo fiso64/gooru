@@ -52,7 +52,7 @@ test('square gallery sizes thumbnails by the derivative short edge', async ({ pa
 });
 
 test('fit gallery keeps square virtual cells and sizes thumbnails against the padded media box', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 900 }); await mockApp(page, 'fit');
+  await page.setViewportSize({ width: 1080, height: 900 }); await mockApp(page, 'fit');
   const grid = page.getByTestId('virtual-media-grid'); await expect(grid).toHaveAttribute('data-grid-type', 'fit');
   const card = grid.locator('.thumb').nth(2); const box = await card.boundingBox(); expect(box?.width).toBeCloseTo(box?.height ?? 0, 0);
   const open = card.locator('.thumb-open'); await expect(open).toHaveCSS('padding-left', '20px'); await expect(open).toHaveCSS('padding-top', '20px');
