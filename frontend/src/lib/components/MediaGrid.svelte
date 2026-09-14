@@ -47,6 +47,7 @@
   const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));
   const virtualTotalCount = $derived(pagedMode ? files.length : totalCount || files.length);
   const virtualRetainedStartIndex = $derived(pagedMode ? 0 : retainedStartIndex);
+  const retainedFileIDs = $derived(new Set(files.map((file) => file.id)));
   const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));
   const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize, tileAspectOverrides));
   const tileVirtual = $derived(virtualMediaWindow(tileGeometry, paneHeight, paneScrollY, gridTop, layoutGridSize));
@@ -57,8 +58,15 @@
   function rememberThumbnailAspect(fileID: string, aspect: number) {
     if (!Number.isFinite(aspect) || aspect <= 0) return;
     const normalized = Math.min(8, Math.max(0.125, aspect));
-    if (Math.abs((tileAspectOverrides[fileID] ?? 0) - normalized) < 0.001) return;
-    tileAspectOverrides = { ...tileAspectOverrides, [fileID]: normalized };
+    const retainedOverrides: Record<string, number> = {};
+    let pruned = false;
+    for (const [id, value] of Object.entries(tileAspectOverrides)) {
+      if (retainedFileIDs.has(id)) retainedOverrides[id] = value;
+      else pruned = true;
+    }
+    if (!pruned && Math.abs((retainedOverrides[fileID] ?? 0) - normalized) < 0.001) return;
+    retainedOverrides[fileID] = normalized;
+    tileAspectOverrides = retainedOverrides;
   }
 
   function squareScrollWindowKey(scrollY: number) {
