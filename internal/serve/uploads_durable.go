@@ -134,7 +134,7 @@ func (s *Server) handleDurableUpload(w http.ResponseWriter, r *http.Request) {
 	attached := false
 	defer func() {
 		if !attached {
-			_, _ = operations.CancelBackgroundOperation(operation.ID)
+			failDurableUploadProducer(operations, operation.ID)
 		}
 	}()
 
@@ -259,7 +259,7 @@ func (s *Server) reserveDurableUpload(w http.ResponseWriter, operations durableU
 	committed := false
 	defer func() {
 		if !committed {
-			_, _ = operations.CancelBackgroundOperation(operation.ID)
+			failDurableUploadProducer(operations, operation.ID)
 		}
 	}()
 	if err := operations.SetBackgroundOperationCheckpoint(operation.ID, backgroundUploadReceivingCheckpoint(0, 0)); err != nil {
@@ -361,7 +361,7 @@ func (s *Server) backgroundUploadCleanupHandler(store durableUploadCleanupStore)
 func cleanupCanceledDurableUpload(store durableUploadCleanupStore, operationID string, task core.BackgroundTask) error {
 	files, _, err := decodeBackgroundUploadTask(task)
 	if err != nil {
-		return fmt.Errorf("decode canceled upload task: %w", err)
+		return fmt.Errorf("decode canceled background upload task: %w", err)
 	}
 	var checkpoint backgroundUploadCheckpoint
 	found, err := store.GetBackgroundOperationCheckpoint(operationID, &checkpoint)
