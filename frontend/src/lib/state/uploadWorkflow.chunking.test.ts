@@ -95,6 +95,52 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
     expect(workflow.items.map((item) => item.status)).toEqual(Array.from({ length: 2001 }, () => 'queued'));
   });
 
+  it('splits at item tag boundaries while preserving inherited common tags and one logical job', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.tags = 'project:inbox common';
+    workflow.select([uploadFile(0), uploadFile(1), uploadFile(2)]);
+    workflow.setItemTags(1, ['special']);
+    workflow.setItemTags(2, ['special']);
+
+    const calls: Array<{
+      names: string[];
+      tags: string[];
+      operationID?: string;
+      segmentIndex?: number;
+      segmentCount?: number;
+    }> = [];
+
+    await workflow.submit(async (variables) => {
+      calls.push({
+        names: variables.files.map((file) => file.name),
+        tags: [...variables.tags],
+        operationID: variables.operationID,
+        segmentIndex: variables.segmentIndex,
+        segmentCount: variables.segmentCount
+      });
+      return pendingJob('job-item-tags', 2);
+    });
+
+    expect(calls).toEqual([
+      {
+        names: ['file-0.jpg'],
+        tags: ['project:inbox', 'common'],
+        operationID: undefined,
+        segmentIndex: 0,
+        segmentCount: 2
+      },
+      {
+        names: ['file-1.jpg', 'file-2.jpg'],
+        tags: ['special'],
+        operationID: 'job-item-tags',
+        segmentIndex: 1,
+        segmentCount: 2
+      }
+    ]);
+    expect(workflow.activeJobIDs).toEqual(['job-item-tags']);
+    expect(workflow.items.map((item) => item.status)).toEqual(['queued', 'queued', 'queued']);
+  });
+
   it('keeps one visible job whether a selection uses one request or several', async () => {
     const small = createUploadWorkflow();
     small.select(Array.from({ length: 10 }, (_, index) => uploadFile(index)));
