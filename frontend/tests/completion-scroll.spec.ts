@@ -58,6 +58,9 @@ test('main search scrolls keyboard-selected completion into view', async ({ page
   await input.fill('test');
   const list = page.getByRole('listbox', { name: 'Search suggestions' });
   await expect(list).toBeVisible();
+  await list.evaluate((node) => {
+    (node as HTMLElement).style.maxHeight = '120px';
+  });
   for (let i = 0; i < 12; i += 1) await input.press('ArrowDown');
   await expectActiveInside(list);
 });
