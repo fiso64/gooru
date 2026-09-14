@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   itemsFromResult,
+  markUploadItemTagSyncAppliedInPlace,
   markUploadItemTagSyncErrorInPlace,
-  markUploadItemTagsSyncedInPlace,
   setUploadItemTagsInPlace,
   type UploadItem
 } from './uploadItems';
@@ -52,15 +52,15 @@ describe('upload item tag reconciliation state', () => {
     expect(items[0].tagSyncPending).toBe(true);
   });
 
-  it('keeps a newer edit pending when an older sync completes', () => {
+  it('keeps a newer edit pending when an older add completes', () => {
     const items = [item('imported', 'file-one')];
     setUploadItemTagsInPlace(items, 0, ['person:bob']);
-    const syncedSnapshot = [...(items[0].tags ?? [])];
     setUploadItemTagsInPlace(items, 0, ['person:carol']);
 
-    markUploadItemTagsSyncedInPlace(items, 0, syncedSnapshot);
+    markUploadItemTagSyncAppliedInPlace(items, 0, 'add', ['person:bob']);
     expect(items[0].tagSyncPending).toBe(true);
     expect(items[0].tags).toEqual(['person:carol']);
+    expect(items[0].tagSyncBaseTags).toEqual(['person:alice', 'person:bob']);
   });
 
   it('records a failed direct tag update without retry-looping automatically', () => {
