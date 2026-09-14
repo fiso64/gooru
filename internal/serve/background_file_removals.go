@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	backgroundFileRemovalTaskKind      = "files.remove"
-	backgroundFileRemovalResourceClass = "storage"
-	backgroundFileRemovalBatchVersion  = 2
+	backgroundFileRemovalTaskKind          = "files.remove"
+	backgroundFileRemovalResourceClass     = "storage"
+	backgroundFileRemovalBatchVersion      = 2
+	backgroundFileRemovalMixedBatchVersion = 3
 )
 
 // backgroundFileRemovalInput is the legacy one-file payload. Keep decoding it
@@ -46,13 +47,18 @@ func (s *Server) backgroundFileRemovalBatchTask(mode string, files []types.FileI
 	if len(files) == 0 {
 		return core.BackgroundTaskRequest{}, errors.New("file removal batch is empty")
 	}
+	version := backgroundFileRemovalBatchVersion
+	if mode == "delete_or_untrack" {
+		version = backgroundFileRemovalMixedBatchVersion
+	}
 	input := backgroundFileRemovalBatchInput{
-		Version: backgroundFileRemovalBatchVersion,
+		Version: version,
 		Mode:    mode,
 		Files:   make([]backgroundFileRemovalBatchFile, 0, len(files)),
 	}
 	stagingToken := ""
-	if mode == "delete" {
+	physicalDelete := mode == "delete" || mode == "delete_or_untrack"
+	if physicalDelete {
 		var err error
 		stagingToken, err = newFileRemovalToken()
 		if err != nil {
@@ -64,20 +70,22 @@ func (s *Server) backgroundFileRemovalBatchTask(mode string, files []types.FileI
 		if item.PublicID == "" {
 			return core.BackgroundTaskRequest{}, errors.New("file removal batch contains a file without public identity")
 		}
-		if mode == "delete" {
+		if physicalDelete {
 			managedPath, ok := s.managedDeleteCandidatePath(fileStoragePath(file))
-			if !ok {
+			if !ok && mode == "delete" {
 				return core.BackgroundTaskRequest{}, ErrFileNotManaged
 			}
-			item.OriginalPath = managedPath
-			item.StagingPath = filepath.Join(
-				filepath.Dir(managedPath),
-				fmt.Sprintf(".gooru-delete-%s-%06d", stagingToken, index),
-			)
+			if ok {
+				item.OriginalPath = managedPath
+				item.StagingPath = filepath.Join(
+					filepath.Dir(managedPath),
+					fmt.Sprintf(".gooru-delete-%s-%06d", stagingToken, index),
+				)
+			}
 		}
 		input.Files = append(input.Files, item)
 	}
-	if mode != "delete" && mode != "untrack" {
+	if mode != "delete" && mode != "untrack" && mode != "delete_or_untrack" {
 		return core.BackgroundTaskRequest{}, fmt.Errorf("file removal batch has invalid mode %q", mode)
 	}
 	encoded, err := json.Marshal(input)
@@ -110,7 +118,7 @@ func (s *Server) backgroundFileRemovalHandler(ctx context.Context, task core.Bac
 	if err := json.Unmarshal([]byte(task.InputKey), &envelope); err != nil {
 		return fmt.Errorf("decode file removal task envelope: %w", err)
 	}
-	if envelope.Version == backgroundFileRemovalBatchVersion {
+	if envelope.Version == backgroundFileRemovalBatchVersion || envelope.Version == backgroundFileRemovalMixedBatchVersion {
 		var input backgroundFileRemovalBatchInput
 		if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
 			return fmt.Errorf("decode file removal batch task: %w", err)
@@ -157,6 +165,21 @@ func (s *Server) runBackgroundFileRemovalBatch(ctx context.Context, input backgr
 		return err
 	case "delete":
 		return s.resumeManagedFileDeletionBatch(ctx, input.Files, publicIDs)
+	case "delete_or_untrack":
+		if input.Version != backgroundFileRemovalMixedBatchVersion {
+			return errors.New("mixed file removal batch has invalid version")
+		}
+		managedFiles := make([]backgroundFileRemovalBatchFile, 0, len(input.Files))
+		for _, file := range input.Files {
+			if file.OriginalPath == "" && file.StagingPath == "" {
+				continue
+			}
+			if file.OriginalPath == "" || file.StagingPath == "" {
+				return errors.New("mixed file removal batch has incomplete managed deletion paths")
+			}
+			managedFiles = append(managedFiles, file)
+		}
+		return s.resumeManagedFileDeletionBatch(ctx, managedFiles, publicIDs)
 	default:
 		return fmt.Errorf("file removal batch task has invalid mode %q", input.Mode)
 	}

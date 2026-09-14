@@ -256,7 +256,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     delete:
       summary: Untrack or physically delete a selected set of files.
-      description: Accepts the same explicit-ID or query-with-exclusions selector used by bulk UI actions. Physical deletion is accepted only when every selected file is inside configured upload targets.
+      description: Accepts the same explicit-ID or query-with-exclusions selector used by bulk UI actions. Strict physical deletion is accepted only when every selected file is inside configured upload targets. After explicit confirmation, delete_or_untrack deletes managed files while only untracking files outside configured upload targets.
       security:
         - sessionAuth: []
       parameters:
@@ -1479,7 +1479,7 @@ components:
           properties:
             mode:
               type: string
-              enum: [untrack, delete]
+              enum: [untrack, delete, delete_or_untrack]
     FileRemovalResponse:
       type: object
       required: [mode, selector, removed_locations]

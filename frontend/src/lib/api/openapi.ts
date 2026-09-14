@@ -432,7 +432,7 @@ export interface paths {
         post?: never;
         /**
          * Untrack or physically delete a selected set of files.
-         * @description Accepts the same explicit-ID or query-with-exclusions selector used by bulk UI actions. Physical deletion is accepted only when every selected file is inside configured upload targets.
+         * @description Accepts the same explicit-ID or query-with-exclusions selector used by bulk UI actions. Strict physical deletion is accepted only when every selected file is inside configured upload targets. After explicit confirmation, delete_or_untrack deletes managed files while only untracking files outside configured upload targets.
          */
         delete: {
             parameters: {
@@ -1884,7 +1884,7 @@ export interface components {
         };
         FileRemovalRequest: components["schemas"]["FileRemovalSelector"] & {
             /** @enum {string} */
-            mode: "untrack" | "delete";
+            mode: "untrack" | "delete" | "delete_or_untrack";
         };
         FileRemovalResponse: {
             /** @enum {string} */

@@ -41,3 +41,38 @@ func TestManagedRemovalResolvesPhysicalStoragePath(t *testing.T) {
 		t.Fatalf("managed delete task used wrong backing path: %+v", input.Files)
 	}
 }
+
+func TestMixedRemovalTaskDeletesManagedAndOnlyUntracksExternal(t *testing.T) {
+	managedRoot := t.TempDir()
+	managedPath := filepath.Join(managedRoot, "managed.jpg")
+	externalPath := filepath.Join(t.TempDir(), "external.jpg")
+	for _, path := range []string{managedPath, externalPath} {
+		if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Uploads.Targets = []UploadTarget{{ID: "managed", Name: "Managed", Path: managedRoot}}
+	server := NewServerWithLibrary(cfg, emptyLibrary{})
+
+	task, err := server.backgroundFileRemovalBatchTask("delete_or_untrack", []types.FileInfo{
+		{PublicID: "managed", Path: managedPath},
+		{PublicID: "external", Path: externalPath},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var input backgroundFileRemovalBatchInput
+	if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Version != backgroundFileRemovalMixedBatchVersion || input.Mode != "delete_or_untrack" || len(input.Files) != 2 {
+		t.Fatalf("unexpected mixed removal payload: %+v", input)
+	}
+	if input.Files[0].OriginalPath != managedPath || input.Files[0].StagingPath == "" {
+		t.Fatalf("managed file was not staged for deletion: %+v", input.Files[0])
+	}
+	if input.Files[1].OriginalPath != "" || input.Files[1].StagingPath != "" {
+		t.Fatalf("external file must only be untracked: %+v", input.Files[1])
+	}
+}
