@@ -46,6 +46,11 @@
   let runtimeGridSize = $state(defaultGridSize);
   let runtimeGridType = $state<GridType>('square');
   let faviconHref = $state('/favicon.svg');
+  const brandAccentStyle = $derived(runtimeTheme === 'booru-style'
+    ? `--brand-accent:${runtimeAccent?.accent ?? '#ffd060'};`
+    : runtimeAccent
+      ? `--brand-accent:${runtimeAccent.accent};`
+      : '');
 
   async function applyRuntimeConfig(config: UIConfig) {
     runtimeConfiguredTheme = normalizeConfiguredUITheme(config.ui_theme);
@@ -134,11 +139,6 @@
   <link rel="icon" href={faviconHref} type="image/svg+xml" />
 </svelte:head>
 
-{@const brandAccentStyle = runtimeTheme === 'booru-style'
-  ? `--brand-accent:${runtimeAccent?.accent ?? '#ffd060'};`
-  : runtimeAccent
-    ? `--brand-accent:${runtimeAccent.accent};`
-    : ''}
 <div
   class={`gooru-root gooru-theme-${runtimeTheme}${runtimeConfiguredTheme === 'default' ? '' : ` gooru-theme-${runtimeConfiguredTheme}`} gooru-accent-sodium${runtimeFontStyle ? ` gooru-type-${runtimeFontStyle}` : ''}`}
   style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;${brandAccentStyle}${runtimeTheme !== 'booru-style' && runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
