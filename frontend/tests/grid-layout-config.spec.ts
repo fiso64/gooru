@@ -12,6 +12,11 @@ function fileItem(index: number) {
       added_at: '2026-05-20T00:00:00Z', modified_time: '2026-05-20T00:00:00Z', media_type: 'application/vnd.comicbook+zip', media_kind: 'document',
       metadata: { image_width: 600, image_height: 900, page_count: 24 }, tags: [], media_urls: { thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`, content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download` }, can_delete: false };
   }
+  if (index === 3) {
+    return { id, content_id: `hash-${id}`, name: 'geom_00073_1200x1600.jpg', safe_display_path: 'library/geom_00073_1200x1600.jpg', size: 2048,
+      added_at: '2026-05-20T00:00:00Z', modified_time: '2026-05-20T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo',
+      metadata: {}, tags: [], media_urls: { thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`, content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download` }, can_delete: false };
+  }
   return { id, content_id: `hash-${id}`, name: `${id}.jpg`, safe_display_path: `library/${id}.jpg`, size: 2048,
     added_at: '2026-05-20T00:00:00Z', modified_time: '2026-05-20T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo',
     metadata: { image_width: width, image_height: height }, tags: [], media_urls: { thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`, content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download` }, can_delete: false };
@@ -25,8 +30,11 @@ async function mockApp(page: Page, gridType: 'square' | 'fit' | 'tile', gridSize
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], meta_tags: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files, total_count: 10_000, library_count: 10_000, facets: { kind: [{ value: 'photo', count: 10_000 }] }, next_page_token: '480' }) }));
-  await page.route('**/api/v1/files/file-0/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900"><rect width="600" height="900" fill="#777"/></svg>' }));
+  // Playwright gives later route registrations precedence, so register the generic
+  // thumbnail mock first and then layer file-specific derivative shapes on top.
   await page.route('**/api/v1/files/*/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#777"/></svg>' }));
+  await page.route('**/api/v1/files/file-0/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900"><rect width="600" height="900" fill="#777"/></svg>' }));
+  await page.route('**/api/v1/files/file-3/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="341"><rect width="256" height="341" fill="#777"/></svg>' }));
   await page.goto('/'); await expect(page.getByText('10,000 files')).toBeVisible();
 }
 
@@ -84,6 +92,14 @@ test('tile gallery uses CBZ cover metadata for aspect ratio and thumbnail sizing
   const dpr = await page.evaluate(() => window.devicePixelRatio);
   await expect(comic.locator('img')).toHaveAttribute('src', new RegExp(`[?&]size=${selectedSize(comicBox?.width ?? 0, comicBox?.height ?? 0, dpr, 600, 900, true)}(?:&|$)`));
   await expect(cards.nth(1).locator('img')).toHaveAttribute('src', new RegExp(`[?&]size=${selectedSize(secondBox?.width ?? 0, secondBox?.height ?? 0, dpr, 600, 900, true)}(?:&|$)`));
+
+  const missingDimensions = grid.locator('.virtual-media-item').filter({ has: page.getByAltText('geom_00073_1200x1600.jpg') });
+  await expect(missingDimensions).toBeVisible();
+  await expect.poll(async () => {
+    const box = await missingDimensions.boundingBox();
+    return (box?.width ?? 0) / (box?.height ?? 1);
+  }).toBeCloseTo(256 / 341, 1);
+
   await page.locator('.main').evaluate((node) => { node.scrollTop = 6000; node.dispatchEvent(new Event('scroll')); }); await page.waitForTimeout(100);
   expect(await cards.count()).toBeLessThan(160); expect(await cards.count()).toBeLessThan(retainedFiles / 2);
 });

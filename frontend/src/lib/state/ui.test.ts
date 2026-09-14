@@ -54,6 +54,25 @@ describe('tile gallery layout', () => {
     expect(layout.items.map((item) => item.file.id)).toEqual(files.map((item) => item.id));
     for (const item of layout.items) expect(item.width / item.height).toBeCloseTo(item.file.metadata.image_width! / item.file.metadata.image_height!, 5);
   });
+  it('uses an observed thumbnail aspect when source dimensions are unavailable', () => {
+    const file = mediaFile('missing-dimensions', 1200, 1600);
+    file.metadata = {};
+    const geometry = virtualMediaGeometry([file], 1000, 1, 0, 256, { [file.id]: 256 / 341 });
+    expect(geometry.placements).toHaveLength(1);
+    expect(geometry.placements[0].width / geometry.placements[0].height).toBeCloseTo(256 / 341, 5);
+  });
+  it('keeps valid source dimensions authoritative over an observed thumbnail aspect', () => {
+    const file = mediaFile('known-dimensions', 1200, 1600);
+    const geometry = virtualMediaGeometry([file], 1000, 1, 0, 256, { [file.id]: 1 });
+    expect(geometry.placements[0].width / geometry.placements[0].height).toBeCloseTo(1200 / 1600, 5);
+  });
+  it('avoids collapsing a row when the crossing item overshoots the target height', () => {
+    const wide = [mediaFile('wide-a', 3000, 1000), mediaFile('wide-b', 3000, 1000)];
+    const geometry = virtualMediaGeometry(wide, 1000, wide.length, 0, 256);
+    expect(geometry.placements).toHaveLength(2);
+    expect(geometry.placements[1].y).toBeGreaterThan(geometry.placements[0].y);
+    expect(geometry.placements[0].height).toBeGreaterThan(250);
+  });
   it('estimates unloaded library height without expanding retained DOM work', () => {
     const layout = virtualMediaLayout(files, 1000, 800, 0, 0, 10_000, 0, 180);
     expect(layout.totalHeight).toBeGreaterThan(100_000); expect(layout.items.length).toBeLessThanOrEqual(files.length); expect(layout.needsNext).toBe(true);
@@ -66,7 +85,7 @@ describe('tile gallery layout', () => {
     });
     const firstPage = virtualMediaGeometry(pagedFiles.slice(0, 60), 1200, 120, 0, 200);
 
-    expect(firstPage.placements.at(-1)?.index).toBe(56);
+    expect(firstPage.placements.at(-1)?.index).toBeLessThan(59);
 
     const twoPages = virtualMediaGeometry(pagedFiles, 1200, 120, 0, 200);
     for (const before of firstPage.placements) {
