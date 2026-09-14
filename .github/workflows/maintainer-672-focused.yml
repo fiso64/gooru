@@ -1,0 +1,30 @@
+name: Maintainer 672 focused
+
+on:
+  push:
+    branches:
+      - fix/672-ctrl-enter-tag-submit
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    name: Bulk tag keyboard regression
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+      - name: Install Chromium
+        run: npx playwright install chromium
+      - name: Run focused browser regression
+        run: npm run test:e2e -- bulk-tag-completions.spec.ts
