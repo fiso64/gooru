@@ -35,7 +35,6 @@
       { keys: ['d'], description: 'Download original' },
       { keys: ['Del'], description: 'Remove from library' },
       { keys: ['⇧', 'Del'], description: 'Delete file from disk' },
-      { keys: ['Esc'], description: 'Close viewer' }
     ]
   } as const;
 
