@@ -1928,6 +1928,8 @@ export interface components {
         };
         UploadImportResponse: {
             files: {
+                /** @description Opaque stable file-location identifier for imported or existing library content. Omitted when no library file identity is available. */
+                id?: string;
                 name: string;
                 /** Format: int64 */
                 size: number;

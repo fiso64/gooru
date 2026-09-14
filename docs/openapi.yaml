@@ -1577,6 +1577,9 @@ components:
             type: object
             required: [name, size, target_id, status]
             properties:
+              id:
+                type: string
+                description: Opaque stable file-location identifier for imported or existing library content. Omitted when no library file identity is available.
               name:
                 type: string
               size:
