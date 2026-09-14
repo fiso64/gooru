@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { flushSync, onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import { parseTags } from '$lib/utils/format';
@@ -94,7 +94,10 @@
         event.preventDefault();
         event.stopImmediatePropagation();
         if (!busy) {
-          if (modifiedSubmit && tagInput && tagDraft.trim()) commitTagInput(tagDraft);
+          if (modifiedSubmit && tagInput && tagDraft.trim()) {
+            commitTagInput(tagDraft);
+            flushSync();
+          }
           onConfirm();
         }
         return;
