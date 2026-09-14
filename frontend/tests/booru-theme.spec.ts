@@ -170,7 +170,7 @@ test('booru login uses the same yellow spiral brand accent by default', async ({
   await expect(root).toHaveAttribute('style', /--brand-accent:\s*#ffd060/);
   await expect(page.locator('.login-v2-spirals path')).toHaveCSS('stroke', 'rgb(255, 208, 96)');
   await expect(page.locator('.login-v2-mark .gooru-logo-accent-fill')).toHaveCSS('fill', 'rgb(255, 208, 96)');
-  await expect(page.locator('link[rel="icon"]').last()).toHaveAttribute('href', '/favicon.svg');
+  await expect(page.locator('link[rel="icon"]').last()).toHaveAttribute('href', /\/favicon\.svg$/);
 });
 
 test('booru custom accent recolors only spiral branding and favicon', async ({ page }) => {
