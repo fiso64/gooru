@@ -43,6 +43,7 @@ func TestCBZUploadImportAndOpenGoldenPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
 	}
+	waitForTestBackgroundIdle(t, client)
 
 	storedPath := filepath.Join(uploadDir, "book.cbz")
 	file, err := client.GetFileInfoByPath(storedPath)
