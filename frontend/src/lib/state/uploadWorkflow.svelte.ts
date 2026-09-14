@@ -3,6 +3,8 @@ import {
   countUploadStatuses,
   itemsFromJob,
   itemsFromResult,
+  markUploadItemTagSyncErrorInPlace,
+  markUploadItemTagsSyncedInPlace,
   queuedItem,
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
@@ -176,6 +178,14 @@ export function createUploadWorkflow() {
 
   function setItemTags(index: number, nextTags: string[]) {
     setUploadItemTagsInPlace(items, index, nextTags);
+  }
+
+  function markItemTagsSynced(index: number, syncedTags: string[]) {
+    markUploadItemTagsSyncedInPlace(items, index, syncedTags);
+  }
+
+  function markItemTagSyncError(index: number, message: string) {
+    markUploadItemTagSyncErrorInPlace(items, index, message);
   }
 
   function hasActiveJobs() {
@@ -489,6 +499,8 @@ export function createUploadWorkflow() {
     clear,
     removeAt,
     setItemTags,
+    markItemTagsSynced,
+    markItemTagSyncError,
     select,
     setTarget,
     applyJob,
