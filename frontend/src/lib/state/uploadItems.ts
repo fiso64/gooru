@@ -29,6 +29,7 @@ export interface UploadItem {
   targetID?: string;
   queueTimeMs?: number;
   remoteFileID?: string;
+  operationProgress?: number;
   status: UploadItemStatus;
   progress: number;
   error?: string;
@@ -101,11 +102,11 @@ export function markUploadItemTagSyncErrorInPlace(items: UploadItem[], index: nu
 }
 
 export function waitingUploadItems(items: UploadItem[]): UploadItem[] {
-  return items.map((item) => ({ ...item, status: 'waiting', progress: 0, error: '' }));
+  return items.map((item) => ({ ...item, status: 'waiting', progress: 0, operationProgress: undefined, error: '' }));
 }
 
 export function uploadingItem(items: UploadItem[], index: number): UploadItem[] {
-  return updateUploadItem(items, index, (item) => ({ ...item, status: 'uploading', progress: 0, error: '' }));
+  return updateUploadItem(items, index, (item) => ({ ...item, status: 'uploading', progress: 0, operationProgress: undefined, error: '' }));
 }
 
 export function uploadProgressItem(items: UploadItem[], index: number, progress: number): UploadItem[] {
@@ -114,7 +115,7 @@ export function uploadProgressItem(items: UploadItem[], index: number, progress:
 }
 
 export function queuedItem(items: UploadItem[], index: number): UploadItem[] {
-  return updateUploadItem(items, index, (item) => ({ ...item, status: 'queued', progress: 100 }));
+  return updateUploadItem(items, index, (item) => ({ ...item, status: 'queued', progress: 100, operationProgress: 0 }));
 }
 
 export function itemFromJob(items: UploadItem[], index: number, job: Job): UploadItem[] {
@@ -134,6 +135,7 @@ export function itemFromResult(items: UploadItem[], index: number, response: Upl
 export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
   const terminal = isTerminalJob(job);
   const completedPrefix = Math.max(0, Math.min(items.length, Math.trunc(job.progress_completed_prefix ?? 0)));
+  const operationProgress = jobOperationProgress(job);
   const status: UploadItemStatus =
     job.status === 'completed' ? 'imported' :
     job.status === 'canceled' ? 'canceled' :
@@ -146,6 +148,7 @@ export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
     ...item,
     status,
     progress: terminal || index < completedPrefix ? 100 : item.progress,
+    operationProgress,
     error: job.status === 'failed' ? job.error ?? 'Import failed' : item.error
   }));
 }
@@ -200,6 +203,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       targetID: file.target_id,
       queueTimeMs: prior?.queueTimeMs,
       remoteFileID: file.id ?? prior?.remoteFileID,
+      operationProgress: 100,
       status: file.status,
       progress: 100,
       error: file.error
@@ -244,6 +248,17 @@ export function uploadSummaryFromCounts(counts: UploadStatusCounts): string {
 export function uploadSummary(items: UploadItem[]): string {
   if (!items.length) return '';
   return uploadSummaryFromCounts(countUploadStatuses(items));
+}
+
+function jobOperationProgress(job: Job): number {
+  if (isTerminalJob(job)) return 100;
+  if (typeof job.progress === 'number' && Number.isFinite(job.progress)) {
+    return Math.max(0, Math.min(100, Math.round(job.progress * 100)));
+  }
+  const total = Math.max(0, job.progress_total ?? 0);
+  if (total <= 0) return 0;
+  const completed = Math.max(0, job.progress_completed ?? 0);
+  return Math.max(0, Math.min(100, Math.round((completed / total) * 100)));
 }
 
 function updateUploadItem(items: UploadItem[], index: number, update: (item: UploadItem) => UploadItem): UploadItem[] {

@@ -45,9 +45,15 @@ export function summarizeUploadQueueBatch(batch: UploadQueueBatch): UploadQueueB
   const counts = countUploadStatuses(items);
   if (!items.length) return { progress: 0, counts, status: '' };
 
-  const progress = Math.round(
-    items.reduce((sum, item) => sum + Math.max(0, Math.min(100, item.progress)), 0) / items.length
-  );
+  const transportActive = items.some((item) => item.status === 'waiting' || item.status === 'uploading');
+  const operationProgress = transportActive
+    ? []
+    : items.flatMap((item) => typeof item.operationProgress === 'number'
+      ? [Math.max(0, Math.min(100, item.operationProgress))]
+      : []);
+  const progress = operationProgress.length
+    ? Math.round(Math.min(...operationProgress))
+    : Math.round(items.reduce((sum, item) => sum + Math.max(0, Math.min(100, item.progress)), 0) / items.length);
   return { progress, counts, status: uploadSummaryFromCounts(counts) };
 }
 

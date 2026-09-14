@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { Job } from '$lib/api/types';
+import { itemsFromJob } from './uploadItems';
 import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, summarizeUploadQueueBatch, type IndexedUploadRow } from './uploadPanelRows';
 
 function uploadRow(index: number, batchID?: number): IndexedUploadRow {
@@ -62,7 +64,7 @@ describe('upload panel rows', () => {
     expect(batches[2]?.rows).toEqual([legacy]);
   });
 
-  it('summarizes batch progress and status counts from the existing job-backed rows', () => {
+  it('summarizes batch progress and status counts from row progress when no durable operation is active', () => {
     const rows = [uploadRow(0, 4), uploadRow(1, 4), uploadRow(2, 4), uploadRow(3, 4)];
     rows[0]!.item.status = 'imported';
     rows[0]!.item.progress = 100;
@@ -79,6 +81,46 @@ describe('upload panel rows', () => {
       counts: { imported: 1, importing: 2, error: 1 },
       status: '1 imported / 2 importing / 1 error'
     });
+  });
+
+  it('uses the already-polled durable operation progress after transport completes', () => {
+    const source = [uploadRow(0, 5).item, uploadRow(1, 5).item].map((item) => ({
+      ...item,
+      status: 'queued' as const,
+      progress: 100
+    }));
+    const job = {
+      id: 'upload-five',
+      type: 'upload_import',
+      status: 'running',
+      progress: 0.25,
+      progress_total: 2,
+      progress_completed: 0,
+      progress_completed_prefix: 0,
+      progress_failed: 0,
+      submitted_at: '2026-09-14T00:00:00Z'
+    } as Job;
+    const items = itemsFromJob(source, job);
+    const [batch] = groupUploadQueueRows(items.map((item, index) => ({ item, index })));
+
+    expect(items.map((item) => [item.progress, item.operationProgress])).toEqual([
+      [100, 25],
+      [100, 25]
+    ]);
+    expect(summarizeUploadQueueBatch(batch!).progress).toBe(25);
+  });
+
+  it('keeps transport progress while another segment is still uploading', () => {
+    const uploading = uploadRow(0, 6);
+    uploading.item.status = 'uploading';
+    uploading.item.progress = 50;
+    const queued = uploadRow(1, 6);
+    queued.item.status = 'queued';
+    queued.item.progress = 100;
+    queued.item.operationProgress = 0;
+    const [batch] = groupUploadQueueRows([uploading, queued]);
+
+    expect(summarizeUploadQueueBatch(batch!).progress).toBe(75);
   });
 
   it('paginates each batch independently and clamps stale page indices', () => {
