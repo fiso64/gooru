@@ -1,0 +1,249 @@
+name: Temporary #249 native item tags
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+    paths:
+      - .github/workflows/tmp-249-native-item-tags.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/249-upload-item-tags
+      - name: Patch native item-tag transport and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one occurrence, found {count}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          # Snapshot every per-file tag set at admission and transport it aligned with files.
+          replace_once(
+              'frontend/src/lib/state/uploadWorkflow.svelte.ts',
+              "    const submittedTags = segments[0]?.tags ?? parsedTags;\n",
+              "    const submittedItemTags = batchItemIndices.map((itemIndex) => [\n      ...(items[itemIndex]?.tags ?? parsedTags)\n    ]);\n"
+          )
+          replace_once(
+              'frontend/src/lib/state/uploadWorkflow.svelte.ts',
+              "    for (const itemIndex of batchItemIndices) {\n      const current = nextItems[itemIndex];\n      if (current) {\n        const syncBaseItem: UploadItem = {\n          ...current,\n          tags: [...(current.tags ?? parsedTags)],\n          tagSyncBaseTags: [...submittedTags]\n        };",
+              "    for (const [submissionIndex, itemIndex] of batchItemIndices.entries()) {\n      const current = nextItems[itemIndex];\n      if (current) {\n        const submittedTags = submittedItemTags[submissionIndex] ?? parsedTags;\n        const syncBaseItem: UploadItem = {\n          ...current,\n          tags: [...(current.tags ?? parsedTags)],\n          tagSyncBaseTags: [...submittedTags]\n        };"
+          )
+          replace_once(
+              'frontend/src/lib/state/uploadWorkflow.svelte.ts',
+              "          files: chunkFiles,\n          tags: segment.tags,\n",
+              "          files: chunkFiles,\n          tags: segment.tags,\n          itemTags: submittedItemTags.slice(currentChunkStart, chunkEnd).map((itemTags) => [...itemTags]),\n"
+          )
+
+          # Carry aligned item tags through the mutation boundary.
+          replace_once(
+              'frontend/src/lib/queries/library.ts',
+              "  tags: string[];\n  preferAsync: boolean;\n",
+              "  tags: string[];\n  itemTags?: string[][];\n  preferAsync: boolean;\n"
+          )
+          replace_once(
+              'frontend/src/lib/queries/library.ts',
+              "    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, operationID, segmentIndex, segmentCount, onProgress, signal }) => {",
+              "    mutationFn: ({ files, tags, itemTags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, operationID, segmentIndex, segmentCount, onProgress, signal }) => {"
+          )
+          replace_once(
+              'frontend/src/lib/queries/library.ts',
+              "          files,\n          tags,\n          targetID,\n",
+              "          files,\n          tags,\n          itemTags,\n          targetID,\n"
+          )
+          replace_once(
+              'frontend/src/lib/queries/library.ts',
+              "        queueTotal,\n        signal\n",
+              "        queueTotal,\n        itemTags,\n        signal\n"
+          )
+
+          # Normal multipart transport: validate before reservation and serialize explicit empties.
+          replace_once(
+              'frontend/src/lib/api/client.ts',
+              "  ): Promise<BackgroundOperation | UploadImportResponse> {\n    const baseURL = absoluteBaseURL(this.baseURL);\n",
+              "  ): Promise<BackgroundOperation | UploadImportResponse> {\n    if (ordering.itemTags !== undefined && ordering.itemTags.length !== files.length) {\n      throw new ApiError(0, 'invalid_upload_item_tags', 'Per-file upload tags must align with uploaded files');\n    }\n    const baseURL = absoluteBaseURL(this.baseURL);\n"
+          )
+          replace_once(
+              'frontend/src/lib/api/client.ts',
+              "    if (tags.length) form.append('tags', tags.join(' '));\n",
+              "    if (tags.length) form.append('tags', tags.join(' '));\n    for (const itemTags of ordering.itemTags ?? []) form.append('item_tags', itemTags.join(' '));\n"
+          )
+          replace_once(
+              'frontend/src/lib/api/client.ts',
+              "  queueTotal?: number[];\n  signal?: AbortSignal;\n",
+              "  queueTotal?: number[];\n  itemTags?: string[][];\n  signal?: AbortSignal;\n"
+          )
+
+          # Segmented multipart transport: same contract, checked before logical reservation.
+          replace_once(
+              'frontend/src/lib/api/segmentedUploads.ts',
+              "  tags: string[];\n  targetID: string;\n",
+              "  tags: string[];\n  itemTags?: string[][];\n  targetID: string;\n"
+          )
+          replace_once(
+              'frontend/src/lib/api/segmentedUploads.ts',
+              "  if (!Number.isInteger(request.segmentCount) || request.segmentCount <= 1) {\n",
+              "  if (request.itemTags !== undefined && request.itemTags.length !== request.files.length) {\n    throw new ApiError(0, 'invalid_upload_item_tags', 'Per-file upload tags must align with uploaded files');\n  }\n  if (!Number.isInteger(request.segmentCount) || request.segmentCount <= 1) {\n"
+          )
+          replace_once(
+              'frontend/src/lib/api/segmentedUploads.ts',
+              "  if (request.tags.length) form.append('tags', request.tags.join(' '));\n",
+              "  if (request.tags.length) form.append('tags', request.tags.join(' '));\n  for (const itemTags of request.itemTags ?? []) form.append('item_tags', itemTags.join(' '));\n"
+          )
+
+          # Preserve *[]string{ } as JSON [] instead of pointer-to-nil-slice JSON null.
+          changed = []
+          pattern = re.compile(r"func cloneUploadTags\(tags \*\[\]string\) \*\[\]string \{\n\tif tags == nil \{\n\t\treturn nil\n\t\}\n\tcopyTags := append\(\[\]string\(nil\), \(\*tags\)\.\.\.\)\n\treturn &copyTags\n\}")
+          replacement = "func cloneUploadTags(tags *[]string) *[]string {\n\tif tags == nil {\n\t\treturn nil\n\t}\n\tcopyTags := make([]string, len(*tags))\n\tcopy(copyTags, *tags)\n\treturn &copyTags\n}"
+          for p in Path('internal/serve').glob('*.go'):
+              text = p.read_text()
+              updated, count = pattern.subn(replacement, text)
+              if count:
+                  p.write_text(updated)
+                  changed.append(str(p))
+          if len(changed) != 1:
+              raise SystemExit(f'expected cloneUploadTags in exactly one file, changed={changed}')
+
+          # Durable staging must reject invalid tags as a client request error before task attachment.
+          replace_once(
+              'internal/serve/upload_durable_staging.go',
+              "\tif len(saved) == 1 && saved[0].status == \"error\" {\n\t\tif saved[0].error == errUploadTooLarge.Error() {\n\t\t\treturn parseUploadTags(tagValues), saved, nil\n\t\t}\n\t\treturn nil, saved, uploadFileError{name: saved[0].name, err: errors.New(saved[0].error)}\n\t}\n\treturn parseUploadTags(tagValues), saved, nil\n",
+              "\tparsedTags := parseUploadTags(tagValues)\n\tif err := validateUploadTags(parsedTags, saved); err != nil {\n\t\treturn nil, saved, multipartUploadError{message: err.Error(), err: err}\n\t}\n\tif len(saved) == 1 && saved[0].status == \"error\" {\n\t\tif saved[0].error == errUploadTooLarge.Error() {\n\t\t\treturn parsedTags, saved, nil\n\t\t}\n\t\treturn nil, saved, uploadFileError{name: saved[0].name, err: errors.New(saved[0].error)}\n\t}\n\treturn parsedTags, saved, nil\n"
+          )
+
+          # Workflow regression: one request, aligned per-file baselines, no N reconciliation mutations.
+          p = Path('frontend/src/lib/state/uploadWorkflow.chunking.test.ts')
+          text = p.read_text()
+          text = text.replace("it('keeps differing item tags in one request and reconciles only additive per-item deltas'", "it('keeps differing item tags in one request with aligned native per-file tags'")
+          text = text.replace(
+              "      tags: string[];\n      operationID?: string;",
+              "      tags: string[];\n      itemTags?: string[][];\n      operationID?: string;",
+              1
+          )
+          text = text.replace(
+              "        tags: [...variables.tags],\n        operationID: variables.operationID,",
+              "        tags: [...variables.tags],\n        itemTags: variables.itemTags?.map((itemTags) => [...itemTags]),\n        operationID: variables.operationID,",
+              1
+          )
+          old = """        names: ['file-0.jpg', 'file-1.jpg', 'file-2.jpg'],
+        tags: ['common'],
+        operationID: undefined,
+        segmentIndex: undefined,
+        segmentCount: 1
+"""
+          new = """        names: ['file-0.jpg', 'file-1.jpg', 'file-2.jpg'],
+        tags: ['common'],
+        itemTags: [
+          ['project:inbox', 'common'],
+          ['common', 'special'],
+          ['common', 'special']
+        ],
+        operationID: undefined,
+        segmentIndex: undefined,
+        segmentCount: 1
+"""
+          if old not in text:
+              raise SystemExit('chunking test: expected differing-tag call fixture')
+          text = text.replace(old, new, 1)
+          old = """    expect(workflow.items.map((item) => item.tagSyncBaseTags)).toEqual([['common'], ['common'], ['common']]);
+    expect(workflow.items.map((_, index) => workflow.itemTagSyncDelta(index))).toEqual([
+      { add: ['project:inbox'], remove: [] },
+      { add: ['special'], remove: [] },
+      { add: ['special'], remove: [] }
+    ]);
+    expect(workflow.items.map((item) => item.tagSyncPending)).toEqual([true, true, true]);
+"""
+          new = """    expect(workflow.items.map((item) => item.tagSyncBaseTags)).toEqual([
+      ['project:inbox', 'common'],
+      ['common', 'special'],
+      ['common', 'special']
+    ]);
+    expect(workflow.items.map((_, index) => workflow.itemTagSyncDelta(index))).toEqual([
+      { add: [], remove: [] },
+      { add: [], remove: [] },
+      { add: [], remove: [] }
+    ]);
+    expect(workflow.items.map((item) => item.tagSyncPending)).toEqual([false, false, false]);
+"""
+          if old not in text:
+              raise SystemExit('chunking test: expected old reconciliation fixture')
+          text = text.replace(old, new, 1)
+          text = text.replace(
+              "      expect(variables.tags).toEqual([]);\n      expect(variables.segmentCount).toBe(1);",
+              "      expect(variables.tags).toEqual([]);\n      expect(variables.itemTags).toEqual(files.map((_, index) => [`item:${index}`]));\n      expect(variables.segmentCount).toBe(1);",
+              1
+          )
+          text = text.replace(
+              "    expect(workflow.items.every((item) => item.tagSyncPending)).toBe(true);\n",
+              "    expect(workflow.items.every((item) => !item.tagSyncPending)).toBe(true);\n",
+              1
+          )
+          p.write_text(text)
+
+          # Multipart transport regressions, including explicit empty per-file tag lists.
+          replace_once(
+              'frontend/src/lib/api/client.uploadOrdering.test.ts',
+              "  it('preserves explicit non-canonical ordering metadata', async () => {",
+              "  it('serializes aligned per-file tags including explicit empty sets', async () => {\n    installXHR();\n    const batch = files(2);\n\n    await new ApiClient().uploadFiles(batch, ['fallback'], true, '', 'rename', undefined, {\n      itemTags: [['item:one'], []]\n    });\n\n    const form = xhr.body as FormData;\n    expect(form.getAll('item_tags')).toEqual(['item:one', '']);\n  });\n\n  it('preserves explicit non-canonical ordering metadata', async () => {"
+          )
+          replace_once(
+              'frontend/src/lib/api/segmentedUploads.test.ts',
+              "  it('reuses an existing logical operation without reserving again', async () => {",
+              "  it('serializes aligned per-file tags including explicit empty sets', async () => {\n    globalThis.fetch = (async () => {\n      throw new Error('unexpected reservation request');\n    }) as typeof fetch;\n    const xhr = installUploadXHR({ id: 'operation-existing', kind: 'upload_import', status: 'pending' });\n    const files = [\n      new File(['one'], 'one.txt', { type: 'text/plain' }),\n      new File(['two'], 'two.txt', { type: 'text/plain' })\n    ];\n\n    await uploadSegmentedFiles('secret-token', {\n      files,\n      tags: ['fallback'],\n      itemTags: [['item:one'], []],\n      targetID: 'default',\n      conflictPolicy: 'rename',\n      operationID: 'operation-existing',\n      segmentIndex: 1,\n      segmentCount: 2\n    });\n\n    expect((xhr.body as FormData).getAll('item_tags')).toEqual(['item:one', '']);\n  });\n\n  it('reuses an existing logical operation without reserving again', async () => {"
+          )
+
+          # Durable task JSON regression: explicit empty must survive encode/decode as non-nil []
+          # so it cannot accidentally fall back to global tags after restart.
+          p = Path('internal/serve/upload_item_tags_test.go')
+          text = p.read_text()
+          text = text.replace('import "testing"', 'import (\n\t"encoding/json"\n\t"testing"\n)')
+          text += '''\nfunc TestBackgroundUploadTaskPreservesExplicitEmptyItemTags(t *testing.T) {\n\temptyTags := []string{}\n\trequest, err := backgroundUploadTaskRequest("operation-item-tags", []savedUpload{{\n\t\tname: "empty.jpg", path: "/tmp/empty.jpg", targetID: "default", tags: &emptyTags,\n\t}}, []string{"fallback"})\n\tif err != nil {\n\t\tt.Fatalf("build background upload task: %v", err)\n\t}\n\tvar input backgroundUploadTaskInput\n\tif err := json.Unmarshal([]byte(request.InputKey), &input); err != nil {\n\t\tt.Fatalf("decode background upload task JSON: %v", err)\n\t}\n\tif len(input.Files) != 1 || input.Files[0].Tags == nil || len(*input.Files[0].Tags) != 0 {\n\t\tt.Fatalf("explicit empty item tags did not round-trip: %#v", input.Files)\n\t}\n}\n'''
+          p.write_text(text)
+          PY
+
+          gofmt -w internal/serve/background_uploads.go internal/serve/upload_durable_staging.go internal/serve/upload_item_tags_test.go
+
+          git diff --check
+          go test ./internal/serve
+          (
+            cd frontend
+            npm ci
+            npm run test:unit -- src/lib/api/client.uploadOrdering.test.ts src/lib/api/segmentedUploads.test.ts src/lib/state/uploadWorkflow.chunking.test.ts src/lib/state/uploadWorkflow.svelte.test.ts
+            npm run check
+          )
+
+          git config user.name "gooru-maintainer-bot"
+          git config user.email "maintainer@localhost"
+          git add \
+            frontend/src/lib/state/uploadWorkflow.svelte.ts \
+            frontend/src/lib/state/uploadWorkflow.chunking.test.ts \
+            frontend/src/lib/queries/library.ts \
+            frontend/src/lib/api/client.ts \
+            frontend/src/lib/api/client.uploadOrdering.test.ts \
+            frontend/src/lib/api/segmentedUploads.ts \
+            frontend/src/lib/api/segmentedUploads.test.ts \
+            internal/serve/background_uploads.go \
+            internal/serve/upload_durable_staging.go \
+            internal/serve/upload_item_tags_test.go
+          if git diff --cached --quiet; then
+            echo 'No source changes to commit'
+            exit 1
+          fi
+          git commit -m 'feat: send per-file upload tags natively'
+          git push origin HEAD:feat/249-upload-item-tags
