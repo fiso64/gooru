@@ -692,6 +692,7 @@
         onTargetInput={selectUploadTarget}
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
+        onItemTagsInput={upload.setItemTags}
         onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}
         onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}
