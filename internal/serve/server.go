@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -71,13 +72,19 @@ func (s *Server) SetAuthStore(store *AuthStore) {
 }
 
 func (s *Server) HTTPServer() *http.Server {
-	return &http.Server{
+	requestCtx, cancelRequests := context.WithCancel(context.Background())
+	server := &http.Server{
 		Addr:              s.cfg.Server.Listen,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: s.cfg.Server.ReadTimeout,
 		WriteTimeout:      s.cfg.Server.WriteTimeout,
 		IdleTimeout:       s.cfg.Server.IdleTimeout,
+		BaseContext: func(net.Listener) context.Context {
+			return requestCtx
+		},
 	}
+	server.RegisterOnShutdown(cancelRequests)
+	return server
 }
 
 func (s *Server) Handler() http.Handler {

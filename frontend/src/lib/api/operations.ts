@@ -5,6 +5,9 @@ export interface BackgroundOperation {
   id: string;
   kind: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+  outcome?: 'success' | 'partial_success' | 'error';
+  affected_count?: number;
+  failed_count?: number;
   stage?: 'receiving' | 'importing';
   progress_total: number;
   progress_completed: number;
@@ -101,6 +104,9 @@ export function backgroundOperationAsJob(operation: BackgroundOperation): Job {
     id: operation.id,
     type: operation.kind,
     status: operation.status,
+    outcome: operation.outcome,
+    affected_count: operation.affected_count,
+    failed_count: operation.failed_count,
     stage: operation.stage,
     progress,
     progress_total: operation.progress_total,
