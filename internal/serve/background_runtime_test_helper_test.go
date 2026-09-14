@@ -39,26 +39,30 @@ func startTestBackgroundRuntime(t *testing.T, server *Server, client *core.Clien
 	return stop
 }
 
+// waitForTestBackgroundIdle waits for the registration-triggered media metadata
+// backlog to drain. The upload operation itself has completed before current
+// callers enter this helper, so pending metadata is the remaining durable work
+// they need to synchronize with before asserting cached values.
 func waitForTestBackgroundIdle(t *testing.T, client *core.Client) {
 	t.Helper()
 
-	changes, cancelChanges := client.SubscribeBackgroundOperationChanges()
-	defer cancelChanges()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 
 	for {
-		active, err := client.CountActiveBackgroundOperations(false)
+		pending, err := client.ListPendingMediaMetadataContentHashes(1)
 		if err != nil {
-			t.Fatalf("count active background operations: %v", err)
+			t.Fatalf("list pending media metadata: %v", err)
 		}
-		if active == 0 {
+		if len(pending) == 0 {
 			return
 		}
 		select {
-		case <-changes:
+		case <-ticker.C:
 		case <-timer.C:
-			t.Fatalf("background runtime did not become idle; %d operations still active", active)
+			t.Fatalf("background runtime did not process pending media metadata for content hash %q", pending[0])
 		}
 	}
 }
