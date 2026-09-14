@@ -456,6 +456,7 @@ func TestGooruUploadImportCachesImageMetadata(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+	waitForTestBackgroundIdle(t, client)
 	file, err := client.GetFileInfoByPath(filepath.Join(uploadDir, "image.png"))
 	if err != nil {
 		t.Fatalf("get uploaded file: %v", err)
@@ -495,6 +496,7 @@ func TestGooruUploadImportCachesVideoMetadata(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+	waitForTestBackgroundIdle(t, client)
 	file, err := client.GetFileInfoByPath(filepath.Join(uploadDir, "clip.mp4"))
 	if err != nil {
 		t.Fatalf("get uploaded file: %v", err)
@@ -545,7 +547,7 @@ func uploadBinaryRequest(t *testing.T, files map[string][]byte, tags []string) *
 }
 
 func uploadBinaryRequestWithTarget(t *testing.T, files map[string][]byte, tags []string, targetID string) *http.Request {
-	return uploadBinaryRequestWithConflict(t, files, tags, targetID, "")
+	return uploadBinaryRequestWithConflict(t, files, tags, targetID, conflictPolicy)
 }
 
 func uploadBinaryRequestWithConflict(t *testing.T, files map[string][]byte, tags []string, targetID string, conflictPolicy string) *http.Request {
