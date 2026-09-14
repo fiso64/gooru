@@ -1,0 +1,117 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const session = {
+  user: { id: 'usr_test', username: 'viewer', role: 'admin' },
+  capabilities: { upload: true, tag: true, delete: true, admin: true },
+  csrf_token: 'csrf-viewer'
+};
+
+const png = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z1ioAAAAASUVORK5CYII=',
+  'base64'
+);
+
+async function mockUploadApp(page: Page) {
+  let loggedIn = false;
+  let uploadIndex = 0;
+  await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
+    status: loggedIn ? 200 : 401,
+    contentType: 'application/json',
+    body: JSON.stringify(loggedIn ? session : { error: { code: 'unauthorized', message: 'login required' } })
+  }));
+  await page.route('**/api/v1/auth/login', async (route) => {
+    loggedIn = true;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
+  });
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/uploads', async (route) => {
+    uploadIndex += 1;
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: `job-${uploadIndex}`,
+        kind: 'upload_import',
+        status: 'pending',
+        progress_total: 1,
+        progress_completed: 0,
+        progress_failed: 0,
+        created_at: '2026-09-14T00:00:00Z'
+      })
+    });
+  });
+  await page.route('**/api/v1/operations/job-*', async (route) => {
+    const id = route.request().url().split('/').at(-1) ?? '';
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id,
+        kind: 'upload_import',
+        status: 'pending',
+        progress_total: 1,
+        progress_completed: 0,
+        progress_failed: 0,
+        created_at: '2026-09-14T00:00:00Z'
+      })
+    });
+  });
+
+  await page.goto('/');
+  await page.getByLabel('Username').fill('viewer');
+  await page.getByLabel('Password').fill('correct horse');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Upload' }).click();
+}
+
+test('staged viewer ignores visual filtering and edits the underlying row tags', async ({ page }) => {
+  await mockUploadApp(page);
+  await page.locator('input[type="file"]').setInputFiles([
+    { name: 'alpha.png', mimeType: 'image/png', buffer: png },
+    { name: 'beta.png', mimeType: 'image/png', buffer: png },
+    { name: 'book.cbz', mimeType: 'application/vnd.comicbook+zip', buffer: Buffer.from('not-a-real-archive') }
+  ]);
+
+  await page.getByLabel('Filter staged files').fill('alpha');
+  await expect(page.getByRole('button', { name: 'Preview alpha.png' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Preview alpha.png' }).click();
+  const dialog = page.getByRole('dialog', { name: 'alpha.png' });
+  await expect(dialog).toBeVisible();
+
+  await page.getByRole('button', { name: 'Next media' }).click();
+  await expect(page.getByRole('dialog', { name: 'beta.png' })).toBeVisible();
+
+  const viewerTagInput = page.getByLabel('Add tag to beta.png');
+  await viewerTagInput.fill('viewer:edited');
+  await viewerTagInput.press('Enter');
+  await page.getByRole('button', { name: 'Close upload preview' }).click();
+
+  await page.getByLabel('Filter staged files').fill('');
+  await expect(page.getByRole('button', { name: 'Remove viewer:edited from beta.png' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Preview book.cbz' })).toBeDisabled();
+});
+
+test('queue viewer navigates across upload batches as one set', async ({ page }) => {
+  await mockUploadApp(page);
+  const chooser = page.locator('input[type="file"]');
+
+  await chooser.setInputFiles({ name: 'first.png', mimeType: 'image/png', buffer: png });
+  await page.getByRole('button', { name: 'Upload 1 file' }).click();
+  await expect(page.getByRole('button', { name: 'Preview first.png' })).toBeVisible();
+
+  await chooser.setInputFiles({ name: 'second.png', mimeType: 'image/png', buffer: png });
+  await page.getByRole('button', { name: 'Upload 1 file' }).click();
+  await expect(page.getByTestId('upload-queue-batch')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Preview second.png' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Preview first.png' }).click();
+  await expect(page.getByRole('dialog', { name: 'first.png' })).toBeVisible();
+  await page.getByRole('button', { name: 'Next media' }).click();
+  await expect(page.getByRole('dialog', { name: 'second.png' })).toBeVisible();
+});
