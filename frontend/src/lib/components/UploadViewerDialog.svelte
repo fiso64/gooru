@@ -136,7 +136,7 @@
     if (!changed.length) return;
     if (tagMode === 'remove') {
       const removed = new Set(changed);
-      setDesiredTags(currentTags.filter((tag) => !removed.has(tag)));
+      setDesiredTags(currentTags.filter((tag: string) => !removed.has(tag)));
     } else {
       setDesiredTags(Array.from(new Set([...currentTags, ...changed])));
     }
