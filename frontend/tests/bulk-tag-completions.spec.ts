@@ -86,8 +86,8 @@ async function openSelectedLibrary(page: Page) {
 test('Tag selected exposes existing tag completions without covering dialog actions', async ({ page }) => {
   await openSelectedLibrary(page);
 
-  await page.getByRole('button', { name: 'Tag…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
+  await page.getByRole('button', { name: 'Tag…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tag selected files', exact: true });
   await dialog.getByLabel('Tags').fill('rat');
   const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
   await expect(suggestions).toBeVisible();
@@ -99,8 +99,8 @@ test('Tag selected exposes existing tag completions without covering dialog acti
 test('Tag selected uses the same prefix-first ordering as main search', async ({ page }) => {
   await openSelectedLibrary(page);
 
-  await page.getByRole('button', { name: 'Tag…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
+  await page.getByRole('button', { name: 'Tag…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tag selected files', exact: true });
   await dialog.getByLabel('Tags').fill('te');
   const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
   await expect(suggestions).toBeVisible();
@@ -111,7 +111,7 @@ test('Untag selected exposes existing tag completions', async ({ page }) => {
   await openSelectedLibrary(page);
 
   await page.locator('.sb-actions button').filter({ hasText: 'Untag…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Untag selected files' });
+  const dialog = page.getByRole('dialog', { name: 'Untag selected files', exact: true });
   await dialog.getByLabel('Tags').fill('bl');
   const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
   await expect(suggestions).toBeVisible();
@@ -121,8 +121,8 @@ test('Untag selected exposes existing tag completions', async ({ page }) => {
 test('Ctrl+Enter commits a pending tag draft and submits tagging', async ({ page }) => {
   const tagRequests = await openSelectedLibrary(page);
 
-  await page.getByRole('button', { name: 'Tag…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
+  await page.getByRole('button', { name: 'Tag…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tag selected files', exact: true });
   const input = dialog.getByRole('textbox', { name: 'Tags' });
   await input.fill('rating:safe');
   await input.press('Control+Enter');
@@ -136,7 +136,7 @@ test('Ctrl+Enter commits a pending tag draft and submits untagging', async ({ pa
   const tagRequests = await openSelectedLibrary(page);
 
   await page.locator('.sb-actions button').filter({ hasText: 'Untag…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Untag selected files' });
+  const dialog = page.getByRole('dialog', { name: 'Untag selected files', exact: true });
   const input = dialog.getByRole('textbox', { name: 'Tags' });
   await input.fill('blue');
   await input.press('Control+Enter');
