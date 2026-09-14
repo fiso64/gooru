@@ -9,7 +9,7 @@
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
-  import { groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
+  import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
 
   let {
     uploadFiles,
@@ -65,6 +65,7 @@
   let fileInput: HTMLInputElement | undefined;
   let tagDraft = $state('');
   let itemTagDrafts = $state<Record<number, string>>({});
+  let stagedFilter = $state('');
   let stagedPage = $state(0);
   let queuePages = $state<Record<string, number>>({});
 
@@ -78,6 +79,7 @@
     return untrack(() => partitionUploadRows(rows));
   });
   const stagedRows = $derived(partitionedRows.staged);
+  const filteredStagedRows = $derived(filterUploadRows(stagedRows, stagedFilter));
   const queueRows = $derived(partitionedRows.queue);
   const queueBatches = $derived.by(() => {
     const rows = queueRows;
@@ -87,7 +89,7 @@
   const queueBytes = $derived(queueRows.reduce((sum: number, row: IndexedUploadRow) => sum + row.item.size, 0));
   const initialTags = $derived(parseTags(uploadTags));
   const selectedTargetID = $derived(effectiveUploadTargetID(targetID, targets));
-  const stagedPageState = $derived.by(() => paginateUploadRows(stagedRows, stagedPage, uploadListPageSize));
+  const stagedPageState = $derived.by(() => paginateUploadRows(filteredStagedRows, stagedPage, uploadListPageSize));
   const stagedPageCount = $derived(stagedPageState.pageCount);
   const stagedVisibleRows = $derived(stagedPageState.rows);
 
@@ -168,9 +170,34 @@
     onItemTagsInput(index, (item.tags ?? []).filter((candidate) => candidate !== tag));
   }
 
+  function resetStagedTransientState() {
+    itemTagDrafts = {};
+    stagedFilter = '';
+    stagedPage = 0;
+  }
+
+  function submitStaged() {
+    resetStagedTransientState();
+    onSubmit();
+  }
+
+  function clearRows(scope: 'staged' | 'done') {
+    itemTagDrafts = {};
+    if (scope === 'staged') {
+      stagedFilter = '';
+      stagedPage = 0;
+    }
+    onClear(scope);
+  }
+
   function removeStagedItem(index: number) {
     itemTagDrafts = {};
     onRemove(index);
+  }
+
+  function setStagedFilter(value: string) {
+    stagedFilter = value;
+    stagedPage = 0;
   }
 
   function itemIcon(item: UploadItem) {
@@ -195,7 +222,7 @@
     if (event.defaultPrevented || stagedRows.length === 0) return;
     if (uploadShortcutAction(event.key, event.target, event.ctrlKey, event.metaKey, event.altKey, event.shiftKey) !== 'submit-upload') return;
     event.preventDefault();
-    onSubmit();
+    submitStaged();
   }
 
 </script>
@@ -210,7 +237,7 @@
       <p>Files are content-hashed on receipt. Duplicates are detected automatically.</p>
     </div>
 
-    <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+    <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); submitStaged(); }}>
       <section class="g-card upload-config-card">
         <div class="field-row">
           <span>Target</span>
@@ -300,56 +327,68 @@
           <div class="upload-list-head">
             <div class="g-eyebrow">Staged · {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'} · {formatBytes(stagedBytes)}</div>
             <div class="upload-list-actions">
-              <button class="g-btn g-btn-sm" type="button" onclick={() => onClear('staged')}><Icon name="close" size={12} /> Clear staged</button>
+              <input
+                class="g-input compact upload-filter-input"
+                type="search"
+                value={stagedFilter}
+                placeholder="Filter staged files"
+                aria-label="Filter staged files"
+                oninput={(event) => setStagedFilter(event.currentTarget.value)}
+              />
+              <button class="g-btn g-btn-sm" type="button" onclick={() => clearRows('staged')}><Icon name="close" size={12} /> Clear staged</button>
               <button class="g-btn g-btn-primary g-btn-sm" type="submit">
                 <Icon name="upload" size={12} /> Upload {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'}
               </button>
             </div>
           </div>
           <div class="g-card upload-list-card">
-            <div class="upload-list" data-testid="staged-upload-list">
-              {#each stagedVisibleRows as row (row.index)}
-                {@const item = row.item}
-                <div class="upload-row upload-row-staged">
-                  <UploadMediaPreview file={item.previewFile} {item} />
-                  <div class="upload-item-main">
-                    <div class="name">{item.name}</div>
-                    <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
-                      {#each item.tags ?? [] as tag}
-                        {@const separator = tag.indexOf(':')}
-                        <span class="g-tag">
-                          {#if separator > 0}
-                            <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
-                          {:else}
-                            <span>{tag}</span>
-                          {/if}
-                          <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${item.name}`} onclick={() => removeItemTag(row.index, item, tag)}>
-                            <Icon name="close" size={11} />
-                          </button>
-                        </span>
-                      {/each}
-                      <TagAutocompleteInput
-                        value={itemTagDrafts[row.index] ?? ''}
-                        {tags}
-                        existing={item.tags ?? []}
-                        placeholder="add tag"
-                        ariaLabel={`Add tag to ${item.name}`}
-                        onInput={(value) => setItemTagDraft(row.index, value)}
-                        onCommit={(value) => commitItemTag(row.index, item, value)}
-                        onRemoveLast={(tag) => removeItemTag(row.index, item, tag)}
-                      />
+            {#if filteredStagedRows.length === 0}
+              <div class="upload-filter-empty">No staged files match this filter.</div>
+            {:else}
+              <div class="upload-list" data-testid="staged-upload-list">
+                {#each stagedVisibleRows as row (row.index)}
+                  {@const item = row.item}
+                  <div class="upload-row upload-row-staged">
+                    <UploadMediaPreview file={item.previewFile} {item} />
+                    <div class="upload-item-main">
+                      <div class="name">{item.name}</div>
+                      <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
+                        {#each item.tags ?? [] as tag}
+                          {@const separator = tag.indexOf(':')}
+                          <span class="g-tag">
+                            {#if separator > 0}
+                              <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
+                            {:else}
+                              <span>{tag}</span>
+                            {/if}
+                            <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${item.name}`} onclick={() => removeItemTag(row.index, item, tag)}>
+                              <Icon name="close" size={11} />
+                            </button>
+                          </span>
+                        {/each}
+                        <TagAutocompleteInput
+                          value={itemTagDrafts[row.index] ?? ''}
+                          {tags}
+                          existing={item.tags ?? []}
+                          placeholder="add tag"
+                          ariaLabel={`Add tag to ${item.name}`}
+                          onInput={(value) => setItemTagDraft(row.index, value)}
+                          onCommit={(value) => commitItemTag(row.index, item, value)}
+                          onRemoveLast={(tag) => removeItemTag(row.index, item, tag)}
+                        />
+                      </div>
+                    </div>
+                    <div class="size">{formatBytes(item.size)}</div>
+                    <div class="progress is-staged" aria-hidden="true"></div>
+                    <div class="status">
+                      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => removeStagedItem(row.index)}>
+                        <Icon name="close" size={11} />
+                      </button>
                     </div>
                   </div>
-                  <div class="size">{formatBytes(item.size)}</div>
-                  <div class="progress is-staged" aria-hidden="true"></div>
-                  <div class="status">
-                    <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => removeStagedItem(row.index)}>
-                      <Icon name="close" size={11} />
-                    </button>
-                  </div>
-                </div>
-              {/each}
-            </div>
+                {/each}
+              </div>
+            {/if}
             {#if stagedPageCount > 1}
               <div class="upload-list-pager">
                 <PageNav
@@ -381,7 +420,7 @@
                   <Icon name="close" size={12} /> {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
                 </button>
               {/if}
-              <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => onClear('done')}><Icon name="close" size={12} /> Clear done</button>
+              <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => clearRows('done')}><Icon name="close" size={12} /> Clear done</button>
             </div>
           </div>
           <div class="upload-batches" data-testid="upload-queue-list">
@@ -437,6 +476,19 @@
   .upload-item-tags {
     margin-top: 6px;
     min-height: 30px;
+  }
+
+  .upload-filter-input {
+    min-width: 190px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .upload-filter-empty {
+    padding: 18px 14px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
   }
 
   .upload-batches {
