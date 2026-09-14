@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { jobsRefreshFallbackIntervalMs } from '../src/lib/jobsEvents';
 
 const session = {
   user: { id: 'usr_test', username: 'mac', role: 'admin' },
@@ -74,25 +75,33 @@ async function signIn(page: Page) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('does not keep polling operations on idle screens', async ({ page }) => {
+test('refreshes durable operations when the SSE stream stays silent', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-08T08:00:00Z') });
   await mockAuth(page);
   await mockShellApis(page);
   await mockOperationEvents(page);
-  let operationRequests = 0;
+  let operationVisible = false;
   await page.route('**/api/v1/operations?**', async (route) => {
-    operationRequests += 1;
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) });
+    const items = operationVisible
+      ? [{ id: 'op-cross-process', kind: 'delete_files', status: 'running', progress_total: 2, progress_completed: 1, progress_failed: 0, created_at: '2026-09-08T08:00:00Z' }]
+      : [];
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ items, active_count: items.length, total_count: items.length })
+    });
   });
 
   await signIn(page);
-  await page.getByRole('button', { name: 'Tags' }).click();
-  await expect(page.getByRole('heading', { name: 'Tags' })).toBeVisible();
-  await expect.poll(() => operationRequests).toBeGreaterThan(0);
+  await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
+  await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
+  await expect(page.getByText('No background operations have been recorded.')).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as OperationEventTestWindow).__operationEventSourceCount ?? 0)).toBe(1);
-  await page.waitForTimeout(200);
-  const settledRequests = operationRequests;
-  await page.waitForTimeout(2300);
-  expect(operationRequests).toBe(settledRequests);
+
+  operationVisible = true;
+  await page.clock.fastForward(jobsRefreshFallbackIntervalMs);
+
+  await expect(page.locator('.jobs-card .job-row').filter({ hasText: 'Delete Files' })).toBeVisible();
+  await expect(page.locator('.jobs-card .status.running')).toHaveText('running');
 });
 
 test('refreshes active operations from one throttled SSE signal stream', async ({ page }) => {
