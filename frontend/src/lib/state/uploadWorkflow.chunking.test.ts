@@ -95,12 +95,12 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
     expect(workflow.items.map((item) => item.status)).toEqual(Array.from({ length: 2001 }, () => 'queued'));
   });
 
-  it('splits at item tag boundaries while preserving inherited common tags and one logical job', async () => {
+  it('keeps differing item tags in one request and reconciles only additive per-item deltas', async () => {
     const workflow = createUploadWorkflow();
     workflow.tags = 'project:inbox common';
     workflow.select([uploadFile(0), uploadFile(1), uploadFile(2)]);
-    workflow.setItemTags(1, ['special']);
-    workflow.setItemTags(2, ['special']);
+    workflow.setItemTags(1, ['common', 'special']);
+    workflow.setItemTags(2, ['common', 'special']);
 
     const calls: Array<{
       names: string[];
@@ -118,27 +118,46 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
         segmentIndex: variables.segmentIndex,
         segmentCount: variables.segmentCount
       });
-      return pendingJob('job-item-tags', 2);
+      return pendingJob('job-item-tags', 1);
     });
 
     expect(calls).toEqual([
       {
-        names: ['file-0.jpg'],
-        tags: ['project:inbox', 'common'],
+        names: ['file-0.jpg', 'file-1.jpg', 'file-2.jpg'],
+        tags: ['common'],
         operationID: undefined,
-        segmentIndex: 0,
-        segmentCount: 2
-      },
-      {
-        names: ['file-1.jpg', 'file-2.jpg'],
-        tags: ['special'],
-        operationID: 'job-item-tags',
-        segmentIndex: 1,
-        segmentCount: 2
+        segmentIndex: undefined,
+        segmentCount: 1
       }
     ]);
     expect(workflow.activeJobIDs).toEqual(['job-item-tags']);
     expect(workflow.items.map((item) => item.status)).toEqual(['queued', 'queued', 'queued']);
+    expect(workflow.items.map((item) => item.tagSyncBaseTags)).toEqual([['common'], ['common'], ['common']]);
+    expect(workflow.items.map((_, index) => workflow.itemTagSyncDelta(index))).toEqual([
+      { add: ['project:inbox'], remove: [] },
+      { add: ['special'], remove: [] },
+      { add: ['special'], remove: [] }
+    ]);
+    expect(workflow.items.map((item) => item.tagSyncPending)).toEqual([true, true, true]);
+  });
+
+  it('does not fragment a transport-sized batch when every item has a different tag set', async () => {
+    const workflow = createUploadWorkflow();
+    const files = Array.from({ length: 100 }, (_, index) => uploadFile(index));
+    workflow.select(files);
+    files.forEach((_, index) => workflow.setItemTags(index, [`item:${index}`]));
+    let requests = 0;
+
+    await workflow.submit(async (variables) => {
+      requests += 1;
+      expect(variables.files).toHaveLength(100);
+      expect(variables.tags).toEqual([]);
+      expect(variables.segmentCount).toBe(1);
+      return pendingJob('job-unique-tags', 1);
+    });
+
+    expect(requests).toBe(1);
+    expect(workflow.items.every((item) => item.tagSyncPending)).toBe(true);
   });
 
   it('captures submitted tags at synchronous admission and preserves later edits as a delta', async () => {

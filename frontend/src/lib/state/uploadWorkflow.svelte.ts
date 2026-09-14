@@ -65,22 +65,21 @@ export function uploadSubmissionSegments(
 ): UploadSubmissionSegment[] {
   if (!itemIndices.length) return [];
   const limit = Math.max(1, Math.trunc(maxFiles));
+  const firstTags = [...(items[itemIndices[0]]?.tags ?? fallbackTags)];
+  const commonTags = [...firstTags];
+
+  for (let index = 1; index < itemIndices.length && commonTags.length; index += 1) {
+    const tags = new Set(items[itemIndices[index]]?.tags ?? fallbackTags);
+    let writeIndex = 0;
+    for (const tag of commonTags) {
+      if (tags.has(tag)) commonTags[writeIndex++] = tag;
+    }
+    commonTags.length = writeIndex;
+  }
+
   const segments: UploadSubmissionSegment[] = [];
-  let start = 0;
-  let currentTags = [...(items[itemIndices[0]]?.tags ?? fallbackTags)];
-
-  const sameTags = (left: string[], right: string[]) =>
-    left.length === right.length && left.every((tag, index) => tag === right[index]);
-
-  for (let index = 1; index <= itemIndices.length; index += 1) {
-    const nextTags = index < itemIndices.length ? [...(items[itemIndices[index]]?.tags ?? fallbackTags)] : undefined;
-    const atSizeLimit = index - start >= limit;
-    const tagBoundary = nextTags !== undefined && !sameTags(currentTags, nextTags);
-    if (index < itemIndices.length && !atSizeLimit && !tagBoundary) continue;
-
-    segments.push({ start, end: index, tags: currentTags });
-    start = index;
-    if (nextTags !== undefined) currentTags = nextTags;
+  for (let start = 0; start < itemIndices.length; start += limit) {
+    segments.push({ start, end: Math.min(itemIndices.length, start + limit), tags: [...commonTags] });
   }
   return segments;
 }
@@ -326,17 +325,23 @@ export function createUploadWorkflow() {
     }
 
     const parsedTags = parseTags(tags);
+    const segments = uploadSubmissionSegments(batchItemIndices, items, parsedTags, multipartUploadChunkSize());
+    const submittedTags = segments[0]?.tags ?? parsedTags;
     const batchID = ++nextBatchID;
     const nextItems = [...items];
     for (const itemIndex of batchItemIndices) {
       const current = nextItems[itemIndex];
       if (current) {
-        const submittedTags = [...(current.tags ?? parsedTags)];
-        nextItems[itemIndex] = {
+        const syncBaseItem: UploadItem = {
           ...current,
+          tags: [...(current.tags ?? parsedTags)],
+          tagSyncBaseTags: [...submittedTags]
+        };
+        const syncDelta = uploadItemTagSyncDelta(syncBaseItem);
+        nextItems[itemIndex] = {
+          ...syncBaseItem,
           batchID,
-          tagSyncBaseTags: submittedTags,
-          tagSyncPending: false,
+          tagSyncPending: syncDelta.add.length > 0 || syncDelta.remove.length > 0,
           tagSyncError: '',
           status: 'uploading',
           progress: 0,
@@ -362,7 +367,6 @@ export function createUploadWorkflow() {
     let queued = false;
     let changedFiles = false;
     let currentChunkStart = 0;
-    const segments = uploadSubmissionSegments(batchItemIndices, items, parsedTags, multipartUploadChunkSize());
     const segmentCount = segments.length;
     let logicalOperationID = '';
 
