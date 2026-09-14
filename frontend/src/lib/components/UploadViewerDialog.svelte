@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
+  import PreviewDialog from './PreviewDialog.svelte';
   import ViewerSidebar from './ViewerSidebar.svelte';
   import ViewerStage from './ViewerStage.svelte';
   import { ApiClient } from '$lib/api/client';
@@ -20,7 +22,11 @@
     onIndex,
     onClose,
     onItemTagsInput,
-    onItemRemoteTagsLoaded
+    onItemRemoteTagsLoaded,
+    onRemove,
+    onRemoteUntrack,
+    onRemoteDelete,
+    onTagSearch
   } = $props<{
     uploadItems: UploadItem[];
     activeIndex: number;
@@ -30,8 +36,13 @@
     onClose: () => void;
     onItemTagsInput: (index: number, tags: string[]) => void;
     onItemRemoteTagsLoaded: (index: number, tags: string[]) => void;
+    onRemove: (index: number) => void;
+    onRemoteUntrack: (file: FileItem) => void;
+    onRemoteDelete: (file: FileItem) => void;
+    onTagSearch: (tag: string) => void;
   }>();
 
+  let dialogElement = $state<HTMLDivElement | undefined>();
   let localURL = $state('');
   let remoteFile = $state<FileItem | undefined>();
   let remoteLoading = $state(false);
@@ -63,30 +74,22 @@
       metadata: {}
     };
   });
-  const viewerFile = $derived<ViewerStageMedia | undefined>(remoteFile ?? localMedia);
-  const imageSource = $derived(viewerFile ? viewerImageSource(viewerFile, false) : '');
   const currentTags = $derived(tagOverride ?? activeItem?.tags ?? remoteFile?.tags ?? []);
-  const kindLabel = $derived(remoteFile?.media_kind ?? localMedia?.media_kind ?? 'media');
+  const remoteViewerFile = $derived(remoteFile ? { ...remoteFile, tags: currentTags } : undefined);
+  const imageSource = $derived(localMedia ? viewerImageSource(localMedia, false) : '');
+  const kindLabel = $derived(localMedia?.media_kind ?? 'media');
   const tagEditorID = $derived(`upload-${activeIndex}`);
   const sidebarMetadata = $derived.by(() => {
     const item = activeItem;
     if (!item) return [];
-    const rows: Array<{ label: string; value: string; className?: string }> = [];
-    if (remoteFile?.safe_display_path) rows.push({ label: 'Path', value: remoteFile.safe_display_path, className: 'path' });
-    rows.push(
+    const rows: Array<{ label: string; value: string; className?: string }> = [
       { label: 'Size', value: formatBytes(item.size) },
       { label: 'Status', value: item.status.replace(/_/g, ' ') },
-      { label: 'Mime', value: item.type || remoteFile?.media_type || 'unknown' }
-    );
+      { label: 'Mime', value: item.type || 'unknown' }
+    ];
     if (item.batchID != null) rows.push({ label: 'Batch', value: String(item.batchID) });
-    if (remoteFile?.content_id) rows.push({ label: 'Id', value: remoteFile.content_id, className: 'hash' });
     return rows;
   });
-  const tagStatus = $derived(activeItem?.tagSyncPending
-    ? activeItem.remoteFileID
-      ? 'Saving tag changes…'
-      : 'Tag changes will apply when import completes'
-    : '');
 
   $effect(() => {
     if (activeIndex === observedIndex) return;
@@ -144,13 +147,14 @@
 
   function setDesiredTags(nextTags: string[]) {
     tagOverride = nextTags;
+    if (remoteFile) remoteFile = { ...remoteFile, tags: nextTags };
     onItemTagsInput(activeIndex, nextTags);
   }
 
-  function commitTag(value: string) {
+  function commitTag(value: string, mode = tagMode) {
     const changed = parseTags(value);
     if (!changed.length) return;
-    if (tagMode === 'remove') {
+    if (mode === 'remove') {
       const removed = new Set(changed);
       setDesiredTags(currentTags.filter((tag: string) => !removed.has(tag)));
     } else {
@@ -168,8 +172,43 @@
     document.getElementById(`tags-${tagEditorID}`)?.focus();
   }
 
+  function toggleViewerFullscreen() {
+    dialogElement
+      ?.querySelector<HTMLButtonElement>('.viewer-stage .viewer-mode-button[aria-label="Toggle fullscreen"]')
+      ?.click();
+  }
+
+  function removeStagedItem() {
+    if (activeItem?.status !== 'staged') return;
+    const index = activeIndex;
+    onClose();
+    onRemove(index);
+  }
+
   function handleWindowKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event)) return;
+
+    if (remoteViewerFile) {
+      if (document.fullscreenElement && event.key === 'Escape') return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (!isEditableShortcutTarget(event.target)) {
+        if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'k') {
+          event.preventDefault();
+          event.stopPropagation();
+          move(-1);
+        } else if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'j') {
+          event.preventDefault();
+          event.stopPropagation();
+          move(1);
+        }
+      }
+      return;
+    }
+
     const tagInputID = `tags-${tagEditorID}`;
     if (
       (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
@@ -183,6 +222,18 @@
       move(event.key === 'ArrowLeft' ? -1 : 1);
       return;
     }
+    if (
+      (event.key === '+' || event.key === '-')
+      && event.target instanceof HTMLInputElement
+      && event.target.id === tagInputID
+      && event.target.value === ''
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      tagMode = event.key === '-' ? 'remove' : 'add';
+      return;
+    }
+    if (document.fullscreenElement && event.key === 'Escape') return;
     if (event.key === 'Escape') {
       event.preventDefault();
       onClose();
@@ -194,14 +245,48 @@
       event.preventDefault();
       event.stopPropagation();
       focusTagInput(key === 'u' ? 'remove' : 'add');
+      return;
+    }
+    if (event.key === 'Delete' && activeItem?.status === 'staged') {
+      event.preventDefault();
+      event.stopPropagation();
+      removeStagedItem();
     }
   }
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
 
-{#if activeItem}
+{#if activeItem && remoteViewerFile}
+  <PreviewDialog
+    file={remoteViewerFile}
+    tagDraft={tagDraft}
+    tagBusy={Boolean(activeItem.tagSyncPending)}
+    tagError={activeItem.tagSyncError ?? ''}
+    {tags}
+    {onClose}
+    onPrev={() => move(-1)}
+    onNext={() => move(1)}
+    onTagInput={(_fileID, value) => (tagDraft = value)}
+    onMutateTags={(_file, operation, value) => {
+      if (value == null || operation === 'set') return;
+      tagMode = operation;
+      commitTag(value, operation);
+    }}
+    onRemoveTag={(_file, tag) => removeTag(tag)}
+    {onTagSearch}
+    onUntrack={(file) => {
+      onClose();
+      onRemoteUntrack(file);
+    }}
+    onDelete={(file) => {
+      onClose();
+      onRemoteDelete(file);
+    }}
+  />
+{:else if activeItem}
   <div
+    bind:this={dialogElement}
     class="lightbox upload-viewer-backdrop"
     role="dialog"
     aria-modal="true"
@@ -223,7 +308,6 @@
       {tagMode}
       closeLabel="Close upload preview"
       removeTagFrom={activeItem.name}
-      {tagStatus}
       {onClose}
       onTagInput={(value) => (tagDraft = value)}
       onCommitTag={commitTag}
@@ -232,9 +316,9 @@
     />
 
     <section class="lightbox-stage upload-viewer-stage-wrap">
-      {#if viewerFile}
+      {#if localMedia}
         <ViewerStage
-          file={viewerFile}
+          file={localMedia}
           {imageSource}
           initialFitMode={$runtimeConfig.viewerFitMode}
           boundActualSizeToFit={$runtimeConfig.viewerActualSizeFitCap}
@@ -256,7 +340,19 @@
       {/if}
     </section>
 
-    <aside class="lightbox-rail upload-viewer-rail" aria-hidden="true"></aside>
+    <aside class="lightbox-rail upload-viewer-rail">
+      <button class="g-btn g-btn-ghost" type="button" title="Fullscreen (F)" aria-label="Toggle fullscreen" onclick={toggleViewerFullscreen}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+        </svg>
+      </button>
+      <div class="rail-spacer"></div>
+      {#if activeItem.status === 'staged'}
+        <button class="g-btn g-btn-ghost" type="button" title="Remove from staging (Delete)" aria-label={`Remove ${activeItem.name} from staging`} onclick={removeStagedItem}>
+          <Icon name="close" size={16} />
+        </button>
+      {/if}
+    </aside>
   </div>
 {/if}
 
