@@ -1,0 +1,42 @@
+name: maintainer-249-parent-wire
+
+on:
+  push:
+    branches: [feat/249-upload-item-tags]
+    paths:
+      - .github/workflows/maintainer-249-parent-wire.yml
+
+jobs:
+  wire:
+    runs-on: [self-hosted, gooru]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/249-upload-item-tags
+          fetch-depth: 0
+      - name: Wire shared viewer actions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/lib/components/AuthenticatedApp.svelte')
+          text = path.read_text()
+          old = '''        onItemTagsInput={setUploadItemTags}\n        onItemRemoteTagsLoaded={rebaseUploadItemTagsFromRemote}\n        onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}'''
+          new = '''        onItemTagsInput={setUploadItemTags}\n        onItemRemoteTagsLoaded={rebaseUploadItemTagsFromRemote}\n        onViewerUntrack={untrackPreview}\n        onViewerDelete={deletePreview}\n        onViewerTagSearch={library.runTagSearch}\n        onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}'''
+          if old not in text:
+              raise SystemExit('UploadPanel callback anchor not found')
+          text = text.replace(old, new, 1)
+          old = '''      } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {\n        await fileRemovalMutation.mutateAsync({ id: actionDialog.id, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });\n        if (library.activeFile?.id === actionDialog.id) library.closePreview();\n      }'''
+          new = '''      } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {\n        await fileRemovalMutation.mutateAsync({ id: actionDialog.id, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });\n        if (library.activeFile?.id === actionDialog.id) library.closePreview();\n        for (let index = upload.items.length - 1; index >= 0; index -= 1) {\n          if (upload.items[index]?.remoteFileID === actionDialog.id) upload.removeAt(index);\n        }\n      }'''
+          if old not in text:
+              raise SystemExit('file-removal anchor not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          rm .github/workflows/maintainer-249-parent-wire.yml
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add frontend/src/lib/components/AuthenticatedApp.svelte .github/workflows/maintainer-249-parent-wire.yml
+          git commit -m 'feat(upload): share remote viewer actions'
+          git push origin HEAD:feat/249-upload-item-tags
