@@ -1,0 +1,94 @@
+name: Maintainer 653
+
+on:
+  push:
+    branches:
+      - maintainer/653-fingerprint-label
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 30
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/653-fingerprint-label
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Apply #653 terminology changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('frontend/src/lib/components/PreviewDialog.svelte'): [
+                  ('<dt>Hash</dt><dd class="hash">{file.content_id}</dd>', '<dt>Fingerprint</dt><dd class="hash">{file.content_id}</dd>'),
+              ],
+              Path('docs/openapi.yaml'): [
+                  ('description: Content hash for the tracked file.', 'description: Content fingerprint for the tracked file.'),
+              ],
+              Path('frontend/tests/viewer-metadata.spec.ts'): [
+                  ("['Path', 'Size', 'Added', 'Modified', 'Mime', 'Hash']", "['Path', 'Size', 'Added', 'Modified', 'Mime', 'Fingerprint']"),
+                  ("await expect(genericMeta.locator('dd').nth(3)).toContainText('02 Sept 2026');", "await expect(genericMeta.locator('dd').nth(3)).toContainText('02 Sept 2026');\n  await expect(genericMeta.locator('dd').nth(5)).toHaveText('hash-text');"),
+              ],
+              Path('internal/serve/openapi_test.go'): [
+                  ('assertRef(t, stringMap(t, fileProps["metadata"]), "#/components/schemas/MediaMetadata")', 'contentID := stringMap(t, fileProps["content_id"])\n\tif got, _ := contentID["description"].(string); got != "Content fingerprint for the tracked file." {\n\t\tt.Fatalf("File content_id description = %q, want content fingerprint terminology", got)\n\t}\n\tassertRef(t, stringMap(t, fileProps["metadata"]), "#/components/schemas/MediaMetadata")'),
+              ],
+          }
+          for path, pairs in replacements.items():
+              text = path.read_text()
+              for old, new in pairs:
+                  count = text.count(old)
+                  if count != 1:
+                      raise SystemExit(f'{path}: expected one occurrence of {old!r}, found {count}')
+                  text = text.replace(old, new)
+              path.write_text(text)
+          PY
+
+      - name: Install frontend dependencies and regenerate API types
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix frontend ci --prefer-offline --no-audit
+          npm --prefix frontend run generate:api
+
+      - name: Validate OpenAPI contract
+        shell: bash
+        run: go test ./internal/serve -run TestOpenAPIDocumentsCurrentDTOFields
+
+      - name: Validate frontend types
+        shell: bash
+        run: npm --prefix frontend run check
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
+
+      - name: Validate viewer metadata regression
+        working-directory: frontend
+        run: npx playwright test tests/viewer-metadata.spec.ts
+
+      - name: Commit focused fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/maintainer-653.yml
+          git config user.name 'gooru-maintainer'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add frontend/src/lib/components/PreviewDialog.svelte docs/openapi.yaml frontend/src/lib/api/openapi.ts frontend/tests/viewer-metadata.spec.ts internal/serve/openapi_test.go .github/workflows/maintainer-653.yml
+          git diff --cached --check
+          git commit -m 'fix(ui): call content IDs fingerprints'
+          git push origin HEAD:maintainer/653-fingerprint-label
