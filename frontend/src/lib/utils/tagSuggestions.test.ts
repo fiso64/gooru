@@ -24,6 +24,13 @@ describe('mergeTagCandidateCounts', () => {
       { name: 'local:only', count: 2 }
     ]);
   });
+
+  it('increments structured backend candidates without adding a duplicate staged candidate', () => {
+    expect(mergeTagCandidateCounts(
+      [{ namespace: 'artist', value: 'alice', count: 8 }],
+      [['artist:alice'], ['artist:alice']]
+    )).toEqual([{ namespace: 'artist', value: 'alice', count: 10 }]);
+  });
 });
 
 describe('plainTagSuggestions', () => {
