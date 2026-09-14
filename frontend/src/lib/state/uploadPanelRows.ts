@@ -1,4 +1,4 @@
-import { countUploadStatuses, uploadSummaryFromCounts, type UploadItem, type UploadStatusCounts } from './uploadItems';
+import { uploadSummaryFromCounts, type UploadItem, type UploadStatusCounts } from './uploadItems';
 
 export type IndexedUploadRow = { item: UploadItem; index: number };
 export type UploadQueueBatch = { batchID?: number; rows: IndexedUploadRow[]; bytes: number };
@@ -41,19 +41,27 @@ export function groupUploadQueueRows(rows: IndexedUploadRow[]): UploadQueueBatch
 }
 
 export function summarizeUploadQueueBatch(batch: UploadQueueBatch): UploadQueueBatchSummary {
-  const items = batch.rows.map((row) => row.item);
-  const counts = countUploadStatuses(items);
-  if (!items.length) return { progress: 0, counts, status: '' };
+  const counts: UploadStatusCounts = {};
+  if (!batch.rows.length) return { progress: 0, counts, status: '' };
 
-  const transportActive = items.some((item) => item.status === 'waiting' || item.status === 'uploading');
-  const operationProgress = transportActive
-    ? []
-    : items.flatMap((item) => typeof item.operationProgress === 'number'
-      ? [Math.max(0, Math.min(100, item.operationProgress))]
-      : []);
-  const progress = operationProgress.length
-    ? Math.round(Math.min(...operationProgress))
-    : Math.round(items.reduce((sum, item) => sum + Math.max(0, Math.min(100, item.progress)), 0) / items.length);
+  let transportActive = false;
+  let itemProgressTotal = 0;
+  let operationProgressMinimum = 100;
+  let operationProgressCount = 0;
+  for (const row of batch.rows) {
+    const item = row.item;
+    counts[item.status] = (counts[item.status] ?? 0) + 1;
+    if (item.status === 'waiting' || item.status === 'uploading') transportActive = true;
+    itemProgressTotal += Math.max(0, Math.min(100, item.progress));
+    if (typeof item.operationProgress === 'number') {
+      operationProgressMinimum = Math.min(operationProgressMinimum, Math.max(0, Math.min(100, item.operationProgress)));
+      operationProgressCount += 1;
+    }
+  }
+
+  const progress = !transportActive && operationProgressCount > 0
+    ? Math.round(operationProgressMinimum)
+    : Math.round(itemProgressTotal / batch.rows.length);
   return { progress, counts, status: uploadSummaryFromCounts(counts) };
 }
 
