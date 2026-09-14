@@ -5,7 +5,7 @@
   import DefaultShellLayout from './DefaultShellLayout.svelte';
   import JobsDrawer from './JobsDrawer.svelte';
   import ShortcutsView from './ShortcutsView.svelte';
-  import type { ShellSavedSearch, ShellTagLike } from './shellModel';
+  import type { ShellLayoutActions, ShellLayoutModel, ShellNavigationRoute, ShellSavedSearch, ShellTagLike } from './shellModel';
   import { ApiClient } from '$lib/api/client';
   import type { Job, MetaTagDefinition } from '$lib/api/types';
   import { authState } from '$lib/stores/auth';
@@ -196,9 +196,13 @@
     }
   }
 
-  function openLibrary() {
-    if (route === 'library') onSearchCommit('');
-    onRoute('library');
+  function navigate(destination: ShellNavigationRoute) {
+    if (destination === 'library') {
+      if (route === 'library') onSearchCommit('');
+      onRoute('library');
+      return;
+    }
+    onRoute(destination);
   }
 
   function openAllJobs() {
@@ -256,88 +260,55 @@
     event.preventDefault();
     target.click();
   }
+
+  const layoutModel = $derived.by((): ShellLayoutModel => ({
+    username,
+    route,
+    libraryCount,
+    tagCount,
+    jobsActiveCount,
+    jobsDrawerOpen,
+    kindCounts,
+    comicCount,
+    comicAvailable,
+    savedSearches: orderedSavedSearches,
+    commonTags,
+    commonTagsCollapsed,
+    draggedSavedSearchID,
+    savedSearchReorderBusy,
+    savedSearchReorderError,
+    suggestions,
+    metaTags,
+    tags,
+    search
+  }));
+
+  const layoutActions = $derived.by((): ShellLayoutActions => ({
+    onNavigate: navigate,
+    onSavedSearch,
+    onCreateSavedSearch,
+    onUpdateSavedSearch,
+    onDeleteSavedSearch,
+    onSearchDraft,
+    onSearchCommit,
+    onJobs,
+    onToggleKind: toggleKind,
+    onToggleCommonTags: toggleCommonTags,
+    onCommonTag: openCommonTag,
+    onOpenShortcuts: openShortcuts,
+    onSavedSearchDragStart: startSavedSearchDrag,
+    onSavedSearchDragPreview: previewSavedSearchDrag,
+    onSavedSearchDragEnd: endSavedSearchDrag,
+    onSavedSearchDrop: dropSavedSearch
+  }));
 </script>
 
 <svelte:window onkeydowncapture={handleShellKeydown} />
 
 {#if $runtimeConfig.uiTheme === 'booru-style'}
-  <BooruShellLayout
-    {username}
-    {route}
-    {jobsActiveCount}
-    {jobsDrawerOpen}
-    {kindCounts}
-    {comicCount}
-    {comicAvailable}
-    savedSearches={orderedSavedSearches}
-    {commonTags}
-    {commonTagsCollapsed}
-    {draggedSavedSearchID}
-    {savedSearchReorderBusy}
-    {savedSearchReorderError}
-    {suggestions}
-    {metaTags}
-    {tags}
-    {search}
-    {onRoute}
-    onOpenLibrary={openLibrary}
-    {onSavedSearch}
-    {onCreateSavedSearch}
-    {onUpdateSavedSearch}
-    {onDeleteSavedSearch}
-    {onSearchDraft}
-    {onSearchCommit}
-    {onJobs}
-    onToggleKind={toggleKind}
-    onToggleCommonTags={toggleCommonTags}
-    onCommonTag={openCommonTag}
-    onOpenShortcuts={openShortcuts}
-    onSavedSearchDragStart={startSavedSearchDrag}
-    onSavedSearchDragPreview={previewSavedSearchDrag}
-    onSavedSearchDragEnd={endSavedSearchDrag}
-    onSavedSearchDrop={dropSavedSearch}
-    {children}
-  />
+  <BooruShellLayout model={layoutModel} actions={layoutActions} {children} />
 {:else}
-  <DefaultShellLayout
-    {username}
-    {route}
-    {libraryCount}
-    {tagCount}
-    {jobsActiveCount}
-    {jobsDrawerOpen}
-    {kindCounts}
-    {comicCount}
-    {comicAvailable}
-    savedSearches={orderedSavedSearches}
-    {commonTags}
-    {commonTagsCollapsed}
-    {draggedSavedSearchID}
-    {savedSearchReorderBusy}
-    {savedSearchReorderError}
-    {suggestions}
-    {metaTags}
-    {tags}
-    {search}
-    {onRoute}
-    onOpenLibrary={openLibrary}
-    {onSavedSearch}
-    {onCreateSavedSearch}
-    {onUpdateSavedSearch}
-    {onDeleteSavedSearch}
-    {onSearchDraft}
-    {onSearchCommit}
-    {onJobs}
-    onToggleKind={toggleKind}
-    onToggleCommonTags={toggleCommonTags}
-    onCommonTag={openCommonTag}
-    onOpenShortcuts={openShortcuts}
-    onSavedSearchDragStart={startSavedSearchDrag}
-    onSavedSearchDragPreview={previewSavedSearchDrag}
-    onSavedSearchDragEnd={endSavedSearchDrag}
-    onSavedSearchDrop={dropSavedSearch}
-    {children}
-  />
+  <DefaultShellLayout model={layoutModel} actions={layoutActions} {children} />
 {/if}
 
 {#if jobsDrawerOpen}
