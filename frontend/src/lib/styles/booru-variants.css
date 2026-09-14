@@ -1,0 +1,42 @@
+/* Palette follows the dark-theme variables in the committed Danbooru reference.
+   Presentation rules live in the shared booru styles; this file only supplies
+   the dark semantic values they consume. */
+.gooru-theme-booru-dark {
+  --bg: #1e1e2c;
+  --bg-2: #1e1e2c;
+  --surface: #2c2d3f;
+  --surface-2: #3f4058;
+  --surface-3: #5b5c79;
+  --border: #3f4058;
+  --border-strong: #777892;
+  --text: #d1d1da;
+  --text-2: #d1d1da;
+  --text-3: #9192a7;
+  --text-4: #ababbc;
+  --accent: #009be6;
+  --accent-ink: #f6f6f8;
+  --accent-soft: #2c2d3f;
+  --accent-line: #3f4058;
+  --booru-heading: #e8e8ec;
+  --booru-link-hover: #4bb4ff;
+  --booru-link-active: #4bb4ff;
+  --booru-field-bg: #3f4058;
+  --booru-button-bg: #d1d1da;
+  --booru-button-border: #9192a7;
+  --booru-button-text: #1e1e2c;
+  --booru-button-hover-bg: #e8e8ec;
+  --booru-button-hover-border: #ababbc;
+  --booru-primary-hover-text: #1e1e2c;
+  --booru-thumb-meta-bg: rgb(44 45 63 / 94%);
+  --booru-overlay-bg: rgb(44 45 63 / 94%);
+  --booru-checkbox-border: #777892;
+  --booru-checkbox-selected-text: #d1d1da;
+  --booru-suggestion-bg: #2c2d3f;
+  --booru-suggestion-active-bg: #3f4058;
+  --booru-suggestion-shadow: 0 10px 15px -3px rgb(0 0 0 / 35%), 0 4px 6px -2px rgb(0 0 0 / 30%);
+  --booru-nav-overlay-bg: rgb(44 45 63 / 94%);
+  --booru-floating-overlay-bg: rgb(44 45 63 / 94%);
+  --booru-control-border: #3f4058;
+  --booru-mobile-rail-bg: rgb(44 45 63 / 94%);
+  color-scheme: dark;
+}

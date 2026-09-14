@@ -23,6 +23,7 @@ const (
 	DefaultGridType       = "square"
 	DefaultPaginationMode = "infinite"
 	DefaultItemsPerPage   = 60
+	DefaultUITheme        = "default"
 	MinGridSize           = 64
 	MaxGridSize           = 1024
 )
@@ -107,8 +108,10 @@ type LoggingConfig struct {
 }
 
 type UIConfig struct {
+	Theme                    string   `yaml:"theme"`
 	AccentColor              string   `yaml:"accent_color"`
 	FontStyle                string   `yaml:"font_style"`
+	FontStyleConfigured      bool     `yaml:"-"`
 	GridSize                 int      `yaml:"grid_size"`
 	GridType                 string   `yaml:"grid_type"`
 	HiddenTags               []string `yaml:"hidden_tags"`
@@ -174,6 +177,7 @@ func DefaultConfig(dbPath string) Config {
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
 		UI: UIConfig{
+			Theme:                  DefaultUITheme,
 			FontStyle:              "comic",
 			HoverPlayVideos:        false,
 			HoverPlayGIFs:          true,
@@ -413,6 +417,15 @@ func (cfg *Config) Validate() error {
 	}
 	if !cfg.Auth.Enabled && !cfg.Auth.AllowUnsafeNoAuthNonLoopback && !isLoopbackListen(cfg.Server.Listen) {
 		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_non_loopback for trusted development"))
+	}
+	cfg.UI.Theme = strings.ToLower(strings.TrimSpace(cfg.UI.Theme))
+	if cfg.UI.Theme == "" {
+		cfg.UI.Theme = DefaultUITheme
+	}
+	switch cfg.UI.Theme {
+	case "default", "booru-light", "booru-dark":
+	default:
+		errs = append(errs, errors.New("ui.theme must be one of: default, booru-light, booru-dark"))
 	}
 	cfg.UI.AccentColor = strings.TrimSpace(cfg.UI.AccentColor)
 	if cfg.UI.AccentColor != "" && !accentColorPattern.MatchString(cfg.UI.AccentColor) {

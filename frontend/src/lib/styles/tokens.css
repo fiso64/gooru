@@ -123,5 +123,5 @@ textarea {
 }
 
 .gooru-root .login-v2-spirals path {
-  stroke: var(--accent);
+  stroke: var(--brand-accent, var(--accent));
 }
