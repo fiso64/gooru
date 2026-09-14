@@ -1,0 +1,68 @@
+name: maintainer-249-row-target
+
+on:
+  push:
+    branches: [feat/249-upload-item-tags]
+    paths:
+      - .github/workflows/maintainer-249-row-target.yml
+
+jobs:
+  patch:
+    runs-on: [self-hosted, gooru]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/249-upload-item-tags
+          fetch-depth: 0
+      - name: Refine row target and test locator
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          panel = Path('frontend/src/lib/components/UploadPanel.svelte')
+          text = panel.read_text()
+          old = '''  function openViewerFromRow(event: MouseEvent, index: number) {\n    const item = uploadItems[index];\n    if (!item || !uploadItemCanOpenViewer(item)) return;\n    const target = event.target;\n    if (target instanceof Element && target.closest('button, input, a, [role="option"], [role="listbox"]')) return;\n    openViewer(index);\n  }\n\n'''
+          if old not in text:
+              raise SystemExit('openViewerFromRow anchor missing')
+          text = text.replace(old, '', 1)
+
+          old = '''                  <div\n                    class:is-viewable={uploadItemCanOpenViewer(item)}\n                    class="upload-row upload-row-staged"\n                    data-testid={`upload-row-${row.index}`}\n                    onclick={(event) => openViewerFromRow(event, row.index)}\n                  >\n                    <button\n                      class="upload-viewer-trigger"\n                      type="button"\n                      disabled={!uploadItemCanOpenViewer(item)}\n                      aria-label={`Preview ${item.name}`}\n                      title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}\n                      onclick={() => openViewer(row.index)}\n                    >\n                      <UploadMediaPreview file={item.previewFile} {item} />\n                    </button>'''
+          new = '''                  <div\n                    class:is-viewable={uploadItemCanOpenViewer(item)}\n                    class="upload-row upload-row-staged"\n                    data-testid={`upload-row-${row.index}`}\n                  >\n                    <button\n                      class="upload-row-open-target"\n                      type="button"\n                      disabled={!uploadItemCanOpenViewer(item)}\n                      aria-label={`Preview ${item.name}`}\n                      title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}\n                      onclick={() => openViewer(row.index)}\n                    ></button>\n                    <UploadMediaPreview file={item.previewFile} {item} />'''
+          if old not in text:
+              raise SystemExit('staged row anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''                    <div\n                      class:is-viewable={uploadItemCanOpenViewer(item)}\n                      class="upload-row"\n                      data-testid={`upload-row-${row.index}`}\n                      onclick={(event) => openViewerFromRow(event, row.index)}\n                    >\n                      <button\n                        class="upload-viewer-trigger"\n                        type="button"\n                        disabled={!uploadItemCanOpenViewer(item)}\n                        aria-label={`Preview ${item.name}`}\n                        title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}\n                        onclick={() => openViewer(row.index)}\n                      >\n                        <UploadMediaPreview file={item.previewFile} {item} />\n                      </button>'''
+          new = '''                    <div\n                      class:is-viewable={uploadItemCanOpenViewer(item)}\n                      class="upload-row"\n                      data-testid={`upload-row-${row.index}`}\n                    >\n                      <button\n                        class="upload-row-open-target"\n                        type="button"\n                        disabled={!uploadItemCanOpenViewer(item)}\n                        aria-label={`Preview ${item.name}`}\n                        title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}\n                        onclick={() => openViewer(row.index)}\n                      ></button>\n                      <UploadMediaPreview file={item.previewFile} {item} />'''
+          if old not in text:
+              raise SystemExit('queue row anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''  .upload-viewer-trigger {\n    display: block;\n    border: 0;\n    border-radius: 5px;\n    padding: 0;\n    background: transparent;\n    cursor: pointer;\n  }\n\n  .upload-viewer-trigger:disabled {\n    cursor: not-allowed;\n    opacity: 0.6;\n  }\n\n  .upload-row.is-viewable {\n    cursor: pointer;\n    transition: background 120ms ease;\n  }\n\n  .upload-row.is-viewable:hover {\n    background: var(--surface-2);\n  }\n'''
+          new = '''  .upload-row {\n    position: relative;\n  }\n\n  .upload-row-open-target {\n    position: absolute;\n    z-index: 1;\n    inset: 0;\n    width: 100%;\n    border: 0;\n    border-radius: inherit;\n    padding: 0;\n    background: transparent;\n    cursor: pointer;\n  }\n\n  .upload-row-open-target:disabled {\n    cursor: default;\n  }\n\n  .upload-row-open-target:focus-visible {\n    outline: 2px solid var(--accent-line);\n    outline-offset: -2px;\n  }\n\n  .upload-row.is-viewable {\n    cursor: pointer;\n    transition: background 120ms ease;\n  }\n\n  .upload-row.is-viewable:hover {\n    background: var(--surface-2);\n  }\n\n  .upload-row :is(button:not(.upload-row-open-target), input, a) {\n    position: relative;\n    z-index: 2;\n  }\n'''
+          if old not in text:
+              raise SystemExit('row CSS anchor missing')
+          panel.write_text(text.replace(old, new, 1))
+
+          spec = Path('frontend/tests/upload-viewer.spec.ts')
+          text = spec.read_text()
+          old = '''  await alphaRow.getByText('alpha.png', { exact: true }).click();\n  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toBeVisible();\n  await expect(page.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();\n  await expect(page.getByRole('button', { name: 'Remove alpha.png from staging' })).toBeVisible();'''
+          new = '''  await alphaRow.getByRole('button', { name: 'Preview alpha.png' }).click();\n  const alphaDialog = page.getByRole('dialog', { name: 'alpha.png' });\n  await expect(alphaDialog).toBeVisible();\n  await expect(alphaDialog.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();\n  await expect(alphaDialog.getByRole('button', { name: 'Remove alpha.png from staging' })).toBeVisible();'''
+          if old not in text:
+              raise SystemExit('first viewer test anchor missing')
+          text = text.replace(old, new, 1)
+          old = '''  await page.getByTestId('upload-row-0').getByText('alpha.png', { exact: true }).click();\n  await page.keyboard.press('Delete');'''
+          new = '''  await page.getByTestId('upload-row-0').getByRole('button', { name: 'Preview alpha.png' }).click();\n  await page.keyboard.press('Delete');'''
+          if old not in text:
+              raise SystemExit('delete viewer test anchor missing')
+          spec.write_text(text.replace(old, new, 1))
+          PY
+          rm .github/workflows/maintainer-249-row-target.yml
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add frontend/src/lib/components/UploadPanel.svelte frontend/tests/upload-viewer.spec.ts .github/workflows/maintainer-249-row-target.yml
+          git commit -m 'fix(upload): make row preview target accessible'
+          git push origin HEAD:feat/249-upload-item-tags
