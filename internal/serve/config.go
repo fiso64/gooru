@@ -70,7 +70,7 @@ type AuthConfig struct {
 	CookieName                   string        `yaml:"cookie_name"`
 	CookieSecure                 string        `yaml:"cookie_secure"`
 	CookieSameSite               string        `yaml:"cookie_same_site"`
-	AllowUnsafeNoAuthNonLoopback bool          `yaml:"allow_unsafe_no_auth_non_loopback"`
+	AllowUnsafeNoAuthNonLoopback bool          `yaml:"allow_unsafe_no_auth_nonloopback"`
 }
 
 type UploadsConfig struct {
@@ -111,6 +111,7 @@ type UIConfig struct {
 	Theme                    string   `yaml:"theme"`
 	AccentColor              string   `yaml:"accent_color"`
 	FontStyle                string   `yaml:"font_style"`
+	FontStyleConfigured      bool     `yaml:"-"`
 	GridSize                 int      `yaml:"grid_size"`
 	GridType                 string   `yaml:"grid_type"`
 	HiddenTags               []string `yaml:"hidden_tags"`
@@ -415,7 +416,7 @@ func (cfg *Config) Validate() error {
 		errs = append(errs, errors.New("auth.cookie_same_site must be one of: lax, strict, none"))
 	}
 	if !cfg.Auth.Enabled && !cfg.Auth.AllowUnsafeNoAuthNonLoopback && !isLoopbackListen(cfg.Server.Listen) {
-		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_non_loopback for trusted development"))
+		errs = append(errs, errors.New("refusing auth.enabled=false on non-loopback server.listen; bind to loopback or set auth.allow_unsafe_no_auth_nonloopback for trusted development"))
 	}
 	cfg.UI.Theme = strings.ToLower(strings.TrimSpace(cfg.UI.Theme))
 	if cfg.UI.Theme == "" {
