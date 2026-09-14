@@ -7,7 +7,7 @@
 }
 
 .fit-media-grid .thumb-open {
-  padding: 20px;
+  padding: var(--thumb-media-inset);
 }
 
 .fit-media-grid .thumb img,
