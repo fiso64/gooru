@@ -165,11 +165,12 @@ test('staged rows open as a whole, use viewer shortcuts, and edit the underlying
   await expect(alphaDialog.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();
   await expect(alphaDialog.getByRole('button', { name: 'Remove alpha.png from staging' })).toBeVisible();
 
-  const alphaTagInput = page.getByLabel('Tags for alpha.png');
+  const alphaTagInput = alphaDialog.getByRole('textbox', { name: 'Tags for alpha.png' });
   await alphaTagInput.press('-');
-  await expect(page.getByLabel('Remove tags from alpha.png')).toBeFocused();
-  await page.getByLabel('Remove tags from alpha.png').press('+');
-  await expect(page.getByLabel('Tags for alpha.png')).toBeFocused();
+  const alphaUntagInput = alphaDialog.getByRole('textbox', { name: 'Remove tags from alpha.png' });
+  await expect(alphaUntagInput).toBeFocused();
+  await alphaUntagInput.press('+');
+  await expect(alphaDialog.getByRole('textbox', { name: 'Tags for alpha.png' })).toBeFocused();
 
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('dialog', { name: 'beta.png' })).toBeVisible();

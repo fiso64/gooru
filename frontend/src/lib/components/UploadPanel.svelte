@@ -591,7 +591,7 @@
     background: var(--surface-2);
   }
 
-  .upload-row :is(button:not(.upload-row-open-target), input, a) {
+  .upload-row :is(button:not(.upload-row-open-target), input) {
     position: relative;
     z-index: 2;
   }
