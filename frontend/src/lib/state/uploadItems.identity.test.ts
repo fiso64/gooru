@@ -101,4 +101,31 @@ describe('upload result remote identities', () => {
       { name: 'same.jpg', tags: ['row:second'], batchID: 13, queueTimeMs: 303, remoteFileID: 'file-same-second' }
     ]);
   });
+
+  it('does not reuse fallback state after a server-side rename', () => {
+    const first = {
+      ...queuedItem('same.jpg'),
+      tags: ['row:first'],
+      batchID: 21
+    };
+    const second = {
+      ...queuedItem('same.jpg'),
+      tags: ['row:second'],
+      batchID: 22
+    };
+    const response = {
+      affected_count: 2,
+      files: [
+        { id: 'file-renamed', name: 'same-1.jpg', size: 10, target_id: 'primary', status: 'imported' },
+        { id: 'file-original', name: 'same.jpg', size: 10, target_id: 'primary', status: 'imported' }
+      ]
+    } as UploadImportResponse;
+
+    const items = itemsFromResult(response, [first, second]);
+
+    expect(items.map((item) => ({ name: item.name, tags: item.tags, batchID: item.batchID }))).toEqual([
+      { name: 'same-1.jpg', tags: ['row:first'], batchID: 21 },
+      { name: 'same.jpg', tags: ['row:second'], batchID: 22 }
+    ]);
+  });
 });

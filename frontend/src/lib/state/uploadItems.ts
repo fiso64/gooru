@@ -151,19 +151,43 @@ export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
 }
 
 export function itemsFromResult(response: UploadImportResponse, previous: UploadItem[] = []): UploadItem[] {
-  const previousByName = new Map<string, UploadItem[]>();
-  for (const item of previous) {
-    const matches = previousByName.get(item.name);
-    if (matches) matches.push(item);
-    else previousByName.set(item.name, [item]);
+  const previousIndicesByName = new Map<string, number[]>();
+  for (let index = 0; index < previous.length; index += 1) {
+    const item = previous[index];
+    if (!item) continue;
+    const matches = previousIndicesByName.get(item.name);
+    if (matches) matches.push(index);
+    else previousIndicesByName.set(item.name, [index]);
   }
   const previousNameCursor = new Map<string, number>();
+  const consumedPrevious = new Set<number>();
+  let fallbackCursor = 0;
+
+  const consumePrevious = (name: string, responseIndex: number): UploadItem | undefined => {
+    const matches = previousIndicesByName.get(name) ?? [];
+    let cursor = previousNameCursor.get(name) ?? 0;
+    while (cursor < matches.length && consumedPrevious.has(matches[cursor]!)) cursor += 1;
+    previousNameCursor.set(name, cursor + 1);
+    const namedIndex = matches[cursor];
+    if (namedIndex !== undefined) {
+      consumedPrevious.add(namedIndex);
+      return previous[namedIndex];
+    }
+
+    if (previous[responseIndex] && !consumedPrevious.has(responseIndex)) {
+      consumedPrevious.add(responseIndex);
+      return previous[responseIndex];
+    }
+    while (fallbackCursor < previous.length && consumedPrevious.has(fallbackCursor)) fallbackCursor += 1;
+    if (fallbackCursor >= previous.length) return undefined;
+    const fallbackIndex = fallbackCursor;
+    fallbackCursor += 1;
+    consumedPrevious.add(fallbackIndex);
+    return previous[fallbackIndex];
+  };
 
   return response.files.map((file, index) => {
-    const matches = previousByName.get(file.name);
-    const cursor = previousNameCursor.get(file.name) ?? 0;
-    const prior = matches?.[cursor] ?? previous[index];
-    if (matches && cursor < matches.length) previousNameCursor.set(file.name, cursor + 1);
+    const prior = consumePrevious(file.name, index);
     return {
       name: file.name,
       size: file.size,
