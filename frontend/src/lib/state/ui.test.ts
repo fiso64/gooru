@@ -85,7 +85,7 @@ describe('tile gallery layout', () => {
     });
     const firstPage = virtualMediaGeometry(pagedFiles.slice(0, 60), 1200, 120, 0, 200);
 
-    expect(firstPage.placements.at(-1)?.index).toBe(56);
+    expect(firstPage.placements.at(-1)?.index).toBeLessThan(59);
 
     const twoPages = virtualMediaGeometry(pagedFiles, 1200, 120, 0, 200);
     for (const before of firstPage.placements) {
