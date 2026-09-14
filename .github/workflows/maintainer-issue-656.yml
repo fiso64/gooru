@@ -20,6 +20,11 @@ jobs:
       - name: Apply patch
         run: |
           python3 .github/maintainer-issue-656.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('frontend/tests/selection-ui-modal.spec.ts')
+          p.write_text(p.read_text().rstrip() + '\n')
+          PY
           gofmt -w internal/serve/background_file_removals.go internal/serve/file_removals.go internal/serve/file_removals_managed_storage_test.go
       - uses: actions/setup-node@v4
         with:
