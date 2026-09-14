@@ -6,6 +6,7 @@ import {
   markUploadItemTagSyncAppliedInPlace,
   markUploadItemTagSyncErrorInPlace,
   queuedItem,
+  rebaseUploadItemTagsFromRemoteInPlace,
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
   setUploadItemTagsInPlace,
@@ -189,6 +190,10 @@ export function createUploadWorkflow() {
 
   function markItemTagSyncApplied(index: number, operation: UploadItemTagSyncOperation, tags: string[]) {
     markUploadItemTagSyncAppliedInPlace(items, index, operation, tags);
+  }
+
+  function rebaseItemTagsFromRemote(index: number, remoteTags: string[]) {
+    rebaseUploadItemTagsFromRemoteInPlace(items, index, remoteTags);
   }
 
   function markItemTagSyncError(index: number, message: string) {
@@ -520,6 +525,7 @@ export function createUploadWorkflow() {
     setItemTags,
     itemTagSyncDelta,
     markItemTagSyncApplied,
+    rebaseItemTagsFromRemote,
     markItemTagSyncError,
     select,
     setTarget,

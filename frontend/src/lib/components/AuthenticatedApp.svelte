@@ -543,6 +543,11 @@
     void reconcileUploadItemTags(index);
   }
 
+  function rebaseUploadItemTagsFromRemote(index: number, remoteTags: string[]) {
+    upload.rebaseItemTagsFromRemote(index, remoteTags);
+    void reconcileUploadItemTags(index);
+  }
+
   async function submitUpload() {
     if (!upload.files.length) return;
     cancelRequestedJobID = '';
@@ -735,6 +740,7 @@
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
         onItemTagsInput={setUploadItemTags}
+        onItemRemoteTagsLoaded={rebaseUploadItemTagsFromRemote}
         onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}
         onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}

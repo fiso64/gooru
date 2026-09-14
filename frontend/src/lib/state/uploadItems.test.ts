@@ -7,6 +7,7 @@ import {
   itemsFromResult,
   markUploadItemTagSyncAppliedInPlace,
   markUploadItemTagSyncErrorInPlace,
+  rebaseUploadItemTagsFromRemoteInPlace,
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
   setUploadItemTagsInPlace,
@@ -129,6 +130,36 @@ describe('per-item upload tags', () => {
     expect(items[0].tagSyncBaseTags).toEqual(['keep', 'add']);
     expect(items[0].tagSyncPending).toBe(true);
     expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: ['late'], remove: [] });
+  });
+
+  it('rebases duplicate-existing rows onto full remote tags so pre-existing tags can be removed', () => {
+    const items = [queueItem(0)];
+    items[0].status = 'duplicate_existing';
+    items[0].tags = ['submitted'];
+    items[0].tagSyncBaseTags = ['submitted'];
+
+    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted']);
+    expect(items[0].tags).toEqual(['remote:existing', 'submitted']);
+    expect(items[0].tagSyncBaseTags).toEqual(['remote:existing', 'submitted']);
+    expect(items[0].tagSyncPending).toBe(false);
+
+    setUploadItemTagsInPlace(items, 0, ['submitted']);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: [], remove: ['remote:existing'] });
+    expect(items[0].tagSyncPending).toBe(true);
+  });
+
+  it('preserves outstanding local edits while learning the authoritative remote tag baseline', () => {
+    const items = [queueItem(0)];
+    items[0].status = 'imported';
+    items[0].tags = ['submitted', 'local:add'];
+    items[0].tagSyncBaseTags = ['submitted', 'local:remove'];
+    items[0].tagSyncPending = true;
+
+    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted', 'local:remove']);
+    expect(items[0].tagSyncBaseTags).toEqual(['remote:existing', 'submitted', 'local:remove']);
+    expect(items[0].tags).toEqual(['remote:existing', 'submitted', 'local:add']);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: ['local:add'], remove: ['local:remove'] });
+    expect(items[0].tagSyncPending).toBe(true);
   });
 
   it('retains a successful partial baseline when a later operation fails', () => {

@@ -31,6 +31,7 @@
     onFiles,
     onTagsInput,
     onItemTagsInput,
+    onItemRemoteTagsLoaded,
     onAddedAtStrategyInput,
     onAutoUploadInput,
     onSubmit,
@@ -55,6 +56,7 @@
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
     onItemTagsInput: (index: number, tags: string[]) => void;
+    onItemRemoteTagsLoaded: (index: number, tags: string[]) => void;
     onAddedAtStrategyInput: (value: 'queue' | 'reverse_queue' | 'modtime') => void;
     onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;
@@ -561,6 +563,7 @@
     onIndex={(index) => (viewerIndex = index)}
     onClose={closeViewer}
     {onItemTagsInput}
+    {onItemRemoteTagsLoaded}
   />
 {/if}
 

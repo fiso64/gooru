@@ -143,6 +143,31 @@ export function markUploadItemTagSyncAppliedInPlace(
   current.tagSyncError = '';
 }
 
+export function rebaseUploadItemTagsFromRemoteInPlace(items: UploadItem[], index: number, remoteTags: string[]): void {
+  const current = items[index];
+  if (!current) return;
+  const delta = uploadItemTagSyncDelta(current);
+  const base = normalizeUploadItemTags(remoteTags);
+  const desired = [...base];
+  const desiredSet = new Set(desired);
+  for (const tag of delta.add) {
+    if (!desiredSet.has(tag)) {
+      desired.push(tag);
+      desiredSet.add(tag);
+    }
+  }
+  if (delta.remove.length) {
+    const removed = new Set(delta.remove);
+    current.tags = desired.filter((tag) => !removed.has(tag));
+  } else {
+    current.tags = desired;
+  }
+  current.tagSyncBaseTags = base;
+  const pending = hasUploadItemTagSyncDelta(current);
+  if (!pending) current.tagSyncError = '';
+  current.tagSyncPending = pending && !current.tagSyncError;
+}
+
 export function markUploadItemTagSyncErrorInPlace(items: UploadItem[], index: number, message: string): void {
   const current = items[index];
   if (!current) return;

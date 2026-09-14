@@ -19,7 +19,8 @@
     tags,
     onIndex,
     onClose,
-    onItemTagsInput
+    onItemTagsInput,
+    onItemRemoteTagsLoaded
   } = $props<{
     uploadItems: UploadItem[];
     activeIndex: number;
@@ -28,6 +29,7 @@
     onIndex: (index: number) => void;
     onClose: () => void;
     onItemTagsInput: (index: number, tags: string[]) => void;
+    onItemRemoteTagsLoaded: (index: number, tags: string[]) => void;
   }>();
 
   let localURL = $state('');
@@ -62,7 +64,7 @@
   });
   const viewerFile = $derived<ViewerStageMedia | undefined>(remoteFile ?? localMedia);
   const imageSource = $derived(viewerFile ? viewerImageSource(viewerFile, false) : '');
-  const currentTags = $derived(tagOverride ?? remoteFile?.tags ?? activeItem?.tags ?? []);
+  const currentTags = $derived(tagOverride ?? activeItem?.tags ?? remoteFile?.tags ?? []);
   const kindLabel = $derived(remoteFile?.media_kind ?? localMedia?.media_kind ?? 'media');
 
   $effect(() => {
@@ -95,7 +97,10 @@
     const client = new ApiClient($authState.csrfToken);
     void client.getFile(remoteFileID, controller.signal)
       .then((file) => {
-        if (!controller.signal.aborted) remoteFile = file;
+        if (controller.signal.aborted) return;
+        remoteFile = file;
+        onItemRemoteTagsLoaded(activeIndex, file.tags ?? []);
+        tagOverride = undefined;
       })
       .catch((error) => {
         if (!controller.signal.aborted) remoteError = errorMessage(error);
