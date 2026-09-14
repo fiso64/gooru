@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow } from './uploadPanelRows';
+import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow } from './uploadPanelRows';
 
 function uploadRow(index: number, batchID?: number): IndexedUploadRow {
   return {
@@ -36,6 +36,16 @@ describe('upload panel rows', () => {
     expect(result.queue[0]).toBe(rows[250]);
     expect(result.queue.at(-1)).toBe(rows[9_999]);
     expect(result.queue.at(-1)?.index).toBe(9_999);
+  });
+
+  it('filters staged rows by filename without changing the submitted row collection', () => {
+    const rows = [uploadRow(0), uploadRow(1), uploadRow(2)];
+    rows[1]!.item.name = 'Holiday Sunset.JPG';
+
+    expect(filterUploadRows(rows, '')).toBe(rows);
+    expect(filterUploadRows(rows, '  sunset ')).toEqual([rows[1]]);
+    expect(filterUploadRows(rows, 'SUNSET')).toEqual([rows[1]]);
+    expect(rows).toHaveLength(3);
   });
 
   it('groups queue rows by batch newest-first while preserving row order and byte totals', () => {
