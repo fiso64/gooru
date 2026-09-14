@@ -95,6 +95,7 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 	if client == nil {
 		return nil, fmt.Errorf("background client is required")
 	}
+	client.SetFileRegistrationHooks(backgroundMediaMetadataRegistrationHook)
 	if err := recoverBackgroundOperationReservations(client, s.cfg.Uploads.Targets); err != nil {
 		return nil, err
 	}
