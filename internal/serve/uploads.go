@@ -29,6 +29,7 @@ type UploadImportResponse struct {
 }
 
 type UploadedFileDTO struct {
+	ID       string `json:"id,omitempty"`
 	Name     string `json:"name"`
 	Size     int64  `json:"size"`
 	TargetID string `json:"target_id"`
@@ -417,7 +418,7 @@ func safeUploadName(name string) (string, error) {
 
 func createUploadDestination(dir string, name string, conflictPolicy string) (*os.File, string, string, bool, error) {
 	ext := filepath.Ext(name)
-	base := strings.TrimSuffix(name, ext)
+	base := strings.TrimSuffix(filepath.Base(name), ext)
 	if base == "" {
 		base = "upload"
 	}
@@ -669,6 +670,34 @@ func (l *GooruLibrary) setBackgroundUploadImportCheckpoint(state backgroundUploa
 	return nil
 }
 
+func (l *GooruLibrary) populateUploadFileIDs(response *UploadImportResponse, files []StagedUpload) error {
+	if response == nil {
+		return nil
+	}
+	for i := range response.Files {
+		dto := &response.Files[i]
+		if dto.ID != "" || dto.Status != "imported" {
+			continue
+		}
+		if i >= len(files) {
+			return fmt.Errorf("resolve imported upload identity %q: source row is missing", dto.Name)
+		}
+		path := files[i].Path
+		if dto.Name != "" && filepath.Base(path) != dto.Name {
+			path = filepath.Join(filepath.Dir(path), dto.Name)
+		}
+		info, err := l.client.GetFileInfoByPath(path)
+		if err != nil {
+			return fmt.Errorf("resolve imported upload identity %q: %w", dto.Name, err)
+		}
+		dto.ID = l.client.PublicFileID(info.ID)
+		if dto.ID == "" {
+			return fmt.Errorf("resolve imported upload identity %q: public id is unavailable", dto.Name)
+		}
+	}
+	return nil
+}
+
 func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUpload, tags []string, state backgroundUploadImportState, activated []activatedSavedReplacement) (UploadImportResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return UploadImportResponse{}, err
@@ -722,6 +751,14 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			return UploadImportResponse{}, err
 		}
 		if exists || status == types.StatusUntrackedContent || status == types.StatusOK {
+			existing, err := l.client.GetFileInfoByContentHash(info.Hash)
+			if err != nil {
+				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: %w", file.Name, err)
+			}
+			dto.ID = l.client.PublicFileID(existing.ID)
+			if dto.ID == "" {
+				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
+			}
 			dto.Status = "duplicate_existing"
 			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
 			discardDuplicateUpload(file, trackedAtPath)
@@ -822,6 +859,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	}
 	response.AffectedCount = result.AffectedCount
 	response.Notifications = notificationDTOs(result.Notifications)
+	if err := l.populateUploadFileIDs(&response, files); err != nil {
+		return UploadImportResponse{}, err
+	}
 	l.cacheImportedMediaMetadata(ctx, importLocations, analysisPathByDestination)
 	return response, nil
 }
