@@ -132,12 +132,18 @@ func (s *Server) handleSearchSuggestions(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load saved search suggestions", nil)
 		return
 	}
+	targetItems := s.storageTargetSuggestionsForRequest(prefix, limit)
 	items, err := search.TagSuggestions(r.Context(), prefix, strings.TrimSpace(req.Existing), limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load suggestions", nil)
 		return
 	}
-	items = append(savedItems, append(matchingMetaTagSuggestions(prefix), items...)...)
+	combined := make([]TagDTO, 0, len(savedItems)+len(targetItems)+len(items)+len(query.MetaTags()))
+	combined = append(combined, savedItems...)
+	combined = append(combined, targetItems...)
+	combined = append(combined, matchingMetaTagSuggestions(prefix)...)
+	combined = append(combined, items...)
+	items = combined
 	if len(items) > limit {
 		items = items[:limit]
 	}
@@ -193,6 +199,7 @@ func (s *Server) handleSavedSearches(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.Header().Set("Allow", "GET, POST")
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
+		return
 	}
 }
 
