@@ -119,6 +119,10 @@ type backgroundUploadImporter interface {
 	importUploadedFiles(context.Context, []StagedUpload, []string, backgroundUploadImportState, []activatedSavedReplacement) (UploadImportResponse, error)
 }
 
+type backgroundUploadResultIdentityEnricher interface {
+	populateUploadFileIDs(*UploadImportResponse, []StagedUpload) error
+}
+
 func (s *Server) backgroundUploadHandler(store backgroundUploadWorkerStore) core.BackgroundTaskHandler {
 	return func(ctx context.Context, task core.BackgroundTask) error {
 		importer, ok := s.library.(backgroundUploadImporter)
@@ -185,11 +189,18 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		if checkpoint.Response == nil {
 			return errors.New("imported upload checkpoint is missing response")
 		}
+		response := *checkpoint.Response
+		response.Files = append([]UploadedFileDTO(nil), response.Files...)
+		if enricher, ok := importer.(backgroundUploadResultIdentityEnricher); ok {
+			if err := enricher.populateUploadFileIDs(&response, durableStagedUploads(files)); err != nil {
+				return fmt.Errorf("restore upload result identities: %w", err)
+			}
+		}
 		activated, err = activatedSavedReplacementsFromCheckpoint(files, checkpoint)
 		if err != nil {
 			return err
 		}
-		if err := settleDurableSavedReplacements(files, activated, *checkpoint.Response); err != nil {
+		if err := settleDurableSavedReplacements(files, activated, response); err != nil {
 			return fmt.Errorf("settle imported upload replacements: %w", err)
 		}
 		if err := settleDurableNonreplacementActivations(files); err != nil {
@@ -198,7 +209,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
 			return fmt.Errorf("settle imported durable replacement recovery markers: %w", err)
 		}
-		if err := recovery.setResult(*checkpoint.Response); err != nil {
+		if err := recovery.setResult(response); err != nil {
 			canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 			if stateErr != nil {
 				return errors.Join(fmt.Errorf("publish upload background result: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
@@ -221,10 +232,10 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		}
 		if canceled {
 			if cleanupErr := cleanupCanceledClaimedUpload(files, activated); cleanupErr != nil {
-				return cleanupErr
+					return cleanupErr
+				}
+				return nil
 			}
-			return nil
-		}
 		return err
 	}
 
