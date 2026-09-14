@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow } from './uploadPanelRows';
+import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, summarizeUploadQueueBatch, type IndexedUploadRow } from './uploadPanelRows';
 
 function uploadRow(index: number, batchID?: number): IndexedUploadRow {
   return {
@@ -60,6 +60,25 @@ describe('upload panel rows', () => {
     expect(batches[0]?.bytes).toBe(newerA.item.size + newerB.item.size);
     expect(batches[1]?.rows).toEqual([earlier]);
     expect(batches[2]?.rows).toEqual([legacy]);
+  });
+
+  it('summarizes batch progress and status counts from the existing job-backed rows', () => {
+    const rows = [uploadRow(0, 4), uploadRow(1, 4), uploadRow(2, 4), uploadRow(3, 4)];
+    rows[0]!.item.status = 'imported';
+    rows[0]!.item.progress = 100;
+    rows[1]!.item.status = 'importing';
+    rows[1]!.item.progress = 100;
+    rows[2]!.item.status = 'importing';
+    rows[2]!.item.progress = 0;
+    rows[3]!.item.status = 'error';
+    rows[3]!.item.progress = 0;
+    const [batch] = groupUploadQueueRows(rows);
+
+    expect(summarizeUploadQueueBatch(batch!)).toEqual({
+      progress: 50,
+      counts: { imported: 1, importing: 2, error: 1 },
+      status: '2 importing / 1 imported / 1 error'
+    });
   });
 
   it('paginates each batch independently and clamps stale page indices', () => {
