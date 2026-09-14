@@ -1,0 +1,37 @@
+name: Maintainer debug 667
+
+on:
+  push:
+    branches:
+      - fix/667-tile-grid-aspect
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-check:
+    runs-on: [self-hosted, gooru]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefer-offline --no-audit
+      - name: Capture check output
+        shell: bash
+        run: |
+          set +e
+          npm run check > ../maintainer-check.log 2>&1
+          status=$?
+          printf 'exit_code=%s\n' "$status" >> ../maintainer-check.log
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maintainer-check-${{ github.run_id }}
+          path: maintainer-check.log
+          retention-days: 1
