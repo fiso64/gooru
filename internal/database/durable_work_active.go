@@ -1,6 +1,38 @@
 package database
 
-import "fmt"
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+)
+
+// FindActiveBackgroundOperationIDByKind returns the newest pending/running
+// operation with the requested kind using the caller's querier. Passing the
+// registration transaction here keeps lookup/create serialized with domain
+// mutation when SQLite immediate transactions are in use.
+func (s *Store) FindActiveBackgroundOperationIDByKind(q Querier, kind string) (string, bool, error) {
+	if q == nil {
+		return "", false, errors.New("background operation querier is required")
+	}
+	if kind == "" {
+		return "", false, errors.New("background operation kind is required")
+	}
+	var id string
+	err := q.QueryRow(`
+		SELECT id
+		FROM background_operations
+		WHERE kind = ? AND status IN ('pending', 'running')
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1
+	`, kind).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("find active background operation by kind: %w", err)
+	}
+	return id, true, nil
+}
 
 // ListActiveBackgroundOperationIDs returns every pending/running operation ID.
 // Unlike bounded history reads, this action-oriented query is intentionally

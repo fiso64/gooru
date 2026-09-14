@@ -8,7 +8,7 @@ import (
 
 const (
 	// BackgroundMediaMetadataSweepOperationKind is the user-visible durable job
-	// created for one registration-triggered metadata sweep.
+	// created for registration-triggered metadata sweeps.
 	BackgroundMediaMetadataSweepOperationKind = "media.metadata-sweep"
 	// BackgroundMediaMetadataSweepTaskKind is handled by the server media worker.
 	BackgroundMediaMetadataSweepTaskKind = "media.metadata-sweep"
@@ -26,10 +26,14 @@ func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTas
 		return nil, err
 	}
 	task.Operation = &BackgroundOperationRequest{
-		Kind:          BackgroundMediaMetadataSweepOperationKind,
-		Visible:       true,
-		ProgressTotal: 1,
+		Kind:    BackgroundMediaMetadataSweepOperationKind,
+		Visible: true,
 	}
+	// Registration transactions use SQLite immediate locking, so lookup/create
+	// of the active operation is serialized across independent CLI/server clients.
+	// Each registration still gets a distinct child wake to avoid losing work if
+	// it commits while an earlier sweep is finishing its final scan.
+	task.reuseActiveOperation = true
 	return []BackgroundTaskRequest{task}, nil
 }
 
@@ -81,9 +85,8 @@ func (c *Client) EnsureMediaMetadataSweep() (bool, error) {
 		return false, err
 	}
 	_, tasks, err := c.CreateBackgroundOperationWithTasks(BackgroundOperationRequest{
-		Kind:          BackgroundMediaMetadataSweepOperationKind,
-		Visible:       true,
-		ProgressTotal: 1,
+		Kind:    BackgroundMediaMetadataSweepOperationKind,
+		Visible: true,
 	}, []BackgroundTaskRequest{task})
 	if err != nil {
 		return false, fmt.Errorf("enqueue media metadata recovery sweep: %w", err)

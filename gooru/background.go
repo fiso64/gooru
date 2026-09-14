@@ -197,6 +197,7 @@ type BackgroundTaskRequest struct {
 	AvailableAt            time.Time
 	MaxAttempts            int
 	TerminalFailureCleanup *BackgroundTaskCleanupRequest
+	reuseActiveOperation    bool
 }
 
 // EnqueueBackgroundTask persists durable work outside an existing transaction.
@@ -237,15 +238,29 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		}
 		operationRequest := *request.Operation
 		request.Operation = nil
-		operation, err := c.createBackgroundOperation(q, operationRequest)
-		if err != nil {
-			return BackgroundTask{}, false, fmt.Errorf("create background task operation: %w", err)
+
+		operationID := ""
+		if request.reuseActiveOperation {
+			activeID, found, err := c.store.FindActiveBackgroundOperationIDByKind(q, operationRequest.Kind)
+			if err != nil {
+				return BackgroundTask{}, false, fmt.Errorf("find reusable background task operation: %w", err)
+			}
+			if found {
+				operationID = activeID
+			}
 		}
-		request.OperationID = operation.ID
+		if operationID == "" {
+			operation, err := c.createBackgroundOperation(q, operationRequest)
+			if err != nil {
+				return BackgroundTask{}, false, fmt.Errorf("create background task operation: %w", err)
+			}
+			operationID = operation.ID
+		}
+		request.OperationID = operationID
 		if request.DedupeKey == "" {
 			request.DedupeKey = "task:0"
 		}
-		request.DedupeKey = operation.ID + ":" + request.DedupeKey
+		request.DedupeKey = operationID + ":" + request.DedupeKey
 	}
 
 	id, err := newBackgroundWorkID("task")

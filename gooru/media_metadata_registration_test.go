@@ -8,7 +8,7 @@ import (
 	"gooru.local/types"
 )
 
-func TestDefaultRegistrationMetadataSweepIsDurableAcrossClients(t *testing.T) {
+func TestDefaultRegistrationMetadataSweepIsDurableAndAggregatedAcrossClients(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gooru.db")
 	if err := Init(dbPath, types.StrategyFull, false); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -18,31 +18,39 @@ func TestDefaultRegistrationMetadataSweepIsDurableAcrossClients(t *testing.T) {
 		t.Fatalf("open observer client: %v", err)
 	}
 	t.Cleanup(func() { _ = observer.Close() })
-	producer, err := New(dbPath, false)
-	if err != nil {
-		t.Fatalf("open producer client: %v", err)
+
+	register := func(name, contents string) {
+		t.Helper()
+		producer, err := New(dbPath, false)
+		if err != nil {
+			t.Fatalf("open producer client: %v", err)
+		}
+		mediaPath := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(mediaPath, []byte(contents), 0o600); err != nil {
+			_ = producer.Close()
+			t.Fatalf("write media file: %v", err)
+		}
+		if _, err := producer.TagFiles([]string{mediaPath}, []string{"external"}, nil, false); err != nil {
+			_ = producer.Close()
+			t.Fatalf("tag external file: %v", err)
+		}
+		if err := producer.Close(); err != nil {
+			t.Fatalf("close producer client: %v", err)
+		}
 	}
 
-	mediaPath := filepath.Join(t.TempDir(), "external.jpg")
-	if err := os.WriteFile(mediaPath, []byte("independent client registration"), 0o600); err != nil {
-		t.Fatalf("write media file: %v", err)
-	}
-	if _, err := producer.TagFiles([]string{mediaPath}, []string{"external"}, nil, false); err != nil {
-		t.Fatalf("tag external file: %v", err)
-	}
-	if err := producer.Close(); err != nil {
-		t.Fatalf("close producer client: %v", err)
-	}
+	register("external-a.jpg", "independent client registration a")
+	register("external-b.jpg", "independent client registration b")
 
 	operations, err := observer.ListBackgroundOperations(BackgroundOperationListOptions{VisibleOnly: true})
 	if err != nil {
 		t.Fatalf("list visible operations: %v", err)
 	}
 	if len(operations) != 1 {
-		t.Fatalf("visible operation count = %d, want 1: %+v", len(operations), operations)
+		t.Fatalf("visible operation count = %d, want one aggregated sweep: %+v", len(operations), operations)
 	}
 	operation := operations[0]
-	if operation.Kind != BackgroundMediaMetadataSweepOperationKind || operation.Status != BackgroundWorkPending || operation.ProgressTotal != 1 {
+	if operation.Kind != BackgroundMediaMetadataSweepOperationKind || operation.Status != BackgroundWorkPending || operation.ProgressTotal != 0 {
 		t.Fatalf("unexpected metadata operation: %+v", operation)
 	}
 	task, found, err := observer.GetBackgroundOperationTask(operation.ID)
@@ -119,7 +127,7 @@ func TestEnsureMediaMetadataSweepRecoversMissingWakeWithoutDuplicates(t *testing
 	if err != nil {
 		t.Fatalf("list visible operations: %v", err)
 	}
-	if len(operations) != 1 || operations[0].Kind != BackgroundMediaMetadataSweepOperationKind || operations[0].Status != BackgroundWorkPending {
+	if len(operations) != 1 || operations[0].Kind != BackgroundMediaMetadataSweepOperationKind || operations[0].Status != BackgroundWorkPending || operations[0].ProgressTotal != 0 {
 		t.Fatalf("unexpected recovery operations: %+v", operations)
 	}
 }
