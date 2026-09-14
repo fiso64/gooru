@@ -108,6 +108,43 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(fil
 	return result, nil
 }
 
+// TagExistingContentByHashTags atomically adds aligned per-content tag sets
+// without re-reading or re-hashing filesystem paths that the caller has already
+// resolved to tracked content.
+func (c *Client) TagExistingContentByHashTags(hashes []string, fileTags [][]string) (types.TagOperationResult, error) {
+	result := types.TagOperationResult{}
+	if len(fileTags) != len(hashes) {
+		return result, fmt.Errorf("per-content tag count %d does not match hash count %d", len(fileTags), len(hashes))
+	}
+	tagsByHash := make(map[string][]string, len(hashes))
+	for index, hash := range hashes {
+		if hash == "" {
+			return result, fmt.Errorf("content hash %d is empty", index)
+		}
+		if err := query.ValidateTags(fileTags[index]); err != nil {
+			return result, fmt.Errorf("validate tags for content %d: %w", index, err)
+		}
+		tagsByHash[hash] = appendUniqueKnownFileTags(tagsByHash[hash], fileTags[index])
+	}
+	if len(tagsByHash) == 0 {
+		return result, nil
+	}
+	tx, err := c.store.Begin()
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback()
+	affectedCount, err := c.associateKnownFileTagsByHash(tx, tagsByHash)
+	if err != nil {
+		return result, err
+	}
+	if err := tx.Commit(); err != nil {
+		return result, err
+	}
+	result.AffectedCount = int(affectedCount)
+	return result, nil
+}
+
 func appendUniqueKnownFileTags(existing, additions []string) []string {
 	if len(additions) == 0 {
 		return existing

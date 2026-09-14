@@ -775,6 +775,12 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
 	opaqueStorageByLogical := make(map[string]protectedUploadMove, len(files))
+	duplicateExistingHashes := make([]string, 0, len(files))
+	duplicateExistingTags := make([][]string, 0, len(files))
+	duplicateExistingDiscards := make([]struct {
+		file          StagedUpload
+		trackedAtPath bool
+	}, 0, len(files))
 	analyses, analysisErr := l.analyzeUploadedFiles(ctx, files, func(completed, completedPrefix int) error {
 		if (state.operationID == "" && state.taskID == "") || !shouldPersistUploadProgress(completed, len(files)) {
 			return nil
@@ -841,12 +847,14 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			}
 			dto.Status = "duplicate_existing"
 			if len(fileTags) > 0 {
-				if _, err := l.mutateTagPaths(TagOperationAdd, []string{existing.Path}, fileTags); err != nil {
-					return UploadImportResponse{}, fmt.Errorf("tag duplicate upload %q: %w", file.Name, err)
-				}
+				duplicateExistingHashes = append(duplicateExistingHashes, existing.Hash)
+				duplicateExistingTags = append(duplicateExistingTags, append([]string(nil), fileTags...))
 			}
 			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
-			discardDuplicateUpload(file, trackedAtPath)
+			duplicateExistingDiscards = append(duplicateExistingDiscards, struct {
+				file          StagedUpload
+				trackedAtPath bool
+			}{file: file, trackedAtPath: trackedAtPath})
 			response.Files = append(response.Files, dto)
 			continue
 		}
@@ -893,6 +901,14 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			Extension:   filepath.Ext(file.Path),
 		})
 		importLocationTags = append(importLocationTags, append([]string(nil), fileTags...))
+	}
+	if len(duplicateExistingHashes) > 0 {
+		if _, err := l.client.TagExistingContentByHashTags(duplicateExistingHashes, duplicateExistingTags); err != nil {
+			return UploadImportResponse{}, fmt.Errorf("tag duplicate uploads: %w", err)
+		}
+	}
+	for _, duplicate := range duplicateExistingDiscards {
+		discardDuplicateUpload(duplicate.file, duplicate.trackedAtPath)
 	}
 	if len(importLocations) == 0 {
 		return response, nil
