@@ -703,7 +703,8 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 		return UploadImportResponse{}, err
 	}
 	response := UploadImportResponse{Files: make([]UploadedFileDTO, 0, len(files))}
-	hashes := make(map[string]string, len(files))
+	firstResponseIndexByHash := make(map[string]int, len(files))
+	duplicateCanonicalResponseIndex := make(map[int]int)
 	importLocations := make([]types.LocationInfo, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
@@ -739,13 +740,17 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			continue
 		}
 		info, status := analysis.Info, analysis.Status
-		if _, ok := hashes[info.Hash]; ok {
+		if canonicalIndex, ok := firstResponseIndexByHash[info.Hash]; ok {
 			dto.Status = "duplicate_in_batch"
+			dto.ID = response.Files[canonicalIndex].ID
+			if dto.ID == "" {
+				duplicateCanonicalResponseIndex[len(response.Files)] = canonicalIndex
+			}
 			removeRejectedStagedUpload(file)
 			response.Files = append(response.Files, dto)
 			continue
 		}
-		hashes[info.Hash] = file.Path
+		firstResponseIndexByHash[info.Hash] = len(response.Files)
 		exists, err := l.client.ContentExists(info.Hash)
 		if err != nil {
 			return UploadImportResponse{}, err
@@ -861,6 +866,14 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	response.Notifications = notificationDTOs(result.Notifications)
 	if err := l.populateUploadFileIDs(&response, files); err != nil {
 		return UploadImportResponse{}, err
+	}
+	for duplicateIndex, canonicalIndex := range duplicateCanonicalResponseIndex {
+		if duplicateIndex >= len(response.Files) || canonicalIndex >= len(response.Files) {
+			return UploadImportResponse{}, errors.New("resolve same-batch duplicate upload identity: response row is missing")
+		}
+		if canonicalID := response.Files[canonicalIndex].ID; canonicalID != "" {
+			response.Files[duplicateIndex].ID = canonicalID
+		}
 	}
 	l.cacheImportedMediaMetadata(ctx, importLocations, analysisPathByDestination)
 	return response, nil

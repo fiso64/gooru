@@ -44,7 +44,8 @@ func TestGooruUploadImportReturnsStableFileIdentities(t *testing.T) {
 
 	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{
 		"duplicate-existing.txt": "already tracked",
-		"fresh.txt":              "new content",
+		"fresh-a.txt":            "new content",
+		"fresh-b.txt":            "new content",
 	}, []string{"uploaded"}))
 
 	if rec.Code != http.StatusOK {
@@ -54,12 +55,15 @@ func TestGooruUploadImportReturnsStableFileIdentities(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode upload response: %v", err)
 	}
-	if len(response.Files) != 2 {
-		t.Fatalf("upload response files = %d, want 2: %+v", len(response.Files), response.Files)
+	if len(response.Files) != 3 {
+		t.Fatalf("upload response files = %d, want 3: %+v", len(response.Files), response.Files)
 	}
 
 	seenImported := false
 	seenDuplicate := false
+	seenBatchDuplicate := false
+	importedID := ""
+	batchDuplicateID := ""
 	for _, file := range response.Files {
 		switch file.Status {
 		case "duplicate_existing":
@@ -69,6 +73,7 @@ func TestGooruUploadImportReturnsStableFileIdentities(t *testing.T) {
 			}
 		case "imported":
 			seenImported = true
+			importedID = file.ID
 			if file.ID == "" {
 				t.Fatalf("imported file %q is missing public id", file.Name)
 			}
@@ -79,10 +84,19 @@ func TestGooruUploadImportReturnsStableFileIdentities(t *testing.T) {
 			if filepath.Base(info.Path) != file.Name {
 				t.Fatalf("imported public id resolves to %q, want basename %q", info.Path, file.Name)
 			}
+		case "duplicate_in_batch":
+			seenBatchDuplicate = true
+			batchDuplicateID = file.ID
+			if file.ID == "" {
+				t.Fatalf("same-batch duplicate %q is missing canonical public id", file.Name)
+			}
 		}
 	}
-	if !seenImported || !seenDuplicate {
-		t.Fatalf("expected imported and duplicate_existing identities, got %+v", response.Files)
+	if !seenImported || !seenDuplicate || !seenBatchDuplicate {
+		t.Fatalf("expected imported, duplicate_existing, and duplicate_in_batch identities, got %+v", response.Files)
+	}
+	if batchDuplicateID != importedID {
+		t.Fatalf("same-batch duplicate id = %q, want canonical imported id %q", batchDuplicateID, importedID)
 	}
 }
 
