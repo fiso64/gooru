@@ -218,3 +218,42 @@ test('bulk removal refreshes the grid only after durable removal completes', asy
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('.thumb')).toHaveCount(0);
 });
+
+
+test('mixed delete asks to untrack external files before one confirmed removal request', async ({ page }) => {
+  await mockApp(page);
+  const removals: Array<Record<string, unknown>> = [];
+  await page.route('**/api/v1/files', async (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    const removal = route.request().postDataJSON() as Record<string, unknown>;
+    removals.push(removal);
+    if (removal.mode === 'delete') {
+      await route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'file_not_managed', message: 'one or more selected files are outside configured upload targets; untrack them instead' } })
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ mode: removal.mode, removed_locations: 2, selector: {} })
+    });
+  });
+
+  await selectFirstFile(page);
+  await page.keyboard.press('Shift+Delete');
+  let dialog = page.getByRole('dialog', { name: 'Delete selected files' });
+  await dialog.getByRole('button', { name: 'Delete files' }).click();
+
+  dialog = page.getByRole('dialog', { name: 'Delete managed files and untrack external files?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('External files will remain on disk.');
+  expect(removals).toEqual([{ mode: 'delete', selection_id: 'selection-one', exclude_file_ids: ['one'] }]);
+
+  await dialog.getByRole('button', { name: 'Delete and untrack' }).click();
+  await expect.poll(() => removals.length).toBe(2);
+  expect(removals[1]).toEqual({ mode: 'delete_or_untrack', selection_id: 'selection-one', exclude_file_ids: ['one'] });
+  await expect(dialog).toHaveCount(0);
+});
