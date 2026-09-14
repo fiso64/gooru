@@ -26,9 +26,30 @@
   --r-3: 0;
   --r-4: 0;
   color-scheme: light;
-  font-family: Verdana, Helvetica, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.25;
+}
+
+.gooru-theme-booru-style.gooru-type-editorial {
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-display-weight: 400;
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.gooru-theme-booru-style.gooru-type-modern {
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-display-weight: 600;
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.gooru-theme-booru-style.gooru-type-comic {
+  --font-display: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
+  --font-display-weight: 700;
+  --font-ui: 'Comic Neue', 'Comic Sans MS', 'Comic Sans', cursive;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
 .gooru-theme-booru-style .booru-app-shell {
@@ -64,18 +85,20 @@
   background: transparent;
   color: #1e1e2c;
   cursor: pointer;
-  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-family: var(--font-display);
   font-size: 28px;
-  font-weight: 700;
+  font-weight: var(--font-display-weight);
   line-height: 1;
 }
 
 .gooru-theme-booru-style .booru-brand-mark {
   width: 36px;
   height: 36px;
-  display: grid;
-  place-items: center;
-  color: #0075f8;
+  display: block;
+  flex: 0 0 auto;
+  background: var(--brand-accent, #ffd060);
+  -webkit-mask: url('/favicon.svg') center / contain no-repeat;
+  mask: url('/favicon.svg') center / contain no-repeat;
 }
 
 .gooru-theme-booru-style .booru-account-actions {
@@ -92,7 +115,7 @@
   background: transparent;
   color: #0075f8;
   cursor: pointer;
-  font-family: Verdana, Helvetica, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .gooru-theme-booru-style .booru-link-button {
@@ -165,9 +188,9 @@
 .gooru-theme-booru-style .booru-search-section h2 {
   margin: 0;
   color: #1e1e2c;
-  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-family: var(--font-display);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--font-display-weight);
 }
 
 .gooru-theme-booru-style .booru-search-section form {
@@ -197,7 +220,7 @@
 }
 
 .gooru-theme-booru-style .searchbar-input {
-  font-family: Verdana, Helvetica, sans-serif;
+  font-family: var(--font-ui);
   font-size: 12px;
 }
 
@@ -221,9 +244,9 @@
 .gooru-theme-booru-style .sidebar-section-head {
   padding: 7px 4px 3px;
   color: #1e1e2c;
-  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-family: var(--font-display);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--font-display-weight);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -252,7 +275,7 @@
 
 .gooru-theme-booru-style .sidebar-item .count {
   color: #9192a7;
-  font-family: Verdana, Helvetica, sans-serif;
+  font-family: var(--font-ui);
   font-size: 10px;
 }
 
@@ -274,15 +297,15 @@
 .gooru-theme-booru-style .library-head h1,
 .gooru-theme-booru-style .page-header h1 {
   color: #1e1e2c;
-  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-family: var(--font-display);
   font-size: 18px;
-  font-weight: 700;
+  font-weight: var(--font-display-weight);
   letter-spacing: 0;
 }
 
 .gooru-theme-booru-style .library-head-meta {
   color: #9192a7;
-  font-family: Verdana, Helvetica, sans-serif;
+  font-family: var(--font-ui);
   font-size: 11px;
 }
 
@@ -320,7 +343,7 @@
   padding: 2px 3px;
   background: rgb(255 255 255 / 90%);
   color: #3f4058;
-  font-family: Verdana, Helvetica, sans-serif;
+  font-family: var(--font-ui);
   font-size: 10px;
   text-shadow: none;
 }
@@ -331,7 +354,7 @@
   color: #3f4058;
   border: 1px solid #d1d1da;
   border-radius: 0;
-  font-family: Verdana, Helvetica, sans-serif;
+  font-family: var(--font-ui);
 }
 
 .gooru-theme-booru-style .thumb-badge-gif {
@@ -448,9 +471,9 @@
 
 .gooru-theme-booru-style .settings-section-head h2 {
   color: #1e1e2c;
-  font-family: Tahoma, Verdana, Helvetica, sans-serif;
+  font-family: var(--font-display);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--font-display-weight);
 }
 
 .gooru-theme-booru-style .empty-icon,
