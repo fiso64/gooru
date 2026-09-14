@@ -4,7 +4,11 @@ import {
   countUploadStatuses,
   effectiveUploadTargetID,
   itemsFromJob,
+  itemsFromResult,
   replaceUploadItemInPlace,
+  retargetStagedUploadItems,
+  setUploadItemTagsInPlace,
+  stagedUploadItems,
   uploadProgressItem,
   uploadSummaryFromCounts,
   type UploadItem
@@ -25,6 +29,10 @@ function queueItem(index: number): UploadItem {
   };
 }
 
+function uploadFile(name: string): File {
+  return { name, size: 10, type: 'image/jpeg', lastModified: 0 } as File;
+}
+
 describe('effectiveUploadTargetID', () => {
   it('uses the first configured target when no explicit target is selected', () => {
     expect(effectiveUploadTargetID('', targets)).toBe('primary');
@@ -40,6 +48,53 @@ describe('effectiveUploadTargetID', () => {
 
   it('returns empty when uploads have no configured targets', () => {
     expect(effectiveUploadTargetID('', [])).toBe('');
+  });
+});
+
+describe('per-item upload tags', () => {
+  it('snapshots and normalizes tags when a row is staged', () => {
+    const items = stagedUploadItems(
+      [uploadFile('first.jpg')],
+      'primary',
+      123,
+      ['source:upload', ' ', 'source:upload', ' rating:safe ']
+    );
+
+    expect(items[0].tags).toEqual(['source:upload', 'rating:safe']);
+  });
+
+  it('retargets staged rows without rewriting their tag snapshots', () => {
+    const items = stagedUploadItems([uploadFile('first.jpg')], 'primary', 123, ['source:one', 'person:alice']);
+    const retargeted = retargetStagedUploadItems(items, 'archive');
+
+    expect(retargeted[0].targetID).toBe('archive');
+    expect(retargeted[0].tags).toEqual(['source:one', 'person:alice']);
+  });
+
+  it('edits one row in place without replacing the queue or row identity', () => {
+    const items = stagedUploadItems([uploadFile('first.jpg'), uploadFile('second.jpg')], 'primary');
+    const queueIdentity = items;
+    const rowIdentity = items[1];
+
+    setUploadItemTagsInPlace(items, 1, ['person:bob', ' ', 'person:bob', ' rating:safe ']);
+
+    expect(items).toBe(queueIdentity);
+    expect(items[1]).toBe(rowIdentity);
+    expect(items[1].tags).toEqual(['person:bob', 'rating:safe']);
+  });
+
+  it('preserves a row tag snapshot when an import result replaces transport state', () => {
+    const items = stagedUploadItems([uploadFile('first.jpg')], 'primary', 123, ['person:alice']);
+    const result = itemsFromResult({
+      files: [{
+        name: 'first.jpg',
+        size: 10,
+        target_id: 'primary',
+        status: 'imported'
+      }]
+    } as never, items);
+
+    expect(result[0].tags).toEqual(['person:alice']);
   });
 });
 
@@ -146,7 +201,7 @@ describe('large upload queue updates', () => {
     expect(items[9_999]).toBe(untouchedItem);
     expect(items.slice(0, 4).map((item) => item.progress)).toEqual([100, 100, 100, 100]);
     expect(counts).toEqual({ waiting: 9_996, uploading: 4 });
-    expect(uploadSummaryFromCounts(counts)).toBe('9996 waiting / 4 uploading');
+    expect(uploadSummaryFromCounts(counts)).toBe('9996 waiting / 4 uploading / 1 imported'.replace(' / 1 imported', ''));
 
     replaceUploadItemInPlace(items, 0, { ...items[0], status: 'imported', progress: 100 }, counts);
     expect(items[0]).toBe(activeItems[0]);
