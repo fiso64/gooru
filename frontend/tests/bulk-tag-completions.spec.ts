@@ -6,6 +6,8 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
+type TagRequest = { method: string; body: { file_ids?: string[]; tags?: string[] } };
+
 function fileItem(id: string, name: string) {
   return {
     id,
@@ -29,6 +31,7 @@ function fileItem(id: string, name: string) {
 
 async function mockApp(page: Page) {
   let loggedIn = false;
+  const tagRequests: TagRequest[] = [];
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({})
@@ -58,19 +61,26 @@ async function mockApp(page: Page) {
     contentType: 'application/json',
     body: JSON.stringify({ files: [fileItem('one', 'one.jpg')], total_count: 1, library_count: 1, facets: { kind: [{ value: 'photo', count: 1 }] } })
   }));
+  await page.route('**/api/v1/files/tags', async (route) => {
+    if (!['POST', 'PUT', 'DELETE'].includes(route.request().method())) return route.fallback();
+    tagRequests.push({ method: route.request().method(), body: route.request().postDataJSON() });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
+  });
   await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({
     contentType: 'image/svg+xml',
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />'
   }));
+  return tagRequests;
 }
 
 async function openSelectedLibrary(page: Page) {
-  await mockApp(page);
+  const tagRequests = await mockApp(page);
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
+  return tagRequests;
 }
 
 test('Tag selected exposes existing tag completions without covering dialog actions', async ({ page }) => {
@@ -106,4 +116,32 @@ test('Untag selected exposes existing tag completions', async ({ page }) => {
   const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
   await expect(suggestions).toBeVisible();
   await expect(suggestions.getByRole('option', { name: /blue/ })).toBeVisible();
+});
+
+test('Ctrl+Enter commits a pending tag draft and submits tagging', async ({ page }) => {
+  const tagRequests = await openSelectedLibrary(page);
+
+  await page.getByRole('button', { name: 'Tag…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
+  const input = dialog.getByLabel('Tags');
+  await input.fill('rating:safe');
+  await input.press('Control+Enter');
+
+  await expect.poll(() => tagRequests.length).toBe(1);
+  expect(tagRequests[0]).toEqual({ method: 'POST', body: { file_ids: ['one'], tags: ['rating:safe'] } });
+  await expect(dialog).toHaveCount(0);
+});
+
+test('Ctrl+Enter commits a pending tag draft and submits untagging', async ({ page }) => {
+  const tagRequests = await openSelectedLibrary(page);
+
+  await page.locator('.sb-actions button').filter({ hasText: 'Untag…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Untag selected files' });
+  const input = dialog.getByLabel('Tags');
+  await input.fill('blue');
+  await input.press('Control+Enter');
+
+  await expect.poll(() => tagRequests.length).toBe(1);
+  expect(tagRequests[0]).toEqual({ method: 'DELETE', body: { file_ids: ['one'], tags: ['blue'] } });
+  await expect(dialog).toHaveCount(0);
 });
