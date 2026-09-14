@@ -99,7 +99,7 @@ test('booru-light uses the shared booru shell with native fonts and yellow brand
   await expect(root).toHaveClass(/gooru-theme-booru-light/);
   await expect(root).not.toHaveClass(/gooru-theme-booru-dark/);
   await expect(root).not.toHaveClass(/gooru-type-/);
-  await expect(root).toHaveAttribute('style', /--brand-accent:#ffd060/);
+  await expect(root).toHaveAttribute('style', /--brand-accent:\s*#ffd060/);
   await expect(root).not.toHaveAttribute('style', /--accent:/);
 
   await expect(page.locator('.topbar')).toHaveCount(0);
@@ -167,7 +167,7 @@ test('booru login uses the same yellow spiral brand accent by default', async ({
   await mockThemeApp(page, 'booru-light', { authenticated: false });
 
   const root = page.locator('.gooru-root');
-  await expect(root).toHaveAttribute('style', /--brand-accent:#ffd060/);
+  await expect(root).toHaveAttribute('style', /--brand-accent:\s*#ffd060/);
   await expect(page.locator('.login-v2-spirals path')).toHaveCSS('stroke', 'rgb(255, 208, 96)');
   await expect(page.locator('.login-v2-mark .gooru-logo-accent-fill')).toHaveCSS('fill', 'rgb(255, 208, 96)');
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
@@ -177,11 +177,12 @@ test('booru custom accent recolors only spiral branding and favicon', async ({ p
   await mockThemeApp(page, 'booru-light', { accentColor: '#0c2238' });
 
   const root = page.locator('.gooru-root');
-  await expect(root).toHaveAttribute('style', /--brand-accent:#0c2238/);
-  await expect(root).not.toHaveAttribute('style', /--accent:#0c2238/);
+  await expect(root).toHaveAttribute('style', /--brand-accent:\s*#0c2238/);
+  await expect(root).not.toHaveAttribute('style', /--accent:\s*#0c2238/);
   await expect(page.locator('.booru-brand-mark')).toHaveCSS('background-color', 'rgb(12, 34, 56)');
   await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Tags' })).toHaveCSS('color', 'rgb(0, 117, 248)');
-  await expect(root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim())).resolves.toBe('#0075f8');
+  const booruAccent = await root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
+  expect(booruAccent).toBe('#0075f8');
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /^data:image\/svg\+xml,/);
 });
 
@@ -190,9 +191,10 @@ test('default theme keeps applying configured accent to the full UI token', asyn
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-theme-default/);
-  await expect(root).toHaveAttribute('style', /--brand-accent:#0c2238/);
-  await expect(root).toHaveAttribute('style', /--accent:#0c2238/);
-  await expect(root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim())).resolves.toBe('#0c2238');
+  await expect(root).toHaveAttribute('style', /--brand-accent:\s*#0c2238/);
+  await expect(root).toHaveAttribute('style', /--accent:\s*#0c2238/);
+  const defaultAccent = await root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
+  expect(defaultAccent).toBe('#0c2238');
   await expect(page.locator('.login-v2-spirals path')).toHaveCSS('stroke', 'rgb(12, 34, 56)');
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /^data:image\/svg\+xml,/);
 });
