@@ -6,6 +6,7 @@ import {
   queuedItem,
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
+  setUploadItemTagsInPlace,
   stagedUploadItems,
   uploadProgressItem,
   uploadSummaryFromCounts,
@@ -139,6 +140,10 @@ export function createUploadWorkflow() {
     statusCounts = countUploadStatuses(items);
   }
 
+  function setItemTags(index: number, nextTags: string[]) {
+    setUploadItemTagsInPlace(items, index, nextTags);
+  }
+
   function hasActiveJobs() {
     return Object.keys(trackedJobs).length > 0;
   }
@@ -161,7 +166,7 @@ export function createUploadWorkflow() {
 
     const queueTimeMs = Date.now();
     files = [...files, ...additions];
-    items = [...items, ...stagedUploadItems(additions, targetID, queueTimeMs)];
+    items = [...items, ...stagedUploadItems(additions, targetID, queueTimeMs, parseTags(tags))];
     statusCounts = countUploadStatuses(items);
     status = '';
     if (autoUpload) {
@@ -257,7 +262,7 @@ export function createUploadWorkflow() {
     if (!files.length) return { queued: false, changedFiles: false };
 
     const batchFiles = [...files];
-    if (!items.length) items = stagedUploadItems(batchFiles, targetID);
+    if (!items.length) items = stagedUploadItems(batchFiles, targetID, Date.now(), parseTags(tags));
     const batchItemIndices = items.flatMap((item, itemIndex) => item.status === 'staged' ? [itemIndex] : []);
     if (batchItemIndices.length !== batchFiles.length) {
       status = 'Upload queue changed unexpectedly; please restage the pending files';
@@ -448,6 +453,7 @@ export function createUploadWorkflow() {
     reset,
     clear,
     removeAt,
+    setItemTags,
     select,
     setTarget,
     applyJob,
