@@ -52,7 +52,7 @@ func waitForTestBackgroundIdle(t *testing.T, client *core.Client) {
 	defer timer.Stop()
 
 	for {
-		pending, err := client.ListPendingMediaMetadataContentHashes(1)
+		pending, err := client.ListPendingMediaMetadataFiles(0, 1)
 		if err != nil {
 			t.Fatalf("list pending media metadata: %v", err)
 		}
@@ -62,7 +62,7 @@ func waitForTestBackgroundIdle(t *testing.T, client *core.Client) {
 		select {
 		case <-ticker.C:
 		case <-timer.C:
-			t.Fatalf("background runtime did not process pending media metadata for content hash %q", pending[0])
+			t.Fatalf("background runtime did not process pending media metadata for location %d", pending[0].ID)
 		}
 	}
 }
