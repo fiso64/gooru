@@ -65,6 +65,41 @@ func TestDefaultRegistrationMetadataSweepIsDurableAndAggregatedAcrossClients(t *
 	}
 }
 
+func TestDefaultRegistrationMetadataSweepSignalsCommittedOperationChange(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	if err := Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	producer, err := New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open producer client: %v", err)
+	}
+	t.Cleanup(func() { _ = producer.Close() })
+	changes, unsubscribe := producer.SubscribeBackgroundOperationChanges()
+	defer unsubscribe()
+
+	mediaPath := filepath.Join(t.TempDir(), "local-registration.jpg")
+	if err := os.WriteFile(mediaPath, []byte("same process registration"), 0o600); err != nil {
+		t.Fatalf("write media file: %v", err)
+	}
+	if _, err := producer.TagFiles([]string{mediaPath}, []string{"local"}, nil, false); err != nil {
+		t.Fatalf("tag local file: %v", err)
+	}
+
+	select {
+	case <-changes:
+	default:
+		t.Fatal("committed registration metadata sweep did not signal operation change")
+	}
+	operations, err := producer.ListBackgroundOperations(BackgroundOperationListOptions{VisibleOnly: true})
+	if err != nil {
+		t.Fatalf("list visible operations: %v", err)
+	}
+	if len(operations) != 1 || operations[0].Kind != BackgroundMediaMetadataSweepOperationKind || operations[0].Status != BackgroundWorkPending {
+		t.Fatalf("unexpected committed metadata operation: %+v", operations)
+	}
+}
+
 func TestEnsureMediaMetadataSweepRecoversMissingWakeWithoutDuplicates(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gooru.db")
 	if err := Init(dbPath, types.StrategyFull, false); err != nil {
