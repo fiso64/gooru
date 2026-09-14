@@ -89,6 +89,7 @@ type Client struct {
 	hasher                     *hashing.Hasher
 	sources                    *filesource.Resolver
 	backgroundOperationChanges backgroundOperationChangeBus
+	fileRegistrationHooks      []FileRegistrationHook
 }
 
 // New creates a new Client using ordinary plaintext database and filesystem
