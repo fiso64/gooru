@@ -123,7 +123,7 @@ test('Ctrl+Enter commits a pending tag draft and submits tagging', async ({ page
 
   await page.getByRole('button', { name: 'Tag…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
-  const input = dialog.getByLabel('Tags');
+  const input = dialog.getByRole('textbox', { name: 'Tags' });
   await input.fill('rating:safe');
   await input.press('Control+Enter');
 
@@ -137,7 +137,7 @@ test('Ctrl+Enter commits a pending tag draft and submits untagging', async ({ pa
 
   await page.locator('.sb-actions button').filter({ hasText: 'Untag…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Untag selected files' });
-  const input = dialog.getByLabel('Tags');
+  const input = dialog.getByRole('textbox', { name: 'Tags' });
   await input.fill('blue');
   await input.press('Control+Enter');
 
