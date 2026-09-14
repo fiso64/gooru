@@ -547,7 +547,7 @@ func uploadBinaryRequest(t *testing.T, files map[string][]byte, tags []string) *
 }
 
 func uploadBinaryRequestWithTarget(t *testing.T, files map[string][]byte, tags []string, targetID string) *http.Request {
-	return uploadBinaryRequestWithConflict(t, files, tags, targetID, conflictPolicy)
+	return uploadBinaryRequestWithConflict(t, files, tags, targetID, "")
 }
 
 func uploadBinaryRequestWithConflict(t *testing.T, files map[string][]byte, tags []string, targetID string, conflictPolicy string) *http.Request {
