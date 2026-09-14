@@ -18,6 +18,41 @@ export function candidateTagName(candidate: TagCandidate): string {
   return candidate.name ?? candidate.tag ?? (candidate.namespace ? `${candidate.namespace}:${candidate.value ?? ''}` : (candidate.value ?? ''));
 }
 
+export function mergeTagCandidateCounts(candidates: TagCandidate[], tagSets: string[][]): TagCandidate[] {
+  const merged = candidates.map((candidate) => ({ ...candidate }));
+  const indexByName = new Map<string, number>();
+  for (let index = 0; index < merged.length; index += 1) {
+    const name = candidateTagName(merged[index]!).trim();
+    if (name) indexByName.set(name.toLowerCase(), index);
+  }
+
+  const stagedCounts = new Map<string, { name: string; count: number }>();
+  for (const tags of tagSets) {
+    const seen = new Set<string>();
+    for (const rawTag of tags) {
+      const name = rawTag.trim();
+      const key = name.toLowerCase();
+      if (!name || seen.has(key)) continue;
+      seen.add(key);
+      const previous = stagedCounts.get(key);
+      stagedCounts.set(key, { name: previous?.name ?? name, count: (previous?.count ?? 0) + 1 });
+    }
+  }
+
+  for (const [key, staged] of stagedCounts) {
+    const index = indexByName.get(key);
+    if (index == null) {
+      indexByName.set(key, merged.length);
+      merged.push({ name: staged.name, count: staged.count });
+      continue;
+    }
+    const candidate = merged[index]!;
+    merged[index] = { ...candidate, count: (candidate.count ?? 0) + staged.count };
+  }
+
+  return merged;
+}
+
 export function plainTagSuggestions(
   draft: string,
   candidates: TagCandidate[],
