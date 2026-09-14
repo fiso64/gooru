@@ -102,8 +102,9 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundThumbnailResourceClass,
 		WorkerID:      workerID + "-media",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundThumbnailTaskKind:     s.backgroundThumbnailHandler,
-			backgroundMediaMetadataTaskKind: s.backgroundMediaMetadataHandler,
+			backgroundThumbnailTaskKind:          s.backgroundThumbnailHandler,
+			backgroundMediaMetadataTaskKind:      s.backgroundMediaMetadataHandler,
+			backgroundMediaMetadataSweepTaskKind: s.backgroundMediaMetadataSweepHandler,
 		},
 	})
 	if err != nil {
