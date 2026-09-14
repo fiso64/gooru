@@ -3,17 +3,19 @@ import {
   countUploadStatuses,
   itemsFromJob,
   itemsFromResult,
+  markUploadItemTagSyncAppliedInPlace,
   markUploadItemTagSyncErrorInPlace,
-  markUploadItemTagsSyncedInPlace,
   queuedItem,
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
   setUploadItemTagsInPlace,
   stagedUploadItems,
+  uploadItemTagSyncDelta,
   uploadProgressItem,
   uploadSummaryFromCounts,
   type UploadAddedAtStrategy,
   type UploadItem,
+  type UploadItemTagSyncOperation,
   type UploadItemStatus,
   type UploadStatusCounts
 } from './uploadItems';
@@ -180,8 +182,13 @@ export function createUploadWorkflow() {
     setUploadItemTagsInPlace(items, index, nextTags);
   }
 
-  function markItemTagsSynced(index: number, syncedTags: string[]) {
-    markUploadItemTagsSyncedInPlace(items, index, syncedTags);
+  function itemTagSyncDelta(index: number) {
+    const current = items[index];
+    return current ? uploadItemTagSyncDelta(current) : { add: [], remove: [] };
+  }
+
+  function markItemTagSyncApplied(index: number, operation: UploadItemTagSyncOperation, tags: string[]) {
+    markUploadItemTagSyncAppliedInPlace(items, index, operation, tags);
   }
 
   function markItemTagSyncError(index: number, message: string) {
@@ -313,11 +320,24 @@ export function createUploadWorkflow() {
       return { queued: false, changedFiles: false };
     }
 
+    const parsedTags = parseTags(tags);
     const batchID = ++nextBatchID;
     const nextItems = [...items];
     for (const itemIndex of batchItemIndices) {
       const current = nextItems[itemIndex];
-      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'uploading', progress: 0, error: '' };
+      if (current) {
+        const submittedTags = [...(current.tags ?? parsedTags)];
+        nextItems[itemIndex] = {
+          ...current,
+          batchID,
+          tagSyncBaseTags: submittedTags,
+          tagSyncPending: false,
+          tagSyncError: '',
+          status: 'uploading',
+          progress: 0,
+          error: ''
+        };
+      }
     }
     items = nextItems;
     files = [];
@@ -326,7 +346,6 @@ export function createUploadWorkflow() {
     activeSubmissions += 1;
     statusCounts = countUploadStatuses(items);
 
-    const parsedTags = parseTags(tags);
     const batchTargetID = targetID;
     const batchConflictPolicy = conflictPolicy;
     const batchAddedAtStrategy = addedAtStrategy;
@@ -499,7 +518,8 @@ export function createUploadWorkflow() {
     clear,
     removeAt,
     setItemTags,
-    markItemTagsSynced,
+    itemTagSyncDelta,
+    markItemTagSyncApplied,
     markItemTagSyncError,
     select,
     setTarget,

@@ -141,6 +141,34 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
     expect(workflow.items.map((item) => item.status)).toEqual(['queued', 'queued', 'queued']);
   });
 
+  it('captures submitted tags at synchronous admission and preserves later edits as a delta', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.tags = 'submitted common';
+    workflow.select([uploadFile(0)]);
+
+    let release!: () => void;
+    const response = new Promise<BackgroundOperation>((resolve) => {
+      release = () => resolve(pendingJob('job-baseline', 1));
+    });
+    const submission = workflow.submit(() => response);
+
+    expect(workflow.items[0]).toMatchObject({
+      status: 'uploading',
+      tags: ['submitted', 'common'],
+      tagSyncBaseTags: ['submitted', 'common'],
+      tagSyncPending: false
+    });
+
+    workflow.setItemTags(0, ['submitted', 'later']);
+    expect(workflow.itemTagSyncDelta(0)).toEqual({ add: ['later'], remove: ['common'] });
+    expect(workflow.items[0].tagSyncPending).toBe(true);
+
+    release();
+    await submission;
+    expect(workflow.items[0].tagSyncBaseTags).toEqual(['submitted', 'common']);
+    expect(workflow.itemTagSyncDelta(0)).toEqual({ add: ['later'], remove: ['common'] });
+  });
+
   it('keeps one visible job whether a selection uses one request or several', async () => {
     const small = createUploadWorkflow();
     small.select(Array.from({ length: 10 }, (_, index) => uploadFile(index)));

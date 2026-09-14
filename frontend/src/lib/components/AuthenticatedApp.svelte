@@ -513,13 +513,19 @@
   async function reconcileUploadItemTags(index: number) {
     const item = upload.items[index];
     if (!item?.tagSyncPending || !item.remoteFileID || uploadTagSyncRuns.has(item)) return;
-    const syncedTags = [...(item.tags ?? [])];
+    const delta = upload.itemTagSyncDelta(index);
+    const operation = delta.add.length ? 'add' : delta.remove.length ? 'remove' : null;
+    if (!operation) {
+      upload.markItemTagSyncApplied(index, 'add', []);
+      return;
+    }
+    const changedTags = operation === 'add' ? delta.add : delta.remove;
     const remoteFileID = item.remoteFileID;
     uploadTagSyncRuns.add(item);
     try {
-      await tagMutation.mutateAsync({ operation: 'set', body: { file_ids: [remoteFileID], tags: syncedTags } });
+      await tagMutation.mutateAsync({ operation, body: { file_ids: [remoteFileID], tags: changedTags } });
       const currentIndex = upload.items.indexOf(item);
-      if (currentIndex >= 0) upload.markItemTagsSynced(currentIndex, syncedTags);
+      if (currentIndex >= 0) upload.markItemTagSyncApplied(currentIndex, operation, changedTags);
     } catch (error) {
       const currentIndex = upload.items.indexOf(item);
       if (currentIndex >= 0) upload.markItemTagSyncError(currentIndex, errorMessage(error));

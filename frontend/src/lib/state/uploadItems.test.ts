@@ -5,10 +5,13 @@ import {
   effectiveUploadTargetID,
   itemsFromJob,
   itemsFromResult,
+  markUploadItemTagSyncAppliedInPlace,
+  markUploadItemTagSyncErrorInPlace,
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
   setUploadItemTagsInPlace,
   stagedUploadItems,
+  uploadItemTagSyncDelta,
   uploadProgressItem,
   uploadSummaryFromCounts,
   type UploadItem
@@ -85,6 +88,7 @@ describe('per-item upload tags', () => {
 
   it('preserves a row tag snapshot when an import result replaces transport state', () => {
     const items = stagedUploadItems([uploadFile('first.jpg')], 'primary', 123, ['person:alice']);
+    items[0].tagSyncBaseTags = ['person:alice'];
     const result = itemsFromResult({
       files: [{
         name: 'first.jpg',
@@ -95,6 +99,55 @@ describe('per-item upload tags', () => {
     } as never, items);
 
     expect(result[0].tags).toEqual(['person:alice']);
+    expect(result[0].tagSyncBaseTags).toEqual(['person:alice']);
+  });
+
+  it('computes only the add/remove delta from the submitted baseline', () => {
+    const item = queueItem(0);
+    item.status = 'imported';
+    item.tags = ['submitted', 'new'];
+    item.tagSyncBaseTags = ['submitted', 'removed'];
+
+    expect(uploadItemTagSyncDelta(item)).toEqual({ add: ['new'], remove: ['removed'] });
+  });
+
+  it('advances successful operations independently while preserving concurrent edits', () => {
+    const items = [queueItem(0)];
+    items[0].status = 'imported';
+    items[0].tags = ['keep', 'add'];
+    items[0].tagSyncBaseTags = ['keep', 'remove'];
+    items[0].tagSyncPending = true;
+
+    markUploadItemTagSyncAppliedInPlace(items, 0, 'add', ['add']);
+    expect(items[0].tagSyncBaseTags).toEqual(['keep', 'remove', 'add']);
+    expect(items[0].tagSyncPending).toBe(true);
+
+    setUploadItemTagsInPlace(items, 0, ['keep', 'add', 'late']);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: ['late'], remove: ['remove'] });
+
+    markUploadItemTagSyncAppliedInPlace(items, 0, 'remove', ['remove']);
+    expect(items[0].tagSyncBaseTags).toEqual(['keep', 'add']);
+    expect(items[0].tagSyncPending).toBe(true);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: ['late'], remove: [] });
+  });
+
+  it('retains a successful partial baseline when a later operation fails', () => {
+    const items = [queueItem(0)];
+    items[0].status = 'imported';
+    items[0].tags = ['keep', 'add'];
+    items[0].tagSyncBaseTags = ['keep', 'remove'];
+    items[0].tagSyncPending = true;
+
+    markUploadItemTagSyncAppliedInPlace(items, 0, 'add', ['add']);
+    markUploadItemTagSyncErrorInPlace(items, 0, 'remove failed');
+    expect(items[0].tagSyncBaseTags).toEqual(['keep', 'remove', 'add']);
+    expect(items[0].tagSyncPending).toBe(false);
+    expect(items[0].tagSyncError).toBe('remove failed');
+
+    setUploadItemTagsInPlace(items, 0, ['keep', 'add']);
+    expect(items[0].tagSyncError).toBe('');
+    expect(items[0].tagSyncPending).toBe(true);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: [], remove: ['remove'] });
   });
 });
 
