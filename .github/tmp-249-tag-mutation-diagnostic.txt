@@ -1,0 +1,176 @@
+=== mutateTagPaths references ===
+./internal/serve/uploads.go-832-		}
+./internal/serve/uploads.go-833-		if exists || status == types.StatusUntrackedContent || status == types.StatusOK {
+./internal/serve/uploads.go-834-			existing, err := l.client.GetFileInfoByContentHash(info.Hash)
+./internal/serve/uploads.go-835-			if err != nil {
+./internal/serve/uploads.go-836-				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: %w", file.Name, err)
+./internal/serve/uploads.go-837-			}
+./internal/serve/uploads.go-838-			dto.ID = l.client.PublicFileID(existing.ID)
+./internal/serve/uploads.go-839-			if dto.ID == "" {
+./internal/serve/uploads.go-840-				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
+./internal/serve/uploads.go-841-			}
+./internal/serve/uploads.go-842-			dto.Status = "duplicate_existing"
+./internal/serve/uploads.go-843-			if len(fileTags) > 0 {
+./internal/serve/uploads.go:844:				if _, err := l.mutateTagPaths(TagOperationAdd, []string{existing.Path}, fileTags); err != nil {
+./internal/serve/uploads.go-845-					return UploadImportResponse{}, fmt.Errorf("tag duplicate upload %q: %w", file.Name, err)
+./internal/serve/uploads.go-846-				}
+./internal/serve/uploads.go-847-			}
+./internal/serve/uploads.go-848-			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
+./internal/serve/uploads.go-849-			discardDuplicateUpload(file, trackedAtPath)
+./internal/serve/uploads.go-850-			response.Files = append(response.Files, dto)
+./internal/serve/uploads.go-851-			continue
+./internal/serve/uploads.go-852-		}
+./internal/serve/uploads.go-853-		retryPath := file.Path
+./internal/serve/uploads.go-854-		if file.ConflictPolicy == "rename" && l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path) {
+./internal/serve/uploads.go-855-			resolvedPath, err := l.resolveProtectedUploadRename(file.Path)
+./internal/serve/uploads.go-856-			if err != nil {
+--
+./internal/serve/tag_mutations.go-331-			ExcludeFileIDs: request.ExcludeFileIDs,
+./internal/serve/tag_mutations.go-332-		},
+./internal/serve/tag_mutations.go-333-	}
+./internal/serve/tag_mutations.go-334-	if len(request.FileIDs) > 0 {
+./internal/serve/tag_mutations.go-335-		paths := make([]string, 0, len(request.FileIDs))
+./internal/serve/tag_mutations.go-336-		for _, encoded := range request.FileIDs {
+./internal/serve/tag_mutations.go-337-			file, err := l.GetFileByPublicID(ctx, encoded)
+./internal/serve/tag_mutations.go-338-			if err != nil {
+./internal/serve/tag_mutations.go-339-				return TagMutationResponse{}, err
+./internal/serve/tag_mutations.go-340-			}
+./internal/serve/tag_mutations.go-341-			paths = append(paths, file.Path)
+./internal/serve/tag_mutations.go-342-		}
+./internal/serve/tag_mutations.go:343:		result, err := l.mutateTagPaths(operation, paths, request.Tags)
+./internal/serve/tag_mutations.go-344-		if err != nil {
+./internal/serve/tag_mutations.go-345-			return TagMutationResponse{}, err
+./internal/serve/tag_mutations.go-346-		}
+./internal/serve/tag_mutations.go-347-		response.MatchedFiles = len(paths)
+./internal/serve/tag_mutations.go-348-		response.AffectedCount = result.AffectedCount
+./internal/serve/tag_mutations.go-349-		response.Notifications = notificationDTOs(result.Notifications)
+./internal/serve/tag_mutations.go-350-		return response, nil
+./internal/serve/tag_mutations.go-351-	}
+./internal/serve/tag_mutations.go-352-
+./internal/serve/tag_mutations.go-353-	excludedHashes := make([]string, 0, len(request.ExcludeFileIDs))
+./internal/serve/tag_mutations.go-354-	for _, encoded := range request.ExcludeFileIDs {
+./internal/serve/tag_mutations.go-355-		file, err := l.GetFileByPublicID(ctx, encoded)
+--
+./internal/serve/tag_mutations.go-357-			return TagMutationResponse{}, err
+./internal/serve/tag_mutations.go-358-		}
+./internal/serve/tag_mutations.go-359-		excludedHashes = append(excludedHashes, file.Hash)
+./internal/serve/tag_mutations.go-360-	}
+./internal/serve/tag_mutations.go-361-	affected, err := l.mutateTagQueryExcluding(operation, request.Query, request.Tags, excludedHashes)
+./internal/serve/tag_mutations.go-362-	if err != nil {
+./internal/serve/tag_mutations.go-363-		return TagMutationResponse{}, err
+./internal/serve/tag_mutations.go-364-	}
+./internal/serve/tag_mutations.go-365-	response.AffectedCount = affected
+./internal/serve/tag_mutations.go-366-	return response, nil
+./internal/serve/tag_mutations.go-367-}
+./internal/serve/tag_mutations.go-368-
+./internal/serve/tag_mutations.go:369:func (l *GooruLibrary) mutateTagPaths(operation TagOperation, paths []string, tags []string) (types.TagOperationResult, error) {
+./internal/serve/tag_mutations.go-370-	switch operation {
+./internal/serve/tag_mutations.go-371-	case TagOperationAdd:
+./internal/serve/tag_mutations.go-372-		return l.client.TagFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-373-	case TagOperationSet:
+./internal/serve/tag_mutations.go-374-		return l.client.SetTagsForFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-375-	case TagOperationRemove:
+./internal/serve/tag_mutations.go-376-		return l.client.UntagFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-377-	default:
+./internal/serve/tag_mutations.go-378-		return types.TagOperationResult{}, fmt.Errorf("unsupported tag operation %q", operation)
+./internal/serve/tag_mutations.go-379-	}
+./internal/serve/tag_mutations.go-380-}
+./internal/serve/tag_mutations.go-381-
+
+=== tag mutation helper candidates ===
+internal/query/sqlbuilder_exact_tag_test.go-4-	"database/sql"
+internal/query/sqlbuilder_exact_tag_test.go-5-	"reflect"
+internal/query/sqlbuilder_exact_tag_test.go-6-	"strings"
+internal/query/sqlbuilder_exact_tag_test.go-7-	"testing"
+internal/query/sqlbuilder_exact_tag_test.go-8-
+internal/query/sqlbuilder_exact_tag_test.go-9-	_ "gosqlite.org"
+internal/query/sqlbuilder_exact_tag_test.go-10-)
+internal/query/sqlbuilder_exact_tag_test.go-11-
+internal/query/sqlbuilder_exact_tag_test.go:12:func TestBuildExactTagUsesAssociationIndexPath(t *testing.T) {
+internal/query/sqlbuilder_exact_tag_test.go-13-	expr, err := Parse("artist:alice")
+internal/query/sqlbuilder_exact_tag_test.go-14-	if err != nil {
+internal/query/sqlbuilder_exact_tag_test.go-15-		t.Fatal(err)
+internal/query/sqlbuilder_exact_tag_test.go-16-	}
+internal/query/sqlbuilder_exact_tag_test.go-17-	if err := ValidateAST(expr); err != nil {
+internal/query/sqlbuilder_exact_tag_test.go-18-		t.Fatal(err)
+internal/query/sqlbuilder_exact_tag_test.go-19-	}
+internal/query/sqlbuilder_exact_tag_test.go-20-
+--
+internal/serve/tag_mutations.go-335-		paths := make([]string, 0, len(request.FileIDs))
+internal/serve/tag_mutations.go-336-		for _, encoded := range request.FileIDs {
+internal/serve/tag_mutations.go-337-			file, err := l.GetFileByPublicID(ctx, encoded)
+internal/serve/tag_mutations.go-338-			if err != nil {
+internal/serve/tag_mutations.go-339-				return TagMutationResponse{}, err
+internal/serve/tag_mutations.go-340-			}
+internal/serve/tag_mutations.go-341-			paths = append(paths, file.Path)
+internal/serve/tag_mutations.go-342-		}
+internal/serve/tag_mutations.go:343:		result, err := l.mutateTagPaths(operation, paths, request.Tags)
+internal/serve/tag_mutations.go-344-		if err != nil {
+internal/serve/tag_mutations.go-345-			return TagMutationResponse{}, err
+internal/serve/tag_mutations.go-346-		}
+internal/serve/tag_mutations.go-347-		response.MatchedFiles = len(paths)
+internal/serve/tag_mutations.go-348-		response.AffectedCount = result.AffectedCount
+internal/serve/tag_mutations.go-349-		response.Notifications = notificationDTOs(result.Notifications)
+internal/serve/tag_mutations.go-350-		return response, nil
+internal/serve/tag_mutations.go-351-	}
+--
+internal/serve/tag_mutations.go-353-	excludedHashes := make([]string, 0, len(request.ExcludeFileIDs))
+internal/serve/tag_mutations.go-354-	for _, encoded := range request.ExcludeFileIDs {
+internal/serve/tag_mutations.go-355-		file, err := l.GetFileByPublicID(ctx, encoded)
+internal/serve/tag_mutations.go-356-		if err != nil {
+internal/serve/tag_mutations.go-357-			return TagMutationResponse{}, err
+internal/serve/tag_mutations.go-358-		}
+internal/serve/tag_mutations.go-359-		excludedHashes = append(excludedHashes, file.Hash)
+internal/serve/tag_mutations.go-360-	}
+internal/serve/tag_mutations.go:361:	affected, err := l.mutateTagQueryExcluding(operation, request.Query, request.Tags, excludedHashes)
+internal/serve/tag_mutations.go-362-	if err != nil {
+internal/serve/tag_mutations.go-363-		return TagMutationResponse{}, err
+internal/serve/tag_mutations.go-364-	}
+internal/serve/tag_mutations.go-365-	response.AffectedCount = affected
+internal/serve/tag_mutations.go-366-	return response, nil
+internal/serve/tag_mutations.go-367-}
+internal/serve/tag_mutations.go-368-
+internal/serve/tag_mutations.go:369:func (l *GooruLibrary) mutateTagPaths(operation TagOperation, paths []string, tags []string) (types.TagOperationResult, error) {
+internal/serve/tag_mutations.go-370-	switch operation {
+internal/serve/tag_mutations.go-371-	case TagOperationAdd:
+internal/serve/tag_mutations.go-372-		return l.client.TagFiles(paths, tags, nil, true)
+internal/serve/tag_mutations.go-373-	case TagOperationSet:
+internal/serve/tag_mutations.go-374-		return l.client.SetTagsForFiles(paths, tags, nil, true)
+internal/serve/tag_mutations.go-375-	case TagOperationRemove:
+internal/serve/tag_mutations.go-376-		return l.client.UntagFiles(paths, tags, nil, true)
+internal/serve/tag_mutations.go-377-	default:
+internal/serve/tag_mutations.go-378-		return types.TagOperationResult{}, fmt.Errorf("unsupported tag operation %q", operation)
+internal/serve/tag_mutations.go-379-	}
+internal/serve/tag_mutations.go-380-}
+internal/serve/tag_mutations.go-381-
+internal/serve/tag_mutations.go:382:func (l *GooruLibrary) mutateTagQuery(operation TagOperation, expression string, tags []string) (int, error) {
+internal/serve/tag_mutations.go:383:	return l.mutateTagQueryExcluding(operation, expression, tags, nil)
+internal/serve/tag_mutations.go-384-}
+internal/serve/tag_mutations.go-385-
+internal/serve/tag_mutations.go:386:func (l *GooruLibrary) mutateTagQueryExcluding(operation TagOperation, expression string, tags, excludedHashes []string) (int, error) {
+internal/serve/tag_mutations.go-387-	switch operation {
+internal/serve/tag_mutations.go-388-	case TagOperationAdd:
+internal/serve/tag_mutations.go-389-		if len(excludedHashes) == 0 {
+internal/serve/tag_mutations.go-390-			return l.client.TagFilesByQuery(expression, tags)
+internal/serve/tag_mutations.go-391-		}
+internal/serve/tag_mutations.go-392-		return l.client.TagFilesByQueryExcluding(expression, tags, excludedHashes)
+internal/serve/tag_mutations.go-393-	case TagOperationSet:
+internal/serve/tag_mutations.go-394-		if len(excludedHashes) == 0 {
+--
+internal/serve/uploads.go-836-				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: %w", file.Name, err)
+internal/serve/uploads.go-837-			}
+internal/serve/uploads.go-838-			dto.ID = l.client.PublicFileID(existing.ID)
+internal/serve/uploads.go-839-			if dto.ID == "" {
+internal/serve/uploads.go-840-				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
+internal/serve/uploads.go-841-			}
+internal/serve/uploads.go-842-			dto.Status = "duplicate_existing"
+internal/serve/uploads.go-843-			if len(fileTags) > 0 {
+internal/serve/uploads.go:844:				if _, err := l.mutateTagPaths(TagOperationAdd, []string{existing.Path}, fileTags); err != nil {
+internal/serve/uploads.go-845-					return UploadImportResponse{}, fmt.Errorf("tag duplicate upload %q: %w", file.Name, err)
+internal/serve/uploads.go-846-				}
+internal/serve/uploads.go-847-			}
+internal/serve/uploads.go-848-			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
+internal/serve/uploads.go-849-			discardDuplicateUpload(file, trackedAtPath)
+internal/serve/uploads.go-850-			response.Files = append(response.Files, dto)
+internal/serve/uploads.go-851-			continue
+internal/serve/uploads.go-852-		}
