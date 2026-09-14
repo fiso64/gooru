@@ -28,6 +28,7 @@
     onTargetInput,
     onFiles,
     onTagsInput,
+    onItemTagsInput,
     onAddedAtStrategyInput,
     onAutoUploadInput,
     onSubmit,
@@ -51,6 +52,7 @@
     onTargetInput: (value: string) => void;
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
+    onItemTagsInput: (index: number, tags: string[]) => void;
     onAddedAtStrategyInput: (value: 'queue' | 'reverse_queue' | 'modtime') => void;
     onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;
@@ -62,6 +64,7 @@
   let dragActive = $state(false);
   let fileInput: HTMLInputElement | undefined;
   let tagDraft = $state('');
+  let itemTagDrafts = $state<Record<number, string>>({});
   let stagedPage = $state(0);
   let queuePages = $state<Record<string, number>>({});
 
@@ -149,6 +152,25 @@
 
   function removeInitialTag(tag: string) {
     onTagsInput(initialTags.filter((candidate) => candidate !== tag).join(' '));
+  }
+
+  function setItemTagDraft(index: number, value: string) {
+    itemTagDrafts = { ...itemTagDrafts, [index]: value };
+  }
+
+  function commitItemTag(index: number, item: UploadItem, tagInput: string) {
+    const current = item.tags ?? [];
+    onItemTagsInput(index, Array.from(new Set([...current, ...parseTags(tagInput)])));
+    setItemTagDraft(index, '');
+  }
+
+  function removeItemTag(index: number, item: UploadItem, tag: string) {
+    onItemTagsInput(index, (item.tags ?? []).filter((candidate) => candidate !== tag));
+  }
+
+  function removeStagedItem(index: number) {
+    itemTagDrafts = {};
+    onRemove(index);
   }
 
   function itemIcon(item: UploadItem) {
@@ -290,11 +312,38 @@
                 {@const item = row.item}
                 <div class="upload-row upload-row-staged">
                   <UploadMediaPreview file={item.previewFile} {item} />
-                  <div><div class="name">{item.name}</div></div>
+                  <div class="upload-item-main">
+                    <div class="name">{item.name}</div>
+                    <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
+                      {#each item.tags ?? [] as tag}
+                        {@const separator = tag.indexOf(':')}
+                        <span class="g-tag">
+                          {#if separator > 0}
+                            <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
+                          {:else}
+                            <span>{tag}</span>
+                          {/if}
+                          <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${item.name}`} onclick={() => removeItemTag(row.index, item, tag)}>
+                            <Icon name="close" size={11} />
+                          </button>
+                        </span>
+                      {/each}
+                      <TagAutocompleteInput
+                        value={itemTagDrafts[row.index] ?? ''}
+                        {tags}
+                        existing={item.tags ?? []}
+                        placeholder="add tag"
+                        ariaLabel={`Add tag to ${item.name}`}
+                        onInput={(value) => setItemTagDraft(row.index, value)}
+                        onCommit={(value) => commitItemTag(row.index, item, value)}
+                        onRemoveLast={(tag) => removeItemTag(row.index, item, tag)}
+                      />
+                    </div>
+                  </div>
                   <div class="size">{formatBytes(item.size)}</div>
                   <div class="progress is-staged" aria-hidden="true"></div>
                   <div class="status">
-                    <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => onRemove(row.index)}>
+                    <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => removeStagedItem(row.index)}>
                       <Icon name="close" size={11} />
                     </button>
                   </div>
@@ -381,6 +430,15 @@
 </main>
 
 <style>
+  .upload-item-main {
+    min-width: 0;
+  }
+
+  .upload-item-tags {
+    margin-top: 6px;
+    min-height: 30px;
+  }
+
   .upload-batches {
     display: flex;
     flex-direction: column;
