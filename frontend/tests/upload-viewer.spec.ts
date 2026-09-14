@@ -166,7 +166,7 @@ test('inline tag completions overlay the last batch row without resizing the car
   await page.getByRole('button', { name: 'Upload 1 file' }).click();
 
   const batch = page.getByTestId('upload-queue-batch');
-  const tagInput = page.getByLabel('Add tag to last.png');
+  const tagInput = page.getByRole('textbox', { name: 'Add tag to last.png' });
   await expect(batch).toBeVisible();
   await expect(tagInput).toBeVisible();
   const before = await batch.boundingBox();
