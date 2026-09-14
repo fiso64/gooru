@@ -37,8 +37,6 @@ export interface UploadItem {
 export type UploadTargetOption = { id: string; name: string; added_at_strategy?: UploadAddedAtStrategy; default_tags?: string[] };
 export type UploadStatusCounts = Partial<Record<UploadItemStatus, number>>;
 
-type UploadResultFileWithIdentity = UploadImportResponse['files'][number] & { id?: string };
-
 export function effectiveUploadTargetID(targetID: string, targets: UploadTargetOption[]): string {
   if (targetID && targets.some((target) => target.id === targetID)) return targetID;
   return targets[0]?.id ?? '';
@@ -166,7 +164,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       tagSyncError: prior?.tagSyncError,
       targetID: file.target_id,
       queueTimeMs: prior?.queueTimeMs,
-      remoteFileID: (file as UploadResultFileWithIdentity).id ?? prior?.remoteFileID,
+      remoteFileID: file.id ?? prior?.remoteFileID,
       status: file.status,
       progress: 100,
       error: file.error
