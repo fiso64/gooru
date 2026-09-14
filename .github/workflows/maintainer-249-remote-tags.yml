@@ -1,0 +1,39 @@
+name: Maintainer 249 remote tags
+
+on:
+  push:
+    branches: [feat/249-upload-item-tags]
+    paths:
+      - .github/workflows/maintainer-249-remote-tags.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/249-upload-item-tags
+          fetch-depth: 0
+      - name: Apply remote-tag rebase fix and tests
+        run: python3 .github/maintainer-249-remote-tags.py
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run focused unit tests
+        working-directory: frontend
+        run: npm run test:unit -- src/lib/state/uploadItems.test.ts src/lib/state/uploadItems.tagSync.test.ts src/lib/state/uploadViewer.test.ts
+      - name: Run frontend type checks
+        working-directory: frontend
+        run: npm run check
+      - name: Commit validated patch and remove temporary machinery
+        shell: bash
+        run: |
+          rm .github/workflows/maintainer-249-remote-tags.yml .github/maintainer-249-remote-tags.py
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/state/uploadItems.ts frontend/src/lib/state/uploadWorkflow.svelte.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/UploadPanel.svelte frontend/src/lib/components/UploadViewerDialog.svelte frontend/src/lib/state/uploadItems.test.ts .github/workflows/maintainer-249-remote-tags.yml .github/maintainer-249-remote-tags.py
+          git commit -m "fix(upload): rebase queue tags from remote state"
+          git push origin HEAD:feat/249-upload-item-tags
