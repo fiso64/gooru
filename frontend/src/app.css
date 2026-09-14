@@ -30,6 +30,14 @@
   pointer-events: auto;
 }
 
+/* UploadViewerDialog nests ViewerStage inside its own grid cell instead of using
+   ViewerStage as the grid item directly. Fill that wrapper so the stage's
+   absolutely-positioned media and pointer controls remain inside its hit box. */
+.gooru-root .upload-viewer-stage-wrap > .viewer-stage {
+  width: 100%;
+  height: 100%;
+}
+
 .gooru-root .login-v2-foot-links a:hover {
   text-decoration: underline;
 }
