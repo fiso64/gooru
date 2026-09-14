@@ -93,7 +93,10 @@
         if (!modifiedSubmit && isEditableTarget(event.target)) return;
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (!busy) onConfirm();
+        if (!busy) {
+          if (modifiedSubmit && tagInput && tagDraft.trim()) commitTagInput(tagDraft);
+          onConfirm();
+        }
         return;
       }
       if (event.key !== 'Tab') return;
