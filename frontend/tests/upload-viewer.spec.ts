@@ -75,35 +75,37 @@ async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolea
       })
     });
   });
-  await page.route('**/api/v1/operations/job-*', async (route) => {
-    const id = route.request().url().split('/').at(-1) ?? '';
+  await page.route('**/api/v1/operations?**', async (route) => {
+    const url = new URL(route.request().url());
+    const ids = url.searchParams.getAll('id');
+    const items = ids.map((id) => options.completeAsDuplicate ? {
+      id,
+      kind: 'upload_import',
+      status: 'completed',
+      progress: 1,
+      progress_total: 1,
+      progress_completed: 1,
+      progress_completed_prefix: 1,
+      progress_failed: 0,
+      affected_count: 0,
+      created_at: '2026-09-14T00:00:00Z',
+      finished_at: '2026-09-14T00:00:01Z',
+      result: {
+        affected_count: 0,
+        files: [{ id: 'file-existing', name: 'duplicate.png', size: png.length, target_id: 'default', status: 'duplicate_existing' }]
+      }
+    } : {
+      id,
+      kind: 'upload_import',
+      status: 'pending',
+      progress_total: 1,
+      progress_completed: 0,
+      progress_failed: 0,
+      created_at: '2026-09-14T00:00:00Z'
+    });
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify(options.completeAsDuplicate ? {
-        id,
-        kind: 'upload_import',
-        status: 'completed',
-        progress: 1,
-        progress_total: 1,
-        progress_completed: 1,
-        progress_completed_prefix: 1,
-        progress_failed: 0,
-        affected_count: 0,
-        created_at: '2026-09-14T00:00:00Z',
-        finished_at: '2026-09-14T00:00:01Z',
-        result: {
-          affected_count: 0,
-          files: [{ id: 'file-existing', name: 'duplicate.png', size: png.length, target_id: 'default', status: 'duplicate_existing' }]
-        }
-      } : {
-        id,
-        kind: 'upload_import',
-        status: 'pending',
-        progress_total: 1,
-        progress_completed: 0,
-        progress_failed: 0,
-        created_at: '2026-09-14T00:00:00Z'
-      })
+      body: JSON.stringify({ items, active_count: options.completeAsDuplicate ? 0 : items.length, total_count: items.length })
     });
   });
 
