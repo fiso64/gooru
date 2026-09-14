@@ -14,7 +14,7 @@ const pngDataURL = `data:image/png;base64,${png.toString('base64')}`;
 
 type TagMutation = { method: string; body: { file_ids?: string[]; tags?: string[]; verbose?: boolean } };
 
-async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolean; tagMutations?: TagMutation[] } = {}) {
+async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolean; tagMutations?: TagMutation[]; tagMutationGate?: Promise<void> } = {}) {
   let loggedIn = false;
   let uploadIndex = 0;
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
@@ -54,6 +54,7 @@ async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolea
     const request = route.request();
     const body = JSON.parse(request.postData() || '{}') as TagMutation['body'];
     options.tagMutations?.push({ method: request.method(), body });
+    if (options.tagMutationGate) await options.tagMutationGate;
     await route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({ operation: request.method() === 'DELETE' ? 'remove' : request.method() === 'PUT' ? 'set' : 'add', selector: { file_ids: body.file_ids ?? [] }, affected_count: 1 })
@@ -188,4 +189,31 @@ test('duplicate viewer removes pre-existing remote tags with a delta mutation', 
   ]);
   await expect(remoteTagRemove).toHaveCount(0);
   await expect(page.getByTestId('upload-queue-batch').getByRole('button', { name: 'Remove remote:existing from duplicate.png' })).toHaveCount(0);
+});
+
+test('clear done retains a completed row until its direct tag save settles', async ({ page }) => {
+  let releaseTagMutation: (() => void) | undefined;
+  const tagMutationGate = new Promise<void>((resolve) => { releaseTagMutation = resolve; });
+  await mockUploadApp(page, { completeAsDuplicate: true, tagMutationGate });
+
+  await page.locator('input[type="file"]').setInputFiles({ name: 'duplicate.png', mimeType: 'image/png', buffer: png });
+  await page.getByRole('button', { name: 'Upload 1 file' }).click();
+  await expect(page.getByText('duplicate existing', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Preview duplicate.png' }).click();
+  const dialog = page.getByRole('dialog', { name: 'duplicate.png' });
+  const remoteTagRemove = dialog.getByRole('button', { name: 'Remove remote:existing from duplicate.png' });
+  await expect(remoteTagRemove).toBeVisible();
+  await remoteTagRemove.click();
+  await page.getByRole('button', { name: 'Close upload preview' }).click();
+
+  const batch = page.getByTestId('upload-queue-batch');
+  await expect(batch.getByText('Saving tag changes…')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear done' }).click();
+  await expect(page.getByRole('button', { name: 'Preview duplicate.png' })).toBeVisible();
+
+  releaseTagMutation?.();
+  await expect(batch.getByText('Saving tag changes…')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Clear done' }).click();
+  await expect(page.getByRole('button', { name: 'Preview duplicate.png' })).toHaveCount(0);
 });
