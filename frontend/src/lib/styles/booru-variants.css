@@ -31,6 +31,8 @@
   --booru-overlay-bg: rgb(44 45 63 / 94%);
   --booru-checkbox-border: #777892;
   --booru-checkbox-selected-text: #d1d1da;
+  --booru-suggestion-bg: #2c2d3f;
+  --booru-suggestion-active-bg: #3f4058;
   --booru-suggestion-shadow: 0 10px 15px -3px rgb(0 0 0 / 35%), 0 4px 6px -2px rgb(0 0 0 / 30%);
   --booru-nav-overlay-bg: rgb(44 45 63 / 94%);
   --booru-floating-overlay-bg: rgb(44 45 63 / 94%);

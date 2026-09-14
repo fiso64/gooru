@@ -36,6 +36,8 @@
   --booru-overlay-bg: rgb(255 255 255 / 92%);
   --booru-checkbox-border: #9192a7;
   --booru-checkbox-selected-text: #ffffff;
+  --booru-suggestion-bg: #ffffff;
+  --booru-suggestion-active-bg: #f4f6ff;
   --booru-suggestion-shadow: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -2px rgb(0 0 0 / 5%);
   --booru-nav-overlay-bg: rgb(255 255 255 / 86%);
   --booru-floating-overlay-bg: rgb(255 255 255 / 96%);
@@ -257,25 +259,20 @@
 }
 
 .gooru-theme-booru-style .search-suggestions {
-  background: var(--surface);
+  background: var(--booru-suggestion-bg);
   border-color: var(--border);
   box-shadow: var(--booru-suggestion-shadow);
 }
 
 .gooru-theme-booru-style .search-suggestions button[role='option']:hover,
 .gooru-theme-booru-style .search-suggestions button[role='option'].is-active {
-  background: var(--surface-2);
+  background: var(--booru-suggestion-active-bg);
 }
 
 .gooru-theme-booru-style .search-suggestions .group-head,
 .gooru-theme-booru-style .search-suggestions button[role='option'] .hint,
 .gooru-theme-booru-style .search-suggestions-footer {
   display: none;
-}
-
-.gooru-theme-booru-style input::placeholder,
-.gooru-theme-booru-style textarea::placeholder {
-  color: var(--text-4);
 }
 
 .gooru-theme-booru-style .sidebar-section {
