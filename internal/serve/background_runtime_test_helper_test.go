@@ -38,3 +38,27 @@ func startTestBackgroundRuntime(t *testing.T, server *Server, client *core.Clien
 	t.Cleanup(stop)
 	return stop
 }
+
+func waitForTestBackgroundIdle(t *testing.T, client *core.Client) {
+	t.Helper()
+
+	changes, cancelChanges := client.SubscribeBackgroundOperationChanges()
+	defer cancelChanges()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	for {
+		active, err := client.CountActiveBackgroundOperations(false)
+		if err != nil {
+			t.Fatalf("count active background operations: %v", err)
+		}
+		if active == 0 {
+			return
+		}
+		select {
+		case <-changes:
+		case <-timer.C:
+			t.Fatalf("background runtime did not become idle; %d operations still active", active)
+		}
+	}
+}
