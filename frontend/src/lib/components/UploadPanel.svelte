@@ -6,7 +6,8 @@
   import UploadTargetPicker from './UploadTargetPicker.svelte';
   import UploadMediaPreview from './UploadMediaPreview.svelte';
   import UploadViewerDialog from './UploadViewerDialog.svelte';
-  import type { TagCandidate } from '$lib/utils/tagSuggestions';
+  import type { FileItem } from '$lib/api/types';
+  import { mergeTagCandidateCounts, type TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
@@ -37,7 +38,10 @@
     onSubmit,
     onCancel,
     onClear,
-    onRemove
+    onRemove,
+    onViewerUntrack,
+    onViewerDelete,
+    onViewerTagSearch
   } = $props<{
     uploadFiles: File[];
     uploadItems: UploadItem[];
@@ -63,6 +67,9 @@
     onCancel: (jobID: string) => void;
     onClear: (scope: 'staged' | 'done') => void;
     onRemove: (index: number) => void;
+    onViewerUntrack: (file: FileItem) => void;
+    onViewerDelete: (file: FileItem) => void;
+    onViewerTagSearch: (tag: string) => void;
   }>();
 
   let dragActive = $state(false);
@@ -91,6 +98,7 @@
     const rows = queueRows;
     return untrack(() => groupUploadQueueRows(rows));
   });
+  const completionTags = $derived(mergeTagCandidateCounts(tags, stagedRows.map((row) => row.item.tags ?? [])));
   const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
   const queueBytes = $derived(queueRows.reduce((sum: number, row: IndexedUploadRow) => sum + row.item.size, 0));
   const initialTags = $derived(parseTags(uploadTags));
@@ -183,6 +191,14 @@
     viewerScope = uploadViewerScope(item);
   }
 
+  function openViewerFromRow(event: MouseEvent, index: number) {
+    const item = uploadItems[index];
+    if (!item || !uploadItemCanOpenViewer(item)) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('button, input, a, [role="option"], [role="listbox"]')) return;
+    openViewer(index);
+  }
+
   function closeViewer() {
     viewerIndex = null;
   }
@@ -220,14 +236,6 @@
     stagedPage = 0;
   }
 
-  function itemIcon(item: UploadItem) {
-    if (item.type?.startsWith('video/')) return 'video';
-    if (item.type?.startsWith('audio/')) return 'audio';
-    if (item.type === 'image/gif') return 'gif';
-    if (item.name.match(/\.(zip|tar|gz)$/i)) return 'folder';
-    return 'photo';
-  }
-
   function statusClass(status: string) {
     if (status === 'imported' || status === 'uploaded') return 'ok';
     if (status === 'error') return 'err';
@@ -244,7 +252,6 @@
     event.preventDefault();
     submitStaged();
   }
-
 </script>
 
 <svelte:window onkeydown={handleShortcut} />
@@ -285,7 +292,7 @@
 
             <TagAutocompleteInput
               value={tagDraft}
-              {tags}
+              tags={completionTags}
               existing={initialTags}
               placeholder="add tag — e.g. subject:portrait"
               ariaLabel="Initial tags"
@@ -306,7 +313,6 @@
             </div>
           </div>
         </div>
-
       </section>
 
       <section
@@ -325,11 +331,7 @@
           style="position: absolute; inset: 0; z-index: 0; border: 0; background: transparent; cursor: pointer;"
           onclick={chooseFiles}
         ></button>
-        <div
-          class="seg"
-          aria-label="Upload drop behavior"
-          style="position: absolute; top: 12px; right: 12px; z-index: 2;"
-        >
+        <div class="seg" aria-label="Upload drop behavior" style="position: absolute; top: 12px; right: 12px; z-index: 2;">
           <button type="button" class={!autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(false)}>Stage first</button>
           <button type="button" class={autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(true)}>Auto-upload</button>
         </div>
@@ -368,7 +370,12 @@
               <div class="upload-list" data-testid="staged-upload-list">
                 {#each stagedVisibleRows as row (row.index)}
                   {@const item = row.item}
-                  <div class="upload-row upload-row-staged">
+                  <div
+                    class:is-viewable={uploadItemCanOpenViewer(item)}
+                    class="upload-row upload-row-staged"
+                    data-testid={`upload-row-${row.index}`}
+                    onclick={(event) => openViewerFromRow(event, row.index)}
+                  >
                     <button
                       class="upload-viewer-trigger"
                       type="button"
@@ -380,13 +387,7 @@
                       <UploadMediaPreview file={item.previewFile} {item} />
                     </button>
                     <div class="upload-item-main">
-                      <button
-                        class="name upload-viewer-name-trigger"
-                        type="button"
-                        disabled={!uploadItemCanOpenViewer(item)}
-                        title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
-                        onclick={() => openViewer(row.index)}
-                      >{item.name}</button>
+                      <div class="name">{item.name}</div>
                       <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
                         {#each item.tags ?? [] as tag}
                           {@const separator = tag.indexOf(':')}
@@ -403,7 +404,7 @@
                         {/each}
                         <TagAutocompleteInput
                           value={itemTagDrafts[row.index] ?? ''}
-                          {tags}
+                          tags={completionTags}
                           existing={item.tags ?? []}
                           placeholder="add tag"
                           ariaLabel={`Add tag to ${item.name}`}
@@ -475,30 +476,26 @@
                 <div class="upload-list">
                   {#each pageState.rows as row (row.index)}
                     {@const item = row.item}
-                    <div class="upload-row">
-                      <button
-                      class="upload-viewer-trigger"
-                      type="button"
-                      disabled={!uploadItemCanOpenViewer(item)}
-                      aria-label={`Preview ${item.name}`}
-                      title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
-                      onclick={() => openViewer(row.index)}
+                    <div
+                      class:is-viewable={uploadItemCanOpenViewer(item)}
+                      class="upload-row"
+                      data-testid={`upload-row-${row.index}`}
+                      onclick={(event) => openViewerFromRow(event, row.index)}
                     >
-                      <UploadMediaPreview file={item.previewFile} {item} />
-                    </button>
-                      <div class="upload-item-main">
-                        <button
-                        class="name upload-viewer-name-trigger"
+                      <button
+                        class="upload-viewer-trigger"
                         type="button"
                         disabled={!uploadItemCanOpenViewer(item)}
+                        aria-label={`Preview ${item.name}`}
                         title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
                         onclick={() => openViewer(row.index)}
-                      >{item.name}</button>
+                      >
+                        <UploadMediaPreview file={item.previewFile} {item} />
+                      </button>
+                      <div class="upload-item-main">
+                        <div class="name">{item.name}</div>
                         {#if item.error}<div class="upload-error">{item.error}</div>{/if}
                         {#if item.tagSyncError}<div class="upload-error">{item.tagSyncError}</div>{/if}
-                        {#if item.tagSyncPending}
-                          <div class="upload-tag-sync-status">{item.remoteFileID ? 'Saving tag changes…' : 'Tag changes will apply when import completes'}</div>
-                        {/if}
                         <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
                           {#each item.tags ?? [] as tag}
                             {@const separator = tag.indexOf(':')}
@@ -515,7 +512,7 @@
                           {/each}
                           <TagAutocompleteInput
                             value={itemTagDrafts[row.index] ?? ''}
-                            {tags}
+                            tags={completionTags}
                             existing={item.tags ?? []}
                             placeholder="add tag"
                             ariaLabel={`Add tag to ${item.name}`}
@@ -559,11 +556,15 @@
     {uploadItems}
     activeIndex={viewerIndex}
     scope={viewerScope}
-    {tags}
+    tags={completionTags}
     onIndex={(index) => (viewerIndex = index)}
     onClose={closeViewer}
     {onItemTagsInput}
     {onItemRemoteTagsLoaded}
+    {onRemove}
+    onRemoteUntrack={onViewerUntrack}
+    onRemoteDelete={onViewerDelete}
+    onTagSearch={onViewerTagSearch}
   />
 {/if}
 
@@ -582,21 +583,13 @@
     opacity: 0.6;
   }
 
-  .upload-viewer-name-trigger {
-    display: block;
-    width: fit-content;
-    max-width: 100%;
-    border: 0;
-    padding: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
+  .upload-row.is-viewable {
     cursor: pointer;
+    transition: background 120ms ease;
   }
 
-  .upload-viewer-name-trigger:disabled {
-    cursor: not-allowed;
+  .upload-row.is-viewable:hover {
+    background: var(--surface-2);
   }
 
   .upload-item-main {
@@ -606,13 +599,6 @@
   .upload-item-tags {
     margin-top: 6px;
     min-height: 30px;
-  }
-
-  .upload-tag-sync-status {
-    margin-top: 4px;
-    color: var(--text-3);
-    font-family: var(--font-mono);
-    font-size: 10px;
   }
 
   .upload-filter-input {
