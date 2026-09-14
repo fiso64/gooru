@@ -30,7 +30,17 @@ async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolea
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
-  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
+  await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      tags: [
+        { name: 'artist:alice', count: 8 },
+        { name: 'artist:alina', count: 5 },
+        { name: 'artist:alex', count: 3 },
+        { name: 'artist:amelia', count: 2 }
+      ]
+    })
+  }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/files/file-existing', async (route) => route.fulfill({
     contentType: 'application/json',
@@ -117,7 +127,7 @@ async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolea
   await page.getByRole('button', { name: 'Upload' }).click();
 }
 
-test('staged viewer ignores visual filtering and edits the underlying row tags', async ({ page }) => {
+test('staged viewer ignores visual filtering, uses keyboard navigation, and edits the underlying row tags', async ({ page }) => {
   await mockUploadApp(page);
   await page.locator('input[type="file"]').setInputFiles([
     { name: 'alpha.png', mimeType: 'image/png', buffer: png },
@@ -130,13 +140,17 @@ test('staged viewer ignores visual filtering and edits the underlying row tags',
   await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Preview alpha.png' }).click();
-  const dialog = page.getByRole('dialog', { name: 'alpha.png' });
+  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toBeVisible();
+
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('dialog', { name: 'beta.png' })).toBeVisible();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toBeVisible();
+  await page.keyboard.press('ArrowRight');
+  const dialog = page.getByRole('dialog', { name: 'beta.png' });
   await expect(dialog).toBeVisible();
 
-  await dialog.getByRole('button', { name: 'Next file' }).click();
-  await expect(page.getByRole('dialog', { name: 'beta.png' })).toBeVisible();
-
-  const viewerTagInput = page.getByLabel('Add tag to beta.png');
+  const viewerTagInput = page.getByLabel('Tags for beta.png');
   await viewerTagInput.fill('viewer:edited');
   await viewerTagInput.press('Enter');
   await page.getByRole('button', { name: 'Close upload preview' }).click();
@@ -144,6 +158,31 @@ test('staged viewer ignores visual filtering and edits the underlying row tags',
   await page.getByLabel('Filter staged files').fill('');
   await expect(page.getByRole('button', { name: 'Remove viewer:edited from beta.png' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Preview book.cbz' })).toBeDisabled();
+});
+
+test('inline tag completions overlay the last batch row without resizing the card', async ({ page }) => {
+  await mockUploadApp(page);
+  await page.locator('input[type="file"]').setInputFiles({ name: 'last.png', mimeType: 'image/png', buffer: png });
+  await page.getByRole('button', { name: 'Upload 1 file' }).click();
+
+  const batch = page.getByTestId('upload-queue-batch');
+  const tagInput = page.getByLabel('Add tag to last.png');
+  await expect(batch).toBeVisible();
+  await expect(tagInput).toBeVisible();
+  const before = await batch.boundingBox();
+  if (!before) throw new Error('batch card has no layout box');
+
+  await tagInput.fill('artist:a');
+  const suggestions = page.getByRole('listbox', { name: 'Add tag to last.png suggestions' });
+  await expect(suggestions).toBeVisible();
+  await expect.poll(() => batch.evaluate((element) => getComputedStyle(element).overflow)).toBe('visible');
+
+  const after = await batch.boundingBox();
+  const inputBox = await tagInput.boundingBox();
+  const suggestionsBox = await suggestions.boundingBox();
+  if (!after || !inputBox || !suggestionsBox) throw new Error('tag overlay has no layout box');
+  expect(Math.abs(after.height - before.height)).toBeLessThan(1);
+  expect(suggestionsBox.y + suggestionsBox.height).toBeLessThan(inputBox.y);
 });
 
 test('queue viewer navigates across upload batches as one set', async ({ page }) => {
