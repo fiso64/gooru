@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Job } from '$lib/api/types';
-import { jobAffectedCount } from '$lib/jobs';
+import { jobAffectedCount, jobFailedCount } from '$lib/jobs';
 
 function job(overrides: Partial<Job>): Job {
   return {
@@ -13,11 +13,15 @@ function job(overrides: Partial<Job>): Job {
 }
 
 describe('jobAffectedCount', () => {
-  it('uses the completed structured result rather than task progress', () => {
+  it('prefers the server-owned semantic count', () => {
+    expect(jobAffectedCount(job({ affected_count: 5, result: { affected_count: 15 } }))).toBe(5);
+  });
+
+  it('uses the completed structured result as a backward-compatible fallback', () => {
     expect(jobAffectedCount(job({ progress_total: 1, result: { affected_count: 17 } }))).toBe(17);
   });
 
-  it('derives completed upload counts from imported file results', () => {
+  it('derives completed upload counts from imported file results for legacy payloads', () => {
     expect(
       jobAffectedCount(
         job({
@@ -59,5 +63,15 @@ describe('jobAffectedCount', () => {
 
   it('does not treat receiving upload task progress as affected files', () => {
     expect(jobAffectedCount(job({ type: 'upload_import', status: 'running', stage: 'receiving', progress_total: 1 }))).toBeUndefined();
+  });
+});
+
+describe('jobFailedCount', () => {
+  it('returns the explicit API failure count', () => {
+    expect(jobFailedCount(job({ failed_count: 3 }))).toBe(3);
+  });
+
+  it('does not infer semantic failures from durable task progress', () => {
+    expect(jobFailedCount(job({ progress_failed: 3 }))).toBeUndefined();
   });
 });

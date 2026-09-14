@@ -18,10 +18,14 @@ export type SavedSearchesResponse = components['schemas']['SavedSearchesResponse
 export type TagMutationOperation = components['schemas']['TagMutationResponse']['operation'];
 export type TagMutationResponse = components['schemas']['TagMutationResponse'];
 export type JobStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+export type JobOutcome = 'success' | 'partial_success' | 'error';
 export interface Job {
   id: string;
   type: string;
   status: JobStatus;
+  outcome?: JobOutcome;
+  affected_count?: number;
+  failed_count?: number;
   stage?: 'receiving' | 'importing';
   progress?: number;
   progress_total?: number;
