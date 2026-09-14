@@ -175,8 +175,8 @@ export function createUploadWorkflow() {
       files = files.filter((_, fileIndex) => fileIndex !== stagedFileIndex);
     }
     items = items.filter((_, itemIndex) => itemIndex !== index);
-    status = '';
     statusCounts = countUploadStatuses(items);
+    status = items.some((item) => item.status !== 'staged') ? uploadSummaryFromCounts(statusCounts) : '';
   }
 
   function setItemTags(index: number, nextTags: string[]) {
