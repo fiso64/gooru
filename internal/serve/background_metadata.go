@@ -86,9 +86,6 @@ func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types
 	if err != nil {
 		return err
 	}
-	if metadata.ImageWidth == nil && metadata.ImageHeight == nil && metadata.VideoWidth == nil && metadata.VideoHeight == nil && metadata.VideoDuration == nil && metadata.FrameCount == nil && metadata.PageCount == nil {
-		return nil
-	}
 	return l.client.UpsertMediaMetadata(types.MediaMetadata{
 		LocationID:      file.ID,
 		MediaKind:       mediaKind,

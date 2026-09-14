@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS invalidate_media_metadata_on_location_content_change;
