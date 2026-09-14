@@ -1,5 +1,6 @@
 <script lang="ts">
   import { paginationWindow } from '$lib/utils/pagination';
+  import { isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   let {
     page,
@@ -19,13 +20,54 @@
     testId?: string;
   }>();
 
+  let navElement: HTMLElement | undefined;
+
   function selectPage(nextPage: number) {
     if (disabled || nextPage < 1 || nextPage > pageCount || nextPage === page) return;
     onPage(nextPage);
   }
+
+  function shortcutOwner(target: EventTarget | null) {
+    if (target instanceof Element) {
+      const targetNav = target.closest<HTMLElement>('.page-nav');
+      if (targetNav) return targetNav;
+    }
+
+    const viewportCenter = window.innerHeight / 2;
+    let owner: HTMLElement | undefined;
+    let ownerVisible = false;
+    let ownerDistance = Number.POSITIVE_INFINITY;
+
+    for (const nav of document.querySelectorAll<HTMLElement>('.page-nav')) {
+      const rect = nav.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      const visible = rect.bottom > 0 && rect.top < window.innerHeight;
+      const distance = Math.abs((rect.top + rect.bottom) / 2 - viewportCenter);
+      if (!owner || (visible && !ownerVisible) || (visible === ownerVisible && distance < ownerDistance)) {
+        owner = nav;
+        ownerVisible = visible;
+        ownerDistance = distance;
+      }
+    }
+    return owner;
+  }
+
+  function handlePageShortcut(event: KeyboardEvent) {
+    if (event.defaultPrevented || pageCount <= 1 || !event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key !== 'PageUp' && event.key !== 'PageDown') return;
+    if (isEditableShortcutTarget(event.target)) return;
+    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+    if (!navElement || shortcutOwner(event.target) !== navElement) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    selectPage(page + (event.key === 'PageDown' ? 1 : -1));
+  }
 </script>
 
-<nav class:embedded class="page-nav" aria-label={ariaLabel} data-testid={testId}>
+<svelte:window onkeydown={handlePageShortcut} />
+
+<nav bind:this={navElement} class:embedded class="page-nav" aria-label={ariaLabel} data-testid={testId}>
   <button
     class="g-btn g-btn-sm page-nav-step"
     type="button"

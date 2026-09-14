@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { defaultGridSize, denseGridSizeBoost, effectiveGridSize, normalizeThumbnailSizes } from './runtimeConfig';
+import {
+  defaultGridSize,
+  denseGridSizeBoost,
+  effectiveGridSize,
+  normalizeConfiguredUITheme,
+  normalizeThumbnailSizes,
+  normalizeUITheme
+} from './runtimeConfig';
 
 describe('normalizeThumbnailSizes', () => {
   it('filters, deduplicates, and sorts the configured catalogue once', () => {
@@ -7,8 +14,27 @@ describe('normalizeThumbnailSizes', () => {
   });
 });
 
+describe('UI theme normalization', () => {
+  it('maps both booru variants onto the shared booru presentation', () => {
+    expect(normalizeConfiguredUITheme('booru-light')).toBe('booru-light');
+    expect(normalizeConfiguredUITheme('booru-dark')).toBe('booru-dark');
+    expect(normalizeUITheme('booru-light')).toBe('booru-style');
+    expect(normalizeUITheme('booru-dark')).toBe('booru-style');
+  });
+
+  it('does not retain the renamed booru-style config value', () => {
+    expect(normalizeConfiguredUITheme('booru-style')).toBe('default');
+    expect(normalizeUITheme('booru-style')).toBe('default');
+  });
+
+  it('keeps the existing presentation as the safe default', () => {
+    expect(normalizeUITheme(undefined)).toBe('default');
+    expect(normalizeUITheme('unknown')).toBe('default');
+  });
+});
+
 describe('grid layout sizing', () => {
-  it('uses the requested 200px default', () => {
+  it('keeps the standard theme 200px default', () => {
     expect(defaultGridSize).toBe(200);
   });
 

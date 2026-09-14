@@ -71,7 +71,7 @@
   }
 
   .gooru-logo-accent-fill {
-    fill: var(--accent);
+    fill: var(--brand-accent, var(--accent));
   }
 
   :global(.gooru-type-comic) .gooru-logo-default {

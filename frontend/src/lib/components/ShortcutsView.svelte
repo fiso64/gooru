@@ -13,6 +13,8 @@
       { keys: ['/'], description: 'Focus search' },
       { keys: ['f'], description: 'Search filenames' },
       { keys: ['b'], description: 'Save current search' },
+      { keys: ['⇧', 'PageUp'], description: 'Previous page' },
+      { keys: ['⇧', 'PageDown'], description: 'Next page' },
       { keys: ['?'], description: 'Show shortcuts' }
     ]
   } as const;
@@ -33,7 +35,6 @@
       { keys: ['d'], description: 'Download original' },
       { keys: ['Del'], description: 'Remove from library' },
       { keys: ['⇧', 'Del'], description: 'Delete file from disk' },
-      { keys: ['Esc'], description: 'Close viewer' }
     ]
   } as const;
 

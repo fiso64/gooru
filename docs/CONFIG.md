@@ -125,11 +125,12 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `ui.accent_color` | empty | Optional runtime UI accent in six-digit hex form such as `#2f80ed`. When empty, the built-in yellow accent is used. The UI derives readable foreground and translucent accent tokens from this color. |
-| `ui.font_style` | `comic` | Typography preset: `editorial` keeps the serif display face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. |
-| `ui.grid_size` | `200` | Base gallery cell size in pixels. Must be between `64` and `1024`. `fit` uses this value directly; `square` and `tile` receive a fixed 40px layout boost, so the default effective square width / tile row target is 240px. |
-| `ui.grid_type` | `square` | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. All modes keep a bounded virtual DOM for large libraries. |
-| `ui.pagination_mode` | `infinite` | Library browsing mode: `infinite` incrementally appends results while scrolling; `paged` keeps only the current transport page in browser query state and shows Previous/Next controls. |
+| `ui.theme` | `default` | WebUI presentation: `default` keeps the standard Gooru interface, `booru-light` uses the booru-oriented light shell/viewer presentation, and `booru-dark` uses the same shared booru structure with the reference-derived dark palette. Booru themes keep their reference UI palette; `ui.accent_color` affects only Gooru spiral branding/favicon there, while an explicitly configured `ui.font_style` can override the native booru typography. |
+| `ui.accent_color` | empty | Optional runtime accent in six-digit hex form such as `#2f80ed`. When empty, Gooru spiral branding/favicon use the built-in yellow. In the default theme this continues to drive the broader UI accent and readable foreground tokens. In booru themes it changes only the Gooru spiral branding and favicon; links, buttons, focus colors, and the rest of the booru palette keep the theme's fixed reference colors. |
+| `ui.font_style` | `comic`; native booru typography when omitted with a booru theme | Typography preset: `editorial` uses the serif display face with the sans-serif UI face, `modern` uses the sans-serif UI face for display text too, and `comic` uses a Comic Sans-style stack for most UI/display text and the Gooru wordmark while retaining the mono face for code/data. The default theme continues to use `comic` by default. A booru theme preserves its native Tahoma/Verdana typography when this field is omitted; if the field is explicitly present, the selected preset is applied to the booru UI. |
+| `ui.grid_size` | `200`; `180` when omitted with a booru theme | Base gallery cell size in pixels. Must be between `64` and `1024`. `square` uses this value directly; `fit` and `tile` receive a fixed 40px layout boost. Explicit values apply to every theme. |
+| `ui.grid_type` | `square`; `fit` when omitted with a booru theme | Gallery layout: `square` keeps the existing cropped square grid, `fit` keeps square cells but contains the whole image with transparent surrounding space, and `tile` uses justified non-square aspect-preserving rows. An explicitly configured value always overrides the theme default. All modes keep a bounded virtual DOM for large libraries. |
+| `ui.pagination_mode` | `infinite`; `paged` when omitted with a booru theme | Library browsing mode: `infinite` incrementally appends results while scrolling; `paged` keeps only the current transport page in browser query state and shows Previous/Next controls. An explicit server value overrides the theme default, and the browser-local pagination preference remains the final per-browser override. |
 | `ui.items_per_page` | `60` | Number of files requested per library page. Used by both modes as the transport page size; must be between `1` and `200`. In paged mode this is the visible page size. |
 | `ui.hidden_tags` | empty list | Tags whose files the WebUI excludes by default from library and filtered file views. If a query positively requests a hidden tag, that tag's default exclusion is lifted for the request while other hidden tags remain excluded. Library/result counts and kind facets follow the same visibility policy. Hidden tags remain available in tag browsing and search completions. This affects WebUI/API browsing only; it does not change core or CLI query semantics. |
 | `ui.viewer_fit_mode` | `fit_window` | Default viewer fit policy: `fit_window` (legacy alias `screen`) fills the available viewer bounds, `fit_down_only` never enlarges smaller media, `original_size_if_fit` keeps media at 1:1 when it fits and otherwise scales down, and `actual` starts from 1:1 semantics. Press `V` to cycle the fit policies for the current browser session. |
@@ -139,6 +140,8 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |
 | `ui.hover_play_videos` | `false` | Play muted, inline, looping video previews after the grid hover dwell. Playback stops when the pointer leaves, is limited to near-viewport media, and is disabled when the browser requests reduced motion. |
 | `ui.hover_play_gifs` | `true` | Play animated GIF previews after the grid hover dwell. Playback stops when the pointer leaves, is limited to near-viewport media, and is disabled when the browser requests reduced motion. |
+
+For a booru theme, omit `ui.font_style` to keep its native Tahoma/Verdana typography. Including `font_style: comic`, `font_style: modern`, or `font_style: editorial` is an explicit override.
 
 ## `logging`
 
@@ -203,6 +206,7 @@ logging:
   level: info
 
 ui:
+  theme: default
   accent_color: "#2f80ed"
   font_style: comic
   grid_size: 200

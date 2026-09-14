@@ -45,6 +45,8 @@ const virtualWindowStrideRows = 3;
 const transportLoadAheadRows = 4;
 const variableOverscanScreens = 1;
 
+type MediaAspectOverrides = Readonly<Record<string, number>>;
+
 export function gridColumns(containerWidth: number, minCardWidth = defaultGridSize) {
   const innerWidth = Math.max(0, containerWidth - gridPadding);
   return Math.max(1, Math.floor((innerWidth + gridGap) / (minCardWidth + gridGap)));
@@ -108,14 +110,31 @@ export function virtualGrid(
   };
 }
 
-function mediaAspect(file: FileItem) {
+function mediaAspect(file: FileItem, aspectOverrides?: MediaAspectOverrides) {
   const width = file.metadata.image_width ?? file.metadata.video_width ?? 0;
   const height = file.metadata.image_height ?? file.metadata.video_height ?? 0;
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return 1;
-  return Math.min(8, Math.max(0.125, width / height));
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    return Math.min(8, Math.max(0.125, width / height));
+  }
+  const observedAspect = aspectOverrides?.[file.id] ?? 0;
+  if (Number.isFinite(observedAspect) && observedAspect > 0) {
+    return Math.min(8, Math.max(0.125, observedAspect));
+  }
+  return 1;
 }
 
-function tilePlacements(files: FileItem[], containerWidth: number, minCardWidth: number, flushIncompleteRow: boolean) {
+function rowHeightFor(innerWidth: number, count: number, aspectSum: number) {
+  const availableWidth = innerWidth - Math.max(0, count - 1) * gridGap;
+  return availableWidth / Math.max(aspectSum, 0.001);
+}
+
+function tilePlacements(
+  files: FileItem[],
+  containerWidth: number,
+  minCardWidth: number,
+  flushIncompleteRow: boolean,
+  aspectOverrides?: MediaAspectOverrides
+) {
   const innerWidth = Math.max(minCardWidth, containerWidth - gridPadding);
   const placements: VirtualMediaItem[] = [];
   let y = gridInset;
@@ -125,9 +144,23 @@ function tilePlacements(files: FileItem[], containerWidth: number, minCardWidth:
     let aspectSum = 0;
     let rowFilled = false;
     while (end < files.length) {
-      aspectSum += mediaAspect(files[end]);
+      const nextAspect = mediaAspect(files[end], aspectOverrides);
+      const nextCount = end - start + 1;
+      const nextAspectSum = aspectSum + nextAspect;
+      const widthAtTarget = nextAspectSum * minCardWidth + Math.max(0, nextCount - 1) * gridGap;
+
+      if (widthAtTarget >= innerWidth && end > start) {
+        const previousCount = end - start;
+        const previousHeight = rowHeightFor(innerWidth, previousCount, aspectSum);
+        const nextHeight = rowHeightFor(innerWidth, nextCount, nextAspectSum);
+        if (Math.abs(previousHeight - minCardWidth) < Math.abs(nextHeight - minCardWidth)) {
+          rowFilled = true;
+          break;
+        }
+      }
+
+      aspectSum = nextAspectSum;
       end += 1;
-      const widthAtTarget = aspectSum * minCardWidth + Math.max(0, end - start - 1) * gridGap;
       if (widthAtTarget >= innerWidth) {
         rowFilled = true;
         break;
@@ -142,12 +175,11 @@ function tilePlacements(files: FileItem[], containerWidth: number, minCardWidth:
 
     const count = end - start;
     const isLast = end === files.length;
-    const availableWidth = innerWidth - Math.max(0, count - 1) * gridGap;
-    const exactHeight = availableWidth / Math.max(aspectSum, 0.001);
+    const exactHeight = rowHeightFor(innerWidth, count, aspectSum);
     const rowHeight = isLast && exactHeight > minCardWidth * 1.15 ? minCardWidth : exactHeight;
     let x = gridInset;
     for (let index = start; index < end; index += 1) {
-      const width = rowHeight * mediaAspect(files[index]);
+      const width = rowHeight * mediaAspect(files[index], aspectOverrides);
       placements.push({ file: files[index], index, x, y, width, height: rowHeight });
       x += width + gridGap;
     }
@@ -165,10 +197,11 @@ export function virtualMediaGeometry(
   containerWidth: number,
   totalItems = files.length,
   retainedStartIndex = 0,
-  minCardWidth = defaultGridSize
+  minCardWidth = defaultGridSize,
+  aspectOverrides?: MediaAspectOverrides
 ): VirtualMediaGeometry {
   const retainedEndIndex = retainedStartIndex + files.length;
-  const local = tilePlacements(files, containerWidth, minCardWidth, retainedEndIndex >= totalItems);
+  const local = tilePlacements(files, containerWidth, minCardWidth, retainedEndIndex >= totalItems, aspectOverrides);
   const retainedCount = Math.max(1, files.length);
   const localContentHeight = Math.max(1, local.height - gridPadding);
   return {

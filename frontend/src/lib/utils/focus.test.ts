@@ -24,4 +24,35 @@ describe('claimFocus', () => {
     claimFocus(overlay, previous)();
     expect(previous.focus).not.toHaveBeenCalled();
   });
+
+  it('drops a focus-visible state created only while restoring a pointer opener', () => {
+    let visible = false;
+    const previous = {
+      focus: vi.fn(() => { visible = true; }),
+      blur: vi.fn(),
+      matches: vi.fn((selector: string) => selector === ':focus-visible' && visible),
+      isConnected: true
+    } satisfies FocusTarget;
+    const overlay = target();
+
+    claimFocus(overlay, previous)();
+
+    expect(previous.focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(previous.blur).toHaveBeenCalledOnce();
+  });
+
+  it('preserves focus restoration for an opener that already had keyboard-visible focus', () => {
+    const previous = {
+      focus: vi.fn(),
+      blur: vi.fn(),
+      matches: vi.fn((selector: string) => selector === ':focus-visible'),
+      isConnected: true
+    } satisfies FocusTarget;
+    const overlay = target();
+
+    claimFocus(overlay, previous)();
+
+    expect(previous.focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(previous.blur).not.toHaveBeenCalled();
+  });
 });

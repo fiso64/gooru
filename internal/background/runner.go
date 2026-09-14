@@ -44,6 +44,7 @@ type Runner struct {
 	pollInterval  time.Duration
 	retryDelay    time.Duration
 	now           func() time.Time
+	subscribeWake func() (<-chan struct{}, func())
 }
 
 type RunnerConfig struct {
@@ -55,6 +56,7 @@ type RunnerConfig struct {
 	PollInterval  time.Duration
 	RetryDelay    time.Duration
 	Now           func() time.Time
+	SubscribeWake func() (<-chan struct{}, func())
 }
 
 func NewRunner(cfg RunnerConfig) (*Runner, error) {
@@ -99,6 +101,7 @@ func NewRunner(cfg RunnerConfig) (*Runner, error) {
 		pollInterval:  cfg.PollInterval,
 		retryDelay:    cfg.RetryDelay,
 		now:           cfg.Now,
+		subscribeWake: cfg.SubscribeWake,
 	}, nil
 }
 
@@ -106,6 +109,15 @@ func NewRunner(cfg RunnerConfig) (*Runner, error) {
 // resource class until ctx is canceled. Resource-class ownership keeps scheduling concerns
 // independent from the user-visible durable operation lifecycle.
 func (r *Runner) Run(ctx context.Context) error {
+	var wake <-chan struct{}
+	if r.subscribeWake != nil {
+		var unsubscribe func()
+		wake, unsubscribe = r.subscribeWake()
+		if unsubscribe != nil {
+			defer unsubscribe()
+		}
+	}
+
 	leaseRecoveryMu.Lock()
 	var recovered int
 	for {
@@ -147,7 +159,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			return fmt.Errorf("claim background task: %w", err)
 		}
 		if !ok {
-			if err := wait(ctx, r.pollInterval); err != nil {
+			if err := waitForWake(ctx, r.pollInterval, wake); err != nil {
 				return nil
 			}
 			continue
@@ -400,6 +412,25 @@ func wait(ctx context.Context, duration time.Duration) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func waitForWake(ctx context.Context, duration time.Duration, wake <-chan struct{}) error {
+	if wake == nil {
+		return wait(ctx, duration)
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case _, ok := <-wake:
+		if !ok {
+			return wait(ctx, duration)
+		}
+		return nil
 	case <-timer.C:
 		return nil
 	}

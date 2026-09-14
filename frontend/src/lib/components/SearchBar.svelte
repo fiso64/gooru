@@ -11,6 +11,7 @@
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
   type SuggestionLike = { name: string; value?: string; count?: number };
   type MetaTagLike = { syntax: string; hint: string; requires_value: boolean };
+  type SearchPresentation = 'tokens' | 'text';
   type SuggestionItem = {
     kind: 'namespace' | 'tag' | 'valueless' | 'value' | 'special';
     commit: string;
@@ -22,13 +23,19 @@
   };
   type SuggestionGroup = { items: SuggestionItem[] };
 
+  const defaultPlaceholder = 'tag, namespace:value, -exclude, @metatag';
+
   let {
     value,
     suggestions,
     metaTags,
     tags,
     onDraftInput,
-    onCommit
+    onCommit,
+    presentation = 'tokens',
+    placeholder = defaultPlaceholder,
+    showShortcutHint = true,
+    enableSlashShortcut = true
   } = $props<{
     value: string;
     suggestions: SuggestionLike[];
@@ -36,6 +43,10 @@
     tags: TagLike[];
     onDraftInput: (value: string) => void;
     onCommit: (value: string) => void;
+    presentation?: SearchPresentation;
+    placeholder?: string;
+    showShortcutHint?: boolean;
+    enableSlashShortcut?: boolean;
   }>();
 
   let tokens = $state<SearchToken[]>([]);
@@ -47,14 +58,21 @@
   let suggestionsRef = $state<HTMLUListElement | undefined>();
   let lastSyncedValue = $state('');
 
+  const textMode = $derived(presentation === 'text');
   const tagItems = $derived(normalizeTags(tags, suggestions));
-  const groups = $derived(computeSuggestions(draft, tokens, tagItems, metaTags));
+  const completionContext = $derived(textMode ? plainTextCompletionContext(draft) : { prefix: '', fragment: draft, tokens });
+  const groups = $derived(computeSuggestions(completionContext.fragment, completionContext.tokens, tagItems, metaTags));
   const flat = $derived(groups.flatMap((group) => group.items));
 
   $effect(() => {
     if (value === lastSyncedValue) return;
-    tokens = parseSearchQuery(value);
-    draft = '';
+    if (textMode) {
+      tokens = [];
+      draft = value;
+    } else {
+      tokens = parseSearchQuery(value);
+      draft = '';
+    }
     open = false;
     lastSyncedValue = value;
   });
@@ -85,7 +103,7 @@
   $effect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
       const action = searchShortcutAction(event.key, event.target, hasCommandModifier(event), event.shiftKey);
-      if (!action) return;
+      if (!action || (!enableSlashShortcut && action === 'focus-search')) return;
       event.preventDefault();
       if (action === 'filename-search') beginFilenameSearch();
       else inputRef?.focus();
@@ -102,6 +120,17 @@
     document.addEventListener('mousedown', handleMouseDown);
     return () => document.removeEventListener('mousedown', handleMouseDown);
   });
+
+  function plainTextCompletionContext(input: string) {
+    const match = input.match(/^(.*\s)?([^\s]*)$/);
+    const prefix = match?.[1] ?? '';
+    const fragment = match?.[2] ?? input;
+    return {
+      prefix,
+      fragment,
+      tokens: parseSearchQuery(prefix.trim())
+    };
+  }
 
   function normalizeTags(tags: TagLike[], suggestions: SuggestionLike[]) {
     const seen = new Map<string, { tag: string; count?: number }>();
@@ -219,6 +248,16 @@
     onCommit(query);
   }
 
+  function commitPlainText(input: string, keepTrailingSpace = false) {
+    const query = input.trim();
+    draft = keepTrailingSpace && query ? `${query} ` : query;
+    open = false;
+    active = 0;
+    lastSyncedValue = query;
+    onDraftInput('');
+    onCommit(query);
+  }
+
   function commitString(input: string) {
     const value = input.trim();
     if (!value) return;
@@ -239,6 +278,22 @@
   }
 
   function selectSuggestion(item: SuggestionItem) {
+    if (textMode) {
+      const context = plainTextCompletionContext(draft);
+      const next = `${context.prefix}${item.commit}`;
+      if (item.partial) {
+        draft = next;
+        active = 0;
+        open = true;
+        onDraftInput(item.commit);
+        inputRef?.focus();
+        return;
+      }
+      commitPlainText(next, true);
+      inputRef?.focus();
+      return;
+    }
+
     if (item.partial) {
       draft = item.commit;
       active = 0;
@@ -259,26 +314,33 @@
     open = false;
     active = 0;
     onDraftInput('');
+    if (textMode) {
+      lastSyncedValue = '';
+      onCommit('');
+      return;
+    }
     syncCommit([]);
   }
 
   function handleInput(event: Event) {
     draft = (event.currentTarget as HTMLInputElement).value;
-    open = Boolean(draft.trim());
+    const fragment = textMode ? plainTextCompletionContext(draft).fragment : draft;
+    open = Boolean(fragment.trim());
     active = 0;
-    onDraftInput(draft);
+    onDraftInput(fragment);
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    const fragment = textMode ? plainTextCompletionContext(draft).fragment : draft;
     if (event.key === 'ArrowDown') {
-      if (!draft.trim()) return;
+      if (!fragment.trim()) return;
       event.preventDefault();
       active = Math.min(active + 1, Math.max(flat.length - 1, 0));
       open = true;
       return;
     }
     if (event.key === 'ArrowUp') {
-      if (!draft.trim()) return;
+      if (!fragment.trim()) return;
       event.preventDefault();
       active = Math.max(active - 1, 0);
       open = true;
@@ -288,21 +350,22 @@
       if (open && flat[active]) {
         event.preventDefault();
         selectSuggestion(flat[active]);
-      } else if (draft.trim()) {
+      } else if (draft.trim() || (textMode && event.key === 'Enter')) {
         event.preventDefault();
-        commitString(draft);
+        if (textMode) commitPlainText(draft);
+        else commitString(draft);
       }
       return;
     }
     if (event.key === 'Escape') {
       event.preventDefault();
       open = false;
-      draft = '';
       onDraftInput('');
+      if (!textMode) draft = '';
       inputRef?.blur();
       return;
     }
-    if (event.key === 'Backspace' && !draft && tokens.length > 0) {
+    if (!textMode && event.key === 'Backspace' && !draft && tokens.length > 0) {
       event.preventDefault();
       removeToken(tokens.length - 1);
     }
@@ -311,8 +374,9 @@
 
 <div
   class="searchbar"
+  class:searchbar-text={textMode}
   role="combobox"
-  aria-label="Search tokens"
+  aria-label={textMode ? 'Search query' : 'Search tokens'}
   aria-controls="searchbar-suggestions"
   aria-expanded={open && flat.length > 0 ? 'true' : 'false'}
   aria-haspopup="listbox"
@@ -321,37 +385,39 @@
   onclick={() => inputRef?.focus()}
 >
   <span class="searchbar-icon"><Icon name="search" size={15} /></span>
-  {#each tokens as token, index}
-    <span class:neg={token.neg} class="searchbar-pill">
-      {#if token.neg}<span class="neg-symbol">−</span>{/if}
-      {#if token.ns}<span class="ns">{token.ns}:</span>{/if}<span>{token.val}</span>
-      <button class="x" type="button" aria-label={`Remove ${searchTokenToString(token)}`} onclick={() => removeToken(index)}>
-        <Icon name="close" size={10} />
-      </button>
-    </span>
-  {/each}
+  {#if !textMode}
+    {#each tokens as token, index}
+      <span class:neg={token.neg} class="searchbar-pill">
+        {#if token.neg}<span class="neg-symbol">−</span>{/if}
+        {#if token.ns}<span class="ns">{token.ns}:</span>{/if}<span>{token.val}</span>
+        <button class="x" type="button" aria-label={`Remove ${searchTokenToString(token)}`} onclick={() => removeToken(index)}>
+          <Icon name="close" size={10} />
+        </button>
+      </span>
+    {/each}
+  {/if}
   <input
     bind:this={inputRef}
     class="searchbar-input"
     value={draft}
-    placeholder={tokens.length === 0 ? 'tag, namespace:value, -exclude, @metatag' : ''}
+    placeholder={textMode || tokens.length === 0 ? placeholder : ''}
     spellcheck="false"
     autocapitalize="off"
     autocomplete="off"
     aria-label="Search library"
     oninput={handleInput}
-    onfocus={() => (open = Boolean(draft.trim()))}
+    onfocus={() => (open = Boolean((textMode ? plainTextCompletionContext(draft).fragment : draft).trim()))}
     onkeydown={handleKeydown}
   />
   {#if tokens.length > 0 || draft}
     <button class="searchbar-clear" type="button" aria-label="Clear search" title="Clear search" onclick={clearAll}>
       <Icon name="close" size={13} />
     </button>
-  {:else}
+  {:else if showShortcutHint}
     <span class="searchbar-shortcut g-kbd" aria-hidden="true">/</span>
   {/if}
 
-  {#if open && draft.trim() && flat.length > 0}
+  {#if open && completionContext.fragment.trim() && flat.length > 0}
     <ul bind:this={suggestionsRef} id="searchbar-suggestions" class="search-suggestions" role="listbox" aria-label="Search suggestions" onmousedown={(event) => event.preventDefault()}>
       {#each flat as item, flatIndex}
         <li role="presentation">

@@ -6,7 +6,7 @@
   import { ApiClient } from '$lib/api/client';
   import { setOpaqueURLState, setProtectedReadTransport } from '$lib/api/privacy';
   import { authState } from '$lib/stores/auth';
-  import { defaultGridSize, effectiveGridSize, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, runtimeCapability, runtimeConfig, type GridType } from '$lib/stores/runtimeConfig';
+  import { defaultGridSize, effectiveGridSize, normalizeConfiguredUITheme, normalizeGridType, normalizeItemsPerPage, normalizePaginationMode, normalizeThumbnailSizes, normalizeUITheme, runtimeCapability, runtimeConfig, type ConfiguredUITheme, type GridType, type UITheme } from '$lib/stores/runtimeConfig';
   import { errorMessage } from '$lib/utils/format';
   import { accentTheme, type AccentTheme } from '$lib/utils/theme';
   import type { ViewerConfiguredFitMode } from '$lib/utils/viewer';
@@ -14,8 +14,10 @@
 
   type FontStyle = 'editorial' | 'modern' | 'comic';
   type UIConfig = {
+    ui_theme?: string;
     accent_color?: string;
     font_style?: FontStyle;
+    font_style_configured?: boolean;
     load_full_media_by_default?: boolean;
     fullscreen_media_by_default?: boolean;
     hover_play_videos?: boolean;
@@ -37,20 +39,31 @@
   let loginPassword = $state('');
   let loginBusy = $state(false);
   let loginError = $state('');
+  let runtimeConfiguredTheme = $state<ConfiguredUITheme>('default');
+  let runtimeTheme = $state<UITheme>('default');
   let runtimeAccent = $state<AccentTheme | null>(null);
-  let runtimeFontStyle = $state<FontStyle>('comic');
+  let runtimeFontStyle = $state<FontStyle | null>('comic');
   let runtimeGridSize = $state(defaultGridSize);
   let runtimeGridType = $state<GridType>('square');
   let faviconHref = $state('/favicon.svg');
+  const brandAccentStyle = $derived(runtimeTheme === 'booru-style'
+    ? `--brand-accent:${runtimeAccent?.accent ?? '#ffd060'};`
+    : runtimeAccent
+      ? `--brand-accent:${runtimeAccent.accent};`
+      : '');
 
   async function applyRuntimeConfig(config: UIConfig) {
+    runtimeConfiguredTheme = normalizeConfiguredUITheme(config.ui_theme);
+    runtimeTheme = normalizeUITheme(config.ui_theme);
+    const booruStyle = runtimeTheme === 'booru-style';
     runtimeAccent = accentTheme(config.accent_color ?? '');
-    runtimeFontStyle = config.font_style ?? 'comic';
+    runtimeFontStyle = booruStyle && !config.font_style_configured ? null : (config.font_style ?? 'comic');
     runtimeGridSize = config.grid_size ?? defaultGridSize;
     runtimeGridType = normalizeGridType(config.grid_type);
     setProtectedReadTransport(config.protected_mode ?? false);
     setOpaqueURLState(config.opaque_url_state ?? false);
     runtimeConfig.set({
+      uiTheme: runtimeTheme,
       capabilities: Array.isArray(config.capabilities) ? config.capabilities : [runtimeCapability.previewImages],
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
@@ -127,8 +140,8 @@
 </svelte:head>
 
 <div
-  class={`gooru-root gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
-  style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;${runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
+  class={`gooru-root gooru-theme-${runtimeTheme}${runtimeConfiguredTheme === 'default' ? '' : ` gooru-theme-${runtimeConfiguredTheme}`} gooru-accent-sodium${runtimeFontStyle ? ` gooru-type-${runtimeFontStyle}` : ''}`}
+  style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;${brandAccentStyle}${runtimeTheme !== 'booru-style' && runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
 >
   {#if !$authState.checked}
     <SessionLoading />

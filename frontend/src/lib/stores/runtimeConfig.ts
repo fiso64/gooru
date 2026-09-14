@@ -7,6 +7,10 @@ export const denseGridSizeBoost = 40;
 export const defaultItemsPerPage = 60;
 export type GridType = 'square' | 'fit' | 'tile';
 export type PaginationMode = 'infinite' | 'paged';
+export type ConfiguredUITheme = 'default' | 'booru-light' | 'booru-dark';
+// The two booru variants share one shell/behavior boundary. Their visual variant is
+// carried separately so the existing booru presentation remains a single frontend.
+export type UITheme = 'default' | 'booru-style';
 
 export const runtimeCapability = {
   previewImages: 'preview_images'
@@ -15,6 +19,7 @@ export const runtimeCapability = {
 export type RuntimeCapability = (typeof runtimeCapability)[keyof typeof runtimeCapability];
 
 export type RuntimeConfig = {
+  uiTheme: UITheme;
   capabilities: string[];
   loadFullMediaByDefault: boolean;
   fullscreenMediaByDefault: boolean;
@@ -32,6 +37,14 @@ export type RuntimeConfig = {
 
 export function normalizeThumbnailSizes(values: number[]): number[] {
   return [...new Set(values.filter((value) => Number.isFinite(value) && value > 0).map((value) => Math.round(value)))].sort((a, b) => a - b);
+}
+
+export function normalizeConfiguredUITheme(value: string | undefined): ConfiguredUITheme {
+  return value === 'booru-light' || value === 'booru-dark' ? value : 'default';
+}
+
+export function normalizeUITheme(value: string | undefined): UITheme {
+  return value === 'booru-light' || value === 'booru-dark' ? 'booru-style' : 'default';
 }
 
 export function normalizeGridType(value: string | undefined): GridType {
@@ -56,6 +69,7 @@ export function hasRuntimeCapability(config: RuntimeConfig, capability: RuntimeC
 }
 
 export const runtimeConfig = writable<RuntimeConfig>({
+  uiTheme: 'default',
   capabilities: [runtimeCapability.previewImages],
   loadFullMediaByDefault: false,
   fullscreenMediaByDefault: false,

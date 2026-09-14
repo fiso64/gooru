@@ -102,6 +102,11 @@ test('different-aspect source handoff is covered by exact old pixels until targe
   }).toBeLessThan(1);
   const before = await media.boundingBox();
   expect(before).not.toBeNull();
+  const beforePresentation = await media.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { filter: style.filter, borderRadius: style.borderRadius };
+  });
+  expect(beforePresentation.filter).toContain('drop-shadow');
 
   await page.getByLabel('Next file').click();
   await expect(page.getByRole('dialog', { name: 'landscape.jpg' })).toBeVisible();
@@ -117,6 +122,11 @@ test('different-aspect source handoff is covered by exact old pixels until targe
   expect(frozen).not.toBeNull();
   expect(Math.abs(frozen!.width - before!.width)).toBeLessThan(0.5);
   expect(Math.abs(frozen!.height - before!.height)).toBeLessThan(0.5);
+  const frozenPresentation = await freeze.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return { filter: style.filter, borderRadius: style.borderRadius };
+  });
+  expect(frozenPresentation).toEqual(beforePresentation);
 
   const frozenPixel = await freeze.evaluate((node) => {
     const canvas = node as HTMLCanvasElement;
@@ -127,6 +137,7 @@ test('different-aspect source handoff is covered by exact old pixels until targe
 
   await page.waitForTimeout(125);
   await expect(freeze).toBeVisible();
+  await expect.poll(async () => freeze.evaluate((node) => getComputedStyle(node).filter)).toBe(beforePresentation.filter);
 
   releaseLandscape();
   await expect(freeze).toBeHidden();
