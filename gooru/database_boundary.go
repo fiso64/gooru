@@ -224,6 +224,7 @@ func newDatabaseBackgroundRuntime(client *Client, cfg BackgroundWorkerConfig) (B
 		LeaseDuration: cfg.LeaseDuration,
 		PollInterval:  cfg.PollInterval,
 		RetryDelay:    cfg.RetryDelay,
+		SubscribeWake: client.SubscribeBackgroundOperationChanges,
 	})
 }
 
