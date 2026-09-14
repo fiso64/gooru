@@ -34,9 +34,9 @@ type MockOptions = {
   authenticated?: boolean;
 };
 
-async function mockBooruApp(
+async function mockThemeApp(
   page: Page,
-  theme: 'booru-light' | 'booru-dark' = 'booru-light',
+  theme: 'default' | 'booru-light' | 'booru-dark' = 'booru-light',
   options: MockOptions = {}
 ) {
   const {
@@ -92,7 +92,7 @@ async function mockBooruApp(
 }
 
 test('booru-light uses the shared booru shell with native fonts and yellow brand accent by default', async ({ page }) => {
-  await mockBooruApp(page, 'booru-light');
+  await mockThemeApp(page, 'booru-light');
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-theme-booru-style/);
@@ -164,7 +164,7 @@ test('booru-light uses the shared booru shell with native fonts and yellow brand
 });
 
 test('booru login uses the same yellow spiral brand accent by default', async ({ page }) => {
-  await mockBooruApp(page, 'booru-light', { authenticated: false });
+  await mockThemeApp(page, 'booru-light', { authenticated: false });
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveAttribute('style', /--brand-accent:#ffd060/);
@@ -174,19 +174,31 @@ test('booru login uses the same yellow spiral brand accent by default', async ({
 });
 
 test('booru custom accent recolors only spiral branding and favicon', async ({ page }) => {
-  await mockBooruApp(page, 'booru-light', { accentColor: '#0c2238' });
+  await mockThemeApp(page, 'booru-light', { accentColor: '#0c2238' });
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveAttribute('style', /--brand-accent:#0c2238/);
   await expect(root).not.toHaveAttribute('style', /--accent:#0c2238/);
   await expect(page.locator('.booru-brand-mark')).toHaveCSS('background-color', 'rgb(12, 34, 56)');
   await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Tags' })).toHaveCSS('color', 'rgb(0, 117, 248)');
-  await expect(page.locator('.g-btn-primary').first()).toHaveCSS('background-color', 'rgb(0, 117, 248)');
+  await expect(root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim())).resolves.toBe('#0075f8');
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /^data:image\/svg\+xml,/);
+});
+
+test('default theme keeps applying configured accent to the full UI token', async ({ page }) => {
+  await mockThemeApp(page, 'default', { accentColor: '#0c2238', authenticated: false, fontStyleConfigured: true });
+
+  const root = page.locator('.gooru-root');
+  await expect(root).toHaveClass(/gooru-theme-default/);
+  await expect(root).toHaveAttribute('style', /--brand-accent:#0c2238/);
+  await expect(root).toHaveAttribute('style', /--accent:#0c2238/);
+  await expect(root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim())).resolves.toBe('#0c2238');
+  await expect(page.locator('.login-v2-spirals path')).toHaveCSS('stroke', 'rgb(12, 34, 56)');
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /^data:image\/svg\+xml,/);
 });
 
 test('booru explicit font style overrides native typography without changing palette', async ({ page }) => {
-  await mockBooruApp(page, 'booru-light', { fontStyle: 'modern', fontStyleConfigured: true });
+  await mockThemeApp(page, 'booru-light', { fontStyle: 'modern', fontStyleConfigured: true });
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-type-modern/);
@@ -196,7 +208,7 @@ test('booru explicit font style overrides native typography without changing pal
 });
 
 test('booru-dark follows the committed reference dark palette on shell and viewer surfaces', async ({ page }) => {
-  await mockBooruApp(page, 'booru-dark');
+  await mockThemeApp(page, 'booru-dark');
 
   const root = page.locator('.gooru-root');
   await expect(root).toHaveClass(/gooru-theme-booru-style/);
