@@ -2027,7 +2027,7 @@ export interface components {
         File: {
             /** @description Opaque stable file-location identifier. */
             id: string;
-            /** @description Content hash for the tracked file. */
+            /** @description Content fingerprint for the tracked file. */
             content_id: string;
             name: string;
             /** @description Absolute filesystem path. Omitted unless server path exposure is enabled. */
