@@ -6,7 +6,7 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
-type TagRequest = { method: string; body: { file_ids?: string[]; tags?: string[] } };
+type TagRequest = { method: string; body: { file_ids?: string[]; tags?: string[]; verbose?: boolean } };
 
 function fileItem(id: string, name: string) {
   return {
@@ -128,7 +128,7 @@ test('Ctrl+Enter commits a pending tag draft and submits tagging', async ({ page
   await input.press('Control+Enter');
 
   await expect.poll(() => tagRequests.length).toBe(1);
-  expect(tagRequests[0]).toEqual({ method: 'POST', body: { file_ids: ['one'], tags: ['rating:safe'] } });
+  expect(tagRequests[0]).toEqual({ method: 'POST', body: { file_ids: ['one'], tags: ['rating:safe'], verbose: false } });
   await expect(dialog).toHaveCount(0);
 });
 
@@ -142,6 +142,6 @@ test('Ctrl+Enter commits a pending tag draft and submits untagging', async ({ pa
   await input.press('Control+Enter');
 
   await expect.poll(() => tagRequests.length).toBe(1);
-  expect(tagRequests[0]).toEqual({ method: 'DELETE', body: { file_ids: ['one'], tags: ['blue'] } });
+  expect(tagRequests[0]).toEqual({ method: 'DELETE', body: { file_ids: ['one'], tags: ['blue'], verbose: false } });
   await expect(dialog).toHaveCount(0);
 });
