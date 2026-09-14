@@ -77,7 +77,7 @@ describe('upload panel rows', () => {
     expect(summarizeUploadQueueBatch(batch!)).toEqual({
       progress: 50,
       counts: { imported: 1, importing: 2, error: 1 },
-      status: '2 importing / 1 imported / 1 error'
+      status: '1 imported / 2 importing / 1 error'
     });
   });
 
