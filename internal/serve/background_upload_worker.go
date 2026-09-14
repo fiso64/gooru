@@ -232,10 +232,10 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		}
 		if canceled {
 			if cleanupErr := cleanupCanceledClaimedUpload(files, activated); cleanupErr != nil {
-					return cleanupErr
-				}
-				return nil
+				return cleanupErr
 			}
+			return nil
+		}
 		return err
 	}
 
