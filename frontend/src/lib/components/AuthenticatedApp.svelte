@@ -78,7 +78,7 @@
     facets?: { kind?: Array<{ value: string; count: number }> };
   } | null>(null);
   let actionDialog = $state<{
-    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-untrack-selected' | 'bulk-delete-selected' | 'untrack-file' | 'delete-file';
+    kind: 'none' | 'save-create' | 'save-update' | 'save-delete' | 'bulk-selected' | 'bulk-remove-selected' | 'bulk-untrack-selected' | 'bulk-delete-selected' | 'bulk-delete-or-untrack-selected' | 'untrack-file' | 'delete-file';
     value: string;
     error: string;
     busy: boolean;
@@ -103,7 +103,7 @@
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library' && sidebarBaseQuery !== $submittedSearch);
   const uploadResultsCountQuery = createFileCountQuery(() => Boolean($authState.user), () => $submittedSearch, () => authScope, () => library.route === 'library' && trackUploadResults);
   const uploadJobQuery = createJobQuery(() => $authState.csrfToken, () => upload.activeJobID, () => authScope);
-  const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope);
+  const jobsQuery = createJobsQuery(() => Boolean($authState.user), () => authScope, () => 50);
   const savedSearchesQuery = createSavedSearchesQuery(() => Boolean($authState.user), () => authScope);
   const tagsQuery = createTagsQuery(() => Boolean($authState.user), () => authScope);
   const uploadTargetsQuery = createUploadTargetsQuery(() => Boolean($authState.user), () => authScope);
@@ -420,11 +420,15 @@
         const selector = await ensureSelectionReady();
         const changed = await tagWorkflow.bulkSelected(selector, value, 'remove', (variables) => tagMutation.mutateAsync(variables));
         if (changed) library.clearSelection();
-      } else if (actionDialog.kind === 'bulk-untrack-selected' || actionDialog.kind === 'bulk-delete-selected') {
+      } else if (actionDialog.kind === 'bulk-untrack-selected' || actionDialog.kind === 'bulk-delete-selected' || actionDialog.kind === 'bulk-delete-or-untrack-selected') {
         const selector = await ensureSelectionReady();
         await filesRemovalMutation.mutateAsync({
           ...selector,
-          mode: actionDialog.kind === 'bulk-delete-selected' ? 'delete' : 'untrack'
+          mode: actionDialog.kind === 'bulk-delete-selected'
+            ? 'delete'
+            : actionDialog.kind === 'bulk-delete-or-untrack-selected'
+              ? 'delete_or_untrack'
+              : 'untrack'
         });
         library.clearSelection();
       } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {
@@ -433,6 +437,10 @@
       }
       closeActionDialog();
     } catch (error) {
+      if (error instanceof ApiError && error.code === 'file_not_managed' && actionDialog.kind === 'bulk-delete-selected') {
+        actionDialog = { ...actionDialog, kind: 'bulk-delete-or-untrack-selected', busy: false, error: '' };
+        return;
+      }
       actionDialog = { ...actionDialog, busy: false, error: errorMessage(error) };
     }
   }
@@ -549,6 +557,7 @@
       case 'bulk-remove-selected': return 'Untag selected files';
       case 'bulk-untrack-selected': return 'Untrack selected files';
       case 'bulk-delete-selected': return 'Delete selected files';
+      case 'bulk-delete-or-untrack-selected': return 'Delete managed files and untrack external files?';
       case 'untrack-file': return 'Remove from library';
       case 'delete-file': return 'Delete file';
       default: return '';
@@ -564,6 +573,7 @@
       case 'bulk-remove-selected': return `Remove tags from ${selectedCount} selected file${selectedCount === 1 ? '' : 's'}.`;
       case 'bulk-untrack-selected': return `Untrack ${selectedCount} selected file${selectedCount === 1 ? '' : 's'} from the library. Files remain on disk.`;
       case 'bulk-delete-selected': return `Permanently delete ${selectedCount} selected file${selectedCount === 1 ? '' : 's'} from disk and remove them from the library. Only files in managed upload targets can be deleted.`;
+      case 'bulk-delete-or-untrack-selected': return 'Some selected files are outside configured upload targets. Delete managed files and untrack the external files? External files will remain on disk.';
       case 'untrack-file': return `Untrack \"${actionDialog.name}\" from the library. The file remains on disk.`;
       case 'delete-file': return `Permanently delete \"${actionDialog.name}\" from disk and remove it from the library.`;
       default: return '';
@@ -581,6 +591,7 @@
       case 'bulk-remove-selected': return 'Remove tags';
       case 'bulk-untrack-selected': return 'Untrack';
       case 'bulk-delete-selected': return 'Delete files';
+      case 'bulk-delete-or-untrack-selected': return 'Delete and untrack';
       case 'untrack-file': return 'Remove';
       case 'delete-file': return 'Delete file';
       default: return 'Save';
@@ -641,7 +652,8 @@
     libraryCount={liveLibraryCount}
     tagCount={tagsQuery.data?.tags.length ?? 0}
     jobsActiveCount={jobsQuery.data?.active_count ?? activeJobs.length}
-    jobs={jobsQuery.data?.items ?? []}
+    jobs={(jobsQuery.data?.items ?? []).slice(0, 20)}
+    jobsTotalCount={jobsQuery.data?.total_count ?? (jobsQuery.data?.items.length ?? 0)}
     jobsDrawerOpen={jobsDrawerOpen}
     kindCounts={kindFacetsQuery.data?.facets?.kind ?? tagsQuery.data?.facets?.kind ?? page?.facets?.kind ?? []}
     comicCount={comicCount}
@@ -806,10 +818,10 @@
       label={actionDialogLabel()}
       value={actionDialog.value}
       confirmText={actionDialogConfirmText()}
-      destructive={actionDialog.kind === 'save-delete' || actionDialog.kind === 'bulk-untrack-selected' || actionDialog.kind === 'bulk-delete-selected' || actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file'}
+      destructive={actionDialog.kind === 'save-delete' || actionDialog.kind === 'bulk-untrack-selected' || actionDialog.kind === 'bulk-delete-selected' || actionDialog.kind === 'bulk-delete-or-untrack-selected' || actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file'}
       busy={actionDialog.busy}
       error={actionDialog.error}
-      input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'bulk-untrack-selected' && actionDialog.kind !== 'bulk-delete-selected' && actionDialog.kind !== 'untrack-file' && actionDialog.kind !== 'delete-file'}
+      input={actionDialog.kind !== 'save-delete' && actionDialog.kind !== 'bulk-untrack-selected' && actionDialog.kind !== 'bulk-delete-selected' && actionDialog.kind !== 'bulk-delete-or-untrack-selected' && actionDialog.kind !== 'untrack-file' && actionDialog.kind !== 'delete-file'}
       tagInput={isBulkTagDialog()}
       tagCandidates={tagsQuery.data?.tags ?? []}
       onInput={(value) => (actionDialog = { ...actionDialog, value, error: '' })}

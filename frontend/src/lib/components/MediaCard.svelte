@@ -11,12 +11,13 @@
   const hoverDwellMs = 150;
 
   let {
-    file, cardWidth, cardHeight = cardWidth, fitMedia = false, pixelRatio, viewportRoot, selected,
-    selectionActive, onOpen, onToggleSelect
+    file, cardWidth, cardHeight = cardWidth, fitMedia = false, mediaInset = 0, pixelRatio, viewportRoot, selected,
+    selectionActive, onOpen, onToggleSelect, onThumbnailAspect
   } = $props<{
-    file: FileItem; cardWidth: number; cardHeight?: number; fitMedia?: boolean; pixelRatio: number; viewportRoot?: Element;
+    file: FileItem; cardWidth: number; cardHeight?: number; fitMedia?: boolean; mediaInset?: number; pixelRatio: number; viewportRoot?: Element;
     selected: boolean; selectionActive: boolean; onOpen: (file: FileItem) => void;
     onToggleSelect: (file: FileItem, range: boolean) => void;
+    onThumbnailAspect?: (fileID: string, aspect: number) => void;
   }>();
 
   let cardHost = $state<HTMLElement | undefined>();
@@ -36,7 +37,8 @@
   const hoverPreviewActive = $derived($activeHoverPreviewID === file.id && hoverEnabled && previewNearViewport && !reducedMotion);
   const gifPreviewSource = $derived(withHoverSession(file.media_urls.content, hoverSession));
   const thumbnailSource = $derived(thumbnailURL(file.media_urls.thumbnail, $runtimeConfig.thumbnailSizes,
-    cardWidth || $runtimeConfig.gridSize, cardHeight || cardWidth || $runtimeConfig.gridSize,
+    Math.max(1, (cardWidth || $runtimeConfig.gridSize) - mediaInset * 2),
+    Math.max(1, (cardHeight || cardWidth || $runtimeConfig.gridSize) - mediaInset * 2),
     pixelRatio, mediaWidth, mediaHeight, fitMedia));
 
   onMount(() => {
@@ -96,6 +98,13 @@
     previewReady = true;
   }
 
+  function reportThumbnailAspect(event: Event) {
+    const image = event.currentTarget as HTMLImageElement;
+    const hasSourceDimensions = Number.isFinite(mediaWidth) && Number.isFinite(mediaHeight) && mediaWidth > 0 && mediaHeight > 0;
+    if (hasSourceDimensions || !onThumbnailAspect || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+    onThumbnailAspect(file.id, image.naturalWidth / image.naturalHeight);
+  }
+
   function updateVideoProgress(event: Event) {
     const video = event.currentTarget as HTMLVideoElement;
     videoProgress = Number.isFinite(video.duration) && video.duration > 0 ? Math.min(1, Math.max(0, video.currentTime / video.duration)) : 0;
@@ -127,12 +136,12 @@
       if (mediaAspect >= boxAspect) renderedHeight = renderedWidth / mediaAspect;
       else renderedWidth = renderedHeight * mediaAspect;
     }
-    let requiredMaxEdge = Math.max(renderedWidth, renderedHeight) * scaleDPR;
+    let requiredShortEdge = Math.max(renderedWidth, renderedHeight) * scaleDPR;
     if (validDimensions) {
       const requiredScale = Math.max(renderedWidth * scaleDPR / mediaWidth, renderedHeight * scaleDPR / mediaHeight);
-      requiredMaxEdge = Math.max(mediaWidth, mediaHeight) * requiredScale;
+      requiredShortEdge = Math.min(mediaWidth, mediaHeight) * requiredScale;
     }
-    const selectedSize = sizes.find((size) => size >= requiredMaxEdge) ?? sizes[sizes.length - 1];
+    const selectedSize = sizes.find((size) => size >= requiredShortEdge) ?? sizes[sizes.length - 1];
     const separator = base.includes('?') ? '&' : '?';
     return `${base}${separator}size=${selectedSize}`;
   }
@@ -148,9 +157,9 @@
   }
 </script>
 
-<article bind:this={cardHost} class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''} onpointerenter={startHoverPreview} onpointerleave={stopHoverPreview}>
+<article bind:this={cardHost} class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={`--thumb-media-inset:${mediaInset}px;${cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''}`} onpointerenter={startHoverPreview} onpointerleave={stopHoverPreview}>
   <button class="thumb-open" type="button" aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeyboardAction}>
-    {#if thumbnailActive}<img class:preview-covered={hoverPreviewActive && previewReady} src={thumbnailSource} alt={file.name} decoding="async" draggable="false" />{/if}
+    {#if thumbnailActive}<img class:preview-covered={hoverPreviewActive && previewReady} src={thumbnailSource} alt={file.name} decoding="async" draggable="false" onload={reportThumbnailAspect} />{/if}
     {#if hoverPreviewActive && videoFile}
       <video class:contain-preview={fitMedia} class:is-ready={previewReady} class="hover-preview-media" data-testid="hover-video-preview" src={file.media_urls.content} muted autoplay loop playsinline preload="metadata" onloadeddata={markPreviewReady} ontimeupdate={updateVideoProgress} ondurationchange={updateVideoProgress}></video>
       <span class:is-ready={previewReady} class="hover-video-progress" data-testid="hover-video-progress" aria-hidden="true"><span style={`transform:scaleX(${videoProgress})`}></span></span>

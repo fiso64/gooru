@@ -270,7 +270,7 @@ func TestCBZCoverThumbnailUsesFirstNaturalPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := thumb.Bounds().Size(), (image.Point{X: 10, Y: 5}); got != want {
+	if got, want := thumb.Bounds().Size(), (image.Point{X: 20, Y: 10}); got != want {
 		t.Fatalf("thumbnail size = %v, want %v", got, want)
 	}
 }
@@ -298,7 +298,7 @@ func TestMediaServiceGeneratesCBZDerivative(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := thumb.Bounds().Size(), (image.Point{X: 8, Y: 4}); got != want {
+	if got, want := thumb.Bounds().Size(), (image.Point{X: 16, Y: 8}); got != want {
 		t.Fatalf("thumbnail size = %v, want %v", got, want)
 	}
 }

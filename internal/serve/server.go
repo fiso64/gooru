@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -38,7 +39,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 	var backgroundOperations backgroundOperationReader
 	if gooruLibrary, ok := library.(*GooruLibrary); ok {
 		backgroundContent = gooruLibrary
-		backgroundOperations = gooruLibrary
+		backgroundOperations = &durableFileRemovalOperationStore{GooruLibrary: gooruLibrary}
 		gooruLibrary.backgroundTasks = media.backgroundTaskRequests
 		gooruLibrary.metadata = metadata
 		gooruLibrary.encryption = cfg.Encryption
@@ -71,17 +72,24 @@ func (s *Server) SetAuthStore(store *AuthStore) {
 }
 
 func (s *Server) HTTPServer() *http.Server {
-	return &http.Server{
+	requestCtx, cancelRequests := context.WithCancel(context.Background())
+	server := &http.Server{
 		Addr:              s.cfg.Server.Listen,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: s.cfg.Server.ReadTimeout,
 		WriteTimeout:      s.cfg.Server.WriteTimeout,
 		IdleTimeout:       s.cfg.Server.IdleTimeout,
+		BaseContext: func(net.Listener) context.Context {
+			return requestCtx
+		},
 	}
+	server.RegisterOnShutdown(cancelRequests)
+	return server
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/build", methodHandler(http.MethodGet, s.handleBuildInfo))
 	mux.HandleFunc("/api/v1/health", methodHandler(http.MethodGet, s.handleHealth))
 	mux.HandleFunc("/api/v1/ui-config", methodHandler(http.MethodGet, s.handleUIConfig))
 	mux.Handle("/api/v1/auth/login", requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleAuthLogin)))
@@ -104,6 +112,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/saved-searches", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleSavedSearches))))
 	mux.Handle("/api/v1/tags/namespaces", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleTagNamespaces)))
 	mux.Handle("/api/v1/tags", authMiddleware(s.cfg, s.auth, methodHandler(http.MethodGet, s.handleListTags)))
+	mux.Handle("/api/v1/operations/cancel-all", s.adminProtected(http.HandlerFunc(s.handleCancelAllOperations)))
+	mux.Handle("/api/v1/operations/events", s.adminProtected(http.HandlerFunc(s.handleOperationEvents)))
 	mux.Handle("/api/v1/operations", s.adminProtected(http.HandlerFunc(s.handleOperations)))
 	mux.Handle("/api/v1/operations/", s.adminProtected(http.HandlerFunc(s.handleOperation)))
 	mux.HandleFunc("/", s.handleFrontend)

@@ -4,6 +4,47 @@
  */
 
 export interface paths {
+    "/build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get running build identity. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Running server version and source revision. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            version: string;
+                            revision: string;
+                            dirty: boolean;
+                            development: boolean;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -391,7 +432,7 @@ export interface paths {
         post?: never;
         /**
          * Untrack or physically delete a selected set of files.
-         * @description Accepts the same explicit-ID or query-with-exclusions selector used by bulk UI actions. Physical deletion is accepted only when every selected file is inside configured upload targets.
+         * @description Accepts the same explicit-ID or query-with-exclusions selector used by bulk UI actions. Strict physical deletion is accepted only when every selected file is inside configured upload targets. After explicit confirmation, delete_or_untrack deletes managed files while only untracking files outside configured upload targets.
          */
         delete: {
             parameters: {
@@ -1526,6 +1567,8 @@ export interface paths {
                     /** @description Specific durable operation IDs to return. May be repeated; at most 64 unique IDs are accepted. Completed results are included for this bounded status-batch form. */
                     id?: string[];
                     limit?: number;
+                    /** @description Zero-based number of visible operations to skip. */
+                    offset?: number;
                 };
                 header?: never;
                 path?: never;
@@ -1579,6 +1622,104 @@ export interface paths {
                 };
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream durable background operation change signals.
+         * @description Sends payload-free `operations` server-sent events after committed Jobs-visible operation or task state changes, plus an initial reconciliation signal and periodic keepalive comments. Requires an authenticated administrator session.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Long-lived server-sent event stream of Jobs invalidation signals. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": string;
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/operations/cancel-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Cancel all visible active durable background operations.
+         * @description Cancels every visible pending or running durable operation. Terminal history and hidden implementation operations are not affected.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Active visible operations canceled. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            canceled: number;
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                /** @description Active operations could not be listed or canceled. */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
                 503: components["responses"]["ServiceUnavailable"];
             };
         };
@@ -1743,11 +1884,11 @@ export interface components {
         };
         FileRemovalRequest: components["schemas"]["FileRemovalSelector"] & {
             /** @enum {string} */
-            mode: "untrack" | "delete";
+            mode: "untrack" | "delete" | "delete_or_untrack";
         };
         FileRemovalResponse: {
             /** @enum {string} */
-            mode: "untrack" | "delete";
+            mode: "untrack" | "delete" | "delete_or_untrack";
             selector: components["schemas"]["FileRemovalSelector"];
             removed_locations: number;
         };
@@ -1886,7 +2027,7 @@ export interface components {
         File: {
             /** @description Opaque stable file-location identifier. */
             id: string;
-            /** @description Content hash for the tracked file. */
+            /** @description Content fingerprint for the tracked file. */
             content_id: string;
             name: string;
             /** @description Absolute filesystem path. Omitted unless server path exposure is enabled. */

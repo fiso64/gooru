@@ -11,6 +11,8 @@
   import { effectiveGridSize, runtimeConfig } from '$lib/stores/runtimeConfig';
   import type { FileItem } from '$lib/api/types';
 
+  const fitMediaInset = 20;
+
   let {
     sessionActive, isLoading, isError, error, files, retainedStartIndex, totalCount, displayTotalCount = totalCount, libraryCount,
     searchActive, selectedCount, isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,
@@ -38,18 +40,34 @@
   let paneScrollY = $state(0);
   let gridTop = $state(0);
   let pixelRatio = $state(1);
+  let tileAspectOverrides = $state<Record<string, number>>({});
   let initialViewportFocusDone = false;
   const tileMode = $derived($runtimeConfig.gridType === 'tile');
   const fitMode = $derived($runtimeConfig.gridType === 'fit');
   const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));
   const virtualTotalCount = $derived(pagedMode ? files.length : totalCount || files.length);
   const virtualRetainedStartIndex = $derived(pagedMode ? 0 : retainedStartIndex);
+  const retainedFileIDs = $derived(new Set(files.map((file: FileItem) => file.id)));
   const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));
-  const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));
+  const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize, tileAspectOverrides));
   const tileVirtual = $derived(virtualMediaWindow(tileGeometry, paneHeight, paneScrollY, gridTop, layoutGridSize));
   const tileVirtualHeight = $derived(pagedMode ? tileGeometry.localHeight : tileVirtual.totalHeight);
 
   onMount(() => { pixelRatio = Math.max(1, window.devicePixelRatio || 1); });
+
+  function rememberThumbnailAspect(fileID: string, aspect: number) {
+    if (!Number.isFinite(aspect) || aspect <= 0) return;
+    const normalized = Math.min(8, Math.max(0.125, aspect));
+    const retainedOverrides: Record<string, number> = {};
+    let pruned = false;
+    for (const [id, value] of Object.entries(tileAspectOverrides)) {
+      if (retainedFileIDs.has(id)) retainedOverrides[id] = value;
+      else pruned = true;
+    }
+    if (!pruned && Math.abs((retainedOverrides[fileID] ?? 0) - normalized) < 0.001) return;
+    retainedOverrides[fileID] = normalized;
+    tileAspectOverrides = retainedOverrides;
+  }
 
   function squareScrollWindowKey(scrollY: number) {
     const rowHeight = squareVirtual.rowHeight;
@@ -181,13 +199,13 @@
     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${squareVirtual.totalHeight}px;`}>
       <div class={`grid${fitMode ? ' fit-media-grid' : ''}`} role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type={$runtimeConfig.gridType} style={`transform: translateY(${squareVirtual.offsetTop}px);`} onkeydown={handleGridKeydown}>
         {#if isFetchingPreviousPage}<div class="thumb skeleton"></div>{/if}
-        {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} viewportRoot={mainHost} fitMedia={fitMode} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} />{/each}
+        {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} viewportRoot={mainHost} fitMedia={fitMode} mediaInset={fitMode ? fitMediaInset : 0} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} />{/each}
       </div>
     </div>
   {:else}
     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${tileVirtualHeight}px;`}>
       <div class="grid variable-media-grid" role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type="tile" onkeydown={handleGridKeydown}>
-        {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} viewportRoot={mainHost} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} /></div>{/each}
+        {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} viewportRoot={mainHost} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} onThumbnailAspect={rememberThumbnailAspect} /></div>{/each}
       </div>
     </div>
   {/if}

@@ -46,6 +46,8 @@ type BackgroundOperationListOptions struct {
 	VisibleOnly bool
 	// Limit defaults to 100 when non-positive and is capped at 1000.
 	Limit int
+	// Offset skips the newest matching operations. Negative values are treated as zero.
+	Offset int
 }
 
 // GetBackgroundOperation returns the latest durable state for one logical
@@ -65,4 +67,10 @@ func (c *Client) GetBackgroundOperationTask(operationID string) (task Background
 // unbounded history in memory.
 func (c *Client) ListBackgroundOperations(options BackgroundOperationListOptions) ([]BackgroundOperationState, error) {
 	return listDatabaseBackgroundOperations(c, options)
+}
+
+// CountBackgroundOperations returns the exact number of durable operations.
+// visibleOnly excludes deliberately hidden implementation/background work.
+func (c *Client) CountBackgroundOperations(visibleOnly bool) (int, error) {
+	return c.store.CountBackgroundOperations(visibleOnly)
 }

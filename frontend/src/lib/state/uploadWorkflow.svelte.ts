@@ -7,7 +7,6 @@ import {
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
   stagedUploadItems,
-  uploadingItem,
   uploadProgressItem,
   uploadSummaryFromCounts,
   type UploadAddedAtStrategy,
@@ -18,10 +17,17 @@ import {
 import { errorMessage, isTerminalJob, parseTags } from '$lib/utils/format';
 import type { Job, UploadImportResponse } from '$lib/api/types';
 import type { BackgroundOperation } from '$lib/api/operations';
+import { ApiError } from '$lib/api/client';
 import type { UploadVariables } from '$lib/queries/library';
 import { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 
 export { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
+export const maxFilesPerMultipartUpload = 1000;
+export const maxFilesPerGeckoMultipartUpload = 16;
+
+export function multipartUploadChunkSize(userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): number {
+  return /\bGecko\/\d/i.test(userAgent) ? maxFilesPerGeckoMultipartUpload : maxFilesPerMultipartUpload;
+}
 
 type UploadMutate = (variables: UploadVariables) => Promise<BackgroundOperation | UploadImportResponse>;
 type CancelJob = (jobID: string) => Promise<Job>;
@@ -63,7 +69,10 @@ export function createUploadWorkflow() {
   let addedAtStrategy = $state<UploadAddedAtStrategy>('queue');
   let autoUpload = $state(false);
   let activeSubmissions = $state(0);
+  const activeSubmissionControllers = new Set<AbortController>();
   let cancelBusy = $state(false);
+  let cancelPending = false;
+  let cancelPendingMutate: CancelJob | undefined;
   let status = $state('');
   let trackedJobs = $state<Record<string, number[]>>({});
   let statusCounts: UploadStatusCounts = {};
@@ -80,6 +89,8 @@ export function createUploadWorkflow() {
   });
 
   function reset() {
+    for (const controller of activeSubmissionControllers) controller.abort();
+    activeSubmissionControllers.clear();
     files = [];
     items = [];
     tags = '';
@@ -89,6 +100,8 @@ export function createUploadWorkflow() {
     autoUpload = false;
     activeSubmissions = 0;
     cancelBusy = false;
+    cancelPending = false;
+    cancelPendingMutate = undefined;
     status = '';
     trackedJobs = {};
     statusCounts = {};
@@ -230,6 +243,16 @@ export function createUploadWorkflow() {
     status = uploadSummaryFromCounts(statusCounts) || 'Upload finished';
   }
 
+  function trackQueuedJob(jobID: string, itemIndices: number[], itemError = '') {
+    const existingIndices = trackedJobs[jobID] ?? [];
+    trackedJobs = { ...trackedJobs, [jobID]: [...existingIndices, ...itemIndices] };
+    for (const itemIndex of itemIndices) {
+      const current = items[itemIndex];
+      const queuedItemState = current ? queuedItem([current], 0)[0] : undefined;
+      replaceItem(itemIndex, queuedItemState && itemError ? { ...queuedItemState, error: itemError } : queuedItemState);
+    }
+  }
+
   async function submit(mutate: UploadMutate) {
     if (!files.length) return { queued: false, changedFiles: false };
 
@@ -245,10 +268,12 @@ export function createUploadWorkflow() {
     const nextItems = [...items];
     for (const itemIndex of batchItemIndices) {
       const current = nextItems[itemIndex];
-      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'waiting', progress: 0, error: '' };
+      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'uploading', progress: 0, error: '' };
     }
     items = nextItems;
     files = [];
+    const controller = new AbortController();
+    activeSubmissionControllers.add(controller);
     activeSubmissions += 1;
     statusCounts = countUploadStatuses(items);
 
@@ -261,60 +286,106 @@ export function createUploadWorkflow() {
     const batchQueueFirstTimeMs = Math.min(...batchQueueTimes);
     const batchQueueLastTimeMs = Math.max(...batchQueueTimes);
     const batchQueueTotal = batchFiles.length;
-    const batchQueueIndices = batchFiles.map((_, index) => index);
-    const batchQueueTotals = batchFiles.map(() => batchQueueTotal);
     let queued = false;
     let changedFiles = false;
+    let currentChunkStart = 0;
+    const chunkSize = multipartUploadChunkSize();
+    const segmentCount = Math.ceil(batchFiles.length / chunkSize);
+    let logicalOperationID = '';
 
-    for (const itemIndex of batchItemIndices) {
-      const current = items[itemIndex];
-      replaceItem(itemIndex, current ? uploadingItem([current], 0)[0] : undefined);
-    }
     refreshStatus();
 
     try {
-      const response = await mutate({
-        files: batchFiles,
-        tags: parsedTags,
-        preferAsync: true,
-        targetID: batchTargetID,
-        conflictPolicy: batchConflictPolicy,
-        addedAtStrategy: batchAddedAtStrategy,
-        queueTimeMs: batchQueueTimes,
-        queueFirstTimeMs: batchQueueFirstTimeMs,
-        queueLastTimeMs: batchQueueLastTimeMs,
-        queueIndex: batchQueueIndices,
-        queueTotal: batchQueueTotals,
-        onProgress: (progress) => {
-          const fileProgress = perFileUploadProgress(batchFiles, progress);
-          batchItemIndices.forEach((itemIndex, fileIndex) => {
-            const current = items[itemIndex];
-            replaceItem(itemIndex, current ? uploadProgressItem([current], 0, fileProgress[fileIndex] ?? progress)[0] : undefined);
-          });
+      for (currentChunkStart = 0; currentChunkStart < batchFiles.length; currentChunkStart += chunkSize) {
+        if (controller.signal.aborted || cancelPending) {
+          throw new ApiError(0, 'request_aborted', 'Upload was canceled');
         }
-      });
+        const chunkEnd = Math.min(batchFiles.length, currentChunkStart + chunkSize);
+        const chunkFiles = batchFiles.slice(currentChunkStart, chunkEnd);
+        const chunkItemIndices = batchItemIndices.slice(currentChunkStart, chunkEnd);
+        const chunkQueueTimes = batchQueueTimes.slice(currentChunkStart, chunkEnd);
+        const chunkQueueIndices = chunkFiles.map((_, index) => currentChunkStart + index);
+        const chunkQueueTotals = chunkFiles.map(() => batchQueueTotal);
+        const segmentIndex = Math.floor(currentChunkStart / chunkSize);
+        let lastTransportProgress = -1;
 
-      if ('id' in response) {
-        trackedJobs = { ...trackedJobs, [response.id]: [...batchItemIndices] };
-        for (const itemIndex of batchItemIndices) {
-          const current = items[itemIndex];
-          replaceItem(itemIndex, current ? queuedItem([current], 0)[0] : undefined);
+        const response = await mutate({
+          files: chunkFiles,
+          tags: parsedTags,
+          preferAsync: true,
+          targetID: batchTargetID,
+          conflictPolicy: batchConflictPolicy,
+          addedAtStrategy: batchAddedAtStrategy,
+          queueTimeMs: chunkQueueTimes,
+          queueFirstTimeMs: batchQueueFirstTimeMs,
+          queueLastTimeMs: batchQueueLastTimeMs,
+          queueIndex: chunkQueueIndices,
+          queueTotal: chunkQueueTotals,
+          operationID: segmentCount > 1 && logicalOperationID ? logicalOperationID : undefined,
+          segmentIndex: segmentCount > 1 ? segmentIndex : undefined,
+          segmentCount,
+          onProgress: (progress) => {
+            if (progress === lastTransportProgress) return;
+            lastTransportProgress = progress;
+            const fileProgress = perFileUploadProgress(chunkFiles, progress);
+            chunkItemIndices.forEach((itemIndex, fileIndex) => {
+              const current = items[itemIndex];
+              const nextProgress = fileProgress[fileIndex] ?? progress;
+              if (!current || (current.status === 'uploading' && current.progress === nextProgress)) return;
+              replaceItem(itemIndex, uploadProgressItem([current], 0, nextProgress)[0]);
+            });
+          },
+          signal: controller.signal
+        });
+
+        if ('id' in response) {
+          const jobID = logicalOperationID || response.id;
+          if (segmentCount > 1 && !logicalOperationID) logicalOperationID = response.id;
+          if (cancelPending && cancelPendingMutate) {
+            try {
+              const canceledJob = await cancelPendingMutate(jobID);
+              const previousItems = chunkItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
+              const canceledItems = itemsFromJob(previousItems, canceledJob);
+              chunkItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, canceledItems[resultIndex]));
+            } catch (error) {
+              const message = errorMessage(error);
+              trackQueuedJob(jobID, chunkItemIndices, message);
+              status = message;
+              queued = true;
+            }
+            throw new ApiError(0, 'request_aborted', 'Upload was canceled');
+          }
+          trackQueuedJob(jobID, chunkItemIndices);
+          queued = true;
+        } else {
+          const previousItems = chunkItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
+          const resultItems = itemsFromResult(response, previousItems);
+          chunkItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, resultItems[resultIndex]));
+          changedFiles = true;
         }
-        queued = true;
-      } else {
-        const previousItems = batchItemIndices.map((itemIndex) => items[itemIndex]).filter((item) => Boolean(item));
-        const resultItems = itemsFromResult(response, previousItems);
-        batchItemIndices.forEach((itemIndex, resultIndex) => replaceItem(itemIndex, resultItems[resultIndex]));
-        changedFiles = true;
       }
     } catch (error) {
-      const message = errorMessage(error);
-      for (const itemIndex of batchItemIndices) {
-        const current = items[itemIndex];
-        if (current) replaceItem(itemIndex, { ...current, status: 'error', error: message });
+      const affectedItemIndices = batchItemIndices.slice(currentChunkStart);
+      if (controller.signal.aborted || (error instanceof ApiError && error.code === 'request_aborted')) {
+        for (const itemIndex of affectedItemIndices) {
+          const current = items[itemIndex];
+          if (current && current.status === 'uploading') replaceItem(itemIndex, { ...current, status: 'canceled', error: '' });
+        }
+      } else {
+        const message = errorMessage(error);
+        for (const itemIndex of affectedItemIndices) {
+          const current = items[itemIndex];
+          if (current && current.status === 'uploading') replaceItem(itemIndex, { ...current, status: 'error', error: message });
+        }
       }
     } finally {
+      activeSubmissionControllers.delete(controller);
       activeSubmissions = Math.max(0, activeSubmissions - 1);
+      if (activeSubmissions === 0 && cancelPending) {
+        cancelPending = false;
+        cancelPendingMutate = undefined;
+        cancelBusy = false;
+      }
       if (activeSubmissions === 0 && !hasActiveJobs()) finishBatch();
       else refreshStatus();
     }
@@ -323,9 +394,15 @@ export function createUploadWorkflow() {
 
   async function cancel(mutate: CancelJob, _jobID = Object.keys(trackedJobs)[0] ?? '') {
     const jobIDs = Object.keys(trackedJobs);
-    if (!jobIDs.length || cancelBusy) return { changed: false };
+    if ((!jobIDs.length && activeSubmissions === 0) || cancelBusy) return { changed: false };
     cancelBusy = true;
     let changed = false;
+    if (activeSubmissions > 0) {
+      cancelPending = true;
+      cancelPendingMutate = mutate;
+      for (const controller of activeSubmissionControllers) controller.abort();
+      changed = true;
+    }
     try {
       for (const jobID of jobIDs) {
         const itemIndices = trackedJobs[jobID];
@@ -347,7 +424,7 @@ export function createUploadWorkflow() {
       else refreshStatus();
       return { changed };
     } finally {
-      cancelBusy = false;
+      if (!cancelPending) cancelBusy = false;
     }
   }
 

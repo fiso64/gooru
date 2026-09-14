@@ -41,6 +41,71 @@ func (p *recordingImportMetadataProvider) MetadataFromSource(_ context.Context, 
 	return MediaMetadata{ImageWidth: &width, ImageHeight: &height}, nil
 }
 
+var _ MediaMetadataProvider = (*recordingImportMetadataProvider)(nil)
+var _ MediaMetadataPathProvider = (*recordingImportMetadataProvider)(nil)
+
+type sourceOnlyImportMetadataProvider struct {
+	sourceUsed bool
+}
+
+func (p *sourceOnlyImportMetadataProvider) MetadataFromSource(_ context.Context, _ types.FileInfo, source io.ReaderAt, _ int64, _ string, _ string) (MediaMetadata, error) {
+	p.sourceUsed = true
+	probe := make([]byte, 1)
+	if _, err := source.ReadAt(probe, 0); err != nil {
+		return MediaMetadata{}, err
+	}
+	width := 3
+	return MediaMetadata{ImageWidth: &width}, nil
+}
+
+var _ MediaMetadataProvider = (*sourceOnlyImportMetadataProvider)(nil)
+
+func TestImportedMediaMetadataUsesDirectPathForClearSamePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(path, []byte("media"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	provider := &recordingImportMetadataProvider{}
+	library := &GooruLibrary{}
+	file := types.FileInfo{Path: path}
+
+	if _, err := library.importedMediaMetadata(context.Background(), provider, file, path, "video/mp4", "video"); err != nil {
+		t.Fatalf("extract clear metadata: %v", err)
+	}
+	if provider.sourceUsed {
+		t.Fatal("clear same-path metadata unexpectedly used the logical source path")
+	}
+	if provider.path != path {
+		t.Fatalf("metadata provider path = %q, want %q", provider.path, path)
+	}
+	if provider.mediaType != "video/mp4" || provider.mediaKind != "video" {
+		t.Fatalf("metadata classification = %q/%q, want video/mp4/video", provider.mediaType, provider.mediaKind)
+	}
+}
+
+func TestImportedMediaMetadataUsesRequiredSourceWhenPathOptimizationUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image.png")
+	if err := os.WriteFile(path, []byte("media"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	provider := &sourceOnlyImportMetadataProvider{}
+	library := &GooruLibrary{}
+	file := types.FileInfo{Path: path}
+
+	metadata, err := library.importedMediaMetadata(context.Background(), provider, file, path, "image/png", "photo")
+	if err != nil {
+		t.Fatalf("extract source-only metadata: %v", err)
+	}
+	if !provider.sourceUsed {
+		t.Fatal("source-only metadata provider was not given the required logical source")
+	}
+	if metadata.ImageWidth == nil || *metadata.ImageWidth != 3 {
+		t.Fatalf("source-only metadata = %+v, want image width", metadata)
+	}
+}
+
 func TestGooruUploadImportSeparatesAnalysisSourceFromRegisteredDestination(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")

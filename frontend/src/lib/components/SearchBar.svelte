@@ -21,9 +21,9 @@
     hint?: string;
     partial?: boolean;
   };
-  type SuggestionGroup = { head: string; items: SuggestionItem[] };
+  type SuggestionGroup = { items: SuggestionItem[] };
 
-  const defaultPlaceholder = 'tag, namespace:value, -exclude — try "subject:" or "hero"';
+  const defaultPlaceholder = 'tag, namespace:value, -exclude, @metatag';
 
   let {
     value,
@@ -62,7 +62,7 @@
   const tagItems = $derived(normalizeTags(tags, suggestions));
   const completionContext = $derived(textMode ? plainTextCompletionContext(draft) : { prefix: '', fragment: draft, tokens });
   const groups = $derived(computeSuggestions(completionContext.fragment, completionContext.tokens, tagItems, metaTags));
-  const flat = $derived(groups.flatMap((group) => group.items.map((item) => ({ ...item, group: group.head }))));
+  const flat = $derived(groups.flatMap((group) => group.items));
 
   $effect(() => {
     if (value === lastSyncedValue) return;
@@ -212,8 +212,8 @@
             count
           };
         });
-      if (completionItems.length) result.push({ head: 'Suggestions', items: completionItems });
-      if (specialItems.length) result.push({ head: 'Query', items: specialItems });
+      if (completionItems.length) result.push({ items: completionItems });
+      if (specialItems.length) result.push({ items: specialItems });
       return result;
     }
 
@@ -236,8 +236,8 @@
       });
 
     const result: SuggestionGroup[] = [];
-    if (values.length) result.push({ head: `${ns}:`, items: values });
-    if (specialItems.length) result.push({ head: 'Query', items: specialItems });
+    if (values.length) result.push({ items: values });
+    if (specialItems.length) result.push({ items: specialItems });
     return result;
   }
 
@@ -419,40 +419,24 @@
 
   {#if open && completionContext.fragment.trim() && flat.length > 0}
     <ul bind:this={suggestionsRef} id="searchbar-suggestions" class="search-suggestions" role="listbox" aria-label="Search suggestions" onmousedown={(event) => event.preventDefault()}>
-      {#each groups as group, groupIndex}
-        {@const offset = groups.slice(0, groupIndex).reduce((sum, item) => sum + item.items.length, 0)}
-        <li class="group-head">
-          <span>{group.head}</span>
-          <span>{group.items.length}</span>
+      {#each flat as item, flatIndex}
+        <li role="presentation">
+          <button
+            class:is-active={flatIndex === active}
+            type="button"
+            role="option"
+            aria-selected={flatIndex === active}
+            onmouseenter={() => (active = flatIndex)}
+            onclick={() => selectSuggestion(item)}
+          >
+            <span class="tok">
+              {#if item.ns}<span class="ns">{item.ns}:</span>{/if}<span>{item.val}</span>
+            </span>
+            {#if item.hint}<span class="hint">{item.hint}</span>{/if}
+            {#if item.count != null}<span class="count">{item.count.toLocaleString()}</span>{/if}
+          </button>
         </li>
-        {#each group.items as item, itemIndex}
-          {@const flatIndex = offset + itemIndex}
-          <li role="presentation">
-            <button
-              class:is-active={flatIndex === active}
-              type="button"
-              role="option"
-              aria-selected={flatIndex === active}
-              onmouseenter={() => (active = flatIndex)}
-              onclick={() => selectSuggestion(item)}
-            >
-              <span class="tok">
-                {#if item.ns}<span class="ns">{item.ns}:</span>{/if}<span>{item.val}</span>
-              </span>
-              {#if item.hint}<span class="hint">{item.hint}</span>{/if}
-              {#if item.count != null}<span class="count">{item.count.toLocaleString()}</span>{/if}
-            </button>
-          </li>
-        {/each}
       {/each}
-      <li class="search-suggestions-footer">
-        <span class="keys">
-          <span><span class="g-kbd">↑</span><span class="g-kbd">↓</span> navigate</span>
-          <span><span class="g-kbd">↵</span> select</span>
-          <span><span class="g-kbd">Esc</span> close</span>
-        </span>
-        <span>prefix <span class="g-kbd">-</span> to exclude</span>
-      </li>
     </ul>
   {/if}
 </div>

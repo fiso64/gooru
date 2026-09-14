@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import type { Job } from '$lib/api/types';
+  import { jobAffectedCount, jobFailedCount } from '$lib/jobs';
 
   let {
     job,
@@ -13,13 +14,20 @@
   const percent = $derived(job.progress === undefined ? undefined : Math.round(Math.max(0, Math.min(1, job.progress)) * 100));
   const cancellable = $derived(job.status === 'pending' || job.status === 'running');
   const visualStatus = $derived(
-    job.status === 'completed' ? 'done' : job.status === 'failed' ? 'error' : job.status === 'pending' ? 'queued' : job.status
+    job.status === 'canceled'
+      ? 'canceled'
+      : job.status === 'failed' || job.outcome === 'error'
+        ? 'error'
+        : job.status === 'completed' && job.outcome === 'partial_success'
+          ? 'partial'
+          : job.status === 'completed'
+            ? 'done'
+            : job.status === 'pending'
+              ? 'queued'
+              : job.status
   );
-  const affectedCount = $derived(
-    job.stage === 'receiving' || !job.progress_total || job.progress_total < 1
-      ? undefined
-      : Math.trunc(job.progress_total)
-  );
+  const affectedCount = $derived(jobAffectedCount(job));
+  const failedCount = $derived(jobFailedCount(job));
 
   function titleFor(job: Job) {
     const type = job.type;
@@ -60,10 +68,12 @@
       <Icon name={iconFor(job.type)} size={14} />
       <b>{titleFor(job)}</b>
     </span>
-    <span class={`status ${visualStatus}`}>{visualStatus}</span>
-    {#if cancellable && onCancel}
-      <button class="job-cancel" type="button" aria-label={`Cancel ${titleFor(job)}`} onclick={() => onCancel?.(job)}>Cancel</button>
-    {/if}
+    <span class="job-row-actions">
+      {#if cancellable && onCancel}
+        <button class="job-cancel" type="button" aria-label={`Cancel ${titleFor(job)}`} onclick={() => onCancel?.(job)}>Cancel</button>
+      {/if}
+      <span class={`status ${visualStatus}`}>{visualStatus}</span>
+    </span>
   </div>
   {#if percent !== undefined}
     <div class={`job-progress ${visualStatus}`} aria-label={`${percent}% complete`}>
@@ -73,6 +83,7 @@
   <div class="job-meta">
     {#if percent !== undefined}<span>{percent}%</span>{/if}
     {#if affectedCount !== undefined}<span>{affectedCount.toLocaleString()} file{affectedCount === 1 ? '' : 's'}</span>{/if}
+    {#if failedCount !== undefined && failedCount > 0}<span>{failedCount.toLocaleString()} failed</span>{/if}
     {#if detail}<span class="job-detail">{detail}</span>{/if}
   </div>
 </div>
@@ -107,7 +118,6 @@
     align-items: center;
     justify-content: flex-start;
     gap: 10px;
-    padding-right: 58px;
     box-sizing: border-box;
     font-size: 12.5px;
   }
@@ -127,9 +137,16 @@
     font-weight: 500;
   }
 
+  .job-row-actions {
+    margin-left: auto;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .status {
     flex: 0 0 auto;
-    margin-left: auto;
     font-family: var(--font-mono);
     font-size: 10.5px;
     letter-spacing: 0.12em;
@@ -139,6 +156,7 @@
 
   .status.running { color: var(--info, oklch(0.72 0.15 250)); }
   .status.done { color: var(--ok); }
+  .status.partial { color: var(--accent); }
   .status.error { color: var(--danger); }
 
   .job-progress {
@@ -157,6 +175,7 @@
 
   .job-progress.running > div { background: var(--info, oklch(0.72 0.15 250)); }
   .job-progress.done > div { background: var(--ok); }
+  .job-progress.partial > div { background: var(--accent); }
   .job-progress.error > div { background: var(--danger); }
   .job-progress.canceled > div { background: var(--text-3); }
 
@@ -180,9 +199,6 @@
   }
 
   .job-cancel {
-    position: absolute;
-    top: 9px;
-    right: 10px;
     min-height: 24px;
     padding: 2px 7px;
     border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));

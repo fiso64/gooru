@@ -61,6 +61,7 @@ type BackgroundOperationDTO struct {
 type BackgroundOperationListResponse struct {
 	Items       []BackgroundOperationDTO `json:"items"`
 	ActiveCount *int                     `json:"active_count,omitempty"`
+	TotalCount  *int                     `json:"total_count,omitempty"`
 }
 
 type BackgroundOperationClearResponse struct {
@@ -188,7 +189,7 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 			dto := s.backgroundOperationDTO(operation)
 			if operation.Status == core.BackgroundWorkCompleted {
 				var result json.RawMessage
-				found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)
+				found, err := s.backgroundOperationResult(operation, &result)
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
 					return
@@ -211,7 +212,16 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	operations, err := s.backgroundOperations.ListBackgroundOperations(core.BackgroundOperationListOptions{VisibleOnly: true, Limit: limit})
+	offset := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("offset")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, "invalid_request", "offset must be a non-negative integer", nil)
+			return
+		}
+		offset = parsed
+	}
+	operations, err := s.backgroundOperations.ListBackgroundOperations(core.BackgroundOperationListOptions{VisibleOnly: true, Limit: limit, Offset: offset})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operations", nil)
 		return
@@ -221,13 +231,31 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to count active background operations", nil)
 		return
 	}
+	totalCount, err := s.backgroundOperationTotalCount()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to count background operations", nil)
+		return
+	}
 	items := make([]BackgroundOperationDTO, 0, len(operations))
 	for _, operation := range operations {
-		if operation.Visible {
-			items = append(items, s.backgroundOperationDTO(operation))
+		if !operation.Visible {
+			continue
 		}
+		dto := s.backgroundOperationDTO(operation)
+		if operation.Status == core.BackgroundWorkCompleted {
+			var result json.RawMessage
+			found, err := s.backgroundOperationResult(operation, &result)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
+				return
+			}
+			if found {
+				dto.Result = result
+			}
+		}
+		items = append(items, dto)
 	}
-	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items, ActiveCount: &activeCount})
+	writeJSON(w, http.StatusOK, BackgroundOperationListResponse{Items: items, ActiveCount: &activeCount, TotalCount: totalCount})
 }
 
 func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
@@ -279,7 +307,7 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 	dto := s.backgroundOperationDTO(operation)
 	if operation.Status == core.BackgroundWorkCompleted {
 		var result json.RawMessage
-		found, err := s.backgroundOperations.GetBackgroundOperationResult(id, &result)
+		found, err := s.backgroundOperationResult(operation, &result)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
 			return
@@ -299,6 +327,11 @@ func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState)
 	dto := backgroundOperationDTO(operation)
 	if operation.Kind != backgroundUploadImportOperationKind || s.backgroundOperations == nil {
 		return dto
+	}
+	if operation.ProgressTotal > 1 {
+		if segmented, ok := s.segmentedUploadOperationDTO(operation, dto); ok {
+			return segmented
+		}
 	}
 	reader, ok := s.backgroundOperations.(backgroundOperationCheckpointReader)
 	if !ok {

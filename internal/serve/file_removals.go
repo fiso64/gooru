@@ -79,7 +79,7 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 	// validate every selected path before moving or untracking any one of them.
 	if request.Mode == "delete" {
 		for _, file := range files {
-			if !s.canDeleteFilePath(file.Path) {
+			if !s.canDeleteFilePath(fileStoragePath(file)) {
 				writeError(w, http.StatusConflict, "file_not_managed", "one or more selected files are outside configured upload targets; untrack them instead", nil)
 				return
 			}
@@ -103,8 +103,19 @@ func (s *Server) handleRemoveFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare durable file removal", nil)
 		return
 	}
+	if request.Mode == "delete" || request.Mode == "delete_or_untrack" {
+		task, err = backgroundFileRemovalApplyDeleteRetryPolicy(task)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to prepare durable file deletion recovery", nil)
+			return
+		}
+	}
+	operationKind := "files." + request.Mode
+	if request.Mode == "delete_or_untrack" {
+		operationKind = "files.delete"
+	}
 	operation, _, err := removalLibrary.CreateBackgroundOperationWithTasks(core.BackgroundOperationRequest{
-		Kind:          "files." + request.Mode,
+		Kind:          operationKind,
 		Visible:       true,
 		ProgressTotal: 1,
 	}, []core.BackgroundTaskRequest{task})
@@ -144,8 +155,8 @@ func decodeFileRemovalRequest(r *http.Request) (FileRemovalRequest, error) {
 }
 
 func validateFileRemovalRequest(request FileRemovalRequest) error {
-	if request.Mode != "untrack" && request.Mode != "delete" {
-		return errors.New("mode must be untrack or delete")
+	if request.Mode != "untrack" && request.Mode != "delete" && request.Mode != "delete_or_untrack" {
+		return errors.New("mode must be untrack, delete, or delete_or_untrack")
 	}
 	hasIDs := len(request.FileIDs) > 0
 	hasQuery := request.Query != ""

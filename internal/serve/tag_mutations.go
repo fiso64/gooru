@@ -369,11 +369,11 @@ func (l *GooruLibrary) MutateTags(ctx context.Context, operation TagOperation, r
 func (l *GooruLibrary) mutateTagPaths(operation TagOperation, paths []string, tags []string) (types.TagOperationResult, error) {
 	switch operation {
 	case TagOperationAdd:
-		return l.client.TagFiles(paths, tags, nil, false)
+		return l.client.TagFiles(paths, tags, nil, true)
 	case TagOperationSet:
-		return l.client.SetTagsForFiles(paths, tags, nil, false)
+		return l.client.SetTagsForFiles(paths, tags, nil, true)
 	case TagOperationRemove:
-		return l.client.UntagFiles(paths, tags, nil, false)
+		return l.client.UntagFiles(paths, tags, nil, true)
 	default:
 		return types.TagOperationResult{}, fmt.Errorf("unsupported tag operation %q", operation)
 	}

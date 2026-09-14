@@ -78,6 +78,8 @@
   const comicAvailable = $derived(isComicFile(file));
   const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
   const imageSource = $derived(comicEntered && currentComicPage ? currentComicPage.url : viewerImageSource(file, effectivePreferOriginal));
+  const tagGroups = $derived(groupTags(file.tags));
+  const hasTagNamespaces = $derived(tagGroups.some((group) => Boolean(group.namespace)));
 
   onMount(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -307,7 +309,7 @@
       <dt>Added</dt><dd>{modifiedLabel(file.added_at)}</dd>
       <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>
       <dt>Mime</dt><dd>{file.media_type}</dd>
-      <dt>Hash</dt><dd class="hash">{file.content_id}</dd>
+      <dt>Id</dt><dd class="hash">{file.content_id}</dd>
     </dl>
 
     <hr class="g-divider" />
@@ -321,10 +323,10 @@
         </span>
       </div>
 
-      {#each groupTags(file.tags) as group}
+      {#each tagGroups as group (group.namespace)}
         <div class="lightbox-tag-group">
-          {#if group.namespace}
-            <div class="lightbox-tag-group-head"><span>{group.namespace}</span><span>{group.tags.length}</span></div>
+          {#if group.namespace || hasTagNamespaces}
+            <div class="lightbox-tag-group-head"><span>{group.namespace || 'OTHER'}</span><span>{group.tags.length}</span></div>
           {/if}
           <div class="lightbox-tag-list">
             {#each group.tags as tag}
@@ -356,6 +358,7 @@
         mode={tagMode}
         onInput={(value) => onTagInput(file.id, value)}
         onCommit={(value) => onMutateTags(file, tagMode, value)}
+        onModeToggle={() => focusTagInput(tagMode === 'add' ? 'remove' : 'add')}
       />
     </div>
   </aside>

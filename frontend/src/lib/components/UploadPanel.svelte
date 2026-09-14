@@ -7,6 +7,7 @@
   import UploadMediaPreview from './UploadMediaPreview.svelte';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
+  import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
   import { groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
 
@@ -168,14 +169,23 @@
     return status.replace(/_/g, ' ');
   }
 
+  function handleShortcut(event: KeyboardEvent) {
+    if (event.defaultPrevented || stagedRows.length === 0) return;
+    if (uploadShortcutAction(event.key, event.target, event.ctrlKey, event.metaKey, event.altKey, event.shiftKey) !== 'submit-upload') return;
+    event.preventDefault();
+    onSubmit();
+  }
+
 </script>
+
+<svelte:window onkeydown={handleShortcut} />
 
 <main class="main">
   <div class="page">
     <div class="page-header">
       <div class="g-eyebrow g-eyebrow-accent">Upload</div>
       <h1>Import media into your library</h1>
-      <p>Files are content-hashed on receipt. Duplicates are detected automatically. Initial tags can be applied here.</p>
+      <p>Files are content-hashed on receipt. Duplicates are detected automatically.</p>
     </div>
 
     <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); onSubmit(); }}>
@@ -309,22 +319,21 @@
 
       {#if queueRows.length > 0}
         <section class="upload-queue-section" aria-label={uploadStatus || 'Upload queue'}>
-          <div class:has-active-job={Boolean(activeUploadJobID)} class="upload-list-head upload-queue-head">
+          <div class:has-active-job={uploadBusy || Boolean(activeUploadJobID)} class="upload-list-head upload-queue-head">
             <div class="g-eyebrow">Queue · {queueRows.length} {queueRows.length === 1 ? 'file' : 'files'} · {formatBytes(queueBytes)}</div>
             <div class="upload-list-actions upload-queue-actions">
-              <button class="g-btn g-btn-sm" type="button" disabled title="Pause uploads coming soon"><Icon name="pause" size={12} /> Pause all</button>
+              {#if uploadBusy || activeUploadJobID}
+                <button
+                  class="g-btn g-btn-sm"
+                  type="button"
+                  disabled={cancelBusy || cancelRequested}
+                  onclick={() => onCancel(activeUploadJobID)}
+                >
+                  <Icon name="close" size={12} /> {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
+                </button>
+              {/if}
               <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => onClear('done')}><Icon name="close" size={12} /> Clear done</button>
             </div>
-            {#if activeUploadJobID}
-              <button
-                class="g-btn g-btn-sm upload-cancel-action"
-                type="button"
-                disabled={cancelBusy || cancelRequested}
-                onclick={() => onCancel(activeUploadJobID)}
-              >
-                {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
-              </button>
-            {/if}
           </div>
           <div class="upload-batches" data-testid="upload-queue-list">
             {#each queueBatches as batch (batch.batchID ?? 'legacy')}

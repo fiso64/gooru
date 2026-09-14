@@ -20,7 +20,11 @@ func markBackgroundOperationStarted(tx *Tx, operationID string, now time.Time) e
 		    started_at = COALESCE(started_at, ?),
 		    finished_at = NULL,
 		    error_code = '',
-		    error_message = ''
+		    error_message = '',
+		    result_json = CASE
+		        WHEN status IN ('completed', 'failed') THEN ''
+		        ELSE result_json
+		    END
 		WHERE id = ?
 	`, workTimeValue(now), operationID)
 	if err != nil {

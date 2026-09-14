@@ -238,7 +238,7 @@ func (c *Client) ExecuteBackgroundTagMutationPaths(operationID string, paths []s
 	if err != nil {
 		return err
 	}
-	analysis, err := c.analyzeFileStates(paths, nil, false)
+	analysis, err := c.analyzeFileStates(paths, nil, true)
 	if err != nil {
 		return err
 	}

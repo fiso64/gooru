@@ -15,8 +15,108 @@ type backgroundUploadWorkerStore interface {
 	SetBackgroundOperationResult(string, any) error
 }
 
+type backgroundUploadTaskStateStore interface {
+	GetBackgroundTaskCheckpoint(string, any) (bool, error)
+	SetBackgroundTaskCheckpoint(string, any) error
+	SetBackgroundTaskResult(string, any) error
+}
+
+type backgroundUploadRecoveryState struct {
+	store           backgroundUploadWorkerStore
+	taskStore       backgroundUploadTaskStateStore
+	operationID     string
+	taskID          string
+	mirrorOperation bool
+}
+
+type backgroundUploadImportState struct {
+	operationID string
+	taskID      string
+}
+
+func (r backgroundUploadRecoveryState) importState() backgroundUploadImportState {
+	state := backgroundUploadImportState{}
+	if r.taskStore != nil {
+		state.taskID = r.taskID
+	}
+	if r.mirrorOperation {
+		state.operationID = r.operationID
+	}
+	return state
+}
+
+func loadBackgroundUploadRecoveryState(store backgroundUploadWorkerStore, task core.BackgroundTask) (backgroundUploadRecoveryState, backgroundUploadCheckpoint, error) {
+	operation, found, err := store.GetBackgroundOperation(task.OperationID)
+	if err != nil {
+		return backgroundUploadRecoveryState{}, backgroundUploadCheckpoint{}, fmt.Errorf("load upload background operation: %w", err)
+	}
+	if !found {
+		return backgroundUploadRecoveryState{}, backgroundUploadCheckpoint{}, errors.New("upload background operation is missing")
+	}
+
+	taskStore, hasTaskState := store.(backgroundUploadTaskStateStore)
+	multiTask := operation.ProgressTotal > 1
+	if multiTask && !hasTaskState {
+		return backgroundUploadRecoveryState{}, backgroundUploadCheckpoint{}, errors.New("task-scoped upload recovery store is required for multi-task operation")
+	}
+	recovery := backgroundUploadRecoveryState{
+		store:           store,
+		taskStore:       taskStore,
+		operationID:     task.OperationID,
+		taskID:          task.ID,
+		mirrorOperation: !multiTask,
+	}
+
+	var checkpoint backgroundUploadCheckpoint
+	if hasTaskState {
+		found, err := taskStore.GetBackgroundTaskCheckpoint(task.ID, &checkpoint)
+		if err != nil {
+			return backgroundUploadRecoveryState{}, backgroundUploadCheckpoint{}, fmt.Errorf("load upload task checkpoint: %w", err)
+		}
+		if found {
+			return recovery, checkpoint, nil
+		}
+		if multiTask {
+			return backgroundUploadRecoveryState{}, backgroundUploadCheckpoint{}, errors.New("upload task checkpoint is missing")
+		}
+	}
+
+	found, err = store.GetBackgroundOperationCheckpoint(task.OperationID, &checkpoint)
+	if err != nil {
+		return backgroundUploadRecoveryState{}, backgroundUploadCheckpoint{}, fmt.Errorf("load upload background checkpoint: %w", err)
+	}
+	if !found {
+		return backgroundUploadRecoveryState{}, backgroundUploadCheckpoint{}, errors.New("upload background checkpoint is missing")
+	}
+	return recovery, checkpoint, nil
+}
+
+func (r backgroundUploadRecoveryState) setCheckpoint(checkpoint backgroundUploadCheckpoint) error {
+	if r.taskStore != nil {
+		if err := r.taskStore.SetBackgroundTaskCheckpoint(r.taskID, checkpoint); err != nil {
+			return err
+		}
+		if !r.mirrorOperation {
+			return nil
+		}
+	}
+	return r.store.SetBackgroundOperationCheckpoint(r.operationID, checkpoint)
+}
+
+func (r backgroundUploadRecoveryState) setResult(result UploadImportResponse) error {
+	if r.taskStore != nil {
+		if err := r.taskStore.SetBackgroundTaskResult(r.taskID, result); err != nil {
+			return err
+		}
+		if !r.mirrorOperation {
+			return nil
+		}
+	}
+	return r.store.SetBackgroundOperationResult(r.operationID, result)
+}
+
 type backgroundUploadImporter interface {
-	importUploadedFiles(context.Context, []StagedUpload, []string, string, []activatedSavedReplacement) (UploadImportResponse, error)
+	importUploadedFiles(context.Context, []StagedUpload, []string, backgroundUploadImportState, []activatedSavedReplacement) (UploadImportResponse, error)
 }
 
 func (s *Server) backgroundUploadHandler(store backgroundUploadWorkerStore) core.BackgroundTaskHandler {
@@ -41,13 +141,9 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		return err
 	}
 
-	var checkpoint backgroundUploadCheckpoint
-	found, err := store.GetBackgroundOperationCheckpoint(task.OperationID, &checkpoint)
+	recovery, checkpoint, err := loadBackgroundUploadRecoveryState(store, task)
 	if err != nil {
-		return fmt.Errorf("load upload background checkpoint: %w", err)
-	}
-	if !found {
-		return errors.New("upload background checkpoint is missing")
+		return err
 	}
 
 	var activated []activatedSavedReplacement
@@ -61,7 +157,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 			return err
 		}
 		checkpoint = backgroundUploadActivatedCheckpoint(activated, len(files), 0)
-		if err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {
+		if err := recovery.setCheckpoint(checkpoint); err != nil {
 			canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 			if stateErr != nil {
 				return errors.Join(fmt.Errorf("persist activated upload checkpoint: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
@@ -102,7 +198,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
 			return fmt.Errorf("settle imported durable replacement recovery markers: %w", err)
 		}
-		if err := store.SetBackgroundOperationResult(task.OperationID, *checkpoint.Response); err != nil {
+		if err := recovery.setResult(*checkpoint.Response); err != nil {
 			canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 			if stateErr != nil {
 				return errors.Join(fmt.Errorf("publish upload background result: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
@@ -117,7 +213,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 		return fmt.Errorf("upload background checkpoint has invalid phase %q", checkpoint.Phase)
 	}
 
-	response, err := importer.importUploadedFiles(ctx, durableStagedUploads(files), tags, task.OperationID, activated)
+	response, err := importer.importUploadedFiles(withDeferredUploadMediaMetadata(ctx), durableStagedUploads(files), tags, recovery.importState(), activated)
 	if err != nil {
 		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 		if stateErr != nil {
@@ -133,7 +229,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 	}
 
 	checkpoint = backgroundUploadImportedCheckpoint(activated, response)
-	if err := store.SetBackgroundOperationCheckpoint(task.OperationID, checkpoint); err != nil {
+	if err := recovery.setCheckpoint(checkpoint); err != nil {
 		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 		if stateErr != nil {
 			return errors.Join(fmt.Errorf("persist imported upload checkpoint: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))
@@ -161,7 +257,7 @@ func runBackgroundUploadTask(ctx context.Context, importer backgroundUploadImpor
 	if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
 		return fmt.Errorf("settle imported durable replacement recovery markers: %w", err)
 	}
-	if err := store.SetBackgroundOperationResult(task.OperationID, response); err != nil {
+	if err := recovery.setResult(response); err != nil {
 		canceled, stateErr := backgroundUploadOperationCanceled(store, task.OperationID)
 		if stateErr != nil {
 			return errors.Join(fmt.Errorf("publish upload background result: %w", err), fmt.Errorf("inspect upload cancellation: %w", stateErr))

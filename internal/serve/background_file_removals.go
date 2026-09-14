@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	backgroundFileRemovalTaskKind      = "files.remove"
-	backgroundFileRemovalResourceClass = "storage"
-	backgroundFileRemovalBatchVersion  = 2
+	backgroundFileRemovalTaskKind          = "files.remove"
+	backgroundFileRemovalResourceClass     = "storage"
+	backgroundFileRemovalBatchVersion      = 2
+	backgroundFileRemovalMixedBatchVersion = 3
 )
 
 // backgroundFileRemovalInput is the legacy one-file payload. Keep decoding it
@@ -46,13 +47,18 @@ func (s *Server) backgroundFileRemovalBatchTask(mode string, files []types.FileI
 	if len(files) == 0 {
 		return core.BackgroundTaskRequest{}, errors.New("file removal batch is empty")
 	}
+	version := backgroundFileRemovalBatchVersion
+	if mode == "delete_or_untrack" {
+		version = backgroundFileRemovalMixedBatchVersion
+	}
 	input := backgroundFileRemovalBatchInput{
-		Version: backgroundFileRemovalBatchVersion,
+		Version: version,
 		Mode:    mode,
 		Files:   make([]backgroundFileRemovalBatchFile, 0, len(files)),
 	}
 	stagingToken := ""
-	if mode == "delete" {
+	physicalDelete := mode == "delete" || mode == "delete_or_untrack"
+	if physicalDelete {
 		var err error
 		stagingToken, err = newFileRemovalToken()
 		if err != nil {
@@ -64,20 +70,22 @@ func (s *Server) backgroundFileRemovalBatchTask(mode string, files []types.FileI
 		if item.PublicID == "" {
 			return core.BackgroundTaskRequest{}, errors.New("file removal batch contains a file without public identity")
 		}
-		if mode == "delete" {
+		if physicalDelete {
 			managedPath, ok := s.managedDeleteCandidatePath(fileStoragePath(file))
-			if !ok {
+			if !ok && mode == "delete" {
 				return core.BackgroundTaskRequest{}, ErrFileNotManaged
 			}
-			item.OriginalPath = managedPath
-			item.StagingPath = filepath.Join(
-				filepath.Dir(managedPath),
-				fmt.Sprintf(".gooru-delete-%s-%06d", stagingToken, index),
-			)
+			if ok {
+				item.OriginalPath = managedPath
+				item.StagingPath = filepath.Join(
+					filepath.Dir(managedPath),
+					fmt.Sprintf(".gooru-delete-%s-%06d", stagingToken, index),
+				)
+			}
 		}
 		input.Files = append(input.Files, item)
 	}
-	if mode != "delete" && mode != "untrack" {
+	if mode != "delete" && mode != "untrack" && mode != "delete_or_untrack" {
 		return core.BackgroundTaskRequest{}, fmt.Errorf("file removal batch has invalid mode %q", mode)
 	}
 	encoded, err := json.Marshal(input)
@@ -110,7 +118,7 @@ func (s *Server) backgroundFileRemovalHandler(ctx context.Context, task core.Bac
 	if err := json.Unmarshal([]byte(task.InputKey), &envelope); err != nil {
 		return fmt.Errorf("decode file removal task envelope: %w", err)
 	}
-	if envelope.Version == backgroundFileRemovalBatchVersion {
+	if envelope.Version == backgroundFileRemovalBatchVersion || envelope.Version == backgroundFileRemovalMixedBatchVersion {
 		var input backgroundFileRemovalBatchInput
 		if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
 			return fmt.Errorf("decode file removal batch task: %w", err)
@@ -157,6 +165,21 @@ func (s *Server) runBackgroundFileRemovalBatch(ctx context.Context, input backgr
 		return err
 	case "delete":
 		return s.resumeManagedFileDeletionBatch(ctx, input.Files, publicIDs)
+	case "delete_or_untrack":
+		if input.Version != backgroundFileRemovalMixedBatchVersion {
+			return errors.New("mixed file removal batch has invalid version")
+		}
+		managedFiles := make([]backgroundFileRemovalBatchFile, 0, len(input.Files))
+		for _, file := range input.Files {
+			if file.OriginalPath == "" && file.StagingPath == "" {
+				continue
+			}
+			if file.OriginalPath == "" || file.StagingPath == "" {
+				return errors.New("mixed file removal batch has incomplete managed deletion paths")
+			}
+			managedFiles = append(managedFiles, file)
+		}
+		return s.resumeManagedFileDeletionBatch(ctx, managedFiles, publicIDs)
 	default:
 		return fmt.Errorf("file removal batch task has invalid mode %q", input.Mode)
 	}
@@ -172,11 +195,18 @@ func (s *Server) resumeManagedFileDeletionBatch(ctx context.Context, files []bac
 		if err != nil {
 			return rollbackFlatStagedFiles(stagedFiles, err)
 		}
-		stagedExists, err := pathExists(staged.stagedPath)
+		if err := s.validatePersistedDeletionParent(staged.originalPath); err != nil {
+			return rollbackFlatStagedFiles(stagedFiles, err)
+		}
+		stagedExists, err := safeStagedDeletionEntryExists(staged.stagedPath)
 		if err != nil {
 			return rollbackFlatStagedFiles(stagedFiles, err)
 		}
-		if !stagedExists {
+		if stagedExists {
+			if err := s.validatePersistedStagedDeletionRetry(ctx, input.PublicID, staged.originalPath); err != nil {
+				return rollbackFlatStagedFiles(stagedFiles, err)
+			}
+		} else {
 			file, err := s.getFileByPublicID(ctx, input.PublicID)
 			if errors.Is(err, ErrNotFound) {
 				continue
@@ -211,6 +241,27 @@ func (s *Server) resumeManagedFileDeletionBatch(ctx context.Context, files []bac
 		}
 	}
 	return nil
+}
+
+func (s *Server) validatePersistedStagedDeletionRetry(ctx context.Context, publicID, originalPath string) error {
+	originalExists, err := pathExists(originalPath)
+	if err != nil {
+		return fmt.Errorf("check original path before staged deletion retry: %w", err)
+	}
+	if !originalExists {
+		return nil
+	}
+
+	_, err = s.getFileByPublicID(ctx, publicID)
+	if errors.Is(err, ErrNotFound) {
+		// The database delete already committed. The occupied original path is a
+		// replacement, so leave it alone and finish removing the staged original.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("resolve file before staged deletion retry: %w", err)
+	}
+	return errors.New("cannot resume staged file deletion because original path is occupied before database removal")
 }
 
 func rollbackFlatStagedFiles(stagedFiles []*flatStagedFileDeletion, cause error) error {
@@ -254,7 +305,7 @@ func (d *flatStagedFileDeletion) stage() error {
 }
 
 func (d *flatStagedFileDeletion) rollbackMissingOK() error {
-	stagedExists, err := pathExists(d.stagedPath)
+	stagedExists, err := safeStagedDeletionEntryExists(d.stagedPath)
 	if err != nil || !stagedExists {
 		return err
 	}
@@ -269,6 +320,10 @@ func (d *flatStagedFileDeletion) rollbackMissingOK() error {
 }
 
 func (d *flatStagedFileDeletion) commitMissingOK() error {
+	stagedExists, err := safeStagedDeletionEntryExists(d.stagedPath)
+	if err != nil || !stagedExists {
+		return err
+	}
 	if err := os.Remove(d.stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -280,11 +335,21 @@ func (s *Server) resumeManagedFileDeletion(ctx context.Context, input background
 	if err != nil {
 		return err
 	}
-	stagedExists, err := pathExists(staged.stagedPath)
+	if err := s.validatePersistedDeletionParent(staged.originalPath); err != nil {
+		return err
+	}
+	if _, err := validateDeletionStagingDirectory(staged.stagingDir); err != nil {
+		return err
+	}
+	stagedExists, err := safeStagedDeletionEntryExists(staged.stagedPath)
 	if err != nil {
 		return err
 	}
-	if !stagedExists {
+	if stagedExists {
+		if err := s.validatePersistedStagedDeletionRetry(ctx, input.PublicID, staged.originalPath); err != nil {
+			return err
+		}
+	} else {
 		file, err := s.getFileByPublicID(ctx, input.PublicID)
 		if errors.Is(err, ErrNotFound) {
 			return staged.commitMissingOK()
@@ -337,11 +402,8 @@ func persistedStagedFileDeletion(originalPath, stagedPath string) (*stagedFileDe
 }
 
 func (d *stagedFileDeletion) stage() error {
-	if err := os.Mkdir(d.stagingDir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("prepare file deletion: %w", err)
+	if err := ensureDeletionStagingDirectory(d.stagingDir); err != nil {
+		return err
 	}
 	if err := os.Rename(d.originalPath, d.stagedPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -353,9 +415,20 @@ func (d *stagedFileDeletion) stage() error {
 }
 
 func (d *stagedFileDeletion) rollbackMissingOK() error {
-	exists, err := pathExists(d.stagedPath)
-	if err != nil || !exists {
+	stagingDirExists, err := validateDeletionStagingDirectory(d.stagingDir)
+	if err != nil || !stagingDirExists {
 		return err
+	}
+	stagedExists, err := safeStagedDeletionEntryExists(d.stagedPath)
+	if err != nil || !stagedExists {
+		return err
+	}
+	originalExists, err := pathExists(d.originalPath)
+	if err != nil {
+		return err
+	}
+	if originalExists {
+		return errors.New("cannot restore staged file because original path is occupied")
 	}
 	if err := os.Rename(d.stagedPath, d.originalPath); err != nil {
 		return err
@@ -365,8 +438,18 @@ func (d *stagedFileDeletion) rollbackMissingOK() error {
 }
 
 func (d *stagedFileDeletion) commitMissingOK() error {
-	if err := os.Remove(d.stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	stagingDirExists, err := validateDeletionStagingDirectory(d.stagingDir)
+	if err != nil || !stagingDirExists {
 		return err
+	}
+	stagedExists, err := safeStagedDeletionEntryExists(d.stagedPath)
+	if err != nil {
+		return err
+	}
+	if stagedExists {
+		if err := os.Remove(d.stagedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	if err := os.Remove(d.stagingDir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

@@ -3,51 +3,30 @@ import type { Job } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
 import {
   backgroundOperationAsJob,
+  cancelActiveBackgroundOperations,
   cancelBackgroundOperation,
   clearCompletedBackgroundOperations,
   listBackgroundOperations,
   listBackgroundOperationsByIDs,
+  type BackgroundOperationCancelAllResponse,
   type BackgroundOperationClearResponse
 } from '$lib/api/operations';
-import {
-  uploadBackpressuredJobStatusRefetchMs,
-  uploadJobStatusBatchSize,
-  uploadJobStatusRefetchMs
-} from '$lib/uploadBackpressure';
 
 export interface JobListPage {
   items: Job[];
   active_count: number;
+  total_count: number;
   next_page_token?: string;
 }
 
 export const jobKeys = {
   all: ['jobs'] as const,
   list: (scope: number, limit: number, pageToken: string) => ['jobs', 'list', scope, limit, pageToken] as const,
-  detail: (scope: number, id: string) => ['job', scope, id] as const
+  detail: (scope: number, id: string) => ['jobs', 'detail', scope, id] as const
 };
 
 function jobIsActive(job: Job) {
   return job.status === 'pending' || job.status === 'running';
-}
-
-export function jobsRefetchInterval(jobs: Job[] | undefined) {
-  return jobs?.some(jobIsActive) ? 2000 : false;
-}
-
-export function jobsPageRefetchInterval(_page: JobListPage | undefined) {
-  // The visible operation list is also the discovery channel for work admitted
-  // elsewhere in the UI. Stopping the list poll when active_count reaches zero
-  // makes a later delete/upload operation invisible until another invalidation or
-  // full page refresh. Keep the existing active cadence while idle so new durable
-  // operations appear without relying on producer-specific cache coordination.
-  return 2000;
-}
-
-export function uploadJobRefetchInterval(jobIDs: string[]) {
-  return jobIDs.length >= uploadJobStatusBatchSize
-    ? uploadBackpressuredJobStatusRefetchMs
-    : uploadJobStatusRefetchMs;
 }
 
 async function fetchJobBatch(ids: string[]) {
@@ -55,33 +34,30 @@ async function fetchJobBatch(ids: string[]) {
   return { items: response.items.map(backgroundOperationAsJob) };
 }
 
-function jobsPageOffset(pageToken: string) {
+export function jobsPageOffset(pageToken: string) {
   const offset = Number.parseInt(pageToken, 10);
   return Number.isFinite(offset) && offset > 0 ? offset : 0;
-}
-
-export function jobsPageRequestLimit(limit: number, pageToken: string) {
-  const start = jobsPageOffset(pageToken);
-  // The operations endpoint is newest-first but currently exposes only a bounded
-  // prefix, not a cursor. Fetch just enough prefix rows to cover this page plus
-  // one lookahead row so local pagination can preserve the existing next-page
-  // behavior without materializing and polling the full 1000-operation history.
-  return Math.min(1000, start + limit + 1);
 }
 
 export function jobsPageActiveCount(serverActiveCount: number | undefined, jobs: Job[]) {
   return serverActiveCount ?? jobs.filter(jobIsActive).length;
 }
 
+export function jobsPageTotalCount(serverTotalCount: number | undefined, offset: number, jobs: Job[]) {
+  return serverTotalCount ?? offset + jobs.length;
+}
+
 async function fetchJobsPage(limit: number, pageToken: string): Promise<JobListPage> {
   const start = jobsPageOffset(pageToken);
-  const response = await listBackgroundOperations(jobsPageRequestLimit(limit, pageToken));
+  const response = await listBackgroundOperations(limit, start);
   const jobs = response.items.map(backgroundOperationAsJob);
-  const end = start + limit;
+  const totalCount = jobsPageTotalCount(response.total_count, start, jobs);
+  const nextOffset = start + jobs.length;
   return {
-    items: jobs.slice(start, end),
+    items: jobs,
     active_count: jobsPageActiveCount(response.active_count, jobs),
-    next_page_token: end < jobs.length ? String(end) : undefined
+    total_count: totalCount,
+    next_page_token: nextOffset < totalCount ? String(nextOffset) : undefined
   };
 }
 
@@ -92,8 +68,7 @@ export function createJobQuery(_getCSRFToken: () => string, getJobID: () => stri
     return {
       queryKey: jobKeys.detail(getAuthScope(), jobID),
       enabled: jobIDs.length > 0,
-      queryFn: () => fetchJobBatch(jobIDs),
-      refetchInterval: uploadJobRefetchInterval(jobIDs)
+      queryFn: () => fetchJobBatch(jobIDs)
     };
   });
 }
@@ -111,8 +86,7 @@ export function createJobsQuery(
     return {
       queryKey: jobKeys.list(getAuthScope(), limit, pageToken),
       enabled: getAuthenticated() && getEnabled(),
-      queryFn: () => fetchJobsPage(limit, pageToken),
-      refetchInterval: (query) => jobsPageRefetchInterval(query.state.data)
+      queryFn: () => fetchJobsPage(limit, pageToken)
     };
   });
 }
@@ -122,6 +96,19 @@ export function createClearCompletedJobsMutation(getCSRFToken: () => string, que
     mutationFn: () => clearCompletedBackgroundOperations(getCSRFToken()),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: jobKeys.all });
+    }
+  }));
+}
+
+export function createCancelActiveJobsMutation(getCSRFToken: () => string, queryClient: QueryClient) {
+  return createMutation<BackgroundOperationCancelAllResponse, Error, void>(() => ({
+    mutationFn: () => cancelActiveBackgroundOperations(getCSRFToken()),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: jobKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ['files'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', 'tags'] })
+      ]);
     }
   }));
 }

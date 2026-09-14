@@ -1,15 +1,19 @@
 <script lang="ts">
+  import CancelActiveJobsButton from './CancelActiveJobsButton.svelte';
   import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
-  import Icon from './Icon.svelte';
   import JobRow from './JobRow.svelte';
   import type { Job } from '$lib/api/types';
 
   let {
     jobs,
+    totalCount,
+    onViewAll,
     onClose,
     onCancel
   } = $props<{
     jobs: Job[];
+    totalCount: number;
+    onViewAll: () => void;
     onClose: () => void;
     onCancel: (job: Job) => void;
   }>();
@@ -34,9 +38,7 @@
   <div class="jobs-drawer-head">
     <h3 id="jobs-drawer-title">Jobs</h3>
     <div class="jobs-drawer-actions">
-      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Pause all coming soon" aria-label="Pause all coming soon">
-        <Icon name="pause" size={13} />
-      </button>
+      <CancelActiveJobsButton variant="icon" />
       <ClearCompletedJobsButton variant="icon" />
     </div>
   </div>
@@ -46,11 +48,13 @@
     {:else}
       <div class="jobs-empty">No jobs have been recorded.</div>
     {/each}
+    {#if totalCount > jobs.length}
+      <button class="jobs-view-all" type="button" data-testid="jobs-view-all" onclick={onViewAll}>View all</button>
+    {/if}
   </div>
 </div>
 
 <style>
-  /* AppShell keeps this host for aria-controls; it must not become an in-flow grid item. */
   :global(#jobs-drawer) {
     display: contents;
   }
@@ -102,6 +106,24 @@
     font-family: var(--font-mono);
     font-size: 11px;
     text-align: center;
+  }
+
+  .jobs-view-all {
+    width: 100%;
+    border: 0;
+    border-top: 1px solid var(--border);
+    padding: 11px 14px;
+    background: transparent;
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    text-align: center;
+  }
+
+  .jobs-view-all:hover,
+  .jobs-view-all:focus-visible {
+    background: var(--bg-3);
   }
 
   @media (max-width: 700px) {

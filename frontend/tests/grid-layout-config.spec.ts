@@ -12,36 +12,66 @@ function fileItem(index: number) {
       added_at: '2026-05-20T00:00:00Z', modified_time: '2026-05-20T00:00:00Z', media_type: 'application/vnd.comicbook+zip', media_kind: 'document',
       metadata: { image_width: 600, image_height: 900, page_count: 24 }, tags: [], media_urls: { thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`, content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download` }, can_delete: false };
   }
+  if (index === 3) {
+    return { id, content_id: `hash-${id}`, name: 'geom_00073_1200x1600.jpg', safe_display_path: 'library/geom_00073_1200x1600.jpg', size: 2048,
+      added_at: '2026-05-20T00:00:00Z', modified_time: '2026-05-20T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo',
+      metadata: {}, tags: [], media_urls: { thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`, content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download` }, can_delete: false };
+  }
   return { id, content_id: `hash-${id}`, name: `${id}.jpg`, safe_display_path: `library/${id}.jpg`, size: 2048,
     added_at: '2026-05-20T00:00:00Z', modified_time: '2026-05-20T00:00:00Z', media_type: 'image/jpeg', media_kind: 'photo',
     metadata: { image_width: width, image_height: height }, tags: [], media_urls: { thumbnail: `/api/v1/files/${id}/thumbnail`, preview: `/api/v1/files/${id}/preview`, content: `/api/v1/files/${id}/content`, download: `/api/v1/files/${id}/download` }, can_delete: false };
 }
 
-async function mockApp(page: Page, gridType: 'fit' | 'tile') {
+async function mockApp(page: Page, gridType: 'square' | 'fit' | 'tile', gridSize = 200) {
   const files = Array.from({ length: retainedFiles }, (_, index) => fileItem(index));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
-  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ font_style: 'editorial', grid_size: 200, grid_type: gridType, thumbnail_sizes: thumbnailSizes }) }));
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ font_style: 'editorial', grid_size: gridSize, grid_type: gridType, thumbnail_sizes: thumbnailSizes }) }));
   for (const path of ['jobs', 'saved-searches', 'upload-targets']) await page.route(`**/api/v1/${path}`, async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [], meta_tags: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files, total_count: 10_000, library_count: 10_000, facets: { kind: [{ value: 'photo', count: 10_000 }] }, next_page_token: '480' }) }));
-  await page.route('**/api/v1/files/file-0/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900"><rect width="600" height="900" fill="#777"/></svg>' }));
+  // Playwright gives later route registrations precedence, so register the generic
+  // thumbnail mock first and then layer file-specific derivative shapes on top.
   await page.route('**/api/v1/files/*/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#777"/></svg>' }));
+  await page.route('**/api/v1/files/file-0/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900"><rect width="600" height="900" fill="#777"/></svg>' }));
+  await page.route('**/api/v1/files/file-3/thumbnail*', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="341"><rect width="256" height="341" fill="#777"/></svg>' }));
   await page.goto('/'); await expect(page.getByText('10,000 files')).toBeVisible();
 }
 
-function selectedSize(width: number, height: number, dpr: number, sourceWidth: number, sourceHeight: number) {
-  const scale = Math.max(width * dpr / sourceWidth, height * dpr / sourceHeight);
-  const required = Math.max(sourceWidth, sourceHeight) * scale;
+function selectedSize(width: number, height: number, dpr: number, sourceWidth: number, sourceHeight: number, contain = false) {
+  let renderedWidth = width; let renderedHeight = height;
+  if (contain) {
+    const sourceAspect = sourceWidth / sourceHeight; const boxAspect = width / height;
+    if (sourceAspect >= boxAspect) renderedHeight = width / sourceAspect;
+    else renderedWidth = height * sourceAspect;
+  }
+  const scale = Math.max(renderedWidth * dpr / sourceWidth, renderedHeight * dpr / sourceHeight);
+  const required = Math.min(sourceWidth, sourceHeight) * scale;
   return thumbnailSizes.find((size) => size >= required) ?? thumbnailSizes[thumbnailSizes.length - 1];
 }
 
-test('fit gallery keeps square virtual cells and contains media with generous internal padding', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 900 }); await mockApp(page, 'fit');
+test('square gallery sizes thumbnails by the derivative short edge', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 }); await mockApp(page, 'square');
+  const grid = page.getByTestId('virtual-media-grid'); await expect(grid).toHaveAttribute('data-grid-type', 'square');
+  const card = grid.locator('.thumb').nth(4); const box = await card.boundingBox(); const dpr = await page.evaluate(() => window.devicePixelRatio);
+  const expectedSize = selectedSize(box?.width ?? 0, box?.height ?? 0, dpr, 1200, 800);
+  expect(expectedSize).toBe(256);
+  await expect(card.locator('img')).toHaveAttribute('src', new RegExp(`[?&]size=${expectedSize}(?:&|$)`));
+});
+
+test('fit gallery keeps square virtual cells and sizes thumbnails against the padded media box', async ({ page }) => {
+  await page.setViewportSize({ width: 1080, height: 900 }); await mockApp(page, 'fit');
   const grid = page.getByTestId('virtual-media-grid'); await expect(grid).toHaveAttribute('data-grid-type', 'fit');
-  const card = grid.locator('.thumb').first(); const box = await card.boundingBox(); expect(box?.width).toBeCloseTo(box?.height ?? 0, 0);
+  const card = grid.locator('.thumb').nth(2); const box = await card.boundingBox(); expect(box?.width).toBeCloseTo(box?.height ?? 0, 0);
   const open = card.locator('.thumb-open'); await expect(open).toHaveCSS('padding-left', '20px'); await expect(open).toHaveCSS('padding-top', '20px');
   const image = card.locator('img'); await expect(image).toHaveCSS('object-fit', 'contain');
+  const dpr = await page.evaluate(() => window.devicePixelRatio);
+  const cardWidth = box?.width ?? 0; const cardHeight = box?.height ?? 0;
+  const contentWidth = Math.max(1, cardWidth - 40); const contentHeight = Math.max(1, cardHeight - 40);
+  const expectedSize = selectedSize(contentWidth, contentHeight, dpr, 900, 900, true);
+  const unpaddedSize = selectedSize(cardWidth, cardHeight, dpr, 900, 900, true);
+  expect(expectedSize).toBe(256); expect(unpaddedSize).toBe(512);
+  await expect(image).toHaveAttribute('src', new RegExp(`[?&]size=${expectedSize}(?:&|$)`));
 });
 
 test('tile gallery uses CBZ cover metadata for aspect ratio and thumbnail sizing while keeping a bounded DOM', async ({ page }) => {
@@ -60,8 +90,16 @@ test('tile gallery uses CBZ cover metadata for aspect ratio and thumbnail sizing
   const secondBox = await cards.nth(1).boundingBox();
   expect((secondBox?.width ?? 0) / (secondBox?.height ?? 1)).toBeCloseTo(600 / 900, 1);
   const dpr = await page.evaluate(() => window.devicePixelRatio);
-  await expect(comic.locator('img')).toHaveAttribute('src', new RegExp(`[?&]size=${selectedSize(comicBox?.width ?? 0, comicBox?.height ?? 0, dpr, 600, 900)}(?:&|$)`));
-  await expect(cards.nth(1).locator('img')).toHaveAttribute('src', new RegExp(`[?&]size=${selectedSize(secondBox?.width ?? 0, secondBox?.height ?? 0, dpr, 600, 900)}(?:&|$)`));
+  await expect(comic.locator('img')).toHaveAttribute('src', new RegExp(`[?&]size=${selectedSize(comicBox?.width ?? 0, comicBox?.height ?? 0, dpr, 600, 900, true)}(?:&|$)`));
+  await expect(cards.nth(1).locator('img')).toHaveAttribute('src', new RegExp(`[?&]size=${selectedSize(secondBox?.width ?? 0, secondBox?.height ?? 0, dpr, 600, 900, true)}(?:&|$)`));
+
+  const missingDimensions = grid.locator('.virtual-media-item').filter({ has: page.getByAltText('geom_00073_1200x1600.jpg') });
+  await expect(missingDimensions).toBeVisible();
+  await expect.poll(async () => {
+    const box = await missingDimensions.boundingBox();
+    return (box?.width ?? 0) / (box?.height ?? 1);
+  }).toBeCloseTo(256 / 341, 1);
+
   await page.locator('.main').evaluate((node) => { node.scrollTop = 6000; node.dispatchEvent(new Event('scroll')); }); await page.waitForTimeout(100);
   expect(await cards.count()).toBeLessThan(160); expect(await cards.count()).toBeLessThan(retainedFiles / 2);
 });

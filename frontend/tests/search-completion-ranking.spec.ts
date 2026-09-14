@@ -110,3 +110,16 @@ test('rapid completion typing keeps the popup stable and request responses bound
   await expect.poll(() => seenQueries.at(-1)).toBe('@filename');
   expect(seenQueries.every((query) => '@filename'.startsWith(query))).toBe(true);
 });
+
+test('search suggestions omit redundant group headers and keyboard footer', async ({ page }) => {
+  await mockApp(page);
+  const search = page.getByLabel('Search library');
+
+  await search.pressSequentially('hero', { delay: 10 });
+  const suggestions = page.getByRole('listbox', { name: 'Search suggestions' });
+  await expect(suggestions).toBeVisible();
+  await expect(suggestions.getByRole('option')).not.toHaveCount(0);
+  await expect(suggestions.getByText('Suggestions', { exact: true })).toHaveCount(0);
+  await expect(suggestions.getByText('Query', { exact: true })).toHaveCount(0);
+  await expect(suggestions.getByText(/navigate|select|close|prefix .* to exclude/i)).toHaveCount(0);
+});

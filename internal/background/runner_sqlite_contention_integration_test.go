@@ -127,7 +127,11 @@ func TestRunnerSurvivesRealSQLiteWriterContention(t *testing.T) {
 }
 
 func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
-	store, writerDB, claimed := setupClaimedSQLiteContentionTask(t, "task-renew-contention", 120*time.Millisecond)
+	// The claim happens before the test opens and locks a second SQLite writer.
+	// Keep that setup lease comfortably long so loaded CI cannot expire ownership
+	// before runClaimed starts; the runner below still renews on the short 120ms
+	// cadence that exercises transient contention and retry behavior.
+	store, writerDB, claimed := setupClaimedSQLiteContentionTask(t, "task-renew-contention", 5*time.Second)
 
 	writerTx, err := writerDB.Begin()
 	if err != nil {

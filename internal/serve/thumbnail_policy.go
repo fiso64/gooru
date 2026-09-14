@@ -13,6 +13,12 @@ import (
 // resolver.
 type thumbnailGenerationPolicy func(*MediaService, types.FileInfo, io.Writer, int, string) error
 
+// thumbnailQualityGenerationPolicy applies an explicit encoder quality while
+// keeping the same storage boundary as ordinary thumbnail generation. The bool
+// reports whether the selected backend supports the quality override; callers
+// can preserve the ordinary thumbnail fallback when it does not.
+type thumbnailQualityGenerationPolicy func(*MediaService, types.FileInfo, io.Writer, int, string, int) (bool, error)
+
 type videoPathThumbnailer interface {
 	ThumbnailVideoPath(src string, dst io.Writer, size int, format string) error
 }
@@ -24,11 +30,26 @@ func newThumbnailGenerationPolicy(protected bool) thumbnailGenerationPolicy {
 	return generateThumbnailFromPath
 }
 
+func newThumbnailQualityGenerationPolicy(protected bool) thumbnailQualityGenerationPolicy {
+	if protected {
+		return generateThumbnailQualityFromLogicalSource
+	}
+	return generateThumbnailQualityFromPath
+}
+
 func generateThumbnailFromPath(m *MediaService, file types.FileInfo, dst io.Writer, size int, format string) error {
 	if _, ok := thumbnailSupportForPath(file.Path); !ok {
 		return unsupportedThumbnailCapability(file.Path)
 	}
 	return m.thumbnailer.Thumbnail(file.Path, dst, size, format)
+}
+
+func generateThumbnailQualityFromPath(m *MediaService, file types.FileInfo, dst io.Writer, size int, format string, quality int) (bool, error) {
+	qualityThumbnailer, ok := m.thumbnailer.(QualityThumbnailer)
+	if !ok {
+		return false, nil
+	}
+	return true, qualityThumbnailer.ThumbnailQuality(file.Path, dst, size, format, quality)
 }
 
 func generateThumbnailFromLogicalSource(m *MediaService, file types.FileInfo, dst io.Writer, size int, format string) error {
@@ -85,6 +106,19 @@ func generateThumbnailFromLogicalSource(m *MediaService, file types.FileInfo, ds
 		}
 	}
 	return sourceThumbnailer.ThumbnailSource(file.Path, source, dst, size, format)
+}
+
+func generateThumbnailQualityFromLogicalSource(m *MediaService, file types.FileInfo, dst io.Writer, size int, format string, quality int) (bool, error) {
+	sourceThumbnailer, ok := m.thumbnailer.(SourceQualityThumbnailer)
+	if !ok {
+		return false, nil
+	}
+	source, err := m.openMediaSource(fileStoragePath(file))
+	if err != nil {
+		return true, err
+	}
+	defer source.Close()
+	return true, sourceThumbnailer.ThumbnailSourceQuality(file.Path, source, dst, size, format, quality)
 }
 
 func unsupportedThumbnailCapability(path string) error {

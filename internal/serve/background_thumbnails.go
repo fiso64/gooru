@@ -102,7 +102,8 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundThumbnailResourceClass,
 		WorkerID:      workerID + "-media",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundThumbnailTaskKind: s.backgroundThumbnailHandler,
+			backgroundThumbnailTaskKind:     s.backgroundThumbnailHandler,
+			backgroundMediaMetadataTaskKind: s.backgroundMediaMetadataHandler,
 		},
 	})
 	if err != nil {
@@ -112,7 +113,8 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundFileRemovalResourceClass,
 		WorkerID:      workerID + "-storage",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundFileRemovalTaskKind: s.backgroundFileRemovalHandler,
+			backgroundFileRemovalTaskKind:        s.backgroundFileRemovalHandler,
+			backgroundFileRemovalCleanupTaskKind: s.backgroundFileRemovalCleanupHandler(client),
 		},
 	})
 	if err != nil {
@@ -122,8 +124,8 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundUploadResourceClass,
 		WorkerID:      workerID + "-upload",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundUploadTaskKind:        s.backgroundUploadHandler(client),
-			backgroundUploadCleanupTaskKind: s.backgroundUploadCleanupHandler(client),
+			backgroundUploadTaskKind:        s.backgroundUploadHandler(newBackgroundUploadFinalizingStore(client, client)),
+			backgroundUploadCleanupTaskKind: s.backgroundUploadCleanupHandlerV2(client),
 		},
 	})
 	if err != nil {

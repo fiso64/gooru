@@ -33,15 +33,50 @@ func (s *Store) GetBackgroundOperation(id string) (BackgroundOperation, bool, er
 	return operation, true, nil
 }
 
-// ListBackgroundOperations returns newest-first durable operation state. When
-// visibleOnly is true, hidden implementation/background operations are omitted.
-// A non-positive limit uses a bounded default; very large limits are capped so a
-// diagnostics/UI read cannot accidentally materialize unbounded history.
+// GetBackgroundTask returns one durable task by its stable task ID. The bool
+// distinguishes a missing task from a read failure without exposing sql.ErrNoRows
+// to callers that need to recognize idempotent transport retries.
+func (s *Store) GetBackgroundTask(id string) (BackgroundTask, bool, error) {
+	if id == "" {
+		return BackgroundTask{}, false, errors.New("background task id is required")
+	}
+	task, err := scanBackgroundTask(s.DB.QueryRow(`
+		SELECT id, operation_id, dedupe_key, kind, subject_kind, subject_id, input_key,
+		       resource_class, priority, status, available_at, lease_owner, lease_expires_at,
+		       created_at, started_at, finished_at, attempt_count, max_attempts,
+		       last_error_code, last_error_message
+		FROM background_tasks
+		WHERE id = ?
+	`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return BackgroundTask{}, false, nil
+	}
+	if err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("read background task: %w", err)
+	}
+	return task, true, nil
+}
+
+// ListBackgroundOperations returns the first page of newest-first durable
+// operation state. Use ListBackgroundOperationsPage when a non-zero offset is
+// required.
 func (s *Store) ListBackgroundOperations(visibleOnly bool, limit int) ([]BackgroundOperation, error) {
+	return s.ListBackgroundOperationsPage(visibleOnly, limit, 0)
+}
+
+// ListBackgroundOperationsPage returns newest-first durable operation state.
+// When visibleOnly is true, hidden implementation/background operations are
+// omitted. A non-positive limit uses a bounded default; very large limits are
+// capped so a diagnostics/UI read cannot accidentally materialize unbounded
+// history. Negative offsets are treated as zero.
+func (s *Store) ListBackgroundOperationsPage(visibleOnly bool, limit, offset int) ([]BackgroundOperation, error) {
 	if limit <= 0 {
 		limit = defaultBackgroundOperationListLimit
 	} else if limit > maxBackgroundOperationListLimit {
 		limit = maxBackgroundOperationListLimit
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	query := `
@@ -52,9 +87,9 @@ func (s *Store) ListBackgroundOperations(visibleOnly bool, limit int) ([]Backgro
 	if visibleOnly {
 		query += " WHERE visible = 1"
 	}
-	query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+	query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
 
-	rows, err := s.DB.Query(query, limit)
+	rows, err := s.DB.Query(query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list background operations: %w", err)
 	}

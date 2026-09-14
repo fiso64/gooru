@@ -61,6 +61,96 @@ func TestOpaqueManagedStoragePathForTargetsUsesTargetRootForNestedLogicalPath(t 
 	}
 }
 
+func TestOpaqueManagedStoragePathRejectsNamespaceSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	namespace := filepath.Join(root, protectedManagedNamespace)
+	if err := os.Symlink(outside, namespace); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	targets := []UploadTarget{{ID: "managed", Path: root}}
+	_, err := OpaqueManagedStoragePathForTargets(targets, filepath.Join(root, "secret.jpg"), "hash", nil)
+	if err == nil || !strings.Contains(err.Error(), "escapes managed upload target") {
+		t.Fatalf("expected namespace symlink escape to fail closed, got %v", err)
+	}
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("protected storage escape created entries outside target: %v", entries)
+	}
+}
+
+func TestProtectedManagedStoragePathRejectsShardSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	namespace := filepath.Join(root, protectedManagedNamespace)
+	if err := os.MkdirAll(namespace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(namespace, "aa")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	targets := []UploadTarget{{ID: "managed", Path: root}}
+	opaqueName := strings.Repeat("a", opaqueManagedNameBytes*2)
+	_, err := ProtectedManagedStoragePathForName(targets, filepath.Join(root, "secret.jpg"), opaqueName)
+	if err == nil || !strings.Contains(err.Error(), "escapes managed upload target") {
+		t.Fatalf("expected shard symlink escape to fail closed, got %v", err)
+	}
+}
+
+func TestOpaqueManagedStoragePathRejectsLogicalPathThroughNestedSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	linkedDir := filepath.Join(root, "linked")
+	if err := os.Symlink(outside, linkedDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	targets := []UploadTarget{{ID: "managed", Path: root}}
+	logical := filepath.Join(linkedDir, "secret.jpg")
+	_, err := OpaqueManagedStoragePathForTargets(targets, logical, "hash", nil)
+	if err == nil || !strings.Contains(err.Error(), "outside configured targets") {
+		t.Fatalf("expected nested logical symlink escape to be outside target, got %v", err)
+	}
+}
+
+func TestOpaqueManagedStoragePathAllowsSymlinkedTargetRoot(t *testing.T) {
+	parent := t.TempDir()
+	realRoot := filepath.Join(parent, "real")
+	if err := os.MkdirAll(realRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkedRoot := filepath.Join(parent, "linked")
+	if err := os.Symlink(realRoot, linkedRoot); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	targets := []UploadTarget{{ID: "managed", Path: linkedRoot}}
+	logical := filepath.Join(linkedRoot, "secret.jpg")
+	physical, err := OpaqueManagedStoragePathForTargets(targets, logical, "hash", nil)
+	if err != nil {
+		t.Fatalf("symlinked target root should remain supported: %v", err)
+	}
+	if !IsProtectedManagedStoragePath(targets, physical) {
+		t.Fatalf("generated path %q under symlinked target not recognized", physical)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Dir(physical))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedRealRoot, err := filepath.EvalSymlinks(realRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pathContainsOrEquals(resolvedRealRoot, resolved) {
+		t.Fatalf("resolved protected storage directory %q escaped real target %q", resolved, resolvedRealRoot)
+	}
+}
+
 func TestCleanupProtectedManagedStorageOrphansKeepsReferencedAndRemovesStrandedFiles(t *testing.T) {
 	root := t.TempDir()
 	targets := []UploadTarget{{ID: "managed", Path: root}}

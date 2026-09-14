@@ -71,6 +71,20 @@ export function searchShortcutAction(
   return null;
 }
 
+export type UploadShortcutAction = 'submit-upload' | null;
+
+export function uploadShortcutAction(
+  key: string,
+  target: EventTarget | null,
+  ctrlKey = false,
+  metaKey = false,
+  altKey = false,
+  shiftKey = false
+): UploadShortcutAction {
+  if (key !== 'Enter' || !ctrlKey || metaKey || altKey || shiftKey || isModalShortcutTarget(target)) return null;
+  return 'submit-upload';
+}
+
 export type LibraryShortcutAction = 'select-all' | 'tag-selected' | 'untag-selected' | 'untrack-selected' | 'delete-selected' | null;
 
 export function libraryShortcutAction(key: string, selectedCount: number, shiftKey = false): LibraryShortcutAction {

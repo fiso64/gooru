@@ -15,7 +15,11 @@ type BackgroundOperationCancellation struct {
 // operation and reports whether any child worker still owns in-flight cleanup.
 // Callers that do not own external side effects should use CancelBackgroundOperation.
 func (c *Client) CancelBackgroundOperationWithDetails(operationID string) (BackgroundOperationCancellation, error) {
-	return cancelDatabaseBackgroundOperationWithDetails(c, operationID)
+	result, err := cancelDatabaseBackgroundOperationWithDetails(c, operationID)
+	if err == nil && result.Canceled {
+		c.notifyBackgroundOperationChange()
+	}
+	return result, err
 }
 
 // CancelBackgroundOperationWithCleanupTask durably cancels an active logical
@@ -30,5 +34,9 @@ func (c *Client) CancelBackgroundOperationWithCleanupTask(operationID string, re
 	if err != nil {
 		return BackgroundOperationCancellation{}, err
 	}
-	return cancelDatabaseBackgroundOperationWithCleanupTask(c, operationID, id, request)
+	result, err := cancelDatabaseBackgroundOperationWithCleanupTask(c, operationID, id, request)
+	if err == nil && result.Canceled {
+		c.notifyBackgroundOperationChange()
+	}
+	return result, err
 }

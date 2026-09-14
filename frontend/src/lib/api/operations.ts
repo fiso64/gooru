@@ -5,6 +5,9 @@ export interface BackgroundOperation {
   id: string;
   kind: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
+  outcome?: 'success' | 'partial_success' | 'error';
+  affected_count?: number;
+  failed_count?: number;
   stage?: 'receiving' | 'importing';
   progress_total: number;
   progress_completed: number;
@@ -22,10 +25,15 @@ export interface BackgroundOperation {
 interface BackgroundOperationListResponse {
   items: BackgroundOperation[];
   active_count?: number;
+  total_count?: number;
 }
 
 export interface BackgroundOperationClearResponse {
   cleared: number;
+}
+
+export interface BackgroundOperationCancelAllResponse {
+  canceled: number;
 }
 
 async function operationRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -46,8 +54,10 @@ async function operationRequest<T>(path: string, init?: RequestInit): Promise<T>
   return payload;
 }
 
-export function listBackgroundOperations(limit = 1000) {
-  const params = new URLSearchParams({ limit: String(limit) });
+export function listBackgroundOperations(limit = 1000, offset = 0) {
+  const normalizedLimit = Math.max(1, Math.min(1000, Math.trunc(limit)));
+  const normalizedOffset = Math.max(0, Math.trunc(offset));
+  const params = new URLSearchParams({ limit: String(normalizedLimit), offset: String(normalizedOffset) });
   return operationRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
 }
 
@@ -59,6 +69,13 @@ export function listBackgroundOperationsByIDs(ids: string[]) {
 
 export function clearCompletedBackgroundOperations(csrfToken: string) {
   return operationRequest<BackgroundOperationClearResponse>('/api/v1/operations', {
+    method: 'DELETE',
+    headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
+  });
+}
+
+export function cancelActiveBackgroundOperations(csrfToken: string) {
+  return operationRequest<BackgroundOperationCancelAllResponse>('/api/v1/operations/cancel-all', {
     method: 'DELETE',
     headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
   });
@@ -87,6 +104,9 @@ export function backgroundOperationAsJob(operation: BackgroundOperation): Job {
     id: operation.id,
     type: operation.kind,
     status: operation.status,
+    outcome: operation.outcome,
+    affected_count: operation.affected_count,
+    failed_count: operation.failed_count,
     stage: operation.stage,
     progress,
     progress_total: operation.progress_total,

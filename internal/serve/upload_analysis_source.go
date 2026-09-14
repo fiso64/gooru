@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"gooru.local/internal/encryptedfile"
 	"gooru.local/types"
@@ -40,17 +41,21 @@ func (l *GooruLibrary) openUploadAnalysisSource(path string) (uploadAnalysisSour
 }
 
 func (l *GooruLibrary) importedMediaMetadata(ctx context.Context, provider MediaMetadataProvider, file types.FileInfo, analysisPath string, mediaType string, mediaKind string) (MediaMetadata, error) {
-	if sourceProvider, ok := provider.(MediaMetadataSourceProvider); ok && analysisPath != "" {
-		source, size, _, err := l.openUploadAnalysisSource(analysisPath)
-		if err != nil {
-			return MediaMetadata{}, err
+	if uploadMediaMetadataDeferred(ctx) {
+		return MediaMetadata{}, nil
+	}
+	if analysisPath == "" {
+		analysisPath = fileStoragePath(file)
+	}
+	if !l.encryption.Enabled && filepath.Clean(analysisPath) == filepath.Clean(file.Path) {
+		if pathProvider, ok := provider.(MediaMetadataPathProvider); ok {
+			return pathProvider.Metadata(ctx, file, mediaType, mediaKind)
 		}
-		defer source.Close()
-		return sourceProvider.MetadataFromSource(ctx, file, source, size, mediaType, mediaKind)
 	}
-	analysisFile := file
-	if analysisPath != "" {
-		analysisFile.Path = analysisPath
+	source, size, _, err := l.openUploadAnalysisSource(analysisPath)
+	if err != nil {
+		return MediaMetadata{}, err
 	}
-	return provider.Metadata(ctx, analysisFile, mediaType, mediaKind)
+	defer source.Close()
+	return provider.MetadataFromSource(ctx, file, source, size, mediaType, mediaKind)
 }

@@ -85,9 +85,10 @@ func Init(dbPath string, strategy types.HashingStrategy, verbose bool) error {
 
 // Client encapsulates the core business logic.
 type Client struct {
-	store   *database.Store
-	hasher  *hashing.Hasher
-	sources *filesource.Resolver
+	store                      *database.Store
+	hasher                     *hashing.Hasher
+	sources                    *filesource.Resolver
+	backgroundOperationChanges backgroundOperationChangeBus
 }
 
 // New creates a new Client using ordinary plaintext database and filesystem

@@ -71,7 +71,15 @@ async function mockApp(page: Page) {
     }
     if (request.method() === 'GET' && url.pathname === '/api/v1/operations') {
       const limit = Number(url.searchParams.get('limit') ?? operations.length);
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: operations.slice(0, limit), active_count: operations.filter((item) => item.status === 'pending' || item.status === 'running').length }) });
+      const offset = Number(url.searchParams.get('offset') ?? '0');
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: operations.slice(offset, offset + limit),
+          active_count: operations.filter((item) => item.status === 'pending' || item.status === 'running').length,
+          total_count: operations.length
+        })
+      });
       return;
     }
     await route.abort();
@@ -88,11 +96,14 @@ test('jobs history keeps status visible, shows file counts, and confirms termina
   await expect(page.getByRole('heading', { name: 'Background work' })).toBeVisible();
   await expect(page.getByText('Durable operation history remains available across restarts.')).toHaveCount(0);
   await expect(page.locator('.jobs-card .job-row')).toHaveCount(3);
-  await expect(page.getByText('2 files', { exact: true })).toBeVisible();
-  await expect(page.getByText('3 files', { exact: true })).toBeVisible();
-  await expect(page.getByText('4 files', { exact: true })).toBeVisible();
 
   const runningRow = page.locator('.jobs-card .job-row').filter({ hasText: 'Delete Files' });
+  const failedRow = page.locator('.jobs-card .job-row').filter({ hasText: 'Tag edit' });
+  const importRow = page.locator('.jobs-card .job-row').filter({ hasText: 'Import media' });
+  await expect(runningRow.getByText('2 files', { exact: true })).toHaveCount(0);
+  await expect(failedRow.getByText('3 files', { exact: true })).toHaveCount(0);
+  await expect(importRow.getByText('4 files', { exact: true })).toBeVisible();
+
   const runningStatus = runningRow.locator('.status.running');
   await runningRow.hover();
   await expect(runningStatus).toHaveText('running');
