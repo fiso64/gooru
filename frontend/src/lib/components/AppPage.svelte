@@ -134,9 +134,14 @@
   <link rel="icon" href={faviconHref} type="image/svg+xml" />
 </svelte:head>
 
+{@const brandAccentStyle = runtimeTheme === 'booru-style'
+  ? `--brand-accent:${runtimeAccent?.accent ?? '#ffd060'};`
+  : runtimeAccent
+    ? `--brand-accent:${runtimeAccent.accent};`
+    : ''}
 <div
   class={`gooru-root gooru-theme-${runtimeTheme}${runtimeConfiguredTheme === 'default' ? '' : ` gooru-theme-${runtimeConfiguredTheme}`} gooru-accent-sodium${runtimeFontStyle ? ` gooru-type-${runtimeFontStyle}` : ''}`}
-  style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;--brand-accent:${runtimeAccent?.accent ?? '#ffd060'};${runtimeTheme !== 'booru-style' && runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
+  style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;${brandAccentStyle}${runtimeTheme !== 'booru-style' && runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
 >
   {#if !$authState.checked}
     <SessionLoading />
