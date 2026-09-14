@@ -16,6 +16,12 @@ export type UploadItemStatus =
   | 'canceled';
 
 export type UploadAddedAtStrategy = 'queue' | 'reverse_queue' | 'modtime';
+export type UploadItemTagSyncOperation = 'add' | 'remove';
+
+export interface UploadItemTagSyncDelta {
+  add: string[];
+  remove: string[];
+}
 
 export interface UploadItem {
   name: string;
@@ -24,6 +30,7 @@ export interface UploadItem {
   previewFile?: File;
   batchID?: number;
   tags?: string[];
+  tagSyncBaseTags?: string[];
   tagSyncPending?: boolean;
   tagSyncError?: string;
   targetID?: string;
@@ -55,8 +62,20 @@ export function normalizeUploadItemTags(tags: string[]): string[] {
   return result;
 }
 
-function sameUploadItemTags(left: string[] = [], right: string[] = []): boolean {
-  return left.length === right.length && left.every((tag, index) => tag === right[index]);
+export function uploadItemTagSyncDelta(item: UploadItem): UploadItemTagSyncDelta {
+  const desired = normalizeUploadItemTags(item.tags ?? []);
+  const base = normalizeUploadItemTags(item.tagSyncBaseTags ?? []);
+  const desiredSet = new Set(desired);
+  const baseSet = new Set(base);
+  return {
+    add: desired.filter((tag) => !baseSet.has(tag)),
+    remove: base.filter((tag) => !desiredSet.has(tag))
+  };
+}
+
+function hasUploadItemTagSyncDelta(item: UploadItem): boolean {
+  const delta = uploadItemTagSyncDelta(item);
+  return delta.add.length > 0 || delta.remove.length > 0;
 }
 
 export function stagedUploadItems(files: File[], targetID = '', queueTimeMs = Date.now(), tags: string[] = []): UploadItem[] {
@@ -81,16 +100,46 @@ export function retargetStagedUploadItems(items: UploadItem[], targetID: string)
 export function setUploadItemTagsInPlace(items: UploadItem[], index: number, tags: string[]): void {
   const current = items[index];
   if (!current) return;
+  if (current.status !== 'staged' && current.tagSyncBaseTags === undefined) {
+    current.tagSyncBaseTags = normalizeUploadItemTags(current.tags ?? []);
+  }
   current.tags = normalizeUploadItemTags(tags);
   current.tagSyncError = '';
-  current.tagSyncPending = current.status !== 'staged';
+  current.tagSyncPending = current.status !== 'staged' && hasUploadItemTagSyncDelta(current);
 }
 
 export function markUploadItemTagsSyncedInPlace(items: UploadItem[], index: number, syncedTags: string[]): void {
   const current = items[index];
   if (!current) return;
-  const normalized = normalizeUploadItemTags(syncedTags);
-  current.tagSyncPending = !sameUploadItemTags(current.tags ?? [], normalized);
+  current.tagSyncBaseTags = normalizeUploadItemTags(syncedTags);
+  current.tagSyncPending = hasUploadItemTagSyncDelta(current);
+  current.tagSyncError = '';
+}
+
+export function markUploadItemTagSyncAppliedInPlace(
+  items: UploadItem[],
+  index: number,
+  operation: UploadItemTagSyncOperation,
+  tags: string[]
+): void {
+  const current = items[index];
+  if (!current) return;
+  const applied = normalizeUploadItemTags(tags);
+  let base = normalizeUploadItemTags(current.tagSyncBaseTags ?? []);
+  if (operation === 'add') {
+    const baseSet = new Set(base);
+    for (const tag of applied) {
+      if (!baseSet.has(tag)) {
+        base.push(tag);
+        baseSet.add(tag);
+      }
+    }
+  } else {
+    const removed = new Set(applied);
+    base = base.filter((tag) => !removed.has(tag));
+  }
+  current.tagSyncBaseTags = base;
+  current.tagSyncPending = hasUploadItemTagSyncDelta(current);
   current.tagSyncError = '';
 }
 
@@ -198,6 +247,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       previewFile: prior?.previewFile,
       batchID: prior?.batchID,
       tags: prior?.tags ? [...prior.tags] : [],
+      tagSyncBaseTags: prior?.tagSyncBaseTags ? [...prior.tagSyncBaseTags] : undefined,
       tagSyncPending: prior?.tagSyncPending,
       tagSyncError: prior?.tagSyncError,
       targetID: file.target_id,
