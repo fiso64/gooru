@@ -77,52 +77,2385 @@
 ./internal/serve/tag_mutations.go-380-}
 ./internal/serve/tag_mutations.go-381-
 
-=== tag mutation helper candidates ===
-internal/query/sqlbuilder_exact_tag_test.go-4-	"database/sql"
-internal/query/sqlbuilder_exact_tag_test.go-5-	"reflect"
-internal/query/sqlbuilder_exact_tag_test.go-6-	"strings"
-internal/query/sqlbuilder_exact_tag_test.go-7-	"testing"
-internal/query/sqlbuilder_exact_tag_test.go-8-
-internal/query/sqlbuilder_exact_tag_test.go-9-	_ "gosqlite.org"
-internal/query/sqlbuilder_exact_tag_test.go-10-)
-internal/query/sqlbuilder_exact_tag_test.go-11-
-internal/query/sqlbuilder_exact_tag_test.go:12:func TestBuildExactTagUsesAssociationIndexPath(t *testing.T) {
-internal/query/sqlbuilder_exact_tag_test.go-13-	expr, err := Parse("artist:alice")
-internal/query/sqlbuilder_exact_tag_test.go-14-	if err != nil {
-internal/query/sqlbuilder_exact_tag_test.go-15-		t.Fatal(err)
-internal/query/sqlbuilder_exact_tag_test.go-16-	}
-internal/query/sqlbuilder_exact_tag_test.go-17-	if err := ValidateAST(expr); err != nil {
-internal/query/sqlbuilder_exact_tag_test.go-18-		t.Fatal(err)
-internal/query/sqlbuilder_exact_tag_test.go-19-	}
-internal/query/sqlbuilder_exact_tag_test.go-20-
+=== TagFiles definitions and calls ===
+./cmd/gooru/cmd/tag.go-105-			}
+./cmd/gooru/cmd/tag.go-106-
+./cmd/gooru/cmd/tag.go-107-			var filesFailed, filesSucceeded int
+./cmd/gooru/cmd/tag.go-108-			progressCb := func(filePath string, err error) {
+./cmd/gooru/cmd/tag.go-109-				if err != nil {
+./cmd/gooru/cmd/tag.go-110-					filesFailed++
+./cmd/gooru/cmd/tag.go-111-					fmt.Printf("Failed to tag '%s': %v\n", filePath, err)
+./cmd/gooru/cmd/tag.go-112-				} else {
+./cmd/gooru/cmd/tag.go-113-					filesSucceeded++
+./cmd/gooru/cmd/tag.go-114-				}
+./cmd/gooru/cmd/tag.go-115-			}
+./cmd/gooru/cmd/tag.go-116-
+./cmd/gooru/cmd/tag.go:117:			result, err := svc.TagFiles(files, tags, progressCb, tagUseMetadata)
+./cmd/gooru/cmd/tag.go-118-			if err != nil {
+./cmd/gooru/cmd/tag.go-119-				// This will be a DB error that caused a rollback.
+./cmd/gooru/cmd/tag.go-120-				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+./cmd/gooru/cmd/tag.go-121-			}
+./cmd/gooru/cmd/tag.go-122-
+./cmd/gooru/cmd/tag.go-123-			for _, n := range result.Notifications {
+./cmd/gooru/cmd/tag.go-124-				switch n.Kind {
+./cmd/gooru/cmd/tag.go-125-				case types.NotificationKindModified:
+./cmd/gooru/cmd/tag.go-126-					fmt.Printf("Updated database for modified file: '%s'\n", n.OriginalPath)
+./cmd/gooru/cmd/tag.go-127-					if len(n.OrphanedTags) > 0 {
+./cmd/gooru/cmd/tag.go-128-						display.Warnf("'%s' was modified. The old version's tags [%s] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.", n.OriginalPath, strings.Join(n.OrphanedTags, ", "))
+./cmd/gooru/cmd/tag.go-129-					}
 --
-internal/serve/tag_mutations.go-335-		paths := make([]string, 0, len(request.FileIDs))
-internal/serve/tag_mutations.go-336-		for _, encoded := range request.FileIDs {
-internal/serve/tag_mutations.go-337-			file, err := l.GetFileByPublicID(ctx, encoded)
-internal/serve/tag_mutations.go-338-			if err != nil {
-internal/serve/tag_mutations.go-339-				return TagMutationResponse{}, err
-internal/serve/tag_mutations.go-340-			}
-internal/serve/tag_mutations.go-341-			paths = append(paths, file.Path)
-internal/serve/tag_mutations.go-342-		}
-internal/serve/tag_mutations.go:343:		result, err := l.mutateTagPaths(operation, paths, request.Tags)
-internal/serve/tag_mutations.go-344-		if err != nil {
-internal/serve/tag_mutations.go-345-			return TagMutationResponse{}, err
-internal/serve/tag_mutations.go-346-		}
-internal/serve/tag_mutations.go-347-		response.MatchedFiles = len(paths)
-internal/serve/tag_mutations.go-348-		response.AffectedCount = result.AffectedCount
-internal/serve/tag_mutations.go-349-		response.Notifications = notificationDTOs(result.Notifications)
-internal/serve/tag_mutations.go-350-		return response, nil
-internal/serve/tag_mutations.go-351-	}
+./cmd/gooru/cmd/add.go-62-
+./cmd/gooru/cmd/add.go-63-		var filesFailed, filesSucceeded int
+./cmd/gooru/cmd/add.go-64-		progressCb := func(filePath string, err error) {
+./cmd/gooru/cmd/add.go-65-			if err != nil {
+./cmd/gooru/cmd/add.go-66-				filesFailed++
+./cmd/gooru/cmd/add.go-67-				fmt.Printf("Failed to process '%s': %v\n", filePath, err)
+./cmd/gooru/cmd/add.go-68-			} else {
+./cmd/gooru/cmd/add.go-69-				filesSucceeded++
+./cmd/gooru/cmd/add.go-70-			}
+./cmd/gooru/cmd/add.go-71-		}
+./cmd/gooru/cmd/add.go-72-
+./cmd/gooru/cmd/add.go-73-		// `add` is just `tag` with no tags.
+./cmd/gooru/cmd/add.go:74:		result, err := svc.TagFiles(files, []string{}, progressCb, addUseMetadata)
+./cmd/gooru/cmd/add.go-75-		if err != nil {
+./cmd/gooru/cmd/add.go-76-			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+./cmd/gooru/cmd/add.go-77-		}
+./cmd/gooru/cmd/add.go-78-
+./cmd/gooru/cmd/add.go-79-		for _, n := range result.Notifications {
+./cmd/gooru/cmd/add.go-80-			switch n.Kind {
+./cmd/gooru/cmd/add.go-81-			case types.NotificationKindModified:
+./cmd/gooru/cmd/add.go-82-				fmt.Printf("Updated database for modified file: '%s'\n", n.OriginalPath)
+./cmd/gooru/cmd/add.go-83-				if len(n.OrphanedTags) > 0 {
+./cmd/gooru/cmd/add.go-84-					display.Warnf("'%s' was modified. The old version's tags [%s] are now orphaned. Run 'gooru relinkall' to find moved copies or 'gooru prune' to clean up.", n.OriginalPath, strings.Join(n.OrphanedTags, ", "))
+./cmd/gooru/cmd/add.go-85-				}
+./cmd/gooru/cmd/add.go-86-			case types.NotificationKindMoveDetected:
 --
-internal/serve/tag_mutations.go-353-	excludedHashes := make([]string, 0, len(request.ExcludeFileIDs))
-internal/serve/tag_mutations.go-354-	for _, encoded := range request.ExcludeFileIDs {
-internal/serve/tag_mutations.go-355-		file, err := l.GetFileByPublicID(ctx, encoded)
-internal/serve/tag_mutations.go-356-		if err != nil {
-internal/serve/tag_mutations.go-357-			return TagMutationResponse{}, err
-internal/serve/tag_mutations.go-358-		}
+./gooru/spec_tag_query_test.go-11-func TestSpecTagValidationAndQuerySemantics(t *testing.T) {
+./gooru/spec_tag_query_test.go-12-	t.Parallel()
+./gooru/spec_tag_query_test.go-13-	dbPath := setupTestDB(t)
+./gooru/spec_tag_query_test.go-14-	client, err := gooru.New(dbPath, false)
+./gooru/spec_tag_query_test.go-15-	require.NoError(t, err)
+./gooru/spec_tag_query_test.go-16-	t.Cleanup(func() { client.Close() })
+./gooru/spec_tag_query_test.go-17-
+./gooru/spec_tag_query_test.go-18-	dir := t.TempDir()
+./gooru/spec_tag_query_test.go-19-	photoAlbum := createTestFile(t, dir, "album.jpg", "jpg bytes")
+./gooru/spec_tag_query_test.go-20-	photoSimple := createTestFile(t, dir, "simple.png", "png bytes")
+./gooru/spec_tag_query_test.go-21-	doc := createTestFile(t, dir, "doc.txt", "doc bytes")
+./gooru/spec_tag_query_test.go-22-
+./gooru/spec_tag_query_test.go:23:	_, err = client.TagFiles([]string{photoAlbum}, []string{"photo:album1", "review"}, nil, false)
+./gooru/spec_tag_query_test.go-24-	require.NoError(t, err)
+./gooru/spec_tag_query_test.go:25:	_, err = client.TagFiles([]string{photoSimple}, []string{"photo", "review"}, nil, false)
+./gooru/spec_tag_query_test.go-26-	require.NoError(t, err)
+./gooru/spec_tag_query_test.go:27:	_, err = client.TagFiles([]string{doc}, []string{"project:alpha"}, nil, false)
+./gooru/spec_tag_query_test.go-28-	require.NoError(t, err)
+./gooru/spec_tag_query_test.go-29-
+./gooru/spec_tag_query_test.go-30-	invalidTags := [][]string{{"my tag"}, {"!important"}, {"final-"}, {":work"}, {"project:v1:"}, {"ext:backup"}, {"type:document"}, {"project:*"}, {"@tagged"}}
+./gooru/spec_tag_query_test.go-31-	for _, tags := range invalidTags {
+./gooru/spec_tag_query_test.go:32:		_, err := client.TagFiles([]string{doc}, tags, nil, false)
+./gooru/spec_tag_query_test.go-33-		assert.Error(t, err, tags)
+./gooru/spec_tag_query_test.go-34-	}
+./gooru/spec_tag_query_test.go-35-
+./gooru/spec_tag_query_test.go-36-	paths, err := client.ListFilesByQuery("photo", false)
+./gooru/spec_tag_query_test.go-37-	require.NoError(t, err)
+./gooru/spec_tag_query_test.go-38-	assert.ElementsMatch(t, []string{photoAlbum, photoSimple}, paths)
+./gooru/spec_tag_query_test.go-39-
+./gooru/spec_tag_query_test.go-40-	paths, err = client.ListFilesByQuery("photo:", false)
+./gooru/spec_tag_query_test.go-41-	require.NoError(t, err)
+./gooru/spec_tag_query_test.go-42-	assert.ElementsMatch(t, []string{photoSimple}, paths)
+./gooru/spec_tag_query_test.go-43-
+./gooru/spec_tag_query_test.go-44-	paths, err = client.ListFilesByQuery("photo:*", false)
+--
+./gooru/background_tag_mutation_heuristic_test.go-6-	"path/filepath"
+./gooru/background_tag_mutation_heuristic_test.go-7-	"testing"
+./gooru/background_tag_mutation_heuristic_test.go-8-
+./gooru/background_tag_mutation_heuristic_test.go-9-	"gooru.local/internal/encryptedfile"
+./gooru/background_tag_mutation_heuristic_test.go-10-	"gooru.local/internal/filesource"
+./gooru/background_tag_mutation_heuristic_test.go-11-	"gooru.local/types"
+./gooru/background_tag_mutation_heuristic_test.go-12-)
+./gooru/background_tag_mutation_heuristic_test.go-13-
+./gooru/background_tag_mutation_heuristic_test.go-14-func TestAnalyzeFileStatesMetadataHeuristicReusesUnchangedHash(t *testing.T) {
+./gooru/background_tag_mutation_heuristic_test.go-15-	client := newBackgroundTagMutationTestClient(t)
+./gooru/background_tag_mutation_heuristic_test.go-16-	dir := t.TempDir()
+./gooru/background_tag_mutation_heuristic_test.go-17-	path := writeBackgroundTagMutationTestFile(t, dir, "unchanged.jpg", "unchanged body")
+./gooru/background_tag_mutation_heuristic_test.go:18:	if _, err := client.TagFiles([]string{path}, []string{"initial"}, nil, false); err != nil {
+./gooru/background_tag_mutation_heuristic_test.go-19-		t.Fatalf("seed file: %v", err)
+./gooru/background_tag_mutation_heuristic_test.go-20-	}
+./gooru/background_tag_mutation_heuristic_test.go-21-
+./gooru/background_tag_mutation_heuristic_test.go-22-	analysis, err := client.analyzeFileStates([]string{path}, nil, true)
+./gooru/background_tag_mutation_heuristic_test.go-23-	if err != nil {
+./gooru/background_tag_mutation_heuristic_test.go-24-		t.Fatalf("analyze unchanged file: %v", err)
+./gooru/background_tag_mutation_heuristic_test.go-25-	}
+./gooru/background_tag_mutation_heuristic_test.go-26-	if len(analysis.allFileData) != 1 {
+./gooru/background_tag_mutation_heuristic_test.go-27-		t.Fatalf("analyzed files = %d, want 1", len(analysis.allFileData))
+./gooru/background_tag_mutation_heuristic_test.go-28-	}
+./gooru/background_tag_mutation_heuristic_test.go-29-	if analysis.allFileData[0].wasModified {
+./gooru/background_tag_mutation_heuristic_test.go-30-		t.Fatal("unchanged file reported as modified")
+./gooru/background_tag_mutation_heuristic_test.go-31-	}
+./gooru/background_tag_mutation_heuristic_test.go-32-	if len(analysis.potentialMoves) != 0 {
+./gooru/background_tag_mutation_heuristic_test.go-33-		t.Fatalf("unchanged file was hashed despite matching metadata: potential moves=%v", analysis.potentialMoves)
+./gooru/background_tag_mutation_heuristic_test.go-34-	}
+./gooru/background_tag_mutation_heuristic_test.go-35-}
+./gooru/background_tag_mutation_heuristic_test.go-36-
+./gooru/background_tag_mutation_heuristic_test.go-37-func TestBackgroundTagMutationPathHeuristicStillDetectsModifiedContent(t *testing.T) {
+./gooru/background_tag_mutation_heuristic_test.go-38-	client := newBackgroundTagMutationTestClient(t)
+./gooru/background_tag_mutation_heuristic_test.go-39-	dir := t.TempDir()
+./gooru/background_tag_mutation_heuristic_test.go-40-	path := writeBackgroundTagMutationTestFile(t, dir, "file.jpg", "original")
+./gooru/background_tag_mutation_heuristic_test.go:41:	if _, err := client.TagFiles([]string{path}, []string{"initial"}, nil, false); err != nil {
+./gooru/background_tag_mutation_heuristic_test.go-42-		t.Fatalf("seed file: %v", err)
+./gooru/background_tag_mutation_heuristic_test.go-43-	}
+./gooru/background_tag_mutation_heuristic_test.go-44-	files, err := client.GetAllFilesInfo()
+./gooru/background_tag_mutation_heuristic_test.go-45-	if err != nil || len(files) != 1 {
+./gooru/background_tag_mutation_heuristic_test.go-46-		t.Fatalf("list files: files=%v err=%v", files, err)
+./gooru/background_tag_mutation_heuristic_test.go-47-	}
+./gooru/background_tag_mutation_heuristic_test.go-48-	publicID := client.PublicFileID(files[0].ID)
+./gooru/background_tag_mutation_heuristic_test.go-49-	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
+./gooru/background_tag_mutation_heuristic_test.go-50-		Mutation:       "add",
+./gooru/background_tag_mutation_heuristic_test.go-51-		Selector:       map[string][]string{"file_ids": {publicID}},
+./gooru/background_tag_mutation_heuristic_test.go-52-		Tags:           []string{"reviewed"},
+./gooru/background_tag_mutation_heuristic_test.go-53-		FileIDs:        []string{publicID},
+--
+./gooru/spec_rehash_test.go-11-	"gooru.local/types"
+./gooru/spec_rehash_test.go-12-)
+./gooru/spec_rehash_test.go-13-
+./gooru/spec_rehash_test.go-14-func TestSpecRehash_TransfersTagsToModifiedContent(t *testing.T) {
+./gooru/spec_rehash_test.go-15-	t.Parallel()
+./gooru/spec_rehash_test.go-16-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_test.go-17-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_test.go-18-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-19-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_test.go-20-
+./gooru/spec_rehash_test.go-21-	dir := t.TempDir()
+./gooru/spec_rehash_test.go-22-	file := createTestFile(t, dir, "report.txt", "draft")
+./gooru/spec_rehash_test.go:23:	_, err = client.TagFiles([]string{file}, []string{"project", "draft"}, nil, false)
+./gooru/spec_rehash_test.go-24-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-25-	require.NoError(t, os.WriteFile(file, []byte("final"), 0644))
+./gooru/spec_rehash_test.go-26-
+./gooru/spec_rehash_test.go-27-	statuses := collectRehashStatuses(t, client, []string{file}, false)
+./gooru/spec_rehash_test.go-28-	assert.Equal(t, types.StatusRehashed, statuses[file])
+./gooru/spec_rehash_test.go-29-
+./gooru/spec_rehash_test.go-30-	tags, status, err := client.GetTagsForFile(file, false)
+./gooru/spec_rehash_test.go-31-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-32-	assert.Equal(t, types.StatusOK, status)
+./gooru/spec_rehash_test.go-33-	assert.ElementsMatch(t, []string{"project", "draft"}, tags)
+./gooru/spec_rehash_test.go-34-}
+./gooru/spec_rehash_test.go-35-
+./gooru/spec_rehash_test.go-36-func TestSpecRehash_SkipsUnchangedAndUnknownFiles(t *testing.T) {
+./gooru/spec_rehash_test.go-37-	t.Parallel()
+./gooru/spec_rehash_test.go-38-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_test.go-39-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_test.go-40-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-41-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_test.go-42-
+./gooru/spec_rehash_test.go-43-	dir := t.TempDir()
+./gooru/spec_rehash_test.go-44-	tracked := createTestFile(t, dir, "tracked.txt", "content")
+./gooru/spec_rehash_test.go-45-	unknown := createTestFile(t, dir, "unknown.txt", "content")
+./gooru/spec_rehash_test.go:46:	_, err = client.TagFiles([]string{tracked}, []string{"tag"}, nil, false)
+./gooru/spec_rehash_test.go-47-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-48-
+./gooru/spec_rehash_test.go-49-	statuses := collectRehashStatuses(t, client, []string{tracked, unknown}, false)
+./gooru/spec_rehash_test.go-50-	assert.Equal(t, types.StatusSkippedUnchanged, statuses[tracked])
+./gooru/spec_rehash_test.go-51-	assert.Equal(t, types.StatusSkippedNotInDB, statuses[unknown])
+./gooru/spec_rehash_test.go-52-}
+./gooru/spec_rehash_test.go-53-
+./gooru/spec_rehash_test.go-54-func TestSpecRehash_DeletedTrackedFileReportsError(t *testing.T) {
+./gooru/spec_rehash_test.go-55-	t.Parallel()
+./gooru/spec_rehash_test.go-56-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_test.go-57-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_test.go-58-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-59-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_test.go-60-
+./gooru/spec_rehash_test.go-61-	dir := t.TempDir()
+./gooru/spec_rehash_test.go-62-	file := createTestFile(t, dir, "deleted.txt", "content")
+./gooru/spec_rehash_test.go:63:	_, err = client.TagFiles([]string{file}, []string{"tag"}, nil, false)
+./gooru/spec_rehash_test.go-64-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-65-	require.NoError(t, os.Remove(file))
+./gooru/spec_rehash_test.go-66-
+./gooru/spec_rehash_test.go-67-	errs := collectRehashErrors(t, client, []string{file}, false)
+./gooru/spec_rehash_test.go-68-	require.Error(t, errs[file])
+./gooru/spec_rehash_test.go-69-	assert.ErrorIs(t, errs[file], os.ErrNotExist)
+./gooru/spec_rehash_test.go-70-}
+./gooru/spec_rehash_test.go-71-
+./gooru/spec_rehash_test.go-72-func TestSpecRehash_MergesTagsWhenNewContentAlreadyExists(t *testing.T) {
+./gooru/spec_rehash_test.go-73-	t.Parallel()
+./gooru/spec_rehash_test.go-74-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_test.go-75-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_test.go-76-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-77-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_test.go-78-
+./gooru/spec_rehash_test.go-79-	dir := t.TempDir()
+./gooru/spec_rehash_test.go-80-	a := createTestFile(t, dir, "a.txt", "alpha")
+./gooru/spec_rehash_test.go-81-	b := createTestFile(t, dir, "b.txt", "beta")
+./gooru/spec_rehash_test.go:82:	_, err = client.TagFiles([]string{a}, []string{"from:a"}, nil, false)
+./gooru/spec_rehash_test.go-83-	require.NoError(t, err)
+./gooru/spec_rehash_test.go:84:	_, err = client.TagFiles([]string{b}, []string{"from:b"}, nil, false)
+./gooru/spec_rehash_test.go-85-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-86-	require.NoError(t, os.WriteFile(a, []byte("beta"), 0644))
+./gooru/spec_rehash_test.go-87-
+./gooru/spec_rehash_test.go-88-	statuses := collectRehashStatuses(t, client, []string{a}, false)
+./gooru/spec_rehash_test.go-89-	assert.Equal(t, types.StatusRehashed, statuses[a])
+./gooru/spec_rehash_test.go-90-
+./gooru/spec_rehash_test.go-91-	for _, path := range []string{a, b} {
+./gooru/spec_rehash_test.go-92-		tags, status, err := client.GetTagsForFile(path, false)
+./gooru/spec_rehash_test.go-93-		require.NoError(t, err)
+./gooru/spec_rehash_test.go-94-		assert.Equal(t, types.StatusOK, status)
+./gooru/spec_rehash_test.go-95-		assert.ElementsMatch(t, []string{"from:a", "from:b"}, tags)
+./gooru/spec_rehash_test.go-96-	}
+--
+./gooru/spec_rehash_test.go-115-	return errs
+./gooru/spec_rehash_test.go-116-}
+./gooru/spec_rehash_test.go-117-
+./gooru/spec_rehash_test.go-118-func TestSpecRelink_DetectsMoveWithinScannedDirectory(t *testing.T) {
+./gooru/spec_rehash_test.go-119-	t.Parallel()
+./gooru/spec_rehash_test.go-120-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_test.go-121-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_test.go-122-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-123-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_test.go-124-
+./gooru/spec_rehash_test.go-125-	dir := t.TempDir()
+./gooru/spec_rehash_test.go-126-	oldPath := createTestFile(t, dir, "old.txt", "move within")
+./gooru/spec_rehash_test.go:127:	_, err = client.TagFiles([]string{oldPath}, []string{"tag"}, nil, false)
+./gooru/spec_rehash_test.go-128-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-129-	newPath := filepath.Join(dir, "new.txt")
+./gooru/spec_rehash_test.go-130-	require.NoError(t, os.Rename(oldPath, newPath))
+./gooru/spec_rehash_test.go-131-
+./gooru/spec_rehash_test.go-132-	result, err := client.Relink([]string{dir})
+./gooru/spec_rehash_test.go-133-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-134-	require.Len(t, result.ProposedMoves, 1)
+./gooru/spec_rehash_test.go-135-	assert.Equal(t, oldPath, result.ProposedMoves[0].OldPath)
+./gooru/spec_rehash_test.go-136-	assert.Equal(t, newPath, result.ProposedMoves[0].NewLocation.Path)
+./gooru/spec_rehash_test.go-137-	assert.Empty(t, result.ProposedAdds)
+./gooru/spec_rehash_test.go-138-	assert.Empty(t, result.ProposedDeletes)
+./gooru/spec_rehash_test.go-139-
+--
+./gooru/spec_rehash_test.go-148-}
+./gooru/spec_rehash_test.go-149-
+./gooru/spec_rehash_test.go-150-func TestSpecRelink_DetectsDuplicateLocation(t *testing.T) {
+./gooru/spec_rehash_test.go-151-	t.Parallel()
+./gooru/spec_rehash_test.go-152-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_test.go-153-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_test.go-154-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-155-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_test.go-156-
+./gooru/spec_rehash_test.go-157-	dir := t.TempDir()
+./gooru/spec_rehash_test.go-158-	tracked := createTestFile(t, dir, "tracked.txt", "same")
+./gooru/spec_rehash_test.go-159-	duplicate := filepath.Join(dir, "duplicate.txt")
+./gooru/spec_rehash_test.go:160:	_, err = client.TagFiles([]string{tracked}, []string{"tag"}, nil, false)
+./gooru/spec_rehash_test.go-161-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-162-	require.NoError(t, os.WriteFile(duplicate, []byte("same"), 0644))
+./gooru/spec_rehash_test.go-163-
+./gooru/spec_rehash_test.go-164-	result, err := client.Relink([]string{dir})
+./gooru/spec_rehash_test.go-165-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-166-	require.Len(t, result.ProposedAdds, 1)
+./gooru/spec_rehash_test.go-167-	assert.Equal(t, duplicate, result.ProposedAdds[0].Path)
+./gooru/spec_rehash_test.go-168-	assert.Empty(t, result.ProposedMoves)
+./gooru/spec_rehash_test.go-169-	assert.Empty(t, result.ProposedDeletes)
+./gooru/spec_rehash_test.go-170-
+./gooru/spec_rehash_test.go-171-	stats, err := client.ApplyRelinkChanges(result)
+./gooru/spec_rehash_test.go-172-	require.NoError(t, err)
+--
+./gooru/spec_rehash_test.go-179-}
+./gooru/spec_rehash_test.go-180-
+./gooru/spec_rehash_test.go-181-func TestSpecRelink_DoesNotAddBrandNewContent(t *testing.T) {
+./gooru/spec_rehash_test.go-182-	t.Parallel()
+./gooru/spec_rehash_test.go-183-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_test.go-184-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_test.go-185-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-186-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_test.go-187-
+./gooru/spec_rehash_test.go-188-	dir := t.TempDir()
+./gooru/spec_rehash_test.go-189-	tracked := createTestFile(t, dir, "tracked.txt", "known")
+./gooru/spec_rehash_test.go-190-	_ = createTestFile(t, dir, "brand-new.txt", "alien")
+./gooru/spec_rehash_test.go:191:	_, err = client.TagFiles([]string{tracked}, []string{"tag"}, nil, false)
+./gooru/spec_rehash_test.go-192-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-193-
+./gooru/spec_rehash_test.go-194-	result, err := client.Relink([]string{dir})
+./gooru/spec_rehash_test.go-195-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-196-	assert.Empty(t, result.ProposedMoves)
+./gooru/spec_rehash_test.go-197-	assert.Empty(t, result.ProposedAdds)
+./gooru/spec_rehash_test.go-198-	assert.Empty(t, result.ProposedDeletes)
+./gooru/spec_rehash_test.go-199-}
+./gooru/spec_rehash_test.go-200-
+./gooru/spec_rehash_test.go-201-func TestSpecRelink_ProposesDeletedLocation(t *testing.T) {
+./gooru/spec_rehash_test.go-202-	t.Parallel()
+./gooru/spec_rehash_test.go-203-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_test.go-204-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_test.go-205-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-206-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_test.go-207-
+./gooru/spec_rehash_test.go-208-	dir := t.TempDir()
+./gooru/spec_rehash_test.go-209-	file := createTestFile(t, dir, "gone.txt", "content")
+./gooru/spec_rehash_test.go:210:	_, err = client.TagFiles([]string{file}, []string{"tag"}, nil, false)
+./gooru/spec_rehash_test.go-211-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-212-	require.NoError(t, os.Remove(file))
+./gooru/spec_rehash_test.go-213-
+./gooru/spec_rehash_test.go-214-	result, err := client.Relink([]string{dir})
+./gooru/spec_rehash_test.go-215-	require.NoError(t, err)
+./gooru/spec_rehash_test.go-216-	require.Len(t, result.ProposedDeletes, 1)
+./gooru/spec_rehash_test.go-217-	assert.Equal(t, file, result.ProposedDeletes[0].Path)
+./gooru/spec_rehash_test.go-218-	assert.Empty(t, result.ProposedMoves)
+./gooru/spec_rehash_test.go-219-	assert.Empty(t, result.ProposedAdds)
+./gooru/spec_rehash_test.go-220-
+./gooru/spec_rehash_test.go-221-	stats, err := client.ApplyRelinkChanges(result)
+./gooru/spec_rehash_test.go-222-	require.NoError(t, err)
+--
+./gooru/saved_search_test.go-23-
+./gooru/saved_search_test.go-24-	if _, err := client.store.Exec(`INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)`, "usr_test", "Alice", "unused-test-hash", "admin"); err != nil {
+./gooru/saved_search_test.go-25-		t.Fatalf("insert user: %v", err)
+./gooru/saved_search_test.go-26-	}
+./gooru/saved_search_test.go-27-	catPath := filepath.Join(dir, "cat.jpg")
+./gooru/saved_search_test.go-28-	dogPath := filepath.Join(dir, "dog.jpg")
+./gooru/saved_search_test.go-29-	if err := os.WriteFile(catPath, []byte("cat bytes"), 0600); err != nil {
+./gooru/saved_search_test.go-30-		t.Fatalf("write cat: %v", err)
+./gooru/saved_search_test.go-31-	}
+./gooru/saved_search_test.go-32-	if err := os.WriteFile(dogPath, []byte("dog bytes"), 0600); err != nil {
+./gooru/saved_search_test.go-33-		t.Fatalf("write dog: %v", err)
+./gooru/saved_search_test.go-34-	}
+./gooru/saved_search_test.go:35:	if _, err := client.TagFiles([]string{catPath}, []string{"animal:cat"}, nil, false); err != nil {
+./gooru/saved_search_test.go-36-		t.Fatalf("tag cat: %v", err)
+./gooru/saved_search_test.go-37-	}
+./gooru/saved_search_test.go:38:	if _, err := client.TagFiles([]string{dogPath}, []string{"animal:dog"}, nil, false); err != nil {
+./gooru/saved_search_test.go-39-		t.Fatalf("tag dog: %v", err)
+./gooru/saved_search_test.go-40-	}
+./gooru/saved_search_test.go-41-
+./gooru/saved_search_test.go-42-	created, err := client.CreateSavedSearchForUsername("alice", "Cats", "animal:cat", "name", "asc")
+./gooru/saved_search_test.go-43-	if err != nil {
+./gooru/saved_search_test.go-44-		t.Fatalf("create saved search: %v", err)
+./gooru/saved_search_test.go-45-	}
+./gooru/saved_search_test.go-46-	if created.UserID != "usr_test" || created.Query != "animal:cat" || created.Sort != "name" || created.Order != "asc" {
+./gooru/saved_search_test.go-47-		t.Fatalf("unexpected saved search: %+v", created)
+./gooru/saved_search_test.go-48-	}
+./gooru/saved_search_test.go-49-
+./gooru/saved_search_test.go-50-	files, err := client.SearchSavedSearchForUsername("ALICE", "cats", false)
+--
+./gooru/spec_hashing_strategy_test.go-14-
+./gooru/spec_hashing_strategy_test.go-15-	for _, strategy := range []types.HashingStrategy{types.StrategyFull, types.StrategyPartial} {
+./gooru/spec_hashing_strategy_test.go-16-		strategy := strategy
+./gooru/spec_hashing_strategy_test.go-17-		t.Run(string(strategy), func(t *testing.T) {
+./gooru/spec_hashing_strategy_test.go-18-			t.Parallel()
+./gooru/spec_hashing_strategy_test.go-19-			dbPath := setupTestDBWithStrategy(t, strategy)
+./gooru/spec_hashing_strategy_test.go-20-			client, err := gooru.New(dbPath, false)
+./gooru/spec_hashing_strategy_test.go-21-			require.NoError(t, err)
+./gooru/spec_hashing_strategy_test.go-22-			t.Cleanup(func() { client.Close() })
+./gooru/spec_hashing_strategy_test.go-23-
+./gooru/spec_hashing_strategy_test.go-24-			dir := t.TempDir()
+./gooru/spec_hashing_strategy_test.go-25-			file := createTestFile(t, dir, "file.txt", "content")
+./gooru/spec_hashing_strategy_test.go:26:			_, err = client.TagFiles([]string{file}, []string{"tracked"}, nil, false)
+./gooru/spec_hashing_strategy_test.go-27-			require.NoError(t, err)
+./gooru/spec_hashing_strategy_test.go-28-
+./gooru/spec_hashing_strategy_test.go-29-			tags, status, err := client.GetTagsForFile(file, false)
+./gooru/spec_hashing_strategy_test.go-30-			require.NoError(t, err)
+./gooru/spec_hashing_strategy_test.go-31-			assert.Equal(t, types.StatusOK, status)
+./gooru/spec_hashing_strategy_test.go-32-			assert.ElementsMatch(t, []string{"tracked"}, tags)
+./gooru/spec_hashing_strategy_test.go-33-		})
+./gooru/spec_hashing_strategy_test.go-34-	}
+./gooru/spec_hashing_strategy_test.go-35-}
+--
+./gooru/spec_rehash_duplicate_preservation_test.go-11-	"gooru.local/types"
+./gooru/spec_rehash_duplicate_preservation_test.go-12-)
+./gooru/spec_rehash_duplicate_preservation_test.go-13-
+./gooru/spec_rehash_duplicate_preservation_test.go-14-func TestSpecRehash_PreservesTagsOnUnchangedDuplicateLocation(t *testing.T) {
+./gooru/spec_rehash_duplicate_preservation_test.go-15-	t.Parallel()
+./gooru/spec_rehash_duplicate_preservation_test.go-16-	dbPath := setupTestDB(t)
+./gooru/spec_rehash_duplicate_preservation_test.go-17-	client, err := gooru.New(dbPath, false)
+./gooru/spec_rehash_duplicate_preservation_test.go-18-	require.NoError(t, err)
+./gooru/spec_rehash_duplicate_preservation_test.go-19-	t.Cleanup(func() { client.Close() })
+./gooru/spec_rehash_duplicate_preservation_test.go-20-
+./gooru/spec_rehash_duplicate_preservation_test.go-21-	dir := t.TempDir()
+./gooru/spec_rehash_duplicate_preservation_test.go-22-	modified := createTestFile(t, dir, "modified.txt", "shared content")
+./gooru/spec_rehash_duplicate_preservation_test.go:23:	_, err = client.TagFiles([]string{modified}, []string{"keep"}, nil, false)
+./gooru/spec_rehash_duplicate_preservation_test.go-24-	require.NoError(t, err)
+./gooru/spec_rehash_duplicate_preservation_test.go-25-
+./gooru/spec_rehash_duplicate_preservation_test.go-26-	unchanged := filepath.Join(dir, "unchanged.txt")
+./gooru/spec_rehash_duplicate_preservation_test.go-27-	require.NoError(t, os.WriteFile(unchanged, []byte("shared content"), 0644))
+./gooru/spec_rehash_duplicate_preservation_test.go-28-
+./gooru/spec_rehash_duplicate_preservation_test.go-29-	result, err := client.Relink([]string{dir})
+./gooru/spec_rehash_duplicate_preservation_test.go-30-	require.NoError(t, err)
+./gooru/spec_rehash_duplicate_preservation_test.go-31-	require.Len(t, result.ProposedAdds, 1)
+./gooru/spec_rehash_duplicate_preservation_test.go-32-	assert.Equal(t, unchanged, result.ProposedAdds[0].Path)
+./gooru/spec_rehash_duplicate_preservation_test.go-33-	_, err = client.ApplyRelinkChanges(result)
+./gooru/spec_rehash_duplicate_preservation_test.go-34-	require.NoError(t, err)
+./gooru/spec_rehash_duplicate_preservation_test.go-35-
+--
+./gooru/spec_filename_query_test.go-10-
+./gooru/spec_filename_query_test.go-11-func TestBareTagQueryDoesNotMatchFilename(t *testing.T) {
+./gooru/spec_filename_query_test.go-12-	t.Parallel()
+./gooru/spec_filename_query_test.go-13-	dbPath := setupTestDB(t)
+./gooru/spec_filename_query_test.go-14-	client, err := gooru.New(dbPath, false)
+./gooru/spec_filename_query_test.go-15-	require.NoError(t, err)
+./gooru/spec_filename_query_test.go-16-	t.Cleanup(func() { client.Close() })
+./gooru/spec_filename_query_test.go-17-
+./gooru/spec_filename_query_test.go-18-	dir := t.TempDir()
+./gooru/spec_filename_query_test.go-19-	filenameMatch := createTestFile(t, dir, "photo-in-filename.jpg", "filename-only bytes")
+./gooru/spec_filename_query_test.go-20-	tagMatch := createTestFile(t, dir, "plain.jpg", "tagged bytes")
+./gooru/spec_filename_query_test.go-21-
+./gooru/spec_filename_query_test.go:22:	_, err = client.TagFiles([]string{filenameMatch}, []string{"other"}, nil, false)
+./gooru/spec_filename_query_test.go-23-	require.NoError(t, err)
+./gooru/spec_filename_query_test.go:24:	_, err = client.TagFiles([]string{tagMatch}, []string{"photo"}, nil, false)
+./gooru/spec_filename_query_test.go-25-	require.NoError(t, err)
+./gooru/spec_filename_query_test.go-26-
+./gooru/spec_filename_query_test.go-27-	paths, err := client.ListFilesByQuery("photo", false)
+./gooru/spec_filename_query_test.go-28-	require.NoError(t, err)
+./gooru/spec_filename_query_test.go-29-	assert.Equal(t, []string{tagMatch}, paths)
+./gooru/spec_filename_query_test.go-30-}
+./gooru/spec_filename_query_test.go-31-
+./gooru/spec_filename_query_test.go-32-func TestFilenameContainsUsesTrackedFilenameWorkflow(t *testing.T) {
+./gooru/spec_filename_query_test.go-33-	t.Parallel()
+./gooru/spec_filename_query_test.go-34-	dbPath := setupTestDB(t)
+./gooru/spec_filename_query_test.go-35-	client, err := gooru.New(dbPath, false)
+./gooru/spec_filename_query_test.go-36-	require.NoError(t, err)
+./gooru/spec_filename_query_test.go-37-	t.Cleanup(func() { client.Close() })
+./gooru/spec_filename_query_test.go-38-
+./gooru/spec_filename_query_test.go-39-	dir := t.TempDir()
+./gooru/spec_filename_query_test.go-40-	wanted := createTestFile(t, dir, "Summer-Trip_100%.JPG", "wanted bytes")
+./gooru/spec_filename_query_test.go-41-	other := createTestFile(t, dir, "plain.jpg", "other bytes")
+./gooru/spec_filename_query_test.go-42-
+./gooru/spec_filename_query_test.go:43:	_, err = client.TagFiles([]string{wanted, other}, []string{"tracked"}, nil, false)
+./gooru/spec_filename_query_test.go-44-	require.NoError(t, err)
+./gooru/spec_filename_query_test.go-45-
+./gooru/spec_filename_query_test.go-46-	for _, test := range []struct {
+./gooru/spec_filename_query_test.go-47-		query string
+./gooru/spec_filename_query_test.go-48-		want  []string
+./gooru/spec_filename_query_test.go-49-	}{
+./gooru/spec_filename_query_test.go-50-		{query: `"@filename_contains:trip_100%"`, want: []string{wanted}},
+./gooru/spec_filename_query_test.go-51-		{query: `@filename_contains:TRIP`, want: []string{wanted}},
+./gooru/spec_filename_query_test.go-52-		{query: `@filename_contains:ip`, want: []string{wanted}},
+./gooru/spec_filename_query_test.go-53-		{query: `@filename_contains:missing`, want: nil},
+./gooru/spec_filename_query_test.go-54-	} {
+./gooru/spec_filename_query_test.go-55-		paths, err := client.ListFilesByQuery(test.query, false)
+--
+./gooru/query_tag_exclusion_facets_test.go-19-
+./gooru/query_tag_exclusion_facets_test.go-20-func TestKindFacetsByQueryPureTagExclusions(t *testing.T) {
+./gooru/query_tag_exclusion_facets_test.go-21-	dbPath := setupTestDB(t)
+./gooru/query_tag_exclusion_facets_test.go-22-	client, err := gooru.New(dbPath, false)
+./gooru/query_tag_exclusion_facets_test.go-23-	require.NoError(t, err)
+./gooru/query_tag_exclusion_facets_test.go-24-	t.Cleanup(func() { client.Close() })
+./gooru/query_tag_exclusion_facets_test.go-25-
+./gooru/query_tag_exclusion_facets_test.go-26-	dir := t.TempDir()
+./gooru/query_tag_exclusion_facets_test.go-27-	visible := createTestFile(t, dir, "visible.jpg", "visible")
+./gooru/query_tag_exclusion_facets_test.go-28-	hidden := createTestFile(t, dir, "hidden.jpg", "hidden")
+./gooru/query_tag_exclusion_facets_test.go-29-	overlap := createTestFile(t, dir, "overlap.mp4", "overlap")
+./gooru/query_tag_exclusion_facets_test.go-30-
+./gooru/query_tag_exclusion_facets_test.go:31:	_, err = client.TagFiles([]string{visible}, []string{"visible"}, nil, false)
+./gooru/query_tag_exclusion_facets_test.go-32-	require.NoError(t, err)
+./gooru/query_tag_exclusion_facets_test.go:33:	_, err = client.TagFiles([]string{hidden}, []string{"hidden"}, nil, false)
+./gooru/query_tag_exclusion_facets_test.go-34-	require.NoError(t, err)
+./gooru/query_tag_exclusion_facets_test.go:35:	_, err = client.TagFiles([]string{overlap}, []string{"hidden", "secret:private"}, nil, false)
+./gooru/query_tag_exclusion_facets_test.go-36-	require.NoError(t, err)
+./gooru/query_tag_exclusion_facets_test.go-37-
+./gooru/query_tag_exclusion_facets_test.go-38-	facets, err := client.KindFacetsByQuery("-hidden", false)
+./gooru/query_tag_exclusion_facets_test.go-39-	require.NoError(t, err)
+./gooru/query_tag_exclusion_facets_test.go-40-	assert.Equal(t, map[string]int{"photo": 1}, facetsByKind(facets))
+./gooru/query_tag_exclusion_facets_test.go-41-
+./gooru/query_tag_exclusion_facets_test.go-42-	// The video carries both exclusions. It must be removed once, not twice.
+./gooru/query_tag_exclusion_facets_test.go-43-	facets, err = client.KindFacetsByQuery(`-hidden -"secret:private"`, false)
+./gooru/query_tag_exclusion_facets_test.go-44-	require.NoError(t, err)
+./gooru/query_tag_exclusion_facets_test.go-45-	assert.Equal(t, map[string]int{"photo": 1}, facetsByKind(facets))
+./gooru/query_tag_exclusion_facets_test.go-46-
+./gooru/query_tag_exclusion_facets_test.go-47-	// A missing exclusion is a maintained-summary/root-summary no-op.
+--
+./gooru/spec_information_retrieval_test.go-15-	t.Parallel()
+./gooru/spec_information_retrieval_test.go-16-	dbPath := setupTestDB(t)
+./gooru/spec_information_retrieval_test.go-17-	client, err := gooru.New(dbPath, false)
+./gooru/spec_information_retrieval_test.go-18-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-19-	t.Cleanup(func() { client.Close() })
+./gooru/spec_information_retrieval_test.go-20-
+./gooru/spec_information_retrieval_test.go-21-	dir := t.TempDir()
+./gooru/spec_information_retrieval_test.go-22-	tracked := createTestFile(t, dir, "tracked.txt", "tracked content")
+./gooru/spec_information_retrieval_test.go-23-	modified := createTestFile(t, dir, "modified.txt", "old bytes")
+./gooru/spec_information_retrieval_test.go-24-	movedOld := createTestFile(t, dir, "moved-old.txt", "moved content")
+./gooru/spec_information_retrieval_test.go-25-	unknown := createTestFile(t, dir, "unknown.txt", "unknown content")
+./gooru/spec_information_retrieval_test.go-26-
+./gooru/spec_information_retrieval_test.go:27:	_, err = client.TagFiles([]string{tracked}, []string{"state:ok"}, nil, false)
+./gooru/spec_information_retrieval_test.go-28-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go:29:	_, err = client.TagFiles([]string{modified}, []string{"state:modified"}, nil, false)
+./gooru/spec_information_retrieval_test.go-30-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go:31:	_, err = client.TagFiles([]string{movedOld}, []string{"state:moved"}, nil, false)
+./gooru/spec_information_retrieval_test.go-32-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-33-
+./gooru/spec_information_retrieval_test.go-34-	overwriteFilePreservingMetadata(t, modified, "new bytes")
+./gooru/spec_information_retrieval_test.go-35-	movedNew := filepath.Join(dir, "moved-new.txt")
+./gooru/spec_information_retrieval_test.go-36-	require.NoError(t, os.Rename(movedOld, movedNew))
+./gooru/spec_information_retrieval_test.go-37-
+./gooru/spec_information_retrieval_test.go-38-	cases := []struct {
+./gooru/spec_information_retrieval_test.go-39-		path   string
+./gooru/spec_information_retrieval_test.go-40-		status types.FileStatus
+./gooru/spec_information_retrieval_test.go-41-		tags   []string
+./gooru/spec_information_retrieval_test.go-42-	}{
+./gooru/spec_information_retrieval_test.go-43-		{tracked, types.StatusOK, []string{"state:ok"}},
+--
+./gooru/spec_information_retrieval_test.go-54-	}
+./gooru/spec_information_retrieval_test.go-55-}
+./gooru/spec_information_retrieval_test.go-56-
+./gooru/spec_information_retrieval_test.go-57-func TestSpecInformationRetrieval_MetadataOptInIsPathCentric(t *testing.T) {
+./gooru/spec_information_retrieval_test.go-58-	t.Parallel()
+./gooru/spec_information_retrieval_test.go-59-	dbPath := setupTestDB(t)
+./gooru/spec_information_retrieval_test.go-60-	client, err := gooru.New(dbPath, false)
+./gooru/spec_information_retrieval_test.go-61-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-62-	t.Cleanup(func() { client.Close() })
+./gooru/spec_information_retrieval_test.go-63-
+./gooru/spec_information_retrieval_test.go-64-	dir := t.TempDir()
+./gooru/spec_information_retrieval_test.go-65-	file := createTestFile(t, dir, "same-metadata.txt", "abcdef")
+./gooru/spec_information_retrieval_test.go:66:	_, err = client.TagFiles([]string{file}, []string{"old"}, nil, false)
+./gooru/spec_information_retrieval_test.go-67-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-68-	overwriteFilePreservingMetadata(t, file, "uvwxyz")
+./gooru/spec_information_retrieval_test.go-69-
+./gooru/spec_information_retrieval_test.go-70-	tags, status, err := client.GetTagsForFile(file, false)
+./gooru/spec_information_retrieval_test.go-71-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-72-	assert.Equal(t, types.StatusModified, status)
+./gooru/spec_information_retrieval_test.go-73-	assert.Empty(t, tags)
+./gooru/spec_information_retrieval_test.go-74-
+./gooru/spec_information_retrieval_test.go-75-	tags, status, err = client.GetTagsForFile(file, true)
+./gooru/spec_information_retrieval_test.go-76-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-77-	assert.Equal(t, types.StatusOK, status)
+./gooru/spec_information_retrieval_test.go-78-	assert.ElementsMatch(t, []string{"old"}, tags)
+./gooru/spec_information_retrieval_test.go-79-}
+./gooru/spec_information_retrieval_test.go-80-
+./gooru/spec_information_retrieval_test.go-81-func TestSpecInformationRetrieval_ExpressionReadsDatabaseStateOnly(t *testing.T) {
+./gooru/spec_information_retrieval_test.go-82-	t.Parallel()
+./gooru/spec_information_retrieval_test.go-83-	dbPath := setupTestDB(t)
+./gooru/spec_information_retrieval_test.go-84-	client, err := gooru.New(dbPath, false)
+./gooru/spec_information_retrieval_test.go-85-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-86-	t.Cleanup(func() { client.Close() })
+./gooru/spec_information_retrieval_test.go-87-
+./gooru/spec_information_retrieval_test.go-88-	dir := t.TempDir()
+./gooru/spec_information_retrieval_test.go-89-	oldPath := createTestFile(t, dir, "before.txt", "content")
+./gooru/spec_information_retrieval_test.go:90:	_, err = client.TagFiles([]string{oldPath}, []string{"listed"}, nil, false)
+./gooru/spec_information_retrieval_test.go-91-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-92-
+./gooru/spec_information_retrieval_test.go-93-	newPath := filepath.Join(dir, "after.txt")
+./gooru/spec_information_retrieval_test.go-94-	require.NoError(t, os.Rename(oldPath, newPath))
+./gooru/spec_information_retrieval_test.go-95-
+./gooru/spec_information_retrieval_test.go-96-	paths, err := client.ListFilesByQuery("listed", false)
+./gooru/spec_information_retrieval_test.go-97-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-98-	assert.ElementsMatch(t, []string{oldPath}, paths)
+./gooru/spec_information_retrieval_test.go-99-
+./gooru/spec_information_retrieval_test.go-100-	_, status, err := client.GetTagsForFile(newPath, false)
+./gooru/spec_information_retrieval_test.go-101-	require.NoError(t, err)
+./gooru/spec_information_retrieval_test.go-102-	assert.Equal(t, types.StatusUntrackedContent, status)
+--
+./gooru/background_tag_mutation_test.go-27-	t.Helper()
+./gooru/background_tag_mutation_test.go-28-	path := filepath.Join(dir, name)
+./gooru/background_tag_mutation_test.go-29-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+./gooru/background_tag_mutation_test.go-30-		t.Fatalf("write %s: %v", path, err)
+./gooru/background_tag_mutation_test.go-31-	}
+./gooru/background_tag_mutation_test.go-32-	return path
+./gooru/background_tag_mutation_test.go-33-}
+./gooru/background_tag_mutation_test.go-34-
+./gooru/background_tag_mutation_test.go-35-func TestBackgroundTagMutationQueryUsesAdmissionSnapshot(t *testing.T) {
+./gooru/background_tag_mutation_test.go-36-	client := newBackgroundTagMutationTestClient(t)
+./gooru/background_tag_mutation_test.go-37-	dir := t.TempDir()
+./gooru/background_tag_mutation_test.go-38-	first := writeBackgroundTagMutationTestFile(t, dir, "first.jpg", "first")
+./gooru/background_tag_mutation_test.go:39:	if _, err := client.TagFiles([]string{first}, []string{"group:one"}, nil, false); err != nil {
+./gooru/background_tag_mutation_test.go-40-		t.Fatalf("tag first file: %v", err)
+./gooru/background_tag_mutation_test.go-41-	}
+./gooru/background_tag_mutation_test.go-42-
+./gooru/background_tag_mutation_test.go-43-	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
+./gooru/background_tag_mutation_test.go-44-		Mutation:   "add",
+./gooru/background_tag_mutation_test.go-45-		Selector:   map[string]string{"query": "group:one"},
+./gooru/background_tag_mutation_test.go-46-		Tags:       []string{"reviewed"},
+./gooru/background_tag_mutation_test.go-47-		Query:      "group:one",
+./gooru/background_tag_mutation_test.go-48-		MaxPending: 8,
+./gooru/background_tag_mutation_test.go-49-	})
+./gooru/background_tag_mutation_test.go-50-	if err != nil {
+./gooru/background_tag_mutation_test.go-51-		t.Fatalf("create background mutation: %v", err)
+./gooru/background_tag_mutation_test.go-52-	}
+./gooru/background_tag_mutation_test.go-53-
+./gooru/background_tag_mutation_test.go-54-	second := writeBackgroundTagMutationTestFile(t, dir, "second.jpg", "second")
+./gooru/background_tag_mutation_test.go:55:	if _, err := client.TagFiles([]string{second}, []string{"group:one"}, nil, false); err != nil {
+./gooru/background_tag_mutation_test.go-56-		t.Fatalf("tag second file: %v", err)
+./gooru/background_tag_mutation_test.go-57-	}
+./gooru/background_tag_mutation_test.go-58-	if err := client.ExecuteBackgroundTagMutationQuery(operation.ID); err != nil {
+./gooru/background_tag_mutation_test.go-59-		t.Fatalf("execute snapshotted query: %v", err)
+./gooru/background_tag_mutation_test.go-60-	}
+./gooru/background_tag_mutation_test.go-61-
+./gooru/background_tag_mutation_test.go-62-	firstTags, _, err := client.GetTagsForFile(first, false)
+./gooru/background_tag_mutation_test.go-63-	if err != nil {
+./gooru/background_tag_mutation_test.go-64-		t.Fatalf("read first tags: %v", err)
+./gooru/background_tag_mutation_test.go-65-	}
+./gooru/background_tag_mutation_test.go-66-	secondTags, _, err := client.GetTagsForFile(second, false)
+./gooru/background_tag_mutation_test.go-67-	if err != nil {
+--
+./gooru/background_tag_mutation_test.go-77-	if err != nil || !found {
+./gooru/background_tag_mutation_test.go-78-		t.Fatalf("read background mutation: found=%v err=%v", found, err)
+./gooru/background_tag_mutation_test.go-79-	}
+./gooru/background_tag_mutation_test.go-80-	if state.MatchedFiles != 1 || state.AffectedCount != 1 || !state.ResultReady {
+./gooru/background_tag_mutation_test.go-81-		t.Fatalf("unexpected result state: %+v", state)
+./gooru/background_tag_mutation_test.go-82-	}
+./gooru/background_tag_mutation_test.go-83-}
+./gooru/background_tag_mutation_test.go-84-
+./gooru/background_tag_mutation_test.go-85-func TestBackgroundTagMutationReplayReturnsStoredResult(t *testing.T) {
+./gooru/background_tag_mutation_test.go-86-	client := newBackgroundTagMutationTestClient(t)
+./gooru/background_tag_mutation_test.go-87-	dir := t.TempDir()
+./gooru/background_tag_mutation_test.go-88-	path := writeBackgroundTagMutationTestFile(t, dir, "file.jpg", "body")
+./gooru/background_tag_mutation_test.go:89:	if _, err := client.TagFiles([]string{path}, []string{"group:one"}, nil, false); err != nil {
+./gooru/background_tag_mutation_test.go-90-		t.Fatalf("seed file: %v", err)
+./gooru/background_tag_mutation_test.go-91-	}
+./gooru/background_tag_mutation_test.go-92-	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
+./gooru/background_tag_mutation_test.go-93-		Mutation:   "add",
+./gooru/background_tag_mutation_test.go-94-		Selector:   map[string]string{"query": "group:one"},
+./gooru/background_tag_mutation_test.go-95-		Tags:       []string{"reviewed"},
+./gooru/background_tag_mutation_test.go-96-		Query:      "group:one",
+./gooru/background_tag_mutation_test.go-97-		MaxPending: 8,
+./gooru/background_tag_mutation_test.go-98-	})
+./gooru/background_tag_mutation_test.go-99-	if err != nil {
+./gooru/background_tag_mutation_test.go-100-		t.Fatalf("create mutation: %v", err)
+./gooru/background_tag_mutation_test.go-101-	}
+--
+./gooru/background_tag_mutation_test.go-115-	}
+./gooru/background_tag_mutation_test.go-116-	firstJSON, _ := json.Marshal(firstState)
+./gooru/background_tag_mutation_test.go-117-	secondJSON, _ := json.Marshal(secondState)
+./gooru/background_tag_mutation_test.go-118-	if string(firstJSON) != string(secondJSON) {
+./gooru/background_tag_mutation_test.go-119-		t.Fatalf("replay changed exact result:\nfirst=%s\nsecond=%s", firstJSON, secondJSON)
+./gooru/background_tag_mutation_test.go-120-	}
+./gooru/background_tag_mutation_test.go-121-}
+./gooru/background_tag_mutation_test.go-122-
+./gooru/background_tag_mutation_test.go-123-func TestBackgroundTagMutationCancellationRollsBackTagWrite(t *testing.T) {
+./gooru/background_tag_mutation_test.go-124-	client := newBackgroundTagMutationTestClient(t)
+./gooru/background_tag_mutation_test.go-125-	dir := t.TempDir()
+./gooru/background_tag_mutation_test.go-126-	path := writeBackgroundTagMutationTestFile(t, dir, "file.jpg", "body")
+./gooru/background_tag_mutation_test.go:127:	if _, err := client.TagFiles([]string{path}, []string{"group:one"}, nil, false); err != nil {
+./gooru/background_tag_mutation_test.go-128-		t.Fatalf("seed file: %v", err)
+./gooru/background_tag_mutation_test.go-129-	}
+./gooru/background_tag_mutation_test.go-130-	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
+./gooru/background_tag_mutation_test.go-131-		Mutation:   "add",
+./gooru/background_tag_mutation_test.go-132-		Selector:   map[string]string{"query": "group:one"},
+./gooru/background_tag_mutation_test.go-133-		Tags:       []string{"reviewed"},
+./gooru/background_tag_mutation_test.go-134-		Query:      "group:one",
+./gooru/background_tag_mutation_test.go-135-		MaxPending: 8,
+./gooru/background_tag_mutation_test.go-136-	})
+./gooru/background_tag_mutation_test.go-137-	if err != nil {
+./gooru/background_tag_mutation_test.go-138-		t.Fatalf("create mutation: %v", err)
+./gooru/background_tag_mutation_test.go-139-	}
+--
+./gooru/background_tag_mutation_test.go-155-	if err != nil || !found {
+./gooru/background_tag_mutation_test.go-156-		t.Fatalf("read canceled mutation: found=%v err=%v", found, err)
+./gooru/background_tag_mutation_test.go-157-	}
+./gooru/background_tag_mutation_test.go-158-	if state.ResultReady {
+./gooru/background_tag_mutation_test.go-159-		t.Fatalf("canceled mutation published result: %+v", state)
+./gooru/background_tag_mutation_test.go-160-	}
+./gooru/background_tag_mutation_test.go-161-}
+./gooru/background_tag_mutation_test.go-162-
+./gooru/background_tag_mutation_test.go-163-func TestBackgroundTagMutationPathResultPersistsMoveNotification(t *testing.T) {
+./gooru/background_tag_mutation_test.go-164-	client := newBackgroundTagMutationTestClient(t)
+./gooru/background_tag_mutation_test.go-165-	dir := t.TempDir()
+./gooru/background_tag_mutation_test.go-166-	oldPath := writeBackgroundTagMutationTestFile(t, dir, "old.jpg", "body")
+./gooru/background_tag_mutation_test.go:167:	if _, err := client.TagFiles([]string{oldPath}, []string{"initial"}, nil, false); err != nil {
+./gooru/background_tag_mutation_test.go-168-		t.Fatalf("seed file: %v", err)
+./gooru/background_tag_mutation_test.go-169-	}
+./gooru/background_tag_mutation_test.go-170-	files, err := client.GetAllFilesInfo()
+./gooru/background_tag_mutation_test.go-171-	if err != nil || len(files) != 1 {
+./gooru/background_tag_mutation_test.go-172-		t.Fatalf("list files: files=%v err=%v", files, err)
+./gooru/background_tag_mutation_test.go-173-	}
+./gooru/background_tag_mutation_test.go-174-	publicID := client.PublicFileID(files[0].ID)
+./gooru/background_tag_mutation_test.go-175-	if publicID == "" {
+./gooru/background_tag_mutation_test.go-176-		t.Fatal("missing public file id")
+./gooru/background_tag_mutation_test.go-177-	}
+./gooru/background_tag_mutation_test.go-178-	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
+./gooru/background_tag_mutation_test.go-179-		Mutation:       "add",
+--
+./gooru/relink_apply_test.go-11-)
+./gooru/relink_apply_test.go-12-
+./gooru/relink_apply_test.go-13-func TestRelinkApplyReplacesModifiedPathWithKnownContent(t *testing.T) {
+./gooru/relink_apply_test.go-14-	t.Parallel()
+./gooru/relink_apply_test.go-15-	dbPath := setupTestDB(t)
+./gooru/relink_apply_test.go-16-	client, err := gooru.New(dbPath, false)
+./gooru/relink_apply_test.go-17-	require.NoError(t, err)
+./gooru/relink_apply_test.go-18-	t.Cleanup(func() { client.Close() })
+./gooru/relink_apply_test.go-19-
+./gooru/relink_apply_test.go-20-	dir := t.TempDir()
+./gooru/relink_apply_test.go-21-	changed := createTestFile(t, dir, "changed.txt", "alpha")
+./gooru/relink_apply_test.go-22-	known := createTestFile(t, dir, "known.txt", "bravo")
+./gooru/relink_apply_test.go:23:	_, err = client.TagFiles([]string{changed}, []string{"from:alpha"}, nil, false)
+./gooru/relink_apply_test.go-24-	require.NoError(t, err)
+./gooru/relink_apply_test.go:25:	_, err = client.TagFiles([]string{known}, []string{"from:bravo"}, nil, false)
+./gooru/relink_apply_test.go-26-	require.NoError(t, err)
+./gooru/relink_apply_test.go-27-
+./gooru/relink_apply_test.go-28-	require.NoError(t, os.WriteFile(changed, []byte("bravo"), 0644))
+./gooru/relink_apply_test.go-29-
+./gooru/relink_apply_test.go-30-	result, err := client.Relink([]string{dir})
+./gooru/relink_apply_test.go-31-	require.NoError(t, err)
+./gooru/relink_apply_test.go-32-	assert.Empty(t, result.ProposedMoves)
+./gooru/relink_apply_test.go-33-	require.Len(t, result.ProposedDeletes, 1)
+./gooru/relink_apply_test.go-34-	assert.Equal(t, changed, result.ProposedDeletes[0].Path)
+./gooru/relink_apply_test.go-35-	require.Len(t, result.ProposedAdds, 1)
+./gooru/relink_apply_test.go-36-	assert.Equal(t, changed, result.ProposedAdds[0].Path)
+./gooru/relink_apply_test.go-37-
+--
+./gooru/spec_content_identity_test.go-14-func TestSpecContentIdentity_DuplicatesShareTags(t *testing.T) {
+./gooru/spec_content_identity_test.go-15-	t.Parallel()
+./gooru/spec_content_identity_test.go-16-	dbPath := setupTestDB(t)
+./gooru/spec_content_identity_test.go-17-	client, err := gooru.New(dbPath, false)
+./gooru/spec_content_identity_test.go-18-	require.NoError(t, err)
+./gooru/spec_content_identity_test.go-19-	t.Cleanup(func() { client.Close() })
+./gooru/spec_content_identity_test.go-20-
+./gooru/spec_content_identity_test.go-21-	dir := t.TempDir()
+./gooru/spec_content_identity_test.go-22-	original := createTestFile(t, dir, "original.txt", "same content")
+./gooru/spec_content_identity_test.go-23-	duplicate := filepath.Join(dir, "duplicate.txt")
+./gooru/spec_content_identity_test.go-24-	require.NoError(t, os.WriteFile(duplicate, []byte("same content"), 0644))
+./gooru/spec_content_identity_test.go-25-
+./gooru/spec_content_identity_test.go:26:	_, err = client.TagFiles([]string{original}, []string{"project:alpha"}, nil, false)
+./gooru/spec_content_identity_test.go-27-	require.NoError(t, err)
+./gooru/spec_content_identity_test.go:28:	result, err := client.TagFiles([]string{duplicate}, []string{"copied"}, nil, false)
+./gooru/spec_content_identity_test.go-29-	require.NoError(t, err)
+./gooru/spec_content_identity_test.go-30-
+./gooru/spec_content_identity_test.go-31-	assert.Equal(t, 1, result.AffectedCount)
+./gooru/spec_content_identity_test.go-32-	assert.Empty(t, result.Notifications)
+./gooru/spec_content_identity_test.go-33-
+./gooru/spec_content_identity_test.go-34-	for _, path := range []string{original, duplicate} {
+./gooru/spec_content_identity_test.go-35-		tags, status, err := client.GetTagsForFile(path, false)
+./gooru/spec_content_identity_test.go-36-		require.NoError(t, err)
+./gooru/spec_content_identity_test.go-37-		assert.Equal(t, types.StatusOK, status)
+./gooru/spec_content_identity_test.go-38-		assert.ElementsMatch(t, []string{"project:alpha", "copied"}, tags)
+./gooru/spec_content_identity_test.go-39-	}
+./gooru/spec_content_identity_test.go-40-}
+./gooru/spec_content_identity_test.go-41-
+./gooru/spec_content_identity_test.go-42-func TestSpecContentIdentity_TaggingMovedFileUpdatesTrackedPath(t *testing.T) {
+./gooru/spec_content_identity_test.go-43-	t.Parallel()
+./gooru/spec_content_identity_test.go-44-	dbPath := setupTestDB(t)
+./gooru/spec_content_identity_test.go-45-	client, err := gooru.New(dbPath, false)
+./gooru/spec_content_identity_test.go-46-	require.NoError(t, err)
+./gooru/spec_content_identity_test.go-47-	t.Cleanup(func() { client.Close() })
+./gooru/spec_content_identity_test.go-48-
+./gooru/spec_content_identity_test.go-49-	dir := t.TempDir()
+./gooru/spec_content_identity_test.go-50-	oldPath := createTestFile(t, dir, "photo.jpg", "image bytes")
+./gooru/spec_content_identity_test.go:51:	_, err = client.TagFiles([]string{oldPath}, []string{"vacation", "summer"}, nil, false)
+./gooru/spec_content_identity_test.go-52-	require.NoError(t, err)
+./gooru/spec_content_identity_test.go-53-
+./gooru/spec_content_identity_test.go-54-	newPath := filepath.Join(dir, "holiday.jpg")
+./gooru/spec_content_identity_test.go-55-	require.NoError(t, os.Rename(oldPath, newPath))
+./gooru/spec_content_identity_test.go-56-
+./gooru/spec_content_identity_test.go:57:	result, err := client.TagFiles([]string{newPath}, []string{"trip"}, nil, false)
+./gooru/spec_content_identity_test.go-58-	require.NoError(t, err)
+./gooru/spec_content_identity_test.go-59-	require.Len(t, result.Notifications, 1)
+./gooru/spec_content_identity_test.go-60-	assert.Equal(t, types.NotificationKindMoveDetected, result.Notifications[0].Kind)
+./gooru/spec_content_identity_test.go-61-	assert.Equal(t, oldPath, result.Notifications[0].OldPath)
+./gooru/spec_content_identity_test.go-62-	assert.Equal(t, newPath, result.Notifications[0].NewPath)
+./gooru/spec_content_identity_test.go-63-
+./gooru/spec_content_identity_test.go-64-	listed, err := client.ListAllFiles()
+./gooru/spec_content_identity_test.go-65-	require.NoError(t, err)
+./gooru/spec_content_identity_test.go-66-	assert.ElementsMatch(t, []string{newPath}, listed)
+./gooru/spec_content_identity_test.go-67-
+./gooru/spec_content_identity_test.go-68-	tags, status, err := client.GetTagsForFile(newPath, false)
+./gooru/spec_content_identity_test.go-69-	require.NoError(t, err)
+--
+./gooru/sync_test.go-18-	t.Parallel()
+./gooru/sync_test.go-19-
+./gooru/sync_test.go-20-	t.Run("rehash correctly identifies metadata-only change", func(t *testing.T) {
+./gooru/sync_test.go-21-		t.Parallel()
+./gooru/sync_test.go-22-		dbPath := setupTestDB(t)
+./gooru/sync_test.go-23-		client, err := gooru.New(dbPath, false)
+./gooru/sync_test.go-24-		require.NoError(t, err)
+./gooru/sync_test.go-25-		t.Cleanup(func() { client.Close() })
+./gooru/sync_test.go-26-
+./gooru/sync_test.go-27-		// Arrange: Add a file and then change only its metadata
+./gooru/sync_test.go-28-		tempDir := t.TempDir()
+./gooru/sync_test.go-29-		file1 := createTestFile(t, tempDir, "file1.txt", "content")
+./gooru/sync_test.go:30:		_, err = client.TagFiles([]string{file1}, []string{"tag1"}, nil, false)
+./gooru/sync_test.go-31-		require.NoError(t, err)
+./gooru/sync_test.go-32-		info, err := os.Stat(file1)
+./gooru/sync_test.go-33-		require.NoError(t, err)
+./gooru/sync_test.go-34-		newModTime := info.ModTime().AddDate(0, -1, 0)
+./gooru/sync_test.go-35-		err = os.Chtimes(file1, newModTime, newModTime)
+./gooru/sync_test.go-36-		require.NoError(t, err)
+./gooru/sync_test.go-37-
+./gooru/sync_test.go-38-		// Act: Call rehash and capture the status from its callback
+./gooru/sync_test.go-39-		var status types.RehashStatus
+./gooru/sync_test.go-40-		var mu sync.Mutex
+./gooru/sync_test.go-41-		progressCb := func(path string, s types.RehashStatus, err error) {
+./gooru/sync_test.go-42-			require.NoError(t, err)
+--
+./gooru/sync_test.go-60-	// - A full rehash that transfers tags.
+./gooru/sync_test.go-61-	// - Rehash on a file not in the DB.
+./gooru/sync_test.go-62-	// - Rehash on an unchanged file.
+./gooru/sync_test.go-63-}
+./gooru/sync_test.go-64-
+./gooru/sync_test.go-65-func TestClient_ProtectedSyncUsesLogicalPlaintextMetadata(t *testing.T) {
+./gooru/sync_test.go-66-	dbPath := setupTestDB(t)
+./gooru/sync_test.go-67-	root := t.TempDir()
+./gooru/sync_test.go-68-	path := createTestFile(t, root, "protected.bin", "logical protected contents")
+./gooru/sync_test.go-69-
+./gooru/sync_test.go-70-	plainClient, err := gooru.New(dbPath, false)
+./gooru/sync_test.go-71-	require.NoError(t, err)
+./gooru/sync_test.go:72:	_, err = plainClient.TagFiles([]string{path}, []string{"protected:test"}, nil, false)
+./gooru/sync_test.go-73-	require.NoError(t, err)
+./gooru/sync_test.go-74-	require.NoError(t, plainClient.Close())
+./gooru/sync_test.go-75-
+./gooru/sync_test.go-76-	plainInfo, err := os.Stat(path)
+./gooru/sync_test.go-77-	require.NoError(t, err)
+./gooru/sync_test.go-78-	plaintext, err := os.ReadFile(path)
+./gooru/sync_test.go-79-	require.NoError(t, err)
+./gooru/sync_test.go-80-	key := bytes.Repeat([]byte{0x5a}, 32)
+./gooru/sync_test.go-81-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o600)
+./gooru/sync_test.go-82-	require.NoError(t, err)
+./gooru/sync_test.go-83-	require.NoError(t, encryptedfile.Encrypt(file, bytes.NewReader(plaintext), int64(len(plaintext)), key))
+./gooru/sync_test.go-84-	require.NoError(t, file.Close())
+--
+./gooru/sync_test.go-121-		t.Cleanup(func() { client.Close() })
+./gooru/sync_test.go-122-
+./gooru/sync_test.go-123-		// Arrange:
+./gooru/sync_test.go-124-		// 1. Create two separate directories.
+./gooru/sync_test.go-125-		tempDir := t.TempDir()
+./gooru/sync_test.go-126-		dirA := filepath.Join(tempDir, "dirA")
+./gooru/sync_test.go-127-		dirB := filepath.Join(tempDir, "dirB")
+./gooru/sync_test.go-128-		require.NoError(t, os.Mkdir(dirA, 0755))
+./gooru/sync_test.go-129-		require.NoError(t, os.Mkdir(dirB, 0755))
+./gooru/sync_test.go-130-
+./gooru/sync_test.go-131-		// 2. Create and tag a file in the source directory (dirA).
+./gooru/sync_test.go-132-		oldPath := createTestFile(t, dirA, "file.txt", "move me")
+./gooru/sync_test.go:133:		_, err = client.TagFiles([]string{oldPath}, []string{"tag1"}, nil, false)
+./gooru/sync_test.go-134-		require.NoError(t, err)
+./gooru/sync_test.go-135-
+./gooru/sync_test.go-136-		// 3. Move the file to the destination directory (dirB).
+./gooru/sync_test.go-137-		newPath := filepath.Join(dirB, "file.txt")
+./gooru/sync_test.go-138-		err = os.Rename(oldPath, newPath)
+./gooru/sync_test.go-139-		require.NoError(t, err)
+./gooru/sync_test.go-140-
+./gooru/sync_test.go-141-		// Act (Phase 1 - Pre-check):
+./gooru/sync_test.go-142-		// 4. Run the pre-check on ONLY the destination directory. It MUST detect a change.
+./gooru/sync_test.go-143-		needsScan, err := client.NeedsRelink([]string{dirB}, false)
+./gooru/sync_test.go-144-		require.NoError(t, err)
+./gooru/sync_test.go-145-		assert.True(t, needsScan, "NeedsRelink should detect a change when a file moves into the scanned dir")
+--
+./gooru/sync_test.go-182-	})
+./gooru/sync_test.go-183-}
+./gooru/sync_test.go-184-
+./gooru/sync_test.go-185-func TestClient_RelinkFailsClosedOnScanErrors(t *testing.T) {
+./gooru/sync_test.go-186-	t.Run("missing scan root", func(t *testing.T) {
+./gooru/sync_test.go-187-		dbPath := setupTestDB(t)
+./gooru/sync_test.go-188-		client, err := gooru.New(dbPath, false)
+./gooru/sync_test.go-189-		require.NoError(t, err)
+./gooru/sync_test.go-190-		defer client.Close()
+./gooru/sync_test.go-191-
+./gooru/sync_test.go-192-		root := t.TempDir()
+./gooru/sync_test.go-193-		path := createTestFile(t, root, "tracked.txt", "tracked contents")
+./gooru/sync_test.go:194:		_, err = client.TagFiles([]string{path}, []string{"tag1"}, nil, false)
+./gooru/sync_test.go-195-		require.NoError(t, err)
+./gooru/sync_test.go-196-		require.NoError(t, os.RemoveAll(root))
+./gooru/sync_test.go-197-
+./gooru/sync_test.go-198-		result, err := client.Relink([]string{root})
+./gooru/sync_test.go-199-		require.Error(t, err)
+./gooru/sync_test.go-200-		assert.Empty(t, result.ProposedMoves)
+./gooru/sync_test.go-201-		assert.Empty(t, result.ProposedAdds)
+./gooru/sync_test.go-202-		assert.Empty(t, result.ProposedDeletes)
+./gooru/sync_test.go-203-	})
+./gooru/sync_test.go-204-
+./gooru/sync_test.go-205-	t.Run("protected source inspection failure", func(t *testing.T) {
+./gooru/sync_test.go-206-		dbPath := setupTestDB(t)
+./gooru/sync_test.go-207-		root := t.TempDir()
+./gooru/sync_test.go-208-		path := createTestFile(t, root, "tracked.bin", "plaintext tracked contents")
+./gooru/sync_test.go-209-
+./gooru/sync_test.go-210-		plainClient, err := gooru.New(dbPath, false)
+./gooru/sync_test.go-211-		require.NoError(t, err)
+./gooru/sync_test.go:212:		_, err = plainClient.TagFiles([]string{path}, []string{"tag1"}, nil, false)
+./gooru/sync_test.go-213-		require.NoError(t, err)
+./gooru/sync_test.go-214-		require.NoError(t, plainClient.Close())
+./gooru/sync_test.go-215-
+./gooru/sync_test.go-216-		client, err := gooru.NewWithOptions(dbPath, false, gooru.OpenOptions{
+./gooru/sync_test.go-217-			Content: gooru.ContentSourceOptions{
+./gooru/sync_test.go-218-				EncryptionKey:  bytes.Repeat([]byte{0x6b}, 32),
+./gooru/sync_test.go-219-				ProtectedRoots: []string{root},
+./gooru/sync_test.go-220-			},
+./gooru/sync_test.go-221-		})
+./gooru/sync_test.go-222-		require.NoError(t, err)
+./gooru/sync_test.go-223-		defer client.Close()
+./gooru/sync_test.go-224-
+--
+./gooru/sync_test.go-250-			client, err := gooru.New(dbPath, false)
+./gooru/sync_test.go-251-			require.NoError(t, err)
+./gooru/sync_test.go-252-			defer client.Close()
+./gooru/sync_test.go-253-
+./gooru/sync_test.go-254-			parent := t.TempDir()
+./gooru/sync_test.go-255-			targetDir := filepath.Join(parent, tt.targetName)
+./gooru/sync_test.go-256-			siblingDir := filepath.Join(parent, tt.siblingName)
+./gooru/sync_test.go-257-			require.NoError(t, os.Mkdir(targetDir, 0o755))
+./gooru/sync_test.go-258-			require.NoError(t, os.Mkdir(siblingDir, 0o755))
+./gooru/sync_test.go-259-
+./gooru/sync_test.go-260-			targetPath := createTestFile(t, targetDir, "target.txt", "target contents")
+./gooru/sync_test.go-261-			siblingPath := createTestFile(t, siblingDir, "sibling.txt", "sibling contents")
+./gooru/sync_test.go:262:			_, err = client.TagFiles([]string{targetPath, siblingPath}, []string{"tag1"}, nil, false)
+./gooru/sync_test.go-263-			require.NoError(t, err)
+./gooru/sync_test.go-264-
+./gooru/sync_test.go-265-			needsRelink, err := client.NeedsRelink([]string{targetDir}, false)
+./gooru/sync_test.go-266-			require.NoError(t, err)
+./gooru/sync_test.go-267-			assert.False(t, needsRelink, "LIKE-compatible sibling must stay outside literal relink scope")
+./gooru/sync_test.go-268-
+./gooru/sync_test.go-269-			result, err := client.Relink([]string{targetDir})
+./gooru/sync_test.go-270-			require.NoError(t, err)
+./gooru/sync_test.go-271-			assert.Empty(t, result.ProposedMoves)
+./gooru/sync_test.go-272-			assert.Empty(t, result.ProposedAdds)
+./gooru/sync_test.go-273-			assert.Empty(t, result.ProposedDeletes, "out-of-scope sibling must never be proposed for deletion")
+./gooru/sync_test.go-274-		})
+--
+./gooru/query_test.go-18-	// and pass with the new content-centric logic.
+./gooru/query_test.go-19-	t.Run("gettags on a moved file should find tags by content hash", func(t *testing.T) {
+./gooru/query_test.go-20-		t.Parallel()
+./gooru/query_test.go-21-		dbPath := setupTestDB(t)
+./gooru/query_test.go-22-		client, err := gooru.New(dbPath, false)
+./gooru/query_test.go-23-		require.NoError(t, err)
+./gooru/query_test.go-24-		t.Cleanup(func() { client.Close() })
+./gooru/query_test.go-25-
+./gooru/query_test.go-26-		// Arrange:
+./gooru/query_test.go-27-		// 1. Create and tag a file at an original location.
+./gooru/query_test.go-28-		tempDir := t.TempDir()
+./gooru/query_test.go-29-		oldPath := createTestFile(t, tempDir, "original.txt", "move-me-content")
+./gooru/query_test.go:30:		_, err = client.TagFiles([]string{oldPath}, []string{"project:kestrel", "status:final"}, nil, false)
+./gooru/query_test.go-31-		require.NoError(t, err, "Setup: failed to tag original file")
+./gooru/query_test.go-32-
+./gooru/query_test.go-33-		// 2. Move the file to a new, untracked location.
+./gooru/query_test.go-34-		newPath := filepath.Join(tempDir, "moved.txt")
+./gooru/query_test.go-35-		err = os.Rename(oldPath, newPath)
+./gooru/query_test.go-36-		require.NoError(t, err, "Setup: failed to move file")
+./gooru/query_test.go-37-
+./gooru/query_test.go-38-		// Act:
+./gooru/query_test.go-39-		// 3. Call GetTagsForFile on the NEW path.
+./gooru/query_test.go-40-		tags, status, err := client.GetTagsForFile(newPath, false) // `false` for default, content-hashing behavior
+./gooru/query_test.go-41-
+./gooru/query_test.go-42-		// Assert:
+--
+./gooru/spec_filesystem_synchronization_test.go-11-	"gooru.local/types"
+./gooru/spec_filesystem_synchronization_test.go-12-)
+./gooru/spec_filesystem_synchronization_test.go-13-
+./gooru/spec_filesystem_synchronization_test.go-14-func TestSpecFilesystemSynchronization_EditPathUpdatesTrackedLocation(t *testing.T) {
+./gooru/spec_filesystem_synchronization_test.go-15-	t.Parallel()
+./gooru/spec_filesystem_synchronization_test.go-16-	dbPath := setupTestDB(t)
+./gooru/spec_filesystem_synchronization_test.go-17-	client, err := gooru.New(dbPath, false)
+./gooru/spec_filesystem_synchronization_test.go-18-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-19-	t.Cleanup(func() { client.Close() })
+./gooru/spec_filesystem_synchronization_test.go-20-
+./gooru/spec_filesystem_synchronization_test.go-21-	dir := t.TempDir()
+./gooru/spec_filesystem_synchronization_test.go-22-	oldPath := createTestFile(t, dir, "before.txt", "same content")
+./gooru/spec_filesystem_synchronization_test.go:23:	_, err = client.TagFiles([]string{oldPath}, []string{"project:alpha"}, nil, false)
+./gooru/spec_filesystem_synchronization_test.go-24-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-25-
+./gooru/spec_filesystem_synchronization_test.go-26-	newPath := filepath.Join(dir, "after.txt")
+./gooru/spec_filesystem_synchronization_test.go-27-	require.NoError(t, os.Rename(oldPath, newPath))
+./gooru/spec_filesystem_synchronization_test.go-28-
+./gooru/spec_filesystem_synchronization_test.go-29-	require.NoError(t, client.EditPath(oldPath, newPath))
+./gooru/spec_filesystem_synchronization_test.go-30-
+./gooru/spec_filesystem_synchronization_test.go-31-	listed, err := client.ListAllFiles()
+./gooru/spec_filesystem_synchronization_test.go-32-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-33-	assert.ElementsMatch(t, []string{newPath}, listed)
+./gooru/spec_filesystem_synchronization_test.go-34-
+./gooru/spec_filesystem_synchronization_test.go-35-	tags, status, err := client.GetTagsForFile(newPath, false)
+--
+./gooru/spec_filesystem_synchronization_test.go-40-
+./gooru/spec_filesystem_synchronization_test.go-41-func TestSpecFilesystemSynchronization_DuplicateDeletionPreservesRemainingContentTags(t *testing.T) {
+./gooru/spec_filesystem_synchronization_test.go-42-	t.Parallel()
+./gooru/spec_filesystem_synchronization_test.go-43-	dbPath := setupTestDB(t)
+./gooru/spec_filesystem_synchronization_test.go-44-	client, err := gooru.New(dbPath, false)
+./gooru/spec_filesystem_synchronization_test.go-45-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-46-	t.Cleanup(func() { client.Close() })
+./gooru/spec_filesystem_synchronization_test.go-47-
+./gooru/spec_filesystem_synchronization_test.go-48-	dir := t.TempDir()
+./gooru/spec_filesystem_synchronization_test.go-49-	first := createTestFile(t, dir, "first.txt", "same content")
+./gooru/spec_filesystem_synchronization_test.go-50-	second := filepath.Join(dir, "second.txt")
+./gooru/spec_filesystem_synchronization_test.go-51-	require.NoError(t, os.WriteFile(second, []byte("same content"), 0644))
+./gooru/spec_filesystem_synchronization_test.go:52:	_, err = client.TagFiles([]string{first, second}, []string{"shared"}, nil, false)
+./gooru/spec_filesystem_synchronization_test.go-53-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-54-	require.NoError(t, os.Remove(first))
+./gooru/spec_filesystem_synchronization_test.go-55-
+./gooru/spec_filesystem_synchronization_test.go-56-	result, err := client.Relink([]string{dir})
+./gooru/spec_filesystem_synchronization_test.go-57-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-58-	require.Len(t, result.ProposedDeletes, 1)
+./gooru/spec_filesystem_synchronization_test.go-59-	assert.Equal(t, first, result.ProposedDeletes[0].Path)
+./gooru/spec_filesystem_synchronization_test.go-60-	assert.Empty(t, result.ProposedMoves)
+./gooru/spec_filesystem_synchronization_test.go-61-	assert.Empty(t, result.ProposedAdds)
+./gooru/spec_filesystem_synchronization_test.go-62-
+./gooru/spec_filesystem_synchronization_test.go-63-	stats, err := client.ApplyRelinkChanges(result)
+./gooru/spec_filesystem_synchronization_test.go-64-	require.NoError(t, err)
+--
+./gooru/spec_filesystem_synchronization_test.go-70-	assert.ElementsMatch(t, []string{"shared"}, tags)
+./gooru/spec_filesystem_synchronization_test.go-71-}
+./gooru/spec_filesystem_synchronization_test.go-72-
+./gooru/spec_filesystem_synchronization_test.go-73-func TestSpecFilesystemSynchronization_ModifiedAndMovedFileIsDeletionNotMove(t *testing.T) {
+./gooru/spec_filesystem_synchronization_test.go-74-	t.Parallel()
+./gooru/spec_filesystem_synchronization_test.go-75-	dbPath := setupTestDB(t)
+./gooru/spec_filesystem_synchronization_test.go-76-	client, err := gooru.New(dbPath, false)
+./gooru/spec_filesystem_synchronization_test.go-77-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-78-	t.Cleanup(func() { client.Close() })
+./gooru/spec_filesystem_synchronization_test.go-79-
+./gooru/spec_filesystem_synchronization_test.go-80-	dir := t.TempDir()
+./gooru/spec_filesystem_synchronization_test.go-81-	oldPath := createTestFile(t, dir, "old.txt", "old content")
+./gooru/spec_filesystem_synchronization_test.go:82:	_, err = client.TagFiles([]string{oldPath}, []string{"tag"}, nil, false)
+./gooru/spec_filesystem_synchronization_test.go-83-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-84-
+./gooru/spec_filesystem_synchronization_test.go-85-	newPath := filepath.Join(dir, "new.txt")
+./gooru/spec_filesystem_synchronization_test.go-86-	require.NoError(t, os.Rename(oldPath, newPath))
+./gooru/spec_filesystem_synchronization_test.go-87-	require.NoError(t, os.WriteFile(newPath, []byte("new content"), 0644))
+./gooru/spec_filesystem_synchronization_test.go-88-
+./gooru/spec_filesystem_synchronization_test.go-89-	result, err := client.Relink([]string{dir})
+./gooru/spec_filesystem_synchronization_test.go-90-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-91-	assert.Empty(t, result.ProposedMoves)
+./gooru/spec_filesystem_synchronization_test.go-92-	assert.Empty(t, result.ProposedAdds)
+./gooru/spec_filesystem_synchronization_test.go-93-	require.Len(t, result.ProposedDeletes, 1)
+./gooru/spec_filesystem_synchronization_test.go-94-	assert.Equal(t, oldPath, result.ProposedDeletes[0].Path)
+--
+./gooru/spec_filesystem_synchronization_test.go-98-	t.Parallel()
+./gooru/spec_filesystem_synchronization_test.go-99-	dbPath := setupTestDB(t)
+./gooru/spec_filesystem_synchronization_test.go-100-	client, err := gooru.New(dbPath, false)
+./gooru/spec_filesystem_synchronization_test.go-101-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-102-	t.Cleanup(func() { client.Close() })
+./gooru/spec_filesystem_synchronization_test.go-103-
+./gooru/spec_filesystem_synchronization_test.go-104-	dir := t.TempDir()
+./gooru/spec_filesystem_synchronization_test.go-105-	tracked := createTestFile(t, dir, "tracked.txt", "same content")
+./gooru/spec_filesystem_synchronization_test.go-106-	dupA := filepath.Join(dir, "dup-a.txt")
+./gooru/spec_filesystem_synchronization_test.go-107-	dupB := filepath.Join(dir, "dup-b.txt")
+./gooru/spec_filesystem_synchronization_test.go-108-	require.NoError(t, os.WriteFile(dupA, []byte("same content"), 0644))
+./gooru/spec_filesystem_synchronization_test.go-109-	require.NoError(t, os.WriteFile(dupB, []byte("same content"), 0644))
+./gooru/spec_filesystem_synchronization_test.go:110:	_, err = client.TagFiles([]string{tracked}, []string{"shared"}, nil, false)
+./gooru/spec_filesystem_synchronization_test.go-111-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-112-
+./gooru/spec_filesystem_synchronization_test.go-113-	result, err := client.Relink([]string{dir})
+./gooru/spec_filesystem_synchronization_test.go-114-	require.NoError(t, err)
+./gooru/spec_filesystem_synchronization_test.go-115-	require.Len(t, result.ProposedAdds, 2)
+./gooru/spec_filesystem_synchronization_test.go-116-	assert.Empty(t, result.ProposedMoves)
+./gooru/spec_filesystem_synchronization_test.go-117-	assert.Empty(t, result.ProposedDeletes)
+./gooru/spec_filesystem_synchronization_test.go-118-	assert.ElementsMatch(t, []string{dupA, dupB}, []string{result.ProposedAdds[0].Path, result.ProposedAdds[1].Path})
+./gooru/spec_filesystem_synchronization_test.go-119-}
+--
+./gooru/tagging.go-14-)
+./gooru/tagging.go-15-
+./gooru/tagging.go-16-type opKind int
+./gooru/tagging.go-17-
+./gooru/tagging.go-18-const (
+./gooru/tagging.go-19-	opTag opKind = iota
+./gooru/tagging.go-20-	opSetTags
+./gooru/tagging.go-21-	opUntag
+./gooru/tagging.go-22-)
+./gooru/tagging.go-23-
+./gooru/tagging.go-24-// TagFiles adds tags to multiple files using a high-performance batching strategy.
+./gooru/tagging.go-25-// Returns the number of new tag associations created and a list of notifications.
+./gooru/tagging.go:26:func (c *Client) TagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error) {
+./gooru/tagging.go-27-	if err := query.ValidateTags(tags); err != nil {
+./gooru/tagging.go-28-		return types.TagOperationResult{}, err
+./gooru/tagging.go-29-	}
+./gooru/tagging.go-30-	return c.performTagOperation(filePaths, tags, progressCb, opTag, useMetadataHeuristic)
+./gooru/tagging.go-31-}
+./gooru/tagging.go-32-
+./gooru/tagging.go-33-// TagKnownFiles imports files whose content hash and filesystem metadata have
+./gooru/tagging.go-34-// already been computed by the caller, avoiding a second hashing pass.
+./gooru/tagging.go-35-func (c *Client) TagKnownFiles(files []types.LocationInfo, tags []string, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+./gooru/tagging.go-36-	return c.TagKnownFilesWithBackgroundTasks(files, tags, nil, progressCb)
+./gooru/tagging.go-37-}
+./gooru/tagging.go-38-
+--
+./gooru/tagging.go-102-		return types.TagOperationResult{}, err
+./gooru/tagging.go-103-	}
+./gooru/tagging.go-104-	if len(tags) == 0 {
+./gooru/tagging.go-105-		// Clearing all tags is equivalent to `settags` with no tags.
+./gooru/tagging.go-106-		// For settags, we'll return the number of tags cleared.
+./gooru/tagging.go-107-		return c.performTagOperation(filePaths, []string{}, progressCb, opSetTags, useMetadataHeuristic)
+./gooru/tagging.go-108-	}
+./gooru/tagging.go-109-	return c.performTagOperation(filePaths, tags, progressCb, opUntag, useMetadataHeuristic)
+./gooru/tagging.go-110-}
+./gooru/tagging.go-111-
+./gooru/tagging.go-112-// TagFilesByQuery adds tags to all files matching a query expression.
+./gooru/tagging.go-113-// Returns the number of tags added (which may be different from files affected if tags already existed).
+./gooru/tagging.go:114:func (c *Client) TagFilesByQuery(expression string, tags []string) (int, error) {
+./gooru/tagging.go-115-	if err := query.ValidateTags(tags); err != nil {
+./gooru/tagging.go-116-		return 0, err
+./gooru/tagging.go-117-	}
+./gooru/tagging.go-118-	if len(tags) == 0 {
+./gooru/tagging.go-119-		return 0, nil
+./gooru/tagging.go-120-	}
+./gooru/tagging.go-121-	sqlQuery, args, err := c.buildQuery(expression)
+./gooru/tagging.go-122-	if err != nil {
+./gooru/tagging.go-123-		return 0, err
+./gooru/tagging.go-124-	}
+./gooru/tagging.go-125-	if sqlQuery == "" {
+./gooru/tagging.go-126-		return 0, nil
+--
+./gooru/tagging_query_exclusions.go-1-package gooru
+./gooru/tagging_query_exclusions.go-2-
+./gooru/tagging_query_exclusions.go-3-import (
+./gooru/tagging_query_exclusions.go-4-	"fmt"
+./gooru/tagging_query_exclusions.go-5-	"strings"
+./gooru/tagging_query_exclusions.go-6-
+./gooru/tagging_query_exclusions.go-7-	"gooru.local/internal/query"
+./gooru/tagging_query_exclusions.go-8-	"gooru.local/types"
+./gooru/tagging_query_exclusions.go-9-)
+./gooru/tagging_query_exclusions.go-10-
+./gooru/tagging_query_exclusions.go-11-// TagFilesByQueryExcluding adds tags to query matches except content hashes in excludedHashes.
+./gooru/tagging_query_exclusions.go:12:func (c *Client) TagFilesByQueryExcluding(expression string, tags, excludedHashes []string) (int, error) {
+./gooru/tagging_query_exclusions.go-13-	return c.mutateTagsByQueryExcluding(expression, tags, excludedHashes, opTag)
+./gooru/tagging_query_exclusions.go-14-}
+./gooru/tagging_query_exclusions.go-15-
+./gooru/tagging_query_exclusions.go-16-// UntagFilesByQueryExcluding removes tags from query matches except content hashes in excludedHashes.
+./gooru/tagging_query_exclusions.go-17-func (c *Client) UntagFilesByQueryExcluding(expression string, tags, excludedHashes []string) (int, error) {
+./gooru/tagging_query_exclusions.go-18-	return c.mutateTagsByQueryExcluding(expression, tags, excludedHashes, opUntag)
+./gooru/tagging_query_exclusions.go-19-}
+./gooru/tagging_query_exclusions.go-20-
+./gooru/tagging_query_exclusions.go-21-// SetTagsForFilesByQueryExcluding replaces tags on query matches except content hashes in excludedHashes.
+./gooru/tagging_query_exclusions.go-22-func (c *Client) SetTagsForFilesByQueryExcluding(expression string, tags, excludedHashes []string) (int, error) {
+./gooru/tagging_query_exclusions.go-23-	return c.mutateTagsByQueryExcluding(expression, tags, excludedHashes, opSetTags)
+./gooru/tagging_query_exclusions.go-24-}
+--
+./spec/operation/grpc.md-89-
+./spec/operation/grpc.md-90-service GooruService {
+./spec/operation/grpc.md-91-  // --- Read Operations (Streaming) ---
+./spec/operation/grpc.md-92-
+./spec/operation/grpc.md-93-  // Lists files matching a query, streaming results back to the client.
+./spec/operation/grpc.md-94-  rpc ListFiles(ListFilesRequest) returns (stream FileInfo);
+./spec/operation/grpc.md-95-  // Lists all unique tags in the database.
+./spec/operation/grpc.md-96-  rpc ListTags(Empty) returns (stream ListTagsResponse);
+./spec/operation/grpc.md-97-  
+./spec/operation/grpc.md-98-  // --- Write Operations (Unary & Streaming) ---
+./spec/operation/grpc.md-99-
+./spec/operation/grpc.md-100-  // Adds tags to a set of files.
+./spec/operation/grpc.md:101:  rpc TagFiles(TagFilesRequest) returns (TagFilesResponse);
+./spec/operation/grpc.md-102-  // Sets (replaces) tags for a set of files.
+./spec/operation/grpc.md-103-  rpc SetTags(SetTagsRequest) returns (SetTagsResponse);
+./spec/operation/grpc.md-104-  // Removes tags from a set of files.
+./spec/operation/grpc.md-105-  rpc Untag(UntagRequest) returns (UntagResponse);
+./spec/operation/grpc.md-106-  // Deletes file records from the database.
+./spec/operation/grpc.md-107-  rpc DeleteFiles(DeleteFilesRequest) returns (DeleteFilesResponse);
+./spec/operation/grpc.md-108-
+./spec/operation/grpc.md-109-  // High-throughput, bi-directional tagging. The client streams requests
+./spec/operation/grpc.md-110-  // to tag individual files, and the server can stream back progress or results.
+./spec/operation/grpc.md:111:  rpc StreamTagFiles(stream StreamTagFilesRequest) returns (stream StreamTagFilesResponse);
+./spec/operation/grpc.md-112-}
+./spec/operation/grpc.md-113-
+./spec/operation/grpc.md-114-// --- Request/Response Messages ---
+./spec/operation/grpc.md-115-
+./spec/operation/grpc.md-116-message ListFilesRequest {
+./spec/operation/grpc.md-117-  string query = 1;
+./spec/operation/grpc.md-118-}
+./spec/operation/grpc.md-119-
+./spec/operation/grpc.md-120-message ListTagsResponse {
+./spec/operation/grpc.md-121-  oneof result {
+./spec/operation/grpc.md-122-    string tag = 1;
+./spec/operation/grpc.md-123-    TagWithCount tag_with_count = 2;
+--
+./spec/operation/grpc.md-147-  bool success = 2;
+./spec/operation/grpc.md-148-  string error_message = 3;
+./spec/operation/grpc.md-149-}
+./spec/operation/grpc.md-150-```
+./spec/operation/grpc.md-151-
+./spec/operation/grpc.md-152-### 4.3. Key RPC Methods Explained
+./spec/operation/grpc.md-153-
+./spec/operation/grpc.md-154-*   **`rpc ListFiles(ListFilesRequest) returns (stream FileInfo)`**
+./spec/operation/grpc.md-155-    *   **Pattern:** Server-side Streaming.
+./spec/operation/grpc.md-156-    *   **Behavior:** This is the high-performance equivalent of the `list` and `table` commands. The client sends a single request with a query. The server executes the query once and streams each `FileInfo` result back as it's read from the database.
+./spec/operation/grpc.md-157-    *   **Benefit:** Extremely low latency to first result, low memory usage on both client and server, and a consistent view of the data.
+./spec/operation/grpc.md-158-
+./spec/operation/grpc.md:159:*   **`rpc StreamTagFiles(stream StreamTagFilesRequest) returns (stream StreamTagFilesResponse)`**
+./spec/operation/grpc.md-160-    *   **Pattern:** Bi-directional Streaming.
+./spec/operation/grpc.md-161-    *   **Behavior:** This is a "power user" endpoint for massive batch operations. The client can open a persistent stream and continuously send requests to tag individual files. The server processes these requests (respecting the serial write queue) and can send back real-time status updates for each file.
+./spec/operation/grpc.md-162-    *   **Benefit:** Eliminates the overhead of a new HTTP/2 request for every single file in a large batch. This is the most efficient way to perform millions of small, independent write operations.
+./spec/operation/grpc.md-163-
+./spec/operation/grpc.md-164-*   **Unary RPCs (e.g., `TagFiles`)**
+./spec/operation/grpc.md-165-    *   **Pattern:** Standard Request/Response.
+./spec/operation/grpc.md-166-    *   **Behavior:** These are for simpler batch operations. The client sends one request with a list of files and tags, and the server sends back one response after the operation is complete in the write queue. This is more efficient than the REST equivalent due to Protobufs and HTTP/2, but less efficient than the bi-directional stream for truly massive jobs.
+./spec/operation/grpc.md-167-
+./spec/operation/grpc.md-168-## 5. Edge Cases & Unresolved Questions
+./spec/operation/grpc.md-169-
+./spec/operation/grpc.md-170-*   **Error Handling:** gRPC has a well-defined error model with status codes. Server-side errors (e.g., database unavailable, invalid input) will be propagated back to the client as standard gRPC errors.
+./spec/operation/grpc.md-171-*   **Concurrency:** All write RPCs will be funneled through the same serial write queue as the REST API, guaranteeing that a gRPC `TagFiles` call will not conflict with a REST `DeleteFiles` call. They will be executed in the order they are received by the server.
+--
+./internal/serve/upload_identity_test.go-16-	dir := t.TempDir()
+./internal/serve/upload_identity_test.go-17-	dbPath := filepath.Join(dir, "gooru.db")
+./internal/serve/upload_identity_test.go-18-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+./internal/serve/upload_identity_test.go-19-		t.Fatalf("init db: %v", err)
+./internal/serve/upload_identity_test.go-20-	}
+./internal/serve/upload_identity_test.go-21-	client, err := core.New(dbPath, false)
+./internal/serve/upload_identity_test.go-22-	if err != nil {
+./internal/serve/upload_identity_test.go-23-		t.Fatalf("open client: %v", err)
+./internal/serve/upload_identity_test.go-24-	}
+./internal/serve/upload_identity_test.go-25-	t.Cleanup(func() { _ = client.Close() })
+./internal/serve/upload_identity_test.go-26-
+./internal/serve/upload_identity_test.go-27-	existingPath := writeTestFile(t, dir, "existing-source.txt", "already tracked")
+./internal/serve/upload_identity_test.go:28:	if _, err := client.TagFiles([]string{existingPath}, []string{"state:existing"}, nil, false); err != nil {
+./internal/serve/upload_identity_test.go-29-		t.Fatalf("tag existing file: %v", err)
+./internal/serve/upload_identity_test.go-30-	}
+./internal/serve/upload_identity_test.go-31-	existingInfo, err := client.GetFileInfoByPath(existingPath)
+./internal/serve/upload_identity_test.go-32-	if err != nil {
+./internal/serve/upload_identity_test.go-33-		t.Fatalf("get existing file: %v", err)
+./internal/serve/upload_identity_test.go-34-	}
+./internal/serve/upload_identity_test.go-35-	existingID := client.PublicFileID(existingInfo.ID)
+./internal/serve/upload_identity_test.go-36-	if existingID == "" {
+./internal/serve/upload_identity_test.go-37-		t.Fatal("existing tracked file is missing public id")
+./internal/serve/upload_identity_test.go-38-	}
+./internal/serve/upload_identity_test.go-39-
+./internal/serve/upload_identity_test.go-40-	uploadDir := filepath.Join(dir, "uploads")
+--
+./internal/serve/hidden_tags_positive_facet_test.go-20-	var imageA, imageB string
+./internal/serve/hidden_tags_positive_facet_test.go-21-	for _, file := range files {
+./internal/serve/hidden_tags_positive_facet_test.go-22-		switch filepath.Base(file.Path) {
+./internal/serve/hidden_tags_positive_facet_test.go-23-		case "a.jpg":
+./internal/serve/hidden_tags_positive_facet_test.go-24-			imageA = file.Path
+./internal/serve/hidden_tags_positive_facet_test.go-25-		case "b.png":
+./internal/serve/hidden_tags_positive_facet_test.go-26-			imageB = file.Path
+./internal/serve/hidden_tags_positive_facet_test.go-27-		}
+./internal/serve/hidden_tags_positive_facet_test.go-28-	}
+./internal/serve/hidden_tags_positive_facet_test.go-29-	if imageA == "" || imageB == "" {
+./internal/serve/hidden_tags_positive_facet_test.go-30-		t.Fatalf("missing image fixtures: a=%q b=%q", imageA, imageB)
+./internal/serve/hidden_tags_positive_facet_test.go-31-	}
+./internal/serve/hidden_tags_positive_facet_test.go:32:	if _, err := inner.client.TagFiles([]string{imageA, imageB}, []string{"keep"}, nil, false); err != nil {
+./internal/serve/hidden_tags_positive_facet_test.go-33-		t.Fatal(err)
+./internal/serve/hidden_tags_positive_facet_test.go-34-	}
+./internal/serve/hidden_tags_positive_facet_test.go:35:	if _, err := inner.client.TagFiles([]string{imageB}, []string{"hidden"}, nil, false); err != nil {
+./internal/serve/hidden_tags_positive_facet_test.go-36-		t.Fatal(err)
+./internal/serve/hidden_tags_positive_facet_test.go-37-	}
+./internal/serve/hidden_tags_positive_facet_test.go-38-
+./internal/serve/hidden_tags_positive_facet_test.go-39-	cfg := server.cfg
+./internal/serve/hidden_tags_positive_facet_test.go-40-	cfg.UI.HiddenTags = []string{"hidden"}
+./internal/serve/hidden_tags_positive_facet_test.go-41-	server = NewServerWithLibrary(cfg, inner)
+./internal/serve/hidden_tags_positive_facet_test.go-42-
+./internal/serve/hidden_tags_positive_facet_test.go-43-	rec := httptest.NewRecorder()
+./internal/serve/hidden_tags_positive_facet_test.go-44-	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/files?query=keep&include_facets=true"))
+./internal/serve/hidden_tags_positive_facet_test.go-45-	if rec.Code != http.StatusOK {
+./internal/serve/hidden_tags_positive_facet_test.go-46-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+./internal/serve/hidden_tags_positive_facet_test.go-47-	}
+--
+./internal/serve/browse_hidden_facet_test.go-17-	dbPath := filepath.Join(dir, "gooru.db")
+./internal/serve/browse_hidden_facet_test.go-18-	writeInitializedTestDB(t, dbPath, types.StrategyFull)
+./internal/serve/browse_hidden_facet_test.go-19-	client, err := core.New(dbPath, false)
+./internal/serve/browse_hidden_facet_test.go-20-	if err != nil {
+./internal/serve/browse_hidden_facet_test.go-21-		t.Fatal(err)
+./internal/serve/browse_hidden_facet_test.go-22-	}
+./internal/serve/browse_hidden_facet_test.go-23-	defer client.Close()
+./internal/serve/browse_hidden_facet_test.go-24-
+./internal/serve/browse_hidden_facet_test.go-25-	hiddenPhoto := writeTestFile(t, dir, "hidden.jpg", "hidden photo")
+./internal/serve/browse_hidden_facet_test.go-26-	privateVideo := writeTestFile(t, dir, "private.mp4", "private video")
+./internal/serve/browse_hidden_facet_test.go-27-	bothComic := writeTestFile(t, dir, "both.cbz", "both comic")
+./internal/serve/browse_hidden_facet_test.go-28-	visibleOther := writeTestFile(t, dir, "visible.txt", "visible other")
+./internal/serve/browse_hidden_facet_test.go:29:	if _, err := client.TagFiles([]string{hiddenPhoto}, []string{"hidden"}, nil, false); err != nil {
+./internal/serve/browse_hidden_facet_test.go-30-		t.Fatal(err)
+./internal/serve/browse_hidden_facet_test.go-31-	}
+./internal/serve/browse_hidden_facet_test.go:32:	if _, err := client.TagFiles([]string{privateVideo}, []string{"private:yes"}, nil, false); err != nil {
+./internal/serve/browse_hidden_facet_test.go-33-		t.Fatal(err)
+./internal/serve/browse_hidden_facet_test.go-34-	}
+./internal/serve/browse_hidden_facet_test.go:35:	if _, err := client.TagFiles([]string{bothComic}, []string{"hidden", "private:yes"}, nil, false); err != nil {
+./internal/serve/browse_hidden_facet_test.go-36-		t.Fatal(err)
+./internal/serve/browse_hidden_facet_test.go-37-	}
+./internal/serve/browse_hidden_facet_test.go:38:	if _, err := client.TagFiles([]string{visibleOther}, []string{"visible"}, nil, false); err != nil {
+./internal/serve/browse_hidden_facet_test.go-39-		t.Fatal(err)
+./internal/serve/browse_hidden_facet_test.go-40-	}
+./internal/serve/browse_hidden_facet_test.go-41-
+./internal/serve/browse_hidden_facet_test.go-42-	cfg := DefaultConfig(dbPath)
+./internal/serve/browse_hidden_facet_test.go-43-	cfg.Auth.Enabled = false
+./internal/serve/browse_hidden_facet_test.go-44-	server := NewServerWithLibrary(cfg, NewGooruLibrary(client, false))
+./internal/serve/browse_hidden_facet_test.go-45-
+./internal/serve/browse_hidden_facet_test.go-46-	assertBrowse := func(expression string, wantTotal int, wantFacets map[string]int) {
+./internal/serve/browse_hidden_facet_test.go-47-		t.Helper()
+./internal/serve/browse_hidden_facet_test.go-48-		target := "/api/v1/files?limit=60&sort=added&order=desc&include_facets=true&query=" + url.QueryEscape(expression)
+./internal/serve/browse_hidden_facet_test.go-49-		rec := httptest.NewRecorder()
+./internal/serve/browse_hidden_facet_test.go-50-		server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+--
+./internal/serve/upload_replace_test.go-52-		t.Fatalf("open client: %v", err)
+./internal/serve/upload_replace_test.go-53-	}
+./internal/serve/upload_replace_test.go-54-	t.Cleanup(func() { _ = client.Close() })
+./internal/serve/upload_replace_test.go-55-
+./internal/serve/upload_replace_test.go-56-	trackedDir := filepath.Join(dir, "tracked")
+./internal/serve/upload_replace_test.go-57-	if err := os.MkdirAll(trackedDir, 0700); err != nil {
+./internal/serve/upload_replace_test.go-58-		t.Fatalf("create tracked dir: %v", err)
+./internal/serve/upload_replace_test.go-59-	}
+./internal/serve/upload_replace_test.go-60-	trackedPath := filepath.Join(trackedDir, "tracked.txt")
+./internal/serve/upload_replace_test.go-61-	if err := os.WriteFile(trackedPath, []byte("duplicate content"), 0600); err != nil {
+./internal/serve/upload_replace_test.go-62-		t.Fatalf("write tracked file: %v", err)
+./internal/serve/upload_replace_test.go-63-	}
+./internal/serve/upload_replace_test.go:64:	if _, err := client.TagFiles([]string{trackedPath}, []string{"state:tracked"}, nil, false); err != nil {
+./internal/serve/upload_replace_test.go-65-		t.Fatalf("track duplicate content: %v", err)
+./internal/serve/upload_replace_test.go-66-	}
+./internal/serve/upload_replace_test.go-67-
+./internal/serve/upload_replace_test.go-68-	uploadDir := filepath.Join(dir, "uploads")
+./internal/serve/upload_replace_test.go-69-	if err := os.MkdirAll(uploadDir, 0700); err != nil {
+./internal/serve/upload_replace_test.go-70-		t.Fatalf("create upload dir: %v", err)
+./internal/serve/upload_replace_test.go-71-	}
+./internal/serve/upload_replace_test.go-72-	finalPath := filepath.Join(uploadDir, "a.txt")
+./internal/serve/upload_replace_test.go-73-	if err := os.WriteFile(finalPath, []byte("original"), 0600); err != nil {
+./internal/serve/upload_replace_test.go-74-		t.Fatalf("write original: %v", err)
+./internal/serve/upload_replace_test.go-75-	}
+./internal/serve/upload_replace_test.go-76-	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+--
+./internal/serve/tag_mutations.go-360-	}
+./internal/serve/tag_mutations.go-361-	affected, err := l.mutateTagQueryExcluding(operation, request.Query, request.Tags, excludedHashes)
+./internal/serve/tag_mutations.go-362-	if err != nil {
+./internal/serve/tag_mutations.go-363-		return TagMutationResponse{}, err
+./internal/serve/tag_mutations.go-364-	}
+./internal/serve/tag_mutations.go-365-	response.AffectedCount = affected
+./internal/serve/tag_mutations.go-366-	return response, nil
+./internal/serve/tag_mutations.go-367-}
+./internal/serve/tag_mutations.go-368-
+./internal/serve/tag_mutations.go-369-func (l *GooruLibrary) mutateTagPaths(operation TagOperation, paths []string, tags []string) (types.TagOperationResult, error) {
+./internal/serve/tag_mutations.go-370-	switch operation {
+./internal/serve/tag_mutations.go-371-	case TagOperationAdd:
+./internal/serve/tag_mutations.go:372:		return l.client.TagFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-373-	case TagOperationSet:
+./internal/serve/tag_mutations.go-374-		return l.client.SetTagsForFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-375-	case TagOperationRemove:
+./internal/serve/tag_mutations.go-376-		return l.client.UntagFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-377-	default:
+./internal/serve/tag_mutations.go-378-		return types.TagOperationResult{}, fmt.Errorf("unsupported tag operation %q", operation)
+./internal/serve/tag_mutations.go-379-	}
+./internal/serve/tag_mutations.go-380-}
+./internal/serve/tag_mutations.go-381-
+./internal/serve/tag_mutations.go-382-func (l *GooruLibrary) mutateTagQuery(operation TagOperation, expression string, tags []string) (int, error) {
+./internal/serve/tag_mutations.go-383-	return l.mutateTagQueryExcluding(operation, expression, tags, nil)
+./internal/serve/tag_mutations.go-384-}
+--
+./internal/serve/uploads_test.go-385-func TestGooruUploadImportReportsDuplicateStatuses(t *testing.T) {
+./internal/serve/uploads_test.go-386-	dir := t.TempDir()
+./internal/serve/uploads_test.go-387-	dbPath := filepath.Join(dir, "gooru.db")
+./internal/serve/uploads_test.go-388-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+./internal/serve/uploads_test.go-389-		t.Fatalf("init db: %v", err)
+./internal/serve/uploads_test.go-390-	}
+./internal/serve/uploads_test.go-391-	client, err := core.New(dbPath, false)
+./internal/serve/uploads_test.go-392-	if err != nil {
+./internal/serve/uploads_test.go-393-		t.Fatalf("open client: %v", err)
+./internal/serve/uploads_test.go-394-	}
+./internal/serve/uploads_test.go-395-	t.Cleanup(func() { _ = client.Close() })
+./internal/serve/uploads_test.go-396-	existing := writeTestFile(t, dir, "existing-source.txt", "already tracked")
+./internal/serve/uploads_test.go:397:	if _, err := client.TagFiles([]string{existing}, []string{"state:existing"}, nil, false); err != nil {
+./internal/serve/uploads_test.go-398-		t.Fatalf("tag existing file: %v", err)
+./internal/serve/uploads_test.go-399-	}
+./internal/serve/uploads_test.go-400-	uploadDir := filepath.Join(dir, "uploads")
+./internal/serve/uploads_test.go-401-	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+./internal/serve/uploads_test.go-402-	startTestBackgroundRuntime(t, server, client, "test-gooru-upload")
+./internal/serve/uploads_test.go-403-	rec := httptest.NewRecorder()
+./internal/serve/uploads_test.go-404-
+./internal/serve/uploads_test.go-405-	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{
+./internal/serve/uploads_test.go-406-		"duplicate-existing.txt": "already tracked",
+./internal/serve/uploads_test.go-407-		"batch-a.txt":            "new duplicated content",
+./internal/serve/uploads_test.go-408-		"batch-b.txt":            "new duplicated content",
+./internal/serve/uploads_test.go-409-	}, []string{"uploaded"}))
+--
+./internal/serve/browse_test.go-280-	if err := json.Unmarshal(firstRec.Body.Bytes(), &first); err != nil {
+./internal/serve/browse_test.go-281-		t.Fatalf("decode first page: %v", err)
+./internal/serve/browse_test.go-282-	}
+./internal/serve/browse_test.go-283-	if len(first.Files) != 1 || first.NextPageToken == "" {
+./internal/serve/browse_test.go-284-		t.Fatalf("unexpected first page: %+v", first)
+./internal/serve/browse_test.go-285-	}
+./internal/serve/browse_test.go-286-	if first.Files[0].Name != "a.jpg" {
+./internal/serve/browse_test.go-287-		t.Fatalf("expected a.jpg first, got %+v", first.Files)
+./internal/serve/browse_test.go-288-	}
+./internal/serve/browse_test.go-289-
+./internal/serve/browse_test.go-290-	client := server.library.(*GooruLibrary).client
+./internal/serve/browse_test.go-291-	inserted := writeTestFile(t, t.TempDir(), "0-new.jpg", "new earlier file")
+./internal/serve/browse_test.go:292:	if _, err := client.TagFiles([]string{inserted}, nil, nil, false); err != nil {
+./internal/serve/browse_test.go-293-		t.Fatalf("insert file ahead of cursor: %v", err)
+./internal/serve/browse_test.go-294-	}
+./internal/serve/browse_test.go-295-
+./internal/serve/browse_test.go-296-	nextRec := httptest.NewRecorder()
+./internal/serve/browse_test.go-297-	nextURL := "/api/v1/files?sort=name&order=asc&limit=1&page_token=" + url.QueryEscape(first.NextPageToken)
+./internal/serve/browse_test.go-298-	server.Handler().ServeHTTP(nextRec, authedRequest(http.MethodGet, nextURL))
+./internal/serve/browse_test.go-299-	if nextRec.Code != http.StatusOK {
+./internal/serve/browse_test.go-300-		t.Fatalf("expected next page 200, got %d: %s", nextRec.Code, nextRec.Body.String())
+./internal/serve/browse_test.go-301-	}
+./internal/serve/browse_test.go-302-	var next FileListResponse
+./internal/serve/browse_test.go-303-	if err := json.Unmarshal(nextRec.Body.Bytes(), &next); err != nil {
+./internal/serve/browse_test.go-304-		t.Fatalf("decode next page: %v", err)
+--
+./internal/serve/browse_test.go-401-	if facetCounts(listPage.Facets.Kind)["video"] == 0 {
+./internal/serve/browse_test.go-402-		t.Fatalf("expected metadata-backed video facet, got %+v", listPage.Facets.Kind)
+./internal/serve/browse_test.go-403-	}
+./internal/serve/browse_test.go-404-}
+./internal/serve/browse_test.go-405-
+./internal/serve/browse_test.go-406-func TestBrowseBareQueryDoesNotSearchFilename(t *testing.T) {
+./internal/serve/browse_test.go-407-	server, cleanup := newTestBrowseServer(t)
+./internal/serve/browse_test.go-408-	defer cleanup()
+./internal/serve/browse_test.go-409-
+./internal/serve/browse_test.go-410-	dir := t.TempDir()
+./internal/serve/browse_test.go-411-	match := writeTestFile(t, dir, "needle-file.jpg", "same duplicate bytes")
+./internal/serve/browse_test.go-412-	other := writeTestFile(t, dir, "other-file.jpg", "same duplicate bytes")
+./internal/serve/browse_test.go:413:	if _, err := server.library.(*GooruLibrary).client.TagFiles([]string{match, other}, []string{"album:dupes"}, nil, false); err != nil {
+./internal/serve/browse_test.go-414-		t.Fatalf("tag duplicate files: %v", err)
+./internal/serve/browse_test.go-415-	}
+./internal/serve/browse_test.go-416-
+./internal/serve/browse_test.go-417-	rec := httptest.NewRecorder()
+./internal/serve/browse_test.go-418-	target := "/api/v1/files?query=" + url.QueryEscape("needle-file") + "&limit=10"
+./internal/serve/browse_test.go-419-	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, target))
+./internal/serve/browse_test.go-420-	if rec.Code != http.StatusOK {
+./internal/serve/browse_test.go-421-		t.Fatalf("expected list 200, got %d: %s", rec.Code, rec.Body.String())
+./internal/serve/browse_test.go-422-	}
+./internal/serve/browse_test.go-423-	var page FileListResponse
+./internal/serve/browse_test.go-424-	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+./internal/serve/browse_test.go-425-		t.Fatalf("decode list response: %v", err)
+--
+./internal/serve/browse_test.go-801-func newTestBrowseServerAt(t *testing.T, dir string, dbPath string) (*Server, *core.Client) {
+./internal/serve/browse_test.go-802-	t.Helper()
+./internal/serve/browse_test.go-803-	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+./internal/serve/browse_test.go-804-		t.Fatalf("init db: %v", err)
+./internal/serve/browse_test.go-805-	}
+./internal/serve/browse_test.go-806-	client, err := core.New(dbPath, false)
+./internal/serve/browse_test.go-807-	if err != nil {
+./internal/serve/browse_test.go-808-		t.Fatalf("open client: %v", err)
+./internal/serve/browse_test.go-809-	}
+./internal/serve/browse_test.go-810-	imageA := writeTestFile(t, dir, "a.jpg", "fake image a")
+./internal/serve/browse_test.go-811-	imageB := writeTestFile(t, dir, "b.png", "fake image b")
+./internal/serve/browse_test.go-812-	other := writeTestFile(t, dir, "notes.txt", "notes")
+./internal/serve/browse_test.go:813:	if _, err := client.TagFiles([]string{imageA, imageB}, []string{"kind:image"}, nil, false); err != nil {
+./internal/serve/browse_test.go-814-		t.Fatalf("tag images: %v", err)
+./internal/serve/browse_test.go-815-	}
+./internal/serve/browse_test.go:816:	if _, err := client.TagFiles([]string{other}, []string{"kind:text"}, nil, false); err != nil {
+./internal/serve/browse_test.go-817-		t.Fatalf("tag text: %v", err)
+./internal/serve/browse_test.go-818-	}
+./internal/serve/browse_test.go-819-
+./internal/serve/browse_test.go-820-	cfg := DefaultConfig(dbPath)
+./internal/serve/browse_test.go-821-	cfg.Auth.Enabled = false
+./internal/serve/browse_test.go-822-	return NewServerWithLibrary(cfg, NewGooruLibrary(client, false)), client
+./internal/serve/browse_test.go-823-}
+./internal/serve/browse_test.go-824-
+./internal/serve/browse_test.go-825-func listTestFiles(t *testing.T, server *Server, query string, limit int) FileListResponse {
+./internal/serve/browse_test.go-826-	t.Helper()
+./internal/serve/browse_test.go-827-	rec := httptest.NewRecorder()
+./internal/serve/browse_test.go-828-	target := fmt.Sprintf("/api/v1/files?query=%s&limit=%d", url.QueryEscape(query), limit)
+--
+./internal/serve/hidden_tags_test.go-65-	var imageA, imageB string
+./internal/serve/hidden_tags_test.go-66-	for _, file := range files {
+./internal/serve/hidden_tags_test.go-67-		switch filepath.Base(file.Path) {
+./internal/serve/hidden_tags_test.go-68-		case "a.jpg":
+./internal/serve/hidden_tags_test.go-69-			imageA = file.Path
+./internal/serve/hidden_tags_test.go-70-		case "b.png":
+./internal/serve/hidden_tags_test.go-71-			imageB = file.Path
+./internal/serve/hidden_tags_test.go-72-		}
+./internal/serve/hidden_tags_test.go-73-	}
+./internal/serve/hidden_tags_test.go-74-	if imageA == "" || imageB == "" {
+./internal/serve/hidden_tags_test.go-75-		t.Fatalf("missing image fixtures: a=%q b=%q", imageA, imageB)
+./internal/serve/hidden_tags_test.go-76-	}
+./internal/serve/hidden_tags_test.go:77:	if _, err := inner.client.TagFiles([]string{imageA}, []string{"bad1"}, nil, false); err != nil {
+./internal/serve/hidden_tags_test.go-78-		t.Fatalf("tag first hidden image: %v", err)
+./internal/serve/hidden_tags_test.go-79-	}
+./internal/serve/hidden_tags_test.go:80:	if _, err := inner.client.TagFiles([]string{imageB}, []string{"bad1", "bad2"}, nil, false); err != nil {
+./internal/serve/hidden_tags_test.go-81-		t.Fatalf("tag doubly hidden image: %v", err)
+./internal/serve/hidden_tags_test.go-82-	}
+./internal/serve/hidden_tags_test.go-83-
+./internal/serve/hidden_tags_test.go-84-	cfg := server.cfg
+./internal/serve/hidden_tags_test.go-85-	cfg.UI.HiddenTags = []string{"bad1", "bad2"}
+./internal/serve/hidden_tags_test.go-86-	server = NewServerWithLibrary(cfg, inner)
+./internal/serve/hidden_tags_test.go-87-
+./internal/serve/hidden_tags_test.go-88-	requestPage := func(target string) FileListResponse {
+./internal/serve/hidden_tags_test.go-89-		t.Helper()
+./internal/serve/hidden_tags_test.go-90-		rec := httptest.NewRecorder()
+./internal/serve/hidden_tags_test.go-91-		server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, target))
+./internal/serve/hidden_tags_test.go-92-		if rec.Code != http.StatusOK {
+--
+./docs/LIBRARY.md-33-if err != nil {
+./docs/LIBRARY.md-34-    // gooru.ErrDBUninitialized means Init has not been run for this database.
+./docs/LIBRARY.md-35-    return err
+./docs/LIBRARY.md-36-}
+./docs/LIBRARY.md-37-defer client.Close()
+./docs/LIBRARY.md-38-```
+./docs/LIBRARY.md-39-
+./docs/LIBRARY.md-40-All normal operations are methods on `*gooru.Client`.
+./docs/LIBRARY.md-41-
+./docs/LIBRARY.md-42-## Tag files
+./docs/LIBRARY.md-43-
+./docs/LIBRARY.md-44-```go
+./docs/LIBRARY.md:45:result, err := client.TagFiles(
+./docs/LIBRARY.md-46-    []string{"/data/image.jpg"},
+./docs/LIBRARY.md-47-    []string{"photo", "project:alpha"},
+./docs/LIBRARY.md-48-    nil,
+./docs/LIBRARY.md-49-    false,
+./docs/LIBRARY.md-50-)
+./docs/LIBRARY.md-51-```
+./docs/LIBRARY.md-52-
+./docs/LIBRARY.md-53-The last argument controls the metadata heuristic:
+./docs/LIBRARY.md-54-
+./docs/LIBRARY.md-55-- `false` — hash content for correctness;
+./docs/LIBRARY.md-56-- `true` — use size + modification time as a fast pre-check, with the risk of missing changes whose metadata did not change.
+./docs/LIBRARY.md-57-
+--
+./gooru/tagging_test.go-3-import (
+./gooru/tagging_test.go-4-	"os"
+./gooru/tagging_test.go-5-	"path/filepath"
+./gooru/tagging_test.go-6-	"sync"
+./gooru/tagging_test.go-7-	"testing"
+./gooru/tagging_test.go-8-
+./gooru/tagging_test.go-9-	"github.com/stretchr/testify/assert"
+./gooru/tagging_test.go-10-	"github.com/stretchr/testify/require"
+./gooru/tagging_test.go-11-	"gooru.local/gooru"
+./gooru/tagging_test.go-12-	"gooru.local/types"
+./gooru/tagging_test.go-13-)
+./gooru/tagging_test.go-14-
+./gooru/tagging_test.go:15:func TestClient_TagFiles(t *testing.T) {
+./gooru/tagging_test.go-16-	t.Parallel()
+./gooru/tagging_test.go-17-
+./gooru/tagging_test.go-18-	t.Run("tag new files successfully", func(t *testing.T) {
+./gooru/tagging_test.go-19-		t.Parallel()
+./gooru/tagging_test.go-20-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-21-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-22-		require.NoError(t, err)
+./gooru/tagging_test.go-23-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-24-
+./gooru/tagging_test.go-25-		// Arrange
+./gooru/tagging_test.go-26-		tempDir := t.TempDir()
+./gooru/tagging_test.go-27-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go-28-		file2 := createTestFile(t, tempDir, "file2.txt", "content B")
+./gooru/tagging_test.go-29-
+./gooru/tagging_test.go-30-		// Act
+./gooru/tagging_test.go:31:		result, err := client.TagFiles([]string{file1, file2}, []string{"tag1", "project:alpha"}, nil, false)
+./gooru/tagging_test.go-32-		require.NoError(t, err)
+./gooru/tagging_test.go-33-
+./gooru/tagging_test.go-34-		// Assert
+./gooru/tagging_test.go-35-		assert.Equal(t, 4, result.AffectedCount, "Expected 2 tags for 2 files")
+./gooru/tagging_test.go-36-		assert.Empty(t, result.Notifications, "Should be no notifications for new files")
+./gooru/tagging_test.go-37-
+./gooru/tagging_test.go-38-		tags1, status1, err1 := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-39-		require.NoError(t, err1)
+./gooru/tagging_test.go-40-		assert.Equal(t, types.StatusOK, status1)
+./gooru/tagging_test.go-41-		assert.ElementsMatch(t, []string{"tag1", "project:alpha"}, tags1)
+./gooru/tagging_test.go-42-
+./gooru/tagging_test.go-43-		tags2, status2, err2 := client.GetTagsForFile(file2, false)
+--
+./gooru/tagging_test.go-47-	})
+./gooru/tagging_test.go-48-
+./gooru/tagging_test.go-49-	t.Run("add new tags to existing file", func(t *testing.T) {
+./gooru/tagging_test.go-50-		t.Parallel()
+./gooru/tagging_test.go-51-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-52-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-53-		require.NoError(t, err)
+./gooru/tagging_test.go-54-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-55-
+./gooru/tagging_test.go-56-		// Arrange
+./gooru/tagging_test.go-57-		tempDir := t.TempDir()
+./gooru/tagging_test.go-58-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go:59:		_, err = client.TagFiles([]string{file1}, []string{"initial"}, nil, false)
+./gooru/tagging_test.go-60-		require.NoError(t, err)
+./gooru/tagging_test.go-61-
+./gooru/tagging_test.go-62-		// Act
+./gooru/tagging_test.go:63:		result, err := client.TagFiles([]string{file1}, []string{"additional"}, nil, false)
+./gooru/tagging_test.go-64-		require.NoError(t, err)
+./gooru/tagging_test.go-65-
+./gooru/tagging_test.go-66-		// Assert
+./gooru/tagging_test.go-67-		assert.Equal(t, 1, result.AffectedCount)
+./gooru/tagging_test.go-68-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-69-		assert.ElementsMatch(t, []string{"initial", "additional"}, tags)
+./gooru/tagging_test.go-70-	})
+./gooru/tagging_test.go-71-
+./gooru/tagging_test.go-72-	t.Run("re-applying existing tag is a no-op", func(t *testing.T) {
+./gooru/tagging_test.go-73-		t.Parallel()
+./gooru/tagging_test.go-74-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-75-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-76-		require.NoError(t, err)
+./gooru/tagging_test.go-77-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-78-
+./gooru/tagging_test.go-79-		// Arrange
+./gooru/tagging_test.go-80-		tempDir := t.TempDir()
+./gooru/tagging_test.go-81-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go:82:		_, err = client.TagFiles([]string{file1}, []string{"tag1"}, nil, false)
+./gooru/tagging_test.go-83-		require.NoError(t, err)
+./gooru/tagging_test.go-84-
+./gooru/tagging_test.go-85-		// Act
+./gooru/tagging_test.go:86:		result, err := client.TagFiles([]string{file1}, []string{"tag1"}, nil, false)
+./gooru/tagging_test.go-87-		require.NoError(t, err)
+./gooru/tagging_test.go-88-
+./gooru/tagging_test.go-89-		// Assert
+./gooru/tagging_test.go-90-		assert.Equal(t, 0, result.AffectedCount, "Re-applying a tag should affect 0 new associations")
+./gooru/tagging_test.go-91-	})
+./gooru/tagging_test.go-92-
+./gooru/tagging_test.go-93-	t.Run("tagging a modified file updates record and orphans old tags (default behavior)", func(t *testing.T) {
+./gooru/tagging_test.go-94-		t.Parallel()
+./gooru/tagging_test.go-95-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-96-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-97-		require.NoError(t, err)
+./gooru/tagging_test.go-98-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-99-
+./gooru/tagging_test.go-100-		// Arrange: Add a file with an initial tag
+./gooru/tagging_test.go-101-		tempDir := t.TempDir()
+./gooru/tagging_test.go-102-		file1 := createTestFile(t, tempDir, "file1.txt", "original content")
+./gooru/tagging_test.go:103:		_, err = client.TagFiles([]string{file1}, []string{"initial_tag"}, nil, false)
+./gooru/tagging_test.go-104-		require.NoError(t, err)
+./gooru/tagging_test.go-105-
+./gooru/tagging_test.go-106-		// Modify the file on disk. This test relies on the content change being detectable.
+./gooru/tagging_test.go-107-		// The new "always hash" default guarantees this.
+./gooru/tagging_test.go-108-		err = os.WriteFile(file1, []byte("modified content"), 0644)
+./gooru/tagging_test.go-109-		require.NoError(t, err)
+./gooru/tagging_test.go-110-
+./gooru/tagging_test.go-111-		// Act: Tag the modified file using the default (no heuristic)
+./gooru/tagging_test.go:112:		result, err := client.TagFiles([]string{file1}, []string{"new_tag"}, nil, false)
+./gooru/tagging_test.go-113-		require.NoError(t, err)
+./gooru/tagging_test.go-114-
+./gooru/tagging_test.go-115-		// Assert
+./gooru/tagging_test.go-116-		assert.Equal(t, 1, result.AffectedCount)
+./gooru/tagging_test.go-117-		require.Len(t, result.Notifications, 1, "Expected one notification for the modification")
+./gooru/tagging_test.go-118-
+./gooru/tagging_test.go-119-		notification := result.Notifications[0]
+./gooru/tagging_test.go-120-		assert.Equal(t, types.NotificationKindModified, notification.Kind)
+./gooru/tagging_test.go-121-		assert.Equal(t, file1, notification.OriginalPath)
+./gooru/tagging_test.go-122-		assert.ElementsMatch(t, []string{"initial_tag"}, notification.OrphanedTags)
+./gooru/tagging_test.go-123-
+./gooru/tagging_test.go-124-		// The file should now only have the new tag associated with its new content
+--
+./gooru/tagging_test.go-127-	})
+./gooru/tagging_test.go-128-
+./gooru/tagging_test.go-129-	t.Run("tagging a moved file detects the move", func(t *testing.T) {
+./gooru/tagging_test.go-130-		t.Parallel()
+./gooru/tagging_test.go-131-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-132-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-133-		require.NoError(t, err)
+./gooru/tagging_test.go-134-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-135-
+./gooru/tagging_test.go-136-		// Arrange: Add an original file and then move it
+./gooru/tagging_test.go-137-		tempDir := t.TempDir()
+./gooru/tagging_test.go-138-		oldPath := createTestFile(t, tempDir, "old.txt", "consistent content")
+./gooru/tagging_test.go:139:		_, err = client.TagFiles([]string{oldPath}, []string{"initial_tag"}, nil, false)
+./gooru/tagging_test.go-140-		require.NoError(t, err)
+./gooru/tagging_test.go-141-
+./gooru/tagging_test.go-142-		newPath := filepath.Join(tempDir, "new.txt")
+./gooru/tagging_test.go-143-		err = os.Rename(oldPath, newPath)
+./gooru/tagging_test.go-144-		require.NoError(t, err)
+./gooru/tagging_test.go-145-
+./gooru/tagging_test.go-146-		// Act: Tag the file at its new path
+./gooru/tagging_test.go:147:		result, err := client.TagFiles([]string{newPath}, []string{"new_tag"}, nil, false)
+./gooru/tagging_test.go-148-		require.NoError(t, err)
+./gooru/tagging_test.go-149-
+./gooru/tagging_test.go-150-		// Assert
+./gooru/tagging_test.go-151-		assert.Equal(t, 1, result.AffectedCount)
+./gooru/tagging_test.go-152-		require.Len(t, result.Notifications, 1, "Expected one notification for the move")
+./gooru/tagging_test.go-153-
+./gooru/tagging_test.go-154-		notification := result.Notifications[0]
+./gooru/tagging_test.go-155-		assert.Equal(t, types.NotificationKindMoveDetected, notification.Kind)
+./gooru/tagging_test.go-156-		assert.Equal(t, newPath, notification.OriginalPath)
+./gooru/tagging_test.go-157-		assert.Equal(t, oldPath, notification.OldPath)
+./gooru/tagging_test.go-158-		assert.Equal(t, newPath, notification.NewPath)
+./gooru/tagging_test.go-159-
+--
+./gooru/tagging_test.go-174-		var progressErr error
+./gooru/tagging_test.go-175-		var mu sync.Mutex
+./gooru/tagging_test.go-176-
+./gooru/tagging_test.go-177-		progressCb := func(filePath string, err error) {
+./gooru/tagging_test.go-178-			if err != nil {
+./gooru/tagging_test.go-179-				mu.Lock()
+./gooru/tagging_test.go-180-				progressErr = err
+./gooru/tagging_test.go-181-				mu.Unlock()
+./gooru/tagging_test.go-182-			}
+./gooru/tagging_test.go-183-		}
+./gooru/tagging_test.go-184-
+./gooru/tagging_test.go-185-		// Act
+./gooru/tagging_test.go:186:		result, err := client.TagFiles([]string{nonExistentPath}, []string{"tag1"}, progressCb, false)
+./gooru/tagging_test.go-187-		require.NoError(t, err, "The main function should not fail for a missing file")
+./gooru/tagging_test.go-188-
+./gooru/tagging_test.go-189-		// Assert
+./gooru/tagging_test.go-190-		assert.Zero(t, result.AffectedCount)
+./gooru/tagging_test.go-191-		assert.Empty(t, result.Notifications)
+./gooru/tagging_test.go-192-		mu.Lock()
+./gooru/tagging_test.go-193-		defer mu.Unlock()
+./gooru/tagging_test.go-194-		require.Error(t, progressErr, "Expected an error from the progress callback")
+./gooru/tagging_test.go-195-		assert.ErrorIs(t, progressErr, os.ErrNotExist, "The error should be a 'not exist' error")
+./gooru/tagging_test.go-196-	})
+./gooru/tagging_test.go-197-
+./gooru/tagging_test.go-198-	t.Run("tagging mixed valid and invalid files processes valid ones", func(t *testing.T) {
+--
+./gooru/tagging_test.go-207-		validFile := createTestFile(t, tempDir, "valid.txt", "content")
+./gooru/tagging_test.go-208-		nonExistentFile := filepath.Join(tempDir, "nonexistent.txt")
+./gooru/tagging_test.go-209-
+./gooru/tagging_test.go-210-		errorMap := make(map[string]error)
+./gooru/tagging_test.go-211-		var mu sync.Mutex
+./gooru/tagging_test.go-212-		progressCb := func(filePath string, err error) {
+./gooru/tagging_test.go-213-			mu.Lock()
+./gooru/tagging_test.go-214-			defer mu.Unlock()
+./gooru/tagging_test.go-215-			errorMap[filePath] = err
+./gooru/tagging_test.go-216-		}
+./gooru/tagging_test.go-217-
+./gooru/tagging_test.go-218-		// Act
+./gooru/tagging_test.go:219:		result, err := client.TagFiles([]string{validFile, nonExistentFile}, []string{"tag1"}, progressCb, false)
+./gooru/tagging_test.go-220-		require.NoError(t, err)
+./gooru/tagging_test.go-221-
+./gooru/tagging_test.go-222-		// Assert
+./gooru/tagging_test.go-223-		assert.Equal(t, 1, result.AffectedCount)
+./gooru/tagging_test.go-224-
+./gooru/tagging_test.go-225-		// Check progress callback results
+./gooru/tagging_test.go-226-		mu.Lock()
+./gooru/tagging_test.go-227-		defer mu.Unlock()
+./gooru/tagging_test.go-228-		assert.Nil(t, errorMap[validFile], "Valid file should not have an error")
+./gooru/tagging_test.go-229-		assert.Error(t, errorMap[nonExistentFile], "Non-existent file should have an error")
+./gooru/tagging_test.go-230-
+./gooru/tagging_test.go-231-		// Check DB state
+--
+./gooru/tagging_test.go-234-	})
+./gooru/tagging_test.go-235-
+./gooru/tagging_test.go-236-	t.Run("tagging with heuristic handles metadata-only change correctly", func(t *testing.T) {
+./gooru/tagging_test.go-237-		t.Parallel()
+./gooru/tagging_test.go-238-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-239-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-240-		require.NoError(t, err)
+./gooru/tagging_test.go-241-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-242-
+./gooru/tagging_test.go-243-		// Arrange: Add a file, then change only its modtime
+./gooru/tagging_test.go-244-		tempDir := t.TempDir()
+./gooru/tagging_test.go-245-		file1 := createTestFile(t, tempDir, "file1.txt", "content")
+./gooru/tagging_test.go:246:		_, err = client.TagFiles([]string{file1}, []string{"initial_tag"}, nil, false)
+./gooru/tagging_test.go-247-		require.NoError(t, err)
+./gooru/tagging_test.go-248-		info, err := os.Stat(file1)
+./gooru/tagging_test.go-249-		require.NoError(t, err)
+./gooru/tagging_test.go-250-		newModTime := info.ModTime().AddDate(0, -1, 0)
+./gooru/tagging_test.go-251-		err = os.Chtimes(file1, newModTime, newModTime)
+./gooru/tagging_test.go-252-		require.NoError(t, err)
+./gooru/tagging_test.go-253-
+./gooru/tagging_test.go-254-		// Act: Tag the file using the metadata heuristic. This should trigger a re-hash,
+./gooru/tagging_test.go-255-		// find the content is the same, and proceed with a normal additive tag operation.
+./gooru/tagging_test.go:256:		result, err := client.TagFiles([]string{file1}, []string{"new_tag"}, nil, true)
+./gooru/tagging_test.go-257-		require.NoError(t, err)
+./gooru/tagging_test.go-258-
+./gooru/tagging_test.go-259-		// Assert: Because the content hash was ultimately the same, no "modified"
+./gooru/tagging_test.go-260-		// notification should be generated and no tags should be orphaned.
+./gooru/tagging_test.go-261-		assert.Empty(t, result.Notifications, "No notification should be generated for a metadata-only change")
+./gooru/tagging_test.go-262-		assert.Equal(t, 1, result.AffectedCount)
+./gooru/tagging_test.go-263-
+./gooru/tagging_test.go-264-		// Both tags should now be present.
+./gooru/tagging_test.go-265-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-266-		assert.ElementsMatch(t, []string{"initial_tag", "new_tag"}, tags)
+./gooru/tagging_test.go-267-	})
+./gooru/tagging_test.go-268-
+./gooru/tagging_test.go-269-	t.Run("tagging with metadata heuristic does NOT re-hash unchanged file", func(t *testing.T) {
+./gooru/tagging_test.go-270-		t.Parallel()
+./gooru/tagging_test.go-271-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-272-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-273-		require.NoError(t, err)
+./gooru/tagging_test.go-274-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-275-
+./gooru/tagging_test.go-276-		// Arrange: Add a file with an initial tag
+./gooru/tagging_test.go-277-		tempDir := t.TempDir()
+./gooru/tagging_test.go-278-		file1 := createTestFile(t, tempDir, "file1.txt", "content")
+./gooru/tagging_test.go:279:		_, err = client.TagFiles([]string{file1}, []string{"initial_tag"}, nil, false)
+./gooru/tagging_test.go-280-		require.NoError(t, err)
+./gooru/tagging_test.go-281-
+./gooru/tagging_test.go-282-		// Act: Tag the file again using the metadata heuristic. The file is unchanged.
+./gooru/tagging_test.go:283:		result, err := client.TagFiles([]string{file1}, []string{"new_tag"}, nil, true)
+./gooru/tagging_test.go-284-		require.NoError(t, err)
+./gooru/tagging_test.go-285-
+./gooru/tagging_test.go-286-		// Assert: No modification should be detected, so no notifications.
+./gooru/tagging_test.go-287-		assert.Empty(t, result.Notifications, "No notification should be generated for an unchanged file")
+./gooru/tagging_test.go-288-		assert.Equal(t, 1, result.AffectedCount)
+./gooru/tagging_test.go-289-
+./gooru/tagging_test.go-290-		// The file should now have both tags.
+./gooru/tagging_test.go-291-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-292-		assert.ElementsMatch(t, []string{"initial_tag", "new_tag"}, tags)
+./gooru/tagging_test.go-293-	})
+./gooru/tagging_test.go-294-}
+./gooru/tagging_test.go-295-
+--
+./gooru/tagging_test.go-297-	t.Parallel()
+./gooru/tagging_test.go-298-
+./gooru/tagging_test.go-299-	t.Run("replace all existing tags with a new set", func(t *testing.T) {
+./gooru/tagging_test.go-300-		t.Parallel()
+./gooru/tagging_test.go-301-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-302-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-303-		require.NoError(t, err)
+./gooru/tagging_test.go-304-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-305-
+./gooru/tagging_test.go-306-		// Arrange
+./gooru/tagging_test.go-307-		tempDir := t.TempDir()
+./gooru/tagging_test.go-308-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go:309:		_, err = client.TagFiles([]string{file1}, []string{"old:tag", "another"}, nil, false)
+./gooru/tagging_test.go-310-		require.NoError(t, err)
+./gooru/tagging_test.go-311-
+./gooru/tagging_test.go-312-		// Act
+./gooru/tagging_test.go-313-		result, err := client.SetTagsForFiles([]string{file1}, []string{"new:tag", "final"}, nil, false)
+./gooru/tagging_test.go-314-		require.NoError(t, err)
+./gooru/tagging_test.go-315-
+./gooru/tagging_test.go-316-		// Assert
+./gooru/tagging_test.go-317-		// AffectedCount for set is (cleared + added) = 2 + 2 = 4
+./gooru/tagging_test.go-318-		assert.Equal(t, 4, result.AffectedCount)
+./gooru/tagging_test.go-319-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-320-		assert.ElementsMatch(t, []string{"new:tag", "final"}, tags)
+./gooru/tagging_test.go-321-	})
+./gooru/tagging_test.go-322-
+./gooru/tagging_test.go-323-	t.Run("setting empty tags removes all tags", func(t *testing.T) {
+./gooru/tagging_test.go-324-		t.Parallel()
+./gooru/tagging_test.go-325-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-326-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-327-		require.NoError(t, err)
+./gooru/tagging_test.go-328-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-329-
+./gooru/tagging_test.go-330-		// Arrange
+./gooru/tagging_test.go-331-		tempDir := t.TempDir()
+./gooru/tagging_test.go-332-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go:333:		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2"}, nil, false)
+./gooru/tagging_test.go-334-		require.NoError(t, err)
+./gooru/tagging_test.go-335-
+./gooru/tagging_test.go-336-		// Act
+./gooru/tagging_test.go-337-		result, err := client.SetTagsForFiles([]string{file1}, []string{}, nil, false)
+./gooru/tagging_test.go-338-		require.NoError(t, err)
+./gooru/tagging_test.go-339-
+./gooru/tagging_test.go-340-		// Assert
+./gooru/tagging_test.go-341-		// AffectedCount for set is (cleared + added) = 2 + 0 = 2
+./gooru/tagging_test.go-342-		assert.Equal(t, 2, result.AffectedCount)
+./gooru/tagging_test.go-343-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-344-		assert.Empty(t, tags)
+./gooru/tagging_test.go-345-	})
+--
+./gooru/tagging_test.go-349-	t.Parallel()
+./gooru/tagging_test.go-350-
+./gooru/tagging_test.go-351-	t.Run("remove specific tags from a file", func(t *testing.T) {
+./gooru/tagging_test.go-352-		t.Parallel()
+./gooru/tagging_test.go-353-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-354-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-355-		require.NoError(t, err)
+./gooru/tagging_test.go-356-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-357-
+./gooru/tagging_test.go-358-		// Arrange
+./gooru/tagging_test.go-359-		tempDir := t.TempDir()
+./gooru/tagging_test.go-360-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go:361:		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2", "tag3"}, nil, false)
+./gooru/tagging_test.go-362-		require.NoError(t, err)
+./gooru/tagging_test.go-363-
+./gooru/tagging_test.go-364-		// Act
+./gooru/tagging_test.go-365-		result, err := client.UntagFiles([]string{file1}, []string{"tag1", "tag3"}, nil, false)
+./gooru/tagging_test.go-366-		require.NoError(t, err)
+./gooru/tagging_test.go-367-
+./gooru/tagging_test.go-368-		// Assert
+./gooru/tagging_test.go-369-		assert.Equal(t, 2, result.AffectedCount)
+./gooru/tagging_test.go-370-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-371-		assert.ElementsMatch(t, []string{"tag2"}, tags)
+./gooru/tagging_test.go-372-	})
+./gooru/tagging_test.go-373-
+./gooru/tagging_test.go-374-	t.Run("removing a non-existent tag is a no-op", func(t *testing.T) {
+./gooru/tagging_test.go-375-		t.Parallel()
+./gooru/tagging_test.go-376-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-377-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-378-		require.NoError(t, err)
+./gooru/tagging_test.go-379-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-380-
+./gooru/tagging_test.go-381-		// Arrange
+./gooru/tagging_test.go-382-		tempDir := t.TempDir()
+./gooru/tagging_test.go-383-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go:384:		_, err = client.TagFiles([]string{file1}, []string{"tag1"}, nil, false)
+./gooru/tagging_test.go-385-		require.NoError(t, err)
+./gooru/tagging_test.go-386-
+./gooru/tagging_test.go-387-		// Act
+./gooru/tagging_test.go-388-		result, err := client.UntagFiles([]string{file1}, []string{"non-existent"}, nil, false)
+./gooru/tagging_test.go-389-		require.NoError(t, err)
+./gooru/tagging_test.go-390-
+./gooru/tagging_test.go-391-		// Assert
+./gooru/tagging_test.go-392-		assert.Equal(t, 0, result.AffectedCount)
+./gooru/tagging_test.go-393-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-394-		assert.ElementsMatch(t, []string{"tag1"}, tags)
+./gooru/tagging_test.go-395-	})
+./gooru/tagging_test.go-396-
+./gooru/tagging_test.go-397-	t.Run("untag with empty tags list removes all tags", func(t *testing.T) {
+./gooru/tagging_test.go-398-		t.Parallel()
+./gooru/tagging_test.go-399-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-400-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-401-		require.NoError(t, err)
+./gooru/tagging_test.go-402-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-403-
+./gooru/tagging_test.go-404-		// Arrange
+./gooru/tagging_test.go-405-		tempDir := t.TempDir()
+./gooru/tagging_test.go-406-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go:407:		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2"}, nil, false)
+./gooru/tagging_test.go-408-		require.NoError(t, err)
+./gooru/tagging_test.go-409-
+./gooru/tagging_test.go-410-		// Act: This is a special case that maps to SetTags with empty tags
+./gooru/tagging_test.go-411-		result, err := client.UntagFiles([]string{file1}, []string{}, nil, false)
+./gooru/tagging_test.go-412-		require.NoError(t, err)
+./gooru/tagging_test.go-413-
+./gooru/tagging_test.go-414-		// Assert
+./gooru/tagging_test.go-415-		// The underlying SetTags returns (cleared + added) = 2 + 0 = 2
+./gooru/tagging_test.go-416-		assert.Equal(t, 2, result.AffectedCount)
+./gooru/tagging_test.go-417-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-418-		assert.Empty(t, tags)
+./gooru/tagging_test.go-419-	})
+./gooru/tagging_test.go-420-}
+./gooru/tagging_test.go-421-
+./gooru/tagging_test.go:422:func TestClient_TagFilesByQuery(t *testing.T) {
+./gooru/tagging_test.go-423-	t.Parallel()
+./gooru/tagging_test.go-424-	dbPath := setupTestDB(t)
+./gooru/tagging_test.go-425-	client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-426-	require.NoError(t, err)
+./gooru/tagging_test.go-427-	t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-428-
+./gooru/tagging_test.go-429-	// Arrange
+./gooru/tagging_test.go-430-	tempDir := t.TempDir()
+./gooru/tagging_test.go-431-	f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+./gooru/tagging_test.go-432-	f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+./gooru/tagging_test.go-433-	f3 := createTestFile(t, tempDir, "f3.txt", "c3")
+./gooru/tagging_test.go:434:	_, err = client.TagFiles([]string{f1}, []string{"project:a", "review"}, nil, false)
+./gooru/tagging_test.go-435-	require.NoError(t, err)
+./gooru/tagging_test.go:436:	_, err = client.TagFiles([]string{f2}, []string{"project:b", "review"}, nil, false)
+./gooru/tagging_test.go-437-	require.NoError(t, err)
+./gooru/tagging_test.go:438:	_, err = client.TagFiles([]string{f3}, []string{"project:a", "final"}, nil, false)
+./gooru/tagging_test.go-439-	require.NoError(t, err)
+./gooru/tagging_test.go-440-
+./gooru/tagging_test.go-441-	// Act: Tag all files with `review` tag with a new `archived` tag.
+./gooru/tagging_test.go-442-	affected, err := client.TagFilesByQuery("review", []string{"archived"})
+./gooru/tagging_test.go-443-	require.NoError(t, err)
+./gooru/tagging_test.go-444-
+./gooru/tagging_test.go-445-	// Assert: f1 and f2 should be affected.
+./gooru/tagging_test.go-446-	assert.Equal(t, 2, affected)
+./gooru/tagging_test.go-447-	tags1, _, _ := client.GetTagsForFile(f1, false)
+./gooru/tagging_test.go-448-	assert.Contains(t, tags1, "archived")
+./gooru/tagging_test.go-449-	tags2, _, _ := client.GetTagsForFile(f2, false)
+./gooru/tagging_test.go-450-	assert.Contains(t, tags2, "archived")
+--
+./gooru/tagging_test.go-455-func TestClient_SetTagsForFilesByQuery(t *testing.T) {
+./gooru/tagging_test.go-456-	t.Parallel()
+./gooru/tagging_test.go-457-	dbPath := setupTestDB(t)
+./gooru/tagging_test.go-458-	client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-459-	require.NoError(t, err)
+./gooru/tagging_test.go-460-	t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-461-
+./gooru/tagging_test.go-462-	// Arrange
+./gooru/tagging_test.go-463-	tempDir := t.TempDir()
+./gooru/tagging_test.go-464-	f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+./gooru/tagging_test.go-465-	f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+./gooru/tagging_test.go-466-	f3 := createTestFile(t, tempDir, "f3.txt", "c3")
+./gooru/tagging_test.go:467:	_, err = client.TagFiles([]string{f1}, []string{"project:a", "review"}, nil, false)
+./gooru/tagging_test.go-468-	require.NoError(t, err)
+./gooru/tagging_test.go:469:	_, err = client.TagFiles([]string{f2}, []string{"project:b", "review"}, nil, false)
+./gooru/tagging_test.go-470-	require.NoError(t, err)
+./gooru/tagging_test.go:471:	_, err = client.TagFiles([]string{f3}, []string{"project:a", "final"}, nil, false)
+./gooru/tagging_test.go-472-	require.NoError(t, err)
+./gooru/tagging_test.go-473-
+./gooru/tagging_test.go-474-	// Act: Replace tags for all files with `project:a` with a single `migrated` tag.
+./gooru/tagging_test.go-475-	affected, err := client.SetTagsForFilesByQuery("project:a", []string{"migrated"})
+./gooru/tagging_test.go-476-	require.NoError(t, err)
+./gooru/tagging_test.go-477-
+./gooru/tagging_test.go-478-	// Assert: f1 and f3 should be affected.
+./gooru/tagging_test.go-479-	assert.Equal(t, 2, affected)
+./gooru/tagging_test.go-480-	tags1, _, _ := client.GetTagsForFile(f1, false)
+./gooru/tagging_test.go-481-	assert.Equal(t, []string{"migrated"}, tags1)
+./gooru/tagging_test.go-482-	tags3, _, _ := client.GetTagsForFile(f3, false)
+./gooru/tagging_test.go-483-	assert.Equal(t, []string{"migrated"}, tags3)
+--
+./gooru/tagging_test.go-489-func TestClient_UntagFilesByQuery(t *testing.T) {
+./gooru/tagging_test.go-490-	t.Parallel()
+./gooru/tagging_test.go-491-	dbPath := setupTestDB(t)
+./gooru/tagging_test.go-492-	client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-493-	require.NoError(t, err)
+./gooru/tagging_test.go-494-	t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-495-
+./gooru/tagging_test.go-496-	// Arrange
+./gooru/tagging_test.go-497-	tempDir := t.TempDir()
+./gooru/tagging_test.go-498-	f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+./gooru/tagging_test.go-499-	f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+./gooru/tagging_test.go-500-	f3 := createTestFile(t, tempDir, "f3.txt", "c3")
+./gooru/tagging_test.go:501:	_, err = client.TagFiles([]string{f1}, []string{"project:a", "review"}, nil, false)
+./gooru/tagging_test.go-502-	require.NoError(t, err)
+./gooru/tagging_test.go:503:	_, err = client.TagFiles([]string{f2}, []string{"project:b", "review"}, nil, false)
+./gooru/tagging_test.go-504-	require.NoError(t, err)
+./gooru/tagging_test.go:505:	_, err = client.TagFiles([]string{f3}, []string{"project:a", "final"}, nil, false)
+./gooru/tagging_test.go-506-	require.NoError(t, err)
+./gooru/tagging_test.go-507-
+./gooru/tagging_test.go-508-	// Act: Remove the `review` tag from all files.
+./gooru/tagging_test.go-509-	affected, err := client.UntagFilesByQuery("review", []string{"review"})
+./gooru/tagging_test.go-510-	require.NoError(t, err)
+./gooru/tagging_test.go-511-
+./gooru/tagging_test.go-512-	// Assert: f1 and f2 had the tag in the initial state. This test is now independent.
+./gooru/tagging_test.go-513-	assert.Equal(t, 2, affected)
+./gooru/tagging_test.go-514-	tags1, _, _ := client.GetTagsForFile(f1, false)
+./gooru/tagging_test.go-515-	assert.NotContains(t, tags1, "review")
+./gooru/tagging_test.go-516-	tags2, _, _ := client.GetTagsForFile(f2, false)
+./gooru/tagging_test.go-517-	assert.NotContains(t, tags2, "review")
+--
+./gooru/tagging_test.go-525-
+./gooru/tagging_test.go-526-	t.Run("successfully renames a tag and updates cache", func(t *testing.T) {
+./gooru/tagging_test.go-527-		t.Parallel()
+./gooru/tagging_test.go-528-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-529-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-530-		require.NoError(t, err)
+./gooru/tagging_test.go-531-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-532-
+./gooru/tagging_test.go-533-		// Arrange
+./gooru/tagging_test.go-534-		tempDir := t.TempDir()
+./gooru/tagging_test.go-535-		f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+./gooru/tagging_test.go-536-		f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+./gooru/tagging_test.go:537:		_, err = client.TagFiles([]string{f1, f2}, []string{"project:alpha", "version:1"}, nil, false)
+./gooru/tagging_test.go-538-		require.NoError(t, err)
+./gooru/tagging_test.go-539-
+./gooru/tagging_test.go-540-		// Act
+./gooru/tagging_test.go-541-		err = client.RenameTag("project:alpha", "project:beta")
+./gooru/tagging_test.go-542-		require.NoError(t, err)
+./gooru/tagging_test.go-543-
+./gooru/tagging_test.go-544-		// Assert
+./gooru/tagging_test.go-545-		tags1, _, _ := client.GetTagsForFile(f1, false)
+./gooru/tagging_test.go-546-		assert.ElementsMatch(t, []string{"project:beta", "version:1"}, tags1)
+./gooru/tagging_test.go-547-
+./gooru/tagging_test.go-548-		tags2, _, _ := client.GetTagsForFile(f2, false)
+./gooru/tagging_test.go-549-		assert.ElementsMatch(t, []string{"project:beta", "version:1"}, tags2)
+--
+./gooru/tagging_test.go-555-	})
+./gooru/tagging_test.go-556-
+./gooru/tagging_test.go-557-	t.Run("fail to rename to an existing tag", func(t *testing.T) {
+./gooru/tagging_test.go-558-		t.Parallel()
+./gooru/tagging_test.go-559-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-560-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-561-		require.NoError(t, err)
+./gooru/tagging_test.go-562-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-563-
+./gooru/tagging_test.go-564-		// Arrange
+./gooru/tagging_test.go-565-		tempDir := t.TempDir()
+./gooru/tagging_test.go-566-		f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+./gooru/tagging_test.go:567:		_, err = client.TagFiles([]string{f1}, []string{"old_tag", "existing_tag"}, nil, false)
+./gooru/tagging_test.go-568-		require.NoError(t, err)
+./gooru/tagging_test.go-569-
+./gooru/tagging_test.go-570-		// Act
+./gooru/tagging_test.go-571-		err = client.RenameTag("old_tag", "existing_tag")
+./gooru/tagging_test.go-572-
+./gooru/tagging_test.go-573-		// Assert
+./gooru/tagging_test.go-574-		require.Error(t, err)
+./gooru/tagging_test.go-575-		assert.Contains(t, err.Error(), "already exists")
+./gooru/tagging_test.go-576-	})
+./gooru/tagging_test.go-577-
+./gooru/tagging_test.go-578-	t.Run("fail to rename a non-existent tag", func(t *testing.T) {
+./gooru/tagging_test.go-579-		t.Parallel()
+
+=== SetTags/Untag definitions and calls ===
+./cmd/gooru/cmd/settags.go-109-			var filesFailed, filesSucceeded int
+./cmd/gooru/cmd/settags.go-110-			progressCb := func(filePath string, err error) {
+./cmd/gooru/cmd/settags.go-111-				if err != nil {
+./cmd/gooru/cmd/settags.go-112-					filesFailed++
+./cmd/gooru/cmd/settags.go-113-					fmt.Printf("Failed to set tags for '%s': %v\n", filePath, err)
+./cmd/gooru/cmd/settags.go-114-				} else {
+./cmd/gooru/cmd/settags.go-115-					filesSucceeded++
+./cmd/gooru/cmd/settags.go-116-				}
+./cmd/gooru/cmd/settags.go-117-			}
+./cmd/gooru/cmd/settags.go-118-
+./cmd/gooru/cmd/settags.go:119:			result, err := svc.SetTagsForFiles(files, tags, progressCb, settagsUseMetadata)
+./cmd/gooru/cmd/settags.go-120-			if err != nil {
+./cmd/gooru/cmd/settags.go-121-				// This will be a DB error that caused a rollback.
+./cmd/gooru/cmd/settags.go-122-				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+./cmd/gooru/cmd/settags.go-123-			}
+./cmd/gooru/cmd/settags.go-124-
+./cmd/gooru/cmd/settags.go-125-			for _, n := range result.Notifications {
+./cmd/gooru/cmd/settags.go-126-				switch n.Kind {
+./cmd/gooru/cmd/settags.go-127-				case types.NotificationKindModified:
+./cmd/gooru/cmd/settags.go-128-					fmt.Printf("Updated database for modified file: '%s'\n", n.OriginalPath)
+./cmd/gooru/cmd/settags.go-129-					if len(n.OrphanedTags) > 0 {
+--
+./cmd/gooru/cmd/untag.go-115-			var filesFailed, filesSucceeded int
+./cmd/gooru/cmd/untag.go-116-			progressCb := func(filePath string, err error) {
+./cmd/gooru/cmd/untag.go-117-				if err != nil {
+./cmd/gooru/cmd/untag.go-118-					filesFailed++
+./cmd/gooru/cmd/untag.go-119-					fmt.Printf("Failed to process '%s': %v\n", filePath, err)
+./cmd/gooru/cmd/untag.go-120-				} else {
+./cmd/gooru/cmd/untag.go-121-					filesSucceeded++
+./cmd/gooru/cmd/untag.go-122-				}
+./cmd/gooru/cmd/untag.go-123-			}
+./cmd/gooru/cmd/untag.go-124-
+./cmd/gooru/cmd/untag.go:125:			result, err := svc.UntagFiles(files, tags, progressCb, untagUseMetadata)
+./cmd/gooru/cmd/untag.go-126-			if err != nil {
+./cmd/gooru/cmd/untag.go-127-				// This will be a DB error that caused a rollback.
+./cmd/gooru/cmd/untag.go-128-				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
+./cmd/gooru/cmd/untag.go-129-			}
+./cmd/gooru/cmd/untag.go-130-
+./cmd/gooru/cmd/untag.go-131-			for _, n := range result.Notifications {
+./cmd/gooru/cmd/untag.go-132-				switch n.Kind {
+./cmd/gooru/cmd/untag.go-133-				case types.NotificationKindModified:
+./cmd/gooru/cmd/untag.go-134-					fmt.Printf("Updated database for modified file: '%s'\n", n.OriginalPath)
+./cmd/gooru/cmd/untag.go-135-					if len(n.OrphanedTags) > 0 {
+--
+./gooru/tagging_test.go-286-		// Assert: No modification should be detected, so no notifications.
+./gooru/tagging_test.go-287-		assert.Empty(t, result.Notifications, "No notification should be generated for an unchanged file")
+./gooru/tagging_test.go-288-		assert.Equal(t, 1, result.AffectedCount)
+./gooru/tagging_test.go-289-
+./gooru/tagging_test.go-290-		// The file should now have both tags.
+./gooru/tagging_test.go-291-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-292-		assert.ElementsMatch(t, []string{"initial_tag", "new_tag"}, tags)
+./gooru/tagging_test.go-293-	})
+./gooru/tagging_test.go-294-}
+./gooru/tagging_test.go-295-
+./gooru/tagging_test.go:296:func TestClient_SetTagsForFiles(t *testing.T) {
+./gooru/tagging_test.go-297-	t.Parallel()
+./gooru/tagging_test.go-298-
+./gooru/tagging_test.go-299-	t.Run("replace all existing tags with a new set", func(t *testing.T) {
+./gooru/tagging_test.go-300-		t.Parallel()
+./gooru/tagging_test.go-301-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-302-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-303-		require.NoError(t, err)
+./gooru/tagging_test.go-304-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-305-
+./gooru/tagging_test.go-306-		// Arrange
+./gooru/tagging_test.go-307-		tempDir := t.TempDir()
+./gooru/tagging_test.go-308-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go-309-		_, err = client.TagFiles([]string{file1}, []string{"old:tag", "another"}, nil, false)
+./gooru/tagging_test.go-310-		require.NoError(t, err)
+./gooru/tagging_test.go-311-
+./gooru/tagging_test.go-312-		// Act
+./gooru/tagging_test.go:313:		result, err := client.SetTagsForFiles([]string{file1}, []string{"new:tag", "final"}, nil, false)
+./gooru/tagging_test.go-314-		require.NoError(t, err)
+./gooru/tagging_test.go-315-
+./gooru/tagging_test.go-316-		// Assert
+./gooru/tagging_test.go-317-		// AffectedCount for set is (cleared + added) = 2 + 2 = 4
+./gooru/tagging_test.go-318-		assert.Equal(t, 4, result.AffectedCount)
+./gooru/tagging_test.go-319-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-320-		assert.ElementsMatch(t, []string{"new:tag", "final"}, tags)
+./gooru/tagging_test.go-321-	})
+./gooru/tagging_test.go-322-
+./gooru/tagging_test.go-323-	t.Run("setting empty tags removes all tags", func(t *testing.T) {
+--
+./gooru/tagging_test.go-327-		require.NoError(t, err)
+./gooru/tagging_test.go-328-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-329-
+./gooru/tagging_test.go-330-		// Arrange
+./gooru/tagging_test.go-331-		tempDir := t.TempDir()
+./gooru/tagging_test.go-332-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go-333-		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2"}, nil, false)
+./gooru/tagging_test.go-334-		require.NoError(t, err)
+./gooru/tagging_test.go-335-
+./gooru/tagging_test.go-336-		// Act
+./gooru/tagging_test.go:337:		result, err := client.SetTagsForFiles([]string{file1}, []string{}, nil, false)
+./gooru/tagging_test.go-338-		require.NoError(t, err)
+./gooru/tagging_test.go-339-
+./gooru/tagging_test.go-340-		// Assert
+./gooru/tagging_test.go-341-		// AffectedCount for set is (cleared + added) = 2 + 0 = 2
+./gooru/tagging_test.go-342-		assert.Equal(t, 2, result.AffectedCount)
+./gooru/tagging_test.go-343-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-344-		assert.Empty(t, tags)
+./gooru/tagging_test.go-345-	})
+./gooru/tagging_test.go-346-}
+./gooru/tagging_test.go-347-
+./gooru/tagging_test.go:348:func TestClient_UntagFiles(t *testing.T) {
+./gooru/tagging_test.go-349-	t.Parallel()
+./gooru/tagging_test.go-350-
+./gooru/tagging_test.go-351-	t.Run("remove specific tags from a file", func(t *testing.T) {
+./gooru/tagging_test.go-352-		t.Parallel()
+./gooru/tagging_test.go-353-		dbPath := setupTestDB(t)
+./gooru/tagging_test.go-354-		client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-355-		require.NoError(t, err)
+./gooru/tagging_test.go-356-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-357-
+./gooru/tagging_test.go-358-		// Arrange
+./gooru/tagging_test.go-359-		tempDir := t.TempDir()
+./gooru/tagging_test.go-360-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go-361-		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2", "tag3"}, nil, false)
+./gooru/tagging_test.go-362-		require.NoError(t, err)
+./gooru/tagging_test.go-363-
+./gooru/tagging_test.go-364-		// Act
+./gooru/tagging_test.go:365:		result, err := client.UntagFiles([]string{file1}, []string{"tag1", "tag3"}, nil, false)
+./gooru/tagging_test.go-366-		require.NoError(t, err)
+./gooru/tagging_test.go-367-
+./gooru/tagging_test.go-368-		// Assert
+./gooru/tagging_test.go-369-		assert.Equal(t, 2, result.AffectedCount)
+./gooru/tagging_test.go-370-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-371-		assert.ElementsMatch(t, []string{"tag2"}, tags)
+./gooru/tagging_test.go-372-	})
+./gooru/tagging_test.go-373-
+./gooru/tagging_test.go-374-	t.Run("removing a non-existent tag is a no-op", func(t *testing.T) {
+./gooru/tagging_test.go-375-		t.Parallel()
+--
+./gooru/tagging_test.go-378-		require.NoError(t, err)
+./gooru/tagging_test.go-379-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-380-
+./gooru/tagging_test.go-381-		// Arrange
+./gooru/tagging_test.go-382-		tempDir := t.TempDir()
+./gooru/tagging_test.go-383-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go-384-		_, err = client.TagFiles([]string{file1}, []string{"tag1"}, nil, false)
+./gooru/tagging_test.go-385-		require.NoError(t, err)
+./gooru/tagging_test.go-386-
+./gooru/tagging_test.go-387-		// Act
+./gooru/tagging_test.go:388:		result, err := client.UntagFiles([]string{file1}, []string{"non-existent"}, nil, false)
+./gooru/tagging_test.go-389-		require.NoError(t, err)
+./gooru/tagging_test.go-390-
+./gooru/tagging_test.go-391-		// Assert
+./gooru/tagging_test.go-392-		assert.Equal(t, 0, result.AffectedCount)
+./gooru/tagging_test.go-393-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-394-		assert.ElementsMatch(t, []string{"tag1"}, tags)
+./gooru/tagging_test.go-395-	})
+./gooru/tagging_test.go-396-
+./gooru/tagging_test.go-397-	t.Run("untag with empty tags list removes all tags", func(t *testing.T) {
+./gooru/tagging_test.go-398-		t.Parallel()
+--
+./gooru/tagging_test.go-401-		require.NoError(t, err)
+./gooru/tagging_test.go-402-		t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-403-
+./gooru/tagging_test.go-404-		// Arrange
+./gooru/tagging_test.go-405-		tempDir := t.TempDir()
+./gooru/tagging_test.go-406-		file1 := createTestFile(t, tempDir, "file1.txt", "content A")
+./gooru/tagging_test.go-407-		_, err = client.TagFiles([]string{file1}, []string{"tag1", "tag2"}, nil, false)
+./gooru/tagging_test.go-408-		require.NoError(t, err)
+./gooru/tagging_test.go-409-
+./gooru/tagging_test.go-410-		// Act: This is a special case that maps to SetTags with empty tags
+./gooru/tagging_test.go:411:		result, err := client.UntagFiles([]string{file1}, []string{}, nil, false)
+./gooru/tagging_test.go-412-		require.NoError(t, err)
+./gooru/tagging_test.go-413-
+./gooru/tagging_test.go-414-		// Assert
+./gooru/tagging_test.go-415-		// The underlying SetTags returns (cleared + added) = 2 + 0 = 2
+./gooru/tagging_test.go-416-		assert.Equal(t, 2, result.AffectedCount)
+./gooru/tagging_test.go-417-		tags, _, _ := client.GetTagsForFile(file1, false)
+./gooru/tagging_test.go-418-		assert.Empty(t, tags)
+./gooru/tagging_test.go-419-	})
+./gooru/tagging_test.go-420-}
+./gooru/tagging_test.go-421-
+--
+./gooru/tagging_test.go-445-	// Assert: f1 and f2 should be affected.
+./gooru/tagging_test.go-446-	assert.Equal(t, 2, affected)
+./gooru/tagging_test.go-447-	tags1, _, _ := client.GetTagsForFile(f1, false)
+./gooru/tagging_test.go-448-	assert.Contains(t, tags1, "archived")
+./gooru/tagging_test.go-449-	tags2, _, _ := client.GetTagsForFile(f2, false)
+./gooru/tagging_test.go-450-	assert.Contains(t, tags2, "archived")
+./gooru/tagging_test.go-451-	tags3, _, _ := client.GetTagsForFile(f3, false)
+./gooru/tagging_test.go-452-	assert.NotContains(t, tags3, "archived")
+./gooru/tagging_test.go-453-}
+./gooru/tagging_test.go-454-
+./gooru/tagging_test.go:455:func TestClient_SetTagsForFilesByQuery(t *testing.T) {
+./gooru/tagging_test.go-456-	t.Parallel()
+./gooru/tagging_test.go-457-	dbPath := setupTestDB(t)
+./gooru/tagging_test.go-458-	client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-459-	require.NoError(t, err)
+./gooru/tagging_test.go-460-	t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-461-
+./gooru/tagging_test.go-462-	// Arrange
+./gooru/tagging_test.go-463-	tempDir := t.TempDir()
+./gooru/tagging_test.go-464-	f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+./gooru/tagging_test.go-465-	f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+--
+./gooru/tagging_test.go-479-	assert.Equal(t, 2, affected)
+./gooru/tagging_test.go-480-	tags1, _, _ := client.GetTagsForFile(f1, false)
+./gooru/tagging_test.go-481-	assert.Equal(t, []string{"migrated"}, tags1)
+./gooru/tagging_test.go-482-	tags3, _, _ := client.GetTagsForFile(f3, false)
+./gooru/tagging_test.go-483-	assert.Equal(t, []string{"migrated"}, tags3)
+./gooru/tagging_test.go-484-	// f2 should be unchanged
+./gooru/tagging_test.go-485-	tags2, _, _ := client.GetTagsForFile(f2, false)
+./gooru/tagging_test.go-486-	assert.Contains(t, tags2, "review")
+./gooru/tagging_test.go-487-}
+./gooru/tagging_test.go-488-
+./gooru/tagging_test.go:489:func TestClient_UntagFilesByQuery(t *testing.T) {
+./gooru/tagging_test.go-490-	t.Parallel()
+./gooru/tagging_test.go-491-	dbPath := setupTestDB(t)
+./gooru/tagging_test.go-492-	client, err := gooru.New(dbPath, false)
+./gooru/tagging_test.go-493-	require.NoError(t, err)
+./gooru/tagging_test.go-494-	t.Cleanup(func() { client.Close() })
+./gooru/tagging_test.go-495-
+./gooru/tagging_test.go-496-	// Arrange
+./gooru/tagging_test.go-497-	tempDir := t.TempDir()
+./gooru/tagging_test.go-498-	f1 := createTestFile(t, tempDir, "f1.txt", "c1")
+./gooru/tagging_test.go-499-	f2 := createTestFile(t, tempDir, "f2.txt", "c2")
+--
+./gooru/tagging.go-90-	if progressCb != nil {
+./gooru/tagging.go-91-		for _, data := range analysis.allFileData {
+./gooru/tagging.go-92-			progressCb(data.path, nil)
+./gooru/tagging.go-93-		}
+./gooru/tagging.go-94-	}
+./gooru/tagging.go-95-	return result, nil
+./gooru/tagging.go-96-}
+./gooru/tagging.go-97-
+./gooru/tagging.go-98-// UntagFiles removes tags from files. If no tags are provided, all tags are removed.
+./gooru/tagging.go-99-// Returns the number of tag associations removed and a list of notifications.
+./gooru/tagging.go:100:func (c *Client) UntagFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error) {
+./gooru/tagging.go-101-	if err := query.ValidateTags(tags); err != nil {
+./gooru/tagging.go-102-		return types.TagOperationResult{}, err
+./gooru/tagging.go-103-	}
+./gooru/tagging.go-104-	if len(tags) == 0 {
+./gooru/tagging.go-105-		// Clearing all tags is equivalent to `settags` with no tags.
+./gooru/tagging.go-106-		// For settags, we'll return the number of tags cleared.
+./gooru/tagging.go-107-		return c.performTagOperation(filePaths, []string{}, progressCb, opSetTags, useMetadataHeuristic)
+./gooru/tagging.go-108-	}
+./gooru/tagging.go-109-	return c.performTagOperation(filePaths, tags, progressCb, opUntag, useMetadataHeuristic)
+./gooru/tagging.go-110-}
+--
+./gooru/tagging.go-153-	if err != nil {
+./gooru/tagging.go-154-		return 0, err
+./gooru/tagging.go-155-	}
+./gooru/tagging.go-156-
+./gooru/tagging.go-157-	return int(affected), tx.Commit()
+./gooru/tagging.go-158-}
+./gooru/tagging.go-159-
+./gooru/tagging.go-160-// UntagFilesByQuery removes tags from all files matching a query expression.
+./gooru/tagging.go-161-// If tags is empty, it removes ALL tags from matching files and returns the number of files affected.
+./gooru/tagging.go-162-// Otherwise, it returns the number of tag associations removed.
+./gooru/tagging.go:163:func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error) {
+./gooru/tagging.go-164-	// The query parser validates the expression syntax. We only need to validate the
+./gooru/tagging.go-165-	// separate `tags` argument if it's provided.
+./gooru/tagging.go-166-	if len(tags) > 0 {
+./gooru/tagging.go-167-		if err := query.ValidateTags(tags); err != nil {
+./gooru/tagging.go-168-			return 0, err
+./gooru/tagging.go-169-		}
+./gooru/tagging.go-170-	}
+./gooru/tagging.go-171-
+./gooru/tagging.go-172-	sqlQuery, args, err := c.buildQuery(expression)
+./gooru/tagging.go-173-	if err != nil {
+--
+./gooru/tagging.go-224-	affected, err := c.store.BatchDisassociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs)
+./gooru/tagging.go-225-	if err != nil {
+./gooru/tagging.go-226-		return 0, err
+./gooru/tagging.go-227-	}
+./gooru/tagging.go-228-
+./gooru/tagging.go-229-	return int(affected), tx.Commit()
+./gooru/tagging.go-230-}
+./gooru/tagging.go-231-
+./gooru/tagging.go-232-// SetTagsForFilesByQuery sets tags for all files matching a query expression, replacing existing ones.
+./gooru/tagging.go-233-// Returns the number of content items affected.
+./gooru/tagging.go:234:func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, error) {
+./gooru/tagging.go-235-	if err := query.ValidateTags(tags); err != nil {
+./gooru/tagging.go-236-		return 0, err
+./gooru/tagging.go-237-	}
+./gooru/tagging.go-238-	sqlQuery, args, err := c.buildQuery(expression)
+./gooru/tagging.go-239-	if err != nil {
+./gooru/tagging.go-240-		return 0, err
+./gooru/tagging.go-241-	}
+./gooru/tagging.go-242-	if sqlQuery == "" {
+./gooru/tagging.go-243-		return 0, nil
+./gooru/tagging.go-244-	}
+--
+./gooru/tagging.go-315-	}
+./gooru/tagging.go-316-
+./gooru/tagging.go-317-	oldParsedTag := query.ParseTag(oldName)
+./gooru/tagging.go-318-	newParsedTag := query.ParseTag(newName)
+./gooru/tagging.go-319-
+./gooru/tagging.go-320-	return c.store.RenameTag(oldParsedTag, newParsedTag)
+./gooru/tagging.go-321-}
+./gooru/tagging.go-322-
+./gooru/tagging.go-323-// SetTagsForFiles sets the tags for multiple files, replacing any existing ones, using a batching strategy.
+./gooru/tagging.go-324-// Returns the total number of changes (associations removed + associations added) and a list of notifications.
+./gooru/tagging.go:325:func (c *Client) SetTagsForFiles(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadataHeuristic bool) (types.TagOperationResult, error) {
+./gooru/tagging.go-326-	if err := query.ValidateTags(tags); err != nil {
+./gooru/tagging.go-327-		return types.TagOperationResult{}, err
+./gooru/tagging.go-328-	}
+./gooru/tagging.go-329-	return c.performTagOperation(filePaths, tags, progressCb, opSetTags, useMetadataHeuristic)
+./gooru/tagging.go-330-}
+./gooru/tagging.go-331-
+./gooru/tagging.go-332-// fileData is an internal struct for tracking file state during a tagging operation.
+./gooru/tagging.go-333-type fileData struct {
+./gooru/tagging.go-334-	path         string // original path for callbacks
+./gooru/tagging.go-335-	info         types.LocationInfo
+--
+./gooru/tagging_query_exclusions.go-7-	"gooru.local/internal/query"
+./gooru/tagging_query_exclusions.go-8-	"gooru.local/types"
+./gooru/tagging_query_exclusions.go-9-)
+./gooru/tagging_query_exclusions.go-10-
+./gooru/tagging_query_exclusions.go-11-// TagFilesByQueryExcluding adds tags to query matches except content hashes in excludedHashes.
+./gooru/tagging_query_exclusions.go-12-func (c *Client) TagFilesByQueryExcluding(expression string, tags, excludedHashes []string) (int, error) {
+./gooru/tagging_query_exclusions.go-13-	return c.mutateTagsByQueryExcluding(expression, tags, excludedHashes, opTag)
+./gooru/tagging_query_exclusions.go-14-}
+./gooru/tagging_query_exclusions.go-15-
+./gooru/tagging_query_exclusions.go-16-// UntagFilesByQueryExcluding removes tags from query matches except content hashes in excludedHashes.
+./gooru/tagging_query_exclusions.go:17:func (c *Client) UntagFilesByQueryExcluding(expression string, tags, excludedHashes []string) (int, error) {
+./gooru/tagging_query_exclusions.go-18-	return c.mutateTagsByQueryExcluding(expression, tags, excludedHashes, opUntag)
+./gooru/tagging_query_exclusions.go-19-}
+./gooru/tagging_query_exclusions.go-20-
+./gooru/tagging_query_exclusions.go-21-// SetTagsForFilesByQueryExcluding replaces tags on query matches except content hashes in excludedHashes.
+./gooru/tagging_query_exclusions.go:22:func (c *Client) SetTagsForFilesByQueryExcluding(expression string, tags, excludedHashes []string) (int, error) {
+./gooru/tagging_query_exclusions.go-23-	return c.mutateTagsByQueryExcluding(expression, tags, excludedHashes, opSetTags)
+./gooru/tagging_query_exclusions.go-24-}
+./gooru/tagging_query_exclusions.go-25-
+./gooru/tagging_query_exclusions.go-26-func (c *Client) mutateTagsByQueryExcluding(expression string, tags, excludedHashes []string, operation opKind) (int, error) {
+./gooru/tagging_query_exclusions.go-27-	if operation != opUntag || len(tags) > 0 {
+./gooru/tagging_query_exclusions.go-28-		if err := query.ValidateTags(tags); err != nil {
+./gooru/tagging_query_exclusions.go-29-			return 0, err
+./gooru/tagging_query_exclusions.go-30-		}
+./gooru/tagging_query_exclusions.go-31-	}
+./gooru/tagging_query_exclusions.go-32-	if operation == opTag && len(tags) == 0 {
+--
+./internal/serve/tag_mutations.go-364-	}
+./internal/serve/tag_mutations.go-365-	response.AffectedCount = affected
+./internal/serve/tag_mutations.go-366-	return response, nil
+./internal/serve/tag_mutations.go-367-}
+./internal/serve/tag_mutations.go-368-
+./internal/serve/tag_mutations.go-369-func (l *GooruLibrary) mutateTagPaths(operation TagOperation, paths []string, tags []string) (types.TagOperationResult, error) {
+./internal/serve/tag_mutations.go-370-	switch operation {
+./internal/serve/tag_mutations.go-371-	case TagOperationAdd:
+./internal/serve/tag_mutations.go-372-		return l.client.TagFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-373-	case TagOperationSet:
+./internal/serve/tag_mutations.go:374:		return l.client.SetTagsForFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-375-	case TagOperationRemove:
+./internal/serve/tag_mutations.go:376:		return l.client.UntagFiles(paths, tags, nil, true)
+./internal/serve/tag_mutations.go-377-	default:
+./internal/serve/tag_mutations.go-378-		return types.TagOperationResult{}, fmt.Errorf("unsupported tag operation %q", operation)
+./internal/serve/tag_mutations.go-379-	}
+./internal/serve/tag_mutations.go-380-}
+./internal/serve/tag_mutations.go-381-
+./internal/serve/tag_mutations.go-382-func (l *GooruLibrary) mutateTagQuery(operation TagOperation, expression string, tags []string) (int, error) {
+./internal/serve/tag_mutations.go-383-	return l.mutateTagQueryExcluding(operation, expression, tags, nil)
+./internal/serve/tag_mutations.go-384-}
+./internal/serve/tag_mutations.go-385-
+./internal/serve/tag_mutations.go-386-func (l *GooruLibrary) mutateTagQueryExcluding(operation TagOperation, expression string, tags, excludedHashes []string) (int, error) {
+
+=== TagOperationResult definitions ===
 internal/serve/tag_mutations.go-359-		excludedHashes = append(excludedHashes, file.Hash)
 internal/serve/tag_mutations.go-360-	}
-internal/serve/tag_mutations.go:361:	affected, err := l.mutateTagQueryExcluding(operation, request.Query, request.Tags, excludedHashes)
+internal/serve/tag_mutations.go-361-	affected, err := l.mutateTagQueryExcluding(operation, request.Query, request.Tags, excludedHashes)
 internal/serve/tag_mutations.go-362-	if err != nil {
 internal/serve/tag_mutations.go-363-		return TagMutationResponse{}, err
 internal/serve/tag_mutations.go-364-	}
@@ -139,38 +2472,36 @@ internal/serve/tag_mutations.go-374-		return l.client.SetTagsForFiles(paths, tag
 internal/serve/tag_mutations.go-375-	case TagOperationRemove:
 internal/serve/tag_mutations.go-376-		return l.client.UntagFiles(paths, tags, nil, true)
 internal/serve/tag_mutations.go-377-	default:
-internal/serve/tag_mutations.go-378-		return types.TagOperationResult{}, fmt.Errorf("unsupported tag operation %q", operation)
+internal/serve/tag_mutations.go:378:		return types.TagOperationResult{}, fmt.Errorf("unsupported tag operation %q", operation)
 internal/serve/tag_mutations.go-379-	}
 internal/serve/tag_mutations.go-380-}
 internal/serve/tag_mutations.go-381-
-internal/serve/tag_mutations.go:382:func (l *GooruLibrary) mutateTagQuery(operation TagOperation, expression string, tags []string) (int, error) {
-internal/serve/tag_mutations.go:383:	return l.mutateTagQueryExcluding(operation, expression, tags, nil)
+internal/serve/tag_mutations.go-382-func (l *GooruLibrary) mutateTagQuery(operation TagOperation, expression string, tags []string) (int, error) {
+internal/serve/tag_mutations.go-383-	return l.mutateTagQueryExcluding(operation, expression, tags, nil)
 internal/serve/tag_mutations.go-384-}
 internal/serve/tag_mutations.go-385-
-internal/serve/tag_mutations.go:386:func (l *GooruLibrary) mutateTagQueryExcluding(operation TagOperation, expression string, tags, excludedHashes []string) (int, error) {
+internal/serve/tag_mutations.go-386-func (l *GooruLibrary) mutateTagQueryExcluding(operation TagOperation, expression string, tags, excludedHashes []string) (int, error) {
 internal/serve/tag_mutations.go-387-	switch operation {
 internal/serve/tag_mutations.go-388-	case TagOperationAdd:
-internal/serve/tag_mutations.go-389-		if len(excludedHashes) == 0 {
-internal/serve/tag_mutations.go-390-			return l.client.TagFilesByQuery(expression, tags)
-internal/serve/tag_mutations.go-391-		}
-internal/serve/tag_mutations.go-392-		return l.client.TagFilesByQueryExcluding(expression, tags, excludedHashes)
-internal/serve/tag_mutations.go-393-	case TagOperationSet:
-internal/serve/tag_mutations.go-394-		if len(excludedHashes) == 0 {
 --
-internal/serve/uploads.go-836-				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: %w", file.Name, err)
-internal/serve/uploads.go-837-			}
-internal/serve/uploads.go-838-			dto.ID = l.client.PublicFileID(existing.ID)
-internal/serve/uploads.go-839-			if dto.ID == "" {
-internal/serve/uploads.go-840-				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
-internal/serve/uploads.go-841-			}
-internal/serve/uploads.go-842-			dto.Status = "duplicate_existing"
-internal/serve/uploads.go-843-			if len(fileTags) > 0 {
-internal/serve/uploads.go:844:				if _, err := l.mutateTagPaths(TagOperationAdd, []string{existing.Path}, fileTags); err != nil {
-internal/serve/uploads.go-845-					return UploadImportResponse{}, fmt.Errorf("tag duplicate upload %q: %w", file.Name, err)
-internal/serve/uploads.go-846-				}
-internal/serve/uploads.go-847-			}
-internal/serve/uploads.go-848-			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
-internal/serve/uploads.go-849-			discardDuplicateUpload(file, trackedAtPath)
-internal/serve/uploads.go-850-			response.Files = append(response.Files, dto)
-internal/serve/uploads.go-851-			continue
-internal/serve/uploads.go-852-		}
+internal/serve/uploads.go-902-		for _, location := range importLocations {
+internal/serve/uploads.go-903-			backgroundTasks = append(backgroundTasks, l.backgroundTasks(location)...)
+internal/serve/uploads.go-904-		}
+internal/serve/uploads.go-905-	}
+internal/serve/uploads.go-906-	failures := make(map[string]string)
+internal/serve/uploads.go-907-	progress := func(filePath string, err error) {
+internal/serve/uploads.go-908-		if err != nil {
+internal/serve/uploads.go-909-			failures[filePath] = err.Error()
+internal/serve/uploads.go-910-		}
+internal/serve/uploads.go-911-	}
+internal/serve/uploads.go:912:	var result types.TagOperationResult
+internal/serve/uploads.go-913-	var err error
+internal/serve/uploads.go-914-	if state.operationID == "" && state.taskID == "" {
+internal/serve/uploads.go-915-		result, err = l.client.TagKnownFilesWithBackgroundTasksByFileTags(importLocations, importLocationTags, backgroundTasks, progress)
+internal/serve/uploads.go-916-	} else {
+internal/serve/uploads.go-917-		result, err = l.client.TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(importLocations, importLocationTags, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
+internal/serve/uploads.go-918-			response.AffectedCount = affectedCount
+internal/serve/uploads.go-919-			checkpoint := backgroundUploadImportedCheckpoint(activated, response)
+internal/serve/uploads.go-920-			return core.BackgroundOperationTransactionState{OperationID: state.operationID, TaskID: state.taskID, Checkpoint: checkpoint, Result: response}, nil
+internal/serve/uploads.go-921-		}, progress)
+internal/serve/uploads.go-922-	}
