@@ -1888,7 +1888,7 @@ export interface components {
         };
         FileRemovalResponse: {
             /** @enum {string} */
-            mode: "untrack" | "delete";
+            mode: "untrack" | "delete" | "delete_or_untrack";
             selector: components["schemas"]["FileRemovalSelector"];
             removed_locations: number;
         };

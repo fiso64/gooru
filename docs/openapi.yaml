@@ -1486,7 +1486,7 @@ components:
       properties:
         mode:
           type: string
-          enum: [untrack, delete]
+          enum: [untrack, delete, delete_or_untrack]
         selector:
           $ref: "#/components/schemas/FileRemovalSelector"
         removed_locations:
