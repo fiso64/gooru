@@ -26,6 +26,7 @@ export interface UploadItem {
   tags?: string[];
   targetID?: string;
   queueTimeMs?: number;
+  remoteFileID?: string;
   status: UploadItemStatus;
   progress: number;
   error?: string;
@@ -33,6 +34,8 @@ export interface UploadItem {
 
 export type UploadTargetOption = { id: string; name: string; added_at_strategy?: UploadAddedAtStrategy; default_tags?: string[] };
 export type UploadStatusCounts = Partial<Record<UploadItemStatus, number>>;
+
+type UploadResultFileWithIdentity = UploadImportResponse['files'][number] & { id?: string };
 
 export function effectiveUploadTargetID(targetID: string, targets: UploadTargetOption[]): string {
   if (targetID && targets.some((target) => target.id === targetID)) return targetID;
@@ -138,6 +141,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       tags: prior?.tags ? [...prior.tags] : [],
       targetID: file.target_id,
       queueTimeMs: prior?.queueTimeMs,
+      remoteFileID: (file as UploadResultFileWithIdentity).id ?? prior?.remoteFileID,
       status: file.status,
       progress: 100,
       error: file.error
