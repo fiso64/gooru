@@ -28,7 +28,9 @@ jobs:
         run: npx playwright install chromium
       - name: Run focused browser regression
         id: browser
-        run: npm run test:e2e -- bulk-tag-completions.spec.ts
+        run: |
+          sed -e 's/4173/4174/g' -e 's/--host 127.0.0.1/--host 127.0.0.1 --port 4174/' playwright.config.ts > playwright.maintainer-672.config.ts
+          npx playwright test bulk-tag-completions.spec.ts --config=playwright.maintainer-672.config.ts
       - name: Upload focused browser failure artifacts
         if: failure() && steps.browser.outcome == 'failure'
         uses: actions/upload-artifact@v4
