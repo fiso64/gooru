@@ -1,66 +1,23 @@
 <script lang="ts">
   import { flip } from 'svelte/animate';
   import Icon from './Icon.svelte';
-  import type { ShellCommonTag, ShellSavedSearch } from './shellModel';
+  import type { ShellFilterActions, ShellFilterModel } from './shellModel';
   import { sidebarKindActive, sidebarKindFilters } from '$lib/utils/sidebarKinds';
 
-  let {
-    route,
-    search,
-    kindCounts,
-    comicCount,
-    comicAvailable,
-    savedSearches,
-    commonTags,
-    commonTagsCollapsed,
-    draggedSavedSearchID,
-    savedSearchReorderBusy,
-    savedSearchReorderError,
-    onToggleKind,
-    onCreateSavedSearch,
-    onUpdateSavedSearch,
-    onDeleteSavedSearch,
-    onSavedSearch,
-    onSavedSearchDragStart,
-    onSavedSearchDragPreview,
-    onSavedSearchDragEnd,
-    onSavedSearchDrop,
-    onToggleCommonTags,
-    onCommonTag
-  } = $props<{
-    route: string;
-    search: string;
-    kindCounts: Array<{ value: string; count: number }>;
-    comicCount: number;
-    comicAvailable: boolean;
-    savedSearches: ShellSavedSearch[];
-    commonTags: ShellCommonTag[];
-    commonTagsCollapsed: boolean;
-    draggedSavedSearchID: string;
-    savedSearchReorderBusy: boolean;
-    savedSearchReorderError: string;
-    onToggleKind: (filter: string) => void;
-    onCreateSavedSearch: () => void;
-    onUpdateSavedSearch: (id: string, name: string, query: string) => void;
-    onDeleteSavedSearch: (id: string, name: string) => void;
-    onSavedSearch: (query: string, name: string) => void;
-    onSavedSearchDragStart: (event: DragEvent, id: string) => void;
-    onSavedSearchDragPreview: (event: DragEvent, id: string) => void;
-    onSavedSearchDragEnd: () => void;
-    onSavedSearchDrop: (event: DragEvent, id: string) => void | Promise<void>;
-    onToggleCommonTags: () => void;
-    onCommonTag: (tag: string) => void;
+  let { model, actions } = $props<{
+    model: ShellFilterModel;
+    actions: ShellFilterActions;
   }>();
 
   const kinds = sidebarKindFilters;
 
   function kindCount(kind: string) {
-    return kindCounts.find((item: { value: string; count: number }) => item.value === kind)?.count ?? 0;
+    return model.kindCounts.find((item: { value: string; count: number }) => item.value === kind)?.count ?? 0;
   }
 
   function commonTagRankPercent(index: number) {
-    if (commonTags.length <= 1) return 100;
-    return Math.round((1 - index / (commonTags.length - 1)) * 100);
+    if (model.commonTags.length <= 1) return 100;
+    return Math.round((1 - index / (model.commonTags.length - 1)) * 100);
   }
 </script>
 
@@ -68,26 +25,26 @@
   <div class="sidebar-section-head">Kinds</div>
   {#each kinds as kind}
     <button
-      class:active={route === 'library' && sidebarKindActive(search, kind.query)}
+      class:active={model.route === 'library' && sidebarKindActive(model.search, kind.query)}
       class="sidebar-item"
       type="button"
-      onclick={() => onToggleKind(kind.query)}
+      onclick={() => actions.onToggleKind(kind.query)}
     >
-      <Icon name={kind.icon} size={16} active={route === 'library' && sidebarKindActive(search, kind.query)} />
+      <Icon name={kind.icon} size={16} active={model.route === 'library' && sidebarKindActive(model.search, kind.query)} />
       <span>{kind.label}</span>
       <span class="count">{kindCount(kind.key).toLocaleString()}</span>
     </button>
   {/each}
-  {#if comicAvailable}
+  {#if model.comicAvailable}
     <button
-      class:active={route === 'library' && sidebarKindActive(search, 'ext:cbz')}
+      class:active={model.route === 'library' && sidebarKindActive(model.search, 'ext:cbz')}
       class="sidebar-item"
       type="button"
-      onclick={() => onToggleKind('ext:cbz')}
+      onclick={() => actions.onToggleKind('ext:cbz')}
     >
-      <Icon name="bookmark" size={16} active={route === 'library' && sidebarKindActive(search, 'ext:cbz')} />
+      <Icon name="bookmark" size={16} active={model.route === 'library' && sidebarKindActive(model.search, 'ext:cbz')} />
       <span>Comics</span>
-      <span class="count">{comicCount.toLocaleString()}</span>
+      <span class="count">{model.comicCount.toLocaleString()}</span>
     </button>
   {/if}
 </div>
@@ -95,37 +52,37 @@
 <div class="sidebar-section saved-searches-section">
   <div class="sidebar-section-head">
     <span>Saved searches</span>
-    <button class="sidebar-head-action" type="button" title="Save current search (B)" aria-label="Save current search" onclick={onCreateSavedSearch}>
+    <button class="sidebar-head-action" type="button" title="Save current search (B)" aria-label="Save current search" onclick={actions.onCreateSavedSearch}>
       <Icon name="plus" size={11} />
     </button>
   </div>
-  {#each savedSearches as saved (saved.id)}
+  {#each model.savedSearches as saved (saved.id)}
     <div
       class="sidebar-saved-row"
-      class:drag-target={Boolean(draggedSavedSearchID) && draggedSavedSearchID !== saved.id}
+      class:drag-target={Boolean(model.draggedSavedSearchID) && model.draggedSavedSearchID !== saved.id}
       role="group"
       aria-label={`Saved search ${saved.name}`}
       animate:flip={{ duration: 160 }}
-      ondragover={(event) => onSavedSearchDragPreview(event, saved.id)}
-      ondrop={(event) => void onSavedSearchDrop(event, saved.id)}
+      ondragover={(event) => actions.onSavedSearchDragPreview(event, saved.id)}
+      ondrop={(event) => void actions.onSavedSearchDrop(event, saved.id)}
     >
       <button
         class="sidebar-item saved-search-drag"
         type="button"
-        draggable={!savedSearchReorderBusy}
-        disabled={savedSearchReorderBusy}
-        ondragstart={(event) => onSavedSearchDragStart(event, saved.id)}
-        ondragend={onSavedSearchDragEnd}
-        onclick={() => onSavedSearch(saved.query, saved.name)}
+        draggable={!model.savedSearchReorderBusy}
+        disabled={model.savedSearchReorderBusy}
+        ondragstart={(event) => actions.onSavedSearchDragStart(event, saved.id)}
+        ondragend={actions.onSavedSearchDragEnd}
+        onclick={() => actions.onSavedSearch(saved.query, saved.name)}
       >
         <Icon name="bookmark" size={14} />
         <span class="truncate">{saved.name}</span>
       </button>
       <div class="sidebar-saved-actions">
-        <button class="sidebar-mini" type="button" title={`Update ${saved.name}`} aria-label={`Update ${saved.name}`} onclick={() => onUpdateSavedSearch(saved.id, saved.name, saved.query)}>
+        <button class="sidebar-mini" type="button" title={`Update ${saved.name}`} aria-label={`Update ${saved.name}`} onclick={() => actions.onUpdateSavedSearch(saved.id, saved.name, saved.query)}>
           <Icon name="check" size={11} />
         </button>
-        <button class="sidebar-mini" type="button" title={`Delete ${saved.name}`} aria-label={`Delete ${saved.name}`} onclick={() => onDeleteSavedSearch(saved.id, saved.name)}>
+        <button class="sidebar-mini" type="button" title={`Delete ${saved.name}`} aria-label={`Delete ${saved.name}`} onclick={() => actions.onDeleteSavedSearch(saved.id, saved.name)}>
           <Icon name="trash" size={11} />
         </button>
       </div>
@@ -133,34 +90,34 @@
   {:else}
     <div class="sidebar-note">No saved searches yet</div>
   {/each}
-  {#if savedSearchReorderError}
-    <div class="sidebar-note saved-search-order-error" role="status">{savedSearchReorderError}</div>
+  {#if model.savedSearchReorderError}
+    <div class="sidebar-note saved-search-order-error" role="status">{model.savedSearchReorderError}</div>
   {/if}
 </div>
 
-{#if commonTags.length}
+{#if model.commonTags.length}
   <div class="sidebar-section common-tags-section">
     <button
       class="common-tags-toggle"
       type="button"
-      title={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
-      aria-expanded={!commonTagsCollapsed}
+      title={model.commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+      aria-expanded={!model.commonTagsCollapsed}
       aria-controls="common-tags-list"
-      aria-label={commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
-      onclick={onToggleCommonTags}
+      aria-label={model.commonTagsCollapsed ? 'Expand Common tags' : 'Collapse Common tags'}
+      onclick={actions.onToggleCommonTags}
     >
       <span class="sidebar-section-head common-tags-toggle-content">
         <span>Common tags</span>
-        <span aria-hidden="true" class:expanded={!commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={12} /></span>
+        <span aria-hidden="true" class:expanded={!model.commonTagsCollapsed} class="common-tags-chevron"><Icon name="chev_right" size={12} /></span>
       </span>
     </button>
-    <div id="common-tags-list" class:collapsed={commonTagsCollapsed} class="common-tags-list">
-      {#each commonTags as item, index}
+    <div id="common-tags-list" class:collapsed={model.commonTagsCollapsed} class="common-tags-list">
+      {#each model.commonTags as item, index}
         <button
           class="sidebar-item common-tag-item"
           style={`--common-tag-rank: ${commonTagRankPercent(index)}%`}
           type="button"
-          onclick={() => onCommonTag(item.tag)}
+          onclick={() => actions.onCommonTag(item.tag)}
         >
           <Icon name="tags" size={14} />
           <span class="truncate">{item.tag}</span>
