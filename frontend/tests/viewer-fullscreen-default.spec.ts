@@ -75,6 +75,23 @@ test('F exits automatic fullscreen while keeping the normal viewer open', async 
   await expect(page.locator('.viewer-stage')).toBeVisible();
 });
 
+test('F exits fullscreen entered from the normal viewer even if fullscreen drops modal focus', async ({ page }) => {
+  await mockApp(page, false);
+
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  await expect(page.locator('.viewer-stage')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+
+  await page.keyboard.press('f');
+  await expect.poll(() => viewerIsFullscreen(page)).toBe(true);
+
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('f');
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  await expect(page.locator('.viewer-stage')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Search library' })).not.toBeFocused();
+});
+
 test('fullscreen default remains off when runtime config is false', async ({ page }) => {
   await mockApp(page, false);
 

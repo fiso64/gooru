@@ -57,15 +57,21 @@ function isModalShortcutTarget(target: EventTarget | null) {
   );
 }
 
+function modalShortcutOwnerOpen() {
+  if (typeof document === 'undefined') return false;
+  return Boolean(document.querySelector('[role="dialog"][aria-modal="true"]'));
+}
+
 export type SearchShortcutAction = 'focus-search' | 'filename-search' | null;
 
 export function searchShortcutAction(
   key: string,
   target: EventTarget | null,
   modified = false,
-  shiftKey = false
+  shiftKey = false,
+  modalOpen = modalShortcutOwnerOpen()
 ): SearchShortcutAction {
-  if (modified || shiftKey || isEditableShortcutTarget(target) || isModalShortcutTarget(target)) return null;
+  if (modified || shiftKey || modalOpen || isEditableShortcutTarget(target) || isModalShortcutTarget(target)) return null;
   if (key === '/') return 'focus-search';
   if (key.toLowerCase() === 'f') return 'filename-search';
   return null;
