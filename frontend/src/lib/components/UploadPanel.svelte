@@ -442,9 +442,38 @@
                     {@const item = row.item}
                     <div class="upload-row">
                       <UploadMediaPreview file={item.previewFile} {item} />
-                      <div>
+                      <div class="upload-item-main">
                         <div class="name">{item.name}</div>
                         {#if item.error}<div class="upload-error">{item.error}</div>{/if}
+                        {#if item.tagSyncError}<div class="upload-error">{item.tagSyncError}</div>{/if}
+                        {#if item.tagSyncPending}
+                          <div class="upload-tag-sync-status">{item.remoteFileID ? 'Saving tag changes…' : 'Tag changes will apply when import completes'}</div>
+                        {/if}
+                        <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
+                          {#each item.tags ?? [] as tag}
+                            {@const separator = tag.indexOf(':')}
+                            <span class="g-tag">
+                              {#if separator > 0}
+                                <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
+                              {:else}
+                                <span>{tag}</span>
+                              {/if}
+                              <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${item.name}`} onclick={() => removeItemTag(row.index, item, tag)}>
+                                <Icon name="close" size={11} />
+                              </button>
+                            </span>
+                          {/each}
+                          <TagAutocompleteInput
+                            value={itemTagDrafts[row.index] ?? ''}
+                            {tags}
+                            existing={item.tags ?? []}
+                            placeholder="add tag"
+                            ariaLabel={`Add tag to ${item.name}`}
+                            onInput={(value) => setItemTagDraft(row.index, value)}
+                            onCommit={(value) => commitItemTag(row.index, item, value)}
+                            onRemoveLast={(tag) => removeItemTag(row.index, item, tag)}
+                          />
+                        </div>
                       </div>
                       <div class="size">{formatBytes(item.size)}</div>
                       <div class="progress" aria-label={`${statusLabel(item.status)} ${item.progress}%`}>
@@ -483,6 +512,13 @@
   .upload-item-tags {
     margin-top: 6px;
     min-height: 30px;
+  }
+
+  .upload-tag-sync-status {
+    margin-top: 4px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 10px;
   }
 
   .upload-filter-input {
