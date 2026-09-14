@@ -48,6 +48,7 @@ type StagedUpload struct {
 	SourceModTime  time.Time
 	AddedAt        time.Time
 	ConflictPolicy string
+	Tags           *[]string
 }
 
 type UploadTargetsResponse struct {
@@ -116,7 +117,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeMultipartUploadError(w, err)
 		return
 	}
-	if err := query.ValidateTags(tags); err != nil {
+	if err := validateUploadTags(tags, saved); err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
@@ -189,6 +190,7 @@ type savedUpload struct {
 	sourceModTime   time.Time
 	addedAt         time.Time
 	conflictPolicy  string
+	tags            *[]string
 }
 
 var (
@@ -630,6 +632,68 @@ func parseUploadTags(values []string) []string {
 	return normalizeStrings(tags)
 }
 
+func attachUploadItemTags(files []savedUpload, values []string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	if len(values) != len(files) {
+		return multipartUploadError{message: fmt.Sprintf("item_tags count %d does not match file count %d", len(values), len(files)), err: errors.New("item_tags must align with uploaded files")}
+	}
+	for index, value := range values {
+		tags := parseUploadTags([]string{value})
+		files[index].tags = &tags
+	}
+	return nil
+}
+
+func validateUploadTags(fallback []string, files []savedUpload) error {
+	if err := query.ValidateTags(fallback); err != nil {
+		return err
+	}
+	for index, file := range files {
+		if file.tags == nil {
+			continue
+		}
+		if err := query.ValidateTags(*file.tags); err != nil {
+			return fmt.Errorf("invalid tags for file %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func cloneUploadTags(tags *[]string) *[]string {
+	if tags == nil {
+		return nil
+	}
+	copyTags := append([]string(nil), (*tags)...)
+	return &copyTags
+}
+
+func resolvedUploadTags(tags *[]string, fallback []string) []string {
+	if tags != nil {
+		return *tags
+	}
+	return fallback
+}
+
+func mergeUploadTags(existing, additions []string) []string {
+	if len(additions) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, tag := range existing {
+		seen[tag] = struct{}{}
+	}
+	for _, tag := range additions {
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		existing = append(existing, tag)
+		seen[tag] = struct{}{}
+	}
+	return existing
+}
+
 func firstFormValue(values []string) string {
 	if len(values) == 0 {
 		return ""
@@ -644,7 +708,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, Tags: cloneUploadTags(file.tags)})
 	}
 	return out
 }
@@ -706,6 +770,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	firstResponseIndexByHash := make(map[string]int, len(files))
 	duplicateCanonicalResponseIndex := make(map[int]int)
 	importLocations := make([]types.LocationInfo, 0, len(files))
+	importLocationTags := make([][]string, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
 	opaqueStorageByLogical := make(map[string]protectedUploadMove, len(files))
@@ -717,6 +782,14 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	})
 	if analysisErr != nil {
 		return UploadImportResponse{}, analysisErr
+	}
+	tagsByHash := make(map[string][]string, len(files))
+	for index, file := range files {
+		if file.Status == "error" || file.Status == "skipped" || index >= len(analyses) || analyses[index].Err != nil || analyses[index].Info.Hash == "" {
+			continue
+		}
+		hash := analyses[index].Info.Hash
+		tagsByHash[hash] = mergeUploadTags(tagsByHash[hash], resolvedUploadTags(file.Tags, tags))
 	}
 	for index, file := range files {
 		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
@@ -740,6 +813,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			continue
 		}
 		info, status := analysis.Info, analysis.Status
+		fileTags := tagsByHash[info.Hash]
 		if canonicalIndex, ok := firstResponseIndexByHash[info.Hash]; ok {
 			dto.Status = "duplicate_in_batch"
 			dto.ID = response.Files[canonicalIndex].ID
@@ -765,8 +839,8 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
 			}
 			dto.Status = "duplicate_existing"
-			if len(tags) > 0 {
-				if _, err := l.mutateTagPaths(TagOperationAdd, []string{existing.Path}, tags); err != nil {
+			if len(fileTags) > 0 {
+				if _, err := l.mutateTagPaths(TagOperationAdd, []string{existing.Path}, fileTags); err != nil {
 					return UploadImportResponse{}, fmt.Errorf("tag duplicate upload %q: %w", file.Name, err)
 				}
 			}
@@ -817,6 +891,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			AddedAt:     addedAt,
 			Extension:   filepath.Ext(file.Path),
 		})
+		importLocationTags = append(importLocationTags, append([]string(nil), fileTags...))
 	}
 	if len(importLocations) == 0 {
 		return response, nil
@@ -836,9 +911,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	var result types.TagOperationResult
 	var err error
 	if state.operationID == "" && state.taskID == "" {
-		result, err = l.client.TagKnownFilesWithBackgroundTasks(importLocations, tags, backgroundTasks, progress)
+		result, err = l.client.TagKnownFilesWithBackgroundTasksByFileTags(importLocations, importLocationTags, backgroundTasks, progress)
 	} else {
-		result, err = l.client.TagKnownFilesWithBackgroundTasksAndOperationState(importLocations, tags, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
+		result, err = l.client.TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(importLocations, importLocationTags, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
 			response.AffectedCount = affectedCount
 			checkpoint := backgroundUploadImportedCheckpoint(activated, response)
 			return core.BackgroundOperationTransactionState{OperationID: state.operationID, TaskID: state.taskID, Checkpoint: checkpoint, Result: response}, nil

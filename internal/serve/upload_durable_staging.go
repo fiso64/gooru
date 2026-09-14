@@ -52,6 +52,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	var queueFirstTimeValue, queueLastTimeValue string
 	var targetSeen, conflictSeen, addedAtStrategySeen, queueFirstTimeSeen, queueLastTimeSeen bool
 	tagValues := make([]string, 0)
+	itemTagValues := make([]string, 0)
 	sourceModTimeValues := make([]string, 0)
 	queueTimeValues := make([]string, 0)
 	queueIndexValues := make([]string, 0)
@@ -95,6 +96,8 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 				}
 			case "tags":
 				tagValues = append(tagValues, value)
+			case "item_tags":
+				itemTagValues = append(itemTagValues, value)
 			case "source_modtime_ms":
 				sourceModTimeValues = append(sourceModTimeValues, value)
 			case "added_at_strategy":
@@ -234,6 +237,9 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 		file.path = ""
 		saved = append(saved, savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: replace, sourceModTime: file.sourceModTime, addedAt: file.addedAt, conflictPolicy: conflictPolicy})
 		reserved[path] = struct{}{}
+	}
+	if err := attachUploadItemTags(saved, itemTagValues); err != nil {
+		return nil, saved, err
 	}
 	if filepath.Clean(initialDir) != filepath.Clean(targetDir) {
 		_ = os.Remove(initialDir)
