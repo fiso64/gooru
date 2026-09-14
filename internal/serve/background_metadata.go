@@ -2,9 +2,7 @@ package serve
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -15,7 +13,6 @@ import (
 
 const (
 	backgroundMediaMetadataTaskKind       = "upload.metadata-finalize"
-	backgroundMediaMetadataSweepTaskKind  = "media.metadata-sweep"
 	backgroundMediaMetadataSweepBatchSize = 64
 )
 
@@ -79,26 +76,6 @@ func backgroundMediaMetadataTaskRequest(operationID string) core.BackgroundTaskR
 		ResourceClass: backgroundThumbnailResourceClass,
 		MaxAttempts:   5,
 	}
-}
-
-func backgroundMediaMetadataRegistrationHook(event core.FileRegistrationEvent) ([]core.BackgroundTaskRequest, error) {
-	if len(event.ContentHashes) == 0 {
-		return nil, nil
-	}
-	var nonce [16]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return nil, fmt.Errorf("build media metadata sweep wake: %w", err)
-	}
-	wakeID := hex.EncodeToString(nonce[:])
-	return []core.BackgroundTaskRequest{{
-		DedupeKey:     "media-metadata-sweep:" + wakeID,
-		Kind:          backgroundMediaMetadataSweepTaskKind,
-		SubjectKind:   "library",
-		SubjectID:     "media-metadata",
-		InputKey:      wakeID,
-		ResourceClass: backgroundThumbnailResourceClass,
-		MaxAttempts:   5,
-	}}, nil
 }
 
 func (l *GooruLibrary) mediaMetadataForFile(ctx context.Context, file types.FileInfo, analysisPath string) (types.MediaMetadata, error) {
