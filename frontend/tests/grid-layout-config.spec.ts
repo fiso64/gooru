@@ -52,15 +52,17 @@ test('square gallery sizes thumbnails by the derivative short edge', async ({ pa
 });
 
 test('fit gallery keeps square virtual cells and sizes thumbnails against the padded media box', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 900 }); await mockApp(page, 'fit', 300);
+  await page.setViewportSize({ width: 1200, height: 900 }); await mockApp(page, 'fit');
   const grid = page.getByTestId('virtual-media-grid'); await expect(grid).toHaveAttribute('data-grid-type', 'fit');
-  const card = grid.locator('.thumb').first(); const box = await card.boundingBox(); expect(box?.width).toBeCloseTo(box?.height ?? 0, 0);
+  const card = grid.locator('.thumb').nth(2); const box = await card.boundingBox(); expect(box?.width).toBeCloseTo(box?.height ?? 0, 0);
   const open = card.locator('.thumb-open'); await expect(open).toHaveCSS('padding-left', '20px'); await expect(open).toHaveCSS('padding-top', '20px');
   const image = card.locator('img'); await expect(image).toHaveCSS('object-fit', 'contain');
   const dpr = await page.evaluate(() => window.devicePixelRatio);
-  const contentWidth = Math.max(1, (box?.width ?? 0) - 40); const contentHeight = Math.max(1, (box?.height ?? 0) - 40);
-  const expectedSize = selectedSize(contentWidth, contentHeight, dpr, 600, 900, true);
-  expect(expectedSize).toBe(256);
+  const cardWidth = box?.width ?? 0; const cardHeight = box?.height ?? 0;
+  const contentWidth = Math.max(1, cardWidth - 40); const contentHeight = Math.max(1, cardHeight - 40);
+  const expectedSize = selectedSize(contentWidth, contentHeight, dpr, 900, 900, true);
+  const unpaddedSize = selectedSize(cardWidth, cardHeight, dpr, 900, 900, true);
+  expect(expectedSize).toBe(256); expect(unpaddedSize).toBe(512);
   await expect(image).toHaveAttribute('src', new RegExp(`[?&]size=${expectedSize}(?:&|$)`));
 });
 
