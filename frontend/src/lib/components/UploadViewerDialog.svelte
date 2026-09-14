@@ -73,8 +73,9 @@
   });
 
   $effect(() => {
-    const file = activeItem?.previewFile;
-    if (!file || !uploadItemHasLocalViewer(activeItem)) {
+    const item = activeItem;
+    const file = item?.previewFile;
+    if (!item || !file || !uploadItemHasLocalViewer(item)) {
       localURL = '';
       return;
     }
@@ -124,7 +125,7 @@
   }
 
   function removeTag(tag: string) {
-    const nextTags = currentTags.filter((candidate) => candidate !== tag);
+    const nextTags = currentTags.filter((candidate: string) => candidate !== tag);
     tagOverride = nextTags;
     onItemTagsInput(activeIndex, nextTags);
   }

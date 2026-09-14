@@ -5,11 +5,13 @@
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import UploadTargetPicker from './UploadTargetPicker.svelte';
   import UploadMediaPreview from './UploadMediaPreview.svelte';
+  import UploadViewerDialog from './UploadViewerDialog.svelte';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
   import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, summarizeUploadQueueBatch, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
+  import { uploadItemCanOpenViewer, uploadViewerScope, type UploadViewerScope } from '$lib/state/uploadViewer';
 
   let {
     uploadFiles,
@@ -68,6 +70,8 @@
   let stagedFilter = $state('');
   let stagedPage = $state(0);
   let queuePages = $state<Record<string, number>>({});
+  let viewerIndex = $state<number | null>(null);
+  let viewerScope = $state<UploadViewerScope>('staged');
 
   const uploadListPageSize = 100;
   const indexedItems = $derived(uploadItems.map((item: UploadItem, index: number) => ({ item, index })));
@@ -170,7 +174,19 @@
     onItemTagsInput(index, (item.tags ?? []).filter((candidate) => candidate !== tag));
   }
 
+  function openViewer(index: number) {
+    const item = uploadItems[index];
+    if (!item || !uploadItemCanOpenViewer(item)) return;
+    viewerIndex = index;
+    viewerScope = uploadViewerScope(item);
+  }
+
+  function closeViewer() {
+    viewerIndex = null;
+  }
+
   function resetStagedTransientState() {
+    closeViewer();
     itemTagDrafts = {};
     stagedFilter = '';
     stagedPage = 0;
@@ -182,6 +198,7 @@
   }
 
   function clearRows(scope: 'staged' | 'done') {
+    closeViewer();
     itemTagDrafts = {};
     if (scope === 'staged') {
       stagedFilter = '';
@@ -191,6 +208,7 @@
   }
 
   function removeStagedItem(index: number) {
+    closeViewer();
     itemTagDrafts = {};
     onRemove(index);
   }
@@ -349,9 +367,24 @@
                 {#each stagedVisibleRows as row (row.index)}
                   {@const item = row.item}
                   <div class="upload-row upload-row-staged">
-                    <UploadMediaPreview file={item.previewFile} {item} />
+                    <button
+                      class="upload-viewer-trigger"
+                      type="button"
+                      disabled={!uploadItemCanOpenViewer(item)}
+                      aria-label={`Preview ${item.name}`}
+                      title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
+                      onclick={() => openViewer(row.index)}
+                    >
+                      <UploadMediaPreview file={item.previewFile} {item} />
+                    </button>
                     <div class="upload-item-main">
-                      <div class="name">{item.name}</div>
+                      <button
+                        class="name upload-viewer-name-trigger"
+                        type="button"
+                        disabled={!uploadItemCanOpenViewer(item)}
+                        title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
+                        onclick={() => openViewer(row.index)}
+                      >{item.name}</button>
                       <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
                         {#each item.tags ?? [] as tag}
                           {@const separator = tag.indexOf(':')}
@@ -441,9 +474,24 @@
                   {#each pageState.rows as row (row.index)}
                     {@const item = row.item}
                     <div class="upload-row">
+                      <button
+                      class="upload-viewer-trigger"
+                      type="button"
+                      disabled={!uploadItemCanOpenViewer(item)}
+                      aria-label={`Preview ${item.name}`}
+                      title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
+                      onclick={() => openViewer(row.index)}
+                    >
                       <UploadMediaPreview file={item.previewFile} {item} />
+                    </button>
                       <div class="upload-item-main">
-                        <div class="name">{item.name}</div>
+                        <button
+                        class="name upload-viewer-name-trigger"
+                        type="button"
+                        disabled={!uploadItemCanOpenViewer(item)}
+                        title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
+                        onclick={() => openViewer(row.index)}
+                      >{item.name}</button>
                         {#if item.error}<div class="upload-error">{item.error}</div>{/if}
                         {#if item.tagSyncError}<div class="upload-error">{item.tagSyncError}</div>{/if}
                         {#if item.tagSyncPending}
@@ -504,7 +552,50 @@
   </div>
 </main>
 
+{#if viewerIndex != null}
+  <UploadViewerDialog
+    {uploadItems}
+    activeIndex={viewerIndex}
+    scope={viewerScope}
+    {tags}
+    onIndex={(index) => (viewerIndex = index)}
+    onClose={closeViewer}
+    {onItemTagsInput}
+  />
+{/if}
+
 <style>
+  .upload-viewer-trigger {
+    display: block;
+    border: 0;
+    border-radius: 5px;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .upload-viewer-trigger:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .upload-viewer-name-trigger {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .upload-viewer-name-trigger:disabled {
+    cursor: not-allowed;
+  }
+
   .upload-item-main {
     min-width: 0;
   }
