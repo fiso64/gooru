@@ -1,0 +1,58 @@
+name: Agent 249 clear-sync fix
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+    paths:
+      - .github/workflows/agent-249-clear-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/249-upload-item-tags
+          fetch-depth: 0
+      - name: Apply clear-sync guard and regression
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          workflow = Path('frontend/src/lib/state/uploadWorkflow.svelte.ts')
+          text = workflow.read_text()
+          old = """    } else {\n      items = items.filter((item) => !doneUploadStatuses.has(item.status));\n    }\n"""
+          new = """    } else {\n      items = items.filter((item) => !doneUploadStatuses.has(item.status) || item.tagSyncPending);\n    }\n"""
+          if old not in text:
+              raise SystemExit('clear(done) target not found')
+          workflow.write_text(text.replace(old, new, 1))
+
+          test = Path('frontend/src/lib/state/uploadWorkflow.svelte.test.ts')
+          text = test.read_text()
+          anchor = """  it('replaces managed target defaults while preserving user tags', () => {\n"""
+          regression = """  it('keeps completed rows visible while direct tag changes are still saving', async () => {\n    const workflow = createUploadWorkflow();\n    workflow.select([uploadFile('first.jpg')]);\n    await workflow.submit(async () => ({\n      files: [{ id: 'file-first', name: 'first.jpg', size: 10, target_id: 'default', status: 'uploaded' }]\n    } as never));\n\n    workflow.setItemTags(0, ['viewer:edited']);\n    expect(workflow.items[0]?.tagSyncPending).toBe(true);\n\n    workflow.clear('done');\n    expect(workflow.items.map((item) => item.name)).toEqual(['first.jpg']);\n\n    workflow.markItemTagSyncApplied(0, 'add', ['viewer:edited']);\n    expect(workflow.items[0]?.tagSyncPending).toBe(false);\n    workflow.clear('done');\n    expect(workflow.items).toEqual([]);\n  });\n\n"""
+          if anchor not in text:
+              raise SystemExit('test insertion anchor not found')
+          test.write_text(text.replace(anchor, regression + anchor, 1))
+          PY
+      - name: Validate focused frontend state
+        shell: bash
+        run: |
+          cd frontend
+          npm ci --prefer-offline --no-audit
+          npm run test:unit -- src/lib/state/uploadWorkflow.svelte.test.ts
+          npm run check
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/agent-249-clear-sync.yml
+          git add frontend/src/lib/state/uploadWorkflow.svelte.ts frontend/src/lib/state/uploadWorkflow.svelte.test.ts
+          git commit -m "fix(upload): retain rows during tag sync"
+          git push origin HEAD:feat/249-upload-item-tags
