@@ -1,0 +1,41 @@
+name: Temporary 249 explicit empty tags fix
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+    paths:
+      - .github/workflows/tmp-249-empty-tags-fix.yml
+      - .github/tmp-249-empty-tags-fix.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/249-upload-item-tags
+      - name: Apply patch
+        run: python3 .github/tmp-249-empty-tags-fix.py
+      - name: Format and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gofmt -w internal/serve/uploads.go internal/serve/upload_item_tags_test.go
+          git diff --check
+          go test -count=1 ./...
+      - name: Commit source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "gooru-maintainer-bot"
+          git config user.email "maintainer@localhost"
+          git add internal/serve/uploads.go internal/serve/upload_item_tags_test.go
+          git commit -m 'fix: preserve explicit empty upload item tags'
+          git push origin HEAD:feat/249-upload-item-tags
