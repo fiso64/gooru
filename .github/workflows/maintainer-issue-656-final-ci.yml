@@ -1,0 +1,67 @@
+name: Maintainer issue 656 final CI
+
+on:
+  push:
+    branches:
+      - maintainer/issue-656-untrack-external-delete
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/issue-656-untrack-external-delete
+      - name: Verify runner Go and caches
+        run: |
+          go version
+          gocache="$(go env GOCACHE)"
+          gomodcache="$(go env GOMODCACHE)"
+          printf 'GOCACHE=%s\n' "$gocache"
+          printf 'GOMODCACHE=%s\n' "$gomodcache"
+          test -d "$gocache" && test -w "$gocache"
+          test -d "$gomodcache" && test -w "$gomodcache"
+      - name: Go test
+        run: go test -count=1 ./...
+      - name: Go build
+        run: go build ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install chromium
+      - name: Canonical browser regressions
+        working-directory: frontend
+        run: npm run test:e2e -- startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-cancel-inflight.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-polling.spec.ts jobs-history-controls.spec.ts issue-606-followup.spec.ts build-identity.spec.ts
+      - name: Issue 656 browser regression
+        working-directory: frontend
+        run: npx playwright test selection-ui-modal.spec.ts --grep 'mixed delete asks to untrack external files'
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+      - name: Remove validation workflow
+        run: |
+          rm .github/workflows/maintainer-issue-656-final-ci.yml
+          git config user.name "OpenAI Maintainer"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "chore: remove issue 656 validation workflow"
+          git push origin HEAD:maintainer/issue-656-untrack-external-delete
