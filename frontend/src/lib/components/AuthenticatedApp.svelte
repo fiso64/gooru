@@ -72,6 +72,7 @@
   let selectionSnapshotPromise: Promise<void> | null = null;
   const selectionMembershipPending = new Set<string>();
   const selectionMembershipRuns = new Set<Promise<void>>();
+  const uploadTagSyncRuns = new Set<object>();
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -203,6 +204,7 @@
     const job = uploadJobQuery.data;
     if (!job) return;
     const result = upload.applyJob(job);
+    if (result.completed) reconcilePendingUploadItemTags();
     if (result.changedFiles && !trackUploadResults) {
       trackUploadResults = true;
       uploadResultsFloor = gridSnapshotTotalCount;
@@ -502,12 +504,46 @@
     uploadMetadataRefreshTimer = undefined;
   }
 
+  function reconcilePendingUploadItemTags() {
+    upload.items.forEach((item, index) => {
+      if (item.tagSyncPending && item.remoteFileID) void reconcileUploadItemTags(index);
+    });
+  }
+
+  async function reconcileUploadItemTags(index: number) {
+    const item = upload.items[index];
+    if (!item?.tagSyncPending || !item.remoteFileID || uploadTagSyncRuns.has(item)) return;
+    const syncedTags = [...(item.tags ?? [])];
+    const remoteFileID = item.remoteFileID;
+    uploadTagSyncRuns.add(item);
+    try {
+      await tagMutation.mutateAsync({ operation: 'set', body: { file_ids: [remoteFileID], tags: syncedTags } });
+      const currentIndex = upload.items.indexOf(item);
+      if (currentIndex >= 0) upload.markItemTagsSynced(currentIndex, syncedTags);
+    } catch (error) {
+      const currentIndex = upload.items.indexOf(item);
+      if (currentIndex >= 0) upload.markItemTagSyncError(currentIndex, errorMessage(error));
+    } finally {
+      uploadTagSyncRuns.delete(item);
+      const currentIndex = upload.items.indexOf(item);
+      if (currentIndex >= 0 && item.tagSyncPending && item.remoteFileID && !item.tagSyncError) {
+        void reconcileUploadItemTags(currentIndex);
+      }
+    }
+  }
+
+  function setUploadItemTags(index: number, nextTags: string[]) {
+    upload.setItemTags(index, nextTags);
+    void reconcileUploadItemTags(index);
+  }
+
   async function submitUpload() {
     if (!upload.files.length) return;
     cancelRequestedJobID = '';
     startUploadMetadataRefresh();
     try {
       const result = await upload.submit((variables) => uploadMutation.mutateAsync(variables));
+      reconcilePendingUploadItemTags();
       if (result.changedFiles) beginTrackingUploadResults();
       if (result.queued) void jobsQuery.refetch();
     } finally {
@@ -692,7 +728,7 @@
         onTargetInput={selectUploadTarget}
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
-        onItemTagsInput={upload.setItemTags}
+        onItemTagsInput={setUploadItemTags}
         onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}
         onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}
