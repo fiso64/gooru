@@ -191,14 +191,6 @@
     viewerScope = uploadViewerScope(item);
   }
 
-  function openViewerFromRow(event: MouseEvent, index: number) {
-    const item = uploadItems[index];
-    if (!item || !uploadItemCanOpenViewer(item)) return;
-    const target = event.target;
-    if (target instanceof Element && target.closest('button, input, a, [role="option"], [role="listbox"]')) return;
-    openViewer(index);
-  }
-
   function closeViewer() {
     viewerIndex = null;
   }
@@ -374,18 +366,16 @@
                     class:is-viewable={uploadItemCanOpenViewer(item)}
                     class="upload-row upload-row-staged"
                     data-testid={`upload-row-${row.index}`}
-                    onclick={(event) => openViewerFromRow(event, row.index)}
                   >
                     <button
-                      class="upload-viewer-trigger"
+                      class="upload-row-open-target"
                       type="button"
                       disabled={!uploadItemCanOpenViewer(item)}
                       aria-label={`Preview ${item.name}`}
                       title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
                       onclick={() => openViewer(row.index)}
-                    >
-                      <UploadMediaPreview file={item.previewFile} {item} />
-                    </button>
+                    ></button>
+                    <UploadMediaPreview file={item.previewFile} {item} />
                     <div class="upload-item-main">
                       <div class="name">{item.name}</div>
                       <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
@@ -480,18 +470,16 @@
                       class:is-viewable={uploadItemCanOpenViewer(item)}
                       class="upload-row"
                       data-testid={`upload-row-${row.index}`}
-                      onclick={(event) => openViewerFromRow(event, row.index)}
                     >
                       <button
-                        class="upload-viewer-trigger"
+                        class="upload-row-open-target"
                         type="button"
                         disabled={!uploadItemCanOpenViewer(item)}
                         aria-label={`Preview ${item.name}`}
                         title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
                         onclick={() => openViewer(row.index)}
-                      >
-                        <UploadMediaPreview file={item.previewFile} {item} />
-                      </button>
+                      ></button>
+                      <UploadMediaPreview file={item.previewFile} {item} />
                       <div class="upload-item-main">
                         <div class="name">{item.name}</div>
                         {#if item.error}<div class="upload-error">{item.error}</div>{/if}
@@ -569,18 +557,29 @@
 {/if}
 
 <style>
-  .upload-viewer-trigger {
-    display: block;
+  .upload-row {
+    position: relative;
+  }
+
+  .upload-row-open-target {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    width: 100%;
     border: 0;
-    border-radius: 5px;
+    border-radius: inherit;
     padding: 0;
     background: transparent;
     cursor: pointer;
   }
 
-  .upload-viewer-trigger:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
+  .upload-row-open-target:disabled {
+    cursor: default;
+  }
+
+  .upload-row-open-target:focus-visible {
+    outline: 2px solid var(--accent-line);
+    outline-offset: -2px;
   }
 
   .upload-row.is-viewable {
@@ -590,6 +589,11 @@
 
   .upload-row.is-viewable:hover {
     background: var(--surface-2);
+  }
+
+  .upload-row :is(button:not(.upload-row-open-target), input, a) {
+    position: relative;
+    z-index: 2;
   }
 
   .upload-item-main {

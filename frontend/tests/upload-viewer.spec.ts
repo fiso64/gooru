@@ -159,10 +159,11 @@ test('staged rows open as a whole, use viewer shortcuts, and edit the underlying
   await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);
 
   // The filename is plain text; clicking its row surface opens the viewer.
-  await alphaRow.getByText('alpha.png', { exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Remove alpha.png from staging' })).toBeVisible();
+  await alphaRow.getByRole('button', { name: 'Preview alpha.png' }).click();
+  const alphaDialog = page.getByRole('dialog', { name: 'alpha.png' });
+  await expect(alphaDialog).toBeVisible();
+  await expect(alphaDialog.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();
+  await expect(alphaDialog.getByRole('button', { name: 'Remove alpha.png from staging' })).toBeVisible();
 
   const alphaTagInput = page.getByLabel('Tags for alpha.png');
   await alphaTagInput.press('-');
@@ -187,7 +188,7 @@ test('staged rows open as a whole, use viewer shortcuts, and edit the underlying
   await expect(page.getByRole('button', { name: 'Remove viewer:edited from beta.png' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Preview book.cbz' })).toBeDisabled();
 
-  await page.getByTestId('upload-row-0').getByText('alpha.png', { exact: true }).click();
+  await page.getByTestId('upload-row-0').getByRole('button', { name: 'Preview alpha.png' }).click();
   await page.keyboard.press('Delete');
   await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Preview alpha.png' })).toHaveCount(0);
