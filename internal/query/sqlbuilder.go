@@ -229,6 +229,29 @@ func (b *SQLBuilder) buildFilenameContainsQuery(value string) {
 	b.args = append(b.args, value)
 }
 
+func (b *SQLBuilder) buildInTargetQuery(value string) {
+	selectColumn := `DISTINCT l.content_hash as hash`
+	if b.target == "id" {
+		selectColumn = `l.id as id`
+	}
+	b.query.WriteString(`SELECT ` + selectColumn + ` FROM managed_storage_target_locations mstl JOIN locations l ON l.id = mstl.location_id`)
+	if value == "any" {
+		return
+	}
+	b.query.WriteString(` WHERE mstl.target_id = ?`)
+	b.args = append(b.args, value)
+}
+
+func (b *SQLBuilder) buildExternalQuery() {
+	if b.target == "id" {
+		b.query.WriteString(`SELECT l.id as id FROM locations l WHERE NOT EXISTS (SELECT 1 FROM managed_storage_target_locations mstl WHERE mstl.location_id = l.id)`)
+		return
+	}
+	// External is a content-level predicate: if any location for this content is
+	// in a managed target, the content is not external even when another copy is.
+	b.query.WriteString(`SELECT DISTINCT l.content_hash as hash FROM locations l WHERE NOT EXISTS (SELECT 1 FROM locations ml JOIN managed_storage_target_locations mstl ON mstl.location_id = ml.id WHERE ml.content_hash = l.content_hash)`)
+}
+
 // buildTagQuery generates the base, simple SELECT statement for a single tag,
 // handling both normal tags and virtual metadata tags.
 func (b *SQLBuilder) buildTagQuery(tagStr string) {
@@ -247,6 +270,10 @@ func (b *SQLBuilder) buildTagQuery(tagStr string) {
 			}
 		case MetaTagFilenameContains:
 			b.buildFilenameContainsQuery(meta.Value)
+		case MetaTagExternal:
+			b.buildExternalQuery()
+		case MetaTagInTarget:
+			b.buildInTargetQuery(meta.Value)
 		default:
 			b.query.WriteString(`SELECT NULL as ` + b.column() + ` WHERE 0`)
 		}
