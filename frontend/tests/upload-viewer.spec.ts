@@ -13,8 +13,14 @@ const png = Buffer.from(
 const pngDataURL = `data:image/png;base64,${png.toString('base64')}`;
 
 type TagMutation = { method: string; body: { file_ids?: string[]; tags?: string[]; verbose?: boolean } };
+type FileRemoval = { method: string; body: { mode?: string } };
 
-async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolean; tagMutations?: TagMutation[]; tagMutationGate?: Promise<void> } = {}) {
+async function mockUploadApp(page: Page, options: {
+  completeAsDuplicate?: boolean;
+  tagMutations?: TagMutation[];
+  tagMutationGate?: Promise<void>;
+  fileRemovals?: FileRemoval[];
+} = {}) {
   let loggedIn = false;
   let uploadIndex = 0;
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
@@ -42,24 +48,33 @@ async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolea
     })
   }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/files/file-existing', async (route) => route.fulfill({
-    contentType: 'application/json',
-    body: JSON.stringify({
-      id: 'file-existing',
-      content_id: 'content-existing',
-      name: 'duplicate.png',
-      safe_display_path: 'duplicate.png',
-      size: png.length,
-      added_at: '2026-09-14T00:00:00Z',
-      modified_time: '2026-09-14T00:00:00Z',
-      media_type: 'image/png',
-      media_kind: 'photo',
-      viewer_support: 'supported',
-      metadata: {},
-      tags: ['submitted', 'remote:existing'],
-      media_urls: { thumbnail: pngDataURL, preview: pngDataURL, content: pngDataURL, download: pngDataURL }
-    })
-  }));
+  await page.route('**/api/v1/files/file-existing', async (route) => {
+    const request = route.request();
+    if (request.method() === 'DELETE') {
+      options.fileRemovals?.push({ method: request.method(), body: JSON.parse(request.postData() || '{}') as FileRemoval['body'] });
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'file-existing',
+        content_id: 'content-existing',
+        name: 'duplicate.png',
+        safe_display_path: 'duplicate.png',
+        size: png.length,
+        added_at: '2026-09-14T00:00:00Z',
+        modified_time: '2026-09-14T00:00:00Z',
+        media_type: 'image/png',
+        media_kind: 'photo',
+        viewer_support: 'supported',
+        can_delete: true,
+        metadata: {},
+        tags: ['submitted', 'remote:existing'],
+        media_urls: { thumbnail: pngDataURL, preview: pngDataURL, content: pngDataURL, download: pngDataURL }
+      })
+    });
+  });
   await page.route('**/api/v1/files/tags', async (route) => {
     const request = route.request();
     const body = JSON.parse(request.postData() || '{}') as TagMutation['body'];
@@ -127,7 +142,7 @@ async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolea
   await page.getByRole('button', { name: 'Upload' }).click();
 }
 
-test('staged viewer ignores visual filtering, uses keyboard navigation, and edits the underlying row tags', async ({ page }) => {
+test('staged rows open as a whole, use viewer shortcuts, and edit the underlying tags', async ({ page }) => {
   await mockUploadApp(page);
   await page.locator('input[type="file"]').setInputFiles([
     { name: 'alpha.png', mimeType: 'image/png', buffer: png },
@@ -136,11 +151,24 @@ test('staged viewer ignores visual filtering, uses keyboard navigation, and edit
   ]);
 
   await page.getByLabel('Filter staged files').fill('alpha');
-  await expect(page.getByRole('button', { name: 'Preview alpha.png' })).toBeVisible();
+  const alphaRow = page.getByTestId('upload-row-0');
+  await expect(alphaRow).toBeVisible();
+  await alphaRow.hover();
+  await expect.poll(() => alphaRow.evaluate((element) => getComputedStyle(element).cursor)).toBe('pointer');
+  await expect(alphaRow.getByRole('button', { name: 'alpha.png', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Preview alpha.png' }).click();
+  // The filename is plain text; clicking its row surface opens the viewer.
+  await alphaRow.getByText('alpha.png', { exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'alpha.png' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove alpha.png from staging' })).toBeVisible();
+
+  const alphaTagInput = page.getByLabel('Tags for alpha.png');
+  await alphaTagInput.press('-');
+  await expect(page.getByLabel('Remove tags from alpha.png')).toBeFocused();
+  await page.getByLabel('Remove tags from alpha.png').press('+');
+  await expect(page.getByLabel('Tags for alpha.png')).toBeFocused();
 
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('dialog', { name: 'beta.png' })).toBeVisible();
@@ -158,6 +186,34 @@ test('staged viewer ignores visual filtering, uses keyboard navigation, and edit
   await page.getByLabel('Filter staged files').fill('');
   await expect(page.getByRole('button', { name: 'Remove viewer:edited from beta.png' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Preview book.cbz' })).toBeDisabled();
+
+  await page.getByTestId('upload-row-0').getByText('alpha.png', { exact: true }).click();
+  await page.keyboard.press('Delete');
+  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Preview alpha.png' })).toHaveCount(0);
+});
+
+test('staged tag occurrences augment backend completion counts', async ({ page }) => {
+  await mockUploadApp(page);
+  const initialTags = page.getByLabel('Initial tags');
+  await initialTags.fill('artist:alice local:staged');
+  await initialTags.press('Enter');
+  await page.locator('input[type="file"]').setInputFiles({ name: 'tagged.png', mimeType: 'image/png', buffer: png });
+
+  await page.getByRole('button', { name: 'Remove artist:alice', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove local:staged', exact: true }).click();
+  await page.locator('input[type="file"]').setInputFiles({ name: 'plain.png', mimeType: 'image/png', buffer: png });
+
+  const plainInput = page.getByRole('textbox', { name: 'Add tag to plain.png' });
+  await plainInput.fill('artist:ali');
+  let suggestions = page.getByRole('listbox', { name: 'Add tag to plain.png suggestions' });
+  const backendPlusStaged = suggestions.getByRole('option').filter({ hasText: 'artist:alice' });
+  await expect(backendPlusStaged).toContainText('9');
+
+  await plainInput.fill('local:sta');
+  suggestions = page.getByRole('listbox', { name: 'Add tag to plain.png suggestions' });
+  const stagedOnly = suggestions.getByRole('option').filter({ hasText: 'local:staged' });
+  await expect(stagedOnly).toContainText('1');
 });
 
 test('inline tag completions overlay the last batch row without resizing the card', async ({ page }) => {
@@ -205,6 +261,30 @@ test('queue viewer navigates across upload batches as one set', async ({ page })
   await expect(page.getByRole('dialog', { name: 'second.png' })).toBeVisible();
 });
 
+test('uploaded viewer uses the normal toolbar and removal shortcut', async ({ page }) => {
+  const fileRemovals: FileRemoval[] = [];
+  await mockUploadApp(page, { completeAsDuplicate: true, fileRemovals });
+
+  await page.locator('input[type="file"]').setInputFiles({ name: 'duplicate.png', mimeType: 'image/png', buffer: png });
+  await page.getByRole('button', { name: 'Upload 1 file' }).click();
+  await expect(page.getByText('duplicate existing', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Preview duplicate.png' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'duplicate.png' });
+  await expect(dialog.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();
+  await expect(dialog.getByRole('link', { name: 'Download duplicate.png' })).toBeVisible();
+  await expect(dialog.getByRole('link', { name: 'Open original duplicate.png' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Delete duplicate.png from disk' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Untrack duplicate.png from library' })).toBeVisible();
+
+  await page.keyboard.press('Delete');
+  const removalDialog = page.getByRole('dialog', { name: 'Remove from library' });
+  await expect(removalDialog).toBeVisible();
+  await removalDialog.getByRole('button', { name: 'Remove' }).click();
+  await expect.poll(() => fileRemovals).toEqual([{ method: 'DELETE', body: { mode: 'untrack' } }]);
+  await expect(page.getByRole('button', { name: 'Preview duplicate.png' })).toHaveCount(0);
+});
+
 test('duplicate viewer removes pre-existing remote tags with a delta mutation', async ({ page }) => {
   const tagMutations: TagMutation[] = [];
   await mockUploadApp(page, { completeAsDuplicate: true, tagMutations });
@@ -219,7 +299,7 @@ test('duplicate viewer removes pre-existing remote tags with a delta mutation', 
   await page.getByRole('button', { name: 'Preview duplicate.png' }).click();
   const dialog = page.getByRole('dialog', { name: 'duplicate.png' });
   await expect(dialog).toBeVisible();
-  const remoteTagRemove = dialog.getByRole('button', { name: 'Remove remote:existing from duplicate.png' });
+  const remoteTagRemove = dialog.getByRole('button', { name: 'Remove remote:existing' });
   await expect(remoteTagRemove).toBeVisible();
 
   await remoteTagRemove.click();
@@ -230,7 +310,7 @@ test('duplicate viewer removes pre-existing remote tags with a delta mutation', 
   await expect(page.getByTestId('upload-queue-batch').getByRole('button', { name: 'Remove remote:existing from duplicate.png' })).toHaveCount(0);
 });
 
-test('clear done retains a completed row until its direct tag save settles', async ({ page }) => {
+test('completed row stays stable while a direct tag save settles', async ({ page }) => {
   let releaseTagMutation: (() => void) | undefined;
   const tagMutationGate = new Promise<void>((resolve) => { releaseTagMutation = resolve; });
   await mockUploadApp(page, { completeAsDuplicate: true, tagMutationGate });
@@ -238,21 +318,27 @@ test('clear done retains a completed row until its direct tag save settles', asy
   await page.locator('input[type="file"]').setInputFiles({ name: 'duplicate.png', mimeType: 'image/png', buffer: png });
   await page.getByRole('button', { name: 'Upload 1 file' }).click();
   await expect(page.getByText('duplicate existing', { exact: true })).toBeVisible();
+  const row = page.getByTestId('upload-row-0');
+  const before = await row.boundingBox();
+  if (!before) throw new Error('completed row has no layout box');
 
   await page.getByRole('button', { name: 'Preview duplicate.png' }).click();
   const dialog = page.getByRole('dialog', { name: 'duplicate.png' });
-  const remoteTagRemove = dialog.getByRole('button', { name: 'Remove remote:existing from duplicate.png' });
+  const remoteTagRemove = dialog.getByRole('button', { name: 'Remove remote:existing' });
   await expect(remoteTagRemove).toBeVisible();
   await remoteTagRemove.click();
-  await page.getByRole('button', { name: 'Close upload preview' }).click();
+  await page.getByRole('button', { name: 'Close preview' }).click();
 
-  const batch = page.getByTestId('upload-queue-batch');
-  await expect(batch.getByText('Saving tag changes…')).toBeVisible();
+  await expect(row.getByText('Saving tag changes…')).toHaveCount(0);
+  const after = await row.boundingBox();
+  if (!after) throw new Error('completed row disappeared during tag save');
+  expect(Math.abs(after.height - before.height)).toBeLessThan(1);
+
   await page.getByRole('button', { name: 'Clear done' }).click();
   await expect(page.getByRole('button', { name: 'Preview duplicate.png' })).toBeVisible();
 
   releaseTagMutation?.();
-  await expect(batch.getByText('Saving tag changes…')).toHaveCount(0);
+  await expect.poll(async () => page.getByRole('button', { name: 'Clear done' }).isEnabled()).toBe(true);
   await page.getByRole('button', { name: 'Clear done' }).click();
   await expect(page.getByRole('button', { name: 'Preview duplicate.png' })).toHaveCount(0);
 });
