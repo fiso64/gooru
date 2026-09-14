@@ -47,6 +47,7 @@
   let remoteFile = $state<FileItem | undefined>();
   let remoteLoading = $state(false);
   let remoteError = $state('');
+  let remoteNestedNavigation = $state(false);
   let tagDraft = $state('');
   let tagMode = $state<'add' | 'remove'>('add');
   let tagOverride = $state<string[] | undefined>();
@@ -97,6 +98,7 @@
     tagDraft = '';
     tagMode = 'add';
     tagOverride = undefined;
+    remoteNestedNavigation = false;
   });
 
   $effect(() => {
@@ -195,7 +197,7 @@
         onClose();
         return;
       }
-      if (!isEditableShortcutTarget(event.target)) {
+      if (!remoteNestedNavigation && !isEditableShortcutTarget(event.target)) {
         if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'k') {
           event.preventDefault();
           event.stopPropagation();
@@ -267,6 +269,7 @@
     {onClose}
     onPrev={() => move(-1)}
     onNext={() => move(1)}
+    onNestedNavigationChange={(active) => (remoteNestedNavigation = active)}
     onTagInput={(_fileID, value) => (tagDraft = value)}
     onMutateTags={(_file, operation, value) => {
       if (value == null || operation === 'set') return;
