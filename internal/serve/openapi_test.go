@@ -28,6 +28,10 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 	if _, ok := fileProps["safe_display_path"]; !ok {
 		t.Fatal("File schema missing safe_display_path")
 	}
+	contentID := stringMap(t, fileProps["content_id"])
+	if got, _ := contentID["description"].(string); got != "Content fingerprint for the tracked file." {
+		t.Fatalf("File content_id description = %q, want content fingerprint terminology", got)
+	}
 	assertRef(t, stringMap(t, fileProps["metadata"]), "#/components/schemas/MediaMetadata")
 	assertRef(t, stringMap(t, fileProps["media_urls"]), "#/components/schemas/MediaURLs")
 

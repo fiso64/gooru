@@ -307,7 +307,7 @@
       <dt>Added</dt><dd>{modifiedLabel(file.added_at)}</dd>
       <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>
       <dt>Mime</dt><dd>{file.media_type}</dd>
-      <dt>Hash</dt><dd class="hash">{file.content_id}</dd>
+      <dt>Fingerprint</dt><dd class="hash">{file.content_id}</dd>
     </dl>
 
     <hr class="g-divider" />
