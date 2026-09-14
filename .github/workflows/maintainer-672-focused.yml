@@ -27,4 +27,13 @@ jobs:
       - name: Install Chromium
         run: npx playwright install chromium
       - name: Run focused browser regression
+        id: browser
         run: npm run test:e2e -- bulk-tag-completions.spec.ts
+      - name: Upload focused browser failure artifacts
+        if: failure() && steps.browser.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue-672-focused-${{ github.run_id }}-${{ github.run_attempt }}
+          path: frontend/test-results/
+          if-no-files-found: warn
+          retention-days: 1
