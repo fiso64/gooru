@@ -128,8 +128,13 @@ func TestProtectedImageThumbnailReadsEncryptedOriginal(t *testing.T) {
 		if err != nil {
 			t.Fatalf("decode protected image thumbnail request %d: %v", i+1, err)
 		}
-		if got := decoded.Bounds().Dx(); got != 16 {
-			t.Fatalf("thumbnail request %d width = %d, want 16", i+1, got)
+		bounds := decoded.Bounds()
+		shortSide := bounds.Dx()
+		if bounds.Dy() < shortSide {
+			shortSide = bounds.Dy()
+		}
+		if shortSide != 16 {
+			t.Fatalf("thumbnail request %d size = %dx%d, want short side 16", i+1, bounds.Dx(), bounds.Dy())
 		}
 		if got := recorder.Header().Get("X-Gooru-Cache"); got != want {
 			t.Fatalf("protected image thumbnail request %d cache = %q, want %q", i+1, got, want)
