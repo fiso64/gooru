@@ -12,7 +12,7 @@ const png = Buffer.from(
 );
 const pngDataURL = `data:image/png;base64,${png.toString('base64')}`;
 
-type TagMutation = { method: string; body: { file_ids?: string[]; tags?: string[] } };
+type TagMutation = { method: string; body: { file_ids?: string[]; tags?: string[]; verbose?: boolean } };
 
 async function mockUploadApp(page: Page, options: { completeAsDuplicate?: boolean; tagMutations?: TagMutation[] } = {}) {
   let loggedIn = false;
@@ -184,7 +184,7 @@ test('duplicate viewer removes pre-existing remote tags with a delta mutation', 
 
   await remoteTagRemove.click();
   await expect.poll(() => tagMutations).toEqual([
-    { method: 'DELETE', body: { file_ids: ['file-existing'], tags: ['remote:existing'] } }
+    { method: 'DELETE', body: { file_ids: ['file-existing'], tags: ['remote:existing'], verbose: false } }
   ]);
   await expect(remoteTagRemove).toHaveCount(0);
   await expect(page.getByTestId('upload-queue-batch').getByRole('button', { name: 'Remove remote:existing from duplicate.png' })).toHaveCount(0);
