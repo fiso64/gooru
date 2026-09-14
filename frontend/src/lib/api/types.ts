@@ -38,7 +38,10 @@ export interface Job {
   result?: unknown;
   error?: string;
 }
-export type UploadImportResponse = components['schemas']['UploadImportResponse'];
+type GeneratedUploadImportResponse = components['schemas']['UploadImportResponse'];
+export type UploadImportResponse = Omit<GeneratedUploadImportResponse, 'files'> & {
+  files: Array<GeneratedUploadImportResponse['files'][number] & { id?: string }>;
+};
 export type UploadTargetsResponse = components['schemas']['UploadTargetsResponse'];
 export type AuthUser = components['schemas']['User'];
 export type AuthMeResponse = components['schemas']['AuthMeResponse'];
