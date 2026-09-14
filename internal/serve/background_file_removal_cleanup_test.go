@@ -189,6 +189,64 @@ func TestCleanupCanceledFileRemovalPreservesStagingOnPathDriftAndCollision(t *te
 	})
 }
 
+func TestCleanupCanceledFileRemovalRejectsParentSymlinkReplacement(t *testing.T) {
+	root := t.TempDir()
+	album := filepath.Join(root, "album")
+	if err := os.Mkdir(album, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	originalPath := filepath.Join(album, "a.jpg")
+	stagingPath := filepath.Join(album, ".gooru-delete-cancel-000000")
+	if err := os.WriteFile(stagingPath, []byte("staged-original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	movedAlbum := filepath.Join(root, "album-moved")
+	if err := os.Rename(album, movedAlbum); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	outsideStaging := filepath.Join(outside, filepath.Base(stagingPath))
+	if err := os.WriteFile(outsideStaging, []byte("outside-victim"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, album); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	server := newCanceledRemovalTestServer(root, nil)
+
+	err := server.cleanupCanceledFileRemoval(context.Background(), canceledBatchRemovalTask(t, []backgroundFileRemovalBatchFile{{PublicID: "file_a", OriginalPath: originalPath, StagingPath: stagingPath}}))
+	if err == nil || !errors.Is(err, ErrFileNotManaged) {
+		t.Fatalf("expected replaced parent to fail managed-path validation, got %v", err)
+	}
+	assertFileContent(t, outsideStaging, "outside-victim")
+	assertFileContent(t, filepath.Join(movedAlbum, filepath.Base(stagingPath)), "staged-original")
+}
+
+func TestCleanupCanceledFileRemovalRejectsStagedSymlinkReplacement(t *testing.T) {
+	root := t.TempDir()
+	originalPath := filepath.Join(root, "a.jpg")
+	outsideFile := filepath.Join(t.TempDir(), "outside.jpg")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stagingPath := filepath.Join(root, ".gooru-delete-cancel-000000")
+	if err := os.Symlink(outsideFile, stagingPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	server := newCanceledRemovalTestServer(root, map[string]types.FileInfo{
+		"file_a": {PublicID: "file_a", Path: originalPath},
+	})
+
+	err := server.cleanupCanceledFileRemoval(context.Background(), canceledBatchRemovalTask(t, []backgroundFileRemovalBatchFile{{PublicID: "file_a", OriginalPath: originalPath, StagingPath: stagingPath}}))
+	if err == nil || !strings.Contains(err.Error(), "staging path is a symlink") {
+		t.Fatalf("expected staged symlink replacement to fail closed, got %v", err)
+	}
+	if _, err := os.Lstat(originalPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanup restored attacker symlink into original path: %v", err)
+	}
+	assertFileContent(t, outsideFile, "outside")
+}
+
 func TestCleanupCanceledFileRemovalSupportsLegacySingleFilePayload(t *testing.T) {
 	root := t.TempDir()
 	originalPath := filepath.Join(root, "a.jpg")

@@ -80,3 +80,63 @@ func TestPersistedStagedFileDeletionRollbackDoesNotOverwriteReplacement(t *testi
 		t.Fatalf("staged original was modified: got %q", stagedData)
 	}
 }
+
+func TestPersistedStagedFileDeletionRejectsSymlinkStagingDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	original := filepath.Join(root, "file.jpg")
+	if err := os.WriteFile(original, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stagingDir := filepath.Join(root, ".gooru-delete-token")
+	if err := os.Symlink(outside, stagingDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	staged, err := persistedStagedFileDeletion(original, filepath.Join(stagingDir, "file.jpg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := staged.stage(); err == nil {
+		t.Fatal("expected symlinked legacy staging directory to be rejected")
+	}
+	got, err := os.ReadFile(original)
+	if err != nil || string(got) != "original" {
+		t.Fatalf("original was moved through staging symlink: body=%q err=%v", got, err)
+	}
+	entries, err := os.ReadDir(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("staging symlink created files outside managed root: %v", entries)
+	}
+}
+
+func TestFlatStagedFileDeletionRejectsSymlinkRollback(t *testing.T) {
+	root := t.TempDir()
+	outsideFile := filepath.Join(t.TempDir(), "outside.jpg")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := filepath.Join(root, "file.jpg")
+	stagedPath := filepath.Join(root, ".gooru-delete-token-000000")
+	if err := os.Symlink(outsideFile, stagedPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	staged, err := persistedFlatStagedFileDeletion(original, stagedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := staged.rollbackMissingOK(); err == nil {
+		t.Fatal("expected staged symlink to be rejected before rollback")
+	}
+	if _, err := os.Lstat(original); !os.IsNotExist(err) {
+		t.Fatalf("rollback restored attacker symlink into original path: %v", err)
+	}
+	got, err := os.ReadFile(outsideFile)
+	if err != nil || string(got) != "outside" {
+		t.Fatalf("outside file changed: body=%q err=%v", got, err)
+	}
+}

@@ -31,6 +31,9 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 		"file_delete.go": {
 			"stageFileDeletion": true,
 		},
+		"file_removal_staging_safety.go": {
+			"ensureDeletionStagingDirectory": true,
+		},
 		"media_thumbnailers.go": {
 			"commandThumbnailer.Thumbnail": true,
 		},
