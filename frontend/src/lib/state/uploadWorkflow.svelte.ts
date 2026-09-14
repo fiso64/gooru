@@ -162,7 +162,7 @@ export function createUploadWorkflow() {
       files = [];
       items = items.filter((item) => item.status !== 'staged');
     } else {
-      items = items.filter((item) => !doneUploadStatuses.has(item.status));
+      items = items.filter((item) => !doneUploadStatuses.has(item.status) || item.tagSyncPending);
     }
     statusCounts = countUploadStatuses(items);
     status = items.some((item) => item.status !== 'staged') ? uploadSummaryFromCounts(statusCounts) : '';

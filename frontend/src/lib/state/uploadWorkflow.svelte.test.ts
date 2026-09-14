@@ -246,6 +246,25 @@ describe('createUploadWorkflow aggregate uploads', () => {
     expect(workflow.activeJobIDs).toEqual(['job-first']);
   });
 
+  it('keeps completed rows visible while direct tag changes are still saving', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.select([uploadFile('first.jpg')]);
+    await workflow.submit(async () => ({
+      files: [{ id: 'file-first', name: 'first.jpg', size: 10, target_id: 'default', status: 'uploaded' }]
+    } as never));
+
+    workflow.setItemTags(0, ['viewer:edited']);
+    expect(workflow.items[0]?.tagSyncPending).toBe(true);
+
+    workflow.clear('done');
+    expect(workflow.items.map((item) => item.name)).toEqual(['first.jpg']);
+
+    workflow.markItemTagSyncApplied(0, 'add', ['viewer:edited']);
+    expect(workflow.items[0]?.tagSyncPending).toBe(false);
+    workflow.clear('done');
+    expect(workflow.items).toEqual([]);
+  });
+
   it('replaces managed target defaults while preserving user tags', () => {
     const workflow = createUploadWorkflow();
     workflow.setTarget('one', 'queue', ['project:inbox', 'source:upload']);
