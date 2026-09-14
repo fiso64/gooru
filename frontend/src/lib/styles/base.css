@@ -80,6 +80,23 @@
   outline: none;
 }
 
+/* ViewerStage takes programmatic focus so global shortcuts keep working after
+   pointer gestures. The stage itself is not tab-navigable or an interactive
+   control, so it must not inherit the generic keyboard-control focus ring. */
+.gooru-root .viewer-stage:focus-visible {
+  outline: none;
+}
+
+/* Browser-native image selection can paint the global accent selection color
+   across viewer media on double-click (notably in Firefox). Media in the
+   viewer is presentation-only, so opt it out without affecting selectable
+   metadata or other text elsewhere in the dialog. */
+.gooru-root .viewer-stage,
+.gooru-root .viewer-stage .viewer-visual-media {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .g-btn:focus,
 .g-input:focus,
 .g-tag:focus {
