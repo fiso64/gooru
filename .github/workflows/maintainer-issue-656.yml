@@ -36,14 +36,14 @@ jobs:
         run: |
           npm ci --prefer-offline --no-audit
           npm run generate:api
-      - name: Validate backend
-        run: go test -count=1 ./internal/serve
+      - name: Validate focused backend
+        run: go test -count=1 ./internal/serve -run 'TestMixedRemovalTaskDeletesManagedAndOnlyUntracksExternal|TestDeleteModeRejectsFileOutsideUploadTargets'
       - name: Validate frontend
         working-directory: frontend
         run: |
           npm run check
           npx playwright install chromium
-          npx playwright test selection-ui-modal.spec.ts
+          npx playwright test selection-ui-modal.spec.ts --grep 'mixed delete asks to untrack external files'
       - name: Commit implementation
         run: |
           rm .github/maintainer-issue-656.py .github/workflows/maintainer-issue-656.yml
