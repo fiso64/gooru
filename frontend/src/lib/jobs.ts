@@ -1,6 +1,12 @@
 import type { Job } from '$lib/api/types';
 
 export function jobAffectedCount(job: Job): number | undefined {
+  if (typeof job.affected_count === 'number' && Number.isFinite(job.affected_count) && job.affected_count >= 0) {
+    return Math.trunc(job.affected_count);
+  }
+
+  // Backward-compatible fallback for operation payloads produced before the
+  // server-owned job summary was introduced.
   if (job.result && typeof job.result === 'object' && !Array.isArray(job.result)) {
     const result = job.result as Record<string, unknown>;
     if (job.type === 'upload_import' && job.status === 'completed' && Array.isArray(result.files)) {
@@ -33,4 +39,11 @@ export function jobAffectedCount(job: Job): number | undefined {
     return Math.trunc(job.progress_total);
   }
   return undefined;
+}
+
+export function jobFailedCount(job: Job): number | undefined {
+  if (typeof job.failed_count !== 'number' || !Number.isFinite(job.failed_count) || job.failed_count < 0) {
+    return undefined;
+  }
+  return Math.trunc(job.failed_count);
 }

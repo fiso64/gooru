@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import type { Job } from '$lib/api/types';
-  import { jobAffectedCount } from '$lib/jobs';
+  import { jobAffectedCount, jobFailedCount } from '$lib/jobs';
 
   let {
     job,
@@ -14,9 +14,20 @@
   const percent = $derived(job.progress === undefined ? undefined : Math.round(Math.max(0, Math.min(1, job.progress)) * 100));
   const cancellable = $derived(job.status === 'pending' || job.status === 'running');
   const visualStatus = $derived(
-    job.status === 'completed' ? 'done' : job.status === 'failed' ? 'error' : job.status === 'pending' ? 'queued' : job.status
+    job.status === 'canceled'
+      ? 'canceled'
+      : job.status === 'failed' || job.outcome === 'error'
+        ? 'error'
+        : job.status === 'completed' && job.outcome === 'partial_success'
+          ? 'partial'
+          : job.status === 'completed'
+            ? 'done'
+            : job.status === 'pending'
+              ? 'queued'
+              : job.status
   );
   const affectedCount = $derived(jobAffectedCount(job));
+  const failedCount = $derived(jobFailedCount(job));
 
   function titleFor(job: Job) {
     const type = job.type;
@@ -72,6 +83,7 @@
   <div class="job-meta">
     {#if percent !== undefined}<span>{percent}%</span>{/if}
     {#if affectedCount !== undefined}<span>{affectedCount.toLocaleString()} file{affectedCount === 1 ? '' : 's'}</span>{/if}
+    {#if failedCount !== undefined && failedCount > 0}<span>{failedCount.toLocaleString()} failed</span>{/if}
     {#if detail}<span class="job-detail">{detail}</span>{/if}
   </div>
 </div>
@@ -144,6 +156,7 @@
 
   .status.running { color: var(--info, oklch(0.72 0.15 250)); }
   .status.done { color: var(--ok); }
+  .status.partial { color: var(--accent); }
   .status.error { color: var(--danger); }
 
   .job-progress {
@@ -162,6 +175,7 @@
 
   .job-progress.running > div { background: var(--info, oklch(0.72 0.15 250)); }
   .job-progress.done > div { background: var(--ok); }
+  .job-progress.partial > div { background: var(--accent); }
   .job-progress.error > div { background: var(--danger); }
   .job-progress.canceled > div { background: var(--text-3); }
 
