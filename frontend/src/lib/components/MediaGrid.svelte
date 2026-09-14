@@ -47,7 +47,7 @@
   const layoutGridSize = $derived(effectiveGridSize($runtimeConfig.gridSize, $runtimeConfig.gridType));
   const virtualTotalCount = $derived(pagedMode ? files.length : totalCount || files.length);
   const virtualRetainedStartIndex = $derived(pagedMode ? 0 : retainedStartIndex);
-  const retainedFileIDs = $derived(new Set(files.map((file) => file.id)));
+  const retainedFileIDs = $derived(new Set(files.map((file: FileItem) => file.id)));
   const squareVirtual = $derived(virtualGrid(files, gridWidth, paneHeight, paneScrollY, gridTop, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize));
   const tileGeometry = $derived(virtualMediaGeometry(files, gridWidth, virtualTotalCount, virtualRetainedStartIndex, layoutGridSize, tileAspectOverrides));
   const tileVirtual = $derived(virtualMediaWindow(tileGeometry, paneHeight, paneScrollY, gridTop, layoutGridSize));
