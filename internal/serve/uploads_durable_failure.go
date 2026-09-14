@@ -15,11 +15,15 @@ func (l *GooruLibrary) FailBackgroundOperationWithCleanupTask(operationID, error
 // older operation boundary working; production GooruLibrary implements the
 // failure store and therefore never uses cancellation for this path.
 func failDurableUploadProducer(operations durableUploadOperationStore, operationID string) {
+	failDurableUploadProducerWithError(operations, operationID, "upload_request_failed", "upload request failed before durable import")
+}
+
+func failDurableUploadProducerWithError(operations durableUploadOperationStore, operationID, errorCode, errorMessage string) {
 	if failures, ok := any(operations).(durableUploadFailureStore); ok {
 		_, _ = failures.FailBackgroundOperationWithCleanupTask(
 			operationID,
-			"upload_request_failed",
-			"upload request failed before durable import",
+			errorCode,
+			errorMessage,
 			backgroundUploadCleanupTaskRequest(operationID),
 		)
 		return

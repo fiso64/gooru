@@ -25,9 +25,9 @@ func (dto BackgroundOperationDTO) MarshalJSON() ([]byte, error) {
 		FailedCount   *int64                     `json:"failed_count,omitempty"`
 	}{
 		backgroundOperationDTOAlias: backgroundOperationDTOAlias(dto),
-		Outcome:                       outcome,
-		AffectedCount:                 affectedCount,
-		FailedCount:                   failedCount,
+		Outcome:                     outcome,
+		AffectedCount:               affectedCount,
+		FailedCount:                 failedCount,
 	})
 }
 
@@ -35,10 +35,10 @@ func backgroundOperationJobSummary(dto BackgroundOperationDTO) (backgroundOperat
 	switch dto.Status {
 	case "failed":
 		outcome := backgroundOperationOutcomeError
-		if dto.Kind == backgroundUploadImportOperationKind && dto.ErrorCode == "payload_too_large" && dto.Stage == "importing" && dto.ProgressTotal > 0 {
+		if dto.Kind == backgroundUploadImportOperationKind && dto.ErrorCode == "payload_too_large" {
 			zero := int64(0)
-			failed := dto.ProgressTotal
-			return outcome, &zero, &failed
+			one := int64(1)
+			return outcome, &zero, &one
 		}
 		return outcome, nil, nil
 	case "completed":

@@ -42,10 +42,13 @@ func TestDurableUploadOversizedProducerFailureIsErrorNotCancellation(t *testing.
 	}
 	var payload struct {
 		Items []struct {
-			ID      string `json:"id"`
-			Status  string `json:"status"`
-			Outcome string `json:"outcome"`
-			Error   string `json:"error_message"`
+			ID            string `json:"id"`
+			Status        string `json:"status"`
+			Outcome       string `json:"outcome"`
+			AffectedCount *int64 `json:"affected_count"`
+			FailedCount   *int64 `json:"failed_count"`
+			ErrorCode     string `json:"error_code"`
+			Error         string `json:"error_message"`
 		} `json:"items"`
 	}
 	if err := json.NewDecoder(jobsRec.Body).Decode(&payload); err != nil {
@@ -58,7 +61,10 @@ func TestDurableUploadOversizedProducerFailureIsErrorNotCancellation(t *testing.
 	if job.Status != string(core.BackgroundWorkFailed) || job.Outcome != "error" {
 		t.Fatalf("oversized job = %+v, want failed/error", job)
 	}
-	if job.Error == "" {
-		t.Fatalf("oversized job has no durable error detail: %+v", job)
+	if job.ErrorCode != "payload_too_large" || job.Error == "" {
+		t.Fatalf("oversized job has wrong durable error detail: %+v", job)
+	}
+	if job.AffectedCount == nil || *job.AffectedCount != 0 || job.FailedCount == nil || *job.FailedCount != 1 {
+		t.Fatalf("oversized job counts = %+v, want affected=0 failed=1", job)
 	}
 }

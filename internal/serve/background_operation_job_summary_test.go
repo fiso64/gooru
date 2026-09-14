@@ -73,7 +73,7 @@ func TestBackgroundOperationJobSummaryUsesMatchedFilesForTagMutation(t *testing.
 func TestBackgroundOperationJobSummaryReportsOversizedProducerFailure(t *testing.T) {
 	summary := decodeOperationSummary(t, BackgroundOperationDTO{
 		Kind: backgroundUploadImportOperationKind, Status: core.BackgroundWorkFailed,
-		Stage: "importing", ProgressTotal: 1, ErrorCode: "payload_too_large",
+		ErrorCode: "payload_too_large",
 	})
 	if summary.Outcome != "error" || summary.AffectedCount == nil || *summary.AffectedCount != 0 || summary.FailedCount == nil || *summary.FailedCount != 1 {
 		t.Fatalf("summary = %+v", summary)
