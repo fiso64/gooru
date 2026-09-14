@@ -436,6 +436,9 @@
       } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {
         await fileRemovalMutation.mutateAsync({ id: actionDialog.id, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });
         if (library.activeFile?.id === actionDialog.id) library.closePreview();
+        for (let index = upload.items.length - 1; index >= 0; index -= 1) {
+          if (upload.items[index]?.remoteFileID === actionDialog.id) upload.removeAt(index);
+        }
       }
       closeActionDialog();
     } catch (error) {
@@ -741,6 +744,9 @@
         onTagsInput={(value) => (upload.tags = value)}
         onItemTagsInput={setUploadItemTags}
         onItemRemoteTagsLoaded={rebaseUploadItemTagsFromRemote}
+        onViewerUntrack={untrackPreview}
+        onViewerDelete={deletePreview}
+        onViewerTagSearch={library.runTagSearch}
         onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}
         onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}
