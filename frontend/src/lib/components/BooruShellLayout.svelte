@@ -92,7 +92,7 @@
   <header class="booru-header">
     <div class="booru-brand-row">
       <button class="booru-brand" type="button" onclick={onOpenLibrary} aria-label="Gooru library">
-        <img class="booru-brand-mark" src="/favicon.svg" alt="" aria-hidden="true" />
+        <span class="booru-brand-mark" aria-hidden="true"></span>
         <span>Gooru</span>
       </button>
       <div class="booru-account-actions">
