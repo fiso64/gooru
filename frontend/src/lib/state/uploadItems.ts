@@ -23,6 +23,7 @@ export interface UploadItem {
   type: string;
   previewFile?: File;
   batchID?: number;
+  tags?: string[];
   targetID?: string;
   queueTimeMs?: number;
   status: UploadItemStatus;
@@ -38,12 +39,26 @@ export function effectiveUploadTargetID(targetID: string, targets: UploadTargetO
   return targets[0]?.id ?? '';
 }
 
-export function stagedUploadItems(files: File[], targetID = '', queueTimeMs = Date.now()): UploadItem[] {
+export function normalizeUploadItemTags(tags: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of tags) {
+    const tag = value.trim();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    result.push(tag);
+  }
+  return result;
+}
+
+export function stagedUploadItems(files: File[], targetID = '', queueTimeMs = Date.now(), tags: string[] = []): UploadItem[] {
+  const initialTags = normalizeUploadItemTags(tags);
   return files.map((file) => ({
     name: file.name,
     size: file.size,
     type: file.type,
     previewFile: file,
+    tags: [...initialTags],
     targetID,
     queueTimeMs,
     status: 'staged',
@@ -53,6 +68,12 @@ export function stagedUploadItems(files: File[], targetID = '', queueTimeMs = Da
 
 export function retargetStagedUploadItems(items: UploadItem[], targetID: string): UploadItem[] {
   return items.map((item) => item.status === 'staged' ? { ...item, targetID } : item);
+}
+
+export function setUploadItemTagsInPlace(items: UploadItem[], index: number, tags: string[]): void {
+  const current = items[index];
+  if (!current) return;
+  current.tags = normalizeUploadItemTags(tags);
 }
 
 export function waitingUploadItems(items: UploadItem[]): UploadItem[] {
@@ -114,6 +135,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       type: prior?.type ?? '',
       previewFile: prior?.previewFile,
       batchID: prior?.batchID,
+      tags: prior?.tags ? [...prior.tags] : [],
       targetID: file.target_id,
       queueTimeMs: prior?.queueTimeMs,
       status: file.status,
