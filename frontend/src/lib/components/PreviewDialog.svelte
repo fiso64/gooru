@@ -78,6 +78,8 @@
   const comicAvailable = $derived(isComicFile(file));
   const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
   const imageSource = $derived(comicEntered && currentComicPage ? currentComicPage.url : viewerImageSource(file, effectivePreferOriginal));
+  const tagGroups = $derived(groupTags(file.tags));
+  const hasTagNamespaces = $derived(tagGroups.some((group) => Boolean(group.namespace)));
 
   onMount(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -321,10 +323,10 @@
         </span>
       </div>
 
-      {#each groupTags(file.tags) as group}
+      {#each tagGroups as group (group.namespace)}
         <div class="lightbox-tag-group">
-          {#if group.namespace}
-            <div class="lightbox-tag-group-head"><span>{group.namespace}</span><span>{group.tags.length}</span></div>
+          {#if group.namespace || hasTagNamespaces}
+            <div class="lightbox-tag-group-head"><span>{group.namespace || 'OTHER'}</span><span>{group.tags.length}</span></div>
           {/if}
           <div class="lightbox-tag-list">
             {#each group.tags as tag}
