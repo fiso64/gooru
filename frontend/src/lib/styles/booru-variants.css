@@ -1,14 +1,6 @@
-.gooru-theme-booru-style .booru-app-shell {
-  grid-template-columns: 288px minmax(0, 1fr);
-}
-
-.gooru-theme-booru-style .search-suggestions .group-head,
-.gooru-theme-booru-style .search-suggestions button[role='option'] .hint,
-.gooru-theme-booru-style .search-suggestions-footer {
-  display: none;
-}
-
-/* Palette follows the dark-theme variables in the committed Danbooru reference. */
+/* Palette follows the dark-theme variables in the committed Danbooru reference.
+   Presentation rules live in the shared booru styles; this file only supplies
+   the dark semantic values they consume. */
 .gooru-theme-booru-dark {
   --bg: #1e1e2c;
   --bg-2: #1e1e2c;
@@ -25,194 +17,26 @@
   --accent-ink: #f6f6f8;
   --accent-soft: #2c2d3f;
   --accent-line: #3f4058;
+  --booru-heading: #e8e8ec;
+  --booru-link-hover: #4bb4ff;
+  --booru-link-active: #4bb4ff;
+  --booru-field-bg: #3f4058;
+  --booru-button-bg: #d1d1da;
+  --booru-button-border: #9192a7;
+  --booru-button-text: #1e1e2c;
+  --booru-button-hover-bg: #e8e8ec;
+  --booru-button-hover-border: #ababbc;
+  --booru-primary-hover-text: #1e1e2c;
+  --booru-thumb-meta-bg: rgb(44 45 63 / 94%);
+  --booru-overlay-bg: rgb(44 45 63 / 94%);
+  --booru-checkbox-border: #777892;
+  --booru-checkbox-selected-text: #d1d1da;
+  --booru-suggestion-bg: #2c2d3f;
+  --booru-suggestion-active-bg: #3f4058;
+  --booru-suggestion-shadow: 0 10px 15px -3px rgb(0 0 0 / 35%), 0 4px 6px -2px rgb(0 0 0 / 30%);
+  --booru-nav-overlay-bg: rgb(44 45 63 / 94%);
+  --booru-floating-overlay-bg: rgb(44 45 63 / 94%);
+  --booru-control-border: #3f4058;
+  --booru-mobile-rail-bg: rgb(44 45 63 / 94%);
   color-scheme: dark;
-  color: #d1d1da;
-  background: #1e1e2c;
-}
-
-.gooru-theme-booru-dark .booru-app-shell,
-.gooru-theme-booru-dark .booru-header,
-.gooru-theme-booru-dark .booru-main-nav,
-.gooru-theme-booru-dark .booru-sidebar,
-.gooru-theme-booru-dark .main,
-.gooru-theme-booru-dark .page,
-.gooru-theme-booru-dark .g-card,
-.gooru-theme-booru-dark .seg,
-.gooru-theme-booru-dark .lightbox,
-.gooru-theme-booru-dark .lightbox-aside,
-.gooru-theme-booru-dark .lightbox-stage,
-.gooru-theme-booru-dark .lightbox-rail {
-  background: #1e1e2c;
-}
-
-.gooru-theme-booru-dark .booru-subnav,
-.gooru-theme-booru-dark .booru-nav-tab.current,
-.gooru-theme-booru-dark .sidebar-item.active,
-.gooru-theme-booru-dark .sidebar-item.is-active,
-.gooru-theme-booru-dark .seg button.active,
-.gooru-theme-booru-dark .seg button.is-active,
-.gooru-theme-booru-dark .lightbox-rail .g-btn:hover,
-.gooru-theme-booru-dark .lightbox-nav-arrow:hover,
-.gooru-theme-booru-dark .comic-read-button:hover,
-.gooru-theme-booru-dark .comic-read-button:focus-visible {
-  background: #2c2d3f;
-}
-
-.gooru-theme-booru-dark .booru-brand,
-.gooru-theme-booru-dark .booru-search-section h2,
-.gooru-theme-booru-dark .sidebar-section-head,
-.gooru-theme-booru-dark .library-head h1,
-.gooru-theme-booru-dark .page-header h1,
-.gooru-theme-booru-dark .settings-section-head h2,
-.gooru-theme-booru-dark .lightbox-name,
-.gooru-theme-booru-dark .lightbox-meta dt,
-.gooru-theme-booru-dark .lightbox-tag-group-head {
-  color: #e8e8ec;
-}
-
-.gooru-theme-booru-dark .booru-link-button,
-.gooru-theme-booru-dark .booru-nav-tab,
-.gooru-theme-booru-dark .booru-subnav-item,
-.gooru-theme-booru-dark .sidebar-item,
-.gooru-theme-booru-dark .lightbox-tag-list .g-tag,
-.gooru-theme-booru-dark .lightbox-rail .g-btn,
-.gooru-theme-booru-dark .lightbox-nav-arrow,
-.gooru-theme-booru-dark .comic-read-button {
-  color: #009be6;
-}
-
-.gooru-theme-booru-dark .booru-link-button:hover,
-.gooru-theme-booru-dark .booru-nav-tab:hover,
-.gooru-theme-booru-dark .booru-subnav-item:hover,
-.gooru-theme-booru-dark .sidebar-item:hover,
-.gooru-theme-booru-dark .lightbox-tag-list .g-tag:hover,
-.gooru-theme-booru-dark .lightbox-rail .g-btn:hover {
-  color: #4bb4ff;
-}
-
-.gooru-theme-booru-dark .booru-nav-tab.current,
-.gooru-theme-booru-dark .booru-subnav-item.current,
-.gooru-theme-booru-dark .sidebar-item.active,
-.gooru-theme-booru-dark .sidebar-item.is-active,
-.gooru-theme-booru-dark .seg button.active,
-.gooru-theme-booru-dark .seg button.is-active {
-  color: #4bb4ff;
-}
-
-.gooru-theme-booru-dark .searchbar,
-.gooru-theme-booru-dark .g-input,
-.gooru-theme-booru-dark .lightbox-tag-input {
-  background: #3f4058;
-  border-color: #777892;
-  color: #d1d1da;
-}
-
-.gooru-theme-booru-dark .searchbar:focus-within,
-.gooru-theme-booru-dark .g-input:focus {
-  background: #3f4058;
-  border-color: #009be6;
-  outline-color: #009be6;
-}
-
-.gooru-theme-booru-dark input::placeholder,
-.gooru-theme-booru-dark textarea::placeholder {
-  color: #ababbc;
-}
-
-.gooru-theme-booru-dark .search-suggestions {
-  background: #2c2d3f;
-  border-color: #3f4058;
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 35%), 0 4px 6px -2px rgb(0 0 0 / 30%);
-}
-
-.gooru-theme-booru-dark .search-suggestions button[role='option']:hover,
-.gooru-theme-booru-dark .search-suggestions button[role='option'].is-active {
-  background: #3f4058;
-}
-
-.gooru-theme-booru-dark .library-head,
-.gooru-theme-booru-dark .g-card,
-.gooru-theme-booru-dark .lightbox-rail,
-.gooru-theme-booru-dark .lightbox-nav-arrow,
-.gooru-theme-booru-dark .comic-read-button {
-  border-color: #3f4058;
-}
-
-.gooru-theme-booru-dark .library-head-meta,
-.gooru-theme-booru-dark .sidebar-item .count,
-.gooru-theme-booru-dark .lightbox-meta dd.hash {
-  color: #9192a7;
-}
-
-.gooru-theme-booru-dark .lightbox-meta {
-  color: #d1d1da;
-}
-
-.gooru-theme-booru-dark .thumb-meta,
-.gooru-theme-booru-dark .thumb-badge,
-.gooru-theme-booru-dark .thumb-checkbox,
-.gooru-theme-booru-dark .lightbox-nav-arrow,
-.gooru-theme-booru-dark .comic-read-button {
-  background: rgb(44 45 63 / 94%);
-  color: #d1d1da;
-  border-color: #777892;
-}
-
-.gooru-theme-booru-dark .thumb-badge-gif,
-.gooru-theme-booru-dark .g-btn-primary {
-  background: #009be6;
-  border-color: #009be6;
-  color: #f6f6f8;
-}
-
-.gooru-theme-booru-dark .g-btn {
-  background: #d1d1da;
-  border-color: #9192a7;
-  color: #1e1e2c;
-}
-
-.gooru-theme-booru-dark .g-btn:hover {
-  background: #e8e8ec;
-  border-color: #ababbc;
-}
-
-.gooru-theme-booru-dark .g-btn-primary:hover {
-  background: #4bb4ff;
-  border-color: #4bb4ff;
-  color: #1e1e2c;
-}
-
-.gooru-theme-booru-dark .g-btn-ghost {
-  background: transparent;
-  border-color: transparent;
-  color: #009be6;
-}
-
-.gooru-theme-booru-dark .g-btn-ghost:hover {
-  background: transparent;
-  border-color: transparent;
-  color: #4bb4ff;
-}
-
-.gooru-theme-booru-dark .video-progress::before {
-  background: #5b5c79;
-}
-
-.gooru-theme-booru-dark .video-progress span {
-  background: #009be6;
-}
-
-@media (max-width: 660px) {
-  .gooru-theme-booru-style .booru-app-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .gooru-theme-booru-dark .lightbox-aside,
-  .gooru-theme-booru-dark .lightbox-rail {
-    border-color: #3f4058;
-  }
-
-  .gooru-theme-booru-dark .lightbox-rail {
-    background: rgb(44 45 63 / 94%);
-  }
 }

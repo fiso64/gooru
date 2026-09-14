@@ -1,20 +1,20 @@
 .gooru-theme-booru-style .lightbox {
   grid-template-columns: 245px minmax(0, 1fr) 38px;
-  background: #ffffff;
+  background: var(--bg);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
 .gooru-theme-booru-style .lightbox-aside {
   padding: 10px 10px 14px 14px;
-  background: #ffffff;
+  background: var(--bg);
   border-right: 0;
   overflow-y: auto;
 }
 
 .gooru-theme-booru-style .lightbox-name {
   margin-bottom: 8px;
-  color: #1e1e2c;
+  color: var(--booru-heading);
   font-family: var(--font-display);
   font-size: 14px;
   font-weight: var(--font-display-weight);
@@ -25,13 +25,13 @@
   grid-template-columns: max-content minmax(0, 1fr);
   column-gap: 7px;
   row-gap: 2px;
-  color: #3f4058;
+  color: var(--text-2);
   font-family: var(--font-ui);
   font-size: 11px;
 }
 
 .gooru-theme-booru-style .lightbox-meta dt {
-  color: #1e1e2c;
+  color: var(--booru-heading);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0;
@@ -39,7 +39,7 @@
 }
 
 .gooru-theme-booru-style .lightbox-meta dd.hash {
-  color: #777892;
+  color: var(--text-3);
   font-size: 9px;
 }
 
@@ -52,7 +52,7 @@
 }
 
 .gooru-theme-booru-style .lightbox-tag-group-head {
-  color: #1e1e2c;
+  color: var(--booru-heading);
   font-family: var(--font-display);
   font-size: 11px;
   font-weight: var(--font-display-weight);
@@ -69,31 +69,31 @@
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: #0075f8;
+  color: var(--accent);
   font-family: var(--font-ui);
   font-size: 11px;
 }
 
 .gooru-theme-booru-style .lightbox-tag-list .g-tag:hover {
   background: transparent;
-  color: #8caaff;
+  color: var(--booru-link-hover);
   text-decoration: underline;
 }
 
 .gooru-theme-booru-style .lightbox-tag-input {
   gap: 4px;
   padding: 3px 4px;
-  background: #ffffff;
-  border: 1px solid #d1d1da;
+  background: var(--booru-field-bg);
+  border: 1px solid var(--border-strong);
   border-radius: 0;
   font-family: var(--font-ui);
   font-size: 11px;
 }
 
-/* The captured post page leaves the media on the page's white canvas. The
+/* The captured post page leaves the media on the page canvas. The
    previous grey stage made the overlay read like Gooru's default lightbox. */
 .gooru-theme-booru-style .lightbox-stage {
-  background: #ffffff;
+  background: var(--bg);
   border-inline: 0;
 }
 
@@ -107,8 +107,8 @@
 .gooru-theme-booru-style .lightbox-rail {
   gap: 0;
   padding: 6px 2px;
-  background: #ffffff;
-  border-left: 1px solid #e8e8ec;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
 }
 
 .gooru-theme-booru-style .lightbox-rail .g-btn {
@@ -118,28 +118,28 @@
   border-radius: 0;
   background: transparent;
   border-color: transparent;
-  color: #0075f8;
+  color: var(--accent);
 }
 
 .gooru-theme-booru-style .lightbox-rail .g-btn:hover {
-  background: #f4f6ff;
+  background: var(--accent-soft);
   border-color: transparent;
-  color: #8caaff;
+  color: var(--booru-link-hover);
 }
 
 .gooru-theme-booru-style .lightbox-nav-arrow {
   width: 34px;
   height: 48px;
   border-radius: 0;
-  background: rgb(255 255 255 / 86%);
-  border: 1px solid #e8e8ec;
-  color: #0075f8;
+  background: var(--booru-nav-overlay-bg);
+  border: 1px solid var(--border);
+  color: var(--accent);
   box-shadow: none;
 }
 
 .gooru-theme-booru-style .lightbox-nav-arrow:hover {
-  background: #f4f6ff;
-  color: #0075f8;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .gooru-theme-booru-style .lightbox-nav-arrow.prev {
@@ -151,18 +151,18 @@
 }
 
 .gooru-theme-booru-style .video-progress::before {
-  background: #d1d1da;
+  background: var(--surface-3);
 }
 
 .gooru-theme-booru-style .video-progress span {
-  background: #0075f8;
+  background: var(--accent);
 }
 
 .gooru-theme-booru-style .comic-read-button {
-  border: 1px solid #d1d1da;
+  border: 1px solid var(--booru-control-border);
   border-radius: 0;
-  background: rgb(255 255 255 / 96%);
-  color: #0075f8;
+  background: var(--booru-floating-overlay-bg);
+  color: var(--accent);
   box-shadow: none;
   backdrop-filter: none;
   font-family: var(--font-ui);
@@ -171,9 +171,9 @@
 
 .gooru-theme-booru-style .comic-read-button:hover,
 .gooru-theme-booru-style .comic-read-button:focus-visible {
-  background: #f4f6ff;
-  border-color: #c3d0ff;
-  color: #0075f8;
+  background: var(--accent-soft);
+  border-color: var(--booru-control-hover-border);
+  color: var(--accent);
   transform: none;
   box-shadow: none;
 }
@@ -191,7 +191,7 @@
   .gooru-theme-booru-style .lightbox-aside {
     grid-row: 2;
     max-height: 40vh;
-    border-top: 1px solid #e8e8ec;
+    border-top: 1px solid var(--border);
   }
 
   .gooru-theme-booru-style .lightbox-rail {
@@ -199,8 +199,8 @@
     top: 4px;
     right: 4px;
     flex-direction: row;
-    background: rgb(255 255 255 / 94%);
-    border: 1px solid #e8e8ec;
+    background: var(--booru-mobile-rail-bg);
+    border: 1px solid var(--border);
   }
 
   .gooru-theme-booru-style .lightbox-stage img,
