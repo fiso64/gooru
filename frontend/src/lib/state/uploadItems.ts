@@ -151,8 +151,19 @@ export function itemsFromJob(items: UploadItem[], job: Job): UploadItem[] {
 }
 
 export function itemsFromResult(response: UploadImportResponse, previous: UploadItem[] = []): UploadItem[] {
+  const previousByName = new Map<string, UploadItem[]>();
+  for (const item of previous) {
+    const matches = previousByName.get(item.name);
+    if (matches) matches.push(item);
+    else previousByName.set(item.name, [item]);
+  }
+  const previousNameCursor = new Map<string, number>();
+
   return response.files.map((file, index) => {
-    const prior = previous.find((item) => item.name === file.name) ?? previous[index];
+    const matches = previousByName.get(file.name);
+    const cursor = previousNameCursor.get(file.name) ?? 0;
+    const prior = matches?.[cursor] ?? previous[index];
+    if (matches && cursor < matches.length) previousNameCursor.set(file.name, cursor + 1);
     return {
       name: file.name,
       size: file.size,

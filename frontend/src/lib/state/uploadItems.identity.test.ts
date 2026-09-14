@@ -58,4 +58,47 @@ describe('upload result remote identities', () => {
     expect(item.remoteFileID).toBe('file-job-result');
     expect(item.tags).toEqual(['person:alice']);
   });
+
+  it('preserves distinct prior state for duplicate filenames', () => {
+    const firstDuplicate = {
+      ...queuedItem('same.jpg'),
+      tags: ['row:first'],
+      batchID: 11,
+      queueTimeMs: 101
+    };
+    const other = {
+      ...queuedItem('other.jpg'),
+      tags: ['row:other'],
+      batchID: 12,
+      queueTimeMs: 202
+    };
+    const secondDuplicate = {
+      ...queuedItem('same.jpg'),
+      tags: ['row:second'],
+      batchID: 13,
+      queueTimeMs: 303
+    };
+    const response = {
+      affected_count: 3,
+      files: [
+        { id: 'file-other', name: 'other.jpg', size: 10, target_id: 'primary', status: 'imported' },
+        { id: 'file-same-first', name: 'same.jpg', size: 10, target_id: 'primary', status: 'imported' },
+        { id: 'file-same-second', name: 'same.jpg', size: 10, target_id: 'primary', status: 'imported' }
+      ]
+    } as UploadImportResponse;
+
+    const items = itemsFromResult(response, [firstDuplicate, other, secondDuplicate]);
+
+    expect(items.map((item) => ({
+      name: item.name,
+      tags: item.tags,
+      batchID: item.batchID,
+      queueTimeMs: item.queueTimeMs,
+      remoteFileID: item.remoteFileID
+    }))).toEqual([
+      { name: 'other.jpg', tags: ['row:other'], batchID: 12, queueTimeMs: 202, remoteFileID: 'file-other' },
+      { name: 'same.jpg', tags: ['row:first'], batchID: 11, queueTimeMs: 101, remoteFileID: 'file-same-first' },
+      { name: 'same.jpg', tags: ['row:second'], batchID: 13, queueTimeMs: 303, remoteFileID: 'file-same-second' }
+    ]);
+  });
 });
