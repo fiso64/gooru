@@ -231,10 +231,10 @@
     max-width: 250px;
     height: 30px;
     padding: 0 28px 0 9px;
-    border: 1px solid var(--border-2);
-    border-radius: var(--radius-sm);
-    background: var(--surface-1);
-    color: var(--text-1);
+    border: 1px solid var(--border);
+    border-radius: var(--r-2);
+    background: var(--surface);
+    color: var(--text);
     font: inherit;
     font-size: 12px;
   }
