@@ -17,6 +17,7 @@
     ui_theme?: string;
     accent_color?: string;
     font_style?: FontStyle;
+    font_style_configured?: boolean;
     load_full_media_by_default?: boolean;
     fullscreen_media_by_default?: boolean;
     hover_play_videos?: boolean;
@@ -41,7 +42,7 @@
   let runtimeConfiguredTheme = $state<ConfiguredUITheme>('default');
   let runtimeTheme = $state<UITheme>('default');
   let runtimeAccent = $state<AccentTheme | null>(null);
-  let runtimeFontStyle = $state<FontStyle>('comic');
+  let runtimeFontStyle = $state<FontStyle | null>('comic');
   let runtimeGridSize = $state(defaultGridSize);
   let runtimeGridType = $state<GridType>('square');
   let faviconHref = $state('/favicon.svg');
@@ -50,8 +51,8 @@
     runtimeConfiguredTheme = normalizeConfiguredUITheme(config.ui_theme);
     runtimeTheme = normalizeUITheme(config.ui_theme);
     const booruStyle = runtimeTheme === 'booru-style';
-    runtimeAccent = booruStyle ? null : accentTheme(config.accent_color ?? '');
-    runtimeFontStyle = booruStyle ? 'modern' : (config.font_style ?? 'comic');
+    runtimeAccent = accentTheme(config.accent_color ?? '');
+    runtimeFontStyle = booruStyle && !config.font_style_configured ? null : (config.font_style ?? 'comic');
     runtimeGridSize = config.grid_size ?? defaultGridSize;
     runtimeGridType = normalizeGridType(config.grid_type);
     setProtectedReadTransport(config.protected_mode ?? false);
@@ -134,8 +135,8 @@
 </svelte:head>
 
 <div
-  class={`gooru-root gooru-theme-${runtimeTheme}${runtimeConfiguredTheme === 'default' ? '' : ` gooru-theme-${runtimeConfiguredTheme}`} gooru-accent-sodium gooru-type-${runtimeFontStyle}`}
-  style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;${runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
+  class={`gooru-root gooru-theme-${runtimeTheme}${runtimeConfiguredTheme === 'default' ? '' : ` gooru-theme-${runtimeConfiguredTheme}`} gooru-accent-sodium${runtimeFontStyle ? ` gooru-type-${runtimeFontStyle}` : ''}`}
+  style={`--grid-cell:${effectiveGridSize(runtimeGridSize, runtimeGridType)}px;--brand-accent:${runtimeAccent?.accent ?? '#ffd060'};${runtimeTheme !== 'booru-style' && runtimeAccent ? `--accent:${runtimeAccent.accent};--accent-ink:${runtimeAccent.accentInk}` : ''}`}
 >
   {#if !$authState.checked}
     <SessionLoading />
