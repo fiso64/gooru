@@ -46,6 +46,40 @@ const doneUploadStatuses = new Set<UploadItemStatus>([
   'canceled'
 ]);
 
+export interface UploadSubmissionSegment {
+  start: number;
+  end: number;
+  tags: string[];
+}
+
+export function uploadSubmissionSegments(
+  itemIndices: number[],
+  items: UploadItem[],
+  fallbackTags: string[],
+  maxFiles: number
+): UploadSubmissionSegment[] {
+  if (!itemIndices.length) return [];
+  const limit = Math.max(1, Math.trunc(maxFiles));
+  const segments: UploadSubmissionSegment[] = [];
+  let start = 0;
+  let currentTags = [...(items[itemIndices[0]]?.tags ?? fallbackTags)];
+
+  const sameTags = (left: string[], right: string[]) =>
+    left.length === right.length && left.every((tag, index) => tag === right[index]);
+
+  for (let index = 1; index <= itemIndices.length; index += 1) {
+    const nextTags = index < itemIndices.length ? [...(items[itemIndices[index]]?.tags ?? fallbackTags)] : undefined;
+    const atSizeLimit = index - start >= limit;
+    const tagBoundary = nextTags !== undefined && !sameTags(currentTags, nextTags);
+    if (index < itemIndices.length && !atSizeLimit && !tagBoundary) continue;
+
+    segments.push({ start, end: index, tags: currentTags });
+    start = index;
+    if (nextTags !== undefined) currentTags = nextTags;
+  }
+  return segments;
+}
+
 export function perFileUploadProgress(files: File[], aggregateProgress: number): number[] {
   if (!files.length) return [];
   const safeAggregate = Math.max(0, Math.min(100, aggregateProgress));
@@ -294,29 +328,30 @@ export function createUploadWorkflow() {
     let queued = false;
     let changedFiles = false;
     let currentChunkStart = 0;
-    const chunkSize = multipartUploadChunkSize();
-    const segmentCount = Math.ceil(batchFiles.length / chunkSize);
+    const segments = uploadSubmissionSegments(batchItemIndices, items, parsedTags, multipartUploadChunkSize());
+    const segmentCount = segments.length;
     let logicalOperationID = '';
 
     refreshStatus();
 
     try {
-      for (currentChunkStart = 0; currentChunkStart < batchFiles.length; currentChunkStart += chunkSize) {
+      for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+        const segment = segments[segmentIndex];
+        currentChunkStart = segment.start;
         if (controller.signal.aborted || cancelPending) {
           throw new ApiError(0, 'request_aborted', 'Upload was canceled');
         }
-        const chunkEnd = Math.min(batchFiles.length, currentChunkStart + chunkSize);
+        const chunkEnd = segment.end;
         const chunkFiles = batchFiles.slice(currentChunkStart, chunkEnd);
         const chunkItemIndices = batchItemIndices.slice(currentChunkStart, chunkEnd);
         const chunkQueueTimes = batchQueueTimes.slice(currentChunkStart, chunkEnd);
         const chunkQueueIndices = chunkFiles.map((_, index) => currentChunkStart + index);
         const chunkQueueTotals = chunkFiles.map(() => batchQueueTotal);
-        const segmentIndex = Math.floor(currentChunkStart / chunkSize);
         let lastTransportProgress = -1;
 
         const response = await mutate({
           files: chunkFiles,
-          tags: parsedTags,
+          tags: segment.tags,
           preferAsync: true,
           targetID: batchTargetID,
           conflictPolicy: batchConflictPolicy,
