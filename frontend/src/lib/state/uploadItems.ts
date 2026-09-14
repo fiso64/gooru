@@ -24,6 +24,9 @@ export interface UploadItem {
   previewFile?: File;
   batchID?: number;
   tags?: string[];
+  submittedTags?: string[];
+  tagSyncPending?: boolean;
+  tagSyncError?: string;
   targetID?: string;
   queueTimeMs?: number;
   remoteFileID?: string;
@@ -54,6 +57,10 @@ export function normalizeUploadItemTags(tags: string[]): string[] {
   return result;
 }
 
+function sameUploadItemTags(left: string[] = [], right: string[] = []): boolean {
+  return left.length === right.length && left.every((tag, index) => tag === right[index]);
+}
+
 export function stagedUploadItems(files: File[], targetID = '', queueTimeMs = Date.now(), tags: string[] = []): UploadItem[] {
   const initialTags = normalizeUploadItemTags(tags);
   return files.map((file) => ({
@@ -76,7 +83,42 @@ export function retargetStagedUploadItems(items: UploadItem[], targetID: string)
 export function setUploadItemTagsInPlace(items: UploadItem[], index: number, tags: string[]): void {
   const current = items[index];
   if (!current) return;
-  current.tags = normalizeUploadItemTags(tags);
+  const nextTags = normalizeUploadItemTags(tags);
+  current.tags = nextTags;
+  current.tagSyncError = '';
+  if (current.status === 'staged') {
+    current.tagSyncPending = false;
+    return;
+  }
+  if (current.remoteFileID) {
+    current.tagSyncPending = true;
+    return;
+  }
+  current.tagSyncPending = current.submittedTags ? !sameUploadItemTags(nextTags, current.submittedTags) : false;
+}
+
+export function markUploadItemTagsSubmittedInPlace(items: UploadItem[], index: number): void {
+  const current = items[index];
+  if (!current) return;
+  current.submittedTags = [...(current.tags ?? [])];
+  current.tagSyncPending = false;
+  current.tagSyncError = '';
+}
+
+export function markUploadItemTagsSyncedInPlace(items: UploadItem[], index: number, syncedTags: string[]): void {
+  const current = items[index];
+  if (!current) return;
+  const normalized = normalizeUploadItemTags(syncedTags);
+  current.submittedTags = normalized;
+  current.tagSyncPending = !sameUploadItemTags(current.tags ?? [], normalized);
+  current.tagSyncError = '';
+}
+
+export function markUploadItemTagSyncErrorInPlace(items: UploadItem[], index: number, message: string): void {
+  const current = items[index];
+  if (!current) return;
+  current.tagSyncPending = false;
+  current.tagSyncError = message;
 }
 
 export function waitingUploadItems(items: UploadItem[]): UploadItem[] {
@@ -139,6 +181,9 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       previewFile: prior?.previewFile,
       batchID: prior?.batchID,
       tags: prior?.tags ? [...prior.tags] : [],
+      submittedTags: prior?.submittedTags ? [...prior.submittedTags] : undefined,
+      tagSyncPending: prior?.tagSyncPending,
+      tagSyncError: prior?.tagSyncError,
       targetID: file.target_id,
       queueTimeMs: prior?.queueTimeMs,
       remoteFileID: (file as UploadResultFileWithIdentity).id ?? prior?.remoteFileID,
