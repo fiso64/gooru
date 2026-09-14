@@ -21,11 +21,34 @@
   --danger: #ed2426;
   --danger-soft: #fbe3e3;
   --ok: #008e23;
+  --booru-heading: #1e1e2c;
+  --booru-link-hover: #8caaff;
+  --booru-link-active: #005ac3;
+  --booru-muted: #9192a7;
+  --booru-field-bg: #ffffff;
+  --booru-button-bg: #e8e8ec;
+  --booru-button-border: #d1d1da;
+  --booru-button-text: #000000;
+  --booru-button-hover-bg: #f6f6f8;
+  --booru-button-hover-border: #777892;
+  --booru-primary-hover-text: #ffffff;
+  --booru-thumb-meta-bg: rgb(255 255 255 / 90%);
+  --booru-overlay-bg: rgb(255 255 255 / 92%);
+  --booru-checkbox-border: #9192a7;
+  --booru-checkbox-selected-text: #ffffff;
+  --booru-suggestion-shadow: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -2px rgb(0 0 0 / 5%);
+  --booru-nav-overlay-bg: rgb(255 255 255 / 86%);
+  --booru-floating-overlay-bg: rgb(255 255 255 / 96%);
+  --booru-control-border: #d1d1da;
+  --booru-control-hover-border: #c3d0ff;
+  --booru-mobile-rail-bg: rgb(255 255 255 / 94%);
   --r-1: 0;
   --r-2: 0;
   --r-3: 0;
   --r-4: 0;
   color-scheme: light;
+  color: var(--text);
+  background: var(--bg);
   font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.25;
@@ -53,16 +76,16 @@
 }
 
 .gooru-theme-booru-style .booru-app-shell {
-  grid-template-columns: 245px minmax(0, 1fr);
+  grid-template-columns: 288px minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
-  background: #ffffff;
+  background: var(--bg);
 }
 
 .gooru-theme-booru-style .booru-header {
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
+  background: var(--bg);
   position: relative;
   z-index: 5;
 }
@@ -83,7 +106,7 @@
   border: 0;
   padding: 0;
   background: transparent;
-  color: #1e1e2c;
+  color: var(--booru-heading);
   cursor: pointer;
   font-family: var(--font-display);
   font-size: 28px;
@@ -113,7 +136,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #0075f8;
+  color: var(--accent);
   cursor: pointer;
   font-family: var(--font-ui);
 }
@@ -133,12 +156,12 @@
 
 .gooru-theme-booru-style .booru-main-nav {
   min-height: 31px;
-  background: #ffffff;
+  background: var(--bg);
 }
 
 .gooru-theme-booru-style .booru-subnav {
   min-height: 31px;
-  background: #f4f6ff;
+  background: var(--accent-soft);
 }
 
 .gooru-theme-booru-style .booru-nav-tab,
@@ -149,33 +172,33 @@
 }
 
 .gooru-theme-booru-style .booru-nav-tab.current {
-  background: #f4f6ff;
-  color: #005ac3;
+  background: var(--accent-soft);
+  color: var(--booru-link-active);
   font-weight: 700;
 }
 
 .gooru-theme-booru-style .booru-subnav-item.current {
-  color: #005ac3;
+  color: var(--booru-link-active);
   font-weight: 700;
 }
 
 .gooru-theme-booru-style .booru-link-button:hover,
 .gooru-theme-booru-style .booru-nav-tab:hover,
 .gooru-theme-booru-style .booru-subnav-item:hover {
-  color: #8caaff;
+  color: var(--booru-link-hover);
 }
 
 .gooru-theme-booru-style .booru-link-button:focus-visible,
 .gooru-theme-booru-style .booru-nav-tab:focus-visible,
 .gooru-theme-booru-style .booru-subnav-item:focus-visible {
-  outline: 2px solid #0075f8;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 .gooru-theme-booru-style .booru-sidebar {
   gap: 14px;
   padding: 12px 12px 24px 32px;
-  background: #ffffff;
+  background: var(--bg);
   border-right: 0;
 }
 
@@ -187,7 +210,7 @@
 
 .gooru-theme-booru-style .booru-search-section h2 {
   margin: 0;
-  color: #1e1e2c;
+  color: var(--booru-heading);
   font-family: var(--font-display);
   font-size: 14px;
   font-weight: var(--font-display-weight);
@@ -200,17 +223,17 @@
 .gooru-theme-booru-style .searchbar {
   min-height: 26px;
   padding: 2px 7px 2px 28px;
-  background: #ffffff;
-  border-color: #d1d1da;
+  background: var(--booru-field-bg);
+  border-color: var(--border-strong);
   border-radius: 0;
   box-shadow: none;
 }
 
 .gooru-theme-booru-style .searchbar:focus-within {
-  background: #ffffff;
-  border-color: #0075f8;
+  background: var(--booru-field-bg);
+  border-color: var(--accent);
   box-shadow: none;
-  outline: 2px solid #0075f8;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -234,7 +257,25 @@
 }
 
 .gooru-theme-booru-style .search-suggestions {
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -2px rgb(0 0 0 / 5%);
+  background: var(--surface);
+  border-color: var(--border);
+  box-shadow: var(--booru-suggestion-shadow);
+}
+
+.gooru-theme-booru-style .search-suggestions button[role='option']:hover,
+.gooru-theme-booru-style .search-suggestions button[role='option'].is-active {
+  background: var(--surface-2);
+}
+
+.gooru-theme-booru-style .search-suggestions .group-head,
+.gooru-theme-booru-style .search-suggestions button[role='option'] .hint,
+.gooru-theme-booru-style .search-suggestions-footer {
+  display: none;
+}
+
+.gooru-theme-booru-style input::placeholder,
+.gooru-theme-booru-style textarea::placeholder {
+  color: var(--text-4);
 }
 
 .gooru-theme-booru-style .sidebar-section {
@@ -243,7 +284,7 @@
 
 .gooru-theme-booru-style .sidebar-section-head {
   padding: 7px 4px 3px;
-  color: #1e1e2c;
+  color: var(--booru-heading);
   font-family: var(--font-display);
   font-size: 12px;
   font-weight: var(--font-display-weight);
@@ -256,25 +297,25 @@
   min-height: 24px;
   padding: 2px 4px;
   border-radius: 0;
-  color: #0075f8;
+  color: var(--accent);
   font-size: 12px;
 }
 
 .gooru-theme-booru-style .sidebar-item:hover {
   background: transparent;
-  color: #8caaff;
+  color: var(--booru-link-hover);
   text-decoration: underline;
 }
 
 .gooru-theme-booru-style .sidebar-item.active,
 .gooru-theme-booru-style .sidebar-item.is-active {
-  background: #f4f6ff;
-  color: #005ac3;
+  background: var(--accent-soft);
+  color: var(--booru-link-active);
   font-weight: 700;
 }
 
 .gooru-theme-booru-style .sidebar-item .count {
-  color: #9192a7;
+  color: var(--booru-muted);
   font-family: var(--font-ui);
   font-size: 10px;
 }
@@ -285,18 +326,18 @@
 }
 
 .gooru-theme-booru-style .main {
-  background: #ffffff;
+  background: var(--bg);
 }
 
 .gooru-theme-booru-style .library-head {
   min-height: 36px;
   padding: 5px 12px;
-  border-bottom-color: #e8e8ec;
+  border-bottom-color: var(--border);
 }
 
 .gooru-theme-booru-style .library-head h1,
 .gooru-theme-booru-style .page-header h1 {
-  color: #1e1e2c;
+  color: var(--booru-heading);
   font-family: var(--font-display);
   font-size: 18px;
   font-weight: var(--font-display-weight);
@@ -304,7 +345,7 @@
 }
 
 .gooru-theme-booru-style .library-head-meta {
-  color: #9192a7;
+  color: var(--booru-muted);
   font-family: var(--font-ui);
   font-size: 11px;
 }
@@ -341,8 +382,8 @@
   right: 2px;
   bottom: 2px;
   padding: 2px 3px;
-  background: rgb(255 255 255 / 90%);
-  color: #3f4058;
+  background: var(--booru-thumb-meta-bg);
+  color: var(--text-2);
   font-family: var(--font-ui);
   font-size: 10px;
   text-shadow: none;
@@ -350,66 +391,72 @@
 
 .gooru-theme-booru-style .thumb-badge {
   padding: 2px 4px;
-  background: rgb(255 255 255 / 92%);
-  color: #3f4058;
-  border: 1px solid #d1d1da;
+  background: var(--booru-overlay-bg);
+  color: var(--text-2);
+  border: 1px solid var(--border-strong);
   border-radius: 0;
   font-family: var(--font-ui);
 }
 
 .gooru-theme-booru-style .thumb-badge-gif {
-  background: #0075f8;
-  border-color: #0075f8;
-  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .gooru-theme-booru-style .thumb-checkbox {
   border-radius: 0;
-  background: rgb(255 255 255 / 92%);
-  border-color: #9192a7;
+  background: var(--booru-overlay-bg);
+  border-color: var(--booru-checkbox-border);
+}
+
+.gooru-theme-booru-style .thumb.is-selected .thumb-checkbox,
+.gooru-theme-booru-style .thumb-checkbox.is-selected {
+  color: var(--booru-checkbox-selected-text);
 }
 
 .gooru-theme-booru-style .thumb.is-selected::after {
-  box-shadow: inset 0 0 0 2px #0075f8;
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .gooru-theme-booru-style .g-btn {
   padding: 3px 7px;
   border-radius: 0;
-  background: #e8e8ec;
-  border-color: #d1d1da;
-  color: #000000;
+  background: var(--booru-button-bg);
+  border-color: var(--booru-button-border);
+  color: var(--booru-button-text);
   font-size: 12px;
   font-weight: 400;
   box-shadow: none;
 }
 
 .gooru-theme-booru-style .g-btn:hover {
-  background: #f6f6f8;
-  border-color: #777892;
+  background: var(--booru-button-hover-bg);
+  border-color: var(--booru-button-hover-border);
 }
 
 .gooru-theme-booru-style .g-btn-primary {
-  background: #0075f8;
-  border-color: #0075f8;
-  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .gooru-theme-booru-style .g-btn-primary:hover {
-  background: #8caaff;
-  border-color: #8caaff;
+  background: var(--booru-link-hover);
+  border-color: var(--booru-link-hover);
+  color: var(--booru-primary-hover-text);
 }
 
 .gooru-theme-booru-style .g-btn-ghost {
   background: transparent;
   border-color: transparent;
-  color: #0075f8;
+  color: var(--accent);
 }
 
 .gooru-theme-booru-style .g-btn-ghost:hover {
   background: transparent;
   border-color: transparent;
-  color: #8caaff;
+  color: var(--booru-link-hover);
 }
 
 .gooru-theme-booru-style .g-card,
@@ -427,33 +474,33 @@
 
 .gooru-theme-booru-style .g-input {
   padding: 4px 6px;
-  background: #ffffff;
-  border-color: #d1d1da;
+  background: var(--booru-field-bg);
+  border-color: var(--border-strong);
   box-shadow: none;
 }
 
 .gooru-theme-booru-style .g-input:focus {
-  background: #ffffff;
-  border-color: #0075f8;
+  background: var(--booru-field-bg);
+  border-color: var(--accent);
   box-shadow: none;
-  outline: 2px solid #0075f8;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 .gooru-theme-booru-style .seg {
   padding: 0;
-  background: #ffffff;
+  background: var(--bg);
 }
 
 .gooru-theme-booru-style .seg button.active,
 .gooru-theme-booru-style .seg button.is-active {
-  background: #f4f6ff;
-  color: #005ac3;
+  background: var(--accent-soft);
+  color: var(--booru-link-active);
 }
 
 .gooru-theme-booru-style .g-card {
-  background: #ffffff;
-  border-color: #e8e8ec;
+  background: var(--bg);
+  border-color: var(--border);
 }
 
 .gooru-theme-booru-style .page {
@@ -461,6 +508,7 @@
   margin: 0;
   padding: 16px 24px 64px;
   gap: 18px;
+  background: var(--bg);
 }
 
 .gooru-theme-booru-style .settings-section {
@@ -470,7 +518,7 @@
 }
 
 .gooru-theme-booru-style .settings-section-head h2 {
-  color: #1e1e2c;
+  color: var(--booru-heading);
   font-family: var(--font-display);
   font-size: 14px;
   font-weight: var(--font-display-weight);
