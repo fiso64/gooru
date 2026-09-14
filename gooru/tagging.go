@@ -482,6 +482,7 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 		return 0, nil, err
 	}
 	defer tx.Rollback()
+	operationChanged := false
 	if len(analysis.potentialMoves) > 0 {
 		hashesToCheck := make([]string, 0, len(analysis.potentialMoves))
 		for hash := range analysis.potentialMoves {
@@ -525,8 +526,12 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 	}
 	tasks = append(tasks, hookTasks...)
 	for _, task := range tasks {
-		if _, _, err := c.enqueueBackgroundTask(tx, task); err != nil {
+		backgroundTask, created, err := c.enqueueBackgroundTask(tx, task)
+		if err != nil {
 			return 0, nil, fmt.Errorf("failed to enqueue background task: %w", err)
+		}
+		if created && backgroundTask.OperationID != "" {
+			operationChanged = true
 		}
 	}
 	if stateBuilder != nil {
@@ -554,6 +559,7 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 			if err := setDatabaseBackgroundOperationState(c, tx, state.OperationID, checkpointJSON, resultJSON); err != nil {
 				return 0, nil, fmt.Errorf("persist background operation transaction state: %w", err)
 			}
+			operationChanged = true
 		}
 	}
 	if finalizer != nil {
@@ -561,7 +567,13 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 			return 0, nil, fmt.Errorf("finalize tagging transaction: %w", err)
 		}
 	}
-	return affectedCount, movesHandled, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, nil, err
+	}
+	if operationChanged {
+		c.notifyBackgroundOperationChange()
+	}
+	return affectedCount, movesHandled, nil
 }
 
 func (c *Client) performTagOperation(filePaths []string, tags []string, progressCb func(filePath string, err error), kind opKind, useMetadataHeuristic bool) (types.TagOperationResult, error) {
