@@ -53,6 +53,14 @@ jobs:
           if "search suggestions omit redundant group headers and keyboard footer" in test_text:
               raise SystemExit('regression already present')
           test_path.write_text(test_text.rstrip() + regression)
+
+          scroll_path = Path('frontend/tests/completion-scroll.spec.ts')
+          scroll_text = scroll_path.read_text()
+          old = '''  await expect(list).toBeVisible();\n  for (let i = 0; i < 12; i += 1) await input.press('ArrowDown');\n  await expectActiveInside(list);\n'''
+          new = '''  await expect(list).toBeVisible();\n  await list.evaluate((node) => {\n    (node as HTMLElement).style.maxHeight = '120px';\n  });\n  for (let i = 0; i < 12; i += 1) await input.press('ArrowDown');\n  await expectActiveInside(list);\n'''
+          if scroll_text.count(old) != 2:
+              raise SystemExit(f'expected two scroll assertions, found {scroll_text.count(old)}')
+          scroll_path.write_text(scroll_text.replace(old, new, 1))
           PY
       - uses: actions/setup-node@v4
         with:
@@ -74,7 +82,7 @@ jobs:
       - name: Search ranking regressions
         working-directory: frontend
         run: npx playwright test search-completion-ranking.spec.ts --grep-invert 'search suggestions omit redundant group headers and keyboard footer'
-      - name: Completion scroll regression
+      - name: Completion scroll regressions
         working-directory: frontend
         run: npx playwright test completion-scroll.spec.ts
       - name: Frontend build
