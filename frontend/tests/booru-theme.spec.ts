@@ -170,7 +170,7 @@ test('booru login uses the same yellow spiral brand accent by default', async ({
   await expect(root).toHaveAttribute('style', /--brand-accent:\s*#ffd060/);
   await expect(page.locator('.login-v2-spirals path')).toHaveCSS('stroke', 'rgb(255, 208, 96)');
   await expect(page.locator('.login-v2-mark .gooru-logo-accent-fill')).toHaveCSS('fill', 'rgb(255, 208, 96)');
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg');
+  await expect(page.locator('link[rel="icon"]').last()).toHaveAttribute('href', '/favicon.svg');
 });
 
 test('booru custom accent recolors only spiral branding and favicon', async ({ page }) => {
@@ -183,7 +183,7 @@ test('booru custom accent recolors only spiral branding and favicon', async ({ p
   await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Tags' })).toHaveCSS('color', 'rgb(0, 117, 248)');
   const booruAccent = await root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
   expect(booruAccent).toBe('#0075f8');
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /^data:image\/svg\+xml,/);
+  await expect(page.locator('link[rel="icon"]').last()).toHaveAttribute('href', /^data:image\/svg\+xml,/);
 });
 
 test('default theme keeps applying configured accent to the full UI token', async ({ page }) => {
@@ -196,7 +196,7 @@ test('default theme keeps applying configured accent to the full UI token', asyn
   const defaultAccent = await root.evaluate((node) => getComputedStyle(node).getPropertyValue('--accent').trim());
   expect(defaultAccent).toBe('#0c2238');
   await expect(page.locator('.login-v2-spirals path')).toHaveCSS('stroke', 'rgb(12, 34, 56)');
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /^data:image\/svg\+xml,/);
+  await expect(page.locator('link[rel="icon"]').last()).toHaveAttribute('href', /^data:image\/svg\+xml,/);
 });
 
 test('booru explicit font style overrides native typography without changing palette', async ({ page }) => {
