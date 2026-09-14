@@ -1,4 +1,4 @@
-name: Maintainer issue 656 helper
+name: Maintainer issue 656 patch
 
 on:
   push:
@@ -9,9 +9,42 @@ permissions:
   contents: write
 
 jobs:
-  helper:
+  patch:
     runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Verify helper runner
-        run: echo ready
+        with:
+          ref: maintainer/issue-656-untrack-external-delete
+      - name: Apply patch
+        run: |
+          python3 .github/maintainer-issue-656.py
+          gofmt -w internal/serve/background_file_removals.go internal/serve/file_removals.go internal/serve/file_removals_managed_storage_test.go
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Generate API client
+        working-directory: frontend
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run generate:api
+      - name: Validate backend
+        run: go test -count=1 ./internal/serve
+      - name: Validate frontend
+        working-directory: frontend
+        run: |
+          npm run check
+          npx playwright install chromium
+          npx playwright test selection-ui-modal.spec.ts
+      - name: Commit implementation
+        run: |
+          rm .github/maintainer-issue-656.py .github/workflows/maintainer-issue-656.yml
+          git config user.name "OpenAI Maintainer"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: confirm mixed deletion for external files"
+          git push origin HEAD:maintainer/issue-656-untrack-external-delete
