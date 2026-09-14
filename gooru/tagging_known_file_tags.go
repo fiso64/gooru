@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"gooru.local/internal/database"
 	"gooru.local/internal/query"
 	"gooru.local/types"
 )
@@ -127,7 +126,7 @@ func appendUniqueKnownFileTags(existing, additions []string) []string {
 	return existing
 }
 
-func (c *Client) associateKnownFileTagsByHash(tx *database.Tx, tagsByHash map[string][]string) (int64, error) {
+func (c *Client) associateKnownFileTagsByHash(tx *databaseTx, tagsByHash map[string][]string) (int64, error) {
 	allTags := make([]string, 0)
 	seen := make(map[string]struct{})
 	pairCount := 0
@@ -152,10 +151,10 @@ func (c *Client) associateKnownFileTagsByHash(tx *database.Tx, tagsByHash map[st
 	if err != nil {
 		return 0, fmt.Errorf("failed to get or create tags: %w", err)
 	}
-	pairs := make([]database.ContentTagPair, 0, pairCount)
+	pairs := make([]contentTagPair, 0, pairCount)
 	for hash, tags := range tagsByHash {
 		for _, tag := range tags {
-			pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tag]})
+			pairs = append(pairs, contentTagPair{ContentHash: hash, TagID: tagIDMap[tag]})
 		}
 	}
 	affected, err := c.store.BatchAssociateTags(tx, pairs)
