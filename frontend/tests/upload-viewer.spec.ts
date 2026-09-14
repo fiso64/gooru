@@ -281,8 +281,10 @@ test('uploaded viewer uses the normal toolbar and removal shortcut', async ({ pa
   await page.keyboard.press('Delete');
   const removalDialog = page.getByRole('dialog', { name: 'Remove from library' });
   await expect(removalDialog).toBeVisible();
+  await expect(dialog).toBeVisible();
   await removalDialog.getByRole('button', { name: 'Remove' }).click();
   await expect.poll(() => fileRemovals).toEqual([{ method: 'DELETE', body: { mode: 'untrack' } }]);
+  await expect(dialog).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Preview duplicate.png' })).toHaveCount(0);
 });
 

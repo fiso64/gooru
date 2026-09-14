@@ -48,6 +48,7 @@
   let remoteLoading = $state(false);
   let remoteError = $state('');
   let remoteNestedNavigation = $state(false);
+  let observedItem = $state<UploadItem | undefined>();
   let tagDraft = $state('');
   let tagMode = $state<'add' | 'remove'>('add');
   let tagOverride = $state<string[] | undefined>();
@@ -93,8 +94,17 @@
   });
 
   $effect(() => {
-    if (activeIndex === observedIndex) return;
+    const item = activeItem;
+    if (!item) {
+      onClose();
+      return;
+    }
+    if (activeIndex === observedIndex) {
+      if (observedItem && item !== observedItem) onClose();
+      return;
+    }
     observedIndex = activeIndex;
+    observedItem = item;
     tagDraft = '';
     tagMode = 'add';
     tagOverride = undefined;
@@ -136,10 +146,6 @@
         if (!controller.signal.aborted) remoteLoading = false;
       });
     return () => controller.abort();
-  });
-
-  $effect(() => {
-    if (!activeItem) onClose();
   });
 
   function move(delta: number) {
@@ -278,14 +284,8 @@
     }}
     onRemoveTag={(_file, tag) => removeTag(tag)}
     {onTagSearch}
-    onUntrack={(file) => {
-      onClose();
-      onRemoteUntrack(file);
-    }}
-    onDelete={(file) => {
-      onClose();
-      onRemoteDelete(file);
-    }}
+    onUntrack={onRemoteUntrack}
+    onDelete={onRemoteDelete}
   />
 {:else if activeItem}
   <div
