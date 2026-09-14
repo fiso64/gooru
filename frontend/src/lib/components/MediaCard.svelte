@@ -100,7 +100,8 @@
 
   function reportThumbnailAspect(event: Event) {
     const image = event.currentTarget as HTMLImageElement;
-    if (!onThumbnailAspect || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+    const hasSourceDimensions = Number.isFinite(mediaWidth) && Number.isFinite(mediaHeight) && mediaWidth > 0 && mediaHeight > 0;
+    if (hasSourceDimensions || !onThumbnailAspect || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
     onThumbnailAspect(file.id, image.naturalWidth / image.naturalHeight);
   }
 
