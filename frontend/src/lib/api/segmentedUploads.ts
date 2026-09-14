@@ -5,6 +5,7 @@ import type { ApiErrorResponse } from './types';
 export interface SegmentedUploadRequest {
   files: File[];
   tags: string[];
+  itemTags?: string[][];
   targetID: string;
   conflictPolicy: string;
   addedAtStrategy?: 'queue' | 'reverse_queue' | 'modtime';
@@ -25,6 +26,9 @@ export async function uploadSegmentedFiles(
   request: SegmentedUploadRequest,
   baseURL = '/api/v1'
 ): Promise<BackgroundOperation> {
+  if (request.itemTags !== undefined && request.itemTags.length !== request.files.length) {
+    throw new ApiError(0, 'invalid_upload_item_tags', 'Per-file upload tags must align with uploaded files');
+  }
   if (!Number.isInteger(request.segmentCount) || request.segmentCount <= 1) {
     throw new ApiError(0, 'invalid_upload_segment_count', 'Segmented uploads require more than one segment');
   }
@@ -61,6 +65,7 @@ function segmentedUploadForm(request: SegmentedUploadRequest): FormData {
   for (const file of request.files) form.append('files', file, file.name);
   for (const file of request.files) form.append('source_modtime_ms', String(file.lastModified));
   if (request.tags.length) form.append('tags', request.tags.join(' '));
+  for (const itemTags of request.itemTags ?? []) form.append('item_tags', itemTags.join(' '));
   if (request.targetID) form.append('target_id', request.targetID);
   if (request.conflictPolicy) form.append('conflict_policy', request.conflictPolicy);
   if (request.addedAtStrategy) form.append('added_at_strategy', request.addedAtStrategy);

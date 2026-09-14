@@ -231,6 +231,9 @@ export class ApiClient {
     onProgress?: (progress: number) => void,
     ordering: UploadOrderingMetadata = {}
   ): Promise<BackgroundOperation | UploadImportResponse> {
+    if (ordering.itemTags !== undefined && ordering.itemTags.length !== files.length) {
+      throw new ApiError(0, 'invalid_upload_item_tags', 'Per-file upload tags must align with uploaded files');
+    }
     const baseURL = absoluteBaseURL(this.baseURL);
     const reservation = preferAsync ? await reserveUploadOperation(baseURL, this.csrfToken) : undefined;
     const cancelReservation = reservation
@@ -245,6 +248,7 @@ export class ApiClient {
     for (const file of files) form.append('files', file, file.name);
     for (const file of files) form.append('source_modtime_ms', String(file.lastModified));
     if (tags.length) form.append('tags', tags.join(' '));
+    for (const itemTags of ordering.itemTags ?? []) form.append('item_tags', itemTags.join(' '));
     if (targetID) form.append('target_id', targetID);
     if (conflictPolicy) form.append('conflict_policy', conflictPolicy);
     if (ordering.addedAtStrategy) form.append('added_at_strategy', ordering.addedAtStrategy);
@@ -300,6 +304,7 @@ export interface UploadOrderingMetadata {
   queueLastTimeMs?: number;
   queueIndex?: number[];
   queueTotal?: number[];
+  itemTags?: string[][];
   signal?: AbortSignal;
 }
 

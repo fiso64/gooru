@@ -247,13 +247,17 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	if err := r.Context().Err(); err != nil {
 		return nil, saved, errUploadReceivingCanceled
 	}
+	parsedTags := parseUploadTags(tagValues)
+	if err := validateUploadTags(parsedTags, saved); err != nil {
+		return nil, saved, multipartUploadError{message: err.Error(), err: err}
+	}
 	if len(saved) == 1 && saved[0].status == "error" {
 		if saved[0].error == errUploadTooLarge.Error() {
-			return parseUploadTags(tagValues), saved, nil
+			return parsedTags, saved, nil
 		}
 		return nil, saved, uploadFileError{name: saved[0].name, err: errors.New(saved[0].error)}
 	}
-	return parseUploadTags(tagValues), saved, nil
+	return parsedTags, saved, nil
 }
 
 func chooseDurableUploadDestination(dir, name, conflictPolicy string, reserved map[string]struct{}) (path string, skipped bool, replace bool, err error) {

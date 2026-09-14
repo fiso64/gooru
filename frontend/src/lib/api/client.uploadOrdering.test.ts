@@ -78,6 +78,18 @@ describe('upload ordering multipart metadata', () => {
     expect(form.getAll('files')).toHaveLength(4);
   });
 
+  it('serializes aligned per-file tags including explicit empty sets', async () => {
+    installXHR();
+    const batch = files(2);
+
+    await new ApiClient().uploadFiles(batch, ['fallback'], true, '', 'rename', undefined, {
+      itemTags: [['item:one'], []]
+    });
+
+    const form = xhr.body as FormData;
+    expect(form.getAll('item_tags')).toEqual(['item:one', '']);
+  });
+
   it('preserves explicit non-canonical ordering metadata', async () => {
     installXHR();
     const batch = files(2);

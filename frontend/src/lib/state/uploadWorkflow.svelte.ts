@@ -326,12 +326,15 @@ export function createUploadWorkflow() {
 
     const parsedTags = parseTags(tags);
     const segments = uploadSubmissionSegments(batchItemIndices, items, parsedTags, multipartUploadChunkSize());
-    const submittedTags = segments[0]?.tags ?? parsedTags;
+    const submittedItemTags = batchItemIndices.map((itemIndex) => [
+      ...(items[itemIndex]?.tags ?? parsedTags)
+    ]);
     const batchID = ++nextBatchID;
     const nextItems = [...items];
-    for (const itemIndex of batchItemIndices) {
+    for (const [submissionIndex, itemIndex] of batchItemIndices.entries()) {
       const current = nextItems[itemIndex];
       if (current) {
+        const submittedTags = submittedItemTags[submissionIndex] ?? parsedTags;
         const syncBaseItem: UploadItem = {
           ...current,
           tags: [...(current.tags ?? parsedTags)],
@@ -390,6 +393,7 @@ export function createUploadWorkflow() {
         const response = await mutate({
           files: chunkFiles,
           tags: segment.tags,
+          itemTags: submittedItemTags.slice(currentChunkStart, chunkEnd).map((itemTags) => [...itemTags]),
           preferAsync: true,
           targetID: batchTargetID,
           conflictPolicy: batchConflictPolicy,

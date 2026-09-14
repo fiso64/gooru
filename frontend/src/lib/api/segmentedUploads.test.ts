@@ -56,6 +56,30 @@ describe('uploadSegmentedFiles', () => {
     expect((xhr.body as FormData).get('queue_total')).toBe('2001');
   });
 
+  it('serializes aligned per-file tags including explicit empty sets', async () => {
+    globalThis.fetch = (async () => {
+      throw new Error('unexpected reservation request');
+    }) as typeof fetch;
+    const xhr = installUploadXHR({ id: 'operation-existing', kind: 'upload_import', status: 'pending' });
+    const files = [
+      new File(['one'], 'one.txt', { type: 'text/plain' }),
+      new File(['two'], 'two.txt', { type: 'text/plain' })
+    ];
+
+    await uploadSegmentedFiles('secret-token', {
+      files,
+      tags: ['fallback'],
+      itemTags: [['item:one'], []],
+      targetID: 'default',
+      conflictPolicy: 'rename',
+      operationID: 'operation-existing',
+      segmentIndex: 1,
+      segmentCount: 2
+    });
+
+    expect((xhr.body as FormData).getAll('item_tags')).toEqual(['item:one', '']);
+  });
+
   it('reuses an existing logical operation without reserving again', async () => {
     globalThis.fetch = (async () => {
       throw new Error('unexpected reservation request');
