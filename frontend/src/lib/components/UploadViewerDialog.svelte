@@ -1,6 +1,5 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
-  import TagEditor from './TagEditor.svelte';
+  import ViewerSidebar from './ViewerSidebar.svelte';
   import ViewerStage from './ViewerStage.svelte';
   import { ApiClient } from '$lib/api/client';
   import type { FileItem } from '$lib/api/types';
@@ -8,7 +7,7 @@
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import type { UploadItem } from '$lib/state/uploadItems';
   import { uploadItemHasLocalViewer, uploadViewerNeighborIndex, type UploadViewerScope } from '$lib/state/uploadViewer';
-  import { errorMessage, formatBytes, groupTags, parseTags } from '$lib/utils/format';
+  import { errorMessage, formatBytes, parseTags } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { viewerImageSource, type ViewerStageMedia } from '$lib/utils/media';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
@@ -67,10 +66,27 @@
   const viewerFile = $derived<ViewerStageMedia | undefined>(remoteFile ?? localMedia);
   const imageSource = $derived(viewerFile ? viewerImageSource(viewerFile, false) : '');
   const currentTags = $derived(tagOverride ?? activeItem?.tags ?? remoteFile?.tags ?? []);
-  const tagGroups = $derived(groupTags(currentTags));
-  const hasTagNamespaces = $derived(tagGroups.some((group) => Boolean(group.namespace)));
   const kindLabel = $derived(remoteFile?.media_kind ?? localMedia?.media_kind ?? 'media');
   const tagEditorID = $derived(`upload-${activeIndex}`);
+  const sidebarMetadata = $derived.by(() => {
+    const item = activeItem;
+    if (!item) return [];
+    const rows: Array<{ label: string; value: string; className?: string }> = [];
+    if (remoteFile?.safe_display_path) rows.push({ label: 'Path', value: remoteFile.safe_display_path, className: 'path' });
+    rows.push(
+      { label: 'Size', value: formatBytes(item.size) },
+      { label: 'Status', value: item.status.replace(/_/g, ' ') },
+      { label: 'Mime', value: item.type || remoteFile?.media_type || 'unknown' }
+    );
+    if (item.batchID != null) rows.push({ label: 'Batch', value: String(item.batchID) });
+    if (remoteFile?.content_id) rows.push({ label: 'Id', value: remoteFile.content_id, className: 'hash' });
+    return rows;
+  });
+  const tagStatus = $derived(activeItem?.tagSyncPending
+    ? activeItem.remoteFileID
+      ? 'Saving tag changes…'
+      : 'Tag changes will apply when import completes'
+    : '');
 
   $effect(() => {
     if (activeIndex === observedIndex) return;
@@ -193,75 +209,27 @@
     tabindex="-1"
     onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}
   >
-    <aside class="lightbox-aside">
-      <div class="panel-row">
-        <div class="g-eyebrow g-eyebrow-accent">{scope === 'staged' ? 'Staged' : 'Queue'} · {kindLabel}</div>
-        <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" aria-label="Close upload preview" onclick={onClose}>
-          <Icon name="close" size={14} />
-        </button>
-      </div>
-
-      <h2 id="upload-viewer-title" class="lightbox-name">{activeItem.name}</h2>
-      <dl class="lightbox-meta">
-        {#if remoteFile?.safe_display_path}<dt>Path</dt><dd class="path">{remoteFile.safe_display_path}</dd>{/if}
-        <dt>Size</dt><dd>{formatBytes(activeItem.size)}</dd>
-        <dt>Status</dt><dd>{activeItem.status.replace(/_/g, ' ')}</dd>
-        <dt>Mime</dt><dd>{activeItem.type || remoteFile?.media_type || 'unknown'}</dd>
-        {#if activeItem.batchID != null}<dt>Batch</dt><dd>{activeItem.batchID}</dd>{/if}
-        {#if remoteFile?.content_id}<dt>Id</dt><dd class="hash">{remoteFile.content_id}</dd>{/if}
-      </dl>
-
-      <hr class="g-divider" />
-
-      <div class="lightbox-tags">
-        <div class="lightbox-tag-group-head lightbox-tags-head">
-          <span>Tags · {currentTags.length}</span>
-          <span class="lightbox-tag-tools">
-            <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Tag history coming soon"><Icon name="info" size={13} /></button>
-            <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Tag suggestions coming soon"><Icon name="sliders" size={13} /></button>
-          </span>
-        </div>
-
-        {#each tagGroups as group (group.namespace)}
-          <div class="lightbox-tag-group">
-            {#if group.namespace || hasTagNamespaces}
-              <div class="lightbox-tag-group-head"><span>{group.namespace || 'OTHER'}</span><span>{group.tags.length}</span></div>
-            {/if}
-            <div class="lightbox-tag-list">
-              {#each group.tags as tag}
-                <span class="g-tag">
-                  {#if tag.includes(':')}
-                    <span class="ns">{tag.split(':')[0]}:</span><span>{tag.slice(tag.indexOf(':') + 1)}</span>
-                  {:else}
-                    <span>{tag}</span>
-                  {/if}
-                  <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${activeItem.name}`} onclick={() => removeTag(tag)}>
-                    <Icon name="close" size={11} />
-                  </button>
-                </span>
-              {/each}
-            </div>
-          </div>
-        {/each}
-
-        <TagEditor
-          fileID={tagEditorID}
-          fileName={activeItem.name}
-          draft={tagDraft}
-          busy={false}
-          error={activeItem.tagSyncError ?? ''}
-          {tags}
-          existingTags={currentTags}
-          mode={tagMode}
-          onInput={(value) => (tagDraft = value)}
-          onCommit={commitTag}
-          onModeToggle={() => focusTagInput(tagMode === 'add' ? 'remove' : 'add')}
-        />
-        {#if activeItem.tagSyncPending}
-          <div class="upload-viewer-sync">{activeItem.remoteFileID ? 'Saving tag changes…' : 'Tag changes will apply when import completes'}</div>
-        {/if}
-      </div>
-    </aside>
+    <ViewerSidebar
+      titleID="upload-viewer-title"
+      eyebrow={`${scope === 'staged' ? 'Staged' : 'Queue'} · ${kindLabel}`}
+      fileID={tagEditorID}
+      fileName={activeItem.name}
+      metadata={sidebarMetadata}
+      tagValues={currentTags}
+      tagCandidates={tags}
+      {tagDraft}
+      tagBusy={false}
+      tagError={activeItem.tagSyncError ?? ''}
+      {tagMode}
+      closeLabel="Close upload preview"
+      removeTagFrom={activeItem.name}
+      {tagStatus}
+      {onClose}
+      onTagInput={(value) => (tagDraft = value)}
+      onCommitTag={commitTag}
+      onRemoveTag={removeTag}
+      onModeToggle={() => focusTagInput(tagMode === 'add' ? 'remove' : 'add')}
+    />
 
     <section class="lightbox-stage upload-viewer-stage-wrap">
       {#if viewerFile}
@@ -296,12 +264,6 @@
   .upload-viewer-backdrop {
     position: fixed;
     z-index: 80;
-  }
-
-  .upload-viewer-sync {
-    color: var(--text-3);
-    font-family: var(--font-mono);
-    font-size: 10px;
   }
 
   .upload-viewer-stage-wrap {
