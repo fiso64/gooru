@@ -77,6 +77,9 @@
           configFile = yaml.generate "gooru.yaml" effectiveSettings;
           adminCredentialName = username: "gooru-admin-${username}";
           initialAdminNames = lib.attrNames cfg.initialAdmins;
+          validInitialAdminUsername = username:
+            builtins.stringLength username <= 64
+            && builtins.match "[A-Za-z0-9._-]+" username != null;
         in {
           options.services.gooru = {
             enable = lib.mkEnableOption "Gooru web application";
@@ -140,8 +143,8 @@
           config = lib.mkIf cfg.enable {
             assertions = [
               {
-                assertion = lib.all (username: builtins.match "[A-Za-z0-9._-]+" username != null) initialAdminNames;
-                message = "services.gooru.initialAdmins usernames may contain only letters, numbers, dots, dashes, and underscores";
+                assertion = lib.all validInitialAdminUsername initialAdminNames;
+                message = "services.gooru.initialAdmins usernames must be 64 characters or fewer and contain only letters, numbers, dots, dashes, and underscores";
               }
               {
                 assertion = lib.all (username: cfg.initialAdmins.${username}.passwordFile != "") initialAdminNames;
@@ -210,11 +213,27 @@
               }
             ];
           };
+          longUsername = builtins.concatStringsSep "" (nixpkgs.lib.replicate 65 "a");
+          invalidUsernameEval = nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [
+              self.nixosModules.default
+              {
+                system.stateVersion = "26.05";
+                services.gooru = {
+                  enable = true;
+                  initialAdmins.${longUsername}.passwordFile = "/run/secrets/gooru-admin-too-long";
+                };
+              }
+            ];
+          };
           moduleService = moduleEval.config.systemd.services.gooru;
+          invalidUsernameAssertions = invalidUsernameEval.config.assertions;
           moduleCheck =
             assert builtins.elem "gooru-admin-alice:/run/secrets/gooru-admin-alice" moduleService.serviceConfig.LoadCredential;
             assert nixpkgs.lib.hasInfix "--if-missing" moduleService.preStart;
             assert nixpkgs.lib.hasInfix "$CREDENTIALS_DIRECTORY/gooru-admin-alice" moduleService.preStart;
+            assert nixpkgs.lib.any (entry: !entry.assertion && nixpkgs.lib.hasInfix "64 characters or fewer" entry.message) invalidUsernameAssertions;
             pkgs.runCommand "gooru-nixos-module-check" { } ''
               touch $out
             '';
