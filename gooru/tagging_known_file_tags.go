@@ -64,12 +64,30 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 	if err != nil {
 		return result, err
 	}
-	hookTasks, err := c.fileRegistrationBackgroundTasks(hashes)
+
+	// Producer-owned operations (notably a browser upload spanning many chunk
+	// transactions) are part of the registration event. Build their checkpoint
+	// once here so hook-created work can inherit the same lifetime, then reuse the
+	// exact state when persisting the producer checkpoint below.
+	operationID := ""
+	effectiveStateBuilder := stateBuilder
+	if stateBuilder != nil {
+		state, err := stateBuilder(int(affectedCount))
+		if err != nil {
+			return result, fmt.Errorf("build background operation transaction state: %w", err)
+		}
+		operationID = state.OperationID
+		effectiveStateBuilder = func(int) (BackgroundOperationTransactionState, error) {
+			return state, nil
+		}
+	}
+
+	hookTasks, err := c.fileRegistrationBackgroundTasksForOperation(hashes, operationID)
 	if err != nil {
 		return result, fmt.Errorf("build file registration background tasks: %w", err)
 	}
 	tasks = append(tasks, hookTasks...)
-	operationChanged, err := c.persistTaggingFollowUpTrackedInTx(tx, tasks, stateBuilder, affectedCount)
+	operationChanged, err := c.persistTaggingFollowUpTrackedInTx(tx, tasks, effectiveStateBuilder, affectedCount)
 	if err != nil {
 		return result, err
 	}
