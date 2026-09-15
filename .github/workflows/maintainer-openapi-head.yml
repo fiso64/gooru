@@ -27,77 +27,82 @@ jobs:
           path = Path("docs/openapi.yaml")
           text = path.read_text()
 
+          def block(lines):
+              return "\n".join(lines) + "\n"
+
           content_marker = "  /files/{id}/download:\n"
-          content_head = '''    head:
-      summary: Get original content metadata for a tracked file.
-      description: Returns the same original-media headers and range semantics as GET without a response body.
-      security:
-        - sessionAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: Range
-          in: header
-          required: false
-          schema:
-            type: string
-          example: bytes=0-1048575
-      responses:
-        "200":
-          description: Original file metadata.
-        "206":
-          description: Partial original file metadata.
-          headers:
-            Content-Range:
-              schema:
-                type: string
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailable"
-'''
+          content_head = block([
+              "    head:",
+              "      summary: Get original content metadata for a tracked file.",
+              "      description: Returns the same original-media headers and range semantics as GET without a response body.",
+              "      security:",
+              "        - sessionAuth: []",
+              "      parameters:",
+              "        - name: id",
+              "          in: path",
+              "          required: true",
+              "          schema:",
+              "            type: string",
+              "        - name: Range",
+              "          in: header",
+              "          required: false",
+              "          schema:",
+              "            type: string",
+              "          example: bytes=0-1048575",
+              "      responses:",
+              "        \"200\":",
+              "          description: Original file metadata.",
+              "        \"206\":",
+              "          description: Partial original file metadata.",
+              "          headers:",
+              "            Content-Range:",
+              "              schema:",
+              "                type: string",
+              "        \"401\":",
+              "          $ref: \"#/components/responses/Unauthorized\"",
+              "        \"404\":",
+              "          $ref: \"#/components/responses/NotFound\"",
+              "        \"503\":",
+              "          $ref: \"#/components/responses/ServiceUnavailable\"",
+          ])
           if text.count(content_marker) != 1:
               raise SystemExit("unexpected content/download marker count")
           text = text.replace(content_marker, content_head + content_marker, 1)
 
           download_marker = "  /comics/{id}:\n"
-          download_head = '''    head:
-      summary: Get original download metadata for a tracked file.
-      description: Returns the same attachment and range headers as GET without a response body.
-      security:
-        - sessionAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: Range
-          in: header
-          required: false
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Original file download metadata.
-          headers:
-            Content-Disposition:
-              schema:
-                type: string
-        "206":
-          description: Partial original file download metadata.
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "503":
-          $ref: "#/components/responses/ServiceUnavailable"
-'''
+          download_head = block([
+              "    head:",
+              "      summary: Get original download metadata for a tracked file.",
+              "      description: Returns the same attachment and range headers as GET without a response body.",
+              "      security:",
+              "        - sessionAuth: []",
+              "      parameters:",
+              "        - name: id",
+              "          in: path",
+              "          required: true",
+              "          schema:",
+              "            type: string",
+              "        - name: Range",
+              "          in: header",
+              "          required: false",
+              "          schema:",
+              "            type: string",
+              "      responses:",
+              "        \"200\":",
+              "          description: Original file download metadata.",
+              "          headers:",
+              "            Content-Disposition:",
+              "              schema:",
+              "                type: string",
+              "        \"206\":",
+              "          description: Partial original file download metadata.",
+              "        \"401\":",
+              "          $ref: \"#/components/responses/Unauthorized\"",
+              "        \"404\":",
+              "          $ref: \"#/components/responses/NotFound\"",
+              "        \"503\":",
+              "          $ref: \"#/components/responses/ServiceUnavailable\"",
+          ])
           if text.count(download_marker) != 1:
               raise SystemExit("unexpected download/comics marker count")
           text = text.replace(download_marker, download_head + download_marker, 1)
