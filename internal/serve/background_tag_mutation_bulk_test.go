@@ -101,9 +101,9 @@ func TestGetFilesByPublicIDsReturnsManagedStorageMapping(t *testing.T) {
 	}
 
 	library.managedRoots = []string{dir}
-	got, err := library.getFilesByPublicIDs(context.Background(), []string{publicID})
+	got, err := library.GetFilesByPublicIDs(context.Background(), []string{publicID})
 	if err != nil {
-		t.Fatalf("getFilesByPublicIDs: %v", err)
+		t.Fatalf("GetFilesByPublicIDs: %v", err)
 	}
 	if len(got) != 1 || got[0].StoragePath != physicalPath {
 		t.Fatalf("managed file = %+v, want storage path %q", got, physicalPath)
