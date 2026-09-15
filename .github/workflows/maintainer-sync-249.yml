@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -20,8 +20,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "autonomous-maintainer"
-          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git config user.name "gooru-maintainer"
+          git config user.email "maintainer@users.noreply.github.com"
           git fetch origin develop
           git merge origin/develop -X theirs --no-edit
           git rm .github/workflows/maintainer-sync-249.yml
