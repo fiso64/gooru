@@ -25,3 +25,15 @@ func (c *Client) GetFileInfoByContentHash(hash string) (types.FileInfo, error) {
 	}
 	return files[0], nil
 }
+
+// GetFileInfosByContentHashes resolves one deterministic tracked location for
+// each requested content hash. Missing hashes are omitted from the returned map.
+func (c *Client) GetFileInfosByContentHashes(hashes []string) (map[string]types.FileInfo, error) {
+	return c.store.GetFileInfosByContentHashes(hashes)
+}
+
+// GetFileInfosByPaths resolves currently tracked locations by exact path.
+// Missing paths are omitted from the returned map.
+func (c *Client) GetFileInfosByPaths(paths []string) (map[string]types.FileInfo, error) {
+	return c.store.GetFileInfosByPaths(paths)
+}
