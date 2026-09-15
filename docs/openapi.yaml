@@ -500,6 +500,38 @@ paths:
           $ref: "#/components/responses/NotFound"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+    head:
+      summary: Get original content metadata for a tracked file.
+      description: Returns the same original-media headers and range semantics as GET without a response body.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+          example: bytes=0-1048575
+      responses:
+        "200":
+          description: Original file metadata.
+        "206":
+          description: Partial original file metadata.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /files/{id}/download:
     get:
       summary: Download original content for a tracked file.
@@ -531,6 +563,37 @@ paths:
                 format: binary
         "206":
           description: Partial original file download.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    head:
+      summary: Get original download metadata for a tracked file.
+      description: Returns the same attachment and range headers as GET without a response body.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Original file download metadata.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+        "206":
+          description: Partial original file download metadata.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
