@@ -27,7 +27,8 @@ func MigrateEncryptedDatabaseKey(path string, oldKey, newKey []byte) error {
 	if err != nil {
 		return fmt.Errorf("reserve rekey backup path: %w", err)
 	}
-	defer cleanupSQLiteFiles(backupPath)
+	// Do not defer cleanup of backupPath. Once the source is staged there it is
+	// the rollback copy, and it must survive if restoring the original path fails.
 
 	source, err := NewEncryptedStore(path, false, oldKey)
 	if err != nil {
@@ -77,25 +78,20 @@ func MigrateEncryptedDatabaseKey(path string, oldKey, newKey []byte) error {
 	}
 	cleanupSQLiteSidecars(path)
 	if err := os.Rename(newPath, path); err != nil {
-		_ = os.Rename(backupPath, path)
-		return fmt.Errorf("install rekeyed database: %w", err)
+		return rollbackDatabaseMigration(fmt.Errorf("install rekeyed database: %w", err), path, backupPath)
 	}
 
 	verified, err := NewEncryptedStore(path, false, newKey)
 	if err != nil {
-		_ = os.Remove(path)
-		_ = os.Rename(backupPath, path)
-		return fmt.Errorf("reopen rekeyed database: %w", err)
+		return rollbackDatabaseMigration(fmt.Errorf("reopen rekeyed database: %w", err), path, backupPath)
 	}
 	verifyErr := checkDatabaseIntegrity(verified.DB)
 	closeErr := verified.Close()
-	if verifyErr != nil || closeErr != nil {
-		_ = os.Remove(path)
-		_ = os.Rename(backupPath, path)
-		if verifyErr != nil {
-			return fmt.Errorf("verify installed rekeyed database: %w", verifyErr)
-		}
-		return fmt.Errorf("close installed rekeyed database: %w", closeErr)
+	if verifyErr != nil {
+		return rollbackDatabaseMigration(fmt.Errorf("verify installed rekeyed database: %w", verifyErr), path, backupPath)
+	}
+	if closeErr != nil {
+		return rollbackDatabaseMigration(fmt.Errorf("close installed rekeyed database: %w", closeErr), path, backupPath)
 	}
 
 	if err := os.Remove(backupPath); err != nil {
