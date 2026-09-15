@@ -239,20 +239,24 @@ const (
 // the task when the producer is already inside a domain transaction. It is
 // mutually exclusive with OperationID. OperationBinding explicitly controls
 // whether that operation must be new or may reuse active work of the same kind.
+// CoalescePendingEquivalent is a narrower opt-in for reusable operations: after
+// resolving the operation, an equivalent pending task may be reused, while a
+// running task never suppresses a newly committed wake.
 type BackgroundTaskRequest struct {
-	OperationID            string
-	Operation              *BackgroundOperationRequest
-	OperationBinding       BackgroundOperationBinding
-	DedupeKey              string
-	Kind                   string
-	SubjectKind            string
-	SubjectID               string
-	InputKey               string
-	ResourceClass          string
-	Priority               int
-	AvailableAt            time.Time
-	MaxAttempts            int
-	TerminalFailureCleanup *BackgroundTaskCleanupRequest
+	OperationID               string
+	Operation                 *BackgroundOperationRequest
+	OperationBinding          BackgroundOperationBinding
+	CoalescePendingEquivalent bool
+	DedupeKey                 string
+	Kind                      string
+	SubjectKind               string
+	SubjectID                 string
+	InputKey                  string
+	ResourceClass             string
+	Priority                  int
+	AvailableAt               time.Time
+	MaxAttempts               int
+	TerminalFailureCleanup    *BackgroundTaskCleanupRequest
 }
 
 // EnqueueBackgroundTask persists durable work outside an existing transaction.
@@ -301,6 +305,14 @@ func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task Back
 // business mutations that need content registration and background work to
 // commit atomically.
 func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
+	if request.CoalescePendingEquivalent {
+		if request.Operation == nil || request.OperationBinding != BackgroundOperationReuseActive {
+			return BackgroundTask{}, false, fmt.Errorf("pending-equivalent background task coalescing requires a reusable operation request")
+		}
+		if request.InputKey == "" {
+			return BackgroundTask{}, false, fmt.Errorf("pending-equivalent background task coalescing requires an input key")
+		}
+	}
 	if request.Operation == nil {
 		if request.OperationBinding != BackgroundOperationCreateNew {
 			return BackgroundTask{}, false, fmt.Errorf("background operation binding requires an operation request")
@@ -309,6 +321,7 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		if request.OperationID != "" {
 			return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
 		}
+		coalescePendingEquivalent := request.CoalescePendingEquivalent
 		operationRequest := *request.Operation
 		request.Operation = nil
 
@@ -337,6 +350,15 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		request, err = bindBackgroundChildTask(request, operationID, 0)
 		if err != nil {
 			return BackgroundTask{}, false, err
+		}
+		if coalescePendingEquivalent {
+			existing, found, err := c.store.FindPendingBackgroundTask(q, request.OperationID, request.Kind, request.SubjectKind, request.SubjectID, request.InputKey, request.ResourceClass)
+			if err != nil {
+				return BackgroundTask{}, false, fmt.Errorf("find pending equivalent background task: %w", err)
+			}
+			if found {
+				return backgroundTaskFromDatabase(existing), false, nil
+			}
 		}
 	}
 

@@ -18,6 +18,7 @@ const (
 	// other media work such as thumbnail generation.
 	BackgroundMediaMetadataResourceClass = "media"
 	mediaMetadataSweepCursorPrefix         = "after-location:"
+	mediaMetadataRegistrationInputKey      = "registration"
 )
 
 func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
@@ -37,10 +38,14 @@ func mediaMetadataRegistrationTasks(hasRegistrations bool) ([]BackgroundTaskRequ
 		Visible: true,
 	}
 	// Registration transactions use SQLite immediate locking, so lookup/create
-	// of the active operation is serialized across independent CLI/server clients.
-	// Each registration still gets a distinct child wake to avoid losing work if
-	// it commits while an earlier sweep is finishing its final scan.
+	// and pending-equivalent coalescing are serialized across independent
+	// CLI/server clients. A pending registration wake can cover another commit,
+	// but a running wake cannot: its final metadata scan may already have passed
+	// the newly registered location. Keep each wake's durable dedupe key unique so
+	// that case always leaves a fresh pending wake behind the running task.
 	task.OperationBinding = BackgroundOperationReuseActive
+	task.CoalescePendingEquivalent = true
+	task.InputKey = mediaMetadataRegistrationInputKey
 	return []BackgroundTaskRequest{task}, nil
 }
 
