@@ -11,10 +11,10 @@ import (
 	"gooru.local/types"
 )
 
-// ServeOriginal streams original tracked content after resolving its logical
+// serveOriginal streams original tracked content after resolving its logical
 // storage source. A missing backing file remains a 404, while resolver,
 // permission, encryption, and other storage failures are service failures.
-func (m *MediaService) ServeOriginal(w http.ResponseWriter, r *http.Request, file types.FileInfo, download bool) {
+func (m *MediaService) serveOriginal(w http.ResponseWriter, r *http.Request, file types.FileInfo, download bool) {
 	source, err := m.openMediaSource(fileStoragePath(file))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
