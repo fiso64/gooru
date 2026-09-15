@@ -18,7 +18,11 @@ const (
 )
 
 func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
-	if len(event.ContentHashes) == 0 {
+	return mediaMetadataRegistrationTasks(len(event.ContentHashes) > 0)
+}
+
+func mediaMetadataRegistrationTasks(hasRegistrations bool) ([]BackgroundTaskRequest, error) {
+	if !hasRegistrations {
 		return nil, nil
 	}
 	task, err := newMediaMetadataSweepTaskRequest()

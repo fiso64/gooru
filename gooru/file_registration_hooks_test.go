@@ -66,3 +66,28 @@ func TestFileRegistrationHooksCanDisableAndResetDefaults(t *testing.T) {
 		t.Fatalf("reset hooks produced unexpected tasks: %#v", tasks)
 	}
 }
+
+func TestMediaMetadataRegistrationTasksUsesWakeOnlySignal(t *testing.T) {
+	tasks, err := mediaMetadataRegistrationTasks(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("no-registration signal produced tasks: %#v", tasks)
+	}
+
+	tasks, err = mediaMetadataRegistrationTasks(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("registration signal produced %d tasks, want 1", len(tasks))
+	}
+	task := tasks[0]
+	if task.Kind != BackgroundMediaMetadataSweepTaskKind || task.OperationBinding != BackgroundOperationReuseActive {
+		t.Fatalf("registration signal produced unexpected task: %#v", task)
+	}
+	if task.Operation == nil || task.Operation.Kind != BackgroundMediaMetadataSweepOperationKind || !task.Operation.Visible {
+		t.Fatalf("registration signal produced unexpected operation: %#v", task.Operation)
+	}
+}

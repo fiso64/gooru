@@ -36,6 +36,18 @@ func (c *Client) fileRegistrationBackgroundTasks(hashes []string) ([]BackgroundT
 	if len(hashes) == 0 {
 		return nil, nil
 	}
+
+	hooks := c.fileRegistrationHooks
+	if hooks == nil {
+		// Transaction analysis only contains validated, non-empty hashes. The core
+		// metadata hook is wake-only, so avoid materializing and deduplicating an
+		// identity list just to discover that registration happened.
+		return mediaMetadataRegistrationTasks(true)
+	}
+	if len(hooks) == 0 {
+		return nil, nil
+	}
+
 	seen := make(map[string]struct{}, len(hashes))
 	unique := make([]string, 0, len(hashes))
 	for _, hash := range hashes {
@@ -52,10 +64,6 @@ func (c *Client) fileRegistrationBackgroundTasks(hashes []string) ([]BackgroundT
 		return nil, nil
 	}
 
-	hooks := c.fileRegistrationHooks
-	if hooks == nil {
-		hooks = []FileRegistrationHook{mediaMetadataRegistrationHook}
-	}
 	event := FileRegistrationEvent{ContentHashes: unique}
 	var tasks []BackgroundTaskRequest
 	for _, hook := range hooks {
