@@ -9,11 +9,11 @@ import (
 	"gooru.local/types"
 )
 
-// getFilesByPublicIDs resolves explicit durable-mutation targets without the
+// GetFilesByPublicIDs resolves explicit durable-mutation targets without the
 // per-ID database lookup chain. Current managed-storage mappings are returned
 // by the bulk query; only legacy pre-metadata rows whose logical path has gone
 // missing need the slower recovery path.
-func (l *GooruLibrary) getFilesByPublicIDs(ctx context.Context, publicIDs []string) ([]types.FileInfo, error) {
+func (l *GooruLibrary) GetFilesByPublicIDs(ctx context.Context, publicIDs []string) ([]types.FileInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
