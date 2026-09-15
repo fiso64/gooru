@@ -172,13 +172,15 @@ func TestClient_TagFiles(t *testing.T) {
 		// Arrange
 		nonExistentPath := "/path/to/a/file/that/does/not/exist.txt"
 		var progressErr error
+		callbackCount := 0
 		var mu sync.Mutex
 
 		progressCb := func(filePath string, err error) {
+			mu.Lock()
+			defer mu.Unlock()
+			callbackCount++
 			if err != nil {
-				mu.Lock()
 				progressErr = err
-				mu.Unlock()
 			}
 		}
 
@@ -193,6 +195,7 @@ func TestClient_TagFiles(t *testing.T) {
 		defer mu.Unlock()
 		require.Error(t, progressErr, "Expected an error from the progress callback")
 		assert.ErrorIs(t, progressErr, os.ErrNotExist, "The error should be a 'not exist' error")
+		assert.Equal(t, 1, callbackCount, "A missing file should be reported exactly once")
 	})
 
 	t.Run("tagging mixed valid and invalid files processes valid ones", func(t *testing.T) {
