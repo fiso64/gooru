@@ -22,10 +22,14 @@ const (
 )
 
 func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
-	return mediaMetadataRegistrationTasks(len(event.ContentHashes) > 0)
+	return mediaMetadataRegistrationTasksForOperation(len(event.ContentHashes) > 0, event.OperationID)
 }
 
 func mediaMetadataRegistrationTasks(hasRegistrations bool) ([]BackgroundTaskRequest, error) {
+	return mediaMetadataRegistrationTasksForOperation(hasRegistrations, "")
+}
+
+func mediaMetadataRegistrationTasksForOperation(hasRegistrations bool, operationID string) ([]BackgroundTaskRequest, error) {
 	if !hasRegistrations {
 		return nil, nil
 	}
@@ -33,18 +37,23 @@ func mediaMetadataRegistrationTasks(hasRegistrations bool) ([]BackgroundTaskRequ
 	if err != nil {
 		return nil, err
 	}
-	wake.Operation = &BackgroundOperationRequest{
-		Kind:    BackgroundMediaMetadataSweepOperationKind,
-		Visible: true,
+	operationID = strings.TrimSpace(operationID)
+	if operationID != "" {
+		// Producer-owned operations (notably browser uploads) provide the natural
+		// lifetime for eager metadata work. Attach the wake to that operation so
+		// every upload chunk feeds the same job instead of creating a stream of
+		// short-lived visible metadata-sweep operations.
+		wake.OperationID = operationID
+	} else {
+		wake.Operation = &BackgroundOperationRequest{
+			Kind:    BackgroundMediaMetadataSweepOperationKind,
+			Visible: true,
+		}
+		// Independent registrations still share one active visible sweep. A fresh
+		// pending wake is allowed while the previous wake is running because its
+		// final scan may already have passed a concurrently committed location.
+		wake.OperationBinding = BackgroundOperationReuseActive
 	}
-	// Registration transactions use SQLite immediate locking, so lookup/create
-	// and pending-equivalent coalescing are serialized across independent
-	// CLI/server clients. Reusing the active visible operation prevents concurrent
-	// registrations from creating parallel sweeps, while a fresh pending wake is
-	// still allowed when a running sweep may already have scanned past a newly
-	// committed registration. Do not hold the operation open with a timer: an
-	// empty sweep should complete as promptly as a manual run.
-	wake.OperationBinding = BackgroundOperationReuseActive
 	wake.CoalescePendingEquivalent = true
 	wake.InputKey = mediaMetadataRegistrationInputKey
 	return []BackgroundTaskRequest{wake}, nil
