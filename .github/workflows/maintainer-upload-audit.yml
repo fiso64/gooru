@@ -14,9 +14,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== references ==='
-          rg -n "GetFileInfoBy(ContentHash|Path)|GetFileInfosByContentHashes|ContentExists" . || true
-          echo '=== definitions ==='
-          rg -n "func \([^)]*\) GetFileInfoBy(ContentHash|Path)|func \([^)]*\) GetFileInfosByContentHashes|type .*File.*Store|GetFileInfosByContentHashes" gooru internal types || true
+          echo '=== client/store definitions ==='
+          rg -n -C 5 "type Client struct|GetFilesInfoByContentQuery|GetFileInfoByPath|ContentExists" gooru internal/database | head -n 320 || true
+          echo '=== content table/index schema ==='
+          rg -n -C 5 "CREATE (TABLE|INDEX).*content|content_hash|files.*hash|hash.*files" internal/database migrations . | head -n 320 || true
           echo '=== upload identity context ==='
-          rg -n -C 8 "populateUploadFileIDs|duplicateExistingDiscards|GetFileInfoByContentHash" internal/serve/uploads.go || true
+          sed -n '720,970p' internal/serve/uploads.go
