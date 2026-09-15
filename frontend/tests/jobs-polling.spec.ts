@@ -10,7 +10,8 @@ const session = {
 const maintenanceJob = {
   id: 'media-metadata-sweep',
   name: 'Extract media metadata',
-  description: 'Scan tracked files that are missing media metadata and enqueue durable extraction work.'
+  description: 'Scan tracked files that are missing media metadata and enqueue durable extraction work.',
+  running: false
 };
 
 type OperationEventTestWindow = Window & typeof globalThis & {
@@ -33,14 +34,14 @@ async function mockAuth(page: Page) {
   });
 }
 
-async function mockShellApis(page: Page) {
+async function mockShellApis(page: Page, maintenanceJobs = [{ ...maintenanceJob }]) {
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/maintenance-jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [maintenanceJob] }) }));
+  await page.route('**/api/v1/maintenance-jobs', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: maintenanceJobs }) }));
 }
 
 async function mockOperationEvents(page: Page) {
@@ -145,14 +146,20 @@ test('refreshes active operations from one throttled SSE signal stream', async (
   await expect.poll(() => operationRequests, { timeout: 1200 }).toBe(firstRefreshRequests + 1);
 });
 
-test('discovers and invokes a maintenance job from the Jobs controls', async ({ page }) => {
+test('runs a maintenance job from one dropdown and shows the durable job row', async ({ page }) => {
+  const maintenanceJobs = [{ ...maintenanceJob }];
   await mockAuth(page);
-  await mockShellApis(page);
+  await mockShellApis(page, maintenanceJobs);
   await mockOperationEvents(page);
+
+  let operationVisible = false;
   await page.route('**/api/v1/operations?**', async (route) => {
+    const items = operationVisible
+      ? [{ id: 'op-metadata', kind: 'media.metadata-sweep', status: 'pending', progress_total: 0, progress_completed: 0, progress_failed: 0, created_at: '2026-09-15T06:00:00Z' }]
+      : [];
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify({ items: [], active_count: 0, total_count: 0 })
+      body: JSON.stringify({ items, active_count: items.length, total_count: items.length })
     });
   });
 
@@ -161,22 +168,31 @@ test('discovers and invokes a maintenance job from the Jobs controls', async ({ 
   await page.route('**/api/v1/maintenance-jobs/*', async (route) => {
     invokedPath = new URL(route.request().url()).pathname;
     csrfHeader = route.request().headers()['x-gooru-csrf'] ?? '';
+    operationVisible = true;
+    maintenanceJobs[0] = { ...maintenanceJob, running: true };
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
-      body: JSON.stringify({ job: maintenanceJob, created: true })
+      body: JSON.stringify({ job: maintenanceJobs[0], created: true })
     });
   });
 
   await signIn(page);
   await page.getByRole('complementary').getByRole('button', { name: 'Jobs' }).click();
-  const maintenanceSelect = page.getByLabel('Maintenance job');
-  await expect(maintenanceSelect).toHaveValue(maintenanceJob.id);
-  await expect(maintenanceSelect.locator('option:checked')).toHaveText(maintenanceJob.name);
+  const runJobButton = page.getByRole('button', { name: 'Run job' });
+  await expect(runJobButton).toBeVisible();
+  await runJobButton.click();
 
-  await page.locator('.maintenance-actions').getByRole('button', { name: 'Run' }).click();
+  const metadataEntry = page.getByRole('button', { name: maintenanceJob.name });
+  await expect(metadataEntry).toBeEnabled();
+  await metadataEntry.click();
 
   await expect.poll(() => invokedPath).toBe('/api/v1/maintenance-jobs/media-metadata-sweep');
   expect(csrfHeader).toBe(session.csrf_token);
-  await expect(page.getByText('Extract media metadata queued.')).toBeVisible();
+  await expect(page.locator('.jobs-card .job-row').filter({ hasText: 'Media.metadata-sweep' })).toBeVisible();
+  await expect(page.getByText('Extract media metadata queued.')).toHaveCount(0);
+
+  await runJobButton.click();
+  const runningEntry = page.getByRole('button', { name: /Extract media metadata.*Running/i });
+  await expect(runningEntry).toBeDisabled();
 });
