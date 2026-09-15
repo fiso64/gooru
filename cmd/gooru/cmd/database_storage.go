@@ -47,6 +47,9 @@ func ensureConfiguredDatabaseKey(cfg serve.Config, databaseKey []byte) error {
 	if !cfg.Encryption.Enabled {
 		return nil
 	}
+	if err := database.RecoverEncryptedDatabaseKeyMigration(cfg.Database.Path, databaseKey); err != nil {
+		return fmt.Errorf("recover interrupted database subkey migration: %w", err)
+	}
 	plain, err := database.IsPlaintextDatabase(cfg.Database.Path)
 	if err != nil {
 		if os.IsNotExist(err) {
