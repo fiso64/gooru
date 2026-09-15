@@ -1075,7 +1075,7 @@ paths:
   /maintenance-jobs/{id}:
     post:
       summary: Run a maintenance job.
-      description: Requests the selected backend-owned maintenance job through the durable background job system. A 200 response with created=false means the requested work was already active or no pending work required a new job.
+      description: Requests the selected backend-owned maintenance job through the durable background job system. A 200 response with created=false means an equivalent job is already pending or running. Explicit no-work requests still create an observable durable job that completes normally.
       security:
         - sessionAuth: []
       parameters:
@@ -1087,7 +1087,7 @@ paths:
         - $ref: "#/components/parameters/CSRF"
       responses:
         "200":
-          description: The request was accepted but did not create new durable work.
+          description: An equivalent maintenance job is already pending or running; no duplicate durable work was created.
           content:
             application/json:
               schema:
