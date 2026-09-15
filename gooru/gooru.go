@@ -176,6 +176,9 @@ func openDatabaseStore(dbPath string, verbose bool, options DatabaseOpenOptions)
 		return database.NewStore(dbPath, verbose)
 	}
 	if options.MigratePlaintext {
+		if err := database.RecoverPlaintextDatabaseEncryptionMigration(dbPath, options.EncryptionKey); err != nil {
+			return nil, fmt.Errorf("recover interrupted database encryption migration: %w", err)
+		}
 		plain, err := database.IsPlaintextDatabase(dbPath)
 		if err != nil {
 			return nil, err
