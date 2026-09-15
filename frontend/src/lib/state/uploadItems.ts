@@ -135,9 +135,22 @@ export function markUploadItemTagSyncAppliedInPlace(
   current.tagSyncError = '';
 }
 
-export function rebaseUploadItemTagsFromRemoteInPlace(items: UploadItem[], index: number, remoteTags: string[]): void {
+function uploadItemTagSyncBaseMatches(current: string[] | undefined, expected: string[] | undefined): boolean {
+  if (current === undefined || expected === undefined) return current === expected;
+  const normalizedCurrent = normalizeUploadItemTags(current);
+  const normalizedExpected = normalizeUploadItemTags(expected);
+  return normalizedCurrent.length === normalizedExpected.length
+    && normalizedCurrent.every((tag, index) => tag === normalizedExpected[index]);
+}
+
+export function rebaseUploadItemTagsFromRemoteInPlace(
+  items: UploadItem[],
+  index: number,
+  remoteTags: string[],
+  expectedBaseTags: string[] | undefined
+): boolean {
   const current = items[index];
-  if (!current) return;
+  if (!current || !uploadItemTagSyncBaseMatches(current.tagSyncBaseTags, expectedBaseTags)) return false;
   const delta = uploadItemTagSyncDelta(current);
   const base = normalizeUploadItemTags(remoteTags);
   const desired = [...base];
@@ -158,6 +171,7 @@ export function rebaseUploadItemTagsFromRemoteInPlace(items: UploadItem[], index
   const pending = hasUploadItemTagSyncDelta(current);
   if (!pending) current.tagSyncError = '';
   current.tagSyncPending = pending && !current.tagSyncError;
+  return true;
 }
 
 export function markUploadItemTagSyncErrorInPlace(items: UploadItem[], index: number, message: string): void {

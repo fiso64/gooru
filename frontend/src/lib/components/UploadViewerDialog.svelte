@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import PreviewDialog from './PreviewDialog.svelte';
   import ViewerSidebar from './ViewerSidebar.svelte';
@@ -35,7 +36,7 @@
     onIndex: (index: number) => void;
     onClose: () => void;
     onItemTagsInput: (index: number, tags: string[]) => void;
-    onItemRemoteTagsLoaded: (index: number, tags: string[]) => void;
+    onItemRemoteTagsLoaded: (index: number, tags: string[], expectedBaseTags: string[] | undefined) => void;
     onRemove: (index: number) => void;
     onRemoteUntrack: (file: FileItem) => void;
     onRemoteDelete: (file: FileItem) => void;
@@ -130,13 +131,15 @@
     remoteLoading = Boolean(remoteFileID);
     if (!remoteFileID) return;
 
+    const requestIndex = activeIndex;
+    const expectedBaseTags = untrack(() => activeItem?.tagSyncBaseTags ? [...activeItem.tagSyncBaseTags] : undefined);
     const controller = new AbortController();
     const client = new ApiClient($authState.csrfToken);
     void client.getFile(remoteFileID, controller.signal)
       .then((file) => {
         if (controller.signal.aborted) return;
         remoteFile = file;
-        onItemRemoteTagsLoaded(activeIndex, file.tags ?? []);
+        onItemRemoteTagsLoaded(requestIndex, file.tags ?? [], expectedBaseTags);
         tagOverride = undefined;
       })
       .catch((error) => {

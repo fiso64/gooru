@@ -138,7 +138,7 @@ describe('per-item upload tags', () => {
     items[0].tags = ['submitted'];
     items[0].tagSyncBaseTags = ['submitted'];
 
-    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted']);
+    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted'], ['submitted']);
     expect(items[0].tags).toEqual(['remote:existing', 'submitted']);
     expect(items[0].tagSyncBaseTags).toEqual(['remote:existing', 'submitted']);
     expect(items[0].tagSyncPending).toBe(false);
@@ -155,7 +155,7 @@ describe('per-item upload tags', () => {
     items[0].tagSyncBaseTags = ['submitted', 'local:remove'];
     items[0].tagSyncPending = true;
 
-    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted', 'local:remove']);
+    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted', 'local:remove'], ['submitted', 'local:remove']);
     expect(items[0].tagSyncBaseTags).toEqual(['remote:existing', 'submitted', 'local:remove']);
     expect(items[0].tags).toEqual(['remote:existing', 'submitted', 'local:add']);
     expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: ['local:add'], remove: ['local:remove'] });

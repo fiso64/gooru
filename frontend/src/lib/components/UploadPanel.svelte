@@ -60,7 +60,7 @@
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
     onItemTagsInput: (index: number, tags: string[]) => void;
-    onItemRemoteTagsLoaded: (index: number, tags: string[]) => void;
+    onItemRemoteTagsLoaded: (index: number, tags: string[], expectedBaseTags: string[] | undefined) => void;
     onAddedAtStrategyInput: (value: 'queue' | 'reverse_queue' | 'modtime') => void;
     onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;

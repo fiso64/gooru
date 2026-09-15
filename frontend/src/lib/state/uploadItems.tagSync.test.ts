@@ -3,6 +3,7 @@ import {
   itemsFromResult,
   markUploadItemTagSyncAppliedInPlace,
   markUploadItemTagSyncErrorInPlace,
+  rebaseUploadItemTagsFromRemoteInPlace,
   setUploadItemTagsInPlace,
   type UploadItem
 } from './uploadItems';
@@ -61,6 +62,37 @@ describe('upload item tag reconciliation state', () => {
     expect(items[0].tagSyncPending).toBe(true);
     expect(items[0].tags).toEqual(['person:carol']);
     expect(items[0].tagSyncBaseTags).toEqual(['person:alice', 'person:bob']);
+  });
+
+  it('ignores a remote snapshot when the confirmed baseline advanced after the fetch started', () => {
+    const items = [item('imported', 'file-one')];
+    items[0]!.tagSyncBaseTags = ['person:alice'];
+    const expectedBaseTags = [...items[0]!.tagSyncBaseTags];
+
+    setUploadItemTagsInPlace(items, 0, ['person:alice', 'person:bob']);
+    markUploadItemTagSyncAppliedInPlace(items, 0, 'add', ['person:bob']);
+
+    expect(rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['person:alice'], expectedBaseTags)).toBe(false);
+    expect(items[0]).toMatchObject({
+      tags: ['person:alice', 'person:bob'],
+      tagSyncBaseTags: ['person:alice', 'person:bob'],
+      tagSyncPending: false
+    });
+  });
+
+  it('rebases a current remote snapshot while preserving edits that are still pending', () => {
+    const items = [item('imported', 'file-one')];
+    items[0]!.tagSyncBaseTags = ['person:alice'];
+    const expectedBaseTags = [...items[0]!.tagSyncBaseTags];
+
+    setUploadItemTagsInPlace(items, 0, ['person:bob']);
+
+    expect(rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['person:alice'], expectedBaseTags)).toBe(true);
+    expect(items[0]).toMatchObject({
+      tags: ['person:bob'],
+      tagSyncBaseTags: ['person:alice'],
+      tagSyncPending: true
+    });
   });
 
   it('records a failed direct tag update without retry-looping automatically', () => {

@@ -191,8 +191,8 @@ export function createUploadWorkflow() {
     markUploadItemTagSyncAppliedInPlace(items, index, operation, tags);
   }
 
-  function rebaseItemTagsFromRemote(index: number, remoteTags: string[]) {
-    rebaseUploadItemTagsFromRemoteInPlace(items, index, remoteTags);
+  function rebaseItemTagsFromRemote(index: number, remoteTags: string[], expectedBaseTags: string[] | undefined) {
+    return rebaseUploadItemTagsFromRemoteInPlace(items, index, remoteTags, expectedBaseTags);
   }
 
   function markItemTagSyncError(index: number, message: string) {

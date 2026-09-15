@@ -550,8 +550,8 @@
     void reconcileUploadItemTags(index);
   }
 
-  function rebaseUploadItemTagsFromRemote(index: number, remoteTags: string[]) {
-    upload.rebaseItemTagsFromRemote(index, remoteTags);
+  function rebaseUploadItemTagsFromRemote(index: number, remoteTags: string[], expectedBaseTags: string[] | undefined) {
+    if (!upload.rebaseItemTagsFromRemote(index, remoteTags, expectedBaseTags)) return;
     void reconcileUploadItemTags(index);
   }
 
