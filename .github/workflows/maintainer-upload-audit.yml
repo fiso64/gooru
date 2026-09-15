@@ -1,3 +1,4 @@
+# Temporary maintainer-only validator; remove after the audited changes are validated.
 name: maintainer upload audit
 
 on:
