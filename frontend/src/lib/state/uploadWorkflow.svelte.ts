@@ -68,6 +68,18 @@ export function uploadSubmissionSegments(itemCount: number, maxFiles: number): U
   return segments;
 }
 
+export function uploadQueueTimeBounds(queueTimes: number[]): { first: number; last: number } {
+  if (!queueTimes.length) return { first: 0, last: 0 };
+  let first = queueTimes[0]!;
+  let last = queueTimes[0]!;
+  for (let index = 1; index < queueTimes.length; index += 1) {
+    const value = queueTimes[index]!;
+    if (value < first) first = value;
+    if (value > last) last = value;
+  }
+  return { first, last };
+}
+
 export function perFileUploadProgress(files: File[], aggregateProgress: number): number[] {
   if (!files.length) return [];
   const safeAggregate = Math.max(0, Math.min(100, aggregateProgress));
@@ -377,8 +389,9 @@ export function createUploadWorkflow() {
     const batchAddedAtStrategy = addedAtStrategy;
     const fallbackQueueTimeMs = Date.now();
     const batchQueueTimes = batchItemIndices.map((itemIndex) => items[itemIndex]?.queueTimeMs ?? fallbackQueueTimeMs);
-    const batchQueueFirstTimeMs = Math.min(...batchQueueTimes);
-    const batchQueueLastTimeMs = Math.max(...batchQueueTimes);
+    const batchQueueTimeBounds = uploadQueueTimeBounds(batchQueueTimes);
+    const batchQueueFirstTimeMs = batchQueueTimeBounds.first;
+    const batchQueueLastTimeMs = batchQueueTimeBounds.last;
     const batchQueueTotal = batchFiles.length;
     let queued = false;
     let changedFiles = false;
