@@ -1,0 +1,39 @@
+name: Temporary 249 atomic tag validation
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+    paths:
+      - .github/workflows/tmp-249-atomic-tags.yml
+      - .github/tmp-249-atomic-tags.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/249-upload-item-tags
+      - name: Apply atomic tagging patch
+        run: python3 .github/tmp-249-atomic-tags.py
+      - name: Format
+        run: gofmt -w gooru/tagging_known_file_tags.go gooru/tagging_known_file_tags_test.go internal/serve/uploads.go internal/serve/upload_identity_test.go
+      - name: Go tests
+        run: go test ./...
+      - name: Go build
+        run: go build ./...
+      - name: Commit source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check -- gooru/tagging_known_file_tags.go gooru/tagging_known_file_tags_test.go internal/serve/uploads.go internal/serve/upload_identity_test.go
+          git config user.name "gooru-maintainer-bot"
+          git config user.email "maintainer@localhost"
+          git add gooru/tagging_known_file_tags.go gooru/tagging_known_file_tags_test.go internal/serve/uploads.go internal/serve/upload_identity_test.go
+          git commit -m 'fix: make upload tag persistence atomic'
+          git push origin HEAD:feat/249-upload-item-tags
