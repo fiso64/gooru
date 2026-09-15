@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { jobsRefreshMinIntervalMs } from '../src/lib/jobsEvents';
 
 const session = {
   user: { id: 'usr_test', username: 'mac', role: 'admin' },
@@ -96,6 +97,7 @@ test('does not keep polling operations on idle screens', async ({ page }) => {
 });
 
 test('refreshes active operations from one throttled SSE signal stream', async ({ page }) => {
+  await page.clock.install();
   await mockAuth(page);
   await mockShellApis(page);
   await mockOperationEvents(page);
@@ -112,6 +114,7 @@ test('refreshes active operations from one throttled SSE signal stream', async (
   await expect.poll(() => operationRequests).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => (window as OperationEventTestWindow).__operationEventSourceCount ?? 0)).toBe(1);
   await page.waitForTimeout(100);
+  await page.clock.pauseAt(await page.evaluate(() => Date.now()));
   const initialRequests = operationRequests;
 
   await page.evaluate(() => (window as OperationEventTestWindow).__emitOperationEvent?.());
@@ -124,7 +127,8 @@ test('refreshes active operations from one throttled SSE signal stream', async (
     testWindow.__emitOperationEvent?.();
     testWindow.__emitOperationEvent?.();
   });
-  await page.waitForTimeout(100);
+  await page.clock.fastForward(jobsRefreshMinIntervalMs - 1);
   expect(operationRequests).toBe(firstRefreshRequests);
-  await expect.poll(() => operationRequests, { timeout: 1200 }).toBe(firstRefreshRequests + 1);
+  await page.clock.fastForward(1);
+  await expect.poll(() => operationRequests).toBe(firstRefreshRequests + 1);
 });
