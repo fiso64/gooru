@@ -19,6 +19,17 @@ const (
 	backgroundMediaMetadataSweepBatchSize = 64
 )
 
+type deferUploadMediaMetadataContextKey struct{}
+
+func withDeferredUploadMediaMetadata(ctx context.Context) context.Context {
+	return context.WithValue(ctx, deferUploadMediaMetadataContextKey{}, true)
+}
+
+func uploadMediaMetadataDeferred(ctx context.Context) bool {
+	deferred, _ := ctx.Value(deferUploadMediaMetadataContextKey{}).(bool)
+	return deferred
+}
+
 func (l *GooruLibrary) mediaMetadataForFile(ctx context.Context, file types.FileInfo, analysisPath string) (types.MediaMetadata, error) {
 	provider := l.metadata
 	if provider == nil {
