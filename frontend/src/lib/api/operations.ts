@@ -40,6 +40,7 @@ export interface MaintenanceJob {
   id: string;
   name: string;
   description: string;
+  running: boolean;
 }
 
 export interface MaintenanceJobListResponse {
