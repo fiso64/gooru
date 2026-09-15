@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"gooru.local/internal/encryptedfile"
@@ -53,7 +54,7 @@ func TestProtectedSourceHTTPRangeCrossesEncryptedChunkBoundary(t *testing.T) {
 func protectedTestFixture(t *testing.T, plaintext []byte) (*Resolver, string) {
 	t.Helper()
 	root := t.TempDir()
-	path := root + "/media.bin"
+	path := filepath.Join(root, "media.bin")
 	key := bytes.Repeat([]byte{0xa7}, 32)
 	writeEncryptedTestFile(t, path, plaintext, key)
 	resolver, err := NewProtected(key, []string{root})
