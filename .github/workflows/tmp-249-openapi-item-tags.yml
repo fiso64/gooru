@@ -1,0 +1,41 @@
+name: Temporary 249 OpenAPI item tags validation
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+    paths:
+      - .github/workflows/tmp-249-openapi-item-tags.yml
+      - .github/tmp-249-openapi-item-tags.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch-generate-check-commit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/249-upload-item-tags
+      - name: Patch schema
+        run: python3 .github/tmp-249-openapi-item-tags.py
+      - name: Regenerate API types and validate frontend
+        shell: bash
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm run generate:api
+          npm run check
+          npm run test:unit
+      - name: Validate diff and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "gooru-maintainer-bot"
+          git config user.email "maintainer@localhost"
+          git add docs/openapi.yaml frontend/src/lib/api/openapi.ts
+          git commit -m 'docs: describe per-file upload tags'
+          git push origin HEAD:feat/249-upload-item-tags
