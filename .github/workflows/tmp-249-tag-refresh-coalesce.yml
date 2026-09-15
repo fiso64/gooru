@@ -28,15 +28,32 @@ jobs:
         working-directory: frontend
         run: npm run check
       - name: Unit tests
+        id: unit
         working-directory: frontend
-        run: npm run test:unit
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:unit 2>&1 | tee ../.github/tmp-249-tag-refresh-unit.log
+      - name: Persist unit failure diagnostic
+        if: failure() && steps.unit.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "gooru-maintainer-bot"
+          git config user.email "maintainer@localhost"
+          git add .github/tmp-249-tag-refresh-unit.log
+          git commit -m 'ci: capture #249 tag refresh unit failure'
+          git push origin HEAD:feat/249-upload-item-tags
       - name: Install browser
+        if: success()
         working-directory: frontend
         run: npx playwright install chromium
       - name: Upload viewer browser regressions
+        if: success()
         working-directory: frontend
         run: npm run test:e2e -- upload-viewer.spec.ts
       - name: Commit source changes
+        if: success()
         shell: bash
         run: |
           set -euo pipefail
