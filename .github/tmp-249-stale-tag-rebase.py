@@ -56,6 +56,16 @@ replace_once(
     '''        onItemRemoteTagsLoaded(requestIndex, file.tags ?? [], expectedBaseTags);\n''',
 )
 replace_once(
+    "frontend/src/lib/state/uploadItems.test.ts",
+    '''    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted']);\n''',
+    '''    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted'], ['submitted']);\n''',
+)
+replace_once(
+    "frontend/src/lib/state/uploadItems.test.ts",
+    '''    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted', 'local:remove']);\n''',
+    '''    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted', 'local:remove'], ['submitted', 'local:remove']);\n''',
+)
+replace_once(
     "frontend/src/lib/state/uploadItems.tagSync.test.ts",
     '''  markUploadItemTagSyncErrorInPlace,\n  setUploadItemTagsInPlace,\n''',
     '''  markUploadItemTagSyncErrorInPlace,\n  rebaseUploadItemTagsFromRemoteInPlace,\n  setUploadItemTagsInPlace,\n''',
