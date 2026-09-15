@@ -95,6 +95,30 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
     expect(workflow.items.map((item) => item.status)).toEqual(Array.from({ length: 2001 }, () => 'queued'));
   });
 
+  it('keeps per-file tags aligned across a multipart segmentation boundary', async () => {
+    const workflow = createUploadWorkflow();
+    const files = Array.from({ length: maxFilesPerMultipartUpload + 1 }, (_, index) => uploadFile(index));
+    workflow.tags = 'fallback';
+    workflow.select(files);
+    workflow.setItemTags(maxFilesPerMultipartUpload - 1, ['edge:left']);
+    workflow.setItemTags(maxFilesPerMultipartUpload, ['edge:right']);
+    const calls: Array<{ names: string[]; itemTags: string[][] }> = [];
+
+    await workflow.submit(async (variables) => {
+      calls.push({
+        names: variables.files.map((file) => file.name),
+        itemTags: variables.itemTags?.map((itemTags) => [...itemTags]) ?? []
+      });
+      return pendingJob('job-boundary-tags', 2);
+    });
+
+    expect(calls.map((call) => call.names.length)).toEqual([maxFilesPerMultipartUpload, 1]);
+    expect(calls[0]?.names[maxFilesPerMultipartUpload - 1]).toBe(`file-${maxFilesPerMultipartUpload - 1}.jpg`);
+    expect(calls[0]?.itemTags[maxFilesPerMultipartUpload - 1]).toEqual(['edge:left']);
+    expect(calls[1]?.names[0]).toBe(`file-${maxFilesPerMultipartUpload}.jpg`);
+    expect(calls[1]?.itemTags[0]).toEqual(['edge:right']);
+  });
+
   it('keeps differing item tags in one request with aligned native per-file tags', async () => {
     const workflow = createUploadWorkflow();
     workflow.tags = 'project:inbox common';
@@ -126,7 +150,7 @@ describe('createUploadWorkflow bounded multipart submissions', () => {
     expect(calls).toEqual([
       {
         names: ['file-0.jpg', 'file-1.jpg', 'file-2.jpg'],
-        tags: ['common'],
+        tags: ['project:inbox', 'common'],
         itemTags: [
           ['project:inbox', 'common'],
           ['common', 'special'],

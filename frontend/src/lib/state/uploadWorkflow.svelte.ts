@@ -54,32 +54,15 @@ const doneUploadStatuses = new Set<UploadItemStatus>([
 export interface UploadSubmissionSegment {
   start: number;
   end: number;
-  tags: string[];
 }
 
-export function uploadSubmissionSegments(
-  itemIndices: number[],
-  items: UploadItem[],
-  fallbackTags: string[],
-  maxFiles: number
-): UploadSubmissionSegment[] {
-  if (!itemIndices.length) return [];
+export function uploadSubmissionSegments(itemCount: number, maxFiles: number): UploadSubmissionSegment[] {
+  const count = Math.max(0, Math.trunc(itemCount));
+  if (!count) return [];
   const limit = Math.max(1, Math.trunc(maxFiles));
-  const firstTags = [...(items[itemIndices[0]]?.tags ?? fallbackTags)];
-  const commonTags = [...firstTags];
-
-  for (let index = 1; index < itemIndices.length && commonTags.length; index += 1) {
-    const tags = new Set(items[itemIndices[index]]?.tags ?? fallbackTags);
-    let writeIndex = 0;
-    for (const tag of commonTags) {
-      if (tags.has(tag)) commonTags[writeIndex++] = tag;
-    }
-    commonTags.length = writeIndex;
-  }
-
   const segments: UploadSubmissionSegment[] = [];
-  for (let start = 0; start < itemIndices.length; start += limit) {
-    segments.push({ start, end: Math.min(itemIndices.length, start + limit), tags: [...commonTags] });
+  for (let start = 0; start < count; start += limit) {
+    segments.push({ start, end: Math.min(count, start + limit) });
   }
   return segments;
 }
@@ -325,7 +308,7 @@ export function createUploadWorkflow() {
     }
 
     const parsedTags = parseTags(tags);
-    const segments = uploadSubmissionSegments(batchItemIndices, items, parsedTags, multipartUploadChunkSize());
+    const segments = uploadSubmissionSegments(batchItemIndices.length, multipartUploadChunkSize());
     const submittedItemTags = batchItemIndices.map((itemIndex) => [
       ...(items[itemIndex]?.tags ?? parsedTags)
     ]);
@@ -392,7 +375,7 @@ export function createUploadWorkflow() {
 
         const response = await mutate({
           files: chunkFiles,
-          tags: segment.tags,
+          tags: parsedTags,
           itemTags: submittedItemTags.slice(currentChunkStart, chunkEnd).map((itemTags) => [...itemTags]),
           preferAsync: true,
           targetID: batchTargetID,

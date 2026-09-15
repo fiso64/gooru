@@ -7,34 +7,6 @@ import (
 	"gooru.local/types"
 )
 
-// TagKnownFilesWithBackgroundTasksByFileTags atomically registers known files
-// and applies the aligned tag set for each file while enqueuing durable follow-up
-// work in the same transaction.
-func (c *Client) TagKnownFilesWithBackgroundTasksByFileTags(files []types.LocationInfo, fileTags [][]string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
-	return c.TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(files, fileTags, tasks, nil, progressCb)
-}
-
-// TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState extends the
-// per-file known-file path with producer-owned operation/task state persisted in
-// the same transaction as content, tags, and child tasks.
-func (c *Client) TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(files []types.LocationInfo, fileTags [][]string, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
-	result := types.TagOperationResult{}
-	if len(fileTags) != len(files) {
-		return result, fmt.Errorf("per-file tag count %d does not match file count %d", len(fileTags), len(files))
-	}
-	tagsByHash := make(map[string][]string, len(files))
-	for index, file := range files {
-		if err := query.ValidateTags(fileTags[index]); err != nil {
-			return result, fmt.Errorf("validate tags for file %d: %w", index, err)
-		}
-		if file.Path == "" || file.Hash == "" {
-			continue
-		}
-		tagsByHash[file.Hash] = appendUniqueKnownFileTags(tagsByHash[file.Hash], fileTags[index])
-	}
-	return c.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files, tagsByHash, tasks, stateBuilder, progressCb)
-}
-
 // TagKnownFilesWithBackgroundTasksByHashTags registers the supplied known files
 // and applies tag sets by content hash in one transaction. The tag map may also
 // contain already-tracked hashes, which lets callers update duplicate content
@@ -105,28 +77,6 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 		}
 	}
 	return result, nil
-}
-
-// TagExistingContentByHashTags atomically adds aligned per-content tag sets
-// without re-reading or re-hashing filesystem paths that the caller has already
-// resolved to tracked content.
-
-func appendUniqueKnownFileTags(existing, additions []string) []string {
-	if len(additions) == 0 {
-		return existing
-	}
-	seen := make(map[string]struct{}, len(existing)+len(additions))
-	for _, tag := range existing {
-		seen[tag] = struct{}{}
-	}
-	for _, tag := range additions {
-		if _, ok := seen[tag]; ok {
-			continue
-		}
-		existing = append(existing, tag)
-		seen[tag] = struct{}{}
-	}
-	return existing
 }
 
 func (c *Client) associateKnownFileTagsByHash(tx *databaseTx, tagsByHash map[string][]string) (int64, error) {
