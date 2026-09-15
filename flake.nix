@@ -75,6 +75,8 @@
             media.cache_dir = "/var/cache/gooru/media";
           } cfg.settings;
           configFile = yaml.generate "gooru.yaml" effectiveSettings;
+          adminCredentialName = username: "gooru-admin-${username}";
+          initialAdminNames = lib.attrNames cfg.initialAdmins;
         in {
           options.services.gooru = {
             enable = lib.mkEnableOption "Gooru web application";
@@ -104,6 +106,30 @@
               description = "Gooru serve configuration written to YAML. Defaults provide state/cache paths and the packaged frontend.";
             };
 
+            initialAdmins = lib.mkOption {
+              type = lib.types.attrsOf (lib.types.submodule ({ ... }: {
+                options.passwordFile = lib.mkOption {
+                  type = lib.types.str;
+                  description = ''
+                    Runtime path to a file containing the initial password for this admin.
+                    The file is loaded through systemd credentials and is never copied into
+                    the Nix store. Existing users are left unchanged, including their password.
+                  '';
+                };
+              }));
+              default = { };
+              example = lib.literalExpression ''
+                {
+                  admin.passwordFile = "/run/secrets/gooru-admin";
+                }
+              '';
+              description = ''
+                Admin accounts to create when they are missing. Attribute names are Gooru
+                usernames. Passwords are consumed only when creating a missing account;
+                this option does not reconcile or rotate passwords for existing users.
+              '';
+            };
+
             openFirewall = lib.mkOption {
               type = lib.types.bool;
               default = false;
@@ -112,6 +138,17 @@
           };
 
           config = lib.mkIf cfg.enable {
+            assertions = [
+              {
+                assertion = lib.all (username: builtins.match "[A-Za-z0-9._-]+" username != null) initialAdminNames;
+                message = "services.gooru.initialAdmins usernames may contain only letters, numbers, dots, dashes, and underscores";
+              }
+              {
+                assertion = lib.all (username: cfg.initialAdmins.${username}.passwordFile != "") initialAdminNames;
+                message = "services.gooru.initialAdmins passwordFile values must not be empty";
+              }
+            ];
+
             users.users = lib.mkIf (cfg.user == "gooru") {
               gooru = {
                 isSystemUser = true;
@@ -129,6 +166,12 @@
               wantedBy = [ "multi-user.target" ];
               after = [ "network.target" ];
               path = [ pkgs.ffmpeg ];
+              preStart = lib.concatMapStringsSep "\n" (username:
+                let credentialName = adminCredentialName username;
+                in ''
+                  GOORU_ADMIN_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/${credentialName}")" \
+                    ${cfg.package}/bin/gooru --config /etc/gooru/serve.yaml user create-admin --if-missing --username ${lib.escapeShellArg username}
+                '') initialAdminNames;
               serviceConfig = {
                 User = cfg.user;
                 Group = cfg.group;
@@ -139,6 +182,9 @@
                 WorkingDirectory = "/var/lib/gooru";
                 NoNewPrivileges = true;
                 PrivateTmp = true;
+                LoadCredential = lib.mapAttrsToList (username: admin:
+                  "${adminCredentialName username}:${admin.passwordFile}"
+                ) cfg.initialAdmins;
               };
             };
 
@@ -148,8 +194,33 @@
           };
         };
 
-      checks = forAllSystems (system: {
-        package = self.packages.${system}.default;
-      });
+      checks = forAllSystems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          moduleEval = nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [
+              self.nixosModules.default
+              {
+                system.stateVersion = "26.05";
+                services.gooru = {
+                  enable = true;
+                  initialAdmins.alice.passwordFile = "/run/secrets/gooru-admin-alice";
+                };
+              }
+            ];
+          };
+          moduleService = moduleEval.config.systemd.services.gooru;
+          moduleCheck =
+            assert builtins.elem "gooru-admin-alice:/run/secrets/gooru-admin-alice" moduleService.serviceConfig.LoadCredential;
+            assert nixpkgs.lib.hasInfix "--if-missing" moduleService.preStart;
+            assert nixpkgs.lib.hasInfix "$CREDENTIALS_DIRECTORY/gooru-admin-alice" moduleService.preStart;
+            pkgs.runCommand "gooru-nixos-module-check" { } ''
+              touch $out
+            '';
+        in {
+          package = self.packages.${system}.default;
+          nixos-module = moduleCheck;
+        });
     };
 }
