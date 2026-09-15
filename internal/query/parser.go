@@ -90,13 +90,60 @@ func expandVirtualTypeTags(expression string) string {
 	})
 }
 
-// Parse takes a query expression string and returns the parsed AST.
-func Parse(expression string) (*Expression, error) {
+func normalizeUnquotedSyntax(expression string) string {
 	s := expandVirtualTypeTags(expression)
 	s = reOr.ReplaceAllString(s, " | ")
 	s = reAnd.ReplaceAllString(s, " ")
 	s = strings.ReplaceAll(s, "&", " ")
 	s = reNot.ReplaceAllString(s, "-")
 	s = strings.ReplaceAll(s, "!", "-")
-	return parser.ParseString("", s)
+	return s
+}
+
+// normalizeQuerySyntax applies user-friendly shorthand only outside quoted
+// strings. Quoted tags are literals, so words such as "or" and characters such
+// as '!' must reach the parser unchanged.
+func normalizeQuerySyntax(expression string) string {
+	var out strings.Builder
+	segmentStart := 0
+	inQuote := false
+
+	for i := 0; i < len(expression); i++ {
+		if expression[i] != '"' {
+			continue
+		}
+
+		escaped := false
+		for j := i - 1; j >= 0 && expression[j] == '\\'; j-- {
+			escaped = !escaped
+		}
+		if escaped {
+			continue
+		}
+
+		if !inQuote {
+			out.WriteString(normalizeUnquotedSyntax(expression[segmentStart:i]))
+			segmentStart = i
+			inQuote = true
+			continue
+		}
+
+		out.WriteString(expression[segmentStart : i+1])
+		segmentStart = i + 1
+		inQuote = false
+	}
+
+	if inQuote {
+		// Preserve an unterminated quoted segment so the parser can report the
+		// original syntax error rather than normalizing its literal contents.
+		out.WriteString(expression[segmentStart:])
+	} else {
+		out.WriteString(normalizeUnquotedSyntax(expression[segmentStart:]))
+	}
+	return out.String()
+}
+
+// Parse takes a query expression string and returns the parsed AST.
+func Parse(expression string) (*Expression, error) {
+	return parser.ParseString("", normalizeQuerySyntax(expression))
 }
