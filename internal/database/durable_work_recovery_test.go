@@ -67,6 +67,50 @@ func TestCancelUnattachedHiddenBackgroundOperationsOnlyReleasesReservations(t *t
 	}
 }
 
+func TestListUnattachedBackgroundOperationIDsDoesNotCancelRecoveryState(t *testing.T) {
+	store, db := newDurableWorkTestDB(t)
+	store.DB = db
+	for _, operation := range []NewBackgroundOperation{
+		{ID: "visible-receiving", Kind: "upload_import", Visible: true},
+		{ID: "hidden-receiving", Kind: "upload_import", Visible: false},
+		{ID: "attached-upload", Kind: "upload_import", Visible: true},
+		{ID: "other", Kind: "thumbnail", Visible: true},
+	} {
+		if _, err := store.CreateBackgroundOperation(db, operation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, created, err := store.EnqueueBackgroundTask(db, NewBackgroundTask{
+		ID:            "attached-task",
+		OperationID:   "attached-upload",
+		DedupeKey:     "attached-upload-task",
+		Kind:          "upload_import",
+		InputKey:      "attached-upload",
+		ResourceClass: "upload_import",
+	}); err != nil {
+		t.Fatal(err)
+	} else if !created {
+		t.Fatal("attached task was not created")
+	}
+
+	ids, err := store.ListUnattachedBackgroundOperationIDs("upload_import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] != "hidden-receiving" || ids[1] != "visible-receiving" {
+		t.Fatalf("listed unattached operations = %q, want hidden and visible receiving", ids)
+	}
+	for _, id := range []string{"visible-receiving", "hidden-receiving", "attached-upload", "other"} {
+		var status string
+		if err := db.QueryRow(`SELECT status FROM background_operations WHERE id = ?`, id).Scan(&status); err != nil {
+			t.Fatal(err)
+		}
+		if status != "pending" {
+			t.Fatalf("operation %s status after listing = %q, want pending", id, status)
+		}
+	}
+}
+
 func TestCancelUnattachedBackgroundOperationsIncludesVisibleReceivingWork(t *testing.T) {
 	store, db := newDurableWorkTestDB(t)
 	store.DB = db

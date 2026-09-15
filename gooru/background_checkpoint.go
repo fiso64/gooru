@@ -50,6 +50,13 @@ func (c *Client) CancelUnattachedHiddenBackgroundOperations(kind string) (int64,
 	return canceled, err
 }
 
+// ListUnattachedBackgroundOperationIDs returns pre-crash producer work that has
+// not attached a durable child yet, without changing its terminal state. External
+// staging owners use this to finish cleanup before canceling the durable record.
+func (c *Client) ListUnattachedBackgroundOperationIDs(kind string) ([]string, error) {
+	return c.store.ListUnattachedBackgroundOperationIDs(kind)
+}
+
 // CancelUnattachedBackgroundOperations releases pre-crash producer work that
 // was already visible before its durable child task could be attached.
 func (c *Client) CancelUnattachedBackgroundOperations(kind string) (int64, error) {
