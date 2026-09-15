@@ -28,6 +28,21 @@ func TestFileRegistrationBackgroundTasksDeduplicatesContentHashesPerTransaction(
 	}
 }
 
+func TestFileRegistrationHookReceivesParentOperation(t *testing.T) {
+	client := &Client{}
+	var got FileRegistrationEvent
+	client.SetFileRegistrationHooks(func(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
+		got = event
+		return nil, nil
+	})
+	if _, err := client.fileRegistrationBackgroundTasksForOperation([]string{"hash"}, " upload-op "); err != nil {
+		t.Fatal(err)
+	}
+	if got.OperationID != "upload-op" {
+		t.Fatalf("operation id = %q, want upload-op", got.OperationID)
+	}
+}
+
 func TestFileRegistrationBackgroundTasksSkipsEmptyEvents(t *testing.T) {
 	client := &Client{}
 	called := false
@@ -121,6 +136,36 @@ func TestRetagKnownFileDoesNotEnqueueMetadataSweep(t *testing.T) {
 	}
 }
 
+func TestKnownFileRegistrationBindsMetadataWakeToParentOperation(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	operation, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "upload.import", Visible: true})
+	if err != nil {
+		t.Fatalf("create upload operation: %v", err)
+	}
+	file := types.LocationInfo{Path: filepath.Join(t.TempDir(), "new.jpg"), Hash: "new-hash", Size: 1, ModTime: 1}
+	_, err = client.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState([]types.LocationInfo{file}, nil, nil, func(int) (BackgroundOperationTransactionState, error) {
+		return BackgroundOperationTransactionState{OperationID: operation.ID}, nil
+	}, nil)
+	if err != nil {
+		t.Fatalf("register file in upload operation: %v", err)
+	}
+
+	var count int
+	var operationID string
+	if err := client.store.DB.QueryRow(`SELECT count(*), min(operation_id) FROM background_tasks WHERE kind = ?`, BackgroundMediaMetadataSweepTaskKind).Scan(&count, &operationID); err != nil {
+		t.Fatalf("inspect metadata wake: %v", err)
+	}
+	if count != 1 || operationID != operation.ID {
+		t.Fatalf("metadata wakes = %d on operation %q, want one on %q", count, operationID, operation.ID)
+	}
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_operations WHERE kind = ?`, BackgroundMediaMetadataSweepOperationKind).Scan(&count); err != nil {
+		t.Fatalf("count standalone metadata operations: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("standalone metadata operation count = %d, want 0", count)
+	}
+}
+
 func TestMediaMetadataRegistrationTasksUsesWakeOnlySignal(t *testing.T) {
 	tasks, err := mediaMetadataRegistrationTasks(false)
 	if err != nil {
@@ -146,5 +191,25 @@ func TestMediaMetadataRegistrationTasksUsesWakeOnlySignal(t *testing.T) {
 	}
 	if !task.AvailableAt.IsZero() {
 		t.Fatalf("registration wake is delayed until %v", task.AvailableAt)
+	}
+}
+
+func TestMediaMetadataRegistrationTasksUseParentOperation(t *testing.T) {
+	tasks, err := mediaMetadataRegistrationTasksForOperation(true, " upload-op ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("parent-bound registration produced %d tasks, want one", len(tasks))
+	}
+	task := tasks[0]
+	if task.OperationID != "upload-op" {
+		t.Fatalf("operation id = %q, want upload-op", task.OperationID)
+	}
+	if task.Operation != nil {
+		t.Fatalf("parent-bound registration unexpectedly creates operation: %#v", task.Operation)
+	}
+	if task.InputKey != mediaMetadataRegistrationInputKey || !task.CoalescePendingEquivalent {
+		t.Fatalf("parent-bound registration produced unexpected wake: %#v", task)
 	}
 }
