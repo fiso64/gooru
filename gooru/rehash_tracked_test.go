@@ -86,3 +86,72 @@ func TestRehashTrackedFilesReadsManagedPhysicalPath(t *testing.T) {
 		t.Fatalf("physical path = %q, want %q", gotPhysical, physicalPath)
 	}
 }
+
+func TestRehashTrackedFilesRefreshesRepeatedPathAfterMutation(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	if err := Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(dbPath, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	filePath := filepath.Join(t.TempDir(), "repeated.bin")
+	if err := os.WriteFile(filePath, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldHash, err := client.hasher.HashFile(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldInfo, err := client.hasher.FileMetadata(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.store.Exec(`INSERT INTO contents (hash) VALUES (?)`, oldHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.store.GetOrCreateLocation(client.store, oldHash, filePath, oldInfo.Size, oldInfo.ModTime.Unix(), ".bin"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filePath, []byte("after content changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	wantHash, err := client.hasher.HashFile(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var statuses []types.RehashStatus
+	var errs []error
+	client.RehashTrackedFiles([]string{filePath, filePath}, func(_ string, status types.RehashStatus, err error) {
+		statuses = append(statuses, status)
+		errs = append(errs, err)
+	}, false)
+
+	if len(statuses) != 2 || len(errs) != 2 {
+		t.Fatalf("callbacks = %d statuses/%d errors, want 2/2", len(statuses), len(errs))
+	}
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("callback %d error = %v", i, err)
+		}
+	}
+	if statuses[0] != types.StatusRehashed {
+		t.Fatalf("first status = %v, want StatusRehashed", statuses[0])
+	}
+	if statuses[1] != types.StatusSkippedUnchanged {
+		t.Fatalf("second status = %v, want StatusSkippedUnchanged", statuses[1])
+	}
+
+	updated, err := client.store.GetFileInfoByPath(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Hash != wantHash {
+		t.Fatalf("hash = %q, want %q", updated.Hash, wantHash)
+	}
+}
