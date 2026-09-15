@@ -17,15 +17,13 @@ func (s *Server) fileRouteHandler() http.Handler {
 
 		switch parts[1] {
 		case "content", "download":
-			if r.Method == http.MethodHead {
-				s.handleOriginalMediaHead(w, r, parts[0], parts[1])
-				return
-			}
-			if r.Method != http.MethodGet {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				w.Header().Set("Allow", "GET, HEAD")
 				writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 				return
 			}
+			s.handleOriginalMedia(w, r, parts[0], parts[1])
+			return
 		case "thumbnail", "preview":
 			if r.Method != http.MethodGet {
 				w.Header().Set("Allow", "GET")
@@ -38,7 +36,7 @@ func (s *Server) fileRouteHandler() http.Handler {
 	})
 }
 
-func (s *Server) handleOriginalMediaHead(w http.ResponseWriter, r *http.Request, publicID string, route string) {
+func (s *Server) handleOriginalMedia(w http.ResponseWriter, r *http.Request, publicID string, route string) {
 	if s.library == nil {
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "file library is not configured", nil)
 		return
@@ -52,9 +50,5 @@ func (s *Server) handleOriginalMediaHead(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load file", nil)
 		return
 	}
-	if route == "download" {
-		s.media.ServeDownload(w, r, file)
-		return
-	}
-	s.media.ServeContent(w, r, file)
+	s.media.ServeOriginal(w, r, file, route == "download")
 }
