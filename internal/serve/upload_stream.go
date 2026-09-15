@@ -280,19 +280,14 @@ func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPo
 		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
-	ownedFileInfo, err := os.Stat(stagedPath)
-	if err != nil {
-		_ = os.Remove(stagedPath)
-		return savedUpload{}, uploadFileError{name: file.name, err: errors.New("failed to inspect staged upload")}
-	}
 	if replace {
-		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true, sourceModTime: file.sourceModTime, ownedFileInfo: ownedFileInfo}, nil
+		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true, sourceModTime: file.sourceModTime}, nil
 	}
-	if err := commitUploadDestination(stagedPath, path); err != nil {
+	if err := commitUploadDestinationWithOwnership(stagedPath, path); err != nil {
 		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
-	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, ownedFileInfo: ownedFileInfo}, nil
+	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, ownershipPath: stagedPath}, nil
 }
 
 func parseUploadOrdinal(values []string, index int, fallback int) int {
