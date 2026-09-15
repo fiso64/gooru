@@ -1,0 +1,22 @@
+name: maintainer upload audit
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trace upload identity APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== references ==='
+          rg -n "GetFileInfoBy(ContentHash|Path)|GetFileInfosByContentHashes|ContentExists" . || true
+          echo '=== definitions ==='
+          rg -n "func \([^)]*\) GetFileInfoBy(ContentHash|Path)|func \([^)]*\) GetFileInfosByContentHashes|type .*File.*Store|GetFileInfosByContentHashes" gooru internal types || true
+          echo '=== upload identity context ==='
+          rg -n -C 8 "populateUploadFileIDs|duplicateExistingDiscards|GetFileInfoByContentHash" internal/serve/uploads.go || true
