@@ -53,6 +53,56 @@ func newMediaMetadataSweepTaskRequest() (BackgroundTaskRequest, error) {
 	}, nil
 }
 
+// MediaMetadataSweepRunning reports whether a metadata sweep operation is
+// currently pending or running. The operation kind is the durable single-flight
+// identity shared by registration-triggered, recovery, and manual runs.
+func (c *Client) MediaMetadataSweepRunning() (bool, error) {
+	activeIDs, err := c.ListActiveBackgroundOperationIDs(false)
+	if err != nil {
+		return false, fmt.Errorf("list active background operations: %w", err)
+	}
+	for _, operationID := range activeIDs {
+		operation, found, err := c.GetBackgroundOperation(operationID)
+		if err != nil {
+			return false, fmt.Errorf("inspect active background operation %s: %w", operationID, err)
+		}
+		if found && operation.Kind == BackgroundMediaMetadataSweepOperationKind {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// RunMediaMetadataSweep starts one visible metadata sweep whenever one is not
+// already active. Unlike startup recovery, an explicit manual run creates an
+// observable job even when there is currently no pending metadata; the worker
+// will scan, find no work, and complete the operation normally.
+func (c *Client) RunMediaMetadataSweep() (bool, error) {
+	running, err := c.MediaMetadataSweepRunning()
+	if err != nil {
+		return false, err
+	}
+	if running {
+		return false, nil
+	}
+
+	task, err := newMediaMetadataSweepTaskRequest()
+	if err != nil {
+		return false, err
+	}
+	_, tasks, err := c.CreateBackgroundOperationWithTasks(BackgroundOperationRequest{
+		Kind:    BackgroundMediaMetadataSweepOperationKind,
+		Visible: true,
+	}, []BackgroundTaskRequest{task})
+	if err != nil {
+		return false, fmt.Errorf("enqueue media metadata sweep: %w", err)
+	}
+	if len(tasks) != 1 {
+		return false, fmt.Errorf("enqueue media metadata sweep created %d tasks, want 1", len(tasks))
+	}
+	return true, nil
+}
+
 // EnsureMediaMetadataSweep schedules one visible sweep when metadata is pending
 // and no sweep operation is already pending or running. It is intended for
 // server startup recovery so registrations created by older/broken producers are
@@ -65,36 +115,7 @@ func (c *Client) EnsureMediaMetadataSweep() (bool, error) {
 	if len(pending) == 0 {
 		return false, nil
 	}
-
-	activeIDs, err := c.ListActiveBackgroundOperationIDs(false)
-	if err != nil {
-		return false, fmt.Errorf("list active background operations: %w", err)
-	}
-	for _, operationID := range activeIDs {
-		operation, found, err := c.GetBackgroundOperation(operationID)
-		if err != nil {
-			return false, fmt.Errorf("inspect active background operation %s: %w", operationID, err)
-		}
-		if found && operation.Kind == BackgroundMediaMetadataSweepOperationKind {
-			return false, nil
-		}
-	}
-
-	task, err := newMediaMetadataSweepTaskRequest()
-	if err != nil {
-		return false, err
-	}
-	_, tasks, err := c.CreateBackgroundOperationWithTasks(BackgroundOperationRequest{
-		Kind:    BackgroundMediaMetadataSweepOperationKind,
-		Visible: true,
-	}, []BackgroundTaskRequest{task})
-	if err != nil {
-		return false, fmt.Errorf("enqueue media metadata recovery sweep: %w", err)
-	}
-	if len(tasks) != 1 {
-		return false, fmt.Errorf("enqueue media metadata recovery sweep created %d tasks, want 1", len(tasks))
-	}
-	return true, nil
+	return c.RunMediaMetadataSweep()
 }
 
 func (c *Client) ListPendingMediaMetadataFiles(afterLocationID int64, limit int) ([]types.FileInfo, error) {

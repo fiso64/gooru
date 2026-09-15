@@ -11,6 +11,7 @@ type MaintenanceJobDTO struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Running     bool   `json:"running"`
 }
 
 type MaintenanceJobListResponse struct {
@@ -23,7 +24,8 @@ type MaintenanceJobRunResponse struct {
 }
 
 type maintenanceJobRunner interface {
-	EnsureMediaMetadataSweep() (bool, error)
+	RunMediaMetadataSweep() (bool, error)
+	MediaMetadataSweepRunning() (bool, error)
 }
 
 var maintenanceJobCatalog = []MaintenanceJobDTO{
@@ -34,8 +36,12 @@ var maintenanceJobCatalog = []MaintenanceJobDTO{
 	},
 }
 
-func (l *GooruLibrary) EnsureMediaMetadataSweep() (bool, error) {
-	return l.client.EnsureMediaMetadataSweep()
+func (l *GooruLibrary) RunMediaMetadataSweep() (bool, error) {
+	return l.client.RunMediaMetadataSweep()
+}
+
+func (l *GooruLibrary) MediaMetadataSweepRunning() (bool, error) {
+	return l.client.MediaMetadataSweepRunning()
 }
 
 func (s *Server) handleMaintenanceJobs(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +51,18 @@ func (s *Server) handleMaintenanceJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := append([]MaintenanceJobDTO(nil), maintenanceJobCatalog...)
+	if s.maintenanceJobs != nil {
+		running, err := s.maintenanceJobs.MediaMetadataSweepRunning()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to inspect maintenance job state", nil)
+			return
+		}
+		for i := range items {
+			if items[i].ID == maintenanceJobMediaMetadataSweepID {
+				items[i].Running = running
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, MaintenanceJobListResponse{Items: items})
 }
 
@@ -71,7 +89,7 @@ func (s *Server) handleMaintenanceJob(w http.ResponseWriter, r *http.Request) {
 	)
 	switch id {
 	case maintenanceJobMediaMetadataSweepID:
-		created, err = s.maintenanceJobs.EnsureMediaMetadataSweep()
+		created, err = s.maintenanceJobs.RunMediaMetadataSweep()
 	default:
 		writeError(w, http.StatusNotFound, "maintenance_job_not_found", "maintenance job not found", nil)
 		return
@@ -80,6 +98,9 @@ func (s *Server) handleMaintenanceJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to enqueue maintenance job", nil)
 		return
 	}
+	// A successful manual invocation either created this operation or raced an
+	// already-active run. In both cases the catalog entry is currently running.
+	job.Running = true
 	status := http.StatusOK
 	if created {
 		status = http.StatusAccepted

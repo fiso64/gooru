@@ -8,18 +8,26 @@ import (
 )
 
 type maintenanceJobRunnerStub struct {
-	created bool
-	err     error
-	calls   int
+	created    bool
+	running    bool
+	err        error
+	runCalls   int
+	stateCalls int
 }
 
-func (s *maintenanceJobRunnerStub) EnsureMediaMetadataSweep() (bool, error) {
-	s.calls++
+func (s *maintenanceJobRunnerStub) RunMediaMetadataSweep() (bool, error) {
+	s.runCalls++
 	return s.created, s.err
 }
 
+func (s *maintenanceJobRunnerStub) MediaMetadataSweepRunning() (bool, error) {
+	s.stateCalls++
+	return s.running, s.err
+}
+
 func TestMaintenanceJobsCatalogIsDiscoverable(t *testing.T) {
-	server := &Server{}
+	runner := &maintenanceJobRunnerStub{running: true}
+	server := &Server{maintenanceJobs: runner}
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/maintenance-jobs", nil)
 	response := httptest.NewRecorder()
 
@@ -35,8 +43,11 @@ func TestMaintenanceJobsCatalogIsDiscoverable(t *testing.T) {
 		t.Fatalf("catalog items = %d, want 1: %+v", len(payload.Items), payload.Items)
 	}
 	job := payload.Items[0]
-	if job.ID != maintenanceJobMediaMetadataSweepID || job.Name == "" || job.Description == "" {
+	if job.ID != maintenanceJobMediaMetadataSweepID || job.Name == "" || job.Description == "" || !job.Running {
 		t.Fatalf("unexpected catalog job: %+v", job)
+	}
+	if runner.stateCalls != 1 {
+		t.Fatalf("state calls = %d, want 1", runner.stateCalls)
 	}
 }
 
@@ -50,15 +61,34 @@ func TestMaintenanceJobInvocationUsesDurableSweepRunner(t *testing.T) {
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusAccepted, response.Body.String())
 	}
-	if runner.calls != 1 {
-		t.Fatalf("runner calls = %d, want 1", runner.calls)
+	if runner.runCalls != 1 {
+		t.Fatalf("runner calls = %d, want 1", runner.runCalls)
 	}
 	var payload MaintenanceJobRunResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode run response: %v", err)
 	}
-	if !payload.Created || payload.Job.ID != maintenanceJobMediaMetadataSweepID {
+	if !payload.Created || payload.Job.ID != maintenanceJobMediaMetadataSweepID || !payload.Job.Running {
 		t.Fatalf("unexpected run response: %+v", payload)
+	}
+}
+
+func TestMaintenanceJobInvocationReportsAlreadyRunningWithoutStacking(t *testing.T) {
+	runner := &maintenanceJobRunnerStub{created: false, running: true}
+	server := &Server{maintenanceJobs: runner}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/maintenance-jobs/media-metadata-sweep", nil)
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var payload MaintenanceJobRunResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+	if payload.Created || !payload.Job.Running {
+		t.Fatalf("unexpected already-running response: %+v", payload)
 	}
 }
 
@@ -72,8 +102,8 @@ func TestMaintenanceJobInvocationReturnsExplicitNotFound(t *testing.T) {
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusNotFound, response.Body.String())
 	}
-	if runner.calls != 0 {
-		t.Fatalf("runner calls = %d, want 0", runner.calls)
+	if runner.runCalls != 0 {
+		t.Fatalf("runner calls = %d, want 0", runner.runCalls)
 	}
 	var payload struct {
 		Error struct {

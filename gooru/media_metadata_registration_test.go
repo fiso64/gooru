@@ -100,6 +100,48 @@ func TestDefaultRegistrationMetadataSweepSignalsCommittedOperationChange(t *test
 	}
 }
 
+func TestRunMediaMetadataSweepCreatesObservableNoWorkJob(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	if err := Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	client, err := New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	created, err := client.RunMediaMetadataSweep()
+	if err != nil {
+		t.Fatalf("run metadata sweep with no pending work: %v", err)
+	}
+	if !created {
+		t.Fatal("manual metadata sweep did not create an observable no-work job")
+	}
+	running, err := client.MediaMetadataSweepRunning()
+	if err != nil {
+		t.Fatalf("inspect running metadata sweep: %v", err)
+	}
+	if !running {
+		t.Fatal("manual metadata sweep was not reported as running")
+	}
+	created, err = client.RunMediaMetadataSweep()
+	if err != nil {
+		t.Fatalf("run metadata sweep while active: %v", err)
+	}
+	if created {
+		t.Fatal("manual metadata sweep stacked a duplicate active operation")
+	}
+
+	operations, err := client.ListBackgroundOperations(BackgroundOperationListOptions{VisibleOnly: true})
+	if err != nil {
+		t.Fatalf("list visible operations: %v", err)
+	}
+	if len(operations) != 1 || operations[0].Kind != BackgroundMediaMetadataSweepOperationKind || operations[0].Status != BackgroundWorkPending {
+		t.Fatalf("unexpected manual metadata operation: %+v", operations)
+	}
+}
+
 func TestEnsureMediaMetadataSweepRecoversMissingWakeWithoutDuplicates(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gooru.db")
 	if err := Init(dbPath, types.StrategyFull, false); err != nil {
