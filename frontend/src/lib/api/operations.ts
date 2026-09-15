@@ -52,7 +52,7 @@ export interface MaintenanceJobRunResponse {
   created: boolean;
 }
 
-async function operationRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: 'same-origin',
     headers: { Accept: 'application/json', ...init?.headers },
@@ -66,7 +66,7 @@ async function operationRequest<T>(path: string, init?: RequestInit): Promise<T>
       payload?.error?.message ?? `Request failed with HTTP ${response.status}`
     );
   }
-  if (payload === undefined) throw new Error('Background operation response did not contain JSON');
+  if (payload === undefined) throw new Error('API response did not contain JSON');
   return payload;
 }
 
@@ -74,42 +74,42 @@ export function listBackgroundOperations(limit = 1000, offset = 0) {
   const normalizedLimit = Math.max(1, Math.min(1000, Math.trunc(limit)));
   const normalizedOffset = Math.max(0, Math.trunc(offset));
   const params = new URLSearchParams({ limit: String(normalizedLimit), offset: String(normalizedOffset) });
-  return operationRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
+  return jsonRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
 }
 
 export function listBackgroundOperationsByIDs(ids: string[]) {
   const params = new URLSearchParams();
   for (const id of ids) params.append('id', id);
-  return operationRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
+  return jsonRequest<BackgroundOperationListResponse>(`/api/v1/operations?${params.toString()}`);
 }
 
 export function clearCompletedBackgroundOperations(csrfToken: string) {
-  return operationRequest<BackgroundOperationClearResponse>('/api/v1/operations', {
+  return jsonRequest<BackgroundOperationClearResponse>('/api/v1/operations', {
     method: 'DELETE',
     headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
   });
 }
 
 export function cancelActiveBackgroundOperations(csrfToken: string) {
-  return operationRequest<BackgroundOperationCancelAllResponse>('/api/v1/operations/cancel-all', {
+  return jsonRequest<BackgroundOperationCancelAllResponse>('/api/v1/operations/cancel-all', {
     method: 'DELETE',
     headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
   });
 }
 
 export function cancelBackgroundOperation(id: string, csrfToken: string) {
-  return operationRequest<BackgroundOperation>(`/api/v1/operations/${encodeURIComponent(id)}`, {
+  return jsonRequest<BackgroundOperation>(`/api/v1/operations/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
   });
 }
 
 export function listMaintenanceJobs() {
-  return operationRequest<MaintenanceJobListResponse>('/api/v1/maintenance-jobs');
+  return jsonRequest<MaintenanceJobListResponse>('/api/v1/maintenance-jobs');
 }
 
 export function runMaintenanceJob(id: string, csrfToken: string) {
-  return operationRequest<MaintenanceJobRunResponse>(`/api/v1/maintenance-jobs/${encodeURIComponent(id)}`, {
+  return jsonRequest<MaintenanceJobRunResponse>(`/api/v1/maintenance-jobs/${encodeURIComponent(id)}`, {
     method: 'POST',
     headers: csrfToken ? { 'X-Gooru-CSRF': csrfToken } : undefined
   });
