@@ -2,6 +2,7 @@ package serve
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -84,5 +85,24 @@ func TestDisabledPreviewServesOriginalWithoutDerivative(t *testing.T) {
 	entries, err := os.ReadDir(cfg.Media.CacheDir)
 	if err == nil && len(entries) != 0 {
 		t.Fatalf("disabled preview created derivative cache entries: %v", entries)
+	}
+}
+
+func TestDisabledPreviewResolverFailureReturnsServiceUnavailable(t *testing.T) {
+	file := types.FileInfo{
+		ID:   63,
+		Path: filepath.Join(t.TempDir(), "source.jpg"),
+		Hash: "preview-resolver-failure",
+	}
+	server := newMediaTestServer(t, file)
+	server.media.cfg.Media.PreviewEnabled = false
+	server.media.sourceResolverErr = errors.New("resolver initialization failed")
+
+	rec := httptest.NewRecorder()
+	req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(file.ID)+"/preview")
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected resolver failure to return 503, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
