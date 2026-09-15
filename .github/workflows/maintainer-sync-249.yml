@@ -1,0 +1,29 @@
+name: Maintainer sync develop into 249
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/249-upload-item-tags
+          fetch-depth: 0
+      - name: Merge develop with develop-favored conflict resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "autonomous-maintainer"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git fetch origin develop
+          git merge origin/develop -X theirs --no-edit
+          git rm .github/workflows/maintainer-sync-249.yml
+          git commit --amend --no-edit
+          git push origin HEAD:feat/249-upload-item-tags
