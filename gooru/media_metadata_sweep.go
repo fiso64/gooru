@@ -57,20 +57,11 @@ func newMediaMetadataSweepTaskRequest() (BackgroundTaskRequest, error) {
 // currently pending or running. The operation kind is the durable single-flight
 // identity shared by registration-triggered, recovery, and manual runs.
 func (c *Client) MediaMetadataSweepRunning() (bool, error) {
-	activeIDs, err := c.ListActiveBackgroundOperationIDs(false)
+	_, found, err := c.store.FindActiveBackgroundOperationIDByKind(c.store.DB, BackgroundMediaMetadataSweepOperationKind)
 	if err != nil {
-		return false, fmt.Errorf("list active background operations: %w", err)
+		return false, fmt.Errorf("inspect active media metadata sweep: %w", err)
 	}
-	for _, operationID := range activeIDs {
-		operation, found, err := c.GetBackgroundOperation(operationID)
-		if err != nil {
-			return false, fmt.Errorf("inspect active background operation %s: %w", operationID, err)
-		}
-		if found && operation.Kind == BackgroundMediaMetadataSweepOperationKind {
-			return true, nil
-		}
-	}
-	return false, nil
+	return found, nil
 }
 
 // RunMediaMetadataSweep starts one visible metadata sweep whenever one is not
