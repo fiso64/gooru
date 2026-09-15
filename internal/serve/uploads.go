@@ -29,6 +29,7 @@ type UploadImportResponse struct {
 }
 
 type UploadedFileDTO struct {
+	ID       string `json:"id,omitempty"`
 	Name     string `json:"name"`
 	Size     int64  `json:"size"`
 	TargetID string `json:"target_id"`
@@ -47,6 +48,7 @@ type StagedUpload struct {
 	SourceModTime  time.Time
 	AddedAt        time.Time
 	ConflictPolicy string
+	Tags           *[]string
 	OwnershipPath  string
 }
 
@@ -117,7 +119,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseSavedUploadOwnership(saved)
-	if err := query.ValidateTags(tags); err != nil {
+	if err := validateUploadTags(tags, saved); err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
@@ -190,6 +192,7 @@ type savedUpload struct {
 	sourceModTime   time.Time
 	addedAt         time.Time
 	conflictPolicy  string
+	tags            *[]string
 	ownershipPath   string
 }
 
@@ -441,7 +444,7 @@ func safeUploadName(name string) (string, error) {
 
 func createUploadDestination(dir string, name string, conflictPolicy string) (*os.File, string, string, bool, error) {
 	ext := filepath.Ext(name)
-	base := strings.TrimSuffix(name, ext)
+	base := strings.TrimSuffix(filepath.Base(name), ext)
 	if base == "" {
 		base = "upload"
 	}
@@ -660,6 +663,69 @@ func parseUploadTags(values []string) []string {
 	return normalizeStrings(tags)
 }
 
+func attachUploadItemTags(files []savedUpload, values []string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	if len(values) != len(files) {
+		return multipartUploadError{message: fmt.Sprintf("item_tags count %d does not match file count %d", len(values), len(files)), err: errors.New("item_tags must align with uploaded files")}
+	}
+	for index, value := range values {
+		tags := parseUploadTags([]string{value})
+		files[index].tags = &tags
+	}
+	return nil
+}
+
+func validateUploadTags(fallback []string, files []savedUpload) error {
+	if err := query.ValidateTags(fallback); err != nil {
+		return err
+	}
+	for index, file := range files {
+		if file.tags == nil {
+			continue
+		}
+		if err := query.ValidateTags(*file.tags); err != nil {
+			return fmt.Errorf("invalid tags for file %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func cloneUploadTags(tags *[]string) *[]string {
+	if tags == nil {
+		return nil
+	}
+	copyTags := make([]string, len(*tags))
+	copy(copyTags, *tags)
+	return &copyTags
+}
+
+func resolvedUploadTags(tags *[]string, fallback []string) []string {
+	if tags != nil {
+		return *tags
+	}
+	return fallback
+}
+
+func mergeUploadTags(existing, additions []string) []string {
+	if len(additions) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, tag := range existing {
+		seen[tag] = struct{}{}
+	}
+	for _, tag := range additions {
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		existing = append(existing, tag)
+		seen[tag] = struct{}{}
+	}
+	return existing
+}
+
 func firstFormValue(values []string) string {
 	if len(values) == 0 {
 		return ""
@@ -674,7 +740,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, OwnershipPath: file.ownershipPath})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, Tags: cloneUploadTags(file.tags), OwnershipPath: file.ownershipPath})
 	}
 	return out
 }
@@ -700,17 +766,68 @@ func (l *GooruLibrary) setBackgroundUploadImportCheckpoint(state backgroundUploa
 	return nil
 }
 
+func (l *GooruLibrary) populateUploadFileIDs(response *UploadImportResponse, files []StagedUpload) error {
+	if response == nil {
+		return nil
+	}
+	paths := make([]string, 0, len(response.Files))
+	pathByResponseIndex := make(map[int]string)
+	for i := range response.Files {
+		dto := &response.Files[i]
+		if dto.ID != "" || dto.Status != "imported" {
+			continue
+		}
+		if i >= len(files) {
+			return fmt.Errorf("resolve imported upload identity %q: source row is missing", dto.Name)
+		}
+		path := files[i].Path
+		if dto.Name != "" && filepath.Base(path) != dto.Name {
+			path = filepath.Join(filepath.Dir(path), dto.Name)
+		}
+		paths = append(paths, path)
+		pathByResponseIndex[i] = path
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	infosByPath, err := l.client.GetFileInfosByPaths(paths)
+	if err != nil {
+		return fmt.Errorf("resolve imported upload identities: %w", err)
+	}
+	for i := range response.Files {
+		path, ok := pathByResponseIndex[i]
+		if !ok {
+			continue
+		}
+		dto := &response.Files[i]
+		info, ok := infosByPath[path]
+		if !ok {
+			return fmt.Errorf("resolve imported upload identity %q: tracked path is unavailable", dto.Name)
+		}
+		dto.ID = info.PublicID
+		if dto.ID == "" {
+			return fmt.Errorf("resolve imported upload identity %q: public id is unavailable", dto.Name)
+		}
+	}
+	return nil
+}
+
 func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUpload, tags []string, state backgroundUploadImportState, activated []activatedSavedReplacement) (UploadImportResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return UploadImportResponse{}, err
 	}
 	response := UploadImportResponse{Files: make([]UploadedFileDTO, 0, len(files))}
-	hashes := make(map[string]string, len(files))
+	firstResponseIndexByHash := make(map[string]int, len(files))
+	duplicateCanonicalResponseIndex := make(map[int]int)
 	importLocations := make([]types.LocationInfo, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
 	ownershipPathByDestination := make(map[string]string, len(files))
 	opaqueStorageByLogical := make(map[string]protectedUploadMove, len(files))
+	duplicateExistingDiscards := make([]struct {
+		file          StagedUpload
+		trackedAtPath bool
+	}, 0, len(files))
 	analyses, analysisErr := l.analyzeUploadedFiles(ctx, files, func(completed, completedPrefix int) error {
 		if (state.operationID == "" && state.taskID == "") || !shouldPersistUploadProgress(completed, len(files)) {
 			return nil
@@ -719,6 +836,24 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	})
 	if analysisErr != nil {
 		return UploadImportResponse{}, analysisErr
+	}
+	tagsByHash := make(map[string][]string, len(files))
+	identityHashes := make([]string, 0, len(files))
+	seenIdentityHashes := make(map[string]struct{}, len(files))
+	for index, file := range files {
+		if file.Status == "error" || file.Status == "skipped" || index >= len(analyses) || analyses[index].Err != nil || analyses[index].Info.Hash == "" {
+			continue
+		}
+		hash := analyses[index].Info.Hash
+		tagsByHash[hash] = mergeUploadTags(tagsByHash[hash], resolvedUploadTags(file.Tags, tags))
+		if _, seen := seenIdentityHashes[hash]; !seen {
+			seenIdentityHashes[hash] = struct{}{}
+			identityHashes = append(identityHashes, hash)
+		}
+	}
+	trackedByHash, lookupErr := l.client.GetFileInfosByContentHashes(identityHashes)
+	if lookupErr != nil {
+		return UploadImportResponse{}, fmt.Errorf("resolve existing upload identities: %w", lookupErr)
 	}
 	for index, file := range files {
 		dto := UploadedFileDTO{Name: file.Name, Size: file.Size, TargetID: file.TargetID}
@@ -741,22 +876,29 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			response.Files = append(response.Files, dto)
 			continue
 		}
-		info, status := analysis.Info, analysis.Status
-		if _, ok := hashes[info.Hash]; ok {
+		info := analysis.Info
+		if canonicalIndex, ok := firstResponseIndexByHash[info.Hash]; ok {
 			dto.Status = "duplicate_in_batch"
+			dto.ID = response.Files[canonicalIndex].ID
+			if dto.ID == "" {
+				duplicateCanonicalResponseIndex[len(response.Files)] = canonicalIndex
+			}
 			removeRejectedStagedUpload(file)
 			response.Files = append(response.Files, dto)
 			continue
 		}
-		hashes[info.Hash] = file.Path
-		exists, err := l.client.ContentExists(info.Hash)
-		if err != nil {
-			return UploadImportResponse{}, err
-		}
-		if exists || status == types.StatusUntrackedContent || status == types.StatusOK {
+		firstResponseIndexByHash[info.Hash] = len(response.Files)
+		if existing, exists := trackedByHash[info.Hash]; exists {
+			dto.ID = existing.PublicID
+			if dto.ID == "" {
+				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
+			}
 			dto.Status = "duplicate_existing"
-			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
-			discardDuplicateUpload(file, trackedAtPath)
+			trackedAtPath := analysis.Status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
+			duplicateExistingDiscards = append(duplicateExistingDiscards, struct {
+				file          StagedUpload
+				trackedAtPath bool
+			}{file: file, trackedAtPath: trackedAtPath})
 			response.Files = append(response.Files, dto)
 			continue
 		}
@@ -775,13 +917,14 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 		}
 		storagePath := ""
 		if l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path) {
-			storagePath, err = moveManagedFileToOpaqueStorage(file.Path, info.Hash, l.encryption.Key)
-			if err != nil {
+			movedStoragePath, moveErr := moveManagedFileToOpaqueStorage(file.Path, info.Hash, l.encryption.Key)
+			if moveErr != nil {
 				dto.Status = "error"
-				dto.Error = err.Error()
+				dto.Error = moveErr.Error()
 				response.Files = append(response.Files, dto)
 				continue
 			}
+			storagePath = movedStoragePath
 			opaqueStorageByLogical[file.Path] = protectedUploadMove{storagePath: storagePath, retryPath: retryPath}
 			analysisPath = storagePath
 		}
@@ -804,9 +947,6 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			Extension:   filepath.Ext(file.Path),
 		})
 	}
-	if len(importLocations) == 0 {
-		return response, nil
-	}
 	backgroundTasks := make([]core.BackgroundTaskRequest, 0, len(importLocations))
 	if l.backgroundTasks != nil {
 		for _, location := range importLocations {
@@ -822,9 +962,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	var result types.TagOperationResult
 	var err error
 	if state.operationID == "" && state.taskID == "" {
-		result, err = l.client.TagKnownFilesWithBackgroundTasks(importLocations, tags, backgroundTasks, progress)
+		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTags(importLocations, tagsByHash, backgroundTasks, progress)
 	} else {
-		result, err = l.client.TagKnownFilesWithBackgroundTasksAndOperationState(importLocations, tags, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
+		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(importLocations, tagsByHash, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
 			response.AffectedCount = affectedCount
 			checkpoint := backgroundUploadImportedCheckpoint(activated, response)
 			return core.BackgroundOperationTransactionState{OperationID: state.operationID, TaskID: state.taskID, Checkpoint: checkpoint, Result: response}, nil
@@ -842,6 +982,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 		}
 		return UploadImportResponse{}, err
 	}
+	for _, duplicate := range duplicateExistingDiscards {
+		discardDuplicateUpload(duplicate.file, duplicate.trackedAtPath)
+	}
 	for path, message := range failures {
 		if i, ok := responseIndexByPath[path]; ok {
 			response.Files[i].Status = "error"
@@ -855,6 +998,17 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	}
 	response.AffectedCount = result.AffectedCount
 	response.Notifications = notificationDTOs(result.Notifications)
+	if err := l.populateUploadFileIDs(&response, files); err != nil {
+		return UploadImportResponse{}, err
+	}
+	for duplicateIndex, canonicalIndex := range duplicateCanonicalResponseIndex {
+		if duplicateIndex >= len(response.Files) || canonicalIndex >= len(response.Files) {
+			return UploadImportResponse{}, errors.New("resolve same-batch duplicate upload identity: response row is missing")
+		}
+		if canonicalID := response.Files[canonicalIndex].ID; canonicalID != "" {
+			response.Files[duplicateIndex].ID = canonicalID
+		}
+	}
 	l.cacheImportedMediaMetadata(ctx, importLocations, analysisPathByDestination)
 	return response, nil
 }

@@ -75,6 +75,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 	var queueFirstTimeValue, queueLastTimeValue string
 	var targetSeen, conflictSeen, addedAtStrategySeen, queueFirstTimeSeen, queueLastTimeSeen bool
 	tagValues := make([]string, 0)
+	itemTagValues := make([]string, 0)
 	sourceModTimeValues := make([]string, 0)
 	queueTimeValues := make([]string, 0)
 	queueIndexValues := make([]string, 0)
@@ -116,6 +117,8 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 				}
 			case "tags":
 				tagValues = append(tagValues, value)
+			case "item_tags":
+				itemTagValues = append(itemTagValues, value)
 			case "source_modtime_ms":
 				sourceModTimeValues = append(sourceModTimeValues, value)
 			case "added_at_strategy":
@@ -215,6 +218,9 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 			continue
 		}
 		return nil, saved, finalErr
+	}
+	if err := attachUploadItemTags(saved, itemTagValues); err != nil {
+		return nil, saved, err
 	}
 
 	if len(saved) == 1 && saved[0].status == "error" {

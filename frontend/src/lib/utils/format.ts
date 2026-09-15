@@ -39,8 +39,8 @@ export function mediaDimensions(file: FileItem) {
   return width && height ? `${width}x${height}` : '';
 }
 
-export function mediaDuration(file: FileItem) {
-  const seconds = file.metadata.video_duration ?? file.metadata.audio_duration;
+export function mediaDuration(file: { metadata?: { video_duration?: number; audio_duration?: number } }) {
+  const seconds = file.metadata?.video_duration ?? file.metadata?.audio_duration;
   if (!seconds) return '';
   const mins = Math.floor(seconds / 60);
   const secs = Math.round(seconds % 60).toString().padStart(2, '0');

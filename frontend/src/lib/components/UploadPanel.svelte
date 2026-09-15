@@ -5,11 +5,14 @@
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import UploadTargetPicker from './UploadTargetPicker.svelte';
   import UploadMediaPreview from './UploadMediaPreview.svelte';
-  import type { TagCandidate } from '$lib/utils/tagSuggestions';
+  import UploadViewerDialog from './UploadViewerDialog.svelte';
+  import type { FileItem } from '$lib/api/types';
+  import { mergeTagCandidateOccurrenceCounts, type TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
-  import { groupUploadQueueRows, paginateUploadRows, partitionUploadRows, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
+  import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, summarizeUploadQueueBatch, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
+  import { uploadItemCanOpenViewer, uploadViewerScope, type UploadViewerScope } from '$lib/state/uploadViewer';
 
   let {
     uploadFiles,
@@ -25,15 +28,21 @@
     addedAtStrategy,
     autoUpload,
     tags,
+    stagedTagCandidates,
     onTargetInput,
     onFiles,
     onTagsInput,
+    onItemTagsInput,
+    onItemRemoteTagsLoaded,
     onAddedAtStrategyInput,
     onAutoUploadInput,
     onSubmit,
     onCancel,
     onClear,
-    onRemove
+    onRemove,
+    onViewerUntrack,
+    onViewerDelete,
+    onViewerTagSearch
   } = $props<{
     uploadFiles: File[];
     uploadItems: UploadItem[];
@@ -48,22 +57,32 @@
     addedAtStrategy: 'queue' | 'reverse_queue' | 'modtime';
     autoUpload: boolean;
     tags: TagCandidate[];
+    stagedTagCandidates: TagCandidate[];
     onTargetInput: (value: string) => void;
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
+    onItemTagsInput: (index: number, tags: string[]) => void;
+    onItemRemoteTagsLoaded: (index: number, tags: string[], expectedBaseTags: string[] | undefined) => void;
     onAddedAtStrategyInput: (value: 'queue' | 'reverse_queue' | 'modtime') => void;
     onAutoUploadInput: (value: boolean) => void;
     onSubmit: () => void;
     onCancel: (jobID: string) => void;
     onClear: (scope: 'staged' | 'done') => void;
     onRemove: (index: number) => void;
+    onViewerUntrack: (file: FileItem) => void;
+    onViewerDelete: (file: FileItem) => void;
+    onViewerTagSearch: (tag: string) => void;
   }>();
 
   let dragActive = $state(false);
   let fileInput: HTMLInputElement | undefined;
   let tagDraft = $state('');
+  let itemTagDrafts = $state<Record<number, string>>({});
+  let stagedFilter = $state('');
   let stagedPage = $state(0);
   let queuePages = $state<Record<string, number>>({});
+  let viewerIndex = $state<number | null>(null);
+  let viewerScope = $state<UploadViewerScope>('staged');
 
   const uploadListPageSize = 100;
   const indexedItems = $derived(uploadItems.map((item: UploadItem, index: number) => ({ item, index })));
@@ -75,16 +94,18 @@
     return untrack(() => partitionUploadRows(rows));
   });
   const stagedRows = $derived(partitionedRows.staged);
+  const filteredStagedRows = $derived(filterUploadRows(stagedRows, stagedFilter));
   const queueRows = $derived(partitionedRows.queue);
   const queueBatches = $derived.by(() => {
     const rows = queueRows;
     return untrack(() => groupUploadQueueRows(rows));
   });
+  const completionTags = $derived(mergeTagCandidateOccurrenceCounts(tags, stagedTagCandidates));
   const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
   const queueBytes = $derived(queueRows.reduce((sum: number, row: IndexedUploadRow) => sum + row.item.size, 0));
   const initialTags = $derived(parseTags(uploadTags));
   const selectedTargetID = $derived(effectiveUploadTargetID(targetID, targets));
-  const stagedPageState = $derived.by(() => paginateUploadRows(stagedRows, stagedPage, uploadListPageSize));
+  const stagedPageState = $derived.by(() => paginateUploadRows(filteredStagedRows, stagedPage, uploadListPageSize));
   const stagedPageCount = $derived(stagedPageState.pageCount);
   const stagedVisibleRows = $derived(stagedPageState.rows);
 
@@ -151,12 +172,62 @@
     onTagsInput(initialTags.filter((candidate) => candidate !== tag).join(' '));
   }
 
-  function itemIcon(item: UploadItem) {
-    if (item.type?.startsWith('video/')) return 'video';
-    if (item.type?.startsWith('audio/')) return 'audio';
-    if (item.type === 'image/gif') return 'gif';
-    if (item.name.match(/\.(zip|tar|gz)$/i)) return 'folder';
-    return 'photo';
+  function setItemTagDraft(index: number, value: string) {
+    itemTagDrafts = { ...itemTagDrafts, [index]: value };
+  }
+
+  function commitItemTag(index: number, item: UploadItem, tagInput: string) {
+    const current = item.tags ?? [];
+    onItemTagsInput(index, Array.from(new Set([...current, ...parseTags(tagInput)])));
+    setItemTagDraft(index, '');
+  }
+
+  function removeItemTag(index: number, item: UploadItem, tag: string) {
+    onItemTagsInput(index, (item.tags ?? []).filter((candidate) => candidate !== tag));
+  }
+
+  function openViewer(index: number) {
+    const item = uploadItems[index];
+    if (!item || !uploadItemCanOpenViewer(item)) return;
+    viewerIndex = index;
+    viewerScope = uploadViewerScope(item);
+  }
+
+  function closeViewer() {
+    viewerIndex = null;
+  }
+
+  function resetStagedTransientState() {
+    closeViewer();
+    itemTagDrafts = {};
+    stagedFilter = '';
+    stagedPage = 0;
+  }
+
+  function submitStaged() {
+    resetStagedTransientState();
+    onSubmit();
+  }
+
+  function clearRows(scope: 'staged' | 'done') {
+    closeViewer();
+    itemTagDrafts = {};
+    if (scope === 'staged') {
+      stagedFilter = '';
+      stagedPage = 0;
+    }
+    onClear(scope);
+  }
+
+  function removeStagedItem(index: number) {
+    closeViewer();
+    itemTagDrafts = {};
+    onRemove(index);
+  }
+
+  function setStagedFilter(value: string) {
+    stagedFilter = value;
+    stagedPage = 0;
   }
 
   function statusClass(status: string) {
@@ -173,9 +244,8 @@
     if (event.defaultPrevented || stagedRows.length === 0) return;
     if (uploadShortcutAction(event.key, event.target, event.ctrlKey, event.metaKey, event.altKey, event.shiftKey) !== 'submit-upload') return;
     event.preventDefault();
-    onSubmit();
+    submitStaged();
   }
-
 </script>
 
 <svelte:window onkeydown={handleShortcut} />
@@ -188,7 +258,7 @@
       <p>Files are content-hashed on receipt. Duplicates are detected automatically.</p>
     </div>
 
-    <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+    <form class="upload-stack" onsubmit={(event) => { event.preventDefault(); submitStaged(); }}>
       <section class="g-card upload-config-card">
         <div class="field-row">
           <span>Target</span>
@@ -216,7 +286,7 @@
 
             <TagAutocompleteInput
               value={tagDraft}
-              {tags}
+              tags={completionTags}
               existing={initialTags}
               placeholder="add tag — e.g. subject:portrait"
               ariaLabel="Initial tags"
@@ -237,7 +307,6 @@
             </div>
           </div>
         </div>
-
       </section>
 
       <section
@@ -256,11 +325,7 @@
           style="position: absolute; inset: 0; z-index: 0; border: 0; background: transparent; cursor: pointer;"
           onclick={chooseFiles}
         ></button>
-        <div
-          class="seg"
-          aria-label="Upload drop behavior"
-          style="position: absolute; top: 12px; right: 12px; z-index: 2;"
-        >
+        <div class="seg" aria-label="Upload drop behavior" style="position: absolute; top: 12px; right: 12px; z-index: 2;">
           <button type="button" class={!autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(false)}>Stage first</button>
           <button type="button" class={autoUpload ? 'is-active' : ''} onclick={() => onAutoUploadInput(true)}>Auto-upload</button>
         </div>
@@ -278,29 +343,80 @@
           <div class="upload-list-head">
             <div class="g-eyebrow">Staged · {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'} · {formatBytes(stagedBytes)}</div>
             <div class="upload-list-actions">
-              <button class="g-btn g-btn-sm" type="button" onclick={() => onClear('staged')}><Icon name="close" size={12} /> Clear staged</button>
+              <input
+                class="g-input compact upload-filter-input"
+                type="search"
+                value={stagedFilter}
+                placeholder="Filter staged files"
+                aria-label="Filter staged files"
+                oninput={(event) => setStagedFilter(event.currentTarget.value)}
+              />
+              <button class="g-btn g-btn-sm" type="button" onclick={() => clearRows('staged')}><Icon name="close" size={12} /> Clear staged</button>
               <button class="g-btn g-btn-primary g-btn-sm" type="submit">
                 <Icon name="upload" size={12} /> Upload {stagedRows.length} {stagedRows.length === 1 ? 'file' : 'files'}
               </button>
             </div>
           </div>
           <div class="g-card upload-list-card">
-            <div class="upload-list" data-testid="staged-upload-list">
-              {#each stagedVisibleRows as row (row.index)}
-                {@const item = row.item}
-                <div class="upload-row upload-row-staged">
-                  <UploadMediaPreview file={item.previewFile} {item} />
-                  <div><div class="name">{item.name}</div></div>
-                  <div class="size">{formatBytes(item.size)}</div>
-                  <div class="progress is-staged" aria-hidden="true"></div>
-                  <div class="status">
-                    <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => onRemove(row.index)}>
-                      <Icon name="close" size={11} />
-                    </button>
+            {#if filteredStagedRows.length === 0}
+              <div class="upload-filter-empty">No staged files match this filter.</div>
+            {:else}
+              <div class="upload-list" data-testid="staged-upload-list">
+                {#each stagedVisibleRows as row (row.index)}
+                  {@const item = row.item}
+                  <div
+                    class:is-viewable={uploadItemCanOpenViewer(item)}
+                    class="upload-row upload-row-staged"
+                    data-testid={`upload-row-${row.index}`}
+                  >
+                    <button
+                      class="upload-row-open-target"
+                      type="button"
+                      disabled={!uploadItemCanOpenViewer(item)}
+                      aria-label={`Preview ${item.name}`}
+                      title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
+                      onclick={() => openViewer(row.index)}
+                    ></button>
+                    <UploadMediaPreview file={item.previewFile} {item} />
+                    <div class="upload-item-main">
+                      <div class="name">{item.name}</div>
+                      <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
+                        {#each item.tags ?? [] as tag}
+                          {@const separator = tag.indexOf(':')}
+                          <span class="g-tag">
+                            {#if separator > 0}
+                              <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
+                            {:else}
+                              <span>{tag}</span>
+                            {/if}
+                            <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${item.name}`} onclick={() => removeItemTag(row.index, item, tag)}>
+                              <Icon name="close" size={11} />
+                            </button>
+                          </span>
+                        {/each}
+                        <TagAutocompleteInput
+                          value={itemTagDrafts[row.index] ?? ''}
+                          tags={completionTags}
+                          existing={item.tags ?? []}
+                          placeholder="add tag"
+                          ariaLabel={`Add tag to ${item.name}`}
+                          onInput={(value) => setItemTagDraft(row.index, value)}
+                          onCommit={(value) => commitItemTag(row.index, item, value)}
+                          onRemoveLast={(tag) => removeItemTag(row.index, item, tag)}
+                        />
+                      </div>
+                    </div>
+                    <div class="size">{formatBytes(item.size)}</div>
+                    <div class="progress is-staged" aria-hidden="true"></div>
+                    <div class="status">
+                      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" title="Remove from staging" aria-label={`Remove ${item.name} from staging`} onclick={() => removeStagedItem(row.index)}>
+                        <Icon name="close" size={11} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              {/each}
-            </div>
+                {/each}
+              </div>
+            {/if}
             {#if stagedPageCount > 1}
               <div class="upload-list-pager">
                 <PageNav
@@ -332,24 +448,69 @@
                   <Icon name="close" size={12} /> {cancelBusy ? 'Canceling' : cancelRequested ? 'Canceled' : 'Cancel'}
                 </button>
               {/if}
-              <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => onClear('done')}><Icon name="close" size={12} /> Clear done</button>
+              <button class="g-btn g-btn-sm" type="button" disabled={uploadBusy || Boolean(activeUploadJobID)} onclick={() => clearRows('done')}><Icon name="close" size={12} /> Clear done</button>
             </div>
           </div>
           <div class="upload-batches" data-testid="upload-queue-list">
             {#each queueBatches as batch (batch.batchID ?? 'legacy')}
               {@const pageState = queueBatchPage(batch)}
+              {@const batchSummary = summarizeUploadQueueBatch(batch)}
               <div class="g-card upload-list-card upload-batch-card" data-testid="upload-queue-batch" data-batch-id={batch.batchID ?? 'legacy'}>
                 <div class="upload-list-head upload-batch-head">
-                  <div class="g-eyebrow">{batchLabel(batch)} · {batch.rows.length} {batch.rows.length === 1 ? 'file' : 'files'} · {formatBytes(batch.bytes)}</div>
+                  <div>
+                    <div class="g-eyebrow">{batchLabel(batch)} · {batch.rows.length} {batch.rows.length === 1 ? 'file' : 'files'} · {formatBytes(batch.bytes)}</div>
+                    <div class="upload-batch-status">{batchSummary.status || 'Waiting'} · {batchSummary.progress}%</div>
+                  </div>
+                  <div class="progress upload-batch-progress" aria-label={`${batchLabel(batch)} ${batchSummary.progress}%`}>
+                    <div style={`width: ${batchSummary.progress}%`}></div>
+                  </div>
                 </div>
                 <div class="upload-list">
                   {#each pageState.rows as row (row.index)}
                     {@const item = row.item}
-                    <div class="upload-row">
+                    <div
+                      class:is-viewable={uploadItemCanOpenViewer(item)}
+                      class="upload-row"
+                      data-testid={`upload-row-${row.index}`}
+                    >
+                      <button
+                        class="upload-row-open-target"
+                        type="button"
+                        disabled={!uploadItemCanOpenViewer(item)}
+                        aria-label={`Preview ${item.name}`}
+                        title={uploadItemCanOpenViewer(item) ? `Preview ${item.name}` : 'Preview available after import'}
+                        onclick={() => openViewer(row.index)}
+                      ></button>
                       <UploadMediaPreview file={item.previewFile} {item} />
-                      <div>
+                      <div class="upload-item-main">
                         <div class="name">{item.name}</div>
                         {#if item.error}<div class="upload-error">{item.error}</div>{/if}
+                        {#if item.tagSyncError}<div class="upload-error">{item.tagSyncError}</div>{/if}
+                        <div class="upload-item-tags upload-tags-control" aria-label={`Tags for ${item.name}`}>
+                          {#each item.tags ?? [] as tag}
+                            {@const separator = tag.indexOf(':')}
+                            <span class="g-tag">
+                              {#if separator > 0}
+                                <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
+                              {:else}
+                                <span>{tag}</span>
+                              {/if}
+                              <button class="g-tag-x" type="button" aria-label={`Remove ${tag} from ${item.name}`} onclick={() => removeItemTag(row.index, item, tag)}>
+                                <Icon name="close" size={11} />
+                              </button>
+                            </span>
+                          {/each}
+                          <TagAutocompleteInput
+                            value={itemTagDrafts[row.index] ?? ''}
+                            tags={completionTags}
+                            existing={item.tags ?? []}
+                            placeholder="add tag"
+                            ariaLabel={`Add tag to ${item.name}`}
+                            onInput={(value) => setItemTagDraft(row.index, value)}
+                            onCommit={(value) => commitItemTag(row.index, item, value)}
+                            onRemoveLast={(tag) => removeItemTag(row.index, item, tag)}
+                          />
+                        </div>
                       </div>
                       <div class="size">{formatBytes(item.size)}</div>
                       <div class="progress" aria-label={`${statusLabel(item.status)} ${item.progress}%`}>
@@ -380,7 +541,87 @@
   </div>
 </main>
 
+{#if viewerIndex != null}
+  <UploadViewerDialog
+    {uploadItems}
+    activeIndex={viewerIndex}
+    scope={viewerScope}
+    tags={completionTags}
+    onIndex={(index) => (viewerIndex = index)}
+    onClose={closeViewer}
+    {onItemTagsInput}
+    {onItemRemoteTagsLoaded}
+    {onRemove}
+    onRemoteUntrack={onViewerUntrack}
+    onRemoteDelete={onViewerDelete}
+    onTagSearch={onViewerTagSearch}
+  />
+{/if}
+
 <style>
+  .upload-row {
+    position: relative;
+  }
+
+  .upload-row-open-target {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    width: 100%;
+    border: 0;
+    border-radius: inherit;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .upload-row-open-target:disabled {
+    cursor: default;
+  }
+
+  .upload-row-open-target:focus-visible {
+    outline: 2px solid var(--accent-line);
+    outline-offset: -2px;
+  }
+
+  .upload-row.is-viewable {
+    cursor: pointer;
+    transition: background 120ms ease;
+  }
+
+  .upload-row.is-viewable:hover {
+    background: color-mix(in oklab, var(--accent-soft) 60%, transparent);
+  }
+
+  .upload-row :is(button:not(.upload-row-open-target), input) {
+    position: relative;
+    z-index: 2;
+  }
+
+  .upload-item-main {
+    min-width: 0;
+  }
+
+  .upload-item-tags {
+    position: relative;
+    z-index: 2;
+    margin-top: 6px;
+    min-height: 30px;
+  }
+
+  .upload-filter-input {
+    min-width: 190px;
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  .upload-filter-empty {
+    padding: 18px 14px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
   .upload-batches {
     display: flex;
     flex-direction: column;
@@ -388,7 +629,22 @@
   }
 
   .upload-batch-head {
+    gap: 14px;
     padding: 12px 14px 0;
+  }
+
+  .upload-batch-status {
+    margin-top: 4px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: lowercase;
+  }
+
+  .upload-batch-progress {
+    flex: 1 1 180px;
+    max-width: 280px;
+    min-width: 140px;
   }
 
   .upload-list-pager {

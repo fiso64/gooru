@@ -31,6 +31,7 @@
   import { selectionRequest } from '$lib/state/selection';
   import { createTagWorkflow } from '$lib/state/tagWorkflow.svelte';
   import { createUploadWorkflow } from '$lib/state/uploadWorkflow.svelte';
+  import { createUploadTagReconciliationWave } from '$lib/state/uploadTagReconciliation';
   import { browserPersistenceRegistry, readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
@@ -72,6 +73,7 @@
   let selectionSnapshotPromise: Promise<void> | null = null;
   const selectionMembershipPending = new Set<string>();
   const selectionMembershipRuns = new Set<Promise<void>>();
+  const uploadTagReconciliation = createUploadTagReconciliationWave(() => refreshUploadQueries(queryClient).catch(() => undefined));
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -203,6 +205,7 @@
     const job = uploadJobQuery.data;
     if (!job) return;
     const result = upload.applyJob(job);
+    if (result.completed) reconcilePendingUploadItemTags();
     if (result.changedFiles && !trackUploadResults) {
       trackUploadResults = true;
       uploadResultsFloor = gridSnapshotTotalCount;
@@ -434,6 +437,9 @@
       } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {
         await fileRemovalMutation.mutateAsync({ id: actionDialog.id, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });
         if (library.activeFile?.id === actionDialog.id) library.closePreview();
+        for (let index = upload.items.length - 1; index >= 0; index -= 1) {
+          if (upload.items[index]?.remoteFileID === actionDialog.id) upload.removeAt(index);
+        }
       }
       closeActionDialog();
     } catch (error) {
@@ -502,12 +508,60 @@
     uploadMetadataRefreshTimer = undefined;
   }
 
+  function reconcilePendingUploadItemTags() {
+    upload.items.forEach((item, index) => {
+      if (item.tagSyncPending && item.remoteFileID) void reconcileUploadItemTags(index);
+    });
+  }
+
+  function reconcileUploadItemTags(index: number) {
+    const item = upload.items[index];
+    if (!item?.tagSyncPending || !item.remoteFileID) return;
+
+    void uploadTagReconciliation.run(item, async () => {
+      const currentIndex = upload.items[index] === item ? index : upload.items.indexOf(item);
+      if (currentIndex < 0 || !item.tagSyncPending || !item.remoteFileID || item.tagSyncError) return false;
+
+      const delta = upload.itemTagSyncDelta(currentIndex);
+      const operation = delta.add.length ? 'add' : delta.remove.length ? 'remove' : null;
+      if (!operation) {
+        upload.markItemTagSyncApplied(currentIndex, 'add', []);
+        return false;
+      }
+
+      const changedTags = operation === 'add' ? delta.add : delta.remove;
+      const remoteFileID = item.remoteFileID;
+      try {
+        await new ApiClient($authState.csrfToken).mutateTags(operation, { file_ids: [remoteFileID], tags: changedTags });
+        const appliedIndex = upload.items[index] === item ? index : upload.items.indexOf(item);
+        if (appliedIndex < 0) return false;
+        upload.markItemTagSyncApplied(appliedIndex, operation, changedTags);
+        return item.tagSyncPending && Boolean(item.remoteFileID) && !item.tagSyncError;
+      } catch (error) {
+        const failedIndex = upload.items[index] === item ? index : upload.items.indexOf(item);
+        if (failedIndex >= 0) upload.markItemTagSyncError(failedIndex, errorMessage(error));
+        return false;
+      }
+    });
+  }
+
+  function setUploadItemTags(index: number, nextTags: string[]) {
+    upload.setItemTags(index, nextTags);
+    void reconcileUploadItemTags(index);
+  }
+
+  function rebaseUploadItemTagsFromRemote(index: number, remoteTags: string[], expectedBaseTags: string[] | undefined) {
+    if (!upload.rebaseItemTagsFromRemote(index, remoteTags, expectedBaseTags)) return;
+    void reconcileUploadItemTags(index);
+  }
+
   async function submitUpload() {
     if (!upload.files.length) return;
     cancelRequestedJobID = '';
     startUploadMetadataRefresh();
     try {
       const result = await upload.submit((variables) => uploadMutation.mutateAsync(variables));
+      reconcilePendingUploadItemTags();
       if (result.changedFiles) beginTrackingUploadResults();
       if (result.queued) void jobsQuery.refetch();
     } finally {
@@ -689,9 +743,15 @@
         addedAtStrategy={upload.addedAtStrategy}
         autoUpload={upload.autoUpload}
         tags={tagsQuery.data?.tags ?? []}
+        stagedTagCandidates={upload.stagedTagCandidates}
         onTargetInput={selectUploadTarget}
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
+        onItemTagsInput={setUploadItemTags}
+        onItemRemoteTagsLoaded={rebaseUploadItemTagsFromRemote}
+        onViewerUntrack={untrackPreview}
+        onViewerDelete={deletePreview}
+        onViewerTagSearch={library.runTagSearch}
         onAddedAtStrategyInput={(value) => (upload.addedAtStrategy = value)}
         onAutoUploadInput={(value) => (upload.autoUpload = value)}
         onSubmit={submitUpload}

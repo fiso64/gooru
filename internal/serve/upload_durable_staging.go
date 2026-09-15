@@ -52,6 +52,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	var queueFirstTimeValue, queueLastTimeValue string
 	var targetSeen, conflictSeen, addedAtStrategySeen, queueFirstTimeSeen, queueLastTimeSeen bool
 	tagValues := make([]string, 0)
+	itemTagValues := make([]string, 0)
 	sourceModTimeValues := make([]string, 0)
 	queueTimeValues := make([]string, 0)
 	queueIndexValues := make([]string, 0)
@@ -95,6 +96,8 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 				}
 			case "tags":
 				tagValues = append(tagValues, value)
+			case "item_tags":
+				itemTagValues = append(itemTagValues, value)
 			case "source_modtime_ms":
 				sourceModTimeValues = append(sourceModTimeValues, value)
 			case "added_at_strategy":
@@ -235,19 +238,26 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 		saved = append(saved, savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: replace, sourceModTime: file.sourceModTime, addedAt: file.addedAt, conflictPolicy: conflictPolicy})
 		reserved[path] = struct{}{}
 	}
+	if err := attachUploadItemTags(saved, itemTagValues); err != nil {
+		return nil, saved, err
+	}
 	if filepath.Clean(initialDir) != filepath.Clean(targetDir) {
 		_ = os.Remove(initialDir)
 	}
 	if err := r.Context().Err(); err != nil {
 		return nil, saved, errUploadReceivingCanceled
 	}
+	parsedTags := parseUploadTags(tagValues)
+	if err := validateUploadTags(parsedTags, saved); err != nil {
+		return nil, saved, multipartUploadError{message: err.Error(), err: err}
+	}
 	if len(saved) == 1 && saved[0].status == "error" {
 		if saved[0].error == errUploadTooLarge.Error() {
-			return parseUploadTags(tagValues), saved, nil
+			return parsedTags, saved, nil
 		}
 		return nil, saved, uploadFileError{name: saved[0].name, err: errors.New(saved[0].error)}
 	}
-	return parseUploadTags(tagValues), saved, nil
+	return parsedTags, saved, nil
 }
 
 func chooseDurableUploadDestination(dir, name, conflictPolicy string, reserved map[string]struct{}) (path string, skipped bool, replace bool, err error) {

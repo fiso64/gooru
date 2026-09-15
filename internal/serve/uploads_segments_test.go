@@ -122,3 +122,63 @@ func TestAdmitDurableUploadSegmentRejectsOutOfRangeAndSyncTransport(t *testing.T
 		t.Fatal("segmented sync request unexpectedly admitted")
 	}
 }
+
+func TestDurableUploadSegmentsPersistIndependentTags(t *testing.T) {
+	targetDir := t.TempDir()
+	store := newDurableUploadSegmentTestStore(2)
+	server := newUploadTestServer(t, targetDir, true, &recordingUploadLibrary{})
+	server.backgroundOperations = store
+
+	segments := []struct {
+		indexHeader string
+		index       int64
+		name        string
+		tags        []string
+	}{
+		{indexHeader: "0", index: 0, name: "first.jpg", tags: []string{"artist:first", "rating:safe"}},
+		{indexHeader: "1", index: 1, name: "second.jpg", tags: []string{"artist:second", "series:two"}},
+	}
+
+	for _, segment := range segments {
+		req := uploadRequest(t, map[string]string{segment.name: "hello"}, segment.tags)
+		req.Header.Set("Prefer", "respond-async")
+		req.Header.Set(uploadOperationHeader, store.operation.ID)
+		req.Header.Set(uploadSegmentIndexHeader, segment.indexHeader)
+		rec := httptest.NewRecorder()
+
+		server.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("segment %d status = %d: %s", segment.index, rec.Code, rec.Body.String())
+		}
+		taskID := durableUploadSegmentTaskID(store.operation.ID, segment.index)
+		task, found := store.tasks[taskID]
+		if !found {
+			t.Fatalf("segment %d task %q was not attached", segment.index, taskID)
+		}
+		files, tags, err := decodeBackgroundUploadTask(task.BackgroundTask)
+		if err != nil {
+			t.Fatalf("decode segment %d task: %v", segment.index, err)
+		}
+		if len(files) != 1 || files[0].name != segment.name {
+			t.Fatalf("segment %d files = %#v, want %q", segment.index, files, segment.name)
+		}
+		if len(tags) != len(segment.tags) {
+			t.Fatalf("segment %d tags = %#v, want %#v", segment.index, tags, segment.tags)
+		}
+		for i := range tags {
+			if tags[i] != segment.tags[i] {
+				t.Fatalf("segment %d tags = %#v, want %#v", segment.index, tags, segment.tags)
+			}
+		}
+	}
+
+	if len(store.tasks) != len(segments) {
+		t.Fatalf("attached tasks = %d, want %d", len(store.tasks), len(segments))
+	}
+	first := store.tasks[durableUploadSegmentTaskID(store.operation.ID, 0)].InputKey
+	second := store.tasks[durableUploadSegmentTaskID(store.operation.ID, 1)].InputKey
+	if first == second {
+		t.Fatal("segmented uploads unexpectedly shared one persisted task payload")
+	}
+}

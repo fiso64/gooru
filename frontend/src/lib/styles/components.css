@@ -950,7 +950,7 @@
 }
 
 .upload-row-staged {
-  background: color-mix(in oklab, var(--accent-soft) 60%, transparent);
+  background: var(--surface-2);
 }
 
 .upload-row-staged .progress.is-staged {

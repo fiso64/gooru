@@ -4,10 +4,9 @@
   import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation, type ViewerScaling } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
-  import { preserveNativeViewerSize } from '$lib/utils/media';
+  import { preserveNativeViewerSize, type ViewerStageMedia } from '$lib/utils/media';
   import { recordViewerPresentation, recordViewerRequest } from '$lib/utils/viewerPerformance';
   import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerConfiguredFitMode, type ViewerFitMode } from '$lib/utils/viewer';
-  import type { FileItem } from '$lib/api/types';
 
   let {
     file,
@@ -32,7 +31,7 @@
     onComicPageSelect,
     onPresented
   } = $props<{
-    file: FileItem;
+    file: ViewerStageMedia;
     imageSource: string;
     initialFitMode?: ViewerConfiguredFitMode;
     boundActualSizeToFit?: boolean;
@@ -73,7 +72,7 @@
   let freezeGeneration = 0;
   let videoElement = $state<HTMLVideoElement | undefined>();
   let audioElement = $state<HTMLAudioElement | undefined>();
-  let displayedFile = $state<FileItem | undefined>();
+  let displayedFile = $state<ViewerStageMedia | undefined>();
   let displayedImageSource = $state('');
   let waitingForTarget = $state(false);
   let mediaError = $state('');
@@ -194,11 +193,11 @@
     };
   });
 
-  function viewerSupportsFile(target: FileItem) {
+  function viewerSupportsFile(target: ViewerStageMedia) {
     return target.viewer_support === 'supported';
   }
 
-  function unsupportedViewerMessage(target: FileItem) {
+  function unsupportedViewerMessage(target: ViewerStageMedia) {
     return `No viewer is available for this file type (${target.media_type}).`;
   }
 
