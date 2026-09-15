@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 )
@@ -24,24 +25,60 @@ type MaintenanceJobRunResponse struct {
 }
 
 type maintenanceJobRunner interface {
-	RunMediaMetadataSweep() (bool, error)
-	MediaMetadataSweepRunning() (bool, error)
+	ListMaintenanceJobs() ([]MaintenanceJobDTO, error)
+	RunMaintenanceJob(string) (MaintenanceJobDTO, bool, error)
 }
 
-var maintenanceJobCatalog = []MaintenanceJobDTO{
+type maintenanceJobDefinition struct {
+	job     MaintenanceJobDTO
+	running func(*GooruLibrary) (bool, error)
+	run     func(*GooruLibrary) (bool, error)
+}
+
+var errMaintenanceJobNotFound = errors.New("maintenance job not found")
+
+var maintenanceJobCatalog = []maintenanceJobDefinition{
 	{
-		ID:          maintenanceJobMediaMetadataSweepID,
-		Name:        "Extract media metadata",
-		Description: "Scan tracked files that are missing media metadata and enqueue durable extraction work.",
+		job: MaintenanceJobDTO{
+			ID:          maintenanceJobMediaMetadataSweepID,
+			Name:        "Extract media metadata",
+			Description: "Scan tracked files that are missing media metadata and enqueue durable extraction work.",
+		},
+		running: func(l *GooruLibrary) (bool, error) {
+			return l.client.MediaMetadataSweepRunning()
+		},
+		run: func(l *GooruLibrary) (bool, error) {
+			return l.client.RunMediaMetadataSweep()
+		},
 	},
 }
 
-func (l *GooruLibrary) RunMediaMetadataSweep() (bool, error) {
-	return l.client.RunMediaMetadataSweep()
+func (l *GooruLibrary) ListMaintenanceJobs() ([]MaintenanceJobDTO, error) {
+	items := make([]MaintenanceJobDTO, 0, len(maintenanceJobCatalog))
+	for _, definition := range maintenanceJobCatalog {
+		job := definition.job
+		running, err := definition.running(l)
+		if err != nil {
+			return nil, err
+		}
+		job.Running = running
+		items = append(items, job)
+	}
+	return items, nil
 }
 
-func (l *GooruLibrary) MediaMetadataSweepRunning() (bool, error) {
-	return l.client.MediaMetadataSweepRunning()
+func (l *GooruLibrary) RunMaintenanceJob(id string) (MaintenanceJobDTO, bool, error) {
+	definition, found := maintenanceJobByID(id)
+	if !found {
+		return MaintenanceJobDTO{}, false, errMaintenanceJobNotFound
+	}
+	created, err := definition.run(l)
+	if err != nil {
+		return MaintenanceJobDTO{}, false, err
+	}
+	job := definition.job
+	job.Running = true
+	return job, created, nil
 }
 
 func (s *Server) handleMaintenanceJobs(w http.ResponseWriter, r *http.Request) {
@@ -50,18 +87,18 @@ func (s *Server) handleMaintenanceJobs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
 		return
 	}
-	items := append([]MaintenanceJobDTO(nil), maintenanceJobCatalog...)
-	if s.maintenanceJobs != nil {
-		running, err := s.maintenanceJobs.MediaMetadataSweepRunning()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "failed to inspect maintenance job state", nil)
-			return
+	if s.maintenanceJobs == nil {
+		items := make([]MaintenanceJobDTO, 0, len(maintenanceJobCatalog))
+		for _, definition := range maintenanceJobCatalog {
+			items = append(items, definition.job)
 		}
-		for i := range items {
-			if items[i].ID == maintenanceJobMediaMetadataSweepID {
-				items[i].Running = running
-			}
-		}
+		writeJSON(w, http.StatusOK, MaintenanceJobListResponse{Items: items})
+		return
+	}
+	items, err := s.maintenanceJobs.ListMaintenanceJobs()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", "failed to inspect maintenance job state", nil)
+		return
 	}
 	writeJSON(w, http.StatusOK, MaintenanceJobListResponse{Items: items})
 }
@@ -73,8 +110,7 @@ func (s *Server) handleMaintenanceJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/maintenance-jobs/")
-	job, found := maintenanceJobByID(id)
-	if !found || id == "" || strings.Contains(id, "/") {
+	if _, found := maintenanceJobByID(id); !found || id == "" || strings.Contains(id, "/") {
 		writeError(w, http.StatusNotFound, "maintenance_job_not_found", "maintenance job not found", nil)
 		return
 	}
@@ -83,14 +119,8 @@ func (s *Server) handleMaintenanceJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var (
-		created bool
-		err     error
-	)
-	switch id {
-	case maintenanceJobMediaMetadataSweepID:
-		created, err = s.maintenanceJobs.RunMediaMetadataSweep()
-	default:
+	job, created, err := s.maintenanceJobs.RunMaintenanceJob(id)
+	if errors.Is(err, errMaintenanceJobNotFound) {
 		writeError(w, http.StatusNotFound, "maintenance_job_not_found", "maintenance job not found", nil)
 		return
 	}
@@ -98,9 +128,6 @@ func (s *Server) handleMaintenanceJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to enqueue maintenance job", nil)
 		return
 	}
-	// A successful manual invocation either created this operation or raced an
-	// already-active run. In both cases the catalog entry is currently running.
-	job.Running = true
 	status := http.StatusOK
 	if created {
 		status = http.StatusAccepted
@@ -108,11 +135,11 @@ func (s *Server) handleMaintenanceJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, MaintenanceJobRunResponse{Job: job, Created: created})
 }
 
-func maintenanceJobByID(id string) (MaintenanceJobDTO, bool) {
-	for _, job := range maintenanceJobCatalog {
-		if job.ID == id {
-			return job, true
+func maintenanceJobByID(id string) (maintenanceJobDefinition, bool) {
+	for _, definition := range maintenanceJobCatalog {
+		if definition.job.ID == id {
+			return definition, true
 		}
 	}
-	return MaintenanceJobDTO{}, false
+	return maintenanceJobDefinition{}, false
 }

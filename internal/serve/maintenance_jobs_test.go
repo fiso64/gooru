@@ -8,21 +8,39 @@ import (
 )
 
 type maintenanceJobRunnerStub struct {
-	created    bool
-	running    bool
-	err        error
-	runCalls   int
-	stateCalls int
+	created   bool
+	running   bool
+	err       error
+	runCalls  int
+	listCalls int
+	runID     string
 }
 
-func (s *maintenanceJobRunnerStub) RunMediaMetadataSweep() (bool, error) {
+func (s *maintenanceJobRunnerStub) ListMaintenanceJobs() ([]MaintenanceJobDTO, error) {
+	s.listCalls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	return []MaintenanceJobDTO{{
+		ID:          maintenanceJobMediaMetadataSweepID,
+		Name:        "Extract media metadata",
+		Description: "Scan pending files.",
+		Running:     s.running,
+	}}, nil
+}
+
+func (s *maintenanceJobRunnerStub) RunMaintenanceJob(id string) (MaintenanceJobDTO, bool, error) {
 	s.runCalls++
-	return s.created, s.err
-}
-
-func (s *maintenanceJobRunnerStub) MediaMetadataSweepRunning() (bool, error) {
-	s.stateCalls++
-	return s.running, s.err
+	s.runID = id
+	if s.err != nil {
+		return MaintenanceJobDTO{}, false, s.err
+	}
+	return MaintenanceJobDTO{
+		ID:          maintenanceJobMediaMetadataSweepID,
+		Name:        "Extract media metadata",
+		Description: "Scan pending files.",
+		Running:     true,
+	}, s.created, nil
 }
 
 func TestMaintenanceJobsCatalogIsDiscoverable(t *testing.T) {
@@ -46,8 +64,8 @@ func TestMaintenanceJobsCatalogIsDiscoverable(t *testing.T) {
 	if job.ID != maintenanceJobMediaMetadataSweepID || job.Name == "" || job.Description == "" || !job.Running {
 		t.Fatalf("unexpected catalog job: %+v", job)
 	}
-	if runner.stateCalls != 1 {
-		t.Fatalf("state calls = %d, want 1", runner.stateCalls)
+	if runner.listCalls != 1 {
+		t.Fatalf("list calls = %d, want 1", runner.listCalls)
 	}
 }
 
@@ -61,8 +79,8 @@ func TestMaintenanceJobInvocationUsesDurableSweepRunner(t *testing.T) {
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusAccepted, response.Body.String())
 	}
-	if runner.runCalls != 1 {
-		t.Fatalf("runner calls = %d, want 1", runner.runCalls)
+	if runner.runCalls != 1 || runner.runID != maintenanceJobMediaMetadataSweepID {
+		t.Fatalf("runner call = (%d, %q), want (1, %q)", runner.runCalls, runner.runID, maintenanceJobMediaMetadataSweepID)
 	}
 	var payload MaintenanceJobRunResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
