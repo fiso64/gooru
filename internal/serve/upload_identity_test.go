@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -112,6 +113,66 @@ func TestGooruUploadImportReturnsStableFileIdentities(t *testing.T) {
 	}
 	if !tagSet["state:existing"] || !tagSet["uploaded"] {
 		t.Fatalf("existing duplicate tags = %v, want preserved state:existing plus uploaded", updatedExisting.Tags)
+	}
+}
+
+func TestGooruUploadImportRestoresKnownContentWithoutTrackedLocation(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	const contents = "known content without a tracked location"
+	sourcePath := writeTestFile(t, dir, "old-source.txt", contents)
+	if _, err := client.TagFiles([]string{sourcePath}, []string{"state:retained"}, nil, false); err != nil {
+		t.Fatalf("tag source file: %v", err)
+	}
+	original, err := client.GetFileInfoByPath(sourcePath)
+	if err != nil {
+		t.Fatalf("get source file: %v", err)
+	}
+	deleted, err := client.DeleteLocationByID(original.ID)
+	if err != nil || !deleted {
+		t.Fatalf("untrack source location = %v, %v; want true, nil", deleted, err)
+	}
+	if _, err := client.GetFileInfoByContentHash(original.Hash); !errors.Is(err, core.ErrContentNotTracked) {
+		t.Fatalf("content location after untrack = %v, want ErrContentNotTracked", err)
+	}
+
+	uploadDir := filepath.Join(dir, "uploads")
+	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-gooru-upload-untracked-content")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"restored.txt": contents}, []string{"uploaded"}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response UploadImportResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	if len(response.Files) != 1 || response.Files[0].Status != "imported" || response.Files[0].ID == "" {
+		t.Fatalf("restored upload response = %+v, want one imported file with public id", response.Files)
+	}
+	restored, err := client.GetFileInfoByPublicID(response.Files[0].ID)
+	if err != nil {
+		t.Fatalf("resolve restored upload: %v", err)
+	}
+	if filepath.Dir(restored.Path) != uploadDir {
+		t.Fatalf("restored path = %q, want upload directory %q", restored.Path, uploadDir)
+	}
+	tagSet := make(map[string]bool, len(restored.Tags))
+	for _, tag := range restored.Tags {
+		tagSet[tag] = true
+	}
+	if !tagSet["uploaded"] {
+		t.Fatalf("restored tags = %v, want submitted upload tag", restored.Tags)
 	}
 }
 
