@@ -71,7 +71,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --check
+          git diff --check -- frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/state/uploadTagReconciliation.ts frontend/src/lib/state/uploadTagReconciliation.test.ts
           git config user.name "gooru-maintainer-bot"
           git config user.email "maintainer@localhost"
           git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/state/uploadTagReconciliation.ts frontend/src/lib/state/uploadTagReconciliation.test.ts
