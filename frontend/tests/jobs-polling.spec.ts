@@ -7,6 +7,9 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
+const controlledClockStart = new Date('2026-01-01T00:00:00Z');
+const controlledClockPause = new Date('2026-01-01T00:00:20Z');
+
 type OperationEventTestWindow = Window & typeof globalThis & {
   __emitOperationEvent?: () => void;
   __operationEventSourceCount?: number;
@@ -97,7 +100,7 @@ test('does not keep polling operations on idle screens', async ({ page }) => {
 });
 
 test('refreshes active operations from one throttled SSE signal stream', async ({ page }) => {
-  await page.clock.install();
+  await page.clock.install({ time: controlledClockStart });
   await mockAuth(page);
   await mockShellApis(page);
   await mockOperationEvents(page);
@@ -114,7 +117,7 @@ test('refreshes active operations from one throttled SSE signal stream', async (
   await expect.poll(() => operationRequests).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => (window as OperationEventTestWindow).__operationEventSourceCount ?? 0)).toBe(1);
   await page.waitForTimeout(100);
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()));
+  await page.clock.pauseAt(controlledClockPause);
   const initialRequests = operationRequests;
 
   await page.evaluate(() => (window as OperationEventTestWindow).__emitOperationEvent?.());
