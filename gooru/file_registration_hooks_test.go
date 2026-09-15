@@ -1,8 +1,11 @@
 package gooru
 
 import (
+	"path/filepath"
 	"reflect"
 	"testing"
+
+	"gooru.local/types"
 )
 
 func TestFileRegistrationBackgroundTasksDeduplicatesContentHashesPerTransaction(t *testing.T) {
@@ -67,6 +70,32 @@ func TestFileRegistrationHooksCanDisableAndResetDefaults(t *testing.T) {
 	}
 	if task := tasks[0]; task.Kind != BackgroundMediaMetadataSweepTaskKind || task.OperationBinding != BackgroundOperationReuseActive {
 		t.Fatalf("reset hooks produced unexpected task: %#v", task)
+	}
+}
+
+func TestDefaultFileRegistrationHookSkipsKnownContent(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	client.SetFileRegistrationHooks()
+	path := filepath.Join(t.TempDir(), "existing.jpg")
+	if _, err := client.TagKnownFiles([]types.LocationInfo{{Path: path, Hash: "existing-hash", Size: 1, ModTime: 1}}, nil, nil); err != nil {
+		t.Fatalf("register existing content: %v", err)
+	}
+
+	client.ResetFileRegistrationHooks()
+	tasks, err := client.fileRegistrationBackgroundTasks([]string{"existing-hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("known content produced metadata sweep tasks: %#v", tasks)
+	}
+
+	tasks, err = client.fileRegistrationBackgroundTasks([]string{"new-hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].Kind != BackgroundMediaMetadataSweepTaskKind {
+		t.Fatalf("new content produced tasks %#v, want one metadata sweep wake", tasks)
 	}
 }
 
