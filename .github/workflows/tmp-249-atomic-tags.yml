@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/tmp-249-atomic-tags.yml
       - .github/tmp-249-atomic-tags.py
+      - .github/tmp-249-atomic-tags-fix.py
 
 permissions:
   contents: write
@@ -20,7 +21,9 @@ jobs:
           fetch-depth: 0
           ref: feat/249-upload-item-tags
       - name: Apply atomic tagging patch
-        run: python3 .github/tmp-249-atomic-tags.py
+        run: |
+          python3 .github/tmp-249-atomic-tags.py
+          python3 .github/tmp-249-atomic-tags-fix.py
       - name: Format
         run: gofmt -w gooru/tagging_known_file_tags.go gooru/tagging_known_file_tags_test.go internal/serve/uploads.go internal/serve/upload_identity_test.go
       - name: Go tests
