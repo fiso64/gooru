@@ -5,18 +5,279 @@ on:
     branches:
       - feat/249-upload-item-tags
 
+permissions:
+  contents: write
+
 jobs:
-  inspect:
+  apply:
+    if: startsWith(github.event.head_commit.message, 'chore(ci): apply upload identity batching')
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
-      - name: Trace upload identity APIs
+        with:
+          fetch-depth: 0
+      - name: Apply and validate upload identity batching
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== client/store definitions ==='
-          rg -n -C 5 "type Client struct|GetFilesInfoByContentQuery|GetFileInfoByPath|ContentExists" gooru internal/database | head -n 320 || true
-          echo '=== content table/index schema ==='
-          rg -n -C 5 "CREATE (TABLE|INDEX).*content|content_hash|files.*hash|hash.*files" internal/database migrations . | head -n 320 || true
-          echo '=== upload identity context ==='
-          sed -n '720,970p' internal/serve/uploads.go
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/serve/uploads.go')
+          text = path.read_text()
+          old = '''func (l *GooruLibrary) populateUploadFileIDs(response *UploadImportResponse, files []StagedUpload) error {
+\tif response == nil {
+\t\treturn nil
+\t}
+\tfor i := range response.Files {
+\t\tdto := &response.Files[i]
+\t\tif dto.ID != "" || dto.Status != "imported" {
+\t\t\tcontinue
+\t\t}
+\t\tif i >= len(files) {
+\t\t\treturn fmt.Errorf("resolve imported upload identity %q: source row is missing", dto.Name)
+\t\t}
+\t\tpath := files[i].Path
+\t\tif dto.Name != "" && filepath.Base(path) != dto.Name {
+\t\t\tpath = filepath.Join(filepath.Dir(path), dto.Name)
+\t\t}
+\t\tinfo, err := l.client.GetFileInfoByPath(path)
+\t\tif err != nil {
+\t\t\treturn fmt.Errorf("resolve imported upload identity %q: %w", dto.Name, err)
+\t\t}
+\t\tdto.ID = l.client.PublicFileID(info.ID)
+\t\tif dto.ID == "" {
+\t\t\treturn fmt.Errorf("resolve imported upload identity %q: public id is unavailable", dto.Name)
+\t\t}
+\t}
+\treturn nil
+}
+'''
+          new = '''func (l *GooruLibrary) populateUploadFileIDs(response *UploadImportResponse, files []StagedUpload) error {
+\tif response == nil {
+\t\treturn nil
+\t}
+\tpaths := make([]string, 0, len(response.Files))
+\tpathByResponseIndex := make(map[int]string)
+\tfor i := range response.Files {
+\t\tdto := &response.Files[i]
+\t\tif dto.ID != "" || dto.Status != "imported" {
+\t\t\tcontinue
+\t\t}
+\t\tif i >= len(files) {
+\t\t\treturn fmt.Errorf("resolve imported upload identity %q: source row is missing", dto.Name)
+\t\t}
+\t\tpath := files[i].Path
+\t\tif dto.Name != "" && filepath.Base(path) != dto.Name {
+\t\t\tpath = filepath.Join(filepath.Dir(path), dto.Name)
+\t\t}
+\t\tpaths = append(paths, path)
+\t\tpathByResponseIndex[i] = path
+\t}
+\tif len(paths) == 0 {
+\t\treturn nil
+\t}
+\tinfosByPath, err := l.client.GetFileInfosByPaths(paths)
+\tif err != nil {
+\t\treturn fmt.Errorf("resolve imported upload identities: %w", err)
+\t}
+\tfor i := range response.Files {
+\t\tpath, ok := pathByResponseIndex[i]
+\t\tif !ok {
+\t\t\tcontinue
+\t\t}
+\t\tdto := &response.Files[i]
+\t\tinfo, ok := infosByPath[path]
+\t\tif !ok {
+\t\t\treturn fmt.Errorf("resolve imported upload identity %q: tracked path is unavailable", dto.Name)
+\t\t}
+\t\tdto.ID = info.PublicID
+\t\tif dto.ID == "" {
+\t\t\treturn fmt.Errorf("resolve imported upload identity %q: public id is unavailable", dto.Name)
+\t\t}
+\t}
+\treturn nil
+}
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'populateUploadFileIDs match count = {text.count(old)}')
+          text = text.replace(old, new)
+
+          old = '''\ttagsByHash := make(map[string][]string, len(files))
+\tfor index, file := range files {
+\t\tif file.Status == "error" || file.Status == "skipped" || index >= len(analyses) || analyses[index].Err != nil || analyses[index].Info.Hash == "" {
+\t\t\tcontinue
+\t\t}
+\t\thash := analyses[index].Info.Hash
+\t\ttagsByHash[hash] = mergeUploadTags(tagsByHash[hash], resolvedUploadTags(file.Tags, tags))
+\t}
+'''
+          new = '''\ttagsByHash := make(map[string][]string, len(files))
+\tidentityHashes := make([]string, 0, len(files))
+\tseenIdentityHashes := make(map[string]struct{}, len(files))
+\tfor index, file := range files {
+\t\tif file.Status == "error" || file.Status == "skipped" || index >= len(analyses) || analyses[index].Err != nil || analyses[index].Info.Hash == "" {
+\t\t\tcontinue
+\t\t}
+\t\thash := analyses[index].Info.Hash
+\t\ttagsByHash[hash] = mergeUploadTags(tagsByHash[hash], resolvedUploadTags(file.Tags, tags))
+\t\tif _, seen := seenIdentityHashes[hash]; !seen {
+\t\t\tseenIdentityHashes[hash] = struct{}{}
+\t\t\tidentityHashes = append(identityHashes, hash)
+\t\t}
+\t}
+\ttrackedByHash, err := l.client.GetFileInfosByContentHashes(identityHashes)
+\tif err != nil {
+\t\treturn UploadImportResponse{}, fmt.Errorf("resolve existing upload identities: %w", err)
+\t}
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'tagsByHash match count = {text.count(old)}')
+          text = text.replace(old, new)
+
+          old = '''\t\tinfo, status := analysis.Info, analysis.Status
+\t\tif canonicalIndex, ok := firstResponseIndexByHash[info.Hash]; ok {
+\t\t\tdto.Status = "duplicate_in_batch"
+\t\t\tdto.ID = response.Files[canonicalIndex].ID
+\t\t\tif dto.ID == "" {
+\t\t\t\tduplicateCanonicalResponseIndex[len(response.Files)] = canonicalIndex
+\t\t\t}
+\t\t\tremoveRejectedStagedUpload(file)
+\t\t\tresponse.Files = append(response.Files, dto)
+\t\t\tcontinue
+\t\t}
+\t\tfirstResponseIndexByHash[info.Hash] = len(response.Files)
+\t\texists, err := l.client.ContentExists(info.Hash)
+\t\tif err != nil {
+\t\t\treturn UploadImportResponse{}, err
+\t\t}
+\t\tif exists || status == types.StatusUntrackedContent || status == types.StatusOK {
+\t\t\texisting, err := l.client.GetFileInfoByContentHash(info.Hash)
+\t\t\tif err != nil {
+\t\t\t\treturn UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: %w", file.Name, err)
+\t\t\t}
+\t\t\tdto.ID = l.client.PublicFileID(existing.ID)
+\t\t\tif dto.ID == "" {
+\t\t\t\treturn UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
+\t\t\t}
+\t\t\tdto.Status = "duplicate_existing"
+\t\t\ttrackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
+\t\t\tduplicateExistingDiscards = append(duplicateExistingDiscards, struct {
+\t\t\t\tfile          StagedUpload
+\t\t\t\ttrackedAtPath bool
+\t\t\t}{file: file, trackedAtPath: trackedAtPath})
+\t\t\tresponse.Files = append(response.Files, dto)
+\t\t\tcontinue
+\t\t}
+'''
+          new = '''\t\tinfo := analysis.Info
+\t\tif canonicalIndex, ok := firstResponseIndexByHash[info.Hash]; ok {
+\t\t\tdto.Status = "duplicate_in_batch"
+\t\t\tdto.ID = response.Files[canonicalIndex].ID
+\t\t\tif dto.ID == "" {
+\t\t\t\tduplicateCanonicalResponseIndex[len(response.Files)] = canonicalIndex
+\t\t\t}
+\t\t\tremoveRejectedStagedUpload(file)
+\t\t\tresponse.Files = append(response.Files, dto)
+\t\t\tcontinue
+\t\t}
+\t\tfirstResponseIndexByHash[info.Hash] = len(response.Files)
+\t\tif existing, exists := trackedByHash[info.Hash]; exists {
+\t\t\tdto.ID = existing.PublicID
+\t\t\tif dto.ID == "" {
+\t\t\t\treturn UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
+\t\t\t}
+\t\t\tdto.Status = "duplicate_existing"
+\t\t\ttrackedAtPath := analysis.Status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
+\t\t\tduplicateExistingDiscards = append(duplicateExistingDiscards, struct {
+\t\t\t\tfile          StagedUpload
+\t\t\t\ttrackedAtPath bool
+\t\t\t}{file: file, trackedAtPath: trackedAtPath})
+\t\t\tresponse.Files = append(response.Files, dto)
+\t\t\tcontinue
+\t\t}
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'duplicate identity match count = {text.count(old)}')
+          path.write_text(text.replace(old, new))
+
+          test_path = Path('internal/serve/upload_identity_test.go')
+          tests = test_path.read_text()
+          if '"errors"' not in tests:
+              tests = tests.replace('import (\n\t"context"', 'import (\n\t"context"\n\t"errors"')
+          marker = '\ntype uploadIdentityReplayImporter struct {'
+          test = r'''
+func TestGooruUploadImportRestoresKnownContentWithoutTrackedLocation(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "gooru.db")
+	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("init db: %v", err)
+	}
+	client, err := core.New(dbPath, false)
+	if err != nil {
+		t.Fatalf("open client: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	const contents = "known content without a tracked location"
+	sourcePath := writeTestFile(t, dir, "old-source.txt", contents)
+	if _, err := client.TagFiles([]string{sourcePath}, []string{"state:retained"}, nil, false); err != nil {
+		t.Fatalf("tag source file: %v", err)
+	}
+	original, err := client.GetFileInfoByPath(sourcePath)
+	if err != nil {
+		t.Fatalf("get source file: %v", err)
+	}
+	deleted, err := client.DeleteLocationByID(original.ID)
+	if err != nil || !deleted {
+		t.Fatalf("untrack source location = %v, %v; want true, nil", deleted, err)
+	}
+	if _, err := client.GetFileInfoByContentHash(original.Hash); !errors.Is(err, core.ErrContentNotTracked) {
+		t.Fatalf("content location after untrack = %v, want ErrContentNotTracked", err)
+	}
+
+	uploadDir := filepath.Join(dir, "uploads")
+	server := newUploadTestServer(t, uploadDir, true, NewGooruLibrary(client, false))
+	startTestBackgroundRuntime(t, server, client, "test-gooru-upload-untracked-content")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, uploadRequest(t, map[string]string{"restored.txt": contents}, []string{"uploaded"}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response UploadImportResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	if len(response.Files) != 1 || response.Files[0].Status != "imported" || response.Files[0].ID == "" {
+		t.Fatalf("restored upload response = %+v, want one imported file with public id", response.Files)
+	}
+	restored, err := client.GetFileInfoByPublicID(response.Files[0].ID)
+	if err != nil {
+		t.Fatalf("resolve restored upload: %v", err)
+	}
+	if filepath.Dir(restored.Path) != uploadDir {
+		t.Fatalf("restored path = %q, want upload directory %q", restored.Path, uploadDir)
+	}
+	tagSet := make(map[string]bool, len(restored.Tags))
+	for _, tag := range restored.Tags {
+		tagSet[tag] = true
+	}
+	if !tagSet["state:retained"] || !tagSet["uploaded"] {
+		t.Fatalf("restored tags = %v, want retained content tag plus upload tag", restored.Tags)
+	}
+}
+'''
+          if 'TestGooruUploadImportRestoresKnownContentWithoutTrackedLocation' not in tests:
+              if marker not in tests:
+                  raise SystemExit('upload identity test insertion marker missing')
+              tests = tests.replace(marker, '\n' + test + marker)
+          test_path.write_text(tests)
+          PY
+          gofmt -w internal/serve/uploads.go internal/serve/upload_identity_test.go
+          go test ./internal/database ./gooru ./internal/serve
+          git config user.name 'gooru-maintainer'
+          git config user.email 'maintainer@users.noreply.github.com'
+          git add internal/serve/uploads.go internal/serve/upload_identity_test.go
+          git diff --cached --check
+          git commit -m 'perf(upload): batch stable identity resolution'
+          git push origin HEAD:feat/249-upload-item-tags
