@@ -814,7 +814,12 @@ paths:
                   description: How to handle uploaded filenames that already exist in the target; omitted values default to skip.
                 tags:
                   type: string
-                  description: Space- or comma-separated initial tags.
+                  description: Space- or comma-separated fallback initial tags applied to files that do not provide item_tags.
+                item_tags:
+                  type: array
+                  items:
+                    type: string
+                  description: Per-file initial tag strings aligned with files. Each entry accepts space- or comma-separated tags; an explicit empty entry means no tags for that file and suppresses fallback tags. Omit item_tags entirely to apply fallback tags to every file.
       responses:
         "200":
           description: Synchronous upload/import result.
