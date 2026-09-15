@@ -131,9 +131,9 @@ func (s *Store) GetFileInfosByPaths(paths []string) (map[string]types.FileInfo, 
 }
 
 // GetFileInfosByContentHashes resolves one deterministic tracked location per
-// content hash. Content with no current location is omitted; callers that are
-// deciding whether an upload is a usable duplicate therefore do not confuse a
-// retained content/tag record with an actually viewable file.
+// content hash. Hashes with no current location are omitted so upload duplicate
+// detection requires an actually viewable tracked file rather than content
+// identity alone.
 func (s *Store) GetFileInfosByContentHashes(hashes []string) (map[string]types.FileInfo, error) {
 	files, err := s.getFileInfosByColumn(hashes, "l.content_hash")
 	if err != nil {
