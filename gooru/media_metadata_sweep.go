@@ -17,10 +17,11 @@ const (
 	BackgroundMediaMetadataSweepTaskKind = "media.metadata-sweep"
 	// BackgroundMediaMetadataResourceClass serializes metadata extraction with
 	// other media work such as thumbnail generation.
-	BackgroundMediaMetadataResourceClass = "media"
-	mediaMetadataSweepCursorPrefix         = "after-location:"
-	mediaMetadataRegistrationInputKey      = "registration"
-	mediaMetadataRegistrationDebounce      = 3 * time.Second
+	BackgroundMediaMetadataResourceClass   = "media"
+	mediaMetadataSweepCursorPrefix          = "after-location:"
+	mediaMetadataRegistrationInputKey       = "registration"
+	mediaMetadataRegistrationLingerInputKey = "registration-linger"
+	mediaMetadataRegistrationDebounce       = 3 * time.Second
 )
 
 func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
@@ -31,28 +32,40 @@ func mediaMetadataRegistrationTasks(hasRegistrations bool) ([]BackgroundTaskRequ
 	if !hasRegistrations {
 		return nil, nil
 	}
-	task, err := newMediaMetadataSweepTaskRequest()
+	wake, err := newMediaMetadataSweepTaskRequest()
 	if err != nil {
 		return nil, err
 	}
-	task.Operation = &BackgroundOperationRequest{
+	wake.Operation = &BackgroundOperationRequest{
 		Kind:    BackgroundMediaMetadataSweepOperationKind,
 		Visible: true,
 	}
 	// Registration transactions use SQLite immediate locking, so lookup/create
 	// and pending-equivalent coalescing are serialized across independent
-	// CLI/server clients. Keep the wake pending briefly and move that trailing
-	// edge later for every registration commit in the same upload burst. This
-	// lets browser-sized chunks share one visible sweep instead of letting a fast
-	// worker finish between chunks. A running wake still cannot cover another
-	// commit: its final metadata scan may already have passed the newly registered
-	// location, so that case always leaves a fresh pending wake behind it.
-	task.OperationBinding = BackgroundOperationReuseActive
-	task.CoalescePendingEquivalent = true
-	task.PostponePendingEquivalent = true
-	task.AvailableAt = time.Now().UTC().Add(mediaMetadataRegistrationDebounce)
-	task.InputKey = mediaMetadataRegistrationInputKey
-	return []BackgroundTaskRequest{task}, nil
+	// CLI/server clients. An immediate wake keeps metadata extraction eager. A
+	// separate delayed wake below keeps the same visible operation active across
+	// browser-sized upload chunks so fast workers do not turn one upload burst
+	// into a stream of short-lived jobs. A running immediate wake still cannot
+	// cover another commit: its final scan may already have passed the newly
+	// registered location, so that case leaves a fresh pending immediate wake.
+	wake.OperationBinding = BackgroundOperationReuseActive
+	wake.CoalescePendingEquivalent = true
+	wake.InputKey = mediaMetadataRegistrationInputKey
+
+	linger, err := newMediaMetadataSweepTaskRequest()
+	if err != nil {
+		return nil, err
+	}
+	linger.Operation = &BackgroundOperationRequest{
+		Kind:    BackgroundMediaMetadataSweepOperationKind,
+		Visible: true,
+	}
+	linger.OperationBinding = BackgroundOperationReuseActive
+	linger.CoalescePendingEquivalent = true
+	linger.PostponePendingEquivalent = true
+	linger.AvailableAt = time.Now().UTC().Add(mediaMetadataRegistrationDebounce)
+	linger.InputKey = mediaMetadataRegistrationLingerInputKey
+	return []BackgroundTaskRequest{wake, linger}, nil
 }
 
 func newMediaMetadataSweepTaskRequest() (BackgroundTaskRequest, error) {

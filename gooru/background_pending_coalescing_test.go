@@ -184,32 +184,51 @@ func TestEnqueueBackgroundTaskCoalescingDoesNotSuppressRunningTask(t *testing.T)
 	}
 }
 
-func TestMediaMetadataRegistrationUsesPendingOnlyCoalescing(t *testing.T) {
+func TestMediaMetadataRegistrationUsesImmediateWakeAndDebouncedLinger(t *testing.T) {
 	before := time.Now().UTC()
 	first, err := mediaMetadataRegistrationTasks(true)
 	if err != nil {
-		t.Fatalf("first registration task: %v", err)
+		t.Fatalf("first registration tasks: %v", err)
 	}
 	second, err := mediaMetadataRegistrationTasks(true)
 	if err != nil {
-		t.Fatalf("second registration task: %v", err)
+		t.Fatalf("second registration tasks: %v", err)
 	}
-	if len(first) != 1 || len(second) != 1 {
-		t.Fatalf("registration task counts = %d and %d, want 1 and 1", len(first), len(second))
+	if len(first) != 2 || len(second) != 2 {
+		t.Fatalf("registration task counts = %d and %d, want 2 and 2", len(first), len(second))
 	}
-	if !first[0].CoalescePendingEquivalent || !second[0].CoalescePendingEquivalent {
-		t.Fatal("registration wake did not opt into pending-only coalescing")
+
+	for i, tasks := range [][]BackgroundTaskRequest{first, second} {
+		wake, linger := tasks[0], tasks[1]
+		if wake.OperationBinding != BackgroundOperationReuseActive || linger.OperationBinding != BackgroundOperationReuseActive {
+			t.Fatalf("registration task set %d did not reuse the active operation", i+1)
+		}
+		if !wake.CoalescePendingEquivalent || !linger.CoalescePendingEquivalent {
+			t.Fatalf("registration task set %d did not opt into pending-only coalescing", i+1)
+		}
+		if wake.PostponePendingEquivalent {
+			t.Fatalf("registration task set %d immediate wake unexpectedly postpones", i+1)
+		}
+		if !wake.AvailableAt.IsZero() {
+			t.Fatalf("registration task set %d immediate wake availability = %v, want immediate", i+1, wake.AvailableAt)
+		}
+		if wake.InputKey != mediaMetadataRegistrationInputKey {
+			t.Fatalf("registration task set %d immediate input key = %q, want %q", i+1, wake.InputKey, mediaMetadataRegistrationInputKey)
+		}
+		if !linger.PostponePendingEquivalent {
+			t.Fatalf("registration task set %d linger did not opt into trailing-edge postponement", i+1)
+		}
+		if linger.AvailableAt.Before(before.Add(mediaMetadataRegistrationDebounce)) {
+			t.Fatalf("registration task set %d linger availability = %v, want at least %v after start", i+1, linger.AvailableAt, mediaMetadataRegistrationDebounce)
+		}
+		if linger.InputKey != mediaMetadataRegistrationLingerInputKey {
+			t.Fatalf("registration task set %d linger input key = %q, want %q", i+1, linger.InputKey, mediaMetadataRegistrationLingerInputKey)
+		}
+		if wake.DedupeKey == linger.DedupeKey {
+			t.Fatalf("registration task set %d immediate and linger dedupe keys unexpectedly match: %q", i+1, wake.DedupeKey)
+		}
 	}
-	if !first[0].PostponePendingEquivalent || !second[0].PostponePendingEquivalent {
-		t.Fatal("registration wake did not opt into trailing-edge postponement")
-	}
-	if first[0].AvailableAt.Before(before.Add(mediaMetadataRegistrationDebounce)) || second[0].AvailableAt.Before(before.Add(mediaMetadataRegistrationDebounce)) {
-		t.Fatalf("registration availability = %v and %v, want at least %v after start", first[0].AvailableAt, second[0].AvailableAt, mediaMetadataRegistrationDebounce)
-	}
-	if first[0].InputKey != mediaMetadataRegistrationInputKey || second[0].InputKey != mediaMetadataRegistrationInputKey {
-		t.Fatalf("registration input keys = %q and %q, want %q", first[0].InputKey, second[0].InputKey, mediaMetadataRegistrationInputKey)
-	}
-	if first[0].DedupeKey == second[0].DedupeKey {
-		t.Fatalf("registration wake dedupe keys unexpectedly match: %q", first[0].DedupeKey)
+	if first[0].DedupeKey == second[0].DedupeKey || first[1].DedupeKey == second[1].DedupeKey {
+		t.Fatal("successive registration task sets unexpectedly reused generated dedupe keys")
 	}
 }
