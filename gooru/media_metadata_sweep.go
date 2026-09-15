@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"gooru.local/types"
 )
@@ -17,11 +16,9 @@ const (
 	BackgroundMediaMetadataSweepTaskKind = "media.metadata-sweep"
 	// BackgroundMediaMetadataResourceClass serializes metadata extraction with
 	// other media work such as thumbnail generation.
-	BackgroundMediaMetadataResourceClass   = "media"
-	mediaMetadataSweepCursorPrefix          = "after-location:"
-	mediaMetadataRegistrationInputKey       = "registration"
-	mediaMetadataRegistrationLingerInputKey = "registration-linger"
-	mediaMetadataRegistrationDebounce       = 5 * time.Second
+	BackgroundMediaMetadataResourceClass = "media"
+	mediaMetadataSweepCursorPrefix        = "after-location:"
+	mediaMetadataRegistrationInputKey     = "registration"
 )
 
 func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
@@ -42,30 +39,15 @@ func mediaMetadataRegistrationTasks(hasRegistrations bool) ([]BackgroundTaskRequ
 	}
 	// Registration transactions use SQLite immediate locking, so lookup/create
 	// and pending-equivalent coalescing are serialized across independent
-	// CLI/server clients. An immediate wake keeps metadata extraction eager. A
-	// separate delayed wake below keeps the same visible operation active across
-	// browser-sized upload chunks so fast workers do not turn one upload burst
-	// into a stream of short-lived jobs. A running immediate wake still cannot
-	// cover another commit: its final scan may already have passed the newly
-	// registered location, so that case leaves a fresh pending immediate wake.
+	// CLI/server clients. Reusing the active visible operation prevents concurrent
+	// registrations from creating parallel sweeps, while a fresh pending wake is
+	// still allowed when a running sweep may already have scanned past a newly
+	// committed registration. Do not hold the operation open with a timer: an
+	// empty sweep should complete as promptly as a manual run.
 	wake.OperationBinding = BackgroundOperationReuseActive
 	wake.CoalescePendingEquivalent = true
 	wake.InputKey = mediaMetadataRegistrationInputKey
-
-	linger, err := newMediaMetadataSweepTaskRequest()
-	if err != nil {
-		return nil, err
-	}
-	linger.Operation = &BackgroundOperationRequest{
-		Kind:    BackgroundMediaMetadataSweepOperationKind,
-		Visible: true,
-	}
-	linger.OperationBinding = BackgroundOperationReuseActive
-	linger.CoalescePendingEquivalent = true
-	linger.PostponePendingEquivalent = true
-	linger.AvailableAt = time.Now().UTC().Add(mediaMetadataRegistrationDebounce)
-	linger.InputKey = mediaMetadataRegistrationLingerInputKey
-	return []BackgroundTaskRequest{wake, linger}, nil
+	return []BackgroundTaskRequest{wake}, nil
 }
 
 func newMediaMetadataSweepTaskRequest() (BackgroundTaskRequest, error) {
