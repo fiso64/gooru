@@ -49,9 +49,23 @@ jobs:
         working-directory: frontend
         run: npx playwright install chromium
       - name: Upload viewer browser regressions
+        id: e2e
         if: success()
         working-directory: frontend
-        run: npm run test:e2e -- upload-viewer.spec.ts
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:e2e -- upload-viewer.spec.ts 2>&1 | tee ../.github/tmp-249-tag-refresh-e2e.log
+      - name: Persist browser failure diagnostic
+        if: failure() && steps.e2e.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "gooru-maintainer-bot"
+          git config user.email "maintainer@localhost"
+          git add .github/tmp-249-tag-refresh-e2e.log
+          git commit -m 'ci: capture #249 tag refresh browser failure'
+          git push origin HEAD:feat/249-upload-item-tags
       - name: Commit source changes
         if: success()
         shell: bash
