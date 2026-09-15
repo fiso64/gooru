@@ -38,36 +38,58 @@ func (s *Store) BatchGetQueryTagCounts(tagStrings []string) (map[string]int, err
 		exact = append(exact, types.ParsedTag{Key: key, Value: value})
 	}
 
-	exactCounts, err := s.BatchGetTagCounts(exact)
-	if err != nil {
-		return nil, err
-	}
-	for tag, count := range exactCounts {
-		counts[tag] = count
+	const exactColumns = 2 // key, value
+	exactBatchSize := maxVars / exactColumns
+	for start := 0; start < len(exact); start += exactBatchSize {
+		end := start + exactBatchSize
+		if end > len(exact) {
+			end = len(exact)
+		}
+		exactCounts, err := s.BatchGetTagCounts(exact[start:end])
+		if err != nil {
+			return nil, err
+		}
+		for tag, count := range exactCounts {
+			counts[tag] = count
+		}
 	}
 	if len(keys) == 0 {
 		return counts, nil
 	}
 
-	placeholders := strings.Repeat("?,", len(keys)-1) + "?"
-	args := make([]interface{}, len(keys))
-	for i, key := range keys {
-		args[i] = key
-	}
-	rows, err := s.Query("SELECT key, files_count FROM tag_key_counts WHERE key IN ("+placeholders+")", args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var key string
-		var count int
-		if err := rows.Scan(&key, &count); err != nil {
+	for start := 0; start < len(keys); start += maxVars {
+		end := start + maxVars
+		if end > len(keys) {
+			end = len(keys)
+		}
+		batch := keys[start:end]
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		args := make([]interface{}, len(batch))
+		for i, key := range batch {
+			args[i] = key
+		}
+		rows, err := s.Query("SELECT key, files_count FROM tag_key_counts WHERE key IN ("+placeholders+")", args...)
+		if err != nil {
 			return nil, err
 		}
-		for _, spelling := range keySpellings[key] {
-			counts[spelling] = count
+		for rows.Next() {
+			var key string
+			var count int
+			if err := rows.Scan(&key, &count); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			for _, spelling := range keySpellings[key] {
+				counts[spelling] = count
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
 		}
 	}
-	return counts, rows.Err()
+	return counts, nil
 }
