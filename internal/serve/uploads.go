@@ -188,6 +188,7 @@ type savedUpload struct {
 	sourceModTime   time.Time
 	addedAt         time.Time
 	conflictPolicy  string
+	ownedFileInfo   os.FileInfo
 }
 
 var (
@@ -300,9 +301,10 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			continue
 		}
 		size, copyErr := s.persistUploadedFile(dst, src)
+		ownedFileInfo, statErr := dst.Stat()
 		closeErr := dst.Close()
 		_ = src.Close()
-		if copyErr != nil || closeErr != nil {
+		if copyErr != nil || statErr != nil || closeErr != nil {
 			_ = os.Remove(tmpPath)
 			if errors.Is(copyErr, errUploadTooLarge) {
 				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: copyErr.Error()})
@@ -311,6 +313,9 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			removeSavedUploads(saved)
 			if copyErr != nil {
 				return nil, uploadFileError{name: name, err: copyErr}
+			}
+			if statErr != nil {
+				return nil, uploadFileError{name: name, err: fmt.Errorf("failed to inspect uploaded file")}
 			}
 			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to write uploaded file")}
 		}
@@ -322,6 +327,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 				size:            size,
 				targetID:        target.ID,
 				replace:         true,
+				ownedFileInfo:   ownedFileInfo,
 			})
 			continue
 		}
@@ -334,14 +340,18 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
 		}
-		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: size, targetID: target.ID})
+		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: size, targetID: target.ID, ownedFileInfo: ownedFileInfo})
 	}
 	return saved, nil
 }
 
 func removeSavedUploads(files []savedUpload) {
 	for _, file := range files {
-		if file.status == "skipped" || file.status == "error" {
+		if file.status == "skipped" || file.status == "error" || file.ownedFileInfo == nil {
+			continue
+		}
+		currentFileInfo, err := os.Stat(file.path)
+		if err != nil || !os.SameFile(file.ownedFileInfo, currentFileInfo) {
 			continue
 		}
 		_ = os.Remove(file.path)
