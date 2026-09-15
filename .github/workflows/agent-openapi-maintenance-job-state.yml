@@ -1,0 +1,44 @@
+name: Agent patch maintenance job OpenAPI state
+
+on:
+  push:
+    branches:
+      - agent/670-eager-media-metadata
+    paths:
+      - .github/workflows/agent-openapi-maintenance-job-state.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/670-eager-media-metadata
+      - name: Patch MaintenanceJob schema
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('docs/openapi.yaml')
+          text = path.read_text()
+          old = '''    MaintenanceJob:\n      type: object\n      required: [id, name, description]\n      properties:\n        id:\n          type: string\n        name:\n          type: string\n        description:\n          type: string\n'''
+          new = '''    MaintenanceJob:\n      type: object\n      required: [id, name, description, running]\n      properties:\n        id:\n          type: string\n        name:\n          type: string\n        description:\n          type: string\n        running:\n          type: boolean\n          description: True when this maintenance job already has a pending or running durable operation.\n'''
+          if old not in text:
+              raise SystemExit('expected MaintenanceJob schema block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit schema reconciliation
+        shell: bash
+        run: |
+          if git diff --quiet -- docs/openapi.yaml; then
+            echo 'No schema change required.'
+            exit 0
+          fi
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add docs/openapi.yaml
+          git commit -m 'docs(api): expose maintenance job running state'
+          git push origin HEAD:agent/670-eager-media-metadata
