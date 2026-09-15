@@ -22,15 +22,44 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(fil
 	if len(fileTags) != len(files) {
 		return result, fmt.Errorf("per-file tag count %d does not match file count %d", len(fileTags), len(files))
 	}
-
-	hashes := make([]string, 0, len(files))
-	locations := make(map[string]types.LocationInfo, len(files))
 	tagsByHash := make(map[string][]string, len(files))
-	validPaths := make([]string, 0, len(files))
 	for index, file := range files {
 		if err := query.ValidateTags(fileTags[index]); err != nil {
 			return result, fmt.Errorf("validate tags for file %d: %w", index, err)
 		}
+		if file.Path == "" || file.Hash == "" {
+			continue
+		}
+		tagsByHash[file.Hash] = appendUniqueKnownFileTags(tagsByHash[file.Hash], fileTags[index])
+	}
+	return c.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files, tagsByHash, tasks, stateBuilder, progressCb)
+}
+
+// TagKnownFilesWithBackgroundTasksByHashTags registers the supplied known files
+// and applies tag sets by content hash in one transaction. The tag map may also
+// contain already-tracked hashes, which lets callers update duplicate content
+// atomically with newly registered files.
+func (c *Client) TagKnownFilesWithBackgroundTasksByHashTags(files []types.LocationInfo, tagsByHash map[string][]string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+	return c.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files, tagsByHash, tasks, nil, progressCb)
+}
+
+// TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState also persists
+// producer recovery state in that same transaction.
+func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files []types.LocationInfo, tagsByHash map[string][]string, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+	result := types.TagOperationResult{}
+	for hash, tags := range tagsByHash {
+		if hash == "" {
+			return result, fmt.Errorf("content hash is empty")
+		}
+		if err := query.ValidateTags(tags); err != nil {
+			return result, fmt.Errorf("validate tags for content %q: %w", hash, err)
+		}
+	}
+
+	hashes := make([]string, 0, len(files))
+	locations := make(map[string]types.LocationInfo, len(files))
+	validPaths := make([]string, 0, len(files))
+	for _, file := range files {
 		if file.Path == "" || file.Hash == "" {
 			if progressCb != nil {
 				progressCb(file.Path, fmt.Errorf("file path and hash are required"))
@@ -40,9 +69,8 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(fil
 		hashes = append(hashes, file.Hash)
 		locations[file.Path] = file
 		validPaths = append(validPaths, file.Path)
-		tagsByHash[file.Hash] = appendUniqueKnownFileTags(tagsByHash[file.Hash], fileTags[index])
 	}
-	if len(hashes) == 0 {
+	if len(hashes) == 0 && len(tagsByHash) == 0 {
 		return result, nil
 	}
 
@@ -52,11 +80,13 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(fil
 	}
 	defer tx.Rollback()
 
-	if err := c.store.BatchInsertContents(tx, hashes); err != nil {
-		return result, fmt.Errorf("failed to batch insert contents: %w", err)
-	}
-	if err := c.store.BatchUpsertLocations(tx, locations); err != nil {
-		return result, fmt.Errorf("failed to batch upsert locations: %w", err)
+	if len(hashes) > 0 {
+		if err := c.store.BatchInsertContents(tx, hashes); err != nil {
+			return result, fmt.Errorf("failed to batch insert contents: %w", err)
+		}
+		if err := c.store.BatchUpsertLocations(tx, locations); err != nil {
+			return result, fmt.Errorf("failed to batch upsert locations: %w", err)
+		}
 	}
 	affectedCount, err := c.associateKnownFileTagsByHash(tx, tagsByHash)
 	if err != nil {
@@ -80,39 +110,6 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(fil
 // TagExistingContentByHashTags atomically adds aligned per-content tag sets
 // without re-reading or re-hashing filesystem paths that the caller has already
 // resolved to tracked content.
-func (c *Client) TagExistingContentByHashTags(hashes []string, fileTags [][]string) (types.TagOperationResult, error) {
-	result := types.TagOperationResult{}
-	if len(fileTags) != len(hashes) {
-		return result, fmt.Errorf("per-content tag count %d does not match hash count %d", len(fileTags), len(hashes))
-	}
-	tagsByHash := make(map[string][]string, len(hashes))
-	for index, hash := range hashes {
-		if hash == "" {
-			return result, fmt.Errorf("content hash %d is empty", index)
-		}
-		if err := query.ValidateTags(fileTags[index]); err != nil {
-			return result, fmt.Errorf("validate tags for content %d: %w", index, err)
-		}
-		tagsByHash[hash] = appendUniqueKnownFileTags(tagsByHash[hash], fileTags[index])
-	}
-	if len(tagsByHash) == 0 {
-		return result, nil
-	}
-	tx, err := c.store.Begin()
-	if err != nil {
-		return result, err
-	}
-	defer tx.Rollback()
-	affectedCount, err := c.associateKnownFileTagsByHash(tx, tagsByHash)
-	if err != nil {
-		return result, err
-	}
-	if err := tx.Commit(); err != nil {
-		return result, err
-	}
-	result.AffectedCount = int(affectedCount)
-	return result, nil
-}
 
 func appendUniqueKnownFileTags(existing, additions []string) []string {
 	if len(additions) == 0 {

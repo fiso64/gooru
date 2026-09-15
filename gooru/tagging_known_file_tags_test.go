@@ -1,6 +1,7 @@
 package gooru
 
 import (
+	"errors"
 	"testing"
 
 	"gooru.local/types"
@@ -35,41 +36,6 @@ func TestTagKnownFilesWithBackgroundTasksByFileTagsAppliesAlignedTagsAtomically(
 	}
 }
 
-func TestTagExistingContentByHashTagsAppliesDistinctTagsInOneBatch(t *testing.T) {
-	client := newBackgroundEnqueueTestClient(t)
-	files := []types.LocationInfo{
-		{Path: "/library/existing-one.jpg", Hash: "hash-existing-one", Size: 11, ModTime: 21, Extension: ".jpg"},
-		{Path: "/library/existing-two.jpg", Hash: "hash-existing-two", Size: 12, ModTime: 22, Extension: ".jpg"},
-	}
-	if _, err := client.TagKnownFilesWithBackgroundTasksByFileTags(files, [][]string{{"seed"}, {"seed"}}, nil, nil); err != nil {
-		t.Fatalf("seed existing content: %v", err)
-	}
-	result, err := client.TagExistingContentByHashTags(
-		[]string{files[0].Hash, files[1].Hash, files[0].Hash},
-		[][]string{{"shared", "item:one"}, {"shared", "item:two"}, {"later"}},
-	)
-	if err != nil {
-		t.Fatalf("TagExistingContentByHashTags: %v", err)
-	}
-	if result.AffectedCount != 5 {
-		t.Fatalf("affected count = %d, want 5", result.AffectedCount)
-	}
-	oneTags, err := client.store.GetTagsForContent(files[0].Hash)
-	if err != nil {
-		t.Fatalf("GetTagsForContent(one): %v", err)
-	}
-	twoTags, err := client.store.GetTagsForContent(files[1].Hash)
-	if err != nil {
-		t.Fatalf("GetTagsForContent(two): %v", err)
-	}
-	if !sameStringSet(oneTags, []string{"seed", "shared", "item:one", "later"}) {
-		t.Fatalf("one tags = %#v", oneTags)
-	}
-	if !sameStringSet(twoTags, []string{"seed", "shared", "item:two"}) {
-		t.Fatalf("two tags = %#v", twoTags)
-	}
-}
-
 func TestTagKnownFilesWithBackgroundTasksByFileTagsRejectsMisalignedMetadata(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 	files := []types.LocationInfo{{Path: "/library/one.jpg", Hash: "hash-per-file-misaligned", Size: 11, ModTime: 21, Extension: ".jpg"}}
@@ -82,6 +48,41 @@ func TestTagKnownFilesWithBackgroundTasksByFileTagsRejectsMisalignedMetadata(t *
 	}
 	if exists {
 		t.Fatal("content registration committed despite invalid per-file metadata")
+	}
+}
+
+func TestTagKnownFilesByHashTagsRollsBackExistingAndNewContentTogether(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	existing := types.LocationInfo{Path: "/library/existing.jpg", Hash: "hash-atomic-existing", Size: 11, ModTime: 21, Extension: ".jpg"}
+	if _, err := client.TagKnownFilesWithBackgroundTasksByFileTags([]types.LocationInfo{existing}, [][]string{{"seed"}}, nil, nil); err != nil {
+		t.Fatalf("seed existing content: %v", err)
+	}
+	fresh := types.LocationInfo{Path: "/library/fresh.jpg", Hash: "hash-atomic-fresh", Size: 12, ModTime: 22, Extension: ".jpg"}
+	_, err := client.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(
+		[]types.LocationInfo{fresh},
+		map[string][]string{existing.Hash: {"duplicate:tag"}, fresh.Hash: {"fresh:tag"}},
+		nil,
+		func(int) (BackgroundOperationTransactionState, error) {
+			return BackgroundOperationTransactionState{}, errors.New("stop before commit")
+		},
+		nil,
+	)
+	if err == nil {
+		t.Fatal("expected state builder failure")
+	}
+	tags, err := client.store.GetTagsForContent(existing.Hash)
+	if err != nil {
+		t.Fatalf("GetTagsForContent(existing): %v", err)
+	}
+	if !sameStringSet(tags, []string{"seed"}) {
+		t.Fatalf("existing tags committed despite rollback: %#v", tags)
+	}
+	exists, err := client.ContentExists(fresh.Hash)
+	if err != nil {
+		t.Fatalf("ContentExists(fresh): %v", err)
+	}
+	if exists {
+		t.Fatal("fresh content committed despite rollback")
 	}
 }
 

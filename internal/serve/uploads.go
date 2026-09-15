@@ -771,12 +771,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	firstResponseIndexByHash := make(map[string]int, len(files))
 	duplicateCanonicalResponseIndex := make(map[int]int)
 	importLocations := make([]types.LocationInfo, 0, len(files))
-	importLocationTags := make([][]string, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
 	opaqueStorageByLogical := make(map[string]protectedUploadMove, len(files))
-	duplicateExistingHashes := make([]string, 0, len(files))
-	duplicateExistingTags := make([][]string, 0, len(files))
 	duplicateExistingDiscards := make([]struct {
 		file          StagedUpload
 		trackedAtPath bool
@@ -820,7 +817,6 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			continue
 		}
 		info, status := analysis.Info, analysis.Status
-		fileTags := tagsByHash[info.Hash]
 		if canonicalIndex, ok := firstResponseIndexByHash[info.Hash]; ok {
 			dto.Status = "duplicate_in_batch"
 			dto.ID = response.Files[canonicalIndex].ID
@@ -846,10 +842,6 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 				return UploadImportResponse{}, fmt.Errorf("resolve duplicate upload identity %q: public id is unavailable", file.Name)
 			}
 			dto.Status = "duplicate_existing"
-			if len(fileTags) > 0 {
-				duplicateExistingHashes = append(duplicateExistingHashes, existing.Hash)
-				duplicateExistingTags = append(duplicateExistingTags, append([]string(nil), fileTags...))
-			}
 			trackedAtPath := status == types.StatusOK && !(l.encryption.Enabled && IsManagedUploadPath(l.managedTargets, file.Path))
 			duplicateExistingDiscards = append(duplicateExistingDiscards, struct {
 				file          StagedUpload
@@ -900,18 +892,6 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			AddedAt:     addedAt,
 			Extension:   filepath.Ext(file.Path),
 		})
-		importLocationTags = append(importLocationTags, append([]string(nil), fileTags...))
-	}
-	if len(duplicateExistingHashes) > 0 {
-		if _, err := l.client.TagExistingContentByHashTags(duplicateExistingHashes, duplicateExistingTags); err != nil {
-			return UploadImportResponse{}, fmt.Errorf("tag duplicate uploads: %w", err)
-		}
-	}
-	for _, duplicate := range duplicateExistingDiscards {
-		discardDuplicateUpload(duplicate.file, duplicate.trackedAtPath)
-	}
-	if len(importLocations) == 0 {
-		return response, nil
 	}
 	backgroundTasks := make([]core.BackgroundTaskRequest, 0, len(importLocations))
 	if l.backgroundTasks != nil {
@@ -928,9 +908,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	var result types.TagOperationResult
 	var err error
 	if state.operationID == "" && state.taskID == "" {
-		result, err = l.client.TagKnownFilesWithBackgroundTasksByFileTags(importLocations, importLocationTags, backgroundTasks, progress)
+		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTags(importLocations, tagsByHash, backgroundTasks, progress)
 	} else {
-		result, err = l.client.TagKnownFilesWithBackgroundTasksByFileTagsAndOperationState(importLocations, importLocationTags, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
+		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(importLocations, tagsByHash, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
 			response.AffectedCount = affectedCount
 			checkpoint := backgroundUploadImportedCheckpoint(activated, response)
 			return core.BackgroundOperationTransactionState{OperationID: state.operationID, TaskID: state.taskID, Checkpoint: checkpoint, Result: response}, nil
@@ -947,6 +927,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			return UploadImportResponse{}, errors.Join(err, restoreErr)
 		}
 		return UploadImportResponse{}, err
+	}
+	for _, duplicate := range duplicateExistingDiscards {
+		discardDuplicateUpload(duplicate.file, duplicate.trackedAtPath)
 	}
 	for path, message := range failures {
 		if i, ok := responseIndexByPath[path]; ok {

@@ -58,6 +58,9 @@ func TestGooruUploadImportReturnsStableFileIdentities(t *testing.T) {
 	if len(response.Files) != 3 {
 		t.Fatalf("upload response files = %d, want 3: %+v", len(response.Files), response.Files)
 	}
+	if response.AffectedCount != 2 {
+		t.Fatalf("upload affected_count = %d, want 2 combined duplicate/new tag associations", response.AffectedCount)
+	}
 
 	seenImported := false
 	seenDuplicate := false
