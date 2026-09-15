@@ -36,40 +36,35 @@
   const pageCount = $derived(Math.max(1, Math.ceil(totalCount / pageSize)));
 
   let maintenanceJobs = $state<MaintenanceJob[]>([]);
-  let selectedMaintenanceJobID = $state('');
   let maintenanceLoading = $state(false);
-  let maintenanceRunning = $state(false);
-  let maintenanceMessage = $state('');
+  let maintenanceMenuOpen = $state(false);
+  let maintenanceStartingIDs = $state<string[]>([]);
   let maintenanceError = $state('');
 
   $effect(() => {
     const user = $authState.user;
     const scope = authScope;
+    const visibleJobs = jobs;
     if (!user) {
       maintenanceJobs = [];
-      selectedMaintenanceJobID = '';
       maintenanceLoading = false;
-      maintenanceMessage = '';
+      maintenanceMenuOpen = false;
+      maintenanceStartingIDs = [];
       maintenanceError = '';
       return;
     }
 
     let canceled = false;
     maintenanceLoading = true;
-    maintenanceMessage = '';
     maintenanceError = '';
     void listMaintenanceJobs()
       .then((result) => {
         if (canceled) return;
         maintenanceJobs = result.items;
-        if (!result.items.some((job) => job.id === selectedMaintenanceJobID)) {
-          selectedMaintenanceJobID = result.items[0]?.id ?? '';
-        }
       })
       .catch((cause) => {
         if (canceled) return;
         maintenanceJobs = [];
-        selectedMaintenanceJobID = '';
         maintenanceError = errorMessage(cause);
       })
       .finally(() => {
@@ -77,6 +72,7 @@
       });
 
     void scope;
+    void visibleJobs;
     return () => {
       canceled = true;
     };
@@ -96,22 +92,26 @@
     pageIndex = 0;
   }
 
-  async function runSelectedMaintenanceJob() {
-    if (!selectedMaintenanceJobID || maintenanceRunning) return;
-    maintenanceRunning = true;
-    maintenanceMessage = '';
+  function maintenanceJobBusy(job: MaintenanceJob) {
+    return job.running || maintenanceStartingIDs.includes(job.id);
+  }
+
+  async function runMaintenance(job: MaintenanceJob) {
+    if (maintenanceJobBusy(job)) return;
+    maintenanceMenuOpen = false;
     maintenanceError = '';
+    maintenanceStartingIDs = [...maintenanceStartingIDs, job.id];
     try {
-      const result = await runMaintenanceJob(selectedMaintenanceJobID, $authState.csrfToken);
-      maintenanceMessage = result.created
-        ? `${result.job.name} queued.`
-        : `${result.job.name} has no pending work or is already active.`;
+      const result = await runMaintenanceJob(job.id, $authState.csrfToken);
+      maintenanceJobs = maintenanceJobs.map((item) => item.id === result.job.id ? result.job : item);
       resetPagination();
       await pageQuery.refetch();
+      const catalog = await listMaintenanceJobs();
+      maintenanceJobs = catalog.items;
     } catch (cause) {
       maintenanceError = errorMessage(cause);
     } finally {
-      maintenanceRunning = false;
+      maintenanceStartingIDs = maintenanceStartingIDs.filter((id) => id !== job.id);
     }
   }
 </script>
@@ -123,40 +123,35 @@
       <div class="jobs-title-row">
         <h1>Background work</h1>
         <div class="jobs-page-actions">
-          <div class="maintenance-actions">
-            <select
-              class="maintenance-select"
-              aria-label="Maintenance job"
-              bind:value={selectedMaintenanceJobID}
-              disabled={maintenanceLoading || maintenanceRunning || maintenanceJobs.length === 0}
-            >
+          <details class="maintenance-menu" bind:open={maintenanceMenuOpen}>
+            <summary class="g-btn g-btn-sm">Run job</summary>
+            <div class="maintenance-menu-popover" aria-label="Runnable maintenance jobs">
               {#if maintenanceLoading}
-                <option value="">Loading maintenance jobs…</option>
+                <div class="maintenance-menu-empty">Loading…</div>
               {:else if maintenanceJobs.length === 0}
-                <option value="">No maintenance jobs</option>
+                <div class="maintenance-menu-empty">No runnable jobs</div>
               {:else}
                 {#each maintenanceJobs as job (job.id)}
-                  <option value={job.id}>{job.name}</option>
+                  <button
+                    class="maintenance-menu-item"
+                    type="button"
+                    disabled={maintenanceJobBusy(job)}
+                    title={job.description}
+                    onclick={() => runMaintenance(job)}
+                  >
+                    <span>{job.name}</span>
+                    {#if maintenanceJobBusy(job)}<span class="maintenance-job-state">Running</span>{/if}
+                  </button>
                 {/each}
               {/if}
-            </select>
-            <button
-              class="g-btn g-btn-sm"
-              type="button"
-              onclick={runSelectedMaintenanceJob}
-              disabled={maintenanceLoading || maintenanceRunning || !selectedMaintenanceJobID}
-            >
-              {maintenanceRunning ? 'Running…' : 'Run'}
-            </button>
-          </div>
+            </div>
+          </details>
           <CancelActiveJobsButton />
           <ClearCompletedJobsButton onCleared={resetPagination} />
         </div>
       </div>
-      {#if maintenanceMessage || maintenanceError}
-        <div class:maintenance-error={Boolean(maintenanceError)} class="maintenance-status" aria-live="polite">
-          {maintenanceError || maintenanceMessage}
-        </div>
+      {#if maintenanceError}
+        <div class="maintenance-error" role="alert">{maintenanceError}</div>
       {/if}
     </div>
 
@@ -219,35 +214,96 @@
     white-space: nowrap;
   }
 
-  .jobs-page-actions,
-  .maintenance-actions {
+  .jobs-page-actions {
     display: flex;
     gap: 8px;
     align-items: center;
   }
 
-  .maintenance-select {
-    min-width: 190px;
-    max-width: 250px;
-    height: 30px;
-    padding: 0 28px 0 9px;
+  .maintenance-menu {
+    position: relative;
+  }
+
+  .maintenance-menu > summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .maintenance-menu > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .maintenance-menu > summary::after {
+    content: '▾';
+    margin-left: 6px;
+    font-size: 9px;
+  }
+
+  .maintenance-menu-popover {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 240px;
+    padding: 5px;
     border: 1px solid var(--border);
     border-radius: var(--r-2);
     background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: 12px;
+    box-shadow: 0 10px 30px color-mix(in srgb, black 18%, transparent);
   }
 
-  .maintenance-status {
-    margin-top: 8px;
+  .maintenance-menu-item {
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 9px;
+    border: 0;
+    border-radius: var(--r-2);
+    background: transparent;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .maintenance-menu-item:hover:not(:disabled),
+  .maintenance-menu-item:focus-visible:not(:disabled) {
+    background: var(--surface-2);
+  }
+
+  .maintenance-menu-item:disabled {
     color: var(--text-3);
-    font-size: 11px;
-    text-align: right;
+    cursor: default;
+  }
+
+  .maintenance-job-state,
+  .maintenance-menu-empty {
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+
+  .maintenance-job-state {
+    flex: 0 0 auto;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .maintenance-menu-empty {
+    padding: 8px 9px;
+    white-space: nowrap;
   }
 
   .maintenance-error {
+    margin-top: 8px;
     color: var(--danger);
+    font-size: 11px;
+    text-align: right;
   }
 
   .jobs-card {
@@ -279,19 +335,13 @@
       flex-wrap: wrap;
     }
 
-    .maintenance-status {
+    .maintenance-menu-popover {
+      right: auto;
+      left: 0;
+    }
+
+    .maintenance-error {
       text-align: left;
-    }
-  }
-
-  @media (max-width: 460px) {
-    .maintenance-actions {
-      width: 100%;
-    }
-
-    .maintenance-select {
-      min-width: 0;
-      flex: 1;
     }
   }
 </style>
