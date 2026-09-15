@@ -64,11 +64,20 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 	if err != nil {
 		return result, err
 	}
-	if err := c.persistTaggingFollowUpInTx(tx, tasks, stateBuilder, affectedCount); err != nil {
+	hookTasks, err := c.fileRegistrationBackgroundTasks(hashes)
+	if err != nil {
+		return result, fmt.Errorf("build file registration background tasks: %w", err)
+	}
+	tasks = append(tasks, hookTasks...)
+	operationChanged, err := c.persistTaggingFollowUpTrackedInTx(tx, tasks, stateBuilder, affectedCount)
+	if err != nil {
 		return result, err
 	}
 	if err := tx.Commit(); err != nil {
 		return result, err
+	}
+	if operationChanged {
+		c.notifyBackgroundOperationChange()
 	}
 	result.AffectedCount = int(affectedCount)
 	if progressCb != nil {
