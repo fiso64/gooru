@@ -7,6 +7,8 @@ const session = {
 };
 
 const hoverDwellMs = 150;
+const controlledClockStart = new Date('2026-01-01T00:00:00Z');
+const controlledClockPause = new Date('2026-01-01T00:00:20Z');
 
 // Keep the first red frame visible for three seconds so restart assertions have a wide, deterministic sampling window.
 const twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQALAEAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');
@@ -92,9 +94,9 @@ async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
 }
 
 test('video and gif previews start after dwell, stop on leave, and only one is active', async ({ page }) => {
-  await page.clock.install();
+  await page.clock.install({ time: controlledClockStart });
   await mockLibrary(page);
-  await page.clock.pauseAt(await page.evaluate(() => Date.now()));
+  await page.clock.pauseAt(controlledClockPause);
 
   const firstVideo = page.getByRole('button', { name: 'Preview video-one.mp4' });
   await firstVideo.hover();
