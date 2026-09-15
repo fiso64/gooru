@@ -239,12 +239,11 @@ const (
 // the task when the producer is already inside a domain transaction. It is
 // mutually exclusive with OperationID. OperationBinding explicitly controls
 // whether that operation must be new or may reuse active work of the same kind.
-// CoalescePendingEquivalent is a narrower opt-in for reusable operations: after
-// resolving the operation, an equivalent pending task may be reused, while a
-// running task never suppresses a newly committed wake. PostponePendingEquivalent
-// additionally moves a reused pending task's availability later to AvailableAt,
-// enabling a trailing-edge debounce without allowing running work to absorb a
-// newly committed wake.
+// CoalescePendingEquivalent is a narrower opt-in for a concrete parent operation
+// or reusable operation request: after resolving the operation, an equivalent
+// pending task may be reused, while a running task never suppresses a newly
+// committed wake. PostponePendingEquivalent additionally moves a reused pending
+// task's availability later to AvailableAt.
 type BackgroundTaskRequest struct {
 	OperationID                string
 	Operation                  *BackgroundOperationRequest
@@ -273,11 +272,30 @@ func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task Back
 		if request.OperationBinding != BackgroundOperationCreateNew {
 			return BackgroundTask{}, false, fmt.Errorf("background operation binding requires an operation request")
 		}
-		task, created, err = c.enqueueBackgroundTask(c.store.DB, request)
-		if err == nil && created && task.OperationID != "" {
+		if !request.CoalescePendingEquivalent {
+			task, created, err = c.enqueueBackgroundTask(c.store.DB, request)
+			if err == nil && created && task.OperationID != "" {
+				c.notifyBackgroundOperationChange()
+			}
+			return task, created, err
+		}
+
+		tx, err := c.store.Begin()
+		if err != nil {
+			return BackgroundTask{}, false, fmt.Errorf("begin background task transaction: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		task, created, err = c.enqueueBackgroundTask(tx, request)
+		if err != nil {
+			return BackgroundTask{}, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return BackgroundTask{}, false, fmt.Errorf("commit background task transaction: %w", err)
+		}
+		if created && task.OperationID != "" {
 			c.notifyBackgroundOperationChange()
 		}
-		return task, created, err
+		return task, created, nil
 	}
 	if request.OperationID != "" {
 		return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
@@ -310,8 +328,10 @@ func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task Back
 // commit atomically.
 func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
 	if request.CoalescePendingEquivalent {
-		if request.Operation == nil || request.OperationBinding != BackgroundOperationReuseActive {
-			return BackgroundTask{}, false, fmt.Errorf("pending-equivalent background task coalescing requires a reusable operation request")
+		hasConcreteOperation := request.Operation == nil && request.OperationID != ""
+		hasReusableOperationRequest := request.Operation != nil && request.OperationBinding == BackgroundOperationReuseActive
+		if !hasConcreteOperation && !hasReusableOperationRequest {
+			return BackgroundTask{}, false, fmt.Errorf("pending-equivalent background task coalescing requires a concrete operation or reusable operation request")
 		}
 		if request.InputKey == "" {
 			return BackgroundTask{}, false, fmt.Errorf("pending-equivalent background task coalescing requires an input key")
@@ -325,16 +345,26 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 			return BackgroundTask{}, false, fmt.Errorf("postponing a pending equivalent task requires an availability time")
 		}
 	}
+
+	coalescePendingEquivalent := request.CoalescePendingEquivalent
+	postponePendingEquivalent := request.PostponePendingEquivalent
 	if request.Operation == nil {
 		if request.OperationBinding != BackgroundOperationCreateNew {
 			return BackgroundTask{}, false, fmt.Errorf("background operation binding requires an operation request")
+		}
+		if coalescePendingEquivalent {
+			existing, found, err := c.coalescePendingBackgroundTask(q, request, postponePendingEquivalent)
+			if err != nil {
+				return BackgroundTask{}, false, err
+			}
+			if found {
+				return existing, false, nil
+			}
 		}
 	} else {
 		if request.OperationID != "" {
 			return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
 		}
-		coalescePendingEquivalent := request.CoalescePendingEquivalent
-		postponePendingEquivalent := request.PostponePendingEquivalent
 		operationRequest := *request.Operation
 		request.Operation = nil
 
@@ -365,21 +395,12 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 			return BackgroundTask{}, false, err
 		}
 		if coalescePendingEquivalent {
-			existing, found, err := c.store.FindPendingBackgroundTask(q, request.OperationID, request.Kind, request.SubjectKind, request.SubjectID, request.InputKey, request.ResourceClass)
+			existing, found, err := c.coalescePendingBackgroundTask(q, request, postponePendingEquivalent)
 			if err != nil {
-				return BackgroundTask{}, false, fmt.Errorf("find pending equivalent background task: %w", err)
+				return BackgroundTask{}, false, err
 			}
 			if found {
-				if postponePendingEquivalent && request.AvailableAt.After(existing.AvailableAt) {
-					postponed, err := c.store.PostponePendingBackgroundTask(q, existing.ID, request.AvailableAt)
-					if err != nil {
-						return BackgroundTask{}, false, fmt.Errorf("postpone pending equivalent background task: %w", err)
-					}
-					if postponed {
-						existing.AvailableAt = request.AvailableAt.UTC()
-					}
-				}
-				return backgroundTaskFromDatabase(existing), false, nil
+				return existing, false, nil
 			}
 		}
 	}
@@ -389,6 +410,26 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		return BackgroundTask{}, false, err
 	}
 	return enqueueDatabaseBackgroundTask(c, q, id, request)
+}
+
+func (c *Client) coalescePendingBackgroundTask(q databaseQuerier, request BackgroundTaskRequest, postpone bool) (BackgroundTask, bool, error) {
+	existing, found, err := c.store.FindPendingBackgroundTask(q, request.OperationID, request.Kind, request.SubjectKind, request.SubjectID, request.InputKey, request.ResourceClass)
+	if err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("find pending equivalent background task: %w", err)
+	}
+	if !found {
+		return BackgroundTask{}, false, nil
+	}
+	if postpone && request.AvailableAt.After(existing.AvailableAt) {
+		postponed, err := c.store.PostponePendingBackgroundTask(q, existing.ID, request.AvailableAt)
+		if err != nil {
+			return BackgroundTask{}, false, fmt.Errorf("postpone pending equivalent background task: %w", err)
+		}
+		if postponed {
+			existing.AvailableAt = request.AvailableAt.UTC()
+		}
+	}
+	return backgroundTaskFromDatabase(existing), true, nil
 }
 
 // CancelBackgroundTask durably cancels one pending/running task. This is the

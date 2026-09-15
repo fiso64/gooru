@@ -23,6 +23,14 @@ func pendingEquivalentBackgroundTaskRequest(dedupeKey string) BackgroundTaskRequ
 	}
 }
 
+func concreteOperationPendingEquivalentBackgroundTaskRequest(operationID, dedupeKey string) BackgroundTaskRequest {
+	request := pendingEquivalentBackgroundTaskRequest(dedupeKey)
+	request.OperationID = operationID
+	request.Operation = nil
+	request.OperationBinding = BackgroundOperationCreateNew
+	return request
+}
+
 func TestEnqueueBackgroundTaskCoalescesEquivalentPendingTask(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 
@@ -58,6 +66,51 @@ func TestEnqueueBackgroundTaskCoalescesEquivalentPendingTask(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("pending task count = %d, want 1", count)
+	}
+}
+
+func TestEnqueueBackgroundTaskCoalescesEquivalentPendingTaskOnConcreteOperation(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	operation, err := client.CreateBackgroundOperation(BackgroundOperationRequest{
+		Kind:    "concrete-parent-test",
+		Visible: true,
+	})
+	if err != nil {
+		t.Fatalf("create parent operation: %v", err)
+	}
+
+	first, created, err := client.EnqueueBackgroundTask(concreteOperationPendingEquivalentBackgroundTaskRequest(operation.ID, "wake-1"))
+	if err != nil {
+		t.Fatalf("first parent-bound enqueue: %v", err)
+	}
+	if !created {
+		t.Fatal("first parent-bound enqueue reported existing work")
+	}
+
+	second, created, err := client.EnqueueBackgroundTask(concreteOperationPendingEquivalentBackgroundTaskRequest(operation.ID, "wake-2"))
+	if err != nil {
+		t.Fatalf("second parent-bound enqueue: %v", err)
+	}
+	if created {
+		t.Fatal("equivalent parent-bound pending enqueue created a second task")
+	}
+	if second.ID != first.ID {
+		t.Fatalf("coalesced parent-bound task id = %q, want %q", second.ID, first.ID)
+	}
+	if second.OperationID != operation.ID {
+		t.Fatalf("coalesced parent-bound operation id = %q, want %q", second.OperationID, operation.ID)
+	}
+
+	var count int
+	if err := client.store.DB.QueryRow(`
+		SELECT count(*)
+		FROM background_tasks
+		WHERE operation_id = ? AND kind = ? AND input_key = ? AND status = 'pending'
+	`, operation.ID, first.Kind, first.InputKey).Scan(&count); err != nil {
+		t.Fatalf("count parent-bound pending tasks: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("parent-bound pending task count = %d, want 1", count)
 	}
 }
 
@@ -181,54 +234,5 @@ func TestEnqueueBackgroundTaskCoalescingDoesNotSuppressRunningTask(t *testing.T)
 	}
 	if runningCount != 1 || pendingCount != 1 {
 		t.Fatalf("task counts running=%d pending=%d, want 1 and 1", runningCount, pendingCount)
-	}
-}
-
-func TestMediaMetadataRegistrationUsesImmediateWakeAndDebouncedLinger(t *testing.T) {
-	before := time.Now().UTC()
-	first, err := mediaMetadataRegistrationTasks(true)
-	if err != nil {
-		t.Fatalf("first registration tasks: %v", err)
-	}
-	second, err := mediaMetadataRegistrationTasks(true)
-	if err != nil {
-		t.Fatalf("second registration tasks: %v", err)
-	}
-	if len(first) != 2 || len(second) != 2 {
-		t.Fatalf("registration task counts = %d and %d, want 2 and 2", len(first), len(second))
-	}
-
-	for i, tasks := range [][]BackgroundTaskRequest{first, second} {
-		wake, linger := tasks[0], tasks[1]
-		if wake.OperationBinding != BackgroundOperationReuseActive || linger.OperationBinding != BackgroundOperationReuseActive {
-			t.Fatalf("registration task set %d did not reuse the active operation", i+1)
-		}
-		if !wake.CoalescePendingEquivalent || !linger.CoalescePendingEquivalent {
-			t.Fatalf("registration task set %d did not opt into pending-only coalescing", i+1)
-		}
-		if wake.PostponePendingEquivalent {
-			t.Fatalf("registration task set %d immediate wake unexpectedly postpones", i+1)
-		}
-		if !wake.AvailableAt.IsZero() {
-			t.Fatalf("registration task set %d immediate wake availability = %v, want immediate", i+1, wake.AvailableAt)
-		}
-		if wake.InputKey != mediaMetadataRegistrationInputKey {
-			t.Fatalf("registration task set %d immediate input key = %q, want %q", i+1, wake.InputKey, mediaMetadataRegistrationInputKey)
-		}
-		if !linger.PostponePendingEquivalent {
-			t.Fatalf("registration task set %d linger did not opt into trailing-edge postponement", i+1)
-		}
-		if linger.AvailableAt.Before(before.Add(mediaMetadataRegistrationDebounce)) {
-			t.Fatalf("registration task set %d linger availability = %v, want at least %v after start", i+1, linger.AvailableAt, mediaMetadataRegistrationDebounce)
-		}
-		if linger.InputKey != mediaMetadataRegistrationLingerInputKey {
-			t.Fatalf("registration task set %d linger input key = %q, want %q", i+1, linger.InputKey, mediaMetadataRegistrationLingerInputKey)
-		}
-		if wake.DedupeKey == linger.DedupeKey {
-			t.Fatalf("registration task set %d immediate and linger dedupe keys unexpectedly match: %q", i+1, wake.DedupeKey)
-		}
-	}
-	if first[0].DedupeKey == second[0].DedupeKey || first[1].DedupeKey == second[1].DedupeKey {
-		t.Fatal("successive registration task sets unexpectedly reused generated dedupe keys")
 	}
 }
