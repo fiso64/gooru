@@ -52,7 +52,12 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 	}
 	defer tx.Rollback()
 
+	registrationHashes := []string(nil)
 	if len(hashes) > 0 {
+		registrationHashes, err = fileRegistrationHashesForLocationUpserts(tx, locations)
+		if err != nil {
+			return result, fmt.Errorf("classify file registration changes: %w", err)
+		}
 		if err := c.store.BatchInsertContents(tx, hashes); err != nil {
 			return result, fmt.Errorf("failed to batch insert contents: %w", err)
 		}
@@ -82,7 +87,7 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 		}
 	}
 
-	hookTasks, err := c.fileRegistrationBackgroundTasksForOperation(hashes, operationID)
+	hookTasks, err := c.fileRegistrationBackgroundTasksForChangedLocations(registrationHashes, operationID)
 	if err != nil {
 		return result, fmt.Errorf("build file registration background tasks: %w", err)
 	}

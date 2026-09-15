@@ -658,7 +658,12 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 		}
 	}
 
-	// 2. Batch upsert contents and locations.
+	// 2. Classify real location registrations before the upsert changes
+	// the transaction state, then persist contents and locations.
+	registrationHashes, err := fileRegistrationHashesForLocationUpserts(tx, analysis.locationsToUpsert)
+	if err != nil {
+		return 0, nil, fmt.Errorf("classify file registration changes: %w", err)
+	}
 	if err := c.store.BatchInsertContents(tx, analysis.allHashes); err != nil {
 		return 0, nil, fmt.Errorf("failed to batch insert contents: %w", err)
 	}
@@ -674,7 +679,7 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 
 	// 4. Build registration-hook work and persist it together with any caller-owned
 	// durable follow-up work in the same transaction as content registration.
-	hookTasks, err := c.fileRegistrationBackgroundTasks(analysis.allHashes)
+	hookTasks, err := c.fileRegistrationBackgroundTasksForChangedLocations(registrationHashes, "")
 	if err != nil {
 		return 0, nil, fmt.Errorf("build file registration background tasks: %w", err)
 	}
