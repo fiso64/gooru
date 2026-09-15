@@ -124,7 +124,12 @@
         <h1>Background work</h1>
         <div class="jobs-page-actions">
           <details class="maintenance-menu" bind:open={maintenanceMenuOpen}>
-            <summary class="g-btn g-btn-sm">Run job</summary>
+            <summary
+              class="g-btn g-btn-sm"
+              role="button"
+              aria-haspopup="menu"
+              aria-expanded={maintenanceMenuOpen}
+            >Run job</summary>
             <div class="maintenance-menu-popover" aria-label="Runnable maintenance jobs">
               {#if maintenanceLoading}
                 <div class="maintenance-menu-empty">Loading…</div>
