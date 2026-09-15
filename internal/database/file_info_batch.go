@@ -29,6 +29,10 @@ func (s *Store) getFileInfosByColumn(values []string, column string) ([]types.Fi
 	default:
 		return nil, fmt.Errorf("unsupported file-info batch column %q", column)
 	}
+	orderBy := ""
+	if column == "l.content_hash" {
+		orderBy = " ORDER BY l.content_hash, l.path, l.id"
+	}
 
 	files := make([]types.FileInfo, 0, len(values))
 	for start := 0; start < len(values); start += maxVars {
@@ -41,8 +45,7 @@ func (s *Store) getFileInfosByColumn(values []string, column string) ([]types.Fi
 			FROM locations l
 			LEFT JOIN media_metadata mm ON mm.location_id = l.id
 			LEFT JOIN managed_storage_locations msl ON msl.location_id = l.id
-			WHERE ` + column + ` IN (` + placeholders + `)
-			ORDER BY l.content_hash, l.path, l.id`
+			WHERE ` + column + ` IN (` + placeholders + `)` + orderBy
 
 		rows, err := s.Query(query, args...)
 		if err != nil {
