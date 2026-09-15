@@ -124,6 +124,7 @@ func (s *Server) Handler() http.Handler {
 	h = requestSizeMiddleware(s.cfg.Server.MaxRequestBodyBytes, h)
 	h = corsMiddleware(s.cfg.Server.CORSOrigins, h)
 	h = requestLoggingMiddleware(h)
+	h = requestWriteTimeoutMiddleware(s.cfg.Server.WriteTimeout, h)
 	h = requestReadTimeoutMiddleware(s.cfg.Server.ReadTimeout, h)
 	return h
 }
