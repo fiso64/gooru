@@ -276,22 +276,18 @@ func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPo
 	if err != nil {
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
-	if replace {
-		if err := applyUploadedSourceModTime(stagedPath, file.sourceModTime, preserveModTime); err != nil {
-			_ = os.Remove(stagedPath)
-			return savedUpload{}, uploadFileError{name: file.name, err: err}
-		}
-		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true, sourceModTime: file.sourceModTime}, nil
-	}
-	if err := commitUploadDestination(stagedPath, path); err != nil {
+	if err := applyUploadedSourceModTime(stagedPath, file.sourceModTime, preserveModTime); err != nil {
 		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
-	if err := applyUploadedSourceModTime(path, file.sourceModTime, preserveModTime); err != nil {
-		_ = os.Remove(path)
+	if replace {
+		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true, sourceModTime: file.sourceModTime}, nil
+	}
+	if err := commitUploadDestinationWithOwnership(stagedPath, path); err != nil {
+		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
-	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime}, nil
+	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, ownershipPath: stagedPath}, nil
 }
 
 func parseUploadOrdinal(values []string, index int, fallback int) int {

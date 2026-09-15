@@ -47,6 +47,7 @@ type StagedUpload struct {
 	SourceModTime  time.Time
 	AddedAt        time.Time
 	ConflictPolicy string
+	OwnershipPath  string
 }
 
 type UploadTargetsResponse struct {
@@ -115,6 +116,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeMultipartUploadError(w, err)
 		return
 	}
+	defer releaseSavedUploadOwnership(saved)
 	if err := query.ValidateTags(tags); err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
@@ -188,6 +190,7 @@ type savedUpload struct {
 	sourceModTime   time.Time
 	addedAt         time.Time
 	conflictPolicy  string
+	ownershipPath   string
 }
 
 var (
@@ -325,7 +328,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			})
 			continue
 		}
-		if err := commitUploadDestination(tmpPath, path); err != nil {
+		if err := commitUploadDestinationWithOwnership(tmpPath, path); err != nil {
 			_ = os.Remove(tmpPath)
 			if len(files) > 1 && errors.Is(err, errUploadConflict) {
 				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: err.Error()})
@@ -334,7 +337,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
 		}
-		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: size, targetID: target.ID})
+		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: size, targetID: target.ID, ownershipPath: tmpPath})
 	}
 	return saved, nil
 }
@@ -344,7 +347,28 @@ func removeSavedUploads(files []savedUpload) {
 		if file.status == "skipped" || file.status == "error" {
 			continue
 		}
-		_ = os.Remove(file.path)
+		if file.replace {
+			_ = os.Remove(file.path)
+			continue
+		}
+		if file.ownershipPath == "" {
+			continue
+		}
+		ownedFileInfo, err := os.Stat(file.ownershipPath)
+		if err == nil {
+			if currentFileInfo, statErr := os.Stat(file.path); statErr == nil && os.SameFile(ownedFileInfo, currentFileInfo) {
+				_ = os.Remove(file.path)
+			}
+		}
+		_ = os.Remove(file.ownershipPath)
+	}
+}
+
+func releaseSavedUploadOwnership(files []savedUpload) {
+	for _, file := range files {
+		if file.ownershipPath != "" {
+			_ = os.Remove(file.ownershipPath)
+		}
 	}
 }
 
@@ -454,14 +478,21 @@ func createUploadDestination(dir string, name string, conflictPolicy string) (*o
 }
 
 func commitUploadDestination(tmpPath string, finalPath string) error {
+	if err := commitUploadDestinationWithOwnership(tmpPath, finalPath); err != nil {
+		return err
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		_ = os.Remove(finalPath)
+		return fmt.Errorf("failed to store uploaded file")
+	}
+	return nil
+}
+
+func commitUploadDestinationWithOwnership(tmpPath string, finalPath string) error {
 	if err := os.Link(tmpPath, finalPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return errUploadConflict
 		}
-		return fmt.Errorf("failed to store uploaded file")
-	}
-	if err := os.Remove(tmpPath); err != nil {
-		_ = os.Remove(finalPath)
 		return fmt.Errorf("failed to store uploaded file")
 	}
 	return nil
@@ -643,7 +674,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, OwnershipPath: file.ownershipPath})
 	}
 	return out
 }
@@ -678,6 +709,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	importLocations := make([]types.LocationInfo, 0, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
+	ownershipPathByDestination := make(map[string]string, len(files))
 	opaqueStorageByLogical := make(map[string]protectedUploadMove, len(files))
 	analyses, analysisErr := l.analyzeUploadedFiles(ctx, files, func(completed, completedPrefix int) error {
 		if (state.operationID == "" && state.taskID == "") || !shouldPersistUploadProgress(completed, len(files)) {
@@ -757,6 +789,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 		response.Files = append(response.Files, dto)
 		responseIndexByPath[file.Path] = len(response.Files) - 1
 		analysisPathByDestination[file.Path] = analysisPath
+		ownershipPathByDestination[file.Path] = file.OwnershipPath
 		addedAt := int64(0)
 		if !file.AddedAt.IsZero() {
 			addedAt = file.AddedAt.Unix()
@@ -814,9 +847,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 			response.Files[i].Status = "error"
 			response.Files[i].Error = message
 			if moved, ok := opaqueStorageByLogical[path]; ok {
-				_ = os.Remove(moved.storagePath)
+				removeStagedUploadPath(moved.storagePath, ownershipPathByDestination[path])
 			} else {
-				_ = os.Remove(path)
+				removeStagedUploadPath(path, ownershipPathByDestination[path])
 			}
 		}
 	}
@@ -861,10 +894,29 @@ func (l *GooruLibrary) resolveProtectedUploadRename(path string) (string, error)
 }
 
 func removeRejectedStagedUpload(file StagedUpload) {
-	_ = os.Remove(file.Path)
+	removeStagedUploadPath(file.Path, file.OwnershipPath)
 	if file.AnalysisPath != "" && file.AnalysisPath != file.Path {
-		_ = os.Remove(file.AnalysisPath)
+		removeStagedUploadPath(file.AnalysisPath, file.OwnershipPath)
 	}
+}
+
+func removeStagedUploadPath(path, ownershipPath string) {
+	if path == "" {
+		return
+	}
+	if ownershipPath == "" {
+		_ = os.Remove(path)
+		return
+	}
+	ownedInfo, err := os.Stat(ownershipPath)
+	if err != nil {
+		return
+	}
+	currentInfo, err := os.Stat(path)
+	if err != nil || !os.SameFile(ownedInfo, currentInfo) {
+		return
+	}
+	_ = os.Remove(path)
 }
 
 func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []types.LocationInfo, analysisPaths map[string]string) {
