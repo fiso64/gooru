@@ -100,6 +100,44 @@ func TestEnqueueBackgroundTaskCanPostponeEquivalentPendingTask(t *testing.T) {
 	}
 }
 
+func TestEnqueueBackgroundTaskPostponeDoesNotMovePendingTaskEarlier(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	firstAvailableAt := time.Now().UTC().Add(2 * time.Minute)
+	firstRequest := pendingEquivalentBackgroundTaskRequest("wake-1")
+	firstRequest.PostponePendingEquivalent = true
+	firstRequest.AvailableAt = firstAvailableAt
+
+	first, created, err := client.EnqueueBackgroundTask(firstRequest)
+	if err != nil {
+		t.Fatalf("first enqueue: %v", err)
+	}
+	if !created {
+		t.Fatal("first enqueue reported existing work")
+	}
+
+	secondRequest := pendingEquivalentBackgroundTaskRequest("wake-2")
+	secondRequest.PostponePendingEquivalent = true
+	secondRequest.AvailableAt = firstAvailableAt.Add(-time.Minute)
+	second, created, err := client.EnqueueBackgroundTask(secondRequest)
+	if err != nil {
+		t.Fatalf("second enqueue: %v", err)
+	}
+	if created {
+		t.Fatal("equivalent pending enqueue created a second task")
+	}
+	if second.ID != first.ID {
+		t.Fatalf("coalesced task id = %q, want %q", second.ID, first.ID)
+	}
+
+	var availableAtMillis int64
+	if err := client.store.DB.QueryRow(`SELECT available_at FROM background_tasks WHERE id = ?`, first.ID).Scan(&availableAtMillis); err != nil {
+		t.Fatalf("read pending availability: %v", err)
+	}
+	if got, want := time.UnixMilli(availableAtMillis).UTC(), firstAvailableAt.Truncate(time.Millisecond); !got.Equal(want) {
+		t.Fatalf("pending availability = %v, want unchanged %v", got, want)
+	}
+}
+
 func TestEnqueueBackgroundTaskCoalescingDoesNotSuppressRunningTask(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 
