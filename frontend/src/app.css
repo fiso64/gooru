@@ -30,6 +30,82 @@
   pointer-events: auto;
 }
 
+/* UploadViewerDialog nests ViewerStage inside its own grid cell instead of using
+   ViewerStage as the grid item directly. Fill that wrapper so the stage's
+   absolutely-positioned media and pointer controls remain inside its hit box. */
+.gooru-root .upload-viewer-stage-wrap > .viewer-stage {
+  width: 100%;
+  height: 100%;
+}
+
+/* Queue-row tags should read as compact metadata instead of a second full form
+   control on every file. The editor expands visually only while it is in use. */
+.gooru-root .upload-item-tags.upload-tags-control {
+  min-height: 24px;
+  margin-top: 4px;
+  padding: 0;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  font-size: 10.5px;
+}
+
+.gooru-root .upload-item-tags.upload-tags-control:focus-within {
+  border-color: transparent;
+}
+
+.gooru-root .upload-item-tags .g-tag {
+  padding: 2px 6px;
+  border-color: color-mix(in srgb, var(--border) 72%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  font-size: 10.5px;
+}
+
+.gooru-root .upload-item-tags .tag-autocomplete {
+  flex: 0 1 104px;
+  max-width: 104px;
+  min-width: 64px;
+}
+
+.gooru-root .upload-item-tags .tag-autocomplete > input {
+  box-sizing: border-box;
+  height: 24px;
+  padding: 2px 7px;
+  border: 1px dashed var(--border) !important;
+  border-radius: var(--r-2);
+  background: transparent !important;
+  color: var(--text-2);
+  font-size: 10.5px;
+  transition: width 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.gooru-root .upload-item-tags .tag-autocomplete > input:hover,
+.gooru-root .upload-item-tags .tag-autocomplete > input:focus {
+  border-color: var(--accent-line) !important;
+  background: var(--surface) !important;
+}
+
+/* Suggestions on a row are an overlay, not batch-card content. Open upward so
+   the last item in a batch has room, and temporarily release the card clip while
+   the focused editor owns the popup. */
+.gooru-root .upload-item-tags .tag-autocomplete-list {
+  top: auto;
+  bottom: calc(100% + 6px);
+  width: min(320px, calc(100vw - 48px));
+  z-index: 1200;
+}
+
+.gooru-root .upload-list-card:has(.upload-item-tags input:focus) {
+  position: relative;
+  z-index: 20;
+  overflow: visible;
+}
+
+.gooru-root .upload-row:has(.upload-item-tags input:focus) {
+  position: relative;
+  z-index: 21;
+}
+
 .gooru-root .login-v2-foot-links a:hover {
   text-decoration: underline;
 }

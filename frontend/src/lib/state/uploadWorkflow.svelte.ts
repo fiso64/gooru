@@ -3,14 +3,20 @@ import {
   countUploadStatuses,
   itemsFromJob,
   itemsFromResult,
+  markUploadItemTagSyncAppliedInPlace,
+  markUploadItemTagSyncErrorInPlace,
   queuedItem,
+  rebaseUploadItemTagsFromRemoteInPlace,
   replaceUploadItemInPlace,
   retargetStagedUploadItems,
+  setUploadItemTagsInPlace,
   stagedUploadItems,
+  uploadItemTagSyncDelta,
   uploadProgressItem,
   uploadSummaryFromCounts,
   type UploadAddedAtStrategy,
   type UploadItem,
+  type UploadItemTagSyncOperation,
   type UploadItemStatus,
   type UploadStatusCounts
 } from './uploadItems';
@@ -20,6 +26,7 @@ import type { BackgroundOperation } from '$lib/api/operations';
 import { ApiError } from '$lib/api/client';
 import type { UploadVariables } from '$lib/queries/library';
 import { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
+import { createUploadStagedTagCounts } from './uploadStagedTagCounts';
 
 export { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 export const maxFilesPerMultipartUpload = 1000;
@@ -44,6 +51,34 @@ const doneUploadStatuses = new Set<UploadItemStatus>([
   'error',
   'canceled'
 ]);
+
+export interface UploadSubmissionSegment {
+  start: number;
+  end: number;
+}
+
+export function uploadSubmissionSegments(itemCount: number, maxFiles: number): UploadSubmissionSegment[] {
+  const count = Math.max(0, Math.trunc(itemCount));
+  if (!count) return [];
+  const limit = Math.max(1, Math.trunc(maxFiles));
+  const segments: UploadSubmissionSegment[] = [];
+  for (let start = 0; start < count; start += limit) {
+    segments.push({ start, end: Math.min(count, start + limit) });
+  }
+  return segments;
+}
+
+export function uploadQueueTimeBounds(queueTimes: number[]): { first: number; last: number } {
+  if (!queueTimes.length) return { first: 0, last: 0 };
+  let first = queueTimes[0]!;
+  let last = queueTimes[0]!;
+  for (let index = 1; index < queueTimes.length; index += 1) {
+    const value = queueTimes[index]!;
+    if (value < first) first = value;
+    if (value > last) last = value;
+  }
+  return { first, last };
+}
 
 export function perFileUploadProgress(files: File[], aggregateProgress: number): number[] {
   if (!files.length) return [];
@@ -77,6 +112,17 @@ export function createUploadWorkflow() {
   let trackedJobs = $state<Record<string, number[]>>({});
   let statusCounts: UploadStatusCounts = {};
   let nextBatchID = 0;
+  const stagedTagCounts = createUploadStagedTagCounts();
+  let stagedTagCandidates = $state(stagedTagCounts.candidates());
+
+  function refreshStagedTagCandidates() {
+    stagedTagCandidates = stagedTagCounts.candidates();
+  }
+
+  function clearStagedTagCandidates() {
+    stagedTagCounts.clear();
+    stagedTagCandidates = [];
+  }
 
   $effect(() => {
     if (activeSubmissions <= 0) return;
@@ -106,6 +152,7 @@ export function createUploadWorkflow() {
     trackedJobs = {};
     statusCounts = {};
     nextBatchID = 0;
+    clearStagedTagCandidates();
   }
 
   function clear(scope: UploadClearScope = 'all') {
@@ -114,6 +161,7 @@ export function createUploadWorkflow() {
       items = [];
       status = '';
       statusCounts = {};
+      clearStagedTagCandidates();
       return;
     }
     if (scope === 'done' && (activeSubmissions > 0 || hasActiveJobs())) return;
@@ -121,22 +169,55 @@ export function createUploadWorkflow() {
     if (scope === 'staged') {
       files = [];
       items = items.filter((item) => item.status !== 'staged');
+      clearStagedTagCandidates();
     } else {
-      items = items.filter((item) => !doneUploadStatuses.has(item.status));
+      items = items.filter((item) => !doneUploadStatuses.has(item.status) || item.tagSyncPending);
     }
     statusCounts = countUploadStatuses(items);
     status = items.some((item) => item.status !== 'staged') ? uploadSummaryFromCounts(statusCounts) : '';
   }
 
   function removeAt(index: number) {
+    const removedItem = items[index];
+    if (removedItem?.status === 'staged') {
+      stagedTagCounts.remove(removedItem.tags ?? []);
+      refreshStagedTagCandidates();
+    }
     const stagedIndices = items.flatMap((item, itemIndex) => item.status === 'staged' ? [itemIndex] : []);
     const stagedFileIndex = stagedIndices.indexOf(index);
     if (stagedFileIndex >= 0) {
       files = files.filter((_, fileIndex) => fileIndex !== stagedFileIndex);
     }
     items = items.filter((_, itemIndex) => itemIndex !== index);
-    status = '';
     statusCounts = countUploadStatuses(items);
+    status = items.some((item) => item.status !== 'staged') ? uploadSummaryFromCounts(statusCounts) : '';
+  }
+
+  function setItemTags(index: number, nextTags: string[]) {
+    const current = items[index];
+    const previousStagedTags = current?.status === 'staged' ? [...(current.tags ?? [])] : undefined;
+    setUploadItemTagsInPlace(items, index, nextTags);
+    if (previousStagedTags && current) {
+      stagedTagCounts.replace(previousStagedTags, current.tags ?? []);
+      refreshStagedTagCandidates();
+    }
+  }
+
+  function itemTagSyncDelta(index: number) {
+    const current = items[index];
+    return current ? uploadItemTagSyncDelta(current) : { add: [], remove: [] };
+  }
+
+  function markItemTagSyncApplied(index: number, operation: UploadItemTagSyncOperation, tags: string[]) {
+    markUploadItemTagSyncAppliedInPlace(items, index, operation, tags);
+  }
+
+  function rebaseItemTagsFromRemote(index: number, remoteTags: string[], expectedBaseTags: string[] | undefined) {
+    return rebaseUploadItemTagsFromRemoteInPlace(items, index, remoteTags, expectedBaseTags);
+  }
+
+  function markItemTagSyncError(index: number, message: string) {
+    markUploadItemTagSyncErrorInPlace(items, index, message);
   }
 
   function hasActiveJobs() {
@@ -160,8 +241,11 @@ export function createUploadWorkflow() {
     if (!additions.length) return;
 
     const queueTimeMs = Date.now();
+    const stagedAdditions = stagedUploadItems(additions, targetID, queueTimeMs, parseTags(tags));
     files = [...files, ...additions];
-    items = [...items, ...stagedUploadItems(additions, targetID, queueTimeMs)];
+    items = [...items, ...stagedAdditions];
+    for (const item of stagedAdditions) stagedTagCounts.add(item.tags ?? []);
+    refreshStagedTagCandidates();
     statusCounts = countUploadStatuses(items);
     status = '';
     if (autoUpload) {
@@ -257,61 +341,85 @@ export function createUploadWorkflow() {
     if (!files.length) return { queued: false, changedFiles: false };
 
     const batchFiles = [...files];
-    if (!items.length) items = stagedUploadItems(batchFiles, targetID);
+    if (!items.length) items = stagedUploadItems(batchFiles, targetID, Date.now(), parseTags(tags));
     const batchItemIndices = items.flatMap((item, itemIndex) => item.status === 'staged' ? [itemIndex] : []);
     if (batchItemIndices.length !== batchFiles.length) {
       status = 'Upload queue changed unexpectedly; please restage the pending files';
       return { queued: false, changedFiles: false };
     }
 
+    const parsedTags = parseTags(tags);
+    const segments = uploadSubmissionSegments(batchItemIndices.length, multipartUploadChunkSize());
+    const submittedItemTags = batchItemIndices.map((itemIndex) => [
+      ...(items[itemIndex]?.tags ?? parsedTags)
+    ]);
     const batchID = ++nextBatchID;
     const nextItems = [...items];
-    for (const itemIndex of batchItemIndices) {
+    for (const [submissionIndex, itemIndex] of batchItemIndices.entries()) {
       const current = nextItems[itemIndex];
-      if (current) nextItems[itemIndex] = { ...current, batchID, status: 'uploading', progress: 0, error: '' };
+      if (current) {
+        const submittedTags = submittedItemTags[submissionIndex] ?? parsedTags;
+        const syncBaseItem: UploadItem = {
+          ...current,
+          tags: [...(current.tags ?? parsedTags)],
+          tagSyncBaseTags: [...submittedTags]
+        };
+        const syncDelta = uploadItemTagSyncDelta(syncBaseItem);
+        nextItems[itemIndex] = {
+          ...syncBaseItem,
+          batchID,
+          tagSyncPending: syncDelta.add.length > 0 || syncDelta.remove.length > 0,
+          tagSyncError: '',
+          status: 'uploading',
+          progress: 0,
+          error: ''
+        };
+      }
     }
     items = nextItems;
     files = [];
+    clearStagedTagCandidates();
     const controller = new AbortController();
     activeSubmissionControllers.add(controller);
     activeSubmissions += 1;
     statusCounts = countUploadStatuses(items);
 
-    const parsedTags = parseTags(tags);
     const batchTargetID = targetID;
     const batchConflictPolicy = conflictPolicy;
     const batchAddedAtStrategy = addedAtStrategy;
     const fallbackQueueTimeMs = Date.now();
     const batchQueueTimes = batchItemIndices.map((itemIndex) => items[itemIndex]?.queueTimeMs ?? fallbackQueueTimeMs);
-    const batchQueueFirstTimeMs = Math.min(...batchQueueTimes);
-    const batchQueueLastTimeMs = Math.max(...batchQueueTimes);
+    const batchQueueTimeBounds = uploadQueueTimeBounds(batchQueueTimes);
+    const batchQueueFirstTimeMs = batchQueueTimeBounds.first;
+    const batchQueueLastTimeMs = batchQueueTimeBounds.last;
     const batchQueueTotal = batchFiles.length;
     let queued = false;
     let changedFiles = false;
     let currentChunkStart = 0;
-    const chunkSize = multipartUploadChunkSize();
-    const segmentCount = Math.ceil(batchFiles.length / chunkSize);
+    const segmentCount = segments.length;
     let logicalOperationID = '';
 
     refreshStatus();
 
     try {
-      for (currentChunkStart = 0; currentChunkStart < batchFiles.length; currentChunkStart += chunkSize) {
+      for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+        const segment = segments[segmentIndex];
+        currentChunkStart = segment.start;
         if (controller.signal.aborted || cancelPending) {
           throw new ApiError(0, 'request_aborted', 'Upload was canceled');
         }
-        const chunkEnd = Math.min(batchFiles.length, currentChunkStart + chunkSize);
+        const chunkEnd = segment.end;
         const chunkFiles = batchFiles.slice(currentChunkStart, chunkEnd);
         const chunkItemIndices = batchItemIndices.slice(currentChunkStart, chunkEnd);
         const chunkQueueTimes = batchQueueTimes.slice(currentChunkStart, chunkEnd);
         const chunkQueueIndices = chunkFiles.map((_, index) => currentChunkStart + index);
         const chunkQueueTotals = chunkFiles.map(() => batchQueueTotal);
-        const segmentIndex = Math.floor(currentChunkStart / chunkSize);
         let lastTransportProgress = -1;
 
         const response = await mutate({
           files: chunkFiles,
           tags: parsedTags,
+          itemTags: submittedItemTags.slice(currentChunkStart, chunkEnd).map((itemTags) => [...itemTags]),
           preferAsync: true,
           targetID: batchTargetID,
           conflictPolicy: batchConflictPolicy,
@@ -433,6 +541,7 @@ export function createUploadWorkflow() {
     get items() { return items; },
     get tags() { return tags; },
     set tags(value: string) { tags = value; },
+    get stagedTagCandidates() { return stagedTagCandidates; },
     get targetID() { return targetID; },
     get conflictPolicy() { return conflictPolicy; },
     set conflictPolicy(value: string) { conflictPolicy = value; },
@@ -448,6 +557,11 @@ export function createUploadWorkflow() {
     reset,
     clear,
     removeAt,
+    setItemTags,
+    itemTagSyncDelta,
+    markItemTagSyncApplied,
+    rebaseItemTagsFromRemote,
+    markItemTagSyncError,
     select,
     setTarget,
     applyJob,

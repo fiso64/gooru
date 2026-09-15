@@ -91,6 +91,7 @@ export function createSavedSearchDeleteMutation(getCSRFToken: () => string, quer
 export interface UploadVariables {
   files: File[];
   tags: string[];
+  itemTags?: string[][];
   preferAsync: boolean;
   targetID: string;
   conflictPolicy: string;
@@ -109,11 +110,12 @@ export interface UploadVariables {
 
 export function createUploadMutation(getCSRFToken: () => string) {
   return createMutation<BackgroundOperation | UploadImportResponse, Error, UploadVariables>(() => ({
-    mutationFn: ({ files, tags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, operationID, segmentIndex, segmentCount, onProgress, signal }) => {
+    mutationFn: ({ files, tags, itemTags, preferAsync, targetID, conflictPolicy, addedAtStrategy, queueTimeMs, queueFirstTimeMs, queueLastTimeMs, queueIndex, queueTotal, operationID, segmentIndex, segmentCount, onProgress, signal }) => {
       if (preferAsync && segmentCount !== undefined && segmentCount > 1 && segmentIndex !== undefined) {
         return uploadSegmentedFiles(getCSRFToken(), {
           files,
           tags,
+          itemTags,
           targetID,
           conflictPolicy,
           addedAtStrategy,
@@ -136,6 +138,7 @@ export function createUploadMutation(getCSRFToken: () => string) {
         queueLastTimeMs,
         queueIndex,
         queueTotal,
+        itemTags,
         signal
       });
     }

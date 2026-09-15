@@ -1,9 +1,12 @@
 package database
 
 import (
+	"bytes"
 	"database/sql"
+	"fmt"
 	"io"
 	"log"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +71,48 @@ func TestBatchGetQueryTagCountsUsesNamespaceSummary(t *testing.T) {
 	}
 	if got, ok := counts["missing"]; !ok || got != 0 {
 		t.Fatalf("missing count = %d, present=%v, want explicit zero", got, ok)
+	}
+}
+
+func TestBatchGetQueryTagCountsRespectsVariableLimit(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := RunMigrations(db); err != nil {
+		t.Fatal(err)
+	}
+
+	var queryLog bytes.Buffer
+	store := &Store{DB: db, logger: log.New(&queryLog, "", 0)}
+	tags := make([]string, 0, maxVars/2+1+maxVars+1)
+	for i := 0; i < maxVars/2+1; i++ {
+		tags = append(tags, fmt.Sprintf("exact%d:value", i))
+	}
+	for i := 0; i < maxVars+1; i++ {
+		tags = append(tags, fmt.Sprintf("key%d", i))
+	}
+
+	counts, err := store.BatchGetQueryTagCounts(tags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(counts) != len(tags) {
+		t.Fatalf("count entries = %d, want %d", len(counts), len(tags))
+	}
+
+	logged := queryLog.String()
+	if got := strings.Count(logged, "-- ARGS: 900 bound values redacted"); got != 2 {
+		t.Fatalf("900-bind query count = %d, want 2; log:\n%s", got, logged)
+	}
+	if !strings.Contains(logged, "-- ARGS: 2 bound values redacted") {
+		t.Fatalf("missing 2-bind exact-tag remainder query; log:\n%s", logged)
+	}
+	if !strings.Contains(logged, "-- ARGS: 1 bound values redacted") {
+		t.Fatalf("missing 1-bind key remainder query; log:\n%s", logged)
+	}
+	if strings.Contains(logged, "-- ARGS: 902 bound values redacted") || strings.Contains(logged, "-- ARGS: 901 bound values redacted") {
+		t.Fatalf("query exceeded maxVars; log:\n%s", logged)
 	}
 }

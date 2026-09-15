@@ -377,7 +377,7 @@ func (s *Store) GetTagsForContent(hash string) ([]string, error) {
 			tags = append(tags, key+":"+value)
 		}
 	}
-	return tags, nil
+	return tags, rows.Err()
 }
 
 // ListAllFiles retrieves all file paths from the database.
@@ -396,7 +396,7 @@ func (s *Store) ListAllFiles() ([]string, error) {
 		}
 		paths = append(paths, path)
 	}
-	return paths, nil
+	return paths, rows.Err()
 }
 
 // CountAllFiles counts all location records in the database.
@@ -423,7 +423,7 @@ func (s *Store) GetHashToTagsCacheMap() (map[string]string, error) {
 		}
 		cacheMap[hash] = cache
 	}
-	return cacheMap, nil
+	return cacheMap, rows.Err()
 }
 
 // ListFilesByTag retrieves all file paths for a given tag.
@@ -447,7 +447,7 @@ func (s *Store) ListFilesByTag(key, value string) ([]string, error) {
 		}
 		paths = append(paths, path)
 	}
-	return paths, nil
+	return paths, rows.Err()
 }
 
 // GetAllContentHashes retrieves a set of all known content hashes for fast lookups.
@@ -466,7 +466,7 @@ func (s *Store) GetAllContentHashes() (map[string]struct{}, error) {
 		}
 		hashes[hash] = struct{}{}
 	}
-	return hashes, nil
+	return hashes, rows.Err()
 }
 
 type sizeToHashesRows interface {
@@ -776,7 +776,7 @@ func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag, notTags []types.Parse
 		}
 		paths = append(paths, path)
 	}
-	return paths, nil
+	return paths, rows.Err()
 }
 
 // GetAllFilesInfo retrieves detailed info for all files from the database using the cache.
@@ -889,7 +889,7 @@ func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 		file.Tags = splitTags(tagsCache)
 		files = append(files, file)
 	}
-	return files, nil
+	return files, rows.Err()
 }
 
 // GetFilesInfoByTagsAnd retrieves info for all files matching all `tags` but none of the `notTags`.
@@ -964,7 +964,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 		file.Tags = splitTags(tagsCache)
 		files = append(files, file)
 	}
-	return files, nil
+	return files, rows.Err()
 }
 
 // GetAllTags retrieves all unique tags from the database.
@@ -1005,7 +1005,7 @@ func (s *Store) GetTags(limit int) ([]string, error) {
 			tags = append(tags, key+":"+value)
 		}
 	}
-	return tags, nil
+	return tags, rows.Err()
 }
 
 // GetAllTagsWithCounts retrieves all tags and their usage counts, sorted by count descending.
@@ -1048,7 +1048,7 @@ func (s *Store) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
 		}
 		tags = append(tags, item)
 	}
-	return tags, nil
+	return tags, rows.Err()
 }
 
 func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
@@ -1562,7 +1562,11 @@ func (s *Store) BatchFindContentHashesByPaths(paths []string) (map[string]string
 			}
 			pathMap[path] = hash
 		}
+		err = rows.Err()
 		rows.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
 	return pathMap, nil
 }
@@ -1604,7 +1608,11 @@ func (s *Store) BatchGetLocationsByPaths(paths []string) (map[string]types.Locat
 			loc.Path = path
 			locationMap[path] = loc
 		}
+		err = rows.Err()
 		rows.Close()
+		if err != nil {
+			return nil, err
+		}
 	}
 	return locationMap, nil
 }

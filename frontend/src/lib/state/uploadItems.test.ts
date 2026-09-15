@@ -4,7 +4,15 @@ import {
   countUploadStatuses,
   effectiveUploadTargetID,
   itemsFromJob,
+  itemsFromResult,
+  markUploadItemTagSyncAppliedInPlace,
+  markUploadItemTagSyncErrorInPlace,
+  rebaseUploadItemTagsFromRemoteInPlace,
   replaceUploadItemInPlace,
+  retargetStagedUploadItems,
+  setUploadItemTagsInPlace,
+  stagedUploadItems,
+  uploadItemTagSyncDelta,
   uploadProgressItem,
   uploadSummaryFromCounts,
   type UploadItem
@@ -25,6 +33,10 @@ function queueItem(index: number): UploadItem {
   };
 }
 
+function uploadFile(name: string): File {
+  return { name, size: 10, type: 'image/jpeg', lastModified: 0 } as File;
+}
+
 describe('effectiveUploadTargetID', () => {
   it('uses the first configured target when no explicit target is selected', () => {
     expect(effectiveUploadTargetID('', targets)).toBe('primary');
@@ -40,6 +52,133 @@ describe('effectiveUploadTargetID', () => {
 
   it('returns empty when uploads have no configured targets', () => {
     expect(effectiveUploadTargetID('', [])).toBe('');
+  });
+});
+
+describe('per-item upload tags', () => {
+  it('snapshots and normalizes tags when a row is staged', () => {
+    const items = stagedUploadItems(
+      [uploadFile('first.jpg')],
+      'primary',
+      123,
+      ['source:upload', ' ', 'source:upload', ' rating:safe ']
+    );
+
+    expect(items[0].tags).toEqual(['source:upload', 'rating:safe']);
+  });
+
+  it('retargets staged rows without rewriting their tag snapshots', () => {
+    const items = stagedUploadItems([uploadFile('first.jpg')], 'primary', 123, ['source:one', 'person:alice']);
+    const retargeted = retargetStagedUploadItems(items, 'archive');
+
+    expect(retargeted[0].targetID).toBe('archive');
+    expect(retargeted[0].tags).toEqual(['source:one', 'person:alice']);
+  });
+
+  it('edits one row in place without replacing the queue or row identity', () => {
+    const items = stagedUploadItems([uploadFile('first.jpg'), uploadFile('second.jpg')], 'primary');
+    const queueIdentity = items;
+    const rowIdentity = items[1];
+
+    setUploadItemTagsInPlace(items, 1, ['person:bob', ' ', 'person:bob', ' rating:safe ']);
+
+    expect(items).toBe(queueIdentity);
+    expect(items[1]).toBe(rowIdentity);
+    expect(items[1].tags).toEqual(['person:bob', 'rating:safe']);
+  });
+
+  it('preserves a row tag snapshot when an import result replaces transport state', () => {
+    const items = stagedUploadItems([uploadFile('first.jpg')], 'primary', 123, ['person:alice']);
+    items[0].tagSyncBaseTags = ['person:alice'];
+    const result = itemsFromResult({
+      files: [{
+        name: 'first.jpg',
+        size: 10,
+        target_id: 'primary',
+        status: 'imported'
+      }]
+    } as never, items);
+
+    expect(result[0].tags).toEqual(['person:alice']);
+    expect(result[0].tagSyncBaseTags).toEqual(['person:alice']);
+  });
+
+  it('computes only the add/remove delta from the submitted baseline', () => {
+    const item = queueItem(0);
+    item.status = 'imported';
+    item.tags = ['submitted', 'new'];
+    item.tagSyncBaseTags = ['submitted', 'removed'];
+
+    expect(uploadItemTagSyncDelta(item)).toEqual({ add: ['new'], remove: ['removed'] });
+  });
+
+  it('advances successful operations independently while preserving concurrent edits', () => {
+    const items = [queueItem(0)];
+    items[0].status = 'imported';
+    items[0].tags = ['keep', 'add'];
+    items[0].tagSyncBaseTags = ['keep', 'remove'];
+    items[0].tagSyncPending = true;
+
+    markUploadItemTagSyncAppliedInPlace(items, 0, 'add', ['add']);
+    expect(items[0].tagSyncBaseTags).toEqual(['keep', 'remove', 'add']);
+    expect(items[0].tagSyncPending).toBe(true);
+
+    setUploadItemTagsInPlace(items, 0, ['keep', 'add', 'late']);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: ['late'], remove: ['remove'] });
+
+    markUploadItemTagSyncAppliedInPlace(items, 0, 'remove', ['remove']);
+    expect(items[0].tagSyncBaseTags).toEqual(['keep', 'add']);
+    expect(items[0].tagSyncPending).toBe(true);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: ['late'], remove: [] });
+  });
+
+  it('rebases duplicate-existing rows onto full remote tags so pre-existing tags can be removed', () => {
+    const items = [queueItem(0)];
+    items[0].status = 'duplicate_existing';
+    items[0].tags = ['submitted'];
+    items[0].tagSyncBaseTags = ['submitted'];
+
+    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted'], ['submitted']);
+    expect(items[0].tags).toEqual(['remote:existing', 'submitted']);
+    expect(items[0].tagSyncBaseTags).toEqual(['remote:existing', 'submitted']);
+    expect(items[0].tagSyncPending).toBe(false);
+
+    setUploadItemTagsInPlace(items, 0, ['submitted']);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: [], remove: ['remote:existing'] });
+    expect(items[0].tagSyncPending).toBe(true);
+  });
+
+  it('preserves outstanding local edits while learning the authoritative remote tag baseline', () => {
+    const items = [queueItem(0)];
+    items[0].status = 'imported';
+    items[0].tags = ['submitted', 'local:add'];
+    items[0].tagSyncBaseTags = ['submitted', 'local:remove'];
+    items[0].tagSyncPending = true;
+
+    rebaseUploadItemTagsFromRemoteInPlace(items, 0, ['remote:existing', 'submitted', 'local:remove'], ['submitted', 'local:remove']);
+    expect(items[0].tagSyncBaseTags).toEqual(['remote:existing', 'submitted', 'local:remove']);
+    expect(items[0].tags).toEqual(['remote:existing', 'submitted', 'local:add']);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: ['local:add'], remove: ['local:remove'] });
+    expect(items[0].tagSyncPending).toBe(true);
+  });
+
+  it('retains a successful partial baseline when a later operation fails', () => {
+    const items = [queueItem(0)];
+    items[0].status = 'imported';
+    items[0].tags = ['keep', 'add'];
+    items[0].tagSyncBaseTags = ['keep', 'remove'];
+    items[0].tagSyncPending = true;
+
+    markUploadItemTagSyncAppliedInPlace(items, 0, 'add', ['add']);
+    markUploadItemTagSyncErrorInPlace(items, 0, 'remove failed');
+    expect(items[0].tagSyncBaseTags).toEqual(['keep', 'remove', 'add']);
+    expect(items[0].tagSyncPending).toBe(false);
+    expect(items[0].tagSyncError).toBe('remove failed');
+
+    setUploadItemTagsInPlace(items, 0, ['keep', 'add']);
+    expect(items[0].tagSyncError).toBe('');
+    expect(items[0].tagSyncPending).toBe(true);
+    expect(uploadItemTagSyncDelta(items[0])).toEqual({ add: [], remove: ['remove'] });
   });
 });
 

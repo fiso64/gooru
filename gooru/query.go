@@ -113,18 +113,8 @@ func (c *Client) GetTagsForFile(filePath string, useMetadataHeuristic bool) ([]s
 		return []string{}, types.StatusModified, nil
 	}
 
-	// Path is not in DB. Check if the content is known.
-	tags, err := c.store.GetTagsForContent(currentHash)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to check for existing content: %w", err)
-	}
-
-	if len(tags) > 0 {
-		return tags, types.StatusUntrackedContent, nil
-	}
-
-	// Path and content are both unknown.
-	return []string{}, types.StatusNotInDB, nil
+	// Path is not in DB. Classify the content independently of whether it has tags.
+	return c.getUntrackedContentStatus(currentHash)
 }
 
 // CountFilesByQuery counts files matching a query expression.
@@ -307,12 +297,10 @@ func (c *Client) GetFileInfoForFile(filePath string, useMetadataHeuristic bool) 
 		return types.FileInfo{Path: filePath, Size: fsInfo.Size()}, types.StatusModified, nil
 	}
 
-	// Path is not in DB. Check if the content is known.
-	tags, err := c.store.GetTagsForContent(currentHash)
+	tags, status, err := c.getUntrackedContentStatus(currentHash)
 	if err != nil {
-		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("failed to check for existing content: %w", err)
+		return types.FileInfo{Path: filePath}, 0, err
 	}
-
 	fileInfo := types.FileInfo{
 		Path:    filePath,
 		Hash:    currentHash,
@@ -320,13 +308,7 @@ func (c *Client) GetFileInfoForFile(filePath string, useMetadataHeuristic bool) 
 		ModTime: fsInfo.ModTime().Unix(),
 		Tags:    tags,
 	}
-
-	if len(tags) > 0 {
-		return fileInfo, types.StatusUntrackedContent, nil
-	}
-
-	// Path and content are both unknown.
-	return fileInfo, types.StatusNotInDB, nil
+	return fileInfo, status, nil
 }
 
 // GetFileInfoForSource computes content identity and status from a supplied
@@ -357,15 +339,12 @@ func (c *Client) GetFileInfoForSource(filePath string, source io.ReaderAt, size 
 		}
 		return types.FileInfo{Path: filePath, Hash: dbInfo.Hash, Size: size, ModTime: modTime, Tags: tags}, types.StatusOK, nil
 	}
-	tags, err := c.store.GetTagsForContent(currentHash)
+	tags, status, err := c.getUntrackedContentStatus(currentHash)
 	if err != nil {
-		return types.FileInfo{Path: filePath}, 0, fmt.Errorf("failed to check for existing content: %w", err)
+		return types.FileInfo{Path: filePath}, 0, err
 	}
 	info := types.FileInfo{Path: filePath, Hash: currentHash, Size: size, ModTime: modTime, Tags: tags}
-	if len(tags) > 0 {
-		return info, types.StatusUntrackedContent, nil
-	}
-	return info, types.StatusNotInDB, nil
+	return info, status, nil
 }
 
 // ContentExists reports whether a content hash is already tracked.

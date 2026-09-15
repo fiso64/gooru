@@ -15,7 +15,11 @@ import (
 	"gosqlite.org/vfs/crypto"
 )
 
-const encryptedDatabaseKeySize = 32
+const (
+	encryptedDatabaseKeySize          = 32
+	plaintextEncryptionTargetSuffix = ".gooru-enable-encrypted"
+	plaintextEncryptionBackupSuffix = ".gooru-enable-plaintext-backup"
+)
 
 var (
 	ErrInvalidDatabaseEncryptionKey = errors.New("database encryption key must be exactly 32 bytes")
@@ -81,6 +85,40 @@ func IsPlaintextDatabase(path string) (bool, error) {
 	return bytes.Equal(header, sqliteFileHeader), nil
 }
 
+// RecoverPlaintextDatabaseEncryptionMigration repairs the deterministic swap
+// state left by an interrupted plaintext-to-encrypted migration. A staged
+// plaintext source is restored without needing the encryption key. If the
+// encrypted database is already canonical, key is required to verify it before
+// the plaintext rollback copy is removed; an empty key leaves that copy in
+// place for a later keyed recovery pass.
+func RecoverPlaintextDatabaseEncryptionMigration(path string, key []byte) error {
+	if len(key) != 0 && len(key) != encryptedDatabaseKeySize {
+		return ErrInvalidDatabaseEncryptionKey
+	}
+	targetPath := path + plaintextEncryptionTargetSuffix
+	backupPath := path + plaintextEncryptionBackupSuffix
+
+	backupPresent, err := recoverInterruptedDatabaseSwap(path, targetPath, backupPath)
+	if err != nil {
+		return fmt.Errorf("recover plaintext database encryption migration: %w", err)
+	}
+	if !backupPresent || len(key) == 0 {
+		return nil
+	}
+
+	plain, err := IsPlaintextDatabase(path)
+	if err != nil {
+		return fmt.Errorf("inspect installed database during encryption recovery: %w", err)
+	}
+	if plain {
+		return fmt.Errorf("ambiguous plaintext database encryption recovery state: canonical database is plaintext while rollback backup remains at %q", backupPath)
+	}
+
+	return finalizeRecoveredDatabaseMigration(path, backupPath, "encrypted database", func() (*Store, error) {
+		return NewEncryptedStore(path, false, key)
+	})
+}
+
 // MigratePlaintextDatabase rewrites an existing plaintext SQLite database into
 // an encrypted database at the same path. The copy is built and integrity-
 // checked beside the source, then swapped into place only after both databases
@@ -93,6 +131,9 @@ func MigratePlaintextDatabase(path string, key []byte) error {
 	if len(key) != encryptedDatabaseKeySize {
 		return ErrInvalidDatabaseEncryptionKey
 	}
+	if err := RecoverPlaintextDatabaseEncryptionMigration(path, key); err != nil {
+		return err
+	}
 	plain, err := IsPlaintextDatabase(path)
 	if err != nil {
 		return err
@@ -102,18 +143,10 @@ func MigratePlaintextDatabase(path string, key []byte) error {
 	}
 
 	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	encryptedPath, err := reserveSiblingPath(dir, "."+base+".encrypted-")
-	if err != nil {
-		return fmt.Errorf("reserve encrypted database path: %w", err)
-	}
+	encryptedPath := path + plaintextEncryptionTargetSuffix
+	backupPath := path + plaintextEncryptionBackupSuffix
+	cleanupSQLiteFiles(encryptedPath)
 	defer cleanupSQLiteFiles(encryptedPath)
-
-	backupPath, err := reserveSiblingPath(dir, "."+base+".plaintext-backup-")
-	if err != nil {
-		return fmt.Errorf("reserve migration backup path: %w", err)
-	}
-	defer cleanupSQLiteFiles(backupPath)
 
 	source, err := NewStore(path, false)
 	if err != nil {
@@ -166,50 +199,38 @@ func MigratePlaintextDatabase(path string, key []byte) error {
 		return fmt.Errorf("stage plaintext database for replacement: %w", err)
 	}
 	cleanupSQLiteSidecars(path)
+	if err := syncDatabaseDir(dir); err != nil {
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("sync staged plaintext database replacement: %w", err), path, backupPath)
+	}
 
 	if err := os.Rename(encryptedPath, path); err != nil {
-		_ = os.Rename(backupPath, path)
-		return fmt.Errorf("install encrypted database: %w", err)
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("install encrypted database: %w", err), path, backupPath)
+	}
+	if err := syncDatabaseDir(dir); err != nil {
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("sync installed encrypted database: %w", err), path, backupPath)
 	}
 
 	verified, err := NewEncryptedStore(path, false, key)
 	if err != nil {
-		_ = os.Remove(path)
-		_ = os.Rename(backupPath, path)
-		return fmt.Errorf("reopen encrypted database after migration: %w", err)
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("reopen encrypted database after migration: %w", err), path, backupPath)
 	}
 	verifyErr := checkDatabaseIntegrity(verified.DB)
 	closeErr := verified.Close()
-	if verifyErr != nil || closeErr != nil {
-		_ = os.Remove(path)
-		_ = os.Rename(backupPath, path)
-		if verifyErr != nil {
-			return fmt.Errorf("verify installed encrypted database: %w", verifyErr)
-		}
-		return fmt.Errorf("close installed encrypted database: %w", closeErr)
+	if verifyErr != nil {
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("verify installed encrypted database: %w", verifyErr), path, backupPath)
+	}
+	if closeErr != nil {
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("close installed encrypted database: %w", closeErr), path, backupPath)
 	}
 
 	if err := os.Remove(backupPath); err != nil {
 		return fmt.Errorf("remove plaintext migration backup: %w", err)
 	}
 	cleanupSQLiteSidecars(backupPath)
+	if err := syncDatabaseDir(dir); err != nil {
+		return fmt.Errorf("sync completed encrypted database migration: %w", err)
+	}
 	return SecureDBFiles(path)
-}
-
-func reserveSiblingPath(dir, pattern string) (string, error) {
-	file, err := os.CreateTemp(dir, pattern)
-	if err != nil {
-		return "", err
-	}
-	path := file.Name()
-	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-	if err := os.Remove(path); err != nil {
-		return "", err
-	}
-	return path, nil
 }
 
 func backupDatabase(ctx context.Context, source, destination *sql.DB) error {
@@ -260,6 +281,75 @@ func checkDatabaseIntegrity(db *sql.DB) error {
 		return fmt.Errorf("integrity_check returned %q", result)
 	}
 	return nil
+}
+
+func recoverInterruptedDatabaseSwap(path, targetPath, backupPath string) (bool, error) {
+	_, pathErr := os.Stat(path)
+	_, backupErr := os.Stat(backupPath)
+	switch {
+	case os.IsNotExist(pathErr) && backupErr == nil:
+		if err := os.Rename(backupPath, path); err != nil {
+			return false, fmt.Errorf("restore staged database from %q: %w", backupPath, err)
+		}
+		cleanupSQLiteFiles(targetPath)
+		if err := syncDatabaseDir(filepath.Dir(path)); err != nil {
+			return false, fmt.Errorf("sync restored database directory: %w", err)
+		}
+		return false, nil
+	case pathErr != nil:
+		if os.IsNotExist(pathErr) && os.IsNotExist(backupErr) {
+			cleanupSQLiteFiles(targetPath)
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect canonical database during migration recovery: %w", pathErr)
+	case backupErr != nil && !os.IsNotExist(backupErr):
+		return false, fmt.Errorf("inspect database rollback backup during migration recovery: %w", backupErr)
+	}
+
+	cleanupSQLiteFiles(targetPath)
+	return backupErr == nil, nil
+}
+
+func finalizeRecoveredDatabaseMigration(path, backupPath, description string, open func() (*Store, error)) error {
+	store, err := open()
+	if err != nil {
+		return fmt.Errorf("reopen %s during migration recovery: %w", description, err)
+	}
+	verifyErr := checkDatabaseIntegrity(store.DB)
+	closeErr := store.Close()
+	if verifyErr != nil {
+		return fmt.Errorf("verify %s during migration recovery: %w", description, verifyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close %s during migration recovery: %w", description, closeErr)
+	}
+	if err := os.Remove(backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove completed database migration backup %q: %w", backupPath, err)
+	}
+	cleanupSQLiteSidecars(backupPath)
+	if err := syncDatabaseDir(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("sync completed database migration recovery: %w", err)
+	}
+	return SecureDBFiles(path)
+}
+
+func rollbackDatabaseMigration(migrationErr error, path, backupPath string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%w; rollback could not remove failed replacement: %v; original database remains at %q", migrationErr, err, backupPath)
+	}
+	cleanupSQLiteSidecars(path)
+	if err := os.Rename(backupPath, path); err != nil {
+		return fmt.Errorf("%w; rollback could not restore original database: %v; original database remains at %q", migrationErr, err, backupPath)
+	}
+	return migrationErr
+}
+
+func rollbackDatabaseMigrationDurably(migrationErr error, path, backupPath string) error {
+	rollbackErr := rollbackDatabaseMigration(migrationErr, path, backupPath)
+	if err := syncDatabaseDir(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("%w; sync database rollback directory: %v", rollbackErr, err)
+	}
+	return rollbackErr
 }
 
 func cleanupSQLiteFiles(path string) {

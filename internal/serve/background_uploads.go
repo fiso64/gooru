@@ -9,6 +9,7 @@ import (
 	"time"
 
 	core "gooru.local/gooru"
+	"gooru.local/internal/query"
 )
 
 const (
@@ -55,6 +56,7 @@ type backgroundUploadTaskFile struct {
 	SourceModTime   time.Time `json:"source_mod_time,omitempty"`
 	AddedAt         time.Time `json:"added_at,omitempty"`
 	ConflictPolicy  string    `json:"conflict_policy,omitempty"`
+	Tags            *[]string `json:"tags,omitempty"`
 }
 
 func backgroundUploadReceivingCheckpoint(total, received int64) backgroundUploadCheckpoint {
@@ -203,6 +205,7 @@ func backgroundUploadTaskRequest(operationID string, files []savedUpload, tags [
 			SourceModTime:   file.sourceModTime,
 			AddedAt:         file.addedAt,
 			ConflictPolicy:  file.conflictPolicy,
+			Tags:            cloneUploadTags(file.tags),
 		})
 	}
 	if err := validateBackgroundUploadInput(input); err != nil {
@@ -271,6 +274,7 @@ func decodeBackgroundUploadTask(task core.BackgroundTask) ([]savedUpload, []stri
 			sourceModTime:   file.SourceModTime,
 			addedAt:         file.AddedAt,
 			conflictPolicy:  file.ConflictPolicy,
+			tags:            cloneUploadTags(file.Tags),
 		})
 	}
 	return files, append([]string(nil), input.Tags...), nil
@@ -283,6 +287,9 @@ func validateBackgroundUploadInput(input backgroundUploadTaskInput) error {
 	if len(input.Files) == 0 {
 		return errors.New("upload background task has invalid file count")
 	}
+	if err := query.ValidateTags(input.Tags); err != nil {
+		return fmt.Errorf("upload background task has invalid global tags: %w", err)
+	}
 	for index, file := range input.Files {
 		if file.TargetID == "" || (file.Name == "" && file.Status != "error") {
 			return fmt.Errorf("upload background task file %d is missing identity", index)
@@ -292,6 +299,11 @@ func validateBackgroundUploadInput(input backgroundUploadTaskInput) error {
 		}
 		if file.Replace && file.DestinationPath == "" {
 			return fmt.Errorf("upload background task file %d is missing replacement destination", index)
+		}
+		if file.Tags != nil {
+			if err := query.ValidateTags(*file.Tags); err != nil {
+				return fmt.Errorf("upload background task file %d has invalid tags: %w", index, err)
+			}
 		}
 	}
 	return nil

@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
-  import TagEditor from './TagEditor.svelte';
+  import ViewerSidebar from './ViewerSidebar.svelte';
   import ViewerStage from './ViewerStage.svelte';
   import { ApiClient } from '$lib/api/client';
   import { hasRuntimeCapability, runtimeCapability, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { readViewerSessionPreferences, updateViewerSessionPreferences } from '$lib/state/viewerSessionPreferences';
   import { comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
-  import { errorMessage, formatBytes, groupTags, mediaDimensions, mediaDuration } from '$lib/utils/format';
+  import { errorMessage, formatBytes, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
   import { canUseOriginalInViewer, viewerImageSource } from '$lib/utils/media';
@@ -78,8 +78,27 @@
   const comicAvailable = $derived(isComicFile(file));
   const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
   const imageSource = $derived(comicEntered && currentComicPage ? currentComicPage.url : viewerImageSource(file, effectivePreferOriginal));
-  const tagGroups = $derived(groupTags(file.tags));
-  const hasTagNamespaces = $derived(tagGroups.some((group) => Boolean(group.namespace)));
+  const sidebarMetadata = $derived.by(() => {
+    const dimensionLabel = mediaDimensions(file);
+    const pageLabel = file.metadata.page_count
+      ? `${file.metadata.page_count} ${file.metadata.page_count === 1 ? 'page' : 'pages'} · `
+      : dimensionLabel
+        ? `${dimensionLabel} · `
+        : '';
+    const rows: Array<{ label: string; value: string; className?: string }> = [
+      { label: 'Path', value: file.safe_display_path, className: 'path' },
+      { label: 'Size', value: `${pageLabel}${formatBytes(file.size)}` }
+    ];
+    const duration = mediaDuration(file);
+    if (duration) rows.push({ label: 'Length', value: duration });
+    rows.push(
+      { label: 'Added', value: modifiedLabel(file.added_at) },
+      { label: 'Modified', value: modifiedLabel(file.modified_time) },
+      { label: 'Mime', value: file.media_type },
+      { label: 'Id', value: file.content_id, className: 'hash' }
+    );
+    return rows;
+  });
 
   onMount(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -292,76 +311,25 @@
   tabindex="-1"
   onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}
 >
-  <aside class="lightbox-aside">
-    <div class="panel-row">
-      <div class="g-eyebrow g-eyebrow-accent">{file.media_kind}</div>
-      <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" aria-label="Close preview" onclick={onClose}>
-        <Icon name="close" size={14} />
-      </button>
-    </div>
-
-    <h2 id="preview-title" class="lightbox-name">{file.name}</h2>
-
-    <dl class="lightbox-meta">
-      <dt>Path</dt><dd class="path">{file.safe_display_path}</dd>
-      <dt>Size</dt><dd>{file.metadata.page_count ? `${file.metadata.page_count} ${file.metadata.page_count === 1 ? 'page' : 'pages'} · ` : mediaDimensions(file) ? `${mediaDimensions(file)} · ` : ''}{formatBytes(file.size)}</dd>
-      {#if mediaDuration(file)}<dt>Length</dt><dd>{mediaDuration(file)}</dd>{/if}
-      <dt>Added</dt><dd>{modifiedLabel(file.added_at)}</dd>
-      <dt>Modified</dt><dd>{modifiedLabel(file.modified_time)}</dd>
-      <dt>Mime</dt><dd>{file.media_type}</dd>
-      <dt>Id</dt><dd class="hash">{file.content_id}</dd>
-    </dl>
-
-    <hr class="g-divider" />
-
-    <div class="lightbox-tags">
-      <div class="lightbox-tag-group-head lightbox-tags-head">
-        <span>Tags · {file.tags.length}</span>
-        <span class="lightbox-tag-tools">
-          <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Tag history coming soon"><Icon name="info" size={13} /></button>
-          <button class="g-btn g-btn-ghost g-btn-sm g-btn-icon" type="button" disabled title="Tag suggestions coming soon"><Icon name="sliders" size={13} /></button>
-        </span>
-      </div>
-
-      {#each tagGroups as group (group.namespace)}
-        <div class="lightbox-tag-group">
-          {#if group.namespace || hasTagNamespaces}
-            <div class="lightbox-tag-group-head"><span>{group.namespace || 'OTHER'}</span><span>{group.tags.length}</span></div>
-          {/if}
-          <div class="lightbox-tag-list">
-            {#each group.tags as tag}
-              <span class="g-tag">
-                <button class="g-tag-search" type="button" aria-label={`Search for ${tag}`} onclick={() => onTagSearch(tag)}>
-                  {#if tag.includes(':')}
-                    <span class="ns">{tag.split(':')[0]}:</span><span>{tag.slice(tag.indexOf(':') + 1)}</span>
-                  {:else}
-                    <span>{tag}</span>
-                  {/if}
-                </button>
-                <button class="g-tag-x" type="button" aria-label={`Remove ${tag}`} disabled={tagBusy} onclick={() => onRemoveTag(file, tag)}>
-                  <Icon name="close" size={11} />
-                </button>
-              </span>
-            {/each}
-          </div>
-        </div>
-      {/each}
-
-      <TagEditor
-        fileID={file.id}
-        fileName={file.name}
-        draft={tagDraft}
-        busy={tagBusy}
-        error={tagError}
-        {tags}
-        existingTags={file.tags}
-        mode={tagMode}
-        onInput={(value) => onTagInput(file.id, value)}
-        onCommit={(value) => onMutateTags(file, tagMode, value)}
-        onModeToggle={() => focusTagInput(tagMode === 'add' ? 'remove' : 'add')}
-      />
-    </div>
-  </aside>
+  <ViewerSidebar
+    titleID="preview-title"
+    eyebrow={file.media_kind}
+    fileID={file.id}
+    fileName={file.name}
+    metadata={sidebarMetadata}
+    tagValues={file.tags}
+    tagCandidates={tags}
+    {tagDraft}
+    {tagBusy}
+    {tagError}
+    {tagMode}
+    {onClose}
+    onTagInput={(value) => onTagInput(file.id, value)}
+    onCommitTag={(value) => onMutateTags(file, tagMode, value)}
+    onRemoveTag={(tag) => onRemoveTag(file, tag)}
+    onModeToggle={() => focusTagInput(tagMode === 'add' ? 'remove' : 'add')}
+    {onTagSearch}
+  />
 
   <ViewerStage
     {file}
@@ -424,23 +392,6 @@
 </div>
 
 <style>
-  :global(.lightbox-tag-list .g-tag-search) {
-    display: inline-flex;
-    align-items: center;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-  }
-
-  :global(.lightbox-tag-list .g-tag-search:focus-visible) {
-    outline: 2px solid var(--accent-line);
-    outline-offset: 2px;
-    border-radius: 2px;
-  }
-
   :global(.lightbox-rail .g-btn[aria-pressed='true']) {
     color: var(--accent);
     background: var(--accent-soft);

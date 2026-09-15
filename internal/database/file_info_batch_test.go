@@ -69,3 +69,99 @@ func TestGetFileInfosByPublicIDsChunksPreservesOrderAndManagedStorage(t *testing
 		t.Fatalf("missing public ID error = %v, want sql.ErrNoRows", err)
 	}
 }
+
+func TestGetFileInfosByPathsOmitsMissingAndIncludesManagedStorage(t *testing.T) {
+	store := newMemoryTestStore(t)
+	tx, err := store.DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	for i, path := range []string{"/library/a.jpg", "/library/b.jpg"} {
+		hash := fmt.Sprintf("path-hash-%d", i)
+		publicID := fmt.Sprintf("path_file_%d", i)
+		if _, err := tx.Exec(`INSERT INTO contents (hash) VALUES (?)`, hash); err != nil {
+			t.Fatalf("insert content %d: %v", i, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES (?, ?, ?, ?, ?, ?)`, publicID, hash, path, i+1, 1000+i, ".jpg"); err != nil {
+			t.Fatalf("insert location %d: %v", i, err)
+		}
+	}
+	var managedLocationID int64
+	if err := tx.QueryRow(`SELECT id FROM locations WHERE path = ?`, "/library/b.jpg").Scan(&managedLocationID); err != nil {
+		t.Fatalf("resolve managed location: %v", err)
+	}
+	const managedPath = "/managed/b.enc"
+	if _, err := tx.Exec(`INSERT INTO managed_storage_locations (location_id, physical_path) VALUES (?, ?)`, managedLocationID, managedPath); err != nil {
+		t.Fatalf("insert managed storage mapping: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := store.GetFileInfosByPaths([]string{"/library/b.jpg", "/missing.jpg", "/library/a.jpg"})
+	if err != nil {
+		t.Fatalf("GetFileInfosByPaths: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("got %d mapped paths, want 2", len(files))
+	}
+	if file := files["/library/a.jpg"]; file.PublicID != "path_file_0" {
+		t.Fatalf("a.jpg public id = %q, want path_file_0", file.PublicID)
+	}
+	if file := files["/library/b.jpg"]; file.PublicID != "path_file_1" || file.StoragePath != managedPath {
+		t.Fatalf("b.jpg = public id %q storage %q, want path_file_1 %q", file.PublicID, file.StoragePath, managedPath)
+	}
+	if _, ok := files["/missing.jpg"]; ok {
+		t.Fatal("missing path unexpectedly returned")
+	}
+}
+
+func TestGetFileInfosByContentHashesUsesDeterministicTrackedLocationAndOmitsUntrackedContent(t *testing.T) {
+	store := newMemoryTestStore(t)
+	tx, err := store.DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`INSERT INTO contents (hash) VALUES (?), (?)`, "shared-hash", "orphan-hash"); err != nil {
+		t.Fatalf("insert contents: %v", err)
+	}
+	for _, row := range []struct {
+		publicID string
+		path     string
+	}{
+		{publicID: "file_z", path: "/library/z.jpg"},
+		{publicID: "file_a", path: "/library/a.jpg"},
+	} {
+		if _, err := tx.Exec(`INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES (?, ?, ?, ?, ?, ?)`, row.publicID, "shared-hash", row.path, 1, 1000, ".jpg"); err != nil {
+			t.Fatalf("insert location %s: %v", row.publicID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := store.GetFileInfosByContentHashes([]string{"orphan-hash", "shared-hash", "missing-hash"})
+	if err != nil {
+		t.Fatalf("GetFileInfosByContentHashes: %v", err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("got %d mapped hashes, want 1 tracked hash", len(files))
+	}
+	shared, ok := files["shared-hash"]
+	if !ok {
+		t.Fatal("shared hash missing")
+	}
+	if shared.PublicID != "file_a" || shared.Path != "/library/a.jpg" {
+		t.Fatalf("shared hash resolved to public id %q path %q, want deterministic /library/a.jpg", shared.PublicID, shared.Path)
+	}
+	if _, ok := files["orphan-hash"]; ok {
+		t.Fatal("content without a tracked location unexpectedly returned")
+	}
+	if _, ok := files["missing-hash"]; ok {
+		t.Fatal("missing content unexpectedly returned")
+	}
+}

@@ -7,6 +7,18 @@ export type ViewerMedia = {
   };
 };
 
+export type ViewerStageMedia = ViewerMedia & {
+  id: string;
+  name: string;
+  viewer_support: string;
+  metadata?: {
+    image_width?: number;
+    image_height?: number;
+    video_duration?: number;
+    audio_duration?: number;
+  };
+};
+
 export function isAnimatedGif(file: ViewerMedia): boolean {
   return file.media_type.trim().toLowerCase() === 'image/gif';
 }
