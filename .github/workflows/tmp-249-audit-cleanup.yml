@@ -1,0 +1,48 @@
+name: Temporary 249 audit cleanup validation
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+    paths:
+      - .github/workflows/tmp-249-audit-cleanup.yml
+      - .github/tmp-249-audit-cleanup.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/249-upload-item-tags
+      - name: Apply audit cleanup
+        run: python3 .github/tmp-249-audit-cleanup.py
+      - name: Go format
+        run: gofmt -w gooru/tagging_known_file_tags.go gooru/tagging_known_file_tags_test.go
+      - name: Go tests
+        run: go test ./...
+      - name: Go build
+        run: go build ./...
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Commit production changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check -- gooru/tagging_known_file_tags.go gooru/tagging_known_file_tags_test.go frontend/src/lib/state/uploadWorkflow.svelte.ts frontend/src/lib/state/uploadWorkflow.chunking.test.ts frontend/src/app.css
+          git config user.name "gooru-maintainer-bot"
+          git config user.email "maintainer@localhost"
+          git add gooru/tagging_known_file_tags.go gooru/tagging_known_file_tags_test.go frontend/src/lib/state/uploadWorkflow.svelte.ts frontend/src/lib/state/uploadWorkflow.chunking.test.ts frontend/src/app.css
+          git commit -m 'perf: simplify upload tag segmentation'
+          git push origin HEAD:feat/249-upload-item-tags
