@@ -376,6 +376,7 @@ type activatedReplacement struct {
 	finalPath            string
 	backupPath           string
 	noOriginalMarkerPath string
+	ownershipMarkerPath  string
 	hadOriginal          bool
 }
 
@@ -506,6 +507,7 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 		finalPath:            finalPath,
 		backupPath:           stagedPath + ".backup",
 		noOriginalMarkerPath: stagedPath + ".no-original",
+		ownershipMarkerPath:  stagedPath + durableUploadActivatedMarkerSuffix,
 	}
 	stagedExists, err := replacementPathExists(stagedPath)
 	if err != nil {
@@ -536,12 +538,23 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 	if !stagedExists {
 		return activatedReplacement{}, errors.New("staged replacement is missing")
 	}
+	ownershipMarkerCreated, err := ensureReplacementOwnershipMarker(stagedPath, replacement.ownershipMarkerPath)
+	if err != nil {
+		return activatedReplacement{}, fmt.Errorf("failed to record replacement ownership")
+	}
+	cleanupOwnershipMarker := func() {
+		if ownershipMarkerCreated {
+			_ = os.Remove(replacement.ownershipMarkerPath)
+		}
+	}
 	if finalExists {
 		if err := os.Rename(finalPath, replacement.backupPath); err != nil {
+			cleanupOwnershipMarker()
 			return activatedReplacement{}, fmt.Errorf("failed to preserve existing file before replacement")
 		}
 		replacement.hadOriginal = true
 	} else if err := createReplacementStateMarker(replacement.noOriginalMarkerPath); err != nil {
+		cleanupOwnershipMarker()
 		return activatedReplacement{}, fmt.Errorf("failed to record replacement state")
 	}
 	if err := os.Rename(stagedPath, finalPath); err != nil {
@@ -550,6 +563,7 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 		} else {
 			_ = os.Remove(replacement.noOriginalMarkerPath)
 		}
+		cleanupOwnershipMarker()
 		return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
 	}
 	return replacement, nil
@@ -558,7 +572,14 @@ func activateReplacement(stagedPath string, finalPath string) (activatedReplacem
 func resumeReplacementActivation(replacement activatedReplacement, stagedPath string, stagedExists, finalExists bool) (activatedReplacement, error) {
 	switch {
 	case stagedExists && !finalExists:
+		ownershipMarkerCreated, err := ensureReplacementOwnershipMarker(stagedPath, replacement.ownershipMarkerPath)
+		if err != nil {
+			return activatedReplacement{}, fmt.Errorf("failed to record replacement ownership")
+		}
 		if err := os.Rename(stagedPath, replacement.finalPath); err != nil {
+			if ownershipMarkerCreated {
+				_ = os.Remove(replacement.ownershipMarkerPath)
+			}
 			return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
 		}
 		return replacement, nil
@@ -567,6 +588,33 @@ func resumeReplacementActivation(replacement activatedReplacement, stagedPath st
 	default:
 		return activatedReplacement{}, errors.New("inconsistent staged replacement state")
 	}
+}
+
+func ensureReplacementOwnershipMarker(stagedPath, markerPath string) (bool, error) {
+	stagedInfo, stagedExists, err := replacementPathInfo(stagedPath)
+	if err != nil {
+		return false, err
+	}
+	if !stagedExists {
+		return false, errors.New("staged replacement is missing")
+	}
+	markerInfo, markerExists, err := replacementPathInfo(markerPath)
+	if err != nil {
+		return false, err
+	}
+	if markerExists {
+		if !os.SameFile(stagedInfo, markerInfo) {
+			return false, errors.New("replacement ownership marker does not own staged upload")
+		}
+		return false, nil
+	}
+	if err := os.Link(stagedPath, markerPath); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return ensureReplacementOwnershipMarker(stagedPath, markerPath)
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func createReplacementStateMarker(path string) error {
@@ -592,25 +640,54 @@ func replacementPathExists(path string) (bool, error) {
 	return false, err
 }
 
+func replacementPathInfo(path string) (os.FileInfo, bool, error) {
+	if path == "" {
+		return nil, false, nil
+	}
+	info, err := os.Stat(path)
+	if err == nil {
+		return info, true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	return nil, false, err
+}
+
 func rollbackReplacement(replacement activatedReplacement) error {
+	markerInfo, markerExists, err := replacementPathInfo(replacement.ownershipMarkerPath)
+	if err != nil {
+		return fmt.Errorf("failed to inspect replacement ownership before rollback")
+	}
+	finalInfo, finalExists, err := replacementPathInfo(replacement.finalPath)
+	if err != nil {
+		return fmt.Errorf("failed to inspect replacement rollback state")
+	}
 	if replacement.hadOriginal {
 		backupExists, err := replacementPathExists(replacement.backupPath)
 		if err != nil {
 			return fmt.Errorf("failed to inspect preserved original before replacement rollback")
 		}
 		if !backupExists {
-			finalExists, err := replacementPathExists(replacement.finalPath)
-			if err != nil {
-				return fmt.Errorf("failed to inspect replacement rollback state")
+			if !finalExists {
+				return fmt.Errorf("failed to restore original file after replacement failure")
 			}
-			if finalExists {
-				return nil
+			if markerExists && os.SameFile(markerInfo, finalInfo) {
+				return errors.New("preserved original is missing during replacement rollback")
 			}
-			return fmt.Errorf("failed to restore original file after replacement failure")
+			return nil
 		}
 	}
-	if err := os.Remove(replacement.finalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("failed to remove rejected replacement")
+	if finalExists {
+		if !markerExists || !os.SameFile(markerInfo, finalInfo) {
+			if markerExists {
+				_ = os.Remove(replacement.ownershipMarkerPath)
+			}
+			return errUploadConflict
+		}
+		if err := os.Remove(replacement.finalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("failed to remove rejected replacement")
+		}
 	}
 	if replacement.hadOriginal {
 		if err := os.Rename(replacement.backupPath, replacement.finalPath); err != nil {
@@ -620,12 +697,16 @@ func rollbackReplacement(replacement activatedReplacement) error {
 		_ = os.Remove(replacement.backupPath)
 		_ = os.Remove(replacement.noOriginalMarkerPath)
 	}
+	if err := os.Remove(replacement.ownershipMarkerPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to clear replacement ownership after rollback")
+	}
 	return nil
 }
 
 func commitReplacement(replacement activatedReplacement) {
 	_ = os.Remove(replacement.backupPath)
 	_ = os.Remove(replacement.noOriginalMarkerPath)
+	_ = os.Remove(replacement.ownershipMarkerPath)
 }
 
 func copyUpload(dst io.Writer, src io.Reader, maxSize int64) (int64, error) {
@@ -671,10 +752,12 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 	out := make([]StagedUpload, 0, len(files))
 	for _, file := range files {
 		path := file.path
+		ownershipPath := file.ownershipPath
 		if file.replace {
 			path = file.destinationPath
+			ownershipPath = file.path + durableUploadActivatedMarkerSuffix
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, OwnershipPath: file.ownershipPath})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, OwnershipPath: ownershipPath})
 	}
 	return out
 }
