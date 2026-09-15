@@ -21,7 +21,7 @@ const (
 	mediaMetadataSweepCursorPrefix          = "after-location:"
 	mediaMetadataRegistrationInputKey       = "registration"
 	mediaMetadataRegistrationLingerInputKey = "registration-linger"
-	mediaMetadataRegistrationDebounce       = 3 * time.Second
+	mediaMetadataRegistrationDebounce       = 5 * time.Second
 )
 
 func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
