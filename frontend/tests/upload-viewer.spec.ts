@@ -153,13 +153,25 @@ test('staged rows open as a whole, use viewer shortcuts, and edit the underlying
   await page.getByLabel('Filter staged files').fill('alpha');
   const alphaRow = page.getByTestId('upload-row-0');
   await expect(alphaRow).toBeVisible();
+  const restingBackground = await alphaRow.evaluate((element) => getComputedStyle(element).backgroundColor);
   await alphaRow.hover();
+  const hoveredBackground = await alphaRow.evaluate((element) => getComputedStyle(element).backgroundColor);
+  expect(hoveredBackground).not.toBe(restingBackground);
   await expect.poll(() => alphaRow.evaluate((element) => getComputedStyle(element).cursor)).toBe('pointer');
   await expect(alphaRow.getByRole('button', { name: 'alpha.png', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);
 
+  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });
+  const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();
+  if (!tagControlBox) throw new Error('staged tag control has no layout box');
+  await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);
+  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
+  await rowTagInput.click();
+  await expect(rowTagInput).toBeFocused();
+  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
+
   // The filename is plain text; clicking its row surface opens the viewer.
-  await alphaRow.getByRole('button', { name: 'Preview alpha.png' }).click();
+  await alphaRow.getByRole('button', { name: 'Preview alpha.png' }).click({ position: { x: 8, y: 8 } });
   const alphaDialog = page.getByRole('dialog', { name: 'alpha.png' });
   await expect(alphaDialog).toBeVisible();
   await expect(alphaDialog.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();
@@ -189,7 +201,7 @@ test('staged rows open as a whole, use viewer shortcuts, and edit the underlying
   await expect(page.getByRole('button', { name: 'Remove viewer:edited from beta.png' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Preview book.cbz' })).toBeDisabled();
 
-  await page.getByTestId('upload-row-0').getByRole('button', { name: 'Preview alpha.png' }).click();
+  await page.getByTestId('upload-row-0').getByRole('button', { name: 'Preview alpha.png' }).click({ position: { x: 8, y: 8 } });
   await page.keyboard.press('Delete');
   await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Preview alpha.png' })).toHaveCount(0);
@@ -256,7 +268,7 @@ test('queue viewer navigates across upload batches as one set', async ({ page })
   await expect(page.getByTestId('upload-queue-batch')).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Preview second.png' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Preview first.png' }).click();
+  await page.getByRole('button', { name: 'Preview first.png' }).click({ position: { x: 8, y: 8 } });
   const dialog = page.getByRole('dialog', { name: 'first.png' });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Next file' }).click();
@@ -270,7 +282,7 @@ test('uploaded viewer uses the normal toolbar and removal shortcut', async ({ pa
   await page.locator('input[type="file"]').setInputFiles({ name: 'duplicate.png', mimeType: 'image/png', buffer: png });
   await page.getByRole('button', { name: 'Upload 1 file' }).click();
   await expect(page.getByText('duplicate existing', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Preview duplicate.png' }).click();
+  await page.getByRole('button', { name: 'Preview duplicate.png' }).click({ position: { x: 8, y: 8 } });
 
   const dialog = page.getByRole('dialog', { name: 'duplicate.png' });
   await expect(dialog.getByRole('button', { name: 'Toggle fullscreen' })).toBeVisible();
@@ -300,7 +312,7 @@ test('duplicate viewer removes pre-existing remote tags with a delta mutation', 
   await page.getByRole('button', { name: 'Upload 1 file' }).click();
 
   await expect(page.getByText('duplicate existing', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Preview duplicate.png' }).click();
+  await page.getByRole('button', { name: 'Preview duplicate.png' }).click({ position: { x: 8, y: 8 } });
   const dialog = page.getByRole('dialog', { name: 'duplicate.png' });
   await expect(dialog).toBeVisible();
   const remoteTagRemove = dialog.getByRole('button', { name: 'Remove remote:existing' });
@@ -326,7 +338,7 @@ test('completed row stays stable while a direct tag save settles', async ({ page
   const before = await row.boundingBox();
   if (!before) throw new Error('completed row has no layout box');
 
-  await page.getByRole('button', { name: 'Preview duplicate.png' }).click();
+  await page.getByRole('button', { name: 'Preview duplicate.png' }).click({ position: { x: 8, y: 8 } });
   const dialog = page.getByRole('dialog', { name: 'duplicate.png' });
   const remoteTagRemove = dialog.getByRole('button', { name: 'Remove remote:existing' });
   await expect(remoteTagRemove).toBeVisible();

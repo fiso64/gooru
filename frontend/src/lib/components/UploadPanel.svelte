@@ -590,7 +590,7 @@
   }
 
   .upload-row.is-viewable:hover {
-    background: var(--surface-2);
+    background: color-mix(in oklab, var(--accent-soft) 60%, transparent);
   }
 
   .upload-row :is(button:not(.upload-row-open-target), input) {
@@ -603,6 +603,8 @@
   }
 
   .upload-item-tags {
+    position: relative;
+    z-index: 2;
     margin-top: 6px;
     min-height: 30px;
   }

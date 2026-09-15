@@ -48,6 +48,7 @@ type StagedUpload struct {
 	SourceModTime  time.Time
 	AddedAt        time.Time
 	ConflictPolicy string
+	Tags           *[]string
 	OwnershipPath  string
 }
 
@@ -118,7 +119,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer releaseSavedUploadOwnership(saved)
-	if err := query.ValidateTags(tags); err != nil {
+	if err := validateUploadTags(tags, saved); err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
@@ -191,6 +192,7 @@ type savedUpload struct {
 	sourceModTime   time.Time
 	addedAt         time.Time
 	conflictPolicy  string
+	tags            *[]string
 	ownershipPath   string
 }
 
@@ -738,7 +740,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 		if file.replace {
 			path = file.destinationPath
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, OwnershipPath: file.ownershipPath})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, Tags: cloneUploadTags(file.tags), OwnershipPath: file.ownershipPath})
 	}
 	return out
 }
