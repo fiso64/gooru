@@ -5,18 +5,6 @@
 Loading svelte-check in workspace: /var/cache/github-runner-work-gooru/gooru/gooru/frontend
 Getting Svelte diagnostics...
 
-/var/cache/github-runner-work-gooru/gooru/gooru/frontend/[32msrc/lib/state/uploadItems.test.ts[39m:141:5
-[31mError[39m: Expected 4 arguments, but got 3. 
-[36m
-    [35mrebaseUploadItemTagsFromRemoteInPlace[36m(items, 0, ['remote:existing', 'submitted']);
-    expect(items[0].tags).toEqual(['remote:existing', 'submitted']);[39m
-
-/var/cache/github-runner-work-gooru/gooru/gooru/frontend/[32msrc/lib/state/uploadItems.test.ts[39m:158:5
-[31mError[39m: Expected 4 arguments, but got 3. 
-[36m
-    [35mrebaseUploadItemTagsFromRemoteInPlace[36m(items, 0, ['remote:existing', 'submitted', 'local:remove']);
-    expect(items[0].tagSyncBaseTags).toEqual(['remote:existing', 'submitted', 'local:remove']);[39m
-
 /var/cache/github-runner-work-gooru/gooru/gooru/frontend/[32msrc/lib/components/SearchBar.svelte[39m:375:1
 [33mWarn[39m: Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
 https://svelte.dev/e/a11y_click_events_have_key_events (svelte)
@@ -623,6 +611,6 @@ https://svelte.dev/e/state_referenced_locally (svelte)
   const searchDraft = library.searchDraft;[39m
 
 ====================================
-[31msvelte-check found 2 errors and 13 warnings in 10 files
+[33msvelte-check found 0 errors and 13 warnings in 9 files
 [39m
-__EXIT_STATUS__=1
+__EXIT_STATUS__=0
