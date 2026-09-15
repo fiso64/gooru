@@ -42,6 +42,7 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 		},
 		"upload_durable_staging.go": {
 			"(*Server).stageDurableMultipartUpload": true,
+			"prepareDurableUploadStagingDir":         true,
 		},
 		"upload_stream.go": {
 			"(*Server).stageMultipartUpload": true,
