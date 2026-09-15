@@ -752,10 +752,12 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 	out := make([]StagedUpload, 0, len(files))
 	for _, file := range files {
 		path := file.path
+		ownershipPath := file.ownershipPath
 		if file.replace {
 			path = file.destinationPath
+			ownershipPath = file.path + durableUploadActivatedMarkerSuffix
 		}
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, OwnershipPath: file.ownershipPath})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, OwnershipPath: ownershipPath})
 	}
 	return out
 }
