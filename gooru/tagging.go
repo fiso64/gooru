@@ -374,17 +374,23 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 		return nil, fmt.Errorf("could not get existing file data: %w", err)
 	}
 
-	// 1c. Determine which files actually need to be hashed.
+	// 1c. Determine which files actually need to be hashed. Cache the initial
+	// metadata so unchanged heuristic hits do not need a second Stat in phase 2.
+	initialFileInfo := make(map[string]os.FileInfo, len(absPaths))
 	filesToHash := make([]string, 0)
 	for _, absPath := range absPaths {
 		info, err := os.Stat(absPath)
 		if err != nil {
-			// Report error for non-existent files here, so it's only reported once.
+			// Report the initial Stat failure once. Phase 2 still retries the Stat
+			// so a path that becomes available can continue through analysis.
+			originalPath := originalPathMap[absPath]
 			if progressCb != nil {
-				progressCb(originalPathMap[absPath], err)
+				progressCb(originalPath, err)
 			}
+			processedPaths[originalPath] = true
 			continue
 		}
+		initialFileInfo[absPath] = info
 		// If using the heuristic, only hash if metadata differs. Otherwise, hash everything.
 		if useMetadataHeuristic {
 			dbInfo, existsInDb := dbLocations[absPath]
@@ -401,16 +407,22 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 	// Phase 2: Prepare data structures for transaction.
 	for _, absPath := range absPaths {
 		originalPath := originalPathMap[absPath]
-		info, err := os.Stat(absPath)
-		if err != nil {
-			if !processedPaths[originalPath] {
-				// Errors for non-existent files are already handled above. This catches other Stat errors.
-				if progressCb != nil {
-					progressCb(originalPath, err)
+		result, wasHashed := hashResults[absPath]
+		info := initialFileInfo[absPath]
+		if wasHashed || info == nil {
+			// Hashed paths need post-hash metadata. A missing cached value means
+			// phase 1 could not Stat the path, so retry it here.
+			var err error
+			info, err = os.Stat(absPath)
+			if err != nil {
+				if !processedPaths[originalPath] {
+					if progressCb != nil {
+						progressCb(originalPath, err)
+					}
+					processedPaths[originalPath] = true
 				}
-				processedPaths[originalPath] = true
+				continue
 			}
-			continue
 		}
 
 		var hash string
@@ -418,7 +430,6 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 		isModification := false
 
 		// Determine the definitive hash for the current file content.
-		result, wasHashed := hashResults[absPath]
 		if wasHashed {
 			if result.Err != nil {
 				if !processedPaths[originalPath] {
