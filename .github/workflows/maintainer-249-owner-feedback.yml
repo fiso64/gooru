@@ -20,8 +20,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ github.event.head_commit.message }}" != "chore(ci): repair #249 merge and apply owner feedback" ]]; then exit 0; fi
+          if [[ "${{ github.event.head_commit.message }}" != "chore(ci): use row-surface preview clicks for #249" ]]; then exit 0; fi
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           uploads = Path('internal/serve/uploads.go')
@@ -60,9 +61,16 @@ jobs:
           spec = Path('frontend/tests/upload-viewer.spec.ts')
           text = spec.read_text()
           old = '''  await page.getByLabel('Filter staged files').fill('alpha');\n  const alphaRow = page.getByTestId('upload-row-0');\n  await expect(alphaRow).toBeVisible();\n  await alphaRow.hover();\n  await expect.poll(() => alphaRow.evaluate((element) => getComputedStyle(element).cursor)).toBe('pointer');\n  await expect(alphaRow.getByRole('button', { name: 'alpha.png', exact: true })).toHaveCount(0);\n  await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);\n\n  // The filename is plain text; clicking its row surface opens the viewer.\n  await alphaRow.getByRole('button', { name: 'Preview alpha.png' }).click();'''
-          new = '''  await page.getByLabel('Filter staged files').fill('alpha');\n  const alphaRow = page.getByTestId('upload-row-0');\n  await expect(alphaRow).toBeVisible();\n  const restingBackground = await alphaRow.evaluate((element) => getComputedStyle(element).backgroundColor);\n  await alphaRow.hover();\n  const hoveredBackground = await alphaRow.evaluate((element) => getComputedStyle(element).backgroundColor);\n  expect(hoveredBackground).not.toBe(restingBackground);\n  await expect.poll(() => alphaRow.evaluate((element) => getComputedStyle(element).cursor)).toBe('pointer');\n  await expect(alphaRow.getByRole('button', { name: 'alpha.png', exact: true })).toHaveCount(0);\n  await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);\n\n  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });\n  const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();\n  if (!tagControlBox) throw new Error('staged tag control has no layout box');\n  await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);\n  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);\n  await rowTagInput.click();\n  await expect(rowTagInput).toBeFocused();\n  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);\n\n  // The filename is plain text; clicking its row surface opens the viewer.\n  await alphaRow.getByRole('button', { name: 'Preview alpha.png' }).click();'''
+          new = '''  await page.getByLabel('Filter staged files').fill('alpha');\n  const alphaRow = page.getByTestId('upload-row-0');\n  await expect(alphaRow).toBeVisible();\n  const restingBackground = await alphaRow.evaluate((element) => getComputedStyle(element).backgroundColor);\n  await alphaRow.hover();\n  const hoveredBackground = await alphaRow.evaluate((element) => getComputedStyle(element).backgroundColor);\n  expect(hoveredBackground).not.toBe(restingBackground);\n  await expect.poll(() => alphaRow.evaluate((element) => getComputedStyle(element).cursor)).toBe('pointer');\n  await expect(alphaRow.getByRole('button', { name: 'alpha.png', exact: true })).toHaveCount(0);\n  await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);\n\n  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });\n  const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();\n  if (!tagControlBox) throw new Error('staged tag control has no layout box');\n  await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);\n  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);\n  await rowTagInput.click();\n  await expect(rowTagInput).toBeFocused();\n  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);\n\n  // The filename is plain text; clicking its row surface opens the viewer.\n  await alphaRow.getByRole('button', { name: 'Preview alpha.png' }).click({ position: { x: 8, y: 8 } });'''
           assert text.count(old) == 1, ('browser test', text.count(old))
-          spec.write_text(text.replace(old, new))
+          text = text.replace(old, new)
+          text, replacements = re.subn(
+              r"(getByRole\('button', \{ name: 'Preview [^']+' \}\))\.click\(\);",
+              r"\1.click({ position: { x: 8, y: 8 } });",
+              text,
+          )
+          assert replacements >= 4, ('preview click replacements', replacements)
+          spec.write_text(text)
           PY
 
           gofmt -w internal/serve/uploads.go
@@ -79,5 +87,5 @@ jobs:
           git rm .github/workflows/maintainer-249-owner-feedback.yml
           git add internal/serve/uploads.go frontend/src/lib/components/UploadPanel.svelte frontend/src/lib/styles/components.css frontend/tests/upload-viewer.spec.ts
           git diff --cached --check
-          git commit -m 'fix(upload): preserve item tags through branch sync'
+          git commit -m 'fix(upload): keep inline tags separate from row preview'
           git push origin HEAD:feat/249-upload-item-tags
