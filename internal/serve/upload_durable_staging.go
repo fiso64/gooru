@@ -20,6 +20,45 @@ func durableUploadStagingDir(root, operationID string) (string, error) {
 	return filepath.Join(root, durableUploadStagingRootName, operationID), nil
 }
 
+func prepareDurableUploadStagingDir(root, operationID string) (string, error) {
+	operationDir, err := durableUploadStagingDir(root, operationID)
+	if err != nil {
+		return "", err
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve upload target: %w", err)
+	}
+	resolvedRoot, ok := resolvedContainmentPath(filepath.Clean(rootAbs))
+	if !ok {
+		return "", errors.New("cannot safely resolve upload target")
+	}
+	operationAbs, err := filepath.Abs(operationDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve upload staging directory: %w", err)
+	}
+	requireContained := func() error {
+		resolvedOperationDir, ok := resolvedContainmentPath(filepath.Clean(operationAbs))
+		if !ok {
+			return errors.New("cannot safely resolve upload staging directory")
+		}
+		if !pathContainsOrEquals(resolvedRoot, resolvedOperationDir) {
+			return errors.New("upload staging directory escapes upload target")
+		}
+		return nil
+	}
+	if err := requireContained(); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(operationDir, 0700); err != nil {
+		return "", err
+	}
+	if err := requireContained(); err != nil {
+		return "", err
+	}
+	return operationDir, nil
+}
+
 func validDurableUploadOperationID(operationID string) bool {
 	return strings.HasPrefix(operationID, "operation-") && filepath.Base(operationID) == operationID && !strings.ContainsAny(operationID, `/\\`)
 }
@@ -33,11 +72,8 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	if err != nil {
 		return nil, nil, multipartUploadError{code: "invalid_upload_target", message: err.Error(), err: err}
 	}
-	initialOperationDir, err := durableUploadStagingDir(stagingTarget.Path, operationID)
+	initialOperationDir, err := prepareDurableUploadStagingDir(stagingTarget.Path, operationID)
 	if err != nil {
-		return nil, nil, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
-	}
-	if err := os.MkdirAll(initialOperationDir, 0700); err != nil {
 		return nil, nil, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
 	}
 	initialDir, err := os.MkdirTemp(initialOperationDir, "request-")
@@ -147,16 +183,13 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	if err != nil {
 		return nil, saved, multipartUploadError{code: "invalid_upload_target", message: err.Error(), err: err}
 	}
-	targetOperationDir, err := durableUploadStagingDir(target.Path, operationID)
-	if err != nil {
-		return nil, saved, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
-	}
 	if err := os.MkdirAll(target.Path, 0700); err != nil {
 		return nil, saved, multipartUploadError{message: "failed to prepare upload directory", err: err}
 	}
 	targetDir := initialDir
 	if filepath.Clean(stagingTarget.Path) != filepath.Clean(target.Path) {
-		if err := os.MkdirAll(targetOperationDir, 0700); err != nil {
+		targetOperationDir, err := prepareDurableUploadStagingDir(target.Path, operationID)
+		if err != nil {
 			return nil, saved, multipartUploadError{message: "failed to prepare upload staging directory", err: err}
 		}
 		targetDir, err = os.MkdirTemp(targetOperationDir, "request-")
