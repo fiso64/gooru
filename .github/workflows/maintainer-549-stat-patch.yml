@@ -1,0 +1,72 @@
+name: Maintainer 549 stat patch
+
+on:
+  push:
+    branches:
+      - maintainer/549-cache-heuristic-stat
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/549-cache-heuristic-stat
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Apply bounded stat/cache fix and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('gooru/tagging.go')
+          source = path.read_text()
+
+          old = '''\t// 1c. Determine which files actually need to be hashed.\n\tfilesToHash := make([]string, 0)\n\tfor _, absPath := range absPaths {\n\t\tinfo, err := os.Stat(absPath)\n\t\tif err != nil {\n\t\t\t// Report error for non-existent files here, so it's only reported once.\n\t\t\tif progressCb != nil {\n\t\t\t\tprogressCb(originalPathMap[absPath], err)\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n\t\t// If using the heuristic, only hash if metadata differs. Otherwise, hash everything.\n\t\tif useMetadataHeuristic {\n\t\t\tdbInfo, existsInDb := dbLocations[absPath]\n\t\t\tif existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {\n\t\t\t\tcontinue // Unchanged, no hash needed.\n\t\t\t}\n\t\t}\n\t\tfilesToHash = append(filesToHash, absPath)\n\t}\n'''
+          new = '''\t// 1c. Determine which files actually need to be hashed. Cache the initial\n\t// metadata so unchanged heuristic hits do not need a second Stat in phase 2.\n\tinitialFileInfo := make(map[string]os.FileInfo, len(absPaths))\n\tfilesToHash := make([]string, 0)\n\tfor _, absPath := range absPaths {\n\t\tinfo, err := os.Stat(absPath)\n\t\tif err != nil {\n\t\t\t// Report the initial Stat failure once. Phase 2 still retries the Stat\n\t\t\t// so a path that becomes available can continue through analysis.\n\t\t\toriginalPath := originalPathMap[absPath]\n\t\t\tif progressCb != nil {\n\t\t\t\tprogressCb(originalPath, err)\n\t\t\t}\n\t\t\tprocessedPaths[originalPath] = true\n\t\t\tcontinue\n\t\t}\n\t\tinitialFileInfo[absPath] = info\n\t\t// If using the heuristic, only hash if metadata differs. Otherwise, hash everything.\n\t\tif useMetadataHeuristic {\n\t\t\tdbInfo, existsInDb := dbLocations[absPath]\n\t\t\tif existsInDb && info.Size() == dbInfo.Size && info.ModTime().Unix() == dbInfo.ModTime {\n\t\t\t\tcontinue // Unchanged, no hash needed.\n\t\t\t}\n\t\t}\n\t\tfilesToHash = append(filesToHash, absPath)\n\t}\n'''
+          if source.count(old) != 1:
+              raise SystemExit(f'expected exactly one phase-1 block, found {source.count(old)}')
+          source = source.replace(old, new, 1)
+
+          old = '''\t// Phase 2: Prepare data structures for transaction.\n\tfor _, absPath := range absPaths {\n\t\toriginalPath := originalPathMap[absPath]\n\t\tinfo, err := os.Stat(absPath)\n\t\tif err != nil {\n\t\t\tif !processedPaths[originalPath] {\n\t\t\t\t// Errors for non-existent files are already handled above. This catches other Stat errors.\n\t\t\t\tif progressCb != nil {\n\t\t\t\t\tprogressCb(originalPath, err)\n\t\t\t\t}\n\t\t\t\tprocessedPaths[originalPath] = true\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n\n\t\tvar hash string\n\t\tdbInfo, existsInDb := dbLocations[absPath]\n\t\tisModification := false\n\n\t\t// Determine the definitive hash for the current file content.\n\t\tresult, wasHashed := hashResults[absPath]\n'''
+          new = '''\t// Phase 2: Prepare data structures for transaction.\n\tfor _, absPath := range absPaths {\n\t\toriginalPath := originalPathMap[absPath]\n\t\tresult, wasHashed := hashResults[absPath]\n\t\tinfo := initialFileInfo[absPath]\n\t\tif wasHashed || info == nil {\n\t\t\t// Hashed paths need post-hash metadata. A missing cached value means\n\t\t\t// phase 1 could not Stat the path, so retry it here.\n\t\t\tvar err error\n\t\t\tinfo, err = os.Stat(absPath)\n\t\t\tif err != nil {\n\t\t\t\tif !processedPaths[originalPath] {\n\t\t\t\t\tif progressCb != nil {\n\t\t\t\t\t\tprogressCb(originalPath, err)\n\t\t\t\t\t}\n\t\t\t\t\tprocessedPaths[originalPath] = true\n\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}\n\t\t}\n\n\t\tvar hash string\n\t\tdbInfo, existsInDb := dbLocations[absPath]\n\t\tisModification := false\n\n\t\t// Determine the definitive hash for the current file content.\n'''
+          if source.count(old) != 1:
+              raise SystemExit(f'expected exactly one phase-2 block, found {source.count(old)}')
+          source = source.replace(old, new, 1)
+          path.write_text(source)
+
+          test_path = Path('gooru/tagging_test.go')
+          tests = test_path.read_text()
+          old = '''\t\tvar progressErr error\n\t\tvar mu sync.Mutex\n\n\t\tprogressCb := func(filePath string, err error) {\n\t\t\tif err != nil {\n\t\t\t\tmu.Lock()\n\t\t\t\tprogressErr = err\n\t\t\t\tmu.Unlock()\n\t\t\t}\n\t\t}\n'''
+          new = '''\t\tvar progressErr error\n\t\tcallbackCount := 0\n\t\tvar mu sync.Mutex\n\n\t\tprogressCb := func(filePath string, err error) {\n\t\t\tmu.Lock()\n\t\t\tdefer mu.Unlock()\n\t\t\tcallbackCount++\n\t\t\tif err != nil {\n\t\t\t\tprogressErr = err\n\t\t\t}\n\t\t}\n'''
+          if tests.count(old) != 1:
+              raise SystemExit(f'expected exactly one missing-file callback block, found {tests.count(old)}')
+          tests = tests.replace(old, new, 1)
+          old = '''\t\trequire.Error(t, progressErr, "Expected an error from the progress callback")\n\t\tassert.ErrorIs(t, progressErr, os.ErrNotExist, "The error should be a 'not exist' error")\n'''
+          new = '''\t\trequire.Error(t, progressErr, "Expected an error from the progress callback")\n\t\tassert.ErrorIs(t, progressErr, os.ErrNotExist, "The error should be a 'not exist' error")\n\t\tassert.Equal(t, 1, callbackCount, "A missing file should be reported exactly once")\n'''
+          if tests.count(old) != 1:
+              raise SystemExit(f'expected exactly one missing-file assertion block, found {tests.count(old)}')
+          tests = tests.replace(old, new, 1)
+          test_path.write_text(tests)
+          PY
+
+          gofmt -w gooru/tagging.go gooru/tagging_test.go
+          go test ./gooru -run TestClient_TagFiles -count=1
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/maintainer-549-stat-patch.yml
+          git add gooru/tagging.go gooru/tagging_test.go
+          git diff --cached --check
+          git commit -m 'perf(tagging): reuse heuristic file metadata'
+          git push origin HEAD:maintainer/549-cache-heuristic-stat
