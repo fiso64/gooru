@@ -74,6 +74,6 @@ jobs:
           git diff --check
           git config user.name "gooru-maintainer-bot"
           git config user.email "maintainer@localhost"
-          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/tests/upload-viewer.spec.ts
-          git commit -m 'perf: coalesce upload tag refreshes'
+          git add frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/state/uploadTagReconciliation.ts frontend/src/lib/state/uploadTagReconciliation.test.ts
+          git commit -m 'perf: coalesce upload tag reconciliation refreshes'
           git push origin HEAD:feat/249-upload-item-tags
