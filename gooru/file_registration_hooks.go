@@ -1,11 +1,16 @@
 package gooru
 
+import "strings"
+
 // FileRegistrationEvent describes content identities whose tracked locations
 // were registered or refreshed by one tagging transaction. Hooks run after the
 // domain writes but before commit so durable follow-up tasks can be persisted
-// atomically with registration.
+// atomically with registration. OperationID carries an optional producer-owned
+// operation lifetime, such as one browser upload spanning many registration
+// transactions.
 type FileRegistrationEvent struct {
 	ContentHashes []string
+	OperationID   string
 }
 
 // FileRegistrationHook builds durable follow-up work for a registration event.
@@ -49,10 +54,15 @@ func uniqueRegistrationHashes(hashes []string) []string {
 }
 
 func (c *Client) fileRegistrationBackgroundTasks(hashes []string) ([]BackgroundTaskRequest, error) {
+	return c.fileRegistrationBackgroundTasksForOperation(hashes, "")
+}
+
+func (c *Client) fileRegistrationBackgroundTasksForOperation(hashes []string, operationID string) ([]BackgroundTaskRequest, error) {
 	unique := uniqueRegistrationHashes(hashes)
 	if len(unique) == 0 {
 		return nil, nil
 	}
+	operationID = strings.TrimSpace(operationID)
 
 	hooks := c.fileRegistrationHooks
 	if hooks == nil {
@@ -71,13 +81,13 @@ func (c *Client) fileRegistrationBackgroundTasks(hashes []string) ([]BackgroundT
 				return nil, nil
 			}
 		}
-		return mediaMetadataRegistrationTasks(true)
+		return mediaMetadataRegistrationTasksForOperation(true, operationID)
 	}
 	if len(hooks) == 0 {
 		return nil, nil
 	}
 
-	event := FileRegistrationEvent{ContentHashes: unique}
+	event := FileRegistrationEvent{ContentHashes: unique, OperationID: operationID}
 	var tasks []BackgroundTaskRequest
 	for _, hook := range hooks {
 		if hook == nil {
