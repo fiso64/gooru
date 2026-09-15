@@ -115,6 +115,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeMultipartUploadError(w, err)
 		return
 	}
+	defer releaseSavedUploadOwnership(saved)
 	if err := query.ValidateTags(tags); err != nil {
 		removeSavedUploads(saved)
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
@@ -188,6 +189,7 @@ type savedUpload struct {
 	sourceModTime   time.Time
 	addedAt         time.Time
 	conflictPolicy  string
+	ownershipPath   string
 }
 
 var (
@@ -325,7 +327,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			})
 			continue
 		}
-		if err := commitUploadDestination(tmpPath, path); err != nil {
+		if err := commitUploadDestinationWithOwnership(tmpPath, path); err != nil {
 			_ = os.Remove(tmpPath)
 			if len(files) > 1 && errors.Is(err, errUploadConflict) {
 				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: err.Error()})
@@ -334,7 +336,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
 		}
-		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: size, targetID: target.ID})
+		saved = append(saved, savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: size, targetID: target.ID, ownershipPath: tmpPath})
 	}
 	return saved, nil
 }
@@ -344,7 +346,28 @@ func removeSavedUploads(files []savedUpload) {
 		if file.status == "skipped" || file.status == "error" {
 			continue
 		}
-		_ = os.Remove(file.path)
+		if file.replace {
+			_ = os.Remove(file.path)
+			continue
+		}
+		if file.ownershipPath == "" {
+			continue
+		}
+		ownedFileInfo, err := os.Stat(file.ownershipPath)
+		if err == nil {
+			if currentFileInfo, statErr := os.Stat(file.path); statErr == nil && os.SameFile(ownedFileInfo, currentFileInfo) {
+				_ = os.Remove(file.path)
+			}
+		}
+		_ = os.Remove(file.ownershipPath)
+	}
+}
+
+func releaseSavedUploadOwnership(files []savedUpload) {
+	for _, file := range files {
+		if file.ownershipPath != "" {
+			_ = os.Remove(file.ownershipPath)
+		}
 	}
 }
 
@@ -454,14 +477,21 @@ func createUploadDestination(dir string, name string, conflictPolicy string) (*o
 }
 
 func commitUploadDestination(tmpPath string, finalPath string) error {
+	if err := commitUploadDestinationWithOwnership(tmpPath, finalPath); err != nil {
+		return err
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		_ = os.Remove(finalPath)
+		return fmt.Errorf("failed to store uploaded file")
+	}
+	return nil
+}
+
+func commitUploadDestinationWithOwnership(tmpPath string, finalPath string) error {
 	if err := os.Link(tmpPath, finalPath); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return errUploadConflict
 		}
-		return fmt.Errorf("failed to store uploaded file")
-	}
-	if err := os.Remove(tmpPath); err != nil {
-		_ = os.Remove(finalPath)
 		return fmt.Errorf("failed to store uploaded file")
 	}
 	return nil
