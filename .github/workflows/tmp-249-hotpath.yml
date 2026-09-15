@@ -1,0 +1,48 @@
+name: Temporary 249 hot-path validation
+
+on:
+  push:
+    branches:
+      - feat/249-upload-item-tags
+    paths:
+      - .github/workflows/tmp-249-hotpath.yml
+      - .github/tmp-249-hotpath.py
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: feat/249-upload-item-tags
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Apply hot-path patch
+        run: python3 .github/tmp-249-hotpath.py
+      - name: Check frontend
+        working-directory: frontend
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Install browser
+        working-directory: frontend
+        run: npx playwright install chromium
+      - name: Upload viewer browser regressions
+        working-directory: frontend
+        run: npm run test:e2e -- upload-viewer.spec.ts
+      - name: Commit source changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check -- frontend/src/lib/components/UploadViewerDialog.svelte frontend/src/lib/components/AuthenticatedApp.svelte
+          git config user.name "gooru-maintainer-bot"
+          git config user.email "maintainer@localhost"
+          git add frontend/src/lib/components/UploadViewerDialog.svelte frontend/src/lib/components/AuthenticatedApp.svelte
+          git commit -m 'perf: avoid repeated upload row searches'
+          git push origin HEAD:feat/249-upload-item-tags
