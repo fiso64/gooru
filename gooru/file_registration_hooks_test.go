@@ -73,15 +73,21 @@ func TestFileRegistrationHooksCanDisableAndResetDefaults(t *testing.T) {
 	}
 }
 
-func TestDefaultFileRegistrationHookSkipsKnownContent(t *testing.T) {
-	client := newBackgroundEnqueueTestClient(t)
+func registerKnownContentWithoutHooks(t *testing.T, client *Client, path, hash string) types.LocationInfo {
+	t.Helper()
+	file := types.LocationInfo{Path: path, Hash: hash, Size: 1, ModTime: 1}
 	client.SetFileRegistrationHooks()
-	path := filepath.Join(t.TempDir(), "existing.jpg")
-	if _, err := client.TagKnownFiles([]types.LocationInfo{{Path: path, Hash: "existing-hash", Size: 1, ModTime: 1}}, nil, nil); err != nil {
+	if _, err := client.TagKnownFiles([]types.LocationInfo{file}, nil, nil); err != nil {
 		t.Fatalf("register existing content: %v", err)
 	}
-
 	client.ResetFileRegistrationHooks()
+	return file
+}
+
+func TestDefaultFileRegistrationHookSkipsKnownContent(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	registerKnownContentWithoutHooks(t, client, filepath.Join(t.TempDir(), "existing.jpg"), "existing-hash")
+
 	tasks, err := client.fileRegistrationBackgroundTasks([]string{"existing-hash"})
 	if err != nil {
 		t.Fatal(err)
@@ -96,6 +102,22 @@ func TestDefaultFileRegistrationHookSkipsKnownContent(t *testing.T) {
 	}
 	if len(tasks) != 1 || tasks[0].Kind != BackgroundMediaMetadataSweepTaskKind {
 		t.Fatalf("new content produced tasks %#v, want one metadata sweep wake", tasks)
+	}
+}
+
+func TestRetagKnownFileDoesNotEnqueueMetadataSweep(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	file := registerKnownContentWithoutHooks(t, client, filepath.Join(t.TempDir(), "existing.jpg"), "existing-hash")
+
+	if _, err := client.TagKnownFiles([]types.LocationInfo{file}, []string{"rating:safe"}, nil); err != nil {
+		t.Fatalf("retag existing content: %v", err)
+	}
+	var count int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_tasks WHERE kind = ?`, BackgroundMediaMetadataSweepTaskKind).Scan(&count); err != nil {
+		t.Fatalf("count metadata sweep tasks: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("metadata sweep task count after retag = %d, want 0", count)
 	}
 }
 
