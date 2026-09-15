@@ -68,35 +68,53 @@ func (s *Server) backgroundMediaMetadataSweepHandler(ctx context.Context, task c
 	if !ok || library == nil {
 		return fmt.Errorf("media metadata library is not configured")
 	}
-	if task.SubjectKind != "library" || task.SubjectID != "media-metadata" {
+	if task.SubjectKind != "library" || task.SubjectID != "media-metadata" || strings.TrimSpace(task.OperationID) == "" {
 		return fmt.Errorf("media metadata sweep task has invalid subject")
 	}
 
-	var afterLocationID int64
+	afterLocationID, err := core.MediaMetadataSweepAfterLocationID(task)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// One-row lookahead tells us whether another quantum is needed without
+	// keeping this worker's shared media resource across the whole library.
+	files, err := library.client.ListPendingMediaMetadataFiles(afterLocationID, backgroundMediaMetadataSweepBatchSize+1)
+	if err != nil {
+		return fmt.Errorf("list pending media metadata: %w", err)
+	}
+	if len(files) == 0 {
+		return nil
+	}
+
+	hasMore := len(files) > backgroundMediaMetadataSweepBatchSize
+	if hasMore {
+		files = files[:backgroundMediaMetadataSweepBatchSize]
+	}
 	var firstErr error
-	for {
+	for _, file := range files {
+		// Advance the keyset cursor before doing fallible work so one bad file
+		// cannot prevent later locations from being attempted by a continuation.
+		afterLocationID = file.ID
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		files, err := library.client.ListPendingMediaMetadataFiles(afterLocationID, backgroundMediaMetadataSweepBatchSize)
-		if err != nil {
-			return fmt.Errorf("list pending media metadata: %w", err)
-		}
-		if len(files) == 0 {
-			return firstErr
-		}
-		for _, file := range files {
-			// Advance the keyset cursor before doing fallible work so one bad file
-			// cannot prevent later locations from being attempted in this run.
-			afterLocationID = file.ID
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := processPendingMediaMetadataFile(ctx, library, file); err != nil && firstErr == nil {
-				firstErr = err
-			}
+		if err := processPendingMediaMetadataFile(ctx, library, file); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
+	if hasMore {
+		// Persist the sibling before this task returns. Background task completion
+		// observes active siblings transactionally, so the visible parent operation
+		// cannot finish in the gap between quanta. A crash/retry may find the same
+		// continuation already active; that is a successful idempotent handoff.
+		if _, err := library.client.EnqueueMediaMetadataSweepContinuation(task.OperationID, afterLocationID); err != nil {
+			return err
+		}
+	}
+	return firstErr
 }
 
 func processPendingMediaMetadataFile(ctx context.Context, library *GooruLibrary, file types.FileInfo) error {

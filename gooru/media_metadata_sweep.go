@@ -2,6 +2,8 @@ package gooru
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"gooru.local/types"
 )
@@ -15,6 +17,7 @@ const (
 	// BackgroundMediaMetadataResourceClass serializes metadata extraction with
 	// other media work such as thumbnail generation.
 	BackgroundMediaMetadataResourceClass = "media"
+	mediaMetadataSweepCursorPrefix         = "after-location:"
 )
 
 func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
@@ -55,6 +58,59 @@ func newMediaMetadataSweepTaskRequest() (BackgroundTaskRequest, error) {
 		ResourceClass: BackgroundMediaMetadataResourceClass,
 		MaxAttempts:   5,
 	}, nil
+}
+
+func mediaMetadataSweepContinuationTaskRequest(operationID string, afterLocationID int64) (BackgroundTaskRequest, error) {
+	operationID = strings.TrimSpace(operationID)
+	if operationID == "" {
+		return BackgroundTaskRequest{}, fmt.Errorf("media metadata sweep continuation requires an operation id")
+	}
+	if afterLocationID <= 0 {
+		return BackgroundTaskRequest{}, fmt.Errorf("media metadata sweep continuation cursor must be positive")
+	}
+	cursor := mediaMetadataSweepCursorPrefix + strconv.FormatInt(afterLocationID, 10)
+	return BackgroundTaskRequest{
+		OperationID:    operationID,
+		DedupeKey:      BackgroundMediaMetadataSweepTaskKind + ":" + operationID + ":" + cursor,
+		Kind:           BackgroundMediaMetadataSweepTaskKind,
+		SubjectKind:    "library",
+		SubjectID:      "media-metadata",
+		InputKey:       cursor,
+		ResourceClass:  BackgroundMediaMetadataResourceClass,
+		MaxAttempts:    5,
+	}, nil
+}
+
+// MediaMetadataSweepAfterLocationID decodes the durable keyset cursor carried by
+// a continuation task. Initial/manual/registration wake tasks intentionally use
+// opaque wake IDs and therefore start at zero. Unknown opaque values are kept as
+// initial-task inputs for compatibility with already persisted sweep wakes.
+func MediaMetadataSweepAfterLocationID(task BackgroundTask) (int64, error) {
+	if !strings.HasPrefix(task.InputKey, mediaMetadataSweepCursorPrefix) {
+		return 0, nil
+	}
+	raw := strings.TrimPrefix(task.InputKey, mediaMetadataSweepCursorPrefix)
+	afterLocationID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || afterLocationID <= 0 {
+		return 0, fmt.Errorf("invalid media metadata sweep cursor %q", task.InputKey)
+	}
+	return afterLocationID, nil
+}
+
+// EnqueueMediaMetadataSweepContinuation yields a bounded sweep quantum while
+// keeping the next page attached to the same visible operation. The continuation
+// uses the ordinary media resource and priority, so older queued media work can
+// run before it. Active dedupe makes replay after a worker crash idempotent.
+func (c *Client) EnqueueMediaMetadataSweepContinuation(operationID string, afterLocationID int64) (bool, error) {
+	request, err := mediaMetadataSweepContinuationTaskRequest(operationID, afterLocationID)
+	if err != nil {
+		return false, err
+	}
+	_, created, err := c.EnqueueBackgroundTask(request)
+	if err != nil {
+		return false, fmt.Errorf("enqueue media metadata sweep continuation: %w", err)
+	}
+	return created, nil
 }
 
 // MediaMetadataSweepRunning reports whether a metadata sweep operation is
