@@ -40,12 +40,32 @@ func configuredEncryptionKeys(cfg serve.Config) (encryptionkeys.Keys, error) {
 	return keys, nil
 }
 
+func recoverDisabledDatabaseMigrations(cfg serve.Config) error {
+	if cfg.Encryption.Enabled {
+		return nil
+	}
+	// Both protected-mode enable and the historical-key normalization can stage
+	// the source away from the canonical path. A staged source is safe to restore
+	// without a key; installed encrypted replacements remain untouched until a
+	// keyed recovery pass can verify them.
+	if err := database.RecoverPlaintextDatabaseEncryptionMigration(cfg.Database.Path, nil); err != nil {
+		return fmt.Errorf("recover interrupted database encryption migration before disabling protected storage: %w", err)
+	}
+	if err := database.RecoverEncryptedDatabaseKeyMigration(cfg.Database.Path, nil); err != nil {
+		return fmt.Errorf("recover interrupted database subkey migration before disabling protected storage: %w", err)
+	}
+	return nil
+}
+
 // ensureConfiguredDatabaseKey performs the one-time compatibility migration
 // from the historical master-key database format to the database-domain subkey.
 // A plaintext database is left for the normal protected-mode migration path.
 func ensureConfiguredDatabaseKey(cfg serve.Config, databaseKey []byte) error {
 	if !cfg.Encryption.Enabled {
 		return nil
+	}
+	if err := database.RecoverEncryptedDatabaseKeyMigration(cfg.Database.Path, databaseKey); err != nil {
+		return fmt.Errorf("recover interrupted database subkey migration: %w", err)
 	}
 	plain, err := database.IsPlaintextDatabase(cfg.Database.Path)
 	if err != nil {
@@ -77,6 +97,9 @@ func ensureConfiguredDatabaseKey(cfg serve.Config, databaseKey []byte) error {
 }
 
 func openConfiguredClient(cfg serve.Config, verbose bool) (*gooru.Client, error) {
+	if err := recoverDisabledDatabaseMigrations(cfg); err != nil {
+		return nil, err
+	}
 	if err := migrateConfiguredStorageToPlaintext(cfg, verbose); err != nil {
 		return nil, err
 	}
@@ -112,6 +135,9 @@ func openConfiguredClient(cfg serve.Config, verbose bool) (*gooru.Client, error)
 }
 
 func openConfiguredAuthStore(cfg serve.Config, verbose bool) (*database.Store, error) {
+	if err := recoverDisabledDatabaseMigrations(cfg); err != nil {
+		return nil, err
+	}
 	if err := migrateConfiguredStorageToPlaintext(cfg, verbose); err != nil {
 		return nil, err
 	}

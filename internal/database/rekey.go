@@ -7,6 +7,37 @@ import (
 	"path/filepath"
 )
 
+const (
+	encryptedRekeyTargetSuffix = ".gooru-rekeyed"
+	encryptedRekeyBackupSuffix = ".gooru-legacy-key-backup"
+)
+
+// RecoverEncryptedDatabaseKeyMigration repairs the deterministic swap state
+// left by an interrupted legacy-key to database-subkey migration. A staged
+// legacy source is restored without needing either encryption key. If the
+// rekeyed database is already canonical, newKey is required to verify it before
+// the legacy-key rollback copy is removed; an empty newKey leaves that copy in
+// place for a later keyed recovery pass.
+func RecoverEncryptedDatabaseKeyMigration(path string, newKey []byte) error {
+	if len(newKey) != 0 && len(newKey) != encryptedDatabaseKeySize {
+		return ErrInvalidDatabaseEncryptionKey
+	}
+	targetPath := path + encryptedRekeyTargetSuffix
+	backupPath := path + encryptedRekeyBackupSuffix
+
+	backupPresent, err := recoverInterruptedDatabaseSwap(path, targetPath, backupPath)
+	if err != nil {
+		return fmt.Errorf("recover encrypted database key migration: %w", err)
+	}
+	if !backupPresent || len(newKey) == 0 {
+		return nil
+	}
+
+	return finalizeRecoveredDatabaseMigration(path, backupPath, "rekeyed encrypted database", func() (*Store, error) {
+		return NewEncryptedStore(path, false, newKey)
+	})
+}
+
 // MigrateEncryptedDatabaseKey atomically rewrites an existing encrypted
 // database from oldKey to newKey. It is intended for format/key-domain
 // migrations, not as a general administrator-facing key-rotation workflow.
@@ -14,21 +45,18 @@ func MigrateEncryptedDatabaseKey(path string, oldKey, newKey []byte) error {
 	if len(oldKey) != encryptedDatabaseKeySize || len(newKey) != encryptedDatabaseKeySize {
 		return ErrInvalidDatabaseEncryptionKey
 	}
+	if err := RecoverEncryptedDatabaseKeyMigration(path, newKey); err != nil {
+		return err
+	}
+	if current, err := NewEncryptedStore(path, false, newKey); err == nil {
+		return current.Close()
+	}
 
 	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-	newPath, err := reserveSiblingPath(dir, "."+base+".rekeyed-")
-	if err != nil {
-		return fmt.Errorf("reserve rekey target path: %w", err)
-	}
+	newPath := path + encryptedRekeyTargetSuffix
+	backupPath := path + encryptedRekeyBackupSuffix
+	cleanupSQLiteFiles(newPath)
 	defer cleanupSQLiteFiles(newPath)
-
-	backupPath, err := reserveSiblingPath(dir, "."+base+".legacy-key-backup-")
-	if err != nil {
-		return fmt.Errorf("reserve rekey backup path: %w", err)
-	}
-	// Do not defer cleanup of backupPath. Once the source is staged there it is
-	// the rollback copy, and it must survive if restoring the original path fails.
 
 	source, err := NewEncryptedStore(path, false, oldKey)
 	if err != nil {
@@ -77,26 +105,35 @@ func MigrateEncryptedDatabaseKey(path string, oldKey, newKey []byte) error {
 		return fmt.Errorf("stage legacy-key database for replacement: %w", err)
 	}
 	cleanupSQLiteSidecars(path)
+	if err := syncDatabaseDir(dir); err != nil {
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("sync staged legacy-key database replacement: %w", err), path, backupPath)
+	}
 	if err := os.Rename(newPath, path); err != nil {
-		return rollbackDatabaseMigration(fmt.Errorf("install rekeyed database: %w", err), path, backupPath)
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("install rekeyed database: %w", err), path, backupPath)
+	}
+	if err := syncDatabaseDir(dir); err != nil {
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("sync installed rekeyed database: %w", err), path, backupPath)
 	}
 
 	verified, err := NewEncryptedStore(path, false, newKey)
 	if err != nil {
-		return rollbackDatabaseMigration(fmt.Errorf("reopen rekeyed database: %w", err), path, backupPath)
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("reopen rekeyed database: %w", err), path, backupPath)
 	}
 	verifyErr := checkDatabaseIntegrity(verified.DB)
 	closeErr := verified.Close()
 	if verifyErr != nil {
-		return rollbackDatabaseMigration(fmt.Errorf("verify installed rekeyed database: %w", verifyErr), path, backupPath)
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("verify installed rekeyed database: %w", verifyErr), path, backupPath)
 	}
 	if closeErr != nil {
-		return rollbackDatabaseMigration(fmt.Errorf("close installed rekeyed database: %w", closeErr), path, backupPath)
+		return rollbackDatabaseMigrationDurably(fmt.Errorf("close installed rekeyed database: %w", closeErr), path, backupPath)
 	}
 
 	if err := os.Remove(backupPath); err != nil {
 		return fmt.Errorf("remove legacy-key database backup: %w", err)
 	}
 	cleanupSQLiteSidecars(backupPath)
+	if err := syncDatabaseDir(dir); err != nil {
+		return fmt.Errorf("sync completed database rekey migration: %w", err)
+	}
 	return SecureDBFiles(path)
 }
