@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  patch-check-capture:
+  patch-test-commit:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -24,21 +24,25 @@ jobs:
         run: npm ci
       - name: Apply stale rebase guard
         run: python3 .github/tmp-249-stale-tag-rebase.py
-      - name: Capture frontend check
+      - name: Check frontend
         working-directory: frontend
-        shell: bash
-        run: |
-          set +e
-          npm run check 2>&1 | tee ../.github/tmp-249-stale-tag-rebase-check.log
-          status=${PIPESTATUS[0]}
-          printf '\n__EXIT_STATUS__=%s\n' "$status" >> ../.github/tmp-249-stale-tag-rebase-check.log
-          exit 0
-      - name: Commit diagnostic log
+        run: npm run check
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Install browser
+        working-directory: frontend
+        run: npx playwright install chromium
+      - name: Upload viewer browser regressions
+        working-directory: frontend
+        run: npm run test:e2e -- upload-viewer.spec.ts
+      - name: Commit source changes
         shell: bash
         run: |
           set -euo pipefail
+          git diff --check -- frontend/src/lib/state/uploadItems.ts frontend/src/lib/state/uploadItems.test.ts frontend/src/lib/state/uploadItems.tagSync.test.ts frontend/src/lib/state/uploadWorkflow.svelte.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/UploadPanel.svelte frontend/src/lib/components/UploadViewerDialog.svelte
           git config user.name "gooru-maintainer-bot"
           git config user.email "maintainer@localhost"
-          git add .github/tmp-249-stale-tag-rebase-check.log
-          git commit -m 'ci: capture #249 stale rebase check failure'
+          git add frontend/src/lib/state/uploadItems.ts frontend/src/lib/state/uploadItems.test.ts frontend/src/lib/state/uploadItems.tagSync.test.ts frontend/src/lib/state/uploadWorkflow.svelte.ts frontend/src/lib/components/AuthenticatedApp.svelte frontend/src/lib/components/UploadPanel.svelte frontend/src/lib/components/UploadViewerDialog.svelte
+          git commit -m 'fix: ignore stale upload viewer tag snapshots'
           git push origin HEAD:feat/249-upload-item-tags
