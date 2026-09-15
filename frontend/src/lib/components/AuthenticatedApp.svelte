@@ -519,7 +519,7 @@
     if (!item?.tagSyncPending || !item.remoteFileID) return;
 
     void uploadTagReconciliation.run(item, async () => {
-      const currentIndex = upload.items.indexOf(item);
+      const currentIndex = upload.items[index] === item ? index : upload.items.indexOf(item);
       if (currentIndex < 0 || !item.tagSyncPending || !item.remoteFileID || item.tagSyncError) return false;
 
       const delta = upload.itemTagSyncDelta(currentIndex);
@@ -533,12 +533,12 @@
       const remoteFileID = item.remoteFileID;
       try {
         await new ApiClient($authState.csrfToken).mutateTags(operation, { file_ids: [remoteFileID], tags: changedTags });
-        const appliedIndex = upload.items.indexOf(item);
+        const appliedIndex = upload.items[index] === item ? index : upload.items.indexOf(item);
         if (appliedIndex < 0) return false;
         upload.markItemTagSyncApplied(appliedIndex, operation, changedTags);
         return item.tagSyncPending && Boolean(item.remoteFileID) && !item.tagSyncError;
       } catch (error) {
-        const failedIndex = upload.items.indexOf(item);
+        const failedIndex = upload.items[index] === item ? index : upload.items.indexOf(item);
         if (failedIndex >= 0) upload.markItemTagSyncError(failedIndex, errorMessage(error));
         return false;
       }

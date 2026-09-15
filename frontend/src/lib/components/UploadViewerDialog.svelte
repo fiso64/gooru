@@ -148,7 +148,7 @@
     return () => controller.abort();
   });
 
-  function move(delta: number) {
+  function move(delta: -1 | 1) {
     const nextIndex = uploadViewerNeighborIndex(uploadItems, activeIndex, scope, delta);
     if (nextIndex != null && nextIndex !== activeIndex) onIndex(nextIndex);
   }
