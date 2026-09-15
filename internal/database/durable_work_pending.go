@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // FindPendingBackgroundTask returns one pending task with the supplied semantic
@@ -46,4 +47,35 @@ func (s *Store) FindPendingBackgroundTask(q Querier, operationID, kind, subjectK
 		return BackgroundTask{}, false, fmt.Errorf("find pending background task: %w", err)
 	}
 	return task, true, nil
+}
+
+// PostponePendingBackgroundTask moves a pending task's claim time later without
+// changing running work. Callers use this inside the same serialized producer
+// transaction that found the task, so a trailing-edge debounce stays atomic
+// with the domain mutation that justified postponing the wake.
+func (s *Store) PostponePendingBackgroundTask(q Querier, taskID string, availableAt time.Time) (bool, error) {
+	if q == nil {
+		return false, errors.New("background task querier is required")
+	}
+	if taskID == "" {
+		return false, errors.New("background task id is required")
+	}
+	if availableAt.IsZero() {
+		return false, errors.New("background task availability is required")
+	}
+	availableAt = availableAt.UTC()
+	availableAtValue := workTimeValue(availableAt)
+	result, err := q.Exec(`
+		UPDATE background_tasks
+		SET available_at = ?
+		WHERE id = ? AND status = 'pending' AND available_at < ?
+	`, availableAtValue, taskID, availableAtValue)
+	if err != nil {
+		return false, fmt.Errorf("postpone pending background task: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("postpone pending background task rows affected: %w", err)
+	}
+	return rows == 1, nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"gooru.local/types"
 )
@@ -19,6 +20,7 @@ const (
 	BackgroundMediaMetadataResourceClass = "media"
 	mediaMetadataSweepCursorPrefix         = "after-location:"
 	mediaMetadataRegistrationInputKey      = "registration"
+	mediaMetadataRegistrationDebounce      = 3 * time.Second
 )
 
 func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
@@ -39,12 +41,16 @@ func mediaMetadataRegistrationTasks(hasRegistrations bool) ([]BackgroundTaskRequ
 	}
 	// Registration transactions use SQLite immediate locking, so lookup/create
 	// and pending-equivalent coalescing are serialized across independent
-	// CLI/server clients. A pending registration wake can cover another commit,
-	// but a running wake cannot: its final metadata scan may already have passed
-	// the newly registered location. Keep each wake's durable dedupe key unique so
-	// that case always leaves a fresh pending wake behind the running task.
+	// CLI/server clients. Keep the wake pending briefly and move that trailing
+	// edge later for every registration commit in the same upload burst. This
+	// lets browser-sized chunks share one visible sweep instead of letting a fast
+	// worker finish between chunks. A running wake still cannot cover another
+	// commit: its final metadata scan may already have passed the newly registered
+	// location, so that case always leaves a fresh pending wake behind it.
 	task.OperationBinding = BackgroundOperationReuseActive
 	task.CoalescePendingEquivalent = true
+	task.PostponePendingEquivalent = true
+	task.AvailableAt = time.Now().UTC().Add(mediaMetadataRegistrationDebounce)
 	task.InputKey = mediaMetadataRegistrationInputKey
 	return []BackgroundTaskRequest{task}, nil
 }

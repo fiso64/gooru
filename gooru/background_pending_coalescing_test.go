@@ -1,6 +1,9 @@
 package gooru
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func pendingEquivalentBackgroundTaskRequest(dedupeKey string) BackgroundTaskRequest {
 	return BackgroundTaskRequest{
@@ -58,6 +61,45 @@ func TestEnqueueBackgroundTaskCoalescesEquivalentPendingTask(t *testing.T) {
 	}
 }
 
+func TestEnqueueBackgroundTaskCanPostponeEquivalentPendingTask(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	firstAvailableAt := time.Now().UTC().Add(time.Minute)
+	firstRequest := pendingEquivalentBackgroundTaskRequest("wake-1")
+	firstRequest.PostponePendingEquivalent = true
+	firstRequest.AvailableAt = firstAvailableAt
+
+	first, created, err := client.EnqueueBackgroundTask(firstRequest)
+	if err != nil {
+		t.Fatalf("first enqueue: %v", err)
+	}
+	if !created {
+		t.Fatal("first enqueue reported existing work")
+	}
+
+	secondAvailableAt := firstAvailableAt.Add(time.Minute)
+	secondRequest := pendingEquivalentBackgroundTaskRequest("wake-2")
+	secondRequest.PostponePendingEquivalent = true
+	secondRequest.AvailableAt = secondAvailableAt
+	second, created, err := client.EnqueueBackgroundTask(secondRequest)
+	if err != nil {
+		t.Fatalf("second enqueue: %v", err)
+	}
+	if created {
+		t.Fatal("equivalent pending enqueue created a second task")
+	}
+	if second.ID != first.ID {
+		t.Fatalf("coalesced task id = %q, want %q", second.ID, first.ID)
+	}
+
+	var availableAtMillis int64
+	if err := client.store.DB.QueryRow(`SELECT available_at FROM background_tasks WHERE id = ?`, first.ID).Scan(&availableAtMillis); err != nil {
+		t.Fatalf("read postponed availability: %v", err)
+	}
+	if got, want := time.UnixMilli(availableAtMillis).UTC(), secondAvailableAt.Truncate(time.Millisecond); !got.Equal(want) {
+		t.Fatalf("postponed availability = %v, want %v", got, want)
+	}
+}
+
 func TestEnqueueBackgroundTaskCoalescingDoesNotSuppressRunningTask(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 
@@ -105,6 +147,7 @@ func TestEnqueueBackgroundTaskCoalescingDoesNotSuppressRunningTask(t *testing.T)
 }
 
 func TestMediaMetadataRegistrationUsesPendingOnlyCoalescing(t *testing.T) {
+	before := time.Now().UTC()
 	first, err := mediaMetadataRegistrationTasks(true)
 	if err != nil {
 		t.Fatalf("first registration task: %v", err)
@@ -118,6 +161,12 @@ func TestMediaMetadataRegistrationUsesPendingOnlyCoalescing(t *testing.T) {
 	}
 	if !first[0].CoalescePendingEquivalent || !second[0].CoalescePendingEquivalent {
 		t.Fatal("registration wake did not opt into pending-only coalescing")
+	}
+	if !first[0].PostponePendingEquivalent || !second[0].PostponePendingEquivalent {
+		t.Fatal("registration wake did not opt into trailing-edge postponement")
+	}
+	if first[0].AvailableAt.Before(before.Add(mediaMetadataRegistrationDebounce)) || second[0].AvailableAt.Before(before.Add(mediaMetadataRegistrationDebounce)) {
+		t.Fatalf("registration availability = %v and %v, want at least %v after start", first[0].AvailableAt, second[0].AvailableAt, mediaMetadataRegistrationDebounce)
 	}
 	if first[0].InputKey != mediaMetadataRegistrationInputKey || second[0].InputKey != mediaMetadataRegistrationInputKey {
 		t.Fatalf("registration input keys = %q and %q, want %q", first[0].InputKey, second[0].InputKey, mediaMetadataRegistrationInputKey)
