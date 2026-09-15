@@ -31,6 +31,7 @@
   import { selectionRequest } from '$lib/state/selection';
   import { createTagWorkflow } from '$lib/state/tagWorkflow.svelte';
   import { createUploadWorkflow } from '$lib/state/uploadWorkflow.svelte';
+  import { createUploadTagReconciliationWave } from '$lib/state/uploadTagReconciliation';
   import { browserPersistenceRegistry, readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
@@ -72,7 +73,7 @@
   let selectionSnapshotPromise: Promise<void> | null = null;
   const selectionMembershipPending = new Set<string>();
   const selectionMembershipRuns = new Set<Promise<void>>();
-  const uploadTagSyncRuns = new Set<object>();
+  const uploadTagReconciliation = createUploadTagReconciliationWave(() => refreshUploadQueries(queryClient).catch(() => undefined));
   let fileMetadata = $state<{
     total_count: number;
     library_count: number;
@@ -513,32 +514,35 @@
     });
   }
 
-  async function reconcileUploadItemTags(index: number) {
+  function reconcileUploadItemTags(index: number) {
     const item = upload.items[index];
-    if (!item?.tagSyncPending || !item.remoteFileID || uploadTagSyncRuns.has(item)) return;
-    const delta = upload.itemTagSyncDelta(index);
-    const operation = delta.add.length ? 'add' : delta.remove.length ? 'remove' : null;
-    if (!operation) {
-      upload.markItemTagSyncApplied(index, 'add', []);
-      return;
-    }
-    const changedTags = operation === 'add' ? delta.add : delta.remove;
-    const remoteFileID = item.remoteFileID;
-    uploadTagSyncRuns.add(item);
-    try {
-      await tagMutation.mutateAsync({ operation, body: { file_ids: [remoteFileID], tags: changedTags } });
+    if (!item?.tagSyncPending || !item.remoteFileID) return;
+
+    void uploadTagReconciliation.run(item, async () => {
       const currentIndex = upload.items.indexOf(item);
-      if (currentIndex >= 0) upload.markItemTagSyncApplied(currentIndex, operation, changedTags);
-    } catch (error) {
-      const currentIndex = upload.items.indexOf(item);
-      if (currentIndex >= 0) upload.markItemTagSyncError(currentIndex, errorMessage(error));
-    } finally {
-      uploadTagSyncRuns.delete(item);
-      const currentIndex = upload.items.indexOf(item);
-      if (currentIndex >= 0 && item.tagSyncPending && item.remoteFileID && !item.tagSyncError) {
-        void reconcileUploadItemTags(currentIndex);
+      if (currentIndex < 0 || !item.tagSyncPending || !item.remoteFileID || item.tagSyncError) return false;
+
+      const delta = upload.itemTagSyncDelta(currentIndex);
+      const operation = delta.add.length ? 'add' : delta.remove.length ? 'remove' : null;
+      if (!operation) {
+        upload.markItemTagSyncApplied(currentIndex, 'add', []);
+        return false;
       }
-    }
+
+      const changedTags = operation === 'add' ? delta.add : delta.remove;
+      const remoteFileID = item.remoteFileID;
+      try {
+        await new ApiClient($authState.csrfToken).mutateTags(operation, { file_ids: [remoteFileID], tags: changedTags });
+        const appliedIndex = upload.items.indexOf(item);
+        if (appliedIndex < 0) return false;
+        upload.markItemTagSyncApplied(appliedIndex, operation, changedTags);
+        return item.tagSyncPending && Boolean(item.remoteFileID) && !item.tagSyncError;
+      } catch (error) {
+        const failedIndex = upload.items.indexOf(item);
+        if (failedIndex >= 0) upload.markItemTagSyncError(failedIndex, errorMessage(error));
+        return false;
+      }
+    });
   }
 
   function setUploadItemTags(index: number, nextTags: string[]) {
