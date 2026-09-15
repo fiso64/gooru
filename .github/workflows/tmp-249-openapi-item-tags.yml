@@ -19,6 +19,9 @@ jobs:
         with:
           fetch-depth: 0
           ref: feat/249-upload-item-tags
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
       - name: Patch schema
         run: python3 .github/tmp-249-openapi-item-tags.py
       - name: Regenerate API types
