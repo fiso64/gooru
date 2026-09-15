@@ -1,0 +1,151 @@
+name: Maintainer OpenAPI HEAD patch
+
+on:
+  push:
+    branches:
+      - maintainer/549-openapi-head
+    paths:
+      - .github/workflows/maintainer-openapi-head.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch OpenAPI contract and regenerate client
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("docs/openapi.yaml")
+          text = path.read_text()
+
+          content_marker = "  /files/{id}/download:\n"
+          content_head = '''    head:
+      summary: Get original content metadata for a tracked file.
+      description: Returns the same original-media headers and range semantics as GET without a response body.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+          example: bytes=0-1048575
+      responses:
+        "200":
+          description: Original file metadata.
+        "206":
+          description: Partial original file metadata.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+'''
+          if text.count(content_marker) != 1:
+              raise SystemExit("unexpected content/download marker count")
+          text = text.replace(content_marker, content_head + content_marker, 1)
+
+          download_marker = "  /comics/{id}:\n"
+          download_head = '''    head:
+      summary: Get original download metadata for a tracked file.
+      description: Returns the same attachment and range headers as GET without a response body.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Range
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Original file download metadata.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+        "206":
+          description: Partial original file download metadata.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+'''
+          if text.count(download_marker) != 1:
+              raise SystemExit("unexpected download/comics marker count")
+          text = text.replace(download_marker, download_head + download_marker, 1)
+          path.write_text(text)
+          PY
+
+          cat > internal/serve/openapi_contract_test.go <<'EOF'
+          package serve
+
+          import (
+          	"os"
+          	"testing"
+
+          	"github.com/stretchr/testify/require"
+          	"gopkg.in/yaml.v3"
+          )
+
+          func TestOpenAPIOriginalMediaMethods(t *testing.T) {
+          	data, err := os.ReadFile("../../docs/openapi.yaml")
+          	require.NoError(t, err)
+
+          	var spec struct {
+          		Paths map[string]map[string]any `yaml:"paths"`
+          	}
+          	require.NoError(t, yaml.Unmarshal(data, &spec))
+
+          	for _, path := range []string{"/files/{id}/content", "/files/{id}/download"} {
+          		methods, ok := spec.Paths[path]
+          		require.True(t, ok, "missing OpenAPI path %s", path)
+          		require.Contains(t, methods, "get", "GET must remain documented for %s", path)
+          		require.Contains(t, methods, "head", "HEAD must be documented for %s", path)
+          	}
+
+          	for _, path := range []string{"/files/{id}/thumbnail", "/files/{id}/preview"} {
+          		methods, ok := spec.Paths[path]
+          		require.True(t, ok, "missing OpenAPI path %s", path)
+          		require.NotContains(t, methods, "head", "derivative route %s must remain GET-only", path)
+          	}
+          }
+          EOF
+
+          (cd frontend && npm ci && npm run generate:api)
+          gofmt -w internal/serve/openapi_contract_test.go
+          go test ./internal/serve -run TestOpenAPIOriginalMediaMethods -count=1
+
+          git config user.name "gooru-maintainer"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs/openapi.yaml frontend/src/lib/api/openapi.ts internal/serve/openapi_contract_test.go
+          git diff --cached --check
+          git commit -m "docs(api): describe original media HEAD routes"
+          git push origin HEAD:maintainer/549-openapi-head
