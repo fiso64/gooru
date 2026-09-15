@@ -12,71 +12,12 @@ import (
 )
 
 const (
+	// backgroundMediaMetadataTaskKind is retained for persisted
+	// upload.metadata-finalize tasks created by older versions. New uploads use
+	// the library-wide metadata sweep instead.
 	backgroundMediaMetadataTaskKind       = "upload.metadata-finalize"
 	backgroundMediaMetadataSweepBatchSize = 64
 )
-
-type deferUploadMediaMetadataContextKey struct{}
-
-func withDeferredUploadMediaMetadata(ctx context.Context) context.Context {
-	return context.WithValue(ctx, deferUploadMediaMetadataContextKey{}, true)
-}
-
-func uploadMediaMetadataDeferred(ctx context.Context) bool {
-	deferred, _ := ctx.Value(deferUploadMediaMetadataContextKey{}).(bool)
-	return deferred
-}
-
-type backgroundTaskEnqueuer interface {
-	EnqueueBackgroundTask(core.BackgroundTaskRequest) (core.BackgroundTask, bool, error)
-}
-
-type backgroundUploadFinalizingStore struct {
-	backgroundUploadWorkerStore
-	tasks backgroundTaskEnqueuer
-}
-
-type backgroundUploadTaskFinalizingStore struct {
-	backgroundUploadFinalizingStore
-	backgroundUploadTaskStateStore
-}
-
-func newBackgroundUploadFinalizingStore(store backgroundUploadWorkerStore, tasks backgroundTaskEnqueuer) backgroundUploadWorkerStore {
-	finalizing := backgroundUploadFinalizingStore{
-		backgroundUploadWorkerStore: store,
-		tasks:                       tasks,
-	}
-	taskStore, ok := store.(backgroundUploadTaskStateStore)
-	if !ok {
-		return finalizing
-	}
-	return backgroundUploadTaskFinalizingStore{
-		backgroundUploadFinalizingStore: finalizing,
-		backgroundUploadTaskStateStore:  taskStore,
-	}
-}
-
-func (s backgroundUploadFinalizingStore) SetBackgroundOperationResult(operationID string, result any) error {
-	if s.tasks != nil {
-		if _, _, err := s.tasks.EnqueueBackgroundTask(backgroundMediaMetadataTaskRequest(operationID)); err != nil {
-			return fmt.Errorf("enqueue upload metadata finalizer: %w", err)
-		}
-	}
-	return s.backgroundUploadWorkerStore.SetBackgroundOperationResult(operationID, result)
-}
-
-func backgroundMediaMetadataTaskRequest(operationID string) core.BackgroundTaskRequest {
-	return core.BackgroundTaskRequest{
-		OperationID:   operationID,
-		DedupeKey:     operationID + ":metadata-finalize",
-		Kind:          backgroundMediaMetadataTaskKind,
-		SubjectKind:   "operation",
-		SubjectID:     operationID,
-		InputKey:      operationID,
-		ResourceClass: backgroundThumbnailResourceClass,
-		MaxAttempts:   5,
-	}
-}
 
 func (l *GooruLibrary) mediaMetadataForFile(ctx context.Context, file types.FileInfo, analysisPath string) (types.MediaMetadata, error) {
 	provider := l.metadata
@@ -140,37 +81,34 @@ func (s *Server) backgroundMediaMetadataSweepHandler(ctx context.Context, task c
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-
-			resolved, err := library.client.ResolveManagedStorage(file)
-			if err != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("resolve media metadata storage for location %d: %w", file.ID, err)
-				}
-				continue
-			}
-			metadata, err := library.mediaMetadataForFile(ctx, resolved, fileStoragePath(resolved))
-			if err != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("extract media metadata for location %d: %w", file.ID, err)
-				}
-				continue
-			}
-			wrote, err := library.client.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, metadata)
-			if err != nil {
-				if firstErr == nil {
-					firstErr = fmt.Errorf("persist media metadata for location %d: %w", file.ID, err)
-				}
-				continue
-			}
-			if !wrote {
-				// The location was removed, rehashed, or renamed while metadata was
-				// being extracted. Leave its current identity for a later sweep.
-				continue
+			if err := processPendingMediaMetadataFile(ctx, library, file); err != nil && firstErr == nil {
+				firstErr = err
 			}
 		}
 	}
 }
 
+func processPendingMediaMetadataFile(ctx context.Context, library *GooruLibrary, file types.FileInfo) error {
+	resolved, err := library.client.ResolveManagedStorage(file)
+	if err != nil {
+		return fmt.Errorf("resolve media metadata storage for location %d: %w", file.ID, err)
+	}
+	metadata, err := library.mediaMetadataForFile(ctx, resolved, fileStoragePath(resolved))
+	if err != nil {
+		return fmt.Errorf("extract media metadata for location %d: %w", file.ID, err)
+	}
+	if _, err := library.client.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, metadata); err != nil {
+		return fmt.Errorf("persist media metadata for location %d: %w", file.ID, err)
+	}
+	// A false guarded write means the location was removed, rehashed, or renamed
+	// while metadata was being extracted. Its current identity remains eligible
+	// for a later sweep, so there is no error to retry for the stale snapshot.
+	return nil
+}
+
+// backgroundMediaMetadataHandler consumes legacy upload.metadata-finalize tasks
+// that may already exist in upgraded databases. No current producer enqueues new
+// tasks of this kind; removing the consumer would strand persisted recovery work.
 func (s *Server) backgroundMediaMetadataHandler(ctx context.Context, task core.BackgroundTask) error {
 	library, ok := s.backgroundContent.(*GooruLibrary)
 	if !ok || library == nil {

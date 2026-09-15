@@ -33,7 +33,7 @@ func mediaMetadataRegistrationHook(event FileRegistrationEvent) ([]BackgroundTas
 	// of the active operation is serialized across independent CLI/server clients.
 	// Each registration still gets a distinct child wake to avoid losing work if
 	// it commits while an earlier sweep is finishing its final scan.
-	task.reuseActiveOperation = true
+	task.OperationBinding = BackgroundOperationReuseActive
 	return []BackgroundTaskRequest{task}, nil
 }
 

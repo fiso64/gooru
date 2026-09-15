@@ -10,16 +10,26 @@ type FileRegistrationEvent struct {
 
 // FileRegistrationHook builds durable follow-up work for a registration event.
 // Hooks must not perform external side effects: an error aborts the surrounding
-// database transaction. When no custom hooks are configured, the core metadata
-// sweep hook is used so every Client process has the same durable registration
-// behavior, including standalone CLI clients.
+// database transaction.
 type FileRegistrationHook func(FileRegistrationEvent) ([]BackgroundTaskRequest, error)
 
 // SetFileRegistrationHooks replaces the hooks used for future registration
 // transactions. Composition code should configure hooks before concurrent file
-// mutations begin. An empty hook set restores the core default hooks.
+// mutations begin. Passing no hooks intentionally disables registration hooks;
+// use ResetFileRegistrationHooks to restore the core defaults.
 func (c *Client) SetFileRegistrationHooks(hooks ...FileRegistrationHook) {
-	c.fileRegistrationHooks = append(c.fileRegistrationHooks[:0], hooks...)
+	if len(hooks) == 0 {
+		c.fileRegistrationHooks = []FileRegistrationHook{}
+		return
+	}
+	c.fileRegistrationHooks = append([]FileRegistrationHook(nil), hooks...)
+}
+
+// ResetFileRegistrationHooks restores the core registration behavior used by a
+// newly created Client. Keeping reset explicit avoids coupling the replacement
+// setter's empty value to a feature-specific default.
+func (c *Client) ResetFileRegistrationHooks() {
+	c.fileRegistrationHooks = nil
 }
 
 func (c *Client) fileRegistrationBackgroundTasks(hashes []string) ([]BackgroundTaskRequest, error) {
@@ -43,7 +53,7 @@ func (c *Client) fileRegistrationBackgroundTasks(hashes []string) ([]BackgroundT
 	}
 
 	hooks := c.fileRegistrationHooks
-	if len(hooks) == 0 {
+	if hooks == nil {
 		hooks = []FileRegistrationHook{mediaMetadataRegistrationHook}
 	}
 	event := FileRegistrationEvent{ContentHashes: unique}

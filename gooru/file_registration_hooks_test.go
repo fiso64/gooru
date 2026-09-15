@@ -44,3 +44,25 @@ func TestFileRegistrationBackgroundTasksSkipsEmptyEvents(t *testing.T) {
 		t.Fatalf("tasks = %#v, want none", tasks)
 	}
 }
+
+func TestFileRegistrationHooksCanDisableAndResetDefaults(t *testing.T) {
+	client := &Client{}
+	client.SetFileRegistrationHooks()
+
+	tasks, err := client.fileRegistrationBackgroundTasks([]string{"hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("disabled hooks produced tasks: %#v", tasks)
+	}
+
+	client.ResetFileRegistrationHooks()
+	tasks, err = client.fileRegistrationBackgroundTasks([]string{"hash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 || tasks[0].Kind != BackgroundMediaMetadataSweepTaskKind || tasks[0].OperationBinding != BackgroundOperationReuseActive {
+		t.Fatalf("reset hooks produced unexpected tasks: %#v", tasks)
+	}
+}

@@ -40,13 +40,20 @@ func (c *Client) CreateBackgroundOperation(request BackgroundOperationRequest) (
 	return operation, err
 }
 
+type backgroundOperationCreationMode uint8
+
+const (
+	backgroundOperationCreateAlways backgroundOperationCreationMode = iota
+	backgroundOperationCreateSingleFlight
+)
+
 // CreateBackgroundOperationWithTasks atomically creates one logical operation
 // and its initial child tasks. Child dedupe keys are scoped to the new operation
 // so a separate user request cannot accidentally attach its progress to active
 // work owned by another operation. An empty child dedupe key is allowed here and
 // receives a stable per-operation key derived from its position in the batch.
 func (c *Client) CreateBackgroundOperationWithTasks(operationRequest BackgroundOperationRequest, taskRequests []BackgroundTaskRequest) (BackgroundOperation, []BackgroundTask, error) {
-	operation, tasks, _, err := c.createBackgroundOperationWithTasks(operationRequest, taskRequests, false)
+	operation, tasks, _, err := c.createBackgroundOperationWithTasks(operationRequest, taskRequests, backgroundOperationCreateAlways)
 	return operation, tasks, err
 }
 
@@ -55,17 +62,19 @@ func (c *Client) CreateBackgroundOperationWithTasks(operationRequest BackgroundO
 // The active lookup and creation share the Store's immediate transaction, so
 // independent clients cannot both pass the lookup and create duplicate work.
 func (c *Client) createBackgroundOperationWithTasksSingleFlight(operationRequest BackgroundOperationRequest, taskRequests []BackgroundTaskRequest) (BackgroundOperation, []BackgroundTask, bool, error) {
-	return c.createBackgroundOperationWithTasks(operationRequest, taskRequests, true)
+	return c.createBackgroundOperationWithTasks(operationRequest, taskRequests, backgroundOperationCreateSingleFlight)
 }
 
-func (c *Client) createBackgroundOperationWithTasks(operationRequest BackgroundOperationRequest, taskRequests []BackgroundTaskRequest, singleFlight bool) (BackgroundOperation, []BackgroundTask, bool, error) {
+func (c *Client) createBackgroundOperationWithTasks(operationRequest BackgroundOperationRequest, taskRequests []BackgroundTaskRequest, mode backgroundOperationCreationMode) (BackgroundOperation, []BackgroundTask, bool, error) {
 	tx, err := c.store.Begin()
 	if err != nil {
 		return BackgroundOperation{}, nil, false, fmt.Errorf("begin background operation transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if singleFlight {
+	switch mode {
+	case backgroundOperationCreateAlways:
+	case backgroundOperationCreateSingleFlight:
 		_, found, err := c.store.FindActiveBackgroundOperationIDByKind(tx, operationRequest.Kind)
 		if err != nil {
 			return BackgroundOperation{}, nil, false, fmt.Errorf("inspect active background operation: %w", err)
@@ -73,6 +82,8 @@ func (c *Client) createBackgroundOperationWithTasks(operationRequest BackgroundO
 		if found {
 			return BackgroundOperation{}, nil, false, nil
 		}
+	default:
+		return BackgroundOperation{}, nil, false, fmt.Errorf("unsupported background operation creation mode %d", mode)
 	}
 
 	operation, err := c.createBackgroundOperation(tx, operationRequest)
@@ -82,17 +93,10 @@ func (c *Client) createBackgroundOperationWithTasks(operationRequest BackgroundO
 
 	tasks := make([]BackgroundTask, 0, len(taskRequests))
 	for index, request := range taskRequests {
-		if request.OperationID != "" {
-			return BackgroundOperation{}, nil, false, fmt.Errorf("background child task %d already belongs to operation %q", index, request.OperationID)
+		request, err = bindBackgroundChildTask(request, operation.ID, index)
+		if err != nil {
+			return BackgroundOperation{}, nil, false, fmt.Errorf("bind background child task %d: %w", index, err)
 		}
-		if request.Operation != nil {
-			return BackgroundOperation{}, nil, false, fmt.Errorf("background child task %d requests a nested operation", index)
-		}
-		request.OperationID = operation.ID
-		if request.DedupeKey == "" {
-			request.DedupeKey = fmt.Sprintf("task:%d", index)
-		}
-		request.DedupeKey = operation.ID + ":" + request.DedupeKey
 		task, created, err := c.enqueueBackgroundTask(tx, request)
 		if err != nil {
 			return BackgroundOperation{}, nil, false, fmt.Errorf("enqueue background child task %d: %w", index, err)
@@ -129,21 +133,15 @@ func (c *Client) AttachBackgroundTaskAndRevealOperation(operationID string, chec
 	if operationID == "" {
 		return BackgroundTask{}, fmt.Errorf("background operation id is required")
 	}
-	if request.Operation != nil {
-		return BackgroundTask{}, fmt.Errorf("background child task requests a nested operation")
-	}
-	if request.OperationID != "" && request.OperationID != operationID {
-		return BackgroundTask{}, fmt.Errorf("background child task already belongs to operation %q", request.OperationID)
+	var err error
+	request, err = bindBackgroundChildTask(request, operationID, 0)
+	if err != nil {
+		return BackgroundTask{}, err
 	}
 	checkpointJSON, err := json.Marshal(checkpoint)
 	if err != nil {
 		return BackgroundTask{}, fmt.Errorf("encode background operation checkpoint: %w", err)
 	}
-	if request.DedupeKey == "" {
-		request.DedupeKey = "task:0"
-	}
-	request.OperationID = operationID
-	request.DedupeKey = operationID + ":" + request.DedupeKey
 	taskID, err := newBackgroundWorkID("task")
 	if err != nil {
 		return BackgroundTask{}, err
@@ -153,6 +151,27 @@ func (c *Client) AttachBackgroundTaskAndRevealOperation(operationID string, chec
 		c.notifyBackgroundOperationChange()
 	}
 	return task, err
+}
+
+func bindBackgroundChildTask(request BackgroundTaskRequest, operationID string, index int) (BackgroundTaskRequest, error) {
+	if operationID == "" {
+		return BackgroundTaskRequest{}, fmt.Errorf("background operation id is required")
+	}
+	if request.Operation != nil {
+		return BackgroundTaskRequest{}, fmt.Errorf("background child task requests a nested operation")
+	}
+	if request.OperationBinding != BackgroundOperationCreateNew {
+		return BackgroundTaskRequest{}, fmt.Errorf("background child task requests an operation binding policy")
+	}
+	if request.OperationID != "" && request.OperationID != operationID {
+		return BackgroundTaskRequest{}, fmt.Errorf("background child task already belongs to operation %q", request.OperationID)
+	}
+	request.OperationID = operationID
+	if request.DedupeKey == "" {
+		request.DedupeKey = fmt.Sprintf("task:%d", index)
+	}
+	request.DedupeKey = operationID + ":" + request.DedupeKey
+	return request, nil
 }
 
 func (c *Client) createBackgroundOperation(q databaseQuerier, request BackgroundOperationRequest) (BackgroundOperation, error) {
@@ -201,61 +220,92 @@ type BackgroundTaskCleanupRequest struct {
 	MaxAttempts   int
 }
 
+// BackgroundOperationBinding controls how an operation request attached to a
+// task is resolved. The zero value creates a new owning operation. ReuseActive
+// instead attaches to an active operation of the same kind when one exists,
+// creating that operation only when necessary. The lookup/create decision is
+// made in the caller's transaction so it is safe across independent clients.
+type BackgroundOperationBinding uint8
+
+const (
+	BackgroundOperationCreateNew BackgroundOperationBinding = iota
+	BackgroundOperationReuseActive
+)
+
 // BackgroundTaskRequest describes durable work to enqueue. DedupeKey is the
 // stable identity of active equivalent work; callers should include every input
 // that changes the promised result. AvailableAt is optional and defaults to now.
 // Operation requests an owning logical operation that is created atomically with
 // the task when the producer is already inside a domain transaction. It is
-// mutually exclusive with OperationID.
+// mutually exclusive with OperationID. OperationBinding explicitly controls
+// whether that operation must be new or may reuse active work of the same kind.
 type BackgroundTaskRequest struct {
 	OperationID            string
 	Operation              *BackgroundOperationRequest
+	OperationBinding       BackgroundOperationBinding
 	DedupeKey              string
 	Kind                   string
 	SubjectKind            string
-	SubjectID              string
+	SubjectID               string
 	InputKey               string
 	ResourceClass          string
 	Priority               int
 	AvailableAt            time.Time
 	MaxAttempts            int
 	TerminalFailureCleanup *BackgroundTaskCleanupRequest
-	reuseActiveOperation   bool
 }
 
 // EnqueueBackgroundTask persists durable work outside an existing transaction.
 // It returns the active equivalent task with created=false when DedupeKey is
-// already pending or running. Requests that declare Operation are routed through
-// the operation+task transaction so an enqueue failure cannot orphan the parent.
+// already pending or running. Operation-backed requests use the same transaction-
+// aware binding path as domain mutations, so create/reuse policy is interpreted
+// consistently regardless of where the request originates.
 func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
-	if request.Operation != nil {
-		if request.OperationID != "" {
-			return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
+	if request.Operation == nil {
+		if request.OperationBinding != BackgroundOperationCreateNew {
+			return BackgroundTask{}, false, fmt.Errorf("background operation binding requires an operation request")
 		}
-		operationRequest := *request.Operation
-		request.Operation = nil
-		_, tasks, err := c.CreateBackgroundOperationWithTasks(operationRequest, []BackgroundTaskRequest{request})
-		if err != nil {
-			return BackgroundTask{}, false, err
+		task, created, err = c.enqueueBackgroundTask(c.store.DB, request)
+		if err == nil && created && task.OperationID != "" {
+			c.notifyBackgroundOperationChange()
 		}
-		if len(tasks) != 1 {
-			return BackgroundTask{}, false, fmt.Errorf("background operation enqueue created %d tasks, want 1", len(tasks))
-		}
-		return tasks[0], true, nil
+		return task, created, err
+	}
+	if request.OperationID != "" {
+		return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
 	}
 
-	task, created, err = c.enqueueBackgroundTask(c.store.DB, request)
-	if err == nil && created && task.OperationID != "" {
+	binding := request.OperationBinding
+	tx, err := c.store.Begin()
+	if err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("begin background task transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	task, created, err = c.enqueueBackgroundTask(tx, request)
+	if err != nil {
+		return BackgroundTask{}, false, err
+	}
+	if !created && binding == BackgroundOperationCreateNew {
+		return BackgroundTask{}, false, fmt.Errorf("new background operation child task dedupe key already active")
+	}
+	if err := tx.Commit(); err != nil {
+		return BackgroundTask{}, false, fmt.Errorf("commit background task transaction: %w", err)
+	}
+	if created && task.OperationID != "" {
 		c.notifyBackgroundOperationChange()
 	}
-	return task, created, err
+	return task, created, nil
 }
 
 // enqueueBackgroundTask is the transaction-aware core primitive used by
 // business mutations that need content registration and background work to
 // commit atomically.
 func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
-	if request.Operation != nil {
+	if request.Operation == nil {
+		if request.OperationBinding != BackgroundOperationCreateNew {
+			return BackgroundTask{}, false, fmt.Errorf("background operation binding requires an operation request")
+		}
+	} else {
 		if request.OperationID != "" {
 			return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
 		}
@@ -263,7 +313,9 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		request.Operation = nil
 
 		operationID := ""
-		if request.reuseActiveOperation {
+		switch request.OperationBinding {
+		case BackgroundOperationCreateNew:
+		case BackgroundOperationReuseActive:
 			activeID, found, err := c.store.FindActiveBackgroundOperationIDByKind(q, operationRequest.Kind)
 			if err != nil {
 				return BackgroundTask{}, false, fmt.Errorf("find reusable background task operation: %w", err)
@@ -271,6 +323,8 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 			if found {
 				operationID = activeID
 			}
+		default:
+			return BackgroundTask{}, false, fmt.Errorf("unsupported background operation binding %d", request.OperationBinding)
 		}
 		if operationID == "" {
 			operation, err := c.createBackgroundOperation(q, operationRequest)
@@ -279,11 +333,11 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 			}
 			operationID = operation.ID
 		}
-		request.OperationID = operationID
-		if request.DedupeKey == "" {
-			request.DedupeKey = "task:0"
+		request.OperationBinding = BackgroundOperationCreateNew
+		request, err = bindBackgroundChildTask(request, operationID, 0)
+		if err != nil {
+			return BackgroundTask{}, false, err
 		}
-		request.DedupeKey = operationID + ":" + request.DedupeKey
 	}
 
 	id, err := newBackgroundWorkID("task")
