@@ -77,7 +77,7 @@ func (l *GooruLibrary) executeBackgroundTagMutation(ctx context.Context, task co
 		if err != nil {
 			return err
 		}
-		files, err := l.getFilesByPublicIDs(ctx, targets)
+		files, err := l.GetFilesByPublicIDs(ctx, targets)
 		if err != nil {
 			return err
 		}
