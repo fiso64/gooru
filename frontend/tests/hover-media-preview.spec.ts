@@ -6,6 +6,10 @@ const session = {
   csrf_token: 'csrf-one'
 };
 
+const hoverDwellMs = 150;
+const controlledClockStart = new Date('2026-01-01T00:00:00Z');
+const controlledClockPause = new Date('2026-01-01T00:00:20Z');
+
 // Keep the first red frame visible for three seconds so restart assertions have a wide, deterministic sampling window.
 const twoFrameGif = Buffer.from('R0lGODlhAgACAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQALAEAACwAAAAAAgACAAAIBgABCAQQEAAh+QQBZAABACwAAAAAAgACAIEA/wAAAAAAAAAAAAAIBgABCAQQEAA7', 'base64');
 const transparentGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
@@ -90,13 +94,16 @@ async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
 }
 
 test('video and gif previews start after dwell, stop on leave, and only one is active', async ({ page }) => {
+  await page.clock.install({ time: controlledClockStart });
   await mockLibrary(page);
+  await page.clock.pauseAt(controlledClockPause);
 
   const firstVideo = page.getByRole('button', { name: 'Preview video-one.mp4' });
   await firstVideo.hover();
-  await page.waitForTimeout(80);
+  await page.clock.fastForward(hoverDwellMs - 1);
   await expect(page.getByTestId('hover-video-preview')).toHaveCount(0);
-  await expect(page.getByTestId('hover-video-preview')).toHaveCount(1, { timeout: 500 });
+  await page.clock.fastForward(1);
+  await expect(page.getByTestId('hover-video-preview')).toHaveCount(1);
   const video = page.getByTestId('hover-video-preview');
   await expect(video).toHaveAttribute('loop', '');
   await expect(video).toHaveAttribute('playsinline', '');
@@ -104,7 +111,8 @@ test('video and gif previews start after dwell, stop on leave, and only one is a
 
   const gif = page.getByRole('button', { name: 'Preview gif-one.gif' });
   await gif.hover();
-  await expect(page.getByTestId('hover-gif-preview')).toHaveCount(1, { timeout: 500 });
+  await page.clock.fastForward(hoverDwellMs);
+  await expect(page.getByTestId('hover-gif-preview')).toHaveCount(1);
   await expect(page.getByTestId('hover-video-preview')).toHaveCount(0);
 
   await page.getByRole('heading', { name: 'Library' }).hover();
