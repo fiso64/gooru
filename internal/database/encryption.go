@@ -86,12 +86,13 @@ func IsPlaintextDatabase(path string) (bool, error) {
 }
 
 // RecoverPlaintextDatabaseEncryptionMigration repairs the deterministic swap
-// state left by an interrupted plaintext-to-encrypted migration. If the source
-// had only been staged, it is restored. If the encrypted replacement had
-// already become canonical, it is verified before the plaintext rollback copy
-// is removed.
+// state left by an interrupted plaintext-to-encrypted migration. A staged
+// plaintext source is restored without needing the encryption key. If the
+// encrypted database is already canonical, key is required to verify it before
+// the plaintext rollback copy is removed; an empty key leaves that copy in
+// place for a later keyed recovery pass.
 func RecoverPlaintextDatabaseEncryptionMigration(path string, key []byte) error {
-	if len(key) != encryptedDatabaseKeySize {
+	if len(key) != 0 && len(key) != encryptedDatabaseKeySize {
 		return ErrInvalidDatabaseEncryptionKey
 	}
 	targetPath := path + plaintextEncryptionTargetSuffix
@@ -101,7 +102,7 @@ func RecoverPlaintextDatabaseEncryptionMigration(path string, key []byte) error 
 	if err != nil {
 		return fmt.Errorf("recover plaintext database encryption migration: %w", err)
 	}
-	if !backupPresent {
+	if !backupPresent || len(key) == 0 {
 		return nil
 	}
 

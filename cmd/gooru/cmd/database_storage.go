@@ -40,14 +40,17 @@ func configuredEncryptionKeys(cfg serve.Config) (encryptionkeys.Keys, error) {
 	return keys, nil
 }
 
-func recoverDisabledDatabaseKeyMigration(cfg serve.Config) error {
+func recoverDisabledDatabaseMigrations(cfg serve.Config) error {
 	if cfg.Encryption.Enabled {
 		return nil
 	}
-	// A crash can stage the historical-key database away from the canonical path
-	// immediately before the user disables protected storage. Restoring that
-	// deterministic rollback copy does not require a key; any installed rekeyed
-	// database is left untouched until a keyed recovery pass can verify it.
+	// Both protected-mode enable and the historical-key normalization can stage
+	// the source away from the canonical path. A staged source is safe to restore
+	// without a key; installed encrypted replacements remain untouched until a
+	// keyed recovery pass can verify them.
+	if err := database.RecoverPlaintextDatabaseEncryptionMigration(cfg.Database.Path, nil); err != nil {
+		return fmt.Errorf("recover interrupted database encryption migration before disabling protected storage: %w", err)
+	}
 	if err := database.RecoverEncryptedDatabaseKeyMigration(cfg.Database.Path, nil); err != nil {
 		return fmt.Errorf("recover interrupted database subkey migration before disabling protected storage: %w", err)
 	}
@@ -94,7 +97,7 @@ func ensureConfiguredDatabaseKey(cfg serve.Config, databaseKey []byte) error {
 }
 
 func openConfiguredClient(cfg serve.Config, verbose bool) (*gooru.Client, error) {
-	if err := recoverDisabledDatabaseKeyMigration(cfg); err != nil {
+	if err := recoverDisabledDatabaseMigrations(cfg); err != nil {
 		return nil, err
 	}
 	if err := migrateConfiguredStorageToPlaintext(cfg, verbose); err != nil {
@@ -132,7 +135,7 @@ func openConfiguredClient(cfg serve.Config, verbose bool) (*gooru.Client, error)
 }
 
 func openConfiguredAuthStore(cfg serve.Config, verbose bool) (*database.Store, error) {
-	if err := recoverDisabledDatabaseKeyMigration(cfg); err != nil {
+	if err := recoverDisabledDatabaseMigrations(cfg); err != nil {
 		return nil, err
 	}
 	if err := migrateConfiguredStorageToPlaintext(cfg, verbose); err != nil {

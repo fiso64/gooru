@@ -19,6 +19,9 @@ const (
 // the legacy-key rollback copy is removed; an empty newKey leaves that copy in
 // place for a later keyed recovery pass.
 func RecoverEncryptedDatabaseKeyMigration(path string, newKey []byte) error {
+	if len(newKey) != 0 && len(newKey) != encryptedDatabaseKeySize {
+		return ErrInvalidDatabaseEncryptionKey
+	}
 	targetPath := path + encryptedRekeyTargetSuffix
 	backupPath := path + encryptedRekeyBackupSuffix
 
@@ -28,9 +31,6 @@ func RecoverEncryptedDatabaseKeyMigration(path string, newKey []byte) error {
 	}
 	if !backupPresent || len(newKey) == 0 {
 		return nil
-	}
-	if len(newKey) != encryptedDatabaseKeySize {
-		return ErrInvalidDatabaseEncryptionKey
 	}
 
 	return finalizeRecoveredDatabaseMigration(path, backupPath, "rekeyed encrypted database", func() (*Store, error) {
