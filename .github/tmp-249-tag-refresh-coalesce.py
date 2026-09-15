@@ -18,7 +18,7 @@ replace_once(
 replace_once(
     "frontend/src/lib/components/AuthenticatedApp.svelte",
     '''      const currentIndex = upload.items.indexOf(item);\n      if (currentIndex >= 0 && item.tagSyncPending && item.remoteFileID && !item.tagSyncError) {\n        void reconcileUploadItemTags(currentIndex);\n      }\n''',
-    '''      const currentIndex = upload.items.indexOf(item);\n      const needsAnotherPass = currentIndex >= 0 && item.tagSyncPending && item.remoteFileID && !item.tagSyncError;\n      if (needsAnotherPass) {\n        void reconcileUploadItemTags(currentIndex);\n      } else if (uploadTagSyncRuns.size === 0) {\n        // Per-item upload tag reconciliation updates local row state itself. Refresh the\n        // broad library/tag caches once after the current reconciliation wave instead\n        // of once per item/delta through the general-purpose tag mutation.\n        void refreshUploadQueries(queryClient).catch(() => undefined);\n      }\n''',
+    '''      const currentIndex = upload.items.indexOf(item);\n      const needsAnotherPass = currentIndex >= 0 && item.tagSyncPending && item.remoteFileID && !item.tagSyncError;\n      if (needsAnotherPass) {\n        void reconcileUploadItemTags(currentIndex);\n      } else if (uploadTagSyncRuns.size === 0) {\n        // Per-item upload tag reconciliation updates local row state itself. Refresh the\n        // broad library/tag queries once after the current reconciliation wave instead\n        // of once per item/delta through the general-purpose tag mutation.\n        void refreshUploadQueries(queryClient).catch(() => undefined);\n      }\n''',
 )
 
 replace_once(
