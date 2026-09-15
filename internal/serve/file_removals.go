@@ -267,16 +267,48 @@ func (s *Server) resolveFileRemovalSelection(ctx context.Context, ownerID string
 	return selected, nil
 }
 
+type batchPublicFileLookupLibrary interface {
+	GetFilesByPublicIDs(context.Context, []string) ([]types.FileInfo, error)
+}
+
 func (s *Server) resolveFileIDs(ctx context.Context, fileIDs, excludedFileIDs []string) ([]types.FileInfo, error) {
 	excluded := make(map[string]struct{}, len(excludedFileIDs))
 	for _, id := range excludedFileIDs {
 		excluded[id] = struct{}{}
 	}
-	files := make([]types.FileInfo, 0, len(fileIDs))
+
+	includedFileIDs := make([]string, 0, len(fileIDs))
 	for _, id := range fileIDs {
 		if _, skip := excluded[id]; skip {
 			continue
 		}
+		includedFileIDs = append(includedFileIDs, id)
+	}
+
+	files := make([]types.FileInfo, 0, len(includedFileIDs))
+	if len(includedFileIDs) == 0 {
+		return files, nil
+	}
+	if library, ok := s.library.(batchPublicFileLookupLibrary); ok {
+		batchFiles, err := library.GetFilesByPublicIDs(ctx, includedFileIDs)
+		if err != nil {
+			return nil, err
+		}
+		if len(batchFiles) == len(includedFileIDs) {
+			complete := true
+			for index, file := range batchFiles {
+				if s.publicFileID(file) != includedFileIDs[index] {
+					complete = false
+					break
+				}
+			}
+			if complete {
+				return batchFiles, nil
+			}
+		}
+	}
+
+	for _, id := range includedFileIDs {
 		file, err := s.getFileByPublicID(ctx, id)
 		if err != nil {
 			return nil, err
