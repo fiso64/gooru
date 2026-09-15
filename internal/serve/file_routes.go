@@ -50,5 +50,5 @@ func (s *Server) handleOriginalMedia(w http.ResponseWriter, r *http.Request, pub
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to load file", nil)
 		return
 	}
-	s.media.ServeOriginal(w, r, file, route == "download")
+	s.media.serveOriginal(w, r, file, route == "download")
 }
