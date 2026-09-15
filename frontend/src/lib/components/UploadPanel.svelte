@@ -7,7 +7,7 @@
   import UploadMediaPreview from './UploadMediaPreview.svelte';
   import UploadViewerDialog from './UploadViewerDialog.svelte';
   import type { FileItem } from '$lib/api/types';
-  import { mergeTagCandidateCounts, type TagCandidate } from '$lib/utils/tagSuggestions';
+  import { mergeTagCandidateOccurrenceCounts, type TagCandidate } from '$lib/utils/tagSuggestions';
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
@@ -28,6 +28,7 @@
     addedAtStrategy,
     autoUpload,
     tags,
+    stagedTagCandidates,
     onTargetInput,
     onFiles,
     onTagsInput,
@@ -56,6 +57,7 @@
     addedAtStrategy: 'queue' | 'reverse_queue' | 'modtime';
     autoUpload: boolean;
     tags: TagCandidate[];
+    stagedTagCandidates: TagCandidate[];
     onTargetInput: (value: string) => void;
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
@@ -98,7 +100,7 @@
     const rows = queueRows;
     return untrack(() => groupUploadQueueRows(rows));
   });
-  const completionTags = $derived(mergeTagCandidateCounts(tags, stagedRows.map((row) => row.item.tags ?? [])));
+  const completionTags = $derived(mergeTagCandidateOccurrenceCounts(tags, stagedTagCandidates));
   const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
   const queueBytes = $derived(queueRows.reduce((sum: number, row: IndexedUploadRow) => sum + row.item.size, 0));
   const initialTags = $derived(parseTags(uploadTags));

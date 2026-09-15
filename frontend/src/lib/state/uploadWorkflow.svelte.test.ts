@@ -72,6 +72,29 @@ describe('createUploadWorkflow aggregate uploads', () => {
     expect(workflow.files.map((file) => file.name)).toEqual(['first.jpg', 'second.jpg']);
   });
 
+
+  it('maintains staged completion counts incrementally through edits, removal, and admission', async () => {
+    const workflow = createUploadWorkflow();
+    workflow.tags = 'shared';
+    workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
+    expect(workflow.stagedTagCandidates).toEqual([{ name: 'shared', count: 2 }]);
+
+    workflow.setItemTags(0, ['shared', 'local:first']);
+    expect(workflow.stagedTagCandidates).toEqual([
+      { name: 'shared', count: 2 },
+      { name: 'local:first', count: 1 }
+    ]);
+
+    workflow.removeAt(1);
+    expect(workflow.stagedTagCandidates).toEqual([
+      { name: 'shared', count: 1 },
+      { name: 'local:first', count: 1 }
+    ]);
+
+    await workflow.submit(async () => pendingJob('job-staged-counts', 0, 1));
+    expect(workflow.stagedTagCandidates).toEqual([]);
+  });
+
   it('submits one durable operation with per-file queue metadata arrays', async () => {
     const now = vi.spyOn(Date, 'now');
     now.mockReturnValueOnce(1_700_000_000_000).mockReturnValueOnce(1_700_000_010_000).mockReturnValue(1_800_000_000_000);

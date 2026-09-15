@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPlainTag, mergeTagCandidateCounts, plainTagSuggestions, plainTagsFromInput } from './tagSuggestions';
+import { isPlainTag, mergeTagCandidateCounts, mergeTagCandidateOccurrenceCounts, plainTagSuggestions, plainTagsFromInput } from './tagSuggestions';
 
 const tags = [
   { name: 'artist:alice', count: 8 },
@@ -30,6 +30,17 @@ describe('mergeTagCandidateCounts', () => {
       [{ namespace: 'artist', value: 'alice', count: 8 }],
       [['artist:alice'], ['artist:alice']]
     )).toEqual([{ namespace: 'artist', value: 'alice', count: 10 }]);
+  });
+
+
+  it('merges pre-aggregated staged counts without rescanning staged rows', () => {
+    expect(mergeTagCandidateOccurrenceCounts(
+      [{ namespace: 'artist', value: 'alice', count: 8 }],
+      [{ name: 'ARTIST:ALICE', count: 2 }, { name: 'local:only', count: 3 }]
+    )).toEqual([
+      { namespace: 'artist', value: 'alice', count: 10 },
+      { name: 'local:only', count: 3 }
+    ]);
   });
 });
 

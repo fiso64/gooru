@@ -18,7 +18,7 @@ export function candidateTagName(candidate: TagCandidate): string {
   return candidate.name ?? candidate.tag ?? (candidate.namespace ? `${candidate.namespace}:${candidate.value ?? ''}` : (candidate.value ?? ''));
 }
 
-export function mergeTagCandidateCounts(candidates: TagCandidate[], tagSets: string[][]): TagCandidate[] {
+export function mergeTagCandidateOccurrenceCounts(candidates: TagCandidate[], stagedCandidates: TagCandidate[]): TagCandidate[] {
   const merged = candidates.map((candidate) => ({ ...candidate }));
   const indexByName = new Map<string, number>();
   for (let index = 0; index < merged.length; index += 1) {
@@ -26,6 +26,25 @@ export function mergeTagCandidateCounts(candidates: TagCandidate[], tagSets: str
     if (name) indexByName.set(name.toLowerCase(), index);
   }
 
+  for (const staged of stagedCandidates) {
+    const name = candidateTagName(staged).trim();
+    const count = Math.max(0, Math.trunc(staged.count ?? 0));
+    if (!name || count === 0) continue;
+    const key = name.toLowerCase();
+    const index = indexByName.get(key);
+    if (index == null) {
+      indexByName.set(key, merged.length);
+      merged.push({ name, count });
+      continue;
+    }
+    const candidate = merged[index]!;
+    merged[index] = { ...candidate, count: (candidate.count ?? 0) + count };
+  }
+
+  return merged;
+}
+
+export function mergeTagCandidateCounts(candidates: TagCandidate[], tagSets: string[][]): TagCandidate[] {
   const stagedCounts = new Map<string, { name: string; count: number }>();
   for (const tags of tagSets) {
     const seen = new Set<string>();
@@ -38,19 +57,7 @@ export function mergeTagCandidateCounts(candidates: TagCandidate[], tagSets: str
       stagedCounts.set(key, { name: previous?.name ?? name, count: (previous?.count ?? 0) + 1 });
     }
   }
-
-  for (const [key, staged] of stagedCounts) {
-    const index = indexByName.get(key);
-    if (index == null) {
-      indexByName.set(key, merged.length);
-      merged.push({ name: staged.name, count: staged.count });
-      continue;
-    }
-    const candidate = merged[index]!;
-    merged[index] = { ...candidate, count: (candidate.count ?? 0) + staged.count };
-  }
-
-  return merged;
+  return mergeTagCandidateOccurrenceCounts(candidates, [...stagedCounts.values()]);
 }
 
 export function plainTagSuggestions(

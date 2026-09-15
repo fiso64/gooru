@@ -26,6 +26,7 @@ import type { BackgroundOperation } from '$lib/api/operations';
 import { ApiError } from '$lib/api/client';
 import type { UploadVariables } from '$lib/queries/library';
 import { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
+import { createUploadStagedTagCounts } from './uploadStagedTagCounts';
 
 export { uploadJobStatusBatchSize } from '$lib/uploadBackpressure';
 export const maxFilesPerMultipartUpload = 1000;
@@ -99,6 +100,17 @@ export function createUploadWorkflow() {
   let trackedJobs = $state<Record<string, number[]>>({});
   let statusCounts: UploadStatusCounts = {};
   let nextBatchID = 0;
+  const stagedTagCounts = createUploadStagedTagCounts();
+  let stagedTagCandidates = $state(stagedTagCounts.candidates());
+
+  function refreshStagedTagCandidates() {
+    stagedTagCandidates = stagedTagCounts.candidates();
+  }
+
+  function clearStagedTagCandidates() {
+    stagedTagCounts.clear();
+    stagedTagCandidates = [];
+  }
 
   $effect(() => {
     if (activeSubmissions <= 0) return;
@@ -128,6 +140,7 @@ export function createUploadWorkflow() {
     trackedJobs = {};
     statusCounts = {};
     nextBatchID = 0;
+    clearStagedTagCandidates();
   }
 
   function clear(scope: UploadClearScope = 'all') {
@@ -136,6 +149,7 @@ export function createUploadWorkflow() {
       items = [];
       status = '';
       statusCounts = {};
+      clearStagedTagCandidates();
       return;
     }
     if (scope === 'done' && (activeSubmissions > 0 || hasActiveJobs())) return;
@@ -143,6 +157,7 @@ export function createUploadWorkflow() {
     if (scope === 'staged') {
       files = [];
       items = items.filter((item) => item.status !== 'staged');
+      clearStagedTagCandidates();
     } else {
       items = items.filter((item) => !doneUploadStatuses.has(item.status) || item.tagSyncPending);
     }
@@ -151,6 +166,11 @@ export function createUploadWorkflow() {
   }
 
   function removeAt(index: number) {
+    const removedItem = items[index];
+    if (removedItem?.status === 'staged') {
+      stagedTagCounts.remove(removedItem.tags ?? []);
+      refreshStagedTagCandidates();
+    }
     const stagedIndices = items.flatMap((item, itemIndex) => item.status === 'staged' ? [itemIndex] : []);
     const stagedFileIndex = stagedIndices.indexOf(index);
     if (stagedFileIndex >= 0) {
@@ -162,7 +182,13 @@ export function createUploadWorkflow() {
   }
 
   function setItemTags(index: number, nextTags: string[]) {
+    const current = items[index];
+    const previousStagedTags = current?.status === 'staged' ? [...(current.tags ?? [])] : undefined;
     setUploadItemTagsInPlace(items, index, nextTags);
+    if (previousStagedTags && current) {
+      stagedTagCounts.replace(previousStagedTags, current.tags ?? []);
+      refreshStagedTagCandidates();
+    }
   }
 
   function itemTagSyncDelta(index: number) {
@@ -203,8 +229,11 @@ export function createUploadWorkflow() {
     if (!additions.length) return;
 
     const queueTimeMs = Date.now();
+    const stagedAdditions = stagedUploadItems(additions, targetID, queueTimeMs, parseTags(tags));
     files = [...files, ...additions];
-    items = [...items, ...stagedUploadItems(additions, targetID, queueTimeMs, parseTags(tags))];
+    items = [...items, ...stagedAdditions];
+    for (const item of stagedAdditions) stagedTagCounts.add(item.tags ?? []);
+    refreshStagedTagCandidates();
     statusCounts = countUploadStatuses(items);
     status = '';
     if (autoUpload) {
@@ -337,6 +366,7 @@ export function createUploadWorkflow() {
     }
     items = nextItems;
     files = [];
+    clearStagedTagCandidates();
     const controller = new AbortController();
     activeSubmissionControllers.add(controller);
     activeSubmissions += 1;
@@ -498,6 +528,7 @@ export function createUploadWorkflow() {
     get items() { return items; },
     get tags() { return tags; },
     set tags(value: string) { tags = value; },
+    get stagedTagCandidates() { return stagedTagCandidates; },
     get targetID() { return targetID; },
     get conflictPolicy() { return conflictPolicy; },
     set conflictPolicy(value: string) { conflictPolicy = value; },

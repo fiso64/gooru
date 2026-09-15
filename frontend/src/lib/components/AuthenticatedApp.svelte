@@ -743,6 +743,7 @@
         addedAtStrategy={upload.addedAtStrategy}
         autoUpload={upload.autoUpload}
         tags={tagsQuery.data?.tags ?? []}
+        stagedTagCandidates={upload.stagedTagCandidates}
         onTargetInput={selectUploadTarget}
         onFiles={selectUploadFiles}
         onTagsInput={(value) => (upload.tags = value)}
