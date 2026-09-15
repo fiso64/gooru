@@ -115,3 +115,25 @@ func TestBackgroundOperationAdmissionUsesPendingKindIndex(t *testing.T) {
 		t.Fatalf("pending background operation admission count still scans operation history:\n%s", plan)
 	}
 }
+
+func TestActiveBackgroundOperationLookupUsesKindAndRecencyIndex(t *testing.T) {
+	db := migratedPerformanceDB(t)
+	defer db.Close()
+
+	plan := explainPlan(t, db, `
+		SELECT id
+		FROM background_operations
+		WHERE kind = ? AND status IN ('pending', 'running')
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1
+	`, "media-metadata-sweep")
+	if !strings.Contains(plan, "background_operations_active_kind_created_idx") {
+		t.Fatalf("active background operation lookup did not use kind/recency index:\n%s", plan)
+	}
+	if strings.Contains(plan, "SCAN background_operations") {
+		t.Fatalf("active background operation lookup still scans operation history:\n%s", plan)
+	}
+	if strings.Contains(plan, "USE TEMP B-TREE FOR ORDER BY") {
+		t.Fatalf("active background operation lookup still sorts operation history:\n%s", plan)
+	}
+}
