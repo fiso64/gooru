@@ -14,12 +14,11 @@ const (
 
 // RecoverEncryptedDatabaseKeyMigration repairs the deterministic swap state
 // left by an interrupted legacy-key to database-subkey migration. A staged
-// legacy source is restored; an already-installed rekeyed database is verified
-// before its legacy-key rollback copy is removed.
+// legacy source is restored without needing either encryption key. If the
+// rekeyed database is already canonical, newKey is required to verify it before
+// the legacy-key rollback copy is removed; an empty newKey leaves that copy in
+// place for a later keyed recovery pass.
 func RecoverEncryptedDatabaseKeyMigration(path string, newKey []byte) error {
-	if len(newKey) != encryptedDatabaseKeySize {
-		return ErrInvalidDatabaseEncryptionKey
-	}
 	targetPath := path + encryptedRekeyTargetSuffix
 	backupPath := path + encryptedRekeyBackupSuffix
 
@@ -27,8 +26,11 @@ func RecoverEncryptedDatabaseKeyMigration(path string, newKey []byte) error {
 	if err != nil {
 		return fmt.Errorf("recover encrypted database key migration: %w", err)
 	}
-	if !backupPresent {
+	if !backupPresent || len(newKey) == 0 {
 		return nil
+	}
+	if len(newKey) != encryptedDatabaseKeySize {
+		return ErrInvalidDatabaseEncryptionKey
 	}
 
 	return finalizeRecoveredDatabaseMigration(path, backupPath, "rekeyed encrypted database", func() (*Store, error) {
