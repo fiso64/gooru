@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -40,6 +41,58 @@ func TestRequestWriteTimeoutRefreshesBeforeEachResponseWrite(t *testing.T) {
 		if deadline.After(time.Now().Add(timeout + time.Second)) {
 			t.Fatalf("deadline %d exceeds expected timeout window: %v", i, deadline)
 		}
+	}
+}
+
+func TestRequestWriteTimeoutAllowsStreamBeyondAbsoluteServerDeadline(t *testing.T) {
+	const timeout = 50 * time.Millisecond
+	writeErrors := make(chan error, 2)
+	handler := requestWriteTimeoutMiddleware(timeout, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		controller := http.NewResponseController(w)
+		if _, err := w.Write([]byte("first")); err != nil {
+			writeErrors <- err
+			return
+		}
+		if err := controller.Flush(); err != nil {
+			writeErrors <- err
+			return
+		}
+
+		// Cross the server's original absolute WriteTimeout. The second write
+		// must refresh the deadline rather than inheriting the expired one.
+		time.Sleep(3 * timeout)
+		if _, err := w.Write([]byte("second")); err != nil {
+			writeErrors <- err
+			return
+		}
+		if err := controller.Flush(); err != nil {
+			writeErrors <- err
+		}
+	}))
+
+	server := httptest.NewUnstartedServer(handler)
+	server.Config.WriteTimeout = timeout
+	server.Start()
+	defer server.Close()
+
+	client := server.Client()
+	client.Timeout = 2 * time.Second
+	response, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("get streaming response: %v", err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read streaming response: %v", err)
+	}
+	select {
+	case err := <-writeErrors:
+		t.Fatalf("stream write failed: %v", err)
+	default:
+	}
+	if got := string(body); got != "firstsecond" {
+		t.Fatalf("expected complete streaming response, got %q", got)
 	}
 }
 
