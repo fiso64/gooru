@@ -62,8 +62,13 @@ func TestFileRegistrationHooksCanDisableAndResetDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 1 || tasks[0].Kind != BackgroundMediaMetadataSweepTaskKind || tasks[0].OperationBinding != BackgroundOperationReuseActive {
-		t.Fatalf("reset hooks produced unexpected tasks: %#v", tasks)
+	if len(tasks) != 2 {
+		t.Fatalf("reset hooks produced %d tasks, want immediate and linger wakes: %#v", len(tasks), tasks)
+	}
+	for _, task := range tasks {
+		if task.Kind != BackgroundMediaMetadataSweepTaskKind || task.OperationBinding != BackgroundOperationReuseActive {
+			t.Fatalf("reset hooks produced unexpected task: %#v", task)
+		}
 	}
 }
 
@@ -80,14 +85,15 @@ func TestMediaMetadataRegistrationTasksUsesWakeOnlySignal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 1 {
-		t.Fatalf("registration signal produced %d tasks, want 1", len(tasks))
+	if len(tasks) != 2 {
+		t.Fatalf("registration signal produced %d tasks, want immediate and linger wakes", len(tasks))
 	}
-	task := tasks[0]
-	if task.Kind != BackgroundMediaMetadataSweepTaskKind || task.OperationBinding != BackgroundOperationReuseActive {
-		t.Fatalf("registration signal produced unexpected task: %#v", task)
-	}
-	if task.Operation == nil || task.Operation.Kind != BackgroundMediaMetadataSweepOperationKind || !task.Operation.Visible {
-		t.Fatalf("registration signal produced unexpected operation: %#v", task.Operation)
+	for _, task := range tasks {
+		if task.Kind != BackgroundMediaMetadataSweepTaskKind || task.OperationBinding != BackgroundOperationReuseActive {
+			t.Fatalf("registration signal produced unexpected task: %#v", task)
+		}
+		if task.Operation == nil || task.Operation.Kind != BackgroundMediaMetadataSweepOperationKind || !task.Operation.Visible {
+			t.Fatalf("registration signal produced unexpected operation: %#v", task.Operation)
+		}
 	}
 }
