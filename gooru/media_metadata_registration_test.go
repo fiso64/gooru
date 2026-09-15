@@ -3,6 +3,7 @@ package gooru
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"gooru.local/types"
@@ -139,6 +140,72 @@ func TestRunMediaMetadataSweepCreatesObservableNoWorkJob(t *testing.T) {
 	}
 	if len(operations) != 1 || operations[0].Kind != BackgroundMediaMetadataSweepOperationKind || operations[0].Status != BackgroundWorkPending {
 		t.Fatalf("unexpected manual metadata operation: %+v", operations)
+	}
+}
+
+func TestRunMediaMetadataSweepIsAtomicAcrossClients(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	if err := Init(dbPath, types.StrategyFull, false); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	const clientCount = 8
+	clients := make([]*Client, 0, clientCount)
+	for i := 0; i < clientCount; i++ {
+		client, err := New(dbPath, false)
+		if err != nil {
+			t.Fatalf("open client %d: %v", i, err)
+		}
+		clients = append(clients, client)
+	}
+	t.Cleanup(func() {
+		for _, client := range clients {
+			_ = client.Close()
+		}
+	})
+
+	start := make(chan struct{})
+	created := make(chan bool, clientCount)
+	errs := make(chan error, clientCount)
+	var wg sync.WaitGroup
+	for _, client := range clients {
+		client := client
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			didCreate, err := client.RunMediaMetadataSweep()
+			if err != nil {
+				errs <- err
+				return
+			}
+			created <- didCreate
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(created)
+	close(errs)
+
+	for err := range errs {
+		t.Errorf("concurrent manual metadata sweep: %v", err)
+	}
+	createdCount := 0
+	for didCreate := range created {
+		if didCreate {
+			createdCount++
+		}
+	}
+	if createdCount != 1 {
+		t.Fatalf("created metadata sweep count = %d, want 1", createdCount)
+	}
+
+	operations, err := clients[0].ListBackgroundOperations(BackgroundOperationListOptions{VisibleOnly: true})
+	if err != nil {
+		t.Fatalf("list visible operations: %v", err)
+	}
+	if len(operations) != 1 || operations[0].Kind != BackgroundMediaMetadataSweepOperationKind || operations[0].Status != BackgroundWorkPending {
+		t.Fatalf("unexpected concurrent manual metadata operations: %+v", operations)
 	}
 }
 

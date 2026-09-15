@@ -78,24 +78,19 @@ func (c *Client) MediaMetadataSweepRunning() (bool, error) {
 // observable job even when there is currently no pending metadata; the worker
 // will scan, find no work, and complete the operation normally.
 func (c *Client) RunMediaMetadataSweep() (bool, error) {
-	running, err := c.MediaMetadataSweepRunning()
-	if err != nil {
-		return false, err
-	}
-	if running {
-		return false, nil
-	}
-
 	task, err := newMediaMetadataSweepTaskRequest()
 	if err != nil {
 		return false, err
 	}
-	_, tasks, err := c.CreateBackgroundOperationWithTasks(BackgroundOperationRequest{
+	_, tasks, created, err := c.createBackgroundOperationWithTasksSingleFlight(BackgroundOperationRequest{
 		Kind:    BackgroundMediaMetadataSweepOperationKind,
 		Visible: true,
 	}, []BackgroundTaskRequest{task})
 	if err != nil {
 		return false, fmt.Errorf("enqueue media metadata sweep: %w", err)
+	}
+	if !created {
+		return false, nil
 	}
 	if len(tasks) != 1 {
 		return false, fmt.Errorf("enqueue media metadata sweep created %d tasks, want 1", len(tasks))
