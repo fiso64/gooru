@@ -144,23 +144,11 @@ func derivativeCacheRoot(cfg Config) (string, error) {
 }
 
 func (m *MediaService) ServeContent(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
-	source, err := m.openMediaSource(fileStoragePath(file))
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not_found", "file content not found", nil)
-		return
-	}
-	defer source.Close()
-	if isOriginalDocumentNavigation(r) {
-		applyOriginalDocumentContentPolicy(w, file, source)
-	} else {
-		applyOriginalContentPolicy(w, file)
-	}
-	http.ServeContent(w, r, filepath.Base(file.Path), source.modTime, source)
+	m.serveOriginal(w, r, file, false)
 }
 
 func (m *MediaService) ServeDownload(w http.ResponseWriter, r *http.Request, file types.FileInfo) {
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(file.Path)))
-	m.ServeContent(w, r, file)
+	m.serveOriginal(w, r, file, true)
 }
 
 func applyOriginalContentPolicy(w http.ResponseWriter, file types.FileInfo) {
