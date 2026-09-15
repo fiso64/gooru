@@ -54,6 +54,38 @@ func TestPrepareAdminDatabaseSupportsFreshPath(t *testing.T) {
 	}
 }
 
+func TestCreateAdminWithPolicyIfMissingIsIdempotent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "gooru.db")
+	store, err := prepareAdminDatabase(serve.DefaultConfig(dbPath), false)
+	if err != nil {
+		t.Fatalf("prepare admin database: %v", err)
+	}
+	defer store.Close()
+
+	authStore := serve.NewAuthStore(store.DB, 0)
+	created, err := createAdminWithPolicy(context.Background(), authStore, "mac", "correct horse", false)
+	if err != nil {
+		t.Fatalf("create initial admin: %v", err)
+	}
+	if !created {
+		t.Fatal("expected initial admin to be created")
+	}
+
+	created, err = createAdminWithPolicy(context.Background(), authStore, "mac", "different horse", true)
+	if err != nil {
+		t.Fatalf("ensure existing admin: %v", err)
+	}
+	if created {
+		t.Fatal("existing admin should not be recreated")
+	}
+	if _, err := authStore.Login(context.Background(), "mac", "correct horse"); err != nil {
+		t.Fatalf("original password should remain valid: %v", err)
+	}
+	if _, err := authStore.Login(context.Background(), "mac", "different horse"); !errors.Is(err, serve.ErrInvalidCredentials) {
+		t.Fatalf("existing password must not be reconciled, got %v", err)
+	}
+}
+
 func TestPrepareAdminDatabasePreservesExistingParentPermissions(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "shared")
 	if err := os.MkdirAll(dir, 0755); err != nil {
