@@ -1,0 +1,45 @@
+name: Agent 670 maintenance API doc fix
+
+on:
+  push:
+    branches:
+      - agent/670-eager-media-metadata
+    paths:
+      - .github/workflows/agent-670-openapi-semantics.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/670-eager-media-metadata
+      - name: Reconcile maintenance run semantics
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('docs/openapi.yaml')
+          text = path.read_text()
+          old = 'description: Requests the selected backend-owned maintenance job through the durable background job system. A 200 response with created=false means the requested work was already active or no pending work required a new job.'
+          new = 'description: Requests the selected backend-owned maintenance job through the durable background job system. A 200 response with created=false means an equivalent job is already pending or running. Explicit no-work requests still create an observable durable job that completes normally.'
+          if old not in text:
+              raise SystemExit('maintenance endpoint description not found')
+          text = text.replace(old, new, 1)
+          old = 'description: The request was accepted but did not create new durable work.'
+          new = 'description: An equivalent maintenance job is already pending or running; no duplicate durable work was created.'
+          if old not in text:
+              raise SystemExit('maintenance 200 response description not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit docs
+        shell: bash
+        run: |
+          git config user.name 'chatgpt-codex-connector[bot]'
+          git config user.email 'chatgpt-codex-connector[bot]@users.noreply.github.com'
+          git add docs/openapi.yaml
+          git commit -m 'docs(api): clarify maintenance run semantics'
+          git push origin HEAD:agent/670-eager-media-metadata
