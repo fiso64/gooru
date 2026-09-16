@@ -17,7 +17,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -c 'from pathlib import Path; p=Path("internal/serve/upload_stream.go"); t=p.read_text(); a="\\t\\tvar fileScoped uploadFileError\\n\\t\\tif errors.As(finalErr, &fileScoped) && errors.Is(finalErr, errUploadConflict) {\\n\\t\\t\\t_ = os.Remove(file.path)\\n\\t\\t\\tfile.path = \\\"\\\"\\n\\t\\t\\tsaved = append(saved, savedUpload{name: fileScoped.name, size: file.size, targetID: target.ID, status: \\\"error\\\", error: fileScoped.err.Error()})\\n\\t\\t\\tcontinue\\n\\t\\t}\\n\\t\\treturn nil, saved, finalErr\\n"; b="\\t\\treturn nil, saved, finalErr\\n"; assert a in t; p.write_text(t.replace(a,b,1))'
+          python3 -c 'from pathlib import Path; p=Path("internal/serve/upload_stream.go"); t=p.read_text(); marker="\t\treturn nil, saved, finalErr\n"; s=t.index("\t\tvar fileScoped uploadFileError\n"); e=t.index(marker,s)+len(marker); p.write_text(t[:s]+marker+t[e:])'
           gofmt -w internal/serve/upload_stream.go
           rm .github/workflows/maintainer-720-stream-error-fix.yml
           git add -A
