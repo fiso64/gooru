@@ -1449,13 +1449,26 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 		if _, err := q.Exec(query, args...); err != nil {
 			return err
 		}
+		managedPlaceholders := make([]string, 0, len(batch))
+		managedArgs := make([]interface{}, 0, len(batch)*2)
 		for _, loc := range batch {
 			if strings.TrimSpace(loc.StoragePath) == "" {
 				continue
 			}
-			if _, err := q.Exec(`INSERT INTO managed_storage_locations (location_id, physical_path)
-				SELECT id, ? FROM locations WHERE path = ?
-				ON CONFLICT(location_id) DO UPDATE SET physical_path = excluded.physical_path`, loc.StoragePath, loc.Path); err != nil {
+			managedPlaceholders = append(managedPlaceholders, "(?, ?)")
+			managedArgs = append(managedArgs, loc.StoragePath, loc.Path)
+		}
+		if len(managedPlaceholders) > 0 {
+			managedQuery := `WITH managed(physical_path, path) AS (VALUES ` +
+				strings.Join(managedPlaceholders, ",") +
+				`)
+				INSERT INTO managed_storage_locations (location_id, physical_path)
+				SELECT l.id, managed.physical_path
+				FROM managed
+				JOIN locations l ON l.path = managed.path
+				WHERE true
+				ON CONFLICT(location_id) DO UPDATE SET physical_path = excluded.physical_path`
+			if _, err := q.Exec(managedQuery, managedArgs...); err != nil {
 				return err
 			}
 		}
