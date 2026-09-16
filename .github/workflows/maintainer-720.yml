@@ -40,12 +40,17 @@ jobs:
 
           for path in root.glob('internal/serve/*_test.go'):
               text = path.read_text()
+              text = text.replace('backgroundUploadImportedCheckpoint(nil, ', 'backgroundUploadImportedCheckpoint(')
               text = re.sub(r'(?m)^([ \t]*)_, err := activateSavedDurableUploads\(([^\n]+)\)$', r'\1err := activateSavedDurableUploads(\2)', text)
               text = re.sub(r'if _, err := activateSavedDurableUploads\(([^;]+)\);', r'if err := activateSavedDurableUploads(\1);', text)
               path.write_text(text)
 
-          # Delete any replacement-transaction worker tests that do not advertise
-          # "Replacement" in the test name but still construct replace:true state.
+          for name in ['internal/serve/upload_protected_retry_test.go']:
+              p = root / name
+              text = p.read_text()
+              text = re.sub(r'(library\.importUploadedFiles\([^\n]+), nil\)', r'\1)', text)
+              p.write_text(text)
+
           p = root / 'internal/serve/background_upload_worker_test.go'
           text = p.read_text()
           starts = list(re.finditer(r'(?m)^func (Test\w+)\(', text))
@@ -57,6 +62,8 @@ jobs:
                   removals.append((m.start(), end))
           for start, end in reversed(removals):
               text = text[:start] + text[end:]
+          for imp in ['\t"errors"\n', '\t"os"\n', '\t"path/filepath"\n']:
+              text = text.replace(imp, '')
           p.write_text(text)
           PY
           rm scripts/maintainer_720_patch.py .github/workflows/maintainer-720.yml
