@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import AppShell from '$lib/components/AppShell.svelte';
   import ActionDialog from '$lib/components/ActionDialog.svelte';
   import GlobalFileDrop from '$lib/components/GlobalFileDrop.svelte';
@@ -50,7 +51,7 @@
   const pagedMode = $derived(effectivePaginationMode === 'paged');
 
   const queryClient = useQueryClient();
-  const library = createLibraryWorkflow(undefined, pagedMode);
+  const library = createLibraryWorkflow(undefined, untrack(() => pagedMode));
   const searchDraft = library.searchDraft;
   const submittedSearch = library.submittedSearch;
   const suggestionSearch = library.suggestionSearch;
