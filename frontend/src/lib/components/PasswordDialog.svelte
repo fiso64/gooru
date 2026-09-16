@@ -53,6 +53,13 @@
     return target instanceof Element && Boolean(target.closest('button, a[href], select, summary, [role="button"], [role="link"]'));
   }
 
+  function handleBackdropKeydown(event: KeyboardEvent) {
+    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -82,6 +89,7 @@
   aria-labelledby="password-dialog-title"
   tabindex="-1"
   onclick={(event) => { if (event.target === event.currentTarget) close(); }}
+  onkeydown={handleBackdropKeydown}
 >
   <form class="action-dialog password-dialog" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
     <div>
