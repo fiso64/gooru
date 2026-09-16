@@ -32,7 +32,7 @@ func TestActivateSavedDurableUploadsRollsBackEarlierNonreplacementOnLaterConflic
 		{name: "first.txt", path: firstStaged, destinationPath: firstDestination},
 		{name: "second.txt", path: secondStaged, destinationPath: secondDestination},
 	}
-	_, err := activateSavedDurableUploads(files)
+	err := activateSavedDurableUploads(files)
 	if !errors.Is(err, errUploadConflict) {
 		t.Fatalf("activate durable uploads error = %v, want upload conflict", err)
 	}

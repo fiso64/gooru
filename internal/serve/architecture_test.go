@@ -42,7 +42,7 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 		},
 		"upload_durable_staging.go": {
 			"(*Server).stageDurableMultipartUpload": true,
-			"prepareDurableUploadStagingDir":         true,
+			"prepareDurableUploadStagingDir":        true,
 		},
 		"upload_stream.go": {
 			"(*Server).stageMultipartUpload": true,
@@ -50,9 +50,8 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 			"moveStreamedUploadIntoDir":      true,
 		},
 		"uploads.go": {
-			"(*Server).saveUploadedFiles":  true,
-			"createUploadDestination":      true,
-			"createReplacementStateMarker": true,
+			"(*Server).saveUploadedFiles": true,
+			"createUploadDestination":     true,
 		},
 	}
 

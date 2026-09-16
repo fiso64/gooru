@@ -61,7 +61,7 @@ func TestProtectedUploadImportFailureRestoresOriginalRetryPathAfterRename(t *tes
 		TargetID:       "default",
 		ConflictPolicy: "rename",
 	}
-	if _, err := library.importUploadedFiles(context.Background(), []StagedUpload{secondUpload}, []string{"bad tag"}, backgroundUploadImportState{}, nil); err == nil {
+	if _, err := library.importUploadedFiles(context.Background(), []StagedUpload{secondUpload}, []string{"bad tag"}, backgroundUploadImportState{}); err == nil {
 		t.Fatal("import with invalid tag error = nil, want validation failure")
 	}
 	if _, err := os.Stat(logicalPath); err != nil {
@@ -72,7 +72,7 @@ func TestProtectedUploadImportFailureRestoresOriginalRetryPathAfterRename(t *tes
 		t.Fatalf("failed import left renamed logical path behind: %v", err)
 	}
 
-	retryResponse, err := library.importUploadedFiles(context.Background(), []StagedUpload{secondUpload}, []string{"second"}, backgroundUploadImportState{}, nil)
+	retryResponse, err := library.importUploadedFiles(context.Background(), []StagedUpload{secondUpload}, []string{"second"}, backgroundUploadImportState{})
 	if err != nil {
 		t.Fatalf("retry protected upload: %v", err)
 	}

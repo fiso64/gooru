@@ -55,7 +55,6 @@ uploads:
       added_at_strategy: queue
   max_file_size_bytes: 20971520
   preserve_modtime: true
-  conflict_policy: rename
 media:
   cache_dir: $media_cache
   thumbnail_sizes: [256, 512]

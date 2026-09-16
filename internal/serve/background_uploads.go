@@ -23,19 +23,13 @@ const (
 )
 
 type backgroundUploadCheckpoint struct {
-	Phase                  string                                  `json:"phase"`
-	Replacements           []backgroundUploadReplacementCheckpoint `json:"replacements,omitempty"`
-	Response               *UploadImportResponse                   `json:"response,omitempty"`
-	FileTotal              int                                     `json:"file_total,omitempty"`
-	FilesCompleted         int                                     `json:"files_completed,omitempty"`
-	FilesCompletedPrefix   int                                     `json:"files_completed_prefix,omitempty"`
-	TransportBytesTotal    int64                                   `json:"transport_bytes_total,omitempty"`
-	TransportBytesReceived int64                                   `json:"transport_bytes_received,omitempty"`
-}
-
-type backgroundUploadReplacementCheckpoint struct {
-	Index       int  `json:"index"`
-	HadOriginal bool `json:"had_original"`
+	Phase                  string                `json:"phase"`
+	Response               *UploadImportResponse `json:"response,omitempty"`
+	FileTotal              int                   `json:"file_total,omitempty"`
+	FilesCompleted         int                   `json:"files_completed,omitempty"`
+	FilesCompletedPrefix   int                   `json:"files_completed_prefix,omitempty"`
+	TransportBytesTotal    int64                 `json:"transport_bytes_total,omitempty"`
+	TransportBytesReceived int64                 `json:"transport_bytes_received,omitempty"`
 }
 
 type backgroundUploadTaskInput struct {
@@ -52,7 +46,7 @@ type backgroundUploadTaskFile struct {
 	TargetID        string    `json:"target_id"`
 	Status          string    `json:"status,omitempty"`
 	Error           string    `json:"error,omitempty"`
-	Replace         bool      `json:"replace,omitempty"`
+	LegacyReplace   bool      `json:"replace,omitempty"`
 	SourceModTime   time.Time `json:"source_mod_time,omitempty"`
 	AddedAt         time.Time `json:"added_at,omitempty"`
 	ConflictPolicy  string    `json:"conflict_policy,omitempty"`
@@ -84,9 +78,8 @@ func backgroundUploadInitialCheckpoint(fileTotal ...int) backgroundUploadCheckpo
 	return backgroundUploadCheckpoint{Phase: backgroundUploadPhaseStaged, FileTotal: total}
 }
 
-func backgroundUploadActivatedCheckpoint(activated []activatedSavedReplacement, progress ...int) backgroundUploadCheckpoint {
+func backgroundUploadActivatedCheckpoint(progress ...int) backgroundUploadCheckpoint {
 	checkpoint := backgroundUploadCheckpoint{Phase: backgroundUploadPhaseActivated}
-	checkpoint.Replacements = backgroundUploadReplacementCheckpoints(activated)
 	if len(progress) > 0 {
 		checkpoint.FileTotal = progress[0]
 	}
@@ -99,17 +92,15 @@ func backgroundUploadActivatedCheckpoint(activated []activatedSavedReplacement, 
 	return checkpoint
 }
 
-func backgroundUploadImportedCheckpoint(activated []activatedSavedReplacement, response UploadImportResponse) backgroundUploadCheckpoint {
+func backgroundUploadImportedCheckpoint(response UploadImportResponse) backgroundUploadCheckpoint {
 	total := len(response.Files)
-	checkpoint := backgroundUploadCheckpoint{
+	return backgroundUploadCheckpoint{
 		Phase:                backgroundUploadPhaseImported,
-		Replacements:         backgroundUploadReplacementCheckpoints(activated),
 		Response:             &response,
 		FileTotal:            total,
 		FilesCompleted:       total,
 		FilesCompletedPrefix: total,
 	}
-	return checkpoint
 }
 
 func shouldPersistUploadProgress(completed, total int) bool {
@@ -121,66 +112,6 @@ func shouldPersistUploadProgress(completed, total int) bool {
 		step = 1
 	}
 	return completed == total || completed%step == 0
-}
-
-func backgroundUploadReplacementCheckpoints(activated []activatedSavedReplacement) []backgroundUploadReplacementCheckpoint {
-	if len(activated) == 0 {
-		return nil
-	}
-	result := make([]backgroundUploadReplacementCheckpoint, 0, len(activated))
-	for _, item := range activated {
-		result = append(result, backgroundUploadReplacementCheckpoint{Index: item.index, HadOriginal: item.replacement.hadOriginal})
-	}
-	return result
-}
-
-func activatedSavedReplacementsFromCheckpoint(files []savedUpload, checkpoint backgroundUploadCheckpoint) ([]activatedSavedReplacement, error) {
-	if checkpoint.Phase != backgroundUploadPhaseActivated && checkpoint.Phase != backgroundUploadPhaseImported {
-		return nil, fmt.Errorf("upload checkpoint phase %q has no activated replacements", checkpoint.Phase)
-	}
-	replaceCount := 0
-	for _, file := range files {
-		if file.replace {
-			replaceCount++
-		}
-	}
-	if len(checkpoint.Replacements) != replaceCount {
-		return nil, errors.New("upload checkpoint replacement count does not match task input")
-	}
-	savedByIndex := make(map[int]backgroundUploadReplacementCheckpoint, len(checkpoint.Replacements))
-	for _, saved := range checkpoint.Replacements {
-		if saved.Index < 0 || saved.Index >= len(files) {
-			return nil, errors.New("upload checkpoint replacement index is out of range")
-		}
-		if _, ok := savedByIndex[saved.Index]; ok {
-			return nil, errors.New("upload checkpoint replacement index is duplicated")
-		}
-		file := files[saved.Index]
-		if !file.replace || file.path == "" || file.destinationPath == "" {
-			return nil, errors.New("upload checkpoint replacement does not match task input")
-		}
-		savedByIndex[saved.Index] = saved
-	}
-	activated := make([]activatedSavedReplacement, 0, len(checkpoint.Replacements))
-	for index, file := range files {
-		if !file.replace {
-			continue
-		}
-		saved, ok := savedByIndex[index]
-		if !ok {
-			return nil, errors.New("upload checkpoint replacement does not match task input")
-		}
-		activated = append(activated, activatedSavedReplacement{
-			index: index,
-			replacement: activatedReplacement{
-				finalPath:            file.destinationPath,
-				backupPath:           file.path + ".backup",
-				noOriginalMarkerPath: file.path + ".no-original",
-				hadOriginal:          saved.HadOriginal,
-			},
-		})
-	}
-	return activated, nil
 }
 
 func backgroundUploadTaskRequest(operationID string, files []savedUpload, tags []string) (core.BackgroundTaskRequest, error) {
@@ -201,7 +132,6 @@ func backgroundUploadTaskRequest(operationID string, files []savedUpload, tags [
 			TargetID:        file.targetID,
 			Status:          file.status,
 			Error:           file.error,
-			Replace:         file.replace,
 			SourceModTime:   file.sourceModTime,
 			AddedAt:         file.addedAt,
 			ConflictPolicy:  file.conflictPolicy,
@@ -270,7 +200,6 @@ func decodeBackgroundUploadTask(task core.BackgroundTask) ([]savedUpload, []stri
 			targetID:        file.TargetID,
 			status:          file.Status,
 			error:           file.Error,
-			replace:         file.Replace,
 			sourceModTime:   file.SourceModTime,
 			addedAt:         file.AddedAt,
 			conflictPolicy:  file.ConflictPolicy,
@@ -294,11 +223,11 @@ func validateBackgroundUploadInput(input backgroundUploadTaskInput) error {
 		if file.TargetID == "" || (file.Name == "" && file.Status != "error") {
 			return fmt.Errorf("upload background task file %d is missing identity", index)
 		}
+		if file.LegacyReplace || file.ConflictPolicy == "replace" {
+			return fmt.Errorf("upload background task file %d uses removed replace conflict policy", index)
+		}
 		if file.Status != "error" && file.Status != "skipped" && file.Path == "" {
 			return fmt.Errorf("upload background task file %d is missing staged path", index)
-		}
-		if file.Replace && file.DestinationPath == "" {
-			return fmt.Errorf("upload background task file %d is missing replacement destination", index)
 		}
 		if file.Tags != nil {
 			if err := query.ValidateTags(*file.Tags); err != nil {

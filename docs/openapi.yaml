@@ -872,9 +872,9 @@ paths:
                   description: Configured upload target ID. Defaults to the first configured target.
                 conflict_policy:
                   type: string
-                  enum: [skip, rename, replace]
-                  default: skip
-                  description: How to handle uploaded filenames that already exist in the target; omitted values default to skip.
+                  enum: [rename, error]
+                  default: rename
+                  description: How to handle a requested filename that already exists in the target; omitted values default to rename, while error rejects the request on a path collision.
                 tags:
                   type: string
                   description: Space- or comma-separated fallback initial tags applied to files that do not provide item_tags.

@@ -74,10 +74,10 @@ func TestActivateDurableUploadDestinationIsReplaySafe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := activateSavedDurableUploads(saved); err != nil {
+	if err := activateSavedDurableUploads(saved); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := activateSavedDurableUploads(saved); err != nil {
+	if err := activateSavedDurableUploads(saved); err != nil {
 		t.Fatalf("replay activation: %v", err)
 	}
 	if got := string(mustReadFile(t, saved[0].destinationPath)); got != "hello" {
@@ -108,7 +108,7 @@ func TestActivateDurableUploadDestinationDoesNotOverwriteDestinationRace(t *test
 	if err := os.WriteFile(saved[0].destinationPath, []byte("racer"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := activateSavedDurableUploads(saved); !errors.Is(err, errUploadConflict) {
+	if err := activateSavedDurableUploads(saved); !errors.Is(err, errUploadConflict) {
 		t.Fatalf("activation error = %v, want upload conflict", err)
 	}
 	if got := string(mustReadFile(t, saved[0].destinationPath)); got != "racer" {
@@ -125,14 +125,14 @@ func TestActivateDurableUploadDestinationDoesNotOverwriteDestinationRace(t *test
 func TestChooseDurableUploadDestinationReservesEarlierBatchNames(t *testing.T) {
 	root := t.TempDir()
 	reserved := map[string]struct{}{}
-	first, skipped, replace, err := chooseDurableUploadDestination(root, "photo.jpg", "rename", reserved)
-	if err != nil || skipped || replace {
-		t.Fatalf("first destination = %q skip=%v replace=%v err=%v", first, skipped, replace, err)
+	first, err := chooseDurableUploadDestination(root, "photo.jpg", "rename", reserved)
+	if err != nil {
+		t.Fatalf("first destination = %q err=%v", first, err)
 	}
 	reserved[first] = struct{}{}
-	second, skipped, replace, err := chooseDurableUploadDestination(root, "photo.jpg", "rename", reserved)
-	if err != nil || skipped || replace {
-		t.Fatalf("second destination = %q skip=%v replace=%v err=%v", second, skipped, replace, err)
+	second, err := chooseDurableUploadDestination(root, "photo.jpg", "rename", reserved)
+	if err != nil {
+		t.Fatalf("second destination = %q err=%v", second, err)
 	}
 	if got, want := filepath.Base(second), "photo-1.jpg"; got != want {
 		t.Fatalf("second destination = %q, want %q", got, want)
@@ -146,7 +146,25 @@ func TestDurableStagedUploadsKeepsLegacyPublishedTaskCompatible(t *testing.T) {
 	if len(staged) != 1 || staged[0].Path != path {
 		t.Fatalf("legacy staged uploads = %#v, want path %q", staged, path)
 	}
-	if _, err := activateSavedDurableUploads(files); err != nil {
+	if err := activateSavedDurableUploads(files); err != nil {
 		t.Fatalf("legacy activation should be a no-op: %v", err)
+	}
+}
+
+func TestChooseDurableUploadDestinationErrorRejectsExistingOrReservedName(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "photo.jpg")
+	if err := os.WriteFile(existing, []byte("existing"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chooseDurableUploadDestination(root, "photo.jpg", "error", map[string]struct{}{}); !errors.Is(err, errUploadConflict) {
+		t.Fatalf("existing destination error = %v, want upload conflict", err)
+	}
+	if err := os.Remove(existing); err != nil {
+		t.Fatal(err)
+	}
+	reserved := map[string]struct{}{existing: {}}
+	if _, err := chooseDurableUploadDestination(root, "photo.jpg", "error", reserved); !errors.Is(err, errUploadConflict) {
+		t.Fatalf("reserved destination error = %v, want upload conflict", err)
 	}
 }

@@ -164,8 +164,6 @@ uploads:
       path: %q
   max_file_size_bytes: 104857600
   max_queued: 100
-  conflict_policy: "rename"
-
 media:
   cache_dir: %q
   thumbnail_sizes: [256, 512]

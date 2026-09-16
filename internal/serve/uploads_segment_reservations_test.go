@@ -55,13 +55,13 @@ func TestDurableUploadPriorSegmentDestinationsReservePlannedRename(t *testing.T)
 		t.Fatalf("reserved destinations = %#v, want %q", reserved, planned)
 	}
 
-	path, skipped, replace, err := chooseDurableUploadDestination(targetDir, "photo.jpg", "rename", reserved)
+	path, err := chooseDurableUploadDestination(targetDir, "photo.jpg", "rename", reserved)
 	if err != nil {
 		t.Fatalf("choose later segment destination: %v", err)
 	}
 	want := filepath.Join(targetDir, "photo-1.jpg")
-	if path != want || skipped || replace {
-		t.Fatalf("later destination = (%q, skipped %v, replace %v), want (%q, false, false)", path, skipped, replace, want)
+	if path != want {
+		t.Fatalf("later destination = %q, want %q", path, want)
 	}
 }
 
