@@ -46,6 +46,7 @@ type backgroundUploadTaskFile struct {
 	TargetID        string    `json:"target_id"`
 	Status          string    `json:"status,omitempty"`
 	Error           string    `json:"error,omitempty"`
+	LegacyReplace   bool      `json:"replace,omitempty"`
 	SourceModTime   time.Time `json:"source_mod_time,omitempty"`
 	AddedAt         time.Time `json:"added_at,omitempty"`
 	ConflictPolicy  string    `json:"conflict_policy,omitempty"`
@@ -221,6 +222,9 @@ func validateBackgroundUploadInput(input backgroundUploadTaskInput) error {
 	for index, file := range input.Files {
 		if file.TargetID == "" || (file.Name == "" && file.Status != "error") {
 			return fmt.Errorf("upload background task file %d is missing identity", index)
+		}
+		if file.LegacyReplace || file.ConflictPolicy == "replace" {
+			return fmt.Errorf("upload background task file %d uses removed replace conflict policy", index)
 		}
 		if file.Status != "error" && file.Status != "skipped" && file.Path == "" {
 			return fmt.Errorf("upload background task file %d is missing staged path", index)
