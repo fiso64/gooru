@@ -1,0 +1,80 @@
+name: Temporary race fix validation
+
+on:
+  push:
+    branches:
+      - maintainer/549-go-vet-race-audit
+    paths:
+      - .github/workflows/temporary-race-fix-validation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply minimal test synchronization fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("internal/serve/uploads_durable_test.go")
+          text = path.read_text()
+          old = '''\tdone := make(chan struct{})
+\tgo func() {
+\t\tserver.Handler().ServeHTTP(rec, req)
+\t\tclose(done)
+\t}()
+
+\t<-store.attached
+\tcancel()
+'''
+          new = '''\tdone := make(chan struct{})
+\tattached := store.attached
+\tgo func() {
+\t\tserver.Handler().ServeHTTP(rec, req)
+\t\tclose(done)
+\t}()
+
+\t<-attached
+\tcancel()
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one cancellation synchronization block, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Run focused stress and full race suite
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p .github/maintainer-artifacts
+          set +e
+          {
+            go test -race ./internal/serve -run '^TestDurableUploadSyncCancellationCancelsOperation$' -count=20 &&
+            go test -race ./... -count=1
+          } 2>&1 | tee .github/maintainer-artifacts/549-race-audit.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          if [ "$status" -ne 0 ]; then
+            git add .github/maintainer-artifacts/549-race-audit.log
+            git commit -m 'chore: refresh Go race audit diagnostics'
+            git push origin HEAD:maintainer/549-go-vet-race-audit
+            exit "$status"
+          fi
+
+          git rm -f .github/maintainer-artifacts/549-race-audit.log
+          git rm .github/workflows/temporary-race-fix-validation.yml
+          git add internal/serve/uploads_durable_test.go
+          git commit -m 'test: avoid raced upload attachment signal'
+          git push origin HEAD:maintainer/549-go-vet-race-audit
