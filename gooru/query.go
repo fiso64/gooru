@@ -16,20 +16,18 @@ import (
 // safely present as client input failures.
 var ErrInvalidQuery = errors.New("invalid query")
 
-// buildQuery is a helper to parse an expression, gather tag statistics, and build an optimized SQL subquery.
-func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
-	if strings.TrimSpace(expression) == "" {
-		return "", nil, nil
-	}
+func parseAndValidateQuery(expression string) (*query.Expression, error) {
 	ast, err := query.Parse(expression)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: could not parse query: %v", ErrInvalidQuery, err)
+		return nil, fmt.Errorf("%w: could not parse query: %v", ErrInvalidQuery, err)
 	}
-
 	if err := query.ValidateAST(ast); err != nil {
-		return "", nil, fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
+		return nil, fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
 	}
+	return ast, nil
+}
 
+func (c *Client) buildQueryAST(ast *query.Expression) (string, []interface{}, error) {
 	// NEW: Intelligently build query using tag counts for optimization.
 	// 1. Extract all user-defined tags from the query AST.
 	userTags := query.ExtractTags(ast)
@@ -45,18 +43,27 @@ func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 	return sqlQuery, args, nil
 }
 
+// buildQuery is a helper to parse an expression, gather tag statistics, and build an optimized SQL subquery.
+func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
+	if strings.TrimSpace(expression) == "" {
+		return "", nil, nil
+	}
+	ast, err := parseAndValidateQuery(expression)
+	if err != nil {
+		return "", nil, err
+	}
+	return c.buildQueryAST(ast)
+}
+
 // buildLocationQuery parses an expression into a SQL subquery that returns
 // matching location IDs for browse/search endpoints.
 func (c *Client) buildLocationQuery(expression string) (string, []interface{}, error) {
 	if strings.TrimSpace(expression) == "" {
 		return "", nil, nil
 	}
-	ast, err := query.Parse(expression)
+	ast, err := parseAndValidateQuery(expression)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: could not parse query: %v", ErrInvalidQuery, err)
-	}
-	if err := query.ValidateAST(ast); err != nil {
-		return "", nil, fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
+		return "", nil, err
 	}
 	userTags := query.ExtractTags(ast)
 	tagCounts, err := c.store.BatchGetQueryTagCounts(userTags)
@@ -125,13 +132,9 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 		return c.store.CountAllFiles()
 	}
 
-	ast, err := query.Parse(trimmedExpr)
+	ast, err := parseAndValidateQuery(trimmedExpr)
 	if err != nil {
-		return 0, fmt.Errorf("could not parse query: %w", err)
-	}
-
-	if err := query.ValidateAST(ast); err != nil {
-		return 0, fmt.Errorf("invalid tag in query: %w", err)
+		return 0, err
 	}
 
 	// Optimization for simple, single-tag queries
@@ -150,8 +153,8 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 		}
 	}
 
-	// Fallback to full query for complex expressions
-	sqlQuery, args, err := c.buildQuery(trimmedExpr)
+	// Fallback to full query for complex expressions using the already parsed AST.
+	sqlQuery, args, err := c.buildQueryAST(ast)
 	if err != nil {
 		return 0, err
 	}
@@ -198,13 +201,9 @@ func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, erro
 		return count > 0, err
 	}
 
-	ast, err := query.Parse(trimmedExpr)
+	ast, err := parseAndValidateQuery(trimmedExpr)
 	if err != nil {
-		return false, fmt.Errorf("could not parse query: %w", err)
-	}
-
-	if err := query.ValidateAST(ast); err != nil {
-		return false, fmt.Errorf("invalid tag in query: %w", err)
+		return false, err
 	}
 
 	// Optimization for simple, single-tag queries
@@ -225,8 +224,8 @@ func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, erro
 		}
 	}
 
-	// Fallback to full query for complex expressions
-	sqlQuery, args, err := c.buildQuery(trimmedExpr)
+	// Fallback to full query for complex expressions using the already parsed AST.
+	sqlQuery, args, err := c.buildQueryAST(ast)
 	if err != nil {
 		return false, err
 	}
@@ -337,7 +336,7 @@ func (c *Client) GetFileInfoForSource(filePath string, source io.ReaderAt, size 
 		if err != nil {
 			return types.FileInfo{Path: filePath}, 0, err
 		}
-		return types.FileInfo{Path: filePath, Hash: dbInfo.Hash, Size: size, ModTime: modTime, Tags: tags}, types.StatusOK, nil
+		return types.FileInfo{Path: filePath, Hash: dbInfo.Hash, Size: size, ModTime: dbInfo.ModTime, Tags: tags}, types.StatusOK, nil
 	}
 	tags, status, err := c.getUntrackedContentStatus(currentHash)
 	if err != nil {
