@@ -81,7 +81,7 @@ func (c *Client) fileRegistrationBackgroundTasksForOperation(hashes []string, op
 				return nil, nil
 			}
 		}
-		return mediaMetadataRegistrationTasksForOperation(true, operationID)
+		return mediaMetadataRegistrationTasksForProducerOperation(true, operationID)
 	}
 	if len(hooks) == 0 {
 		return nil, nil

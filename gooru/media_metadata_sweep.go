@@ -39,21 +39,43 @@ func mediaMetadataRegistrationTasksForOperation(hasRegistrations bool, operation
 	}
 	operationID = strings.TrimSpace(operationID)
 	if operationID != "" {
-		// Producer-owned operations (notably browser uploads) provide the natural
-		// lifetime for eager metadata work. Attach the wake to that operation so
-		// every upload chunk feeds the same job instead of creating a stream of
-		// short-lived visible metadata-sweep operations.
 		wake.OperationID = operationID
 	} else {
 		wake.Operation = &BackgroundOperationRequest{
 			Kind:    BackgroundMediaMetadataSweepOperationKind,
 			Visible: true,
 		}
-		// Independent registrations still share one active visible sweep. A fresh
-		// pending wake is allowed while the previous wake is running because its
-		// final scan may already have passed a concurrently committed location.
 		wake.OperationBinding = BackgroundOperationReuseActive
 	}
+	wake.CoalescePendingEquivalent = true
+	wake.InputKey = mediaMetadataRegistrationInputKey
+	return []BackgroundTaskRequest{wake}, nil
+}
+
+// mediaMetadataRegistrationTasksForProducerOperation keeps automatic metadata
+// work separate from producer-owned progress accounting. A browser upload has a
+// fixed segment reservation, so metadata wakes must not consume its declared
+// child slots or make it terminal before all upload segments arrive. Producer-
+// triggered sweeps therefore use the same single-flight metadata operation as
+// other registrations, but create it hidden when no metadata sweep is active so
+// upload chunks do not add standalone rows to the Jobs UI.
+func mediaMetadataRegistrationTasksForProducerOperation(hasRegistrations bool, producerOperationID string) ([]BackgroundTaskRequest, error) {
+	producerOperationID = strings.TrimSpace(producerOperationID)
+	if producerOperationID == "" {
+		return mediaMetadataRegistrationTasks(hasRegistrations)
+	}
+	if !hasRegistrations {
+		return nil, nil
+	}
+	wake, err := newMediaMetadataSweepTaskRequest()
+	if err != nil {
+		return nil, err
+	}
+	wake.Operation = &BackgroundOperationRequest{
+		Kind:    BackgroundMediaMetadataSweepOperationKind,
+		Visible: false,
+	}
+	wake.OperationBinding = BackgroundOperationReuseActive
 	wake.CoalescePendingEquivalent = true
 	wake.InputKey = mediaMetadataRegistrationInputKey
 	return []BackgroundTaskRequest{wake}, nil
