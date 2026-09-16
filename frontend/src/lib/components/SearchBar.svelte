@@ -372,6 +372,8 @@
   }
 </script>
 
+<!-- Pointer clicks on the shell only forward focus to the nested keyboard-focusable input. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="searchbar"
   class:searchbar-text={textMode}
