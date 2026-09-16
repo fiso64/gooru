@@ -1,0 +1,41 @@
+name: Temporary Go vet/race audit
+
+on:
+  push:
+    branches:
+      - maintainer/549-go-vet-race-audit
+    paths:
+      - .github/workflows/temporary-go-vet-race-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run go vet
+        shell: bash
+        run: |
+          set -euo pipefail
+          go vet ./...
+
+      - name: Run race-enabled Go tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -race ./... -count=1
+
+      - name: Remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git rm .github/workflows/temporary-go-vet-race-audit.yml
+          git commit -m 'chore: remove temporary Go vet/race audit'
+          git push origin HEAD:maintainer/549-go-vet-race-audit
