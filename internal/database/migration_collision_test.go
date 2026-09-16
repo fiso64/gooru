@@ -69,6 +69,20 @@ func TestRunMigrationsRepairsHistoricalMediaMetadataVersionCollision(t *testing.
 				t.Fatal(err)
 			}
 
+			// Reproduce the exact long-lived #670 migration 38 rather than only
+			// advancing the numeric ledger. Its trigger remains live while the
+			// canonical content-identity migration replaces media_metadata.
+			if _, err := db.Exec(`
+CREATE TRIGGER invalidate_media_metadata_on_location_content_change
+AFTER UPDATE OF content_hash ON locations
+WHEN OLD.content_hash IS NOT NEW.content_hash
+BEGIN
+    DELETE FROM media_metadata WHERE location_id = NEW.id;
+END;
+`); err != nil {
+				t.Fatalf("create historical collision trigger: %v", err)
+			}
+
 			// Reproduce the long-lived #670 database state: its historical,
 			// unrelated migration 38 left media_metadata location-keyed but
 			// advanced the numeric ledger. Some branch databases stopped at 38;
@@ -98,6 +112,17 @@ func TestRunMigrationsRepairsHistoricalMediaMetadataVersionCollision(t *testing.
 			}
 			if version != 39 || dirty {
 				t.Fatalf("schema_migrations = (%d, %t), want (39, false)", version, dirty)
+			}
+
+			var legacyTriggerCount int
+			if err := db.QueryRow(`
+				SELECT COUNT(*) FROM sqlite_master
+				WHERE type = 'trigger' AND name = 'invalidate_media_metadata_on_location_content_change'
+			`).Scan(&legacyTriggerCount); err != nil {
+				t.Fatal(err)
+			}
+			if legacyTriggerCount != 0 {
+				t.Fatalf("legacy collision trigger count = %d, want 0", legacyTriggerCount)
 			}
 
 			var hash, kind, mime string
