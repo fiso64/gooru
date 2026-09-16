@@ -1,0 +1,23 @@
+name: Maintainer 720 inventory
+
+on:
+  push:
+    branches:
+      - maintainer/720-simplify-upload-conflicts
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inventory conflict and replacement surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== conflict_policy / ConflictPolicy ==='
+          git grep -n -E 'conflict_policy|ConflictPolicy' -- ':!frontend/src/lib/api/openapi.ts' || true
+          echo '=== replacement symbols / replace policy ==='
+          git grep -n -E 'replace|Replacement|replacement' -- internal/serve docs spec openapi.yaml frontend/src frontend/tests 2>/dev/null || true
