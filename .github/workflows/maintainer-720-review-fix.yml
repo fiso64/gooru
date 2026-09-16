@@ -1,0 +1,118 @@
+name: Maintainer 720 review fix
+
+on:
+  push:
+    branches:
+      - maintainer/720-simplify-upload-conflicts
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply review fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('docs/openapi.yaml')
+          text = p.read_text()
+          old = '''                conflict_policy:
+                  type: string
+                  enum: [rename, error]
+                  default: skip
+                  description: How to handle uploaded filenames that already exist in the target; omitted values default to skip.
+'''
+          new = '''                conflict_policy:
+                  type: string
+                  enum: [rename, error]
+                  default: rename
+                  description: How to handle a requested filename that already exists in the target; omitted values default to rename.
+'''
+          if old not in text:
+              raise SystemExit('stale OpenAPI conflict policy block not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          cat > internal/serve/upload_conflict_policy_batch_test.go <<'EOF'
+          package serve
+
+          import (
+           	"encoding/json"
+           	"net/http"
+           	"net/http/httptest"
+           	"os"
+           	"path/filepath"
+           	"testing"
+          )
+
+          func TestUploadConflictPolicyErrorIsolatesExistingNameWithinBatch(t *testing.T) {
+           	dir := t.TempDir()
+           	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("existing"), 0600); err != nil {
+           		t.Fatalf("write existing file: %v", err)
+           	}
+           	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
+           	rec := httptest.NewRecorder()
+
+           	server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{
+           		"a.txt": "valid",
+           		"b.txt": "replacement",
+           	}, nil, "", "error"))
+
+           	if rec.Code != http.StatusOK {
+           		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+           	}
+           	var response UploadImportResponse
+           	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+           		t.Fatalf("decode response: %v", err)
+           	}
+           	byName := make(map[string]UploadedFileDTO, len(response.Files))
+           	for _, file := range response.Files {
+           		byName[file.Name] = file
+           	}
+           	if byName["a.txt"].Status != "imported" {
+           		t.Fatalf("valid sibling should import, got %+v", byName)
+           	}
+           	if byName["b.txt"].Status != "error" || byName["b.txt"].Error != errUploadConflict.Error() {
+           		t.Fatalf("conflicting member should fail independently, got %+v", byName)
+           	}
+           	if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "valid" {
+           		t.Fatalf("valid sibling was not retained: %q", got)
+           	}
+           	if got := string(mustReadFile(t, filepath.Join(dir, "b.txt"))); got != "existing" {
+           		t.Fatalf("existing file was changed: %q", got)
+           	}
+          }
+          EOF
+          gofmt -w internal/serve/upload_conflict_policy_batch_test.go
+          cd frontend
+          npm ci --prefer-offline --no-audit
+          npm run generate:api
+          cd ..
+          rm .github/workflows/maintainer-720-review-fix.yml
+          git add -A
+          git diff --cached --check
+          git status --short
+      - name: Focused Go tests
+        run: go test -count=1 ./internal/serve
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Commit review fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'autonomous-maintainer'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git diff --cached --check
+          git commit -m 'fix(upload): correct conflict policy schema default'
+          git push origin HEAD:maintainer/720-simplify-upload-conflicts
