@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"reflect"
 	"testing"
 
 	"gooru.local/types"
@@ -64,6 +65,113 @@ func TestMediaMetadataIsSharedByContentHash(t *testing.T) {
 	}
 	if stillShared.MediaKind != "photo" {
 		t.Fatalf("unchanged duplicate metadata = %#v", stillShared)
+	}
+}
+
+func TestMediaMetadataDuplicateHashSummariesTrackMutationsAndRehash(t *testing.T) {
+	store := newMemoryTestStore(t)
+	const oldHash = "shared-summary-content"
+	if _, err := store.Exec(`INSERT INTO contents (hash) VALUES (?)`, oldHash); err != nil {
+		t.Fatal(err)
+	}
+	res, err := store.Exec(`INSERT INTO tags (key, value) VALUES ('artist', 'alice')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tagID, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Exec(`INSERT INTO content_tags (content_hash, tag_id) VALUES (?, ?)`, oldHash, tagID); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ id, path string }{
+		{"summary_a", "/library/summary-a.bin"},
+		{"summary_b", "/library/summary-b.bin"},
+	} {
+		if _, err := store.Exec(`INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES (?, ?, ?, 1, 1, '.bin')`, row.id, oldHash, row.path); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertContentIdentityKindSummaries(t, store.DB, tagID, "artist", map[string]int{"other": 2})
+	if _, err := store.Exec(`INSERT INTO media_metadata (content_hash, media_kind, mime_type) VALUES (?, 'photo', 'image/jpeg')`, oldHash); err != nil {
+		t.Fatal(err)
+	}
+	assertContentIdentityKindSummaries(t, store.DB, tagID, "artist", map[string]int{"photo": 2})
+	if _, err := store.Exec(`UPDATE media_metadata SET media_kind = 'video', mime_type = 'video/mp4' WHERE content_hash = ?`, oldHash); err != nil {
+		t.Fatal(err)
+	}
+	assertContentIdentityKindSummaries(t, store.DB, tagID, "artist", map[string]int{"video": 2})
+	if _, err := store.Exec(`DELETE FROM media_metadata WHERE content_hash = ?`, oldHash); err != nil {
+		t.Fatal(err)
+	}
+	assertContentIdentityKindSummaries(t, store.DB, tagID, "artist", map[string]int{"other": 2})
+	if _, err := store.Exec(`INSERT INTO media_metadata (content_hash, media_kind, mime_type) VALUES (?, 'photo', 'image/jpeg')`, oldHash); err != nil {
+		t.Fatal(err)
+	}
+
+	const newHash = "changed-summary-content"
+	if err := store.RehashLocationPreservingTags(oldHash, newHash, types.LocationInfo{
+		Path:      "/library/summary-b.bin",
+		Hash:      newHash,
+		Size:      2,
+		ModTime:   2,
+		Extension: ".bin",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertContentIdentityKindSummaries(t, store.DB, tagID, "artist", map[string]int{"photo": 1, "other": 1})
+
+	if _, err := store.Exec(`INSERT INTO media_metadata (content_hash, media_kind, mime_type) VALUES (?, 'video', 'video/mp4')`, newHash); err != nil {
+		t.Fatal(err)
+	}
+	assertContentIdentityKindSummaries(t, store.DB, tagID, "artist", map[string]int{"photo": 1, "video": 1})
+	if _, err := store.Exec(`DELETE FROM media_metadata WHERE content_hash = ?`, oldHash); err != nil {
+		t.Fatal(err)
+	}
+	assertContentIdentityKindSummaries(t, store.DB, tagID, "artist", map[string]int{"other": 1, "video": 1})
+}
+
+func assertContentIdentityKindSummaries(t *testing.T, db *sql.DB, tagID int64, key string, want map[string]int) {
+	t.Helper()
+	read := func(query string, args ...interface{}) map[string]int {
+		t.Helper()
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		got := make(map[string]int)
+		for rows.Next() {
+			var kind string
+			var count int
+			if err := rows.Scan(&kind, &count); err != nil {
+				t.Fatal(err)
+			}
+			if count > 0 {
+				got[kind] = count
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	checks := []struct {
+		name  string
+		query string
+		args  []interface{}
+	}{
+		{name: "root", query: `SELECT kind, files_count FROM kind_counts WHERE files_count > 0`},
+		{name: "tag", query: `SELECT kind, files_count FROM tag_kind_counts WHERE tag_id = ? AND files_count > 0`, args: []interface{}{tagID}},
+		{name: "tag key", query: `SELECT kind, files_count FROM tag_key_kind_counts WHERE key = ? AND files_count > 0`, args: []interface{}{key}},
+	}
+	for _, check := range checks {
+		if got := read(check.query, check.args...); !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s kind summary = %#v, want %#v", check.name, got, want)
+		}
 	}
 }
 
