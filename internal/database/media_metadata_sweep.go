@@ -6,10 +6,11 @@ import (
 	"gooru.local/types"
 )
 
-// ListPendingMediaMetadataFiles returns a keyset-paginated page of tracked
-// locations that have not yet had media metadata processed. Pagination by
-// location ID guarantees that one permanently failing item cannot starve later
-// work in the same sweep.
+// ListPendingMediaMetadataFiles returns a keyset-paginated page containing one
+// representative location for each content hash that has not yet had media
+// metadata processed. Choosing the lowest live location ID for a hash prevents
+// duplicate paths for the same bytes from triggering redundant extraction while
+// preserving the durable location-ID cursor used by existing sweep tasks.
 func (s *Store) ListPendingMediaMetadataFiles(afterLocationID int64, limit int) ([]types.FileInfo, error) {
 	if afterLocationID < 0 {
 		return nil, fmt.Errorf("media metadata sweep cursor must not be negative")
@@ -19,26 +20,35 @@ func (s *Store) ListPendingMediaMetadataFiles(afterLocationID int64, limit int) 
 	}
 	query := `SELECT ` + fileInfoColumns() + `
 		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
-		WHERE l.id > ? AND mm.location_id IS NULL
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
+		WHERE l.id > ?
+		  AND mm.content_hash IS NULL
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM locations earlier
+			WHERE earlier.content_hash = l.content_hash
+			  AND earlier.id < l.id
+		  )
 		ORDER BY l.id
 		LIMIT ?`
 	return s.scanFileInfos(query, afterLocationID, limit)
 }
 
-// UpsertMediaMetadataForLocation persists metadata only while the location is
-// still the exact logical file that was analysed. Both content hash and path
-// are part of the guard because provider selection is path-dependent.
+// UpsertMediaMetadataForLocation persists metadata by content identity only
+// while the representative location is still the exact logical file that was
+// analysed. Both content hash and path are guarded because provider selection
+// is path-dependent. A false result means the snapshot went stale and no row
+// was written.
 func (s *Store) UpsertMediaMetadataForLocation(locationID int64, expectedHash, expectedPath string, meta types.MediaMetadata) (bool, error) {
 	result, err := s.Exec(`
 		INSERT INTO media_metadata (
-			location_id, media_kind, mime_type, image_width, image_height,
+			content_hash, media_kind, mime_type, image_width, image_height,
 			video_width, video_height, duration_seconds, frame_count, page_count, updated_at
 		)
-		SELECT l.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
+		SELECT l.content_hash, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
 		FROM locations l
 		WHERE l.id = ? AND l.content_hash = ? AND l.path = ?
-		ON CONFLICT(location_id) DO UPDATE SET
+		ON CONFLICT(content_hash) DO UPDATE SET
 			media_kind = excluded.media_kind,
 			mime_type = excluded.mime_type,
 			image_width = excluded.image_width,
