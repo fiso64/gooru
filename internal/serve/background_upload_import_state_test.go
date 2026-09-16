@@ -47,7 +47,7 @@ func TestSegmentedUploadImportsPersistOnlyChildTaskState(t *testing.T) {
 			AnalysisPath: path,
 			Size:         int64(len(content)),
 			TargetID:     "default",
-		}}, []string{"source:test"}, backgroundUploadImportState{taskID: task.ID}, nil)
+		}}, []string{"source:test"}, backgroundUploadImportState{taskID: task.ID})
 		if err != nil {
 			t.Fatalf("import segment %d: %v", index, err)
 		}

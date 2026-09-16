@@ -77,7 +77,6 @@ type UploadsConfig struct {
 	Enabled          bool           `yaml:"enabled"`
 	Targets          []UploadTarget `yaml:"targets"`
 	MaxFileSizeBytes int64          `yaml:"max_file_size_bytes"`
-	ConflictPolicy   string         `yaml:"conflict_policy"`
 	PreserveModTime  bool           `yaml:"preserve_modtime"`
 }
 
@@ -166,7 +165,7 @@ func DefaultConfig(dbPath string) Config {
 			CookieSecure:   "auto",
 			CookieSameSite: "lax",
 		},
-		Uploads: UploadsConfig{Enabled: false, ConflictPolicy: "rename", PreserveModTime: true},
+		Uploads: UploadsConfig{Enabled: false, PreserveModTime: true},
 		Media: MediaConfig{
 			ThumbnailSizes:     []int{256, 512},
 			ThumbnailFormat:    "jpeg",
@@ -330,14 +329,6 @@ func (cfg *Config) Validate() error {
 	}
 	if cfg.Uploads.Enabled && !hasUploadTarget(cfg.Uploads.Targets) {
 		errs = append(errs, errors.New("uploads.enabled requires at least one uploads.targets entry"))
-	}
-	if cfg.Uploads.ConflictPolicy == "" {
-		cfg.Uploads.ConflictPolicy = "rename"
-	}
-	switch cfg.Uploads.ConflictPolicy {
-	case "skip", "rename", "replace", "error":
-	default:
-		errs = append(errs, errors.New("uploads.conflict_policy must be one of: skip, rename, replace, error"))
 	}
 	seenTargets := make(map[string]struct{}, len(cfg.Uploads.Targets))
 	for i := range cfg.Uploads.Targets {

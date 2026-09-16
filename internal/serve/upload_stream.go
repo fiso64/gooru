@@ -188,7 +188,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		// The resolved value is copied into saved/staged state before async job submission.
 		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)
 	}
-	conflictPolicy, err := uploadConflictPolicy(conflictRequested, s.cfg.Uploads.ConflictPolicy)
+	conflictPolicy, err := uploadConflictPolicy(conflictRequested)
 	if err != nil {
 		return nil, saved, multipartUploadError{message: err.Error(), err: err}
 	}
@@ -208,13 +208,6 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 			finalized.conflictPolicy = conflictPolicy
 			file.path = ""
 			saved = append(saved, finalized)
-			continue
-		}
-		var fileScoped uploadFileError
-		if errors.As(finalErr, &fileScoped) && errors.Is(finalErr, errUploadConflict) {
-			_ = os.Remove(file.path)
-			file.path = ""
-			saved = append(saved, savedUpload{name: fileScoped.name, size: file.size, targetID: target.ID, status: "error", error: fileScoped.err.Error()})
 			continue
 		}
 		return nil, saved, finalErr
@@ -270,13 +263,9 @@ func (s *Server) streamUploadPart(target UploadTarget, originalName string, src 
 }
 
 func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPolicy string, preserveModTime bool) (savedUpload, error) {
-	path, skipped, replace, err := chooseUploadDestination(target.Path, file.name, conflictPolicy)
+	path, err := chooseUploadDestination(target.Path, file.name, conflictPolicy)
 	if err != nil {
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
-	}
-	if skipped {
-		_ = os.Remove(file.path)
-		return savedUpload{name: file.name, path: path, destinationPath: path, size: file.size, targetID: target.ID, status: "skipped", sourceModTime: file.sourceModTime}, nil
 	}
 	stagedPath, err := moveStreamedUploadIntoDir(file.path, target.Path, file.name)
 	if err != nil {
@@ -285,9 +274,6 @@ func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPo
 	if err := applyUploadedSourceModTime(stagedPath, file.sourceModTime, preserveModTime); err != nil {
 		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
-	}
-	if replace {
-		return savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: true, sourceModTime: file.sourceModTime}, nil
 	}
 	if err := commitUploadDestinationWithOwnership(stagedPath, path); err != nil {
 		_ = os.Remove(stagedPath)
@@ -356,7 +342,7 @@ func applyUploadedSourceModTime(path string, sourceModTime time.Time, preserve b
 	return nil
 }
 
-func chooseUploadDestination(dir, name, conflictPolicy string) (path string, skipped bool, replace bool, err error) {
+func chooseUploadDestination(dir, name, conflictPolicy string) (string, error) {
 	ext := filepath.Ext(name)
 	base := name[:len(name)-len(ext)]
 	if base == "" {
@@ -367,25 +353,20 @@ func chooseUploadDestination(dir, name, conflictPolicy string) (path string, ski
 		if i > 0 {
 			candidate = fmt.Sprintf("%s-%d%s", base, i, ext)
 		}
-		path = filepath.Join(dir, candidate)
+		path := filepath.Join(dir, candidate)
 		_, statErr := os.Stat(path)
 		if statErr == nil {
-			switch conflictPolicy {
-			case "skip":
-				return path, true, false, nil
-			case "error":
-				return "", false, false, errUploadConflict
-			case "replace":
-				return path, false, true, nil
+			if conflictPolicy == "error" {
+				return "", errUploadConflict
 			}
 			continue
 		}
 		if errors.Is(statErr, os.ErrNotExist) {
-			return path, false, false, nil
+			return path, nil
 		}
-		return "", false, false, errors.New("failed to inspect upload destination")
+		return "", errors.New("failed to inspect upload destination")
 	}
-	return "", false, false, errors.New("could not choose a non-conflicting upload filename")
+	return "", errors.New("could not choose a non-conflicting upload filename")
 }
 
 func moveStreamedUploadIntoDir(srcPath, dir, name string) (string, error) {

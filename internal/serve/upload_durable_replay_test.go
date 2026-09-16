@@ -80,7 +80,7 @@ func TestRestoreDurableNonreplacementDestinationsPreservesRacingDestination(t *t
 		t.Fatal(err)
 	}
 	files := []savedUpload{{name: "photo.jpg", path: stagedPath, destinationPath: finalPath, size: 8, targetID: "default"}}
-	if _, err := activateSavedDurableUploads(files); err != nil {
+	if err := activateSavedDurableUploads(files); err != nil {
 		t.Fatalf("activate durable upload: %v", err)
 	}
 	if err := os.Remove(finalPath); err != nil {

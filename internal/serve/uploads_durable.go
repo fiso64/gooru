@@ -372,39 +372,17 @@ func cleanupCanceledDurableUpload(store durableUploadCleanupStore, operationID s
 	if !found {
 		return errors.New("canceled upload checkpoint is missing")
 	}
-
 	switch checkpoint.Phase {
 	case backgroundUploadPhaseStaged:
-		if err := prepareDurableReplacementRecoveryMarkers(files); err != nil {
-			return fmt.Errorf("prepare canceled durable replacement recovery: %w", err)
-		}
-		activated, err := activateSavedDurableReplacements(files)
-		if err != nil {
-			return fmt.Errorf("recover canceled staged upload replacements: %w", err)
-		}
-		return cleanupCanceledClaimedUpload(files, activated)
+		return removeCanceledSavedUploads(files)
 	case backgroundUploadPhaseActivated:
-		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
-		if err != nil {
-			return fmt.Errorf("recover canceled activated upload replacements: %w", err)
-		}
-		return cleanupCanceledClaimedUpload(files, activated)
+		return cleanupCanceledClaimedUpload(files)
 	case backgroundUploadPhaseImported:
 		if checkpoint.Response == nil {
 			return errors.New("canceled imported upload checkpoint is missing response")
 		}
-		activated, err := activatedSavedReplacementsFromCheckpoint(files, checkpoint)
-		if err != nil {
-			return fmt.Errorf("recover canceled imported upload replacements: %w", err)
-		}
-		if err := settleDurableSavedReplacements(files, activated, *checkpoint.Response); err != nil {
-			return fmt.Errorf("settle canceled imported upload replacements: %w", err)
-		}
 		if err := settleDurableNonreplacementActivations(files); err != nil {
 			return fmt.Errorf("settle canceled imported durable uploads: %w", err)
-		}
-		if err := settleDurableReplacementRecoveryMarkers(files); err != nil {
-			return fmt.Errorf("settle canceled imported durable replacement recovery markers: %w", err)
 		}
 		return nil
 	default:

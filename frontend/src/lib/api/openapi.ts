@@ -1255,11 +1255,11 @@ export interface paths {
                         /** @description Configured upload target ID. Defaults to the first configured target. */
                         target_id?: string;
                         /**
-                         * @description How to handle uploaded filenames that already exist in the target; omitted values default to skip.
-                         * @default skip
+                         * @description How to handle a requested filename that already exists in the target; omitted values default to rename, while error rejects the request on a path collision.
+                         * @default rename
                          * @enum {string}
                          */
-                        conflict_policy?: "skip" | "rename" | "replace";
+                        conflict_policy?: "rename" | "error";
                         /** @description Space- or comma-separated fallback initial tags applied to files that do not provide item_tags. */
                         tags?: string;
                         /** @description Per-file initial tag strings aligned with files. Each entry accepts space- or comma-separated tags; an explicit empty entry means no tags for that file and suppresses fallback tags. Omit item_tags entirely to apply fallback tags to every file. */
