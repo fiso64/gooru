@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"gooru.local/internal/hashing"
@@ -26,6 +27,7 @@ type result struct {
 // logical plaintext size matches a known file. Physical encrypted-container
 // size is never used for identity filtering.
 func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *hashing.Hasher) (map[string]types.LocationInfo, int, error) {
+	dirs = pruneRedundantDirs(dirs)
 	jobs := make(chan job)
 	results := make(chan result)
 	walkErrs := make(chan error, len(dirs))
@@ -92,6 +94,43 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *ha
 	}
 
 	return foundFiles, filesScanned, nil
+}
+
+func pruneRedundantDirs(dirs []string) []string {
+	if len(dirs) < 2 {
+		return dirs
+	}
+
+	kept := make([]string, 0, len(dirs))
+	for i, dir := range dirs {
+		clean := filepath.Clean(dir)
+		redundant := false
+		for j, other := range dirs {
+			if i == j {
+				continue
+			}
+			otherClean := filepath.Clean(other)
+			if clean == otherClean {
+				if j < i {
+					redundant = true
+					break
+				}
+				continue
+			}
+			rel, err := filepath.Rel(otherClean, clean)
+			if err != nil {
+				continue
+			}
+			if rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				redundant = true
+				break
+			}
+		}
+		if !redundant {
+			kept = append(kept, dir)
+		}
+	}
+	return kept
 }
 
 func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHashes map[int64][]string, hasher *hashing.Hasher) {
