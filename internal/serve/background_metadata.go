@@ -59,8 +59,8 @@ func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types
 	if err != nil {
 		return err
 	}
-	metadata.LocationID = file.ID
-	return l.client.UpsertMediaMetadata(metadata)
+	_, err = l.client.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, metadata)
+	return err
 }
 
 func (s *Server) backgroundMediaMetadataSweepHandler(ctx context.Context, task core.BackgroundTask) error {
