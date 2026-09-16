@@ -3,13 +3,13 @@ name: Maintainer 549 explicit tag pair validation
 on:
   push:
     branches:
-      - maintainer/549-bound-explicit-tag-pairs
+      - "maintainer/549-bound-explicit-tag-pairs"
 
 permissions:
   contents: write
 
 jobs:
-  implement-and-validate:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,287 +19,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Apply bounded pair generation
-        shell: bash
+      - name: Apply caller patch
         run: |
-          python3 <<'PY'
-          from pathlib import Path
-
-          tagging = Path("gooru/tagging.go")
-          text = tagging.read_text()
-          start = text.index("// applyTaggingOperationInTx contains the switch logic")
-          end = text.index("\nfunc (c *Client) persistTaggingFollowUpInTx", start)
-          replacement = r'''// applyTaggingOperationInTx contains the switch logic for tag, settags, and untag.
-          func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tags []string, kind opKind) (int64, error) {
-          	var affectedCount int64
-          	switch kind {
-          	case opTag:
-          		if len(tags) > 0 {
-          			parsedTags := make([]types.ParsedTag, len(tags))
-          			for i, t := range tags {
-          				parsedTags[i] = query.ParseTag(t)
-          			}
-          			tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
-          			if err != nil {
-          				return 0, fmt.Errorf("failed to get or create tags: %w", err)
-          			}
-          			tagIDs := make([]int64, 0, len(tags))
-          			for _, tagStr := range tags {
-          				tagIDs = append(tagIDs, tagIDMap[tagStr])
-          			}
-          			affected, err := c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
-          			if err != nil {
-          				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
-          			}
-          			affectedCount = affected
-          		}
-          	case opSetTags:
-          		cleared, err := c.store.BatchClearTagsForContent(tx, hashes)
-          		if err != nil {
-          			return 0, fmt.Errorf("failed to batch clear tags: %w", err)
-          		}
-          		var associated int64
-          		if len(tags) > 0 {
-          			parsedTags := make([]types.ParsedTag, len(tags))
-          			for i, t := range tags {
-          				parsedTags[i] = query.ParseTag(t)
-          			}
-          			tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
-          			if err != nil {
-          				return 0, fmt.Errorf("failed to get or create tags: %w", err)
-          			}
-          			tagIDs := make([]int64, 0, len(tags))
-          			for _, tagStr := range tags {
-          				tagIDs = append(tagIDs, tagIDMap[tagStr])
-          			}
-          			associated, err = c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
-          			if err != nil {
-          				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
-          			}
-          		}
-          		affectedCount = cleared + associated
-          	case opUntag:
-          		if len(tags) > 0 {
-          			parsedTags := make([]types.ParsedTag, len(tags))
-          			for i, t := range tags {
-          				parsedTags[i] = query.ParseTag(t)
-          			}
-          			tagIDMap, err := c.store.BatchGetTags(tx, parsedTags)
-          			if err != nil {
-          				return 0, fmt.Errorf("failed to look up tags: %w", err)
-          			}
-          			tagIDs := make([]int64, 0, len(tags))
-          			for _, tagStr := range tags {
-          				if tagID, ok := tagIDMap[tagStr]; ok {
-          					tagIDs = append(tagIDs, tagID)
-          				}
-          			}
-          			affected, err := c.store.BatchDisassociateTagsForContentHashes(tx, hashes, tagIDs)
-          			if err != nil {
-          				return 0, fmt.Errorf("failed to batch disassociate tags: %w", err)
-          			}
-          			affectedCount = affected
-          		}
-          	}
-          	return affectedCount, nil
-          }
-          '''
-          tagging.write_text(text[:start] + replacement + text[end:])
-
-          Path("internal/database/content_tag_cartesian.go").write_text(r'''package database
-
-// BatchAssociateTagsForContentHashes associates every content hash with every
-// tag ID while bounding transient pair storage to one SQLite-sized batch.
-func (s *Store) BatchAssociateTagsForContentHashes(q Querier, hashes []string, tagIDs []int64) (int64, error) {
-	return s.batchContentTagCartesian(q, hashes, tagIDs, s.BatchAssociateTags)
-}
-
-// BatchDisassociateTagsForContentHashes removes every requested content/tag
-// association while bounding transient pair storage to one SQLite-sized batch.
-func (s *Store) BatchDisassociateTagsForContentHashes(q Querier, hashes []string, tagIDs []int64) (int64, error) {
-	return s.batchContentTagCartesian(q, hashes, tagIDs, s.BatchDisassociateTags)
-}
-
-func (s *Store) batchContentTagCartesian(
-	q Querier,
-	hashes []string,
-	tagIDs []int64,
-	apply func(Querier, []ContentTagPair) (int64, error),
-) (int64, error) {
-	if len(hashes) == 0 || len(tagIDs) == 0 {
-		return 0, nil
-	}
-
-	const columns = 2
-	batchSize := maxVars / columns
-	pairs := make([]ContentTagPair, 0, batchSize)
-	var totalAffected int64
-
-	flush := func() error {
-		affected, err := apply(q, pairs)
-		if err != nil {
-			return err
-		}
-		totalAffected += affected
-		pairs = pairs[:0]
-		return nil
-	}
-
-	for _, hash := range hashes {
-		for _, tagID := range tagIDs {
-			pairs = append(pairs, ContentTagPair{ContentHash: hash, TagID: tagID})
-			if len(pairs) == batchSize {
-				if err := flush(); err != nil {
-					return 0, err
-				}
-			}
-		}
-	}
-	if len(pairs) > 0 {
-		if err := flush(); err != nil {
-			return 0, err
-		}
-	}
-	return totalAffected, nil
-}
-''')
-
-          Path("internal/database/content_tag_cartesian_test.go").write_text(r'''package database
-
-import (
-	"database/sql"
-	"fmt"
-	"strings"
-	"testing"
-
-	"gooru.local/types"
-)
-
-type cartesianContentTagExecCountingQuerier struct {
-	Querier
-	associationExecs    int
-	disassociationExecs int
-	maxExecArgs         int
-}
-
-func (q *cartesianContentTagExecCountingQuerier) Exec(query string, args ...interface{}) (sql.Result, error) {
-	if strings.Contains(query, "INSERT OR IGNORE INTO content_tags") {
-		q.associationExecs++
-	}
-	if strings.Contains(query, "DELETE FROM content_tags WHERE (content_hash, tag_id) IN") {
-		q.disassociationExecs++
-	}
-	if len(args) > q.maxExecArgs {
-		q.maxExecArgs = len(args)
-	}
-	if len(args) > maxVars {
-		return nil, fmt.Errorf("content-tag batch used %d bind variables, max %d", len(args), maxVars)
-	}
-	return q.Querier.Exec(query, args...)
-}
-
-func seedCartesianContentTags(t *testing.T, store *Store) ([]string, []int64) {
-	t.Helper()
-	const hashCount = 151
-	hashes := make([]string, hashCount)
-	for i := range hashes {
-		hashes[i] = fmt.Sprintf("hash-%03d", i)
-	}
-	if err := store.BatchInsertContents(store.DB, hashes); err != nil {
-		t.Fatalf("BatchInsertContents: %v", err)
-	}
-
-	parsedTags := []types.ParsedTag{{Key: "one"}, {Key: "two"}, {Key: "three"}}
-	tagIDMap, err := store.BatchGetOrCreateTags(store.DB, parsedTags)
-	if err != nil {
-		t.Fatalf("BatchGetOrCreateTags: %v", err)
-	}
-	tagIDs := make([]int64, 0, len(parsedTags))
-	for _, tag := range parsedTags {
-		tagIDs = append(tagIDs, tagIDMap[parsedTagString(tag)])
-	}
-	return hashes, tagIDs
-}
-
-func TestBatchAssociateTagsForContentHashesBoundsPairBatches(t *testing.T) {
-	store := newMemoryTestStore(t)
-	hashes, tagIDs := seedCartesianContentTags(t, store)
-	wantAssociations := int64(len(hashes) * len(tagIDs))
-
-	counting := &cartesianContentTagExecCountingQuerier{Querier: store.DB}
-	affected, err := store.BatchAssociateTagsForContentHashes(counting, hashes, tagIDs)
-	if err != nil {
-		t.Fatalf("BatchAssociateTagsForContentHashes: %v", err)
-	}
-	if affected != wantAssociations {
-		t.Fatalf("affected associations = %d, want %d", affected, wantAssociations)
-	}
-	if counting.associationExecs != 2 {
-		t.Fatalf("association Exec calls = %d, want 2 for 453 pairs", counting.associationExecs)
-	}
-	if counting.maxExecArgs > maxVars {
-		t.Fatalf("largest content-tag batch used %d bind variables, max %d", counting.maxExecArgs, maxVars)
-	}
-
-	var persisted int64
-	if err := store.QueryRow("SELECT COUNT(*) FROM content_tags").Scan(&persisted); err != nil {
-		t.Fatalf("count persisted associations: %v", err)
-	}
-	if persisted != wantAssociations {
-		t.Fatalf("persisted associations = %d, want %d", persisted, wantAssociations)
-	}
-}
-
-func TestBatchDisassociateTagsForContentHashesBoundsPairBatches(t *testing.T) {
-	store := newMemoryTestStore(t)
-	hashes, tagIDs := seedCartesianContentTags(t, store)
-	wantAssociations := int64(len(hashes) * len(tagIDs))
-	if affected, err := store.BatchAssociateTagsForContentHashes(store.DB, hashes, tagIDs); err != nil {
-		t.Fatalf("seed associations: %v", err)
-	} else if affected != wantAssociations {
-		t.Fatalf("seeded associations = %d, want %d", affected, wantAssociations)
-	}
-
-	counting := &cartesianContentTagExecCountingQuerier{Querier: store.DB}
-	affected, err := store.BatchDisassociateTagsForContentHashes(counting, hashes, tagIDs)
-	if err != nil {
-		t.Fatalf("BatchDisassociateTagsForContentHashes: %v", err)
-	}
-	if affected != wantAssociations {
-		t.Fatalf("affected disassociations = %d, want %d", affected, wantAssociations)
-	}
-	if counting.disassociationExecs != 2 {
-		t.Fatalf("disassociation Exec calls = %d, want 2 for 453 pairs", counting.disassociationExecs)
-	}
-	if counting.maxExecArgs > maxVars {
-		t.Fatalf("largest content-tag batch used %d bind variables, max %d", counting.maxExecArgs, maxVars)
-	}
-
-	var remaining int64
-	if err := store.QueryRow("SELECT COUNT(*) FROM content_tags").Scan(&remaining); err != nil {
-		t.Fatalf("count remaining associations: %v", err)
-	}
-	if remaining != 0 {
-		t.Fatalf("remaining associations = %d, want 0", remaining)
-	}
-}
-''')
-          PY
+          python3 .github/maintainer-549-explicit-tag-pairs.py
           gofmt -w gooru/tagging.go internal/database/content_tag_cartesian.go internal/database/content_tag_cartesian_test.go
-      - name: Validate focused and package suites
-        shell: bash
+      - name: Validate
         run: |
           go test ./internal/database -run 'TestBatch(Associate|Disassociate)TagsForContentHashes' -count=1
           go test ./internal/database -count=1
           go test ./gooru -count=1
           go vet -structtag=false ./internal/database ./gooru
-      - name: Commit validated implementation and remove temporary workflow
+      - name: Commit validated implementation
         if: success()
-        shell: bash
         run: |
-          rm .github/workflows/maintainer-549-explicit-tag-pairs.yml
+          rm .github/workflows/maintainer-549-explicit-tag-pairs.yml .github/maintainer-549-explicit-tag-pairs.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add gooru/tagging.go internal/database/content_tag_cartesian.go internal/database/content_tag_cartesian_test.go .github/workflows/maintainer-549-explicit-tag-pairs.yml
+          git add gooru/tagging.go internal/database/content_tag_cartesian.go internal/database/content_tag_cartesian_test.go .github/workflows/maintainer-549-explicit-tag-pairs.yml .github/maintainer-549-explicit-tag-pairs.py
           git commit -m "perf: bound explicit tag pair batches"
           git push origin HEAD:maintainer/549-bound-explicit-tag-pairs
