@@ -14,16 +14,49 @@ func durableUploadNeedsActivation(file savedUpload) bool {
 }
 
 func activateSavedDurableUploads(files []savedUpload) error {
+	reserved := make(map[string]struct{}, len(files))
 	for _, file := range files {
-		if !durableUploadNeedsActivation(file) {
+		if file.destinationPath != "" {
+			reserved[file.destinationPath] = struct{}{}
+		}
+	}
+
+	for i := range files {
+		file := &files[i]
+		if !durableUploadNeedsActivation(*file) {
 			continue
 		}
-		if err := activateDurableUploadDestination(file.path, file.destinationPath); err != nil {
-			rollbackErr := restoreDurableNonreplacementActivations(files)
-			if rollbackErr != nil {
-				return uploadFileError{name: file.name, err: fmt.Errorf("%w; durable activation rollback failed: %v", err, rollbackErr)}
+
+		recoveredPath, recovered, err := recoverDurableUploadDestination(*file)
+		if err != nil {
+			return durableUploadActivationFailure(files, *file, err)
+		}
+		if recovered && recoveredPath != file.destinationPath {
+			delete(reserved, file.destinationPath)
+			file.destinationPath = recoveredPath
+			reserved[recoveredPath] = struct{}{}
+		}
+
+		for {
+			err := activateDurableUploadDestination(file.path, file.destinationPath)
+			if err == nil {
+				break
 			}
-			return uploadFileError{name: file.name, err: err}
+			policy := file.conflictPolicy
+			if policy == "" {
+				policy = "rename"
+			}
+			if policy != "rename" || !errors.Is(err, errUploadConflict) {
+				return durableUploadActivationFailure(files, *file, err)
+			}
+
+			delete(reserved, file.destinationPath)
+			nextPath, chooseErr := chooseDurableUploadDestination(filepath.Dir(file.destinationPath), file.name, policy, reserved)
+			if chooseErr != nil {
+				return durableUploadActivationFailure(files, *file, chooseErr)
+			}
+			file.destinationPath = nextPath
+			reserved[nextPath] = struct{}{}
 		}
 	}
 	if err := finalizeDurableNonreplacementActivations(files); err != nil {
@@ -34,6 +67,70 @@ func activateSavedDurableUploads(files []savedUpload) error {
 		return fmt.Errorf("finalize durable upload activation: %w", err)
 	}
 	return nil
+}
+
+func durableUploadActivationFailure(files []savedUpload, file savedUpload, err error) error {
+	rollbackErr := restoreDurableNonreplacementActivations(files)
+	if rollbackErr != nil {
+		return uploadFileError{name: file.name, err: fmt.Errorf("%w; durable activation rollback failed: %v", err, rollbackErr)}
+	}
+	return uploadFileError{name: file.name, err: err}
+}
+
+func recoverDurableUploadDestination(file savedUpload) (string, bool, error) {
+	markerPath := file.path + durableUploadActivatedMarkerSuffix
+	markerExists, err := durableUploadPathExists(markerPath)
+	if err != nil {
+		return "", false, errors.New("failed to inspect durable upload activation")
+	}
+	if !markerExists {
+		return "", false, nil
+	}
+
+	if file.destinationPath != "" {
+		destinationExists, destinationErr := durableUploadPathExists(file.destinationPath)
+		if destinationErr != nil {
+			return "", false, errors.New("failed to inspect upload destination")
+		}
+		if destinationExists {
+			same, sameErr := durableUploadSameFile(markerPath, file.destinationPath)
+			if sameErr != nil {
+				return "", false, errors.New("failed to inspect upload destination ownership")
+			}
+			if same {
+				return file.destinationPath, true, nil
+			}
+		}
+	}
+
+	dir := filepath.Dir(file.destinationPath)
+	ext := filepath.Ext(file.name)
+	base := file.name[:len(file.name)-len(ext)]
+	if base == "" {
+		base = "upload"
+	}
+	for i := 0; i < 10_000; i++ {
+		candidate := file.name
+		if i > 0 {
+			candidate = fmt.Sprintf("%s-%d%s", base, i, ext)
+		}
+		path := filepath.Join(dir, candidate)
+		exists, existsErr := durableUploadPathExists(path)
+		if existsErr != nil {
+			return "", false, errors.New("failed to inspect upload destination")
+		}
+		if !exists {
+			continue
+		}
+		same, sameErr := durableUploadSameFile(markerPath, path)
+		if sameErr != nil {
+			return "", false, errors.New("failed to inspect upload destination ownership")
+		}
+		if same {
+			return path, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func activateDurableUploadDestination(stagedPath, destinationPath string) error {
@@ -297,6 +394,7 @@ func durableStagedUploads(files []savedUpload) []StagedUpload {
 	staged := stagedUploads(files)
 	for i, file := range files {
 		if durableUploadNeedsActivation(file) {
+			staged[i].Name = filepath.Base(file.destinationPath)
 			staged[i].Path = file.destinationPath
 			staged[i].AnalysisPath = file.destinationPath
 		}
