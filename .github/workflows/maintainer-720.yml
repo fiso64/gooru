@@ -1,4 +1,4 @@
-name: Maintainer 720 inventory
+name: Maintainer 720 patch
 
 on:
   push:
@@ -6,18 +6,47 @@ on:
       - maintainer/720-simplify-upload-conflicts
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inventory:
+  patch:
     runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Inventory conflict and replacement surfaces
+      - name: Apply simplification
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== conflict_policy / ConflictPolicy ==='
-          git grep -n -E 'conflict_policy|ConflictPolicy' -- ':!frontend/src/lib/api/openapi.ts' || true
-          echo '=== replacement symbols / replace policy ==='
-          git grep -n -E 'replace|Replacement|replacement' -- internal/serve docs spec openapi.yaml frontend/src frontend/tests 2>/dev/null || true
+          python3 scripts/maintainer_720_patch.py
+          rm scripts/maintainer_720_patch.py .github/workflows/maintainer-720.yml
+          gofmt -w internal/serve scripts/devprofile/main.go
+          echo '=== remaining upload-policy/replacement-specific symbols ==='
+          git grep -n -E 'uploads\.conflict_policy|case "skip"|case "replace"|activatedSavedReplacement|upload_replacement_recovery|conflict_policy.*skip|conflict_policy.*replace' -- internal/serve docs spec scripts frontend/src frontend/tests || true
+          git status --short
+      - name: Focused Go tests
+        run: go test -count=1 ./internal/serve
+      - name: Frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline --no-audit
+      - name: Regenerate API client
+        working-directory: frontend
+        run: npm run generate:api
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm run test:unit
+      - name: Commit product changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'autonomous-maintainer'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git status --short
+          git commit -m 'fix(upload): simplify filename conflicts to rename/error'
+          git push origin HEAD:maintainer/720-simplify-upload-conflicts
