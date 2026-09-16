@@ -23,6 +23,8 @@ func TestUploadConflictPolicyErrorRejectsExistingName(t *testing.T) {
 }
 
 func TestUploadRejectsRemovedConflictPolicies(t *testing.T) {
+	// Removed policy values must stay explicit client errors rather than silently
+	// falling back to rename and changing the caller's requested semantics.
 	for _, policy := range []string{"skip", "replace"} {
 		t.Run(policy, func(t *testing.T) {
 			server := newUploadTestServer(t, t.TempDir(), true, &recordingUploadLibrary{})
