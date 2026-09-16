@@ -197,15 +197,15 @@
   {:else if !files.length}<div class="empty-state"><div class="empty-state-inner"><div class="empty-icon"><Icon name="search" size={24} /></div><h2>No results</h2><p>{#if searchActive}Nothing matches your filters. Try removing a pill, or check the tag spelling.{:else}Your library is empty. Drag files in, or run <code>gooru import</code> from a terminal.{/if}</p></div></div>
   {:else if !tileMode}
     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${squareVirtual.totalHeight}px;`}>
-      <div class={`grid${fitMode ? ' fit-media-grid' : ''}`} role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type={$runtimeConfig.gridType} style={`transform: translateY(${squareVirtual.offsetTop}px);`} onkeydown={handleGridKeydown}>
+      <div class={`grid${fitMode ? ' fit-media-grid' : ''}`} role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type={$runtimeConfig.gridType} style={`transform: translateY(${squareVirtual.offsetTop}px);`}>
         {#if isFetchingPreviousPage}<div class="thumb skeleton"></div>{/if}
-        {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} viewportRoot={mainHost} fitMedia={fitMode} mediaInset={fitMode ? fitMediaInset : 0} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} />{/each}
+        {#each squareVirtual.files as file (file.id)}<MediaCard {file} cardWidth={squareVirtual.cardWidth} {pixelRatio} viewportRoot={mainHost} fitMedia={fitMode} mediaInset={fitMode ? fitMediaInset : 0} selected={isSelected(file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} onGridKeydown={handleGridKeydown} />{/each}
       </div>
     </div>
   {:else}
     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${tileVirtualHeight}px;`}>
-      <div class="grid variable-media-grid" role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type="tile" onkeydown={handleGridKeydown}>
-        {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} viewportRoot={mainHost} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} onThumbnailAspect={rememberThumbnailAspect} /></div>{/each}
+      <div class="grid variable-media-grid" role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type="tile">
+        {#each tileVirtual.items as item (item.file.id)}<div class="virtual-media-item" style={`left:${item.x}px;top:${item.y}px;width:${item.width}px;height:${item.height}px`}><MediaCard file={item.file} cardWidth={item.width} cardHeight={item.height} {pixelRatio} viewportRoot={mainHost} fitMedia selected={isSelected(item.file.id)} selectionActive={selectedCount > 0} onOpen={(opened) => onOpen(opened, files)} onToggleSelect={(target, range) => onToggleSelect(target, files, range)} onThumbnailAspect={rememberThumbnailAspect} onGridKeydown={handleGridKeydown} /></div>{/each}
       </div>
     </div>
   {/if}
