@@ -3,6 +3,8 @@ package database
 import (
 	"fmt"
 	"strings"
+
+	"gooru.local/types"
 )
 
 // BatchGetTagsForContents returns tags for the requested content hashes while
@@ -37,7 +39,7 @@ func (s *Store) BatchGetTagsForContents(hashes []string) (map[string][]string, e
 		}
 
 		rows, err := s.Query(`
-			SELECT ct.content_hash, t.tag
+			SELECT ct.content_hash, t.key, t.value
 			FROM content_tags ct
 			JOIN tags t ON t.id = ct.tag_id
 			WHERE ct.content_hash IN (`+placeholders+`)
@@ -47,12 +49,13 @@ func (s *Store) BatchGetTagsForContents(hashes []string) (map[string][]string, e
 		}
 
 		for rows.Next() {
-			var hash, tag string
-			if err := rows.Scan(&hash, &tag); err != nil {
+			var hash string
+			var tag types.ParsedTag
+			if err := rows.Scan(&hash, &tag.Key, &tag.Value); err != nil {
 				rows.Close()
 				return result, fmt.Errorf("failed to scan content tags: %w", err)
 			}
-			result[hash] = append(result[hash], tag)
+			result[hash] = append(result[hash], parsedTagString(tag))
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
