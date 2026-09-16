@@ -1,0 +1,50 @@
+name: Maintainer 720 stream error fix
+
+on:
+  push:
+    branches:
+      - maintainer/720-simplify-upload-conflicts
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch active streaming path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/serve/upload_stream.go')
+          text = p.read_text()
+          old = '''\t\tvar fileScoped uploadFileError
+\t\tif errors.As(finalErr, &fileScoped) && errors.Is(finalErr, errUploadConflict) {
+\t\t\t_ = os.Remove(file.path)
+\t\t\tfile.path = ""
+\t\t\tsaved = append(saved, savedUpload{name: fileScoped.name, size: file.size, targetID: target.ID, status: "error", error: fileScoped.err.Error()})
+\t\t\tcontinue
+\t\t}
+\t\treturn nil, saved, finalErr
+'''
+          new = '''\t\treturn nil, saved, finalErr
+'''
+          if old not in text:
+              raise SystemExit('streaming conflict-isolation block not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/serve/upload_stream.go
+          rm .github/workflows/maintainer-720-stream-error-fix.yml
+          git add -A
+          git diff --cached --check
+      - name: Commit active-path fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'autonomous-maintainer'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git commit -m 'fix(upload): reject streaming error conflicts'
+          git push origin HEAD:maintainer/720-simplify-upload-conflicts
