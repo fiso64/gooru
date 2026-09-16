@@ -256,7 +256,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 			return nil, saved, uploadFileError{name: file.name, err: err}
 		}
 		file.path = ""
-		saved = append(saved, savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, addedAt: file.addedAt, conflictPolicy: conflictPolicy})
+		saved = append(saved, savedUpload{name: file.name, path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, addedAt: file.addedAt, conflictPolicy: conflictPolicy})
 		reserved[path] = struct{}{}
 	}
 	if err := attachUploadItemTags(saved, itemTagValues); err != nil {
