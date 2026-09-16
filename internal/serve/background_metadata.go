@@ -59,8 +59,14 @@ func (l *GooruLibrary) cacheMediaMetadataForFile(ctx context.Context, file types
 	if err != nil {
 		return err
 	}
-	_, err = l.client.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, metadata)
-	return err
+	wrote, err := l.client.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, metadata)
+	if err != nil {
+		return err
+	}
+	if !wrote {
+		return fmt.Errorf("media metadata location %d changed while being processed", file.ID)
+	}
+	return nil
 }
 
 func (s *Server) backgroundMediaMetadataSweepHandler(ctx context.Context, task core.BackgroundTask) error {
@@ -95,8 +101,8 @@ func (s *Server) backgroundMediaMetadataSweepHandler(ctx context.Context, task c
 	}
 	var firstErr error
 	for _, file := range files {
-		// Advance the keyset cursor before doing fallible work so one bad file
-		// cannot prevent later locations from being attempted by a continuation.
+		// Advance the keyset cursor before doing fallible work so one bad hash
+		// cannot prevent later content from being attempted by a continuation.
 		afterLocationID = file.ID
 		if err := ctx.Err(); err != nil {
 			return err
@@ -117,22 +123,69 @@ func (s *Server) backgroundMediaMetadataSweepHandler(ctx context.Context, task c
 	return firstErr
 }
 
+func preferMediaMetadataCandidate(candidates []types.FileInfo, locationID int64) {
+	for i := range candidates {
+		if candidates[i].ID != locationID {
+			continue
+		}
+		if i != 0 {
+			candidates[0], candidates[i] = candidates[i], candidates[0]
+		}
+		return
+	}
+}
+
+func processMediaMetadataCandidates(ctx context.Context, candidates []types.FileInfo, process func(context.Context, types.FileInfo) (bool, error)) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+	var firstErr error
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		wrote, err := process(ctx, candidate)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if wrote {
+			return nil
+		}
+	}
+	if firstErr != nil {
+		return firstErr
+	}
+	return fmt.Errorf("all media metadata candidate locations changed while being processed")
+}
+
 func processPendingMediaMetadataFile(ctx context.Context, library *GooruLibrary, file types.FileInfo) error {
-	resolved, err := library.client.ResolveManagedStorage(file)
+	candidates, err := library.client.GetFileInfosByContentHash(file.Hash)
 	if err != nil {
-		return fmt.Errorf("resolve media metadata storage for location %d: %w", file.ID, err)
+		return fmt.Errorf("list media metadata locations for content %q: %w", file.Hash, err)
 	}
-	metadata, err := library.mediaMetadataForFile(ctx, resolved, fileStoragePath(resolved))
-	if err != nil {
-		return fmt.Errorf("extract media metadata for location %d: %w", file.ID, err)
+	if len(candidates) == 0 {
+		// The content is no longer tracked, so this pending snapshot is obsolete.
+		return nil
 	}
-	if _, err := library.client.UpsertMediaMetadataForLocation(file.ID, file.Hash, file.Path, metadata); err != nil {
-		return fmt.Errorf("persist media metadata for location %d: %w", file.ID, err)
-	}
-	// A false guarded write means the location was removed, rehashed, or renamed
-	// while metadata was being extracted. Its current identity remains eligible
-	// for a later sweep, so there is no error to retry for the stale snapshot.
-	return nil
+	preferMediaMetadataCandidate(candidates, file.ID)
+	return processMediaMetadataCandidates(ctx, candidates, func(ctx context.Context, candidate types.FileInfo) (bool, error) {
+		resolved, err := library.client.ResolveManagedStorage(candidate)
+		if err != nil {
+			return false, fmt.Errorf("resolve media metadata storage for location %d: %w", candidate.ID, err)
+		}
+		metadata, err := library.mediaMetadataForFile(ctx, resolved, fileStoragePath(resolved))
+		if err != nil {
+			return false, fmt.Errorf("extract media metadata for location %d: %w", candidate.ID, err)
+		}
+		wrote, err := library.client.UpsertMediaMetadataForLocation(candidate.ID, candidate.Hash, candidate.Path, metadata)
+		if err != nil {
+			return false, fmt.Errorf("persist media metadata for location %d: %w", candidate.ID, err)
+		}
+		return wrote, nil
+	})
 }
 
 // backgroundMediaMetadataHandler consumes legacy upload.metadata-finalize tasks

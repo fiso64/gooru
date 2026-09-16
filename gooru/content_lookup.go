@@ -16,7 +16,7 @@ var ErrContentNotTracked = errors.New("content is no longer tracked")
 // content identity. The store's content query orders paths deterministically, so
 // background work survives moves without persisting a stale filesystem path.
 func (c *Client) GetFileInfoByContentHash(hash string) (types.FileInfo, error) {
-	files, err := c.store.GetFilesInfoByContentQuery("SELECT ?", []interface{}{hash})
+	files, err := c.GetFileInfosByContentHash(hash)
 	if err != nil {
 		return types.FileInfo{}, err
 	}
@@ -24,6 +24,13 @@ func (c *Client) GetFileInfoByContentHash(hash string) (types.FileInfo, error) {
 		return types.FileInfo{}, fmt.Errorf("%w: %q", ErrContentNotTracked, hash)
 	}
 	return files[0], nil
+}
+
+// GetFileInfosByContentHash resolves every currently tracked location for one
+// immutable content identity. This is useful for background work that can fall
+// back to another path when one duplicate location is missing or unreadable.
+func (c *Client) GetFileInfosByContentHash(hash string) ([]types.FileInfo, error) {
+	return c.store.GetFilesInfoByContentQuery("SELECT ?", []interface{}{hash})
 }
 
 // GetFileInfosByContentHashes resolves one deterministic tracked location for
