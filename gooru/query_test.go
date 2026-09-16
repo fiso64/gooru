@@ -1,6 +1,7 @@
 package gooru_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,4 +52,21 @@ func TestClient_GetTagsForFile_MovedFile(t *testing.T) {
 		//    (The old code would return an empty slice).
 		assert.ElementsMatch(t, []string{"project:kestrel", "status:final"}, tags, "Should retrieve tags for the moved file")
 	})
+}
+
+func TestClient_CountAndExistsInvalidQueryWrapSentinel(t *testing.T) {
+	t.Parallel()
+
+	dbPath := setupTestDB(t)
+	client, err := gooru.New(dbPath, false)
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+
+	_, err = client.CountFilesByQuery("(", false)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, gooru.ErrInvalidQuery), "CountFilesByQuery should wrap ErrInvalidQuery")
+
+	_, err = client.ExistsFilesByQuery("(", false)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, gooru.ErrInvalidQuery), "ExistsFilesByQuery should wrap ErrInvalidQuery")
 }
