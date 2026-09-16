@@ -210,13 +210,6 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 			saved = append(saved, finalized)
 			continue
 		}
-		var fileScoped uploadFileError
-		if errors.As(finalErr, &fileScoped) && errors.Is(finalErr, errUploadConflict) {
-			_ = os.Remove(file.path)
-			file.path = ""
-			saved = append(saved, savedUpload{name: fileScoped.name, size: file.size, targetID: target.ID, status: "error", error: fileScoped.err.Error()})
-			continue
-		}
 		return nil, saved, finalErr
 	}
 	if err := attachUploadItemTags(saved, itemTagValues); err != nil {
