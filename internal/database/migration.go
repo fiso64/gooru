@@ -121,6 +121,14 @@ func repairHistoricalMediaMetadataMigrationCollision(db *sql.DB, migrations []em
 	if err != nil {
 		return fmt.Errorf("begin historical media metadata migration repair: %w", err)
 	}
+	// The collided #670 migration created this location trigger. It references
+	// the legacy media_metadata table and must be removed before the canonical
+	// migration drops that table, otherwise SQLite rejects the repair while
+	// reparsing the still-live trigger against the transient missing table.
+	if _, err := tx.Exec(`DROP TRIGGER IF EXISTS invalidate_media_metadata_on_location_content_change`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("remove historical media metadata collision trigger: %w", err)
+	}
 	if _, err := tx.Exec(repair.sql); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("repair historical media metadata migration collision: %w", err)
