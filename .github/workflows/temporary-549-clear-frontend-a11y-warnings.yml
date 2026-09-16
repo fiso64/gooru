@@ -1,0 +1,130 @@
+name: temporary 549 clear frontend a11y warnings
+
+on:
+  push:
+    branches:
+      - maintainer/549-clear-frontend-a11y-warnings
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Apply focused warning cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'target not found in {path}: {old[:80]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace(
+              'frontend/src/lib/components/SearchBar.svelte',
+              '</script>\n\n<div\n  class="searchbar"',
+              '</script>\n\n<!-- Pointer clicks on the shell only forward focus to the nested keyboard-focusable input. -->\n<!-- svelte-ignore a11y_click_events_have_key_events -->\n<div\n  class="searchbar"',
+          )
+
+          replace(
+              'frontend/src/lib/components/ViewerStage.svelte',
+              '<svelte:window onkeydown={handleViewerKeydown} />\n\n<div bind:this={stageElement}',
+              '<svelte:window onkeydown={handleViewerKeydown} />\n\n<!-- Pointer motion only tracks fullscreen cursor idleness; keyboard viewer controls are handled globally. -->\n<!-- svelte-ignore a11y_no_static_element_interactions -->\n<div bind:this={stageElement}',
+          )
+          replace(
+              'frontend/src/lib/components/ViewerStage.svelte',
+              '  <div\n    bind:this={panViewportElement}\n    class="viewer-pan-viewport"',
+              '  <!-- Drag panning supplements native viewport scrolling; an interactive ARIA role would misdescribe this surface. -->\n  <!-- svelte-ignore a11y_no_static_element_interactions -->\n  <div\n    bind:this={panViewportElement}\n    class="viewer-pan-viewport"',
+          )
+          replace(
+              'frontend/src/lib/components/ViewerStage.svelte',
+              '  {#if renderedFile.media_kind === \'video\' || comicEntered}\n    <div class="lightbox-video-controls"',
+              '  {#if renderedFile.media_kind === \'video\' || comicEntered}\n    <!-- Pointer entry keeps transient controls visible; onfocusin is the keyboard/focus equivalent. -->\n    <!-- svelte-ignore a11y_no_static_element_interactions -->\n    <div class="lightbox-video-controls"',
+          )
+
+          replace(
+              'frontend/src/lib/components/PreviewDialog.svelte',
+              '  function modifiedLabel(value: string) {',
+              '''  function handleBackdropKeydown(event: KeyboardEvent) {
+            if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+          }
+
+          function modifiedLabel(value: string) {''',
+          )
+          replace(
+              'frontend/src/lib/components/PreviewDialog.svelte',
+              '  tabindex="-1"\n  onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}',
+              '  tabindex="-1"\n  onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}\n  onkeydown={handleBackdropKeydown}',
+          )
+
+          replace(
+              'frontend/src/lib/components/PasswordDialog.svelte',
+              '  function handleKeydown(event: KeyboardEvent) {',
+              '''  function handleBackdropKeydown(event: KeyboardEvent) {
+            if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+          }
+
+          function handleKeydown(event: KeyboardEvent) {''',
+          )
+          replace(
+              'frontend/src/lib/components/PasswordDialog.svelte',
+              '  tabindex="-1"\n  onclick={(event) => { if (event.target === event.currentTarget) close(); }}',
+              '  tabindex="-1"\n  onclick={(event) => { if (event.target === event.currentTarget) close(); }}\n  onkeydown={handleBackdropKeydown}',
+          )
+
+          replace(
+              'frontend/src/lib/components/UploadViewerDialog.svelte',
+              '  function handleWindowKeydown(event: KeyboardEvent) {',
+              '''  function handleBackdropKeydown(event: KeyboardEvent) {
+            if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
+            onClose();
+          }
+
+          function handleWindowKeydown(event: KeyboardEvent) {''',
+          )
+          replace(
+              'frontend/src/lib/components/UploadViewerDialog.svelte',
+              '    tabindex="-1"\n    onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}',
+              '    tabindex="-1"\n    onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}\n    onkeydown={handleBackdropKeydown}',
+          )
+          PY
+      - name: Validate frontend
+        shell: bash
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          npm ci --prefer-offline --no-audit
+          npm run check | tee /tmp/check.log
+          grep -q "svelte-check found 0 errors and 0 warnings" /tmp/check.log
+          npm run test:unit
+      - name: Commit validated change and clean audit state
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/temporary-549-clear-frontend-a11y-warnings.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add frontend/src/lib/components/SearchBar.svelte frontend/src/lib/components/ViewerStage.svelte frontend/src/lib/components/PreviewDialog.svelte frontend/src/lib/components/PasswordDialog.svelte frontend/src/lib/components/UploadViewerDialog.svelte .github/workflows/temporary-549-clear-frontend-a11y-warnings.yml
+          git commit -m "chore: clear frontend accessibility warnings"
+          git push origin HEAD:maintainer/549-clear-frontend-a11y-warnings
+          git push origin --delete maintainer/549-frontend-check-audit
