@@ -114,12 +114,22 @@ func (h *Hasher) ConcurrentlyHashFiles(filesToHash []string) map[string]Result {
 		return make(map[string]Result)
 	}
 
-	jobs := make(chan Job, len(filesToHash))
-	results := make(chan Result, len(filesToHash))
+	uniqueFiles := make([]string, 0, len(filesToHash))
+	seen := make(map[string]struct{}, len(filesToHash))
+	for _, filePath := range filesToHash {
+		if _, ok := seen[filePath]; ok {
+			continue
+		}
+		seen[filePath] = struct{}{}
+		uniqueFiles = append(uniqueFiles, filePath)
+	}
+
+	jobs := make(chan Job, len(uniqueFiles))
+	results := make(chan Result, len(uniqueFiles))
 
 	numWorkers := runtime.NumCPU()
-	if len(filesToHash) < numWorkers {
-		numWorkers = len(filesToHash)
+	if len(uniqueFiles) < numWorkers {
+		numWorkers = len(uniqueFiles)
 	}
 
 	var wg sync.WaitGroup
@@ -129,7 +139,7 @@ func (h *Hasher) ConcurrentlyHashFiles(filesToHash []string) map[string]Result {
 	}
 
 	// Send all jobs to the workers
-	for _, f := range filesToHash {
+	for _, f := range uniqueFiles {
 		jobs <- Job{FilePath: f}
 	}
 	close(jobs)
@@ -139,7 +149,7 @@ func (h *Hasher) ConcurrentlyHashFiles(filesToHash []string) map[string]Result {
 	close(results)
 
 	// Collect all results into a map for easy lookup
-	resultMap := make(map[string]Result, len(filesToHash))
+	resultMap := make(map[string]Result, len(uniqueFiles))
 	for r := range results {
 		resultMap[r.FilePath] = r
 	}
