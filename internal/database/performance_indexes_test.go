@@ -50,7 +50,7 @@ func TestDefaultLibrarySortUsesExactDirectionIndex(t *testing.T) {
 	plan := explainPlan(t, db, `
 		SELECT l.id, l.path
 		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		ORDER BY l.added_at DESC, l.id ASC
 		LIMIT 61 OFFSET 0
 	`)
@@ -86,7 +86,7 @@ func TestExtensionFilterDefaultSortUsesCoveringOrderIndex(t *testing.T) {
 	plan := explainPlan(t, db, `
 		SELECT l.id, l.path
 		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE lower(l.extension) = lower(?)
 		ORDER BY l.added_at DESC, l.id ASC
 		LIMIT 61 OFFSET 0

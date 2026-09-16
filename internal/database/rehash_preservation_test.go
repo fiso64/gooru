@@ -63,9 +63,9 @@ func TestRehashLocationPreservingTagsKeepsLocationIdentityButInvalidatesDerivedM
 		t.Fatalf("stale media metadata preserved after byte-changing rehash: %#v", file.Metadata)
 	}
 
-	var metadataLocationID int64
-	if err := store.QueryRow(`SELECT location_id FROM media_metadata WHERE location_id = ?`, originalID).Scan(&metadataLocationID); err != sql.ErrNoRows {
-		t.Fatalf("media metadata row still present after rehash: id=%d err=%v", metadataLocationID, err)
+	var metadataHash string
+	if err := store.QueryRow(`SELECT content_hash FROM media_metadata WHERE content_hash = ?`, newHash).Scan(&metadataHash); err != sql.ErrNoRows {
+		t.Fatalf("unexpected metadata row for changed content: hash=%q err=%v", metadataHash, err)
 	}
 
 	var gotPhysicalPath string

@@ -54,7 +54,7 @@ func TestCountAllFilesTracksKindSummary(t *testing.T) {
 	}
 	assertCount(3)
 
-	if _, err := db.Exec(`INSERT INTO media_metadata (location_id, media_kind, mime_type) VALUES (?, 'video', 'video/mp4')`, photoID); err != nil {
+	if _, err := db.Exec(`INSERT INTO media_metadata (content_hash, media_kind, mime_type) VALUES ('photo', 'video', 'video/mp4')`); err != nil {
 		t.Fatal(err)
 	}
 	assertCount(3)

@@ -61,18 +61,9 @@ func (s *Store) RehashLocationPreservingTags(oldHash, newHash string, newLoc typ
 		return fmt.Errorf("expected to rehash one location at %q, updated %d", newLoc.Path, updated)
 	}
 
-	// Media metadata is derived from the file bytes. A successful rehash proves
-	// those bytes changed, so keeping the previous MIME/dimensions/duration would
-	// expose stale data. Keep the location row (and therefore managed-storage
-	// identity) but invalidate its derived metadata so normal extraction can
-	// repopulate it from the new content later.
-	if _, err := tx.Exec(`
-		DELETE FROM media_metadata
-		WHERE location_id IN (
-			SELECT id FROM locations WHERE path = ? AND content_hash = ?
-		)`, newLoc.Path, newHash); err != nil {
-		return fmt.Errorf("failed to invalidate stale media metadata: %w", err)
-	}
+	// Metadata follows content identity. Moving this location to newHash must not
+	// delete metadata already known for that target hash; orphaned old-hash
+	// metadata is removed by the contents foreign-key cascade below.
 
 	// Only remove the old content after the target location moved away and only
 	// when no sibling location still references it. Cascades then clean the old
