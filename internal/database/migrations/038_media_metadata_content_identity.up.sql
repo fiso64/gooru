@@ -740,6 +740,6 @@ BEGIN
         WHERE t.key = OLD.key COLLATE NOCASE OR t.key = NEW.key COLLATE NOCASE
     ) tagged
     JOIN locations l ON l.content_hash = tagged.content_hash
-    GROUP BY tagged.key, kind;
+    GROUP BY tagged.key, 2;
 END;
 

@@ -49,7 +49,7 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 		return id
 	}
 
-	photoID := insertLocation("photo", "file_photo", "/photo.jpg", ".jpg")
+	insertLocation("photo", "file_photo", "/photo.jpg", ".jpg")
 	gifID := insertLocation("gif", "file_gif", "/anim.gif", ".gif")
 	otherID := insertLocation("other", "file_other", "/notes.txt", ".txt")
 	comicID := insertLocation("comic", "file_comic", "/book.cbz", ".cbz")

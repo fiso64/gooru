@@ -37,7 +37,7 @@ func TestTagKindCountsTrackEffectiveKindsAndMutations(t *testing.T) {
 	}
 	jpgID := insertTagKindTestLocation(t, db, "a", "file_a_jpg", "/a.jpg", ".jpg")
 	cbzID := insertTagKindTestLocation(t, db, "a", "file_a_cbz", "/a.cbz", ".cbz")
-	txtID := insertTagKindTestLocation(t, db, "b", "file_b_txt", "/b.txt", ".txt")
+	insertTagKindTestLocation(t, db, "b", "file_b_txt", "/b.txt", ".txt")
 	if _, err := db.Exec(`INSERT INTO content_tags (content_hash, tag_id) VALUES ('b', ?)`, tagID); err != nil {
 		t.Fatal(err)
 	}
