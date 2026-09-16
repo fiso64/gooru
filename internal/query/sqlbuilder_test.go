@@ -17,7 +17,7 @@ func TestBuildLocationsMediaType(t *testing.T) {
 
 	for _, statement := range []string{
 		`CREATE TABLE locations (id INTEGER PRIMARY KEY, content_hash TEXT NOT NULL, path TEXT NOT NULL DEFAULT '', extension TEXT NOT NULL)`,
-		`CREATE TABLE media_metadata (location_id INTEGER PRIMARY KEY, media_kind TEXT)`,
+		`CREATE TABLE media_metadata (content_hash TEXT PRIMARY KEY, media_kind TEXT)`,
 		`INSERT INTO locations (id, content_hash, extension) VALUES
 			(1, 'photo', '.jpg'),
 			(2, 'video', '.bin'),
@@ -25,10 +25,10 @@ func TestBuildLocationsMediaType(t *testing.T) {
 			(4, 'metadata-wins', '.mp4'),
 			(5, 'other', '.txt'),
 			(6, 'comic', '.cbz')`,
-		`INSERT INTO media_metadata (location_id, media_kind) VALUES
-			(2, 'video'),
-			(4, 'audio'),
-			(6, 'other')`,
+		`INSERT INTO media_metadata (content_hash, media_kind) VALUES
+			('video', 'video'),
+			('metadata-wins', 'audio'),
+			('comic', 'other')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("exec %q: %v", statement, err)

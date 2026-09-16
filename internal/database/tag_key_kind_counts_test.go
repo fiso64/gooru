@@ -55,15 +55,15 @@ func TestTagKeyKindCountsDeduplicateSameKeyValuesAndTrackMutations(t *testing.T)
 		t.Fatal(err)
 	}
 	assertTagKeyKindCountsMatchRecomputed(t, db, "artist")
-	if _, err := db.Exec(`INSERT INTO media_metadata (location_id, media_kind, mime_type) VALUES (?, 'video', 'video/mp4')`, cbzID); err != nil {
+	if _, err := db.Exec(`INSERT INTO media_metadata (content_hash, media_kind, mime_type) VALUES ('b', 'video', 'video/mp4')`); err != nil {
 		t.Fatal(err)
 	}
 	assertTagKeyKindCountsMatchRecomputed(t, db, "artist")
-	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'audio' WHERE location_id = ?`, cbzID); err != nil {
+	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'audio' WHERE content_hash = 'b'`); err != nil {
 		t.Fatal(err)
 	}
 	assertTagKeyKindCountsMatchRecomputed(t, db, "artist")
-	if _, err := db.Exec(`DELETE FROM media_metadata WHERE location_id = ?`, cbzID); err != nil {
+	if _, err := db.Exec(`DELETE FROM media_metadata WHERE content_hash = 'b'`); err != nil {
 		t.Fatal(err)
 	}
 	assertTagKeyKindCountsMatchRecomputed(t, db, "artist")
@@ -175,7 +175,7 @@ func assertTagKeyKindCountsMatchRecomputed(t *testing.T, db *sql.DB, key string)
 			END)
 		END AS kind, COUNT(*)
 		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE EXISTS (
 			SELECT 1 FROM content_tags ct JOIN tags t ON t.id = ct.tag_id
 			WHERE ct.content_hash = l.content_hash AND t.key = ?

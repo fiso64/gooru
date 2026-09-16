@@ -18,10 +18,10 @@ func TestBuildLocationsMediaTypeUsesSelectiveIndexes(t *testing.T) {
 	for _, statement := range []string{
 		`CREATE TABLE locations (id INTEGER PRIMARY KEY, content_hash TEXT NOT NULL, extension TEXT NOT NULL)`,
 		`CREATE INDEX idx_locations_extension_lower ON locations(lower(extension))`,
-		`CREATE TABLE media_metadata (location_id INTEGER PRIMARY KEY, media_kind TEXT NOT NULL)`,
-		`CREATE INDEX idx_media_metadata_kind_lower_location ON media_metadata(lower(media_kind), location_id)`,
+		`CREATE TABLE media_metadata (content_hash TEXT PRIMARY KEY, media_kind TEXT NOT NULL)`,
+		`CREATE INDEX idx_media_metadata_kind_lower_content ON media_metadata(lower(media_kind), content_hash)`,
 		`INSERT INTO locations (id, content_hash, extension) VALUES (1, 'metadata-photo', '.bin'), (2, 'fallback-photo', '.jpg'), (3, 'overridden', '.jpg'), (4, 'video', '.mp4')`,
-		`INSERT INTO media_metadata (location_id, media_kind) VALUES (1, 'PHOTO'), (3, 'audio')`,
+		`INSERT INTO media_metadata (content_hash, media_kind) VALUES ('metadata-photo', 'PHOTO'), ('overridden', 'audio')`,
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			t.Fatalf("exec %q: %v", statement, err)
@@ -70,7 +70,7 @@ func TestBuildLocationsMediaTypeUsesSelectiveIndexes(t *testing.T) {
 		plan.WriteByte('\n')
 	}
 	gotPlan := plan.String()
-	if !strings.Contains(gotPlan, "idx_media_metadata_kind_lower_location") {
+	if !strings.Contains(gotPlan, "idx_media_metadata_kind_lower_content") {
 		t.Fatalf("media-backed branch should use media-kind expression index; plan:\n%s", gotPlan)
 	}
 	if !strings.Contains(gotPlan, "idx_locations_extension_lower") {

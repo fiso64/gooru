@@ -8,7 +8,7 @@ import (
 )
 
 type terminalizeDedupeConflictQuerier struct {
-	db          *sql.DB
+	db           *sql.DB
 	transitioned bool
 }
 

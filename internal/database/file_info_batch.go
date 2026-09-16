@@ -43,7 +43,7 @@ func (s *Store) getFileInfosByColumn(values []string, column string) ([]types.Fi
 		placeholders, args := stringBatchArgs(values[start:end])
 		query := `SELECT ` + fileInfoColumns() + `, msl.physical_path
 			FROM locations l
-			LEFT JOIN media_metadata mm ON mm.location_id = l.id
+			LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 			LEFT JOIN managed_storage_locations msl ON msl.location_id = l.id
 			WHERE ` + column + ` IN (` + placeholders + `)` + orderBy
 

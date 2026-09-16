@@ -49,7 +49,7 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 		return id
 	}
 
-	photoID := insertLocation("photo", "file_photo", "/photo.jpg", ".jpg")
+	insertLocation("photo", "file_photo", "/photo.jpg", ".jpg")
 	gifID := insertLocation("gif", "file_gif", "/anim.gif", ".gif")
 	otherID := insertLocation("other", "file_other", "/notes.txt", ".txt")
 	comicID := insertLocation("comic", "file_comic", "/book.cbz", ".cbz")
@@ -66,20 +66,17 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 	}
 	assertKindCountsMatchRecomputed(t, db)
 
-	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'photo' WHERE location_id = ?`, comicID); err != nil {
+	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'photo' WHERE content_hash = 'comic'`); err != nil {
 		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
 
-	if _, err := db.Exec(`
-		INSERT INTO media_metadata (location_id, media_kind, mime_type)
-		VALUES (?, 'video', 'video/mp4')
-	`, photoID); err != nil {
+	if _, err := db.Exec(`INSERT INTO media_metadata (content_hash, media_kind, mime_type) VALUES ('photo', 'video', 'video/mp4')`); err != nil {
 		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
 
-	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'gif' WHERE location_id = ?`, photoID); err != nil {
+	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'gif' WHERE content_hash = 'photo'`); err != nil {
 		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
@@ -99,7 +96,7 @@ func TestKindCountsMigrationBackfillsAndTracksMutations(t *testing.T) {
 	}
 	assertKindCountsMatchRecomputed(t, db)
 
-	if _, err := db.Exec(`DELETE FROM media_metadata WHERE location_id = ?`, photoID); err != nil {
+	if _, err := db.Exec(`DELETE FROM media_metadata WHERE content_hash = 'photo'`); err != nil {
 		t.Fatal(err)
 	}
 	assertKindCountsMatchRecomputed(t, db)
@@ -189,7 +186,7 @@ func assertKindCountsMatchRecomputed(t *testing.T, db *sql.DB) {
 			END)
 		END AS kind, COUNT(*)
 		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		GROUP BY kind
 	`)
 	got := readCounts(`SELECT kind, files_count FROM kind_counts WHERE files_count > 0`)
