@@ -1309,42 +1309,61 @@ const (
 	maxVars = 900
 )
 
+func parsedTagString(tag types.ParsedTag) string {
+	if tag.Value == "" {
+		return tag.Key
+	}
+	return tag.Key + ":" + tag.Value
+}
+
 func (s *Store) BatchGetTags(q Querier, parsedTags []types.ParsedTag) (map[string]int64, error) {
 	tagIDMap := make(map[string]int64)
 	if len(parsedTags) == 0 {
 		return tagIDMap, nil
 	}
 
-	var placeholders []string
-	var args []interface{}
-	for _, t := range parsedTags {
-		placeholders = append(placeholders, "(?, ?)")
-		args = append(args, t.Key, t.Value)
-	}
-	// Note: Using row value constructor `(key, value) IN ((?,?), ...)`
-	query := `SELECT id, key, value FROM tags WHERE (key, value) IN (` + strings.Join(placeholders, ",") + `)`
+	const columns = 2 // key, value
+	batchSize := maxVars / columns
+	for i := 0; i < len(parsedTags); i += batchSize {
+		end := i + batchSize
+		if end > len(parsedTags) {
+			end = len(parsedTags)
+		}
+		batch := parsedTags[i:end]
 
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, 0, len(batch)*columns)
+		for j, tag := range batch {
+			placeholders[j] = "(?, ?)"
+			args = append(args, tag.Key, tag.Value)
+		}
+		query := `WITH requested(key, value) AS (VALUES ` + strings.Join(placeholders, ",") + `)
+			SELECT t.id, requested.key, requested.value
+			FROM requested
+			JOIN tags t ON t.key = requested.key AND t.value = requested.value`
 
-	for rows.Next() {
-		var id int64
-		var key, value string
-		if err := rows.Scan(&id, &key, &value); err != nil {
+		rows, err := q.Query(query, args...)
+		if err != nil {
 			return nil, err
 		}
-		var tagStr string
-		if value == "" {
-			tagStr = key
-		} else {
-			tagStr = key + ":" + value
+		for rows.Next() {
+			var id int64
+			var key, value string
+			if err := rows.Scan(&id, &key, &value); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			tagIDMap[parsedTagString(types.ParsedTag{Key: key, Value: value})] = id
 		}
-		tagIDMap[tagStr] = id
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
 	}
-	return tagIDMap, rows.Err()
+	return tagIDMap, nil
 }
 
 func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (map[string]int64, error) {
@@ -1353,35 +1372,50 @@ func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (m
 		return nil, err
 	}
 
-	// 2. Insert any tags that weren't found
-	for _, t := range parsedTags {
-		var tagStr string
-		if t.Value == "" {
-			tagStr = t.Key
-		} else {
-			tagStr = t.Key + ":" + t.Value
+	missing := make([]types.ParsedTag, 0, len(parsedTags)-len(tagIDMap))
+	seenMissing := make(map[string]struct{})
+	for _, tag := range parsedTags {
+		tagStr := parsedTagString(tag)
+		if _, exists := tagIDMap[tagStr]; exists {
+			continue
 		}
+		if _, exists := seenMissing[tagStr]; exists {
+			continue
+		}
+		seenMissing[tagStr] = struct{}{}
+		missing = append(missing, tag)
+	}
+	if len(missing) == 0 {
+		return tagIDMap, nil
+	}
 
-		if _, exists := tagIDMap[tagStr]; !exists {
-			res, err := q.Exec("INSERT OR IGNORE INTO tags (key, value) VALUES (?, ?)", t.Key, t.Value)
-			if err != nil {
-				return nil, err
-			}
-			id, err := res.LastInsertId()
-			if err != nil {
-				return nil, err
-			}
-			// If LastInsertId is 0, another concurrent transaction might have inserted it. Re-query.
-			if id == 0 {
-				err := q.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", t.Key, t.Value).Scan(&id)
-				if err != nil {
-					return nil, err
-				}
-			}
-			tagIDMap[tagStr] = id
+	const columns = 2 // key, value
+	batchSize := maxVars / columns
+	for i := 0; i < len(missing); i += batchSize {
+		end := i + batchSize
+		if end > len(missing) {
+			end = len(missing)
+		}
+		batch := missing[i:end]
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, 0, len(batch)*columns)
+		for j, tag := range batch {
+			placeholders[j] = "(?, ?)"
+			args = append(args, tag.Key, tag.Value)
+		}
+		query := "INSERT OR IGNORE INTO tags (key, value) VALUES " + strings.Join(placeholders, ",")
+		if _, err := q.Exec(query, args...); err != nil {
+			return nil, err
 		}
 	}
 
+	created, err := s.BatchGetTags(q, missing)
+	if err != nil {
+		return nil, err
+	}
+	for tagStr, id := range created {
+		tagIDMap[tagStr] = id
+	}
 	return tagIDMap, nil
 }
 
