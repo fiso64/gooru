@@ -2,6 +2,7 @@ package serve
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,6 +96,26 @@ func TestBackgroundUploadTaskRejectsInvalidPersistedState(t *testing.T) {
 		InputKey:    request.InputKey,
 	}); err == nil {
 		t.Fatal("mismatched operation identity unexpectedly accepted")
+	}
+}
+
+func TestBackgroundUploadTaskRejectsLegacyReplacementState(t *testing.T) {
+	const operationID = "operation-legacy-replace"
+	inputs := []string{
+		`{"version":1,"files":[{"name":"photo.jpg","path":"/uploads/.photo.jpg.tmp","destination_path":"/uploads/photo.jpg","size":3,"target_id":"default","replace":true}]}`,
+		`{"version":1,"files":[{"name":"photo.jpg","path":"/uploads/.photo.jpg.tmp","destination_path":"/uploads/photo.jpg","size":3,"target_id":"default","conflict_policy":"replace"}]}`,
+	}
+	for _, input := range inputs {
+		_, _, err := decodeBackgroundUploadTask(core.BackgroundTask{
+			OperationID: operationID,
+			Kind:        backgroundUploadTaskKind,
+			SubjectKind: "operation",
+			SubjectID:   operationID,
+			InputKey:    input,
+		})
+		if err == nil || !strings.Contains(err.Error(), "removed replace conflict policy") {
+			t.Fatalf("legacy replacement state error = %v, want explicit removed-policy rejection", err)
+		}
 	}
 }
 
