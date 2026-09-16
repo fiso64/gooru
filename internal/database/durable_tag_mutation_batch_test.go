@@ -1,12 +1,18 @@
 package database
 
 import (
+	"bytes"
 	"fmt"
+	"log"
+	"strings"
 	"testing"
 )
 
 func TestCreateBackgroundTagMutationSnapshotBatchesFileTargets(t *testing.T) {
 	store := newMemoryTestStore(t)
+	var queryLog bytes.Buffer
+	store.logger = log.New(&queryLog, "", 0)
+
 	const operationID = "batch-target-snapshot"
 	const columns = 3
 	targetCount := maxVars/columns + 17
@@ -38,6 +44,18 @@ func TestCreateBackgroundTagMutationSnapshotBatchesFileTargets(t *testing.T) {
 	}
 	if matched != targetCount {
 		t.Fatalf("matched targets = %d, want %d", matched, targetCount)
+	}
+
+	logged := queryLog.String()
+	const insertPrefix = "INSERT OR IGNORE INTO background_tag_mutation_targets"
+	if got := strings.Count(logged, insertPrefix); got != 2 {
+		t.Fatalf("target insert statements = %d, want 2 across the bind-budget boundary; log:\n%s", got, logged)
+	}
+	if !strings.Contains(logged, "-- ARGS: 900 bound values redacted") {
+		t.Fatalf("first target batch did not use the expected 900-bind budget; log:\n%s", logged)
+	}
+	if strings.Contains(logged, "-- ARGS: 901 bound values redacted") {
+		t.Fatalf("target snapshot exceeded maxVars; log:\n%s", logged)
 	}
 
 	got, err := store.ListBackgroundTagMutationTargets(operationID)
