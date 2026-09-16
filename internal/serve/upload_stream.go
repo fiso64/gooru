@@ -15,6 +15,8 @@ import (
 
 const maxUploadFieldBytes = 1 << 20
 
+const duplicateReplacementDestinationError = "multiple uploaded files resolve to the same replacement destination"
+
 type multipartUploadError struct {
 	code    string
 	message string
@@ -196,6 +198,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		return nil, saved, multipartUploadError{message: "failed to prepare upload directory", err: err}
 	}
 
+	replacementDestinations := make(map[string]struct{})
 	for i := range streamed {
 		file := &streamed[i]
 		if file.status == "error" {
@@ -206,6 +209,21 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		if finalErr == nil {
 			finalized.addedAt = file.addedAt
 			finalized.conflictPolicy = conflictPolicy
+			if conflictPolicy == "replace" {
+				if _, duplicate := replacementDestinations[finalized.destinationPath]; duplicate {
+					_ = os.Remove(finalized.path)
+					file.path = ""
+					saved = append(saved, savedUpload{
+						name:     finalized.name,
+						size:     finalized.size,
+						targetID: finalized.targetID,
+						status:   "error",
+						error:    duplicateReplacementDestinationError,
+					})
+					continue
+				}
+				replacementDestinations[finalized.destinationPath] = struct{}{}
+			}
 			file.path = ""
 			saved = append(saved, finalized)
 			continue
