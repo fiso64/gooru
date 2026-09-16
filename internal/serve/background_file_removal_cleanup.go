@@ -77,16 +77,31 @@ func (s *Server) cleanupCanceledFileRemoval(ctx context.Context, task core.Backg
 	if err := json.Unmarshal([]byte(task.InputKey), &envelope); err != nil {
 		return fmt.Errorf("decode canceled file removal task envelope: %w", err)
 	}
-	if envelope.Version == backgroundFileRemovalBatchVersion {
+	if envelope.Version == backgroundFileRemovalBatchVersion || envelope.Version == backgroundFileRemovalMixedBatchVersion {
 		var input backgroundFileRemovalBatchInput
 		if err := json.Unmarshal([]byte(task.InputKey), &input); err != nil {
 			return fmt.Errorf("decode canceled file removal batch task: %w", err)
 		}
-		if task.SubjectKind != "file_batch" || task.SubjectID != "selection" || input.Mode != "delete" || len(input.Files) == 0 {
+		expectedMode := "delete"
+		managedFiles := input.Files
+		if envelope.Version == backgroundFileRemovalMixedBatchVersion {
+			expectedMode = "delete_or_untrack"
+			managedFiles = make([]backgroundFileRemovalBatchFile, 0, len(input.Files))
+			for _, file := range input.Files {
+				if file.OriginalPath == "" && file.StagingPath == "" {
+					continue
+				}
+				if file.OriginalPath == "" || file.StagingPath == "" {
+					return errors.New("canceled mixed file removal batch has incomplete managed deletion paths")
+				}
+				managedFiles = append(managedFiles, file)
+			}
+		}
+		if task.SubjectKind != "file_batch" || task.SubjectID != "selection" || input.Mode != expectedMode || len(input.Files) == 0 {
 			return errors.New("canceled file removal batch task has invalid identity")
 		}
 		var cleanupErr error
-		for _, file := range input.Files {
+		for _, file := range managedFiles {
 			if err := s.cleanupCanceledFlatFileRemoval(ctx, file); err != nil {
 				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("reconcile canceled file removal %q: %w", file.PublicID, err))
 			}

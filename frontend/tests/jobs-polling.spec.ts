@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { jobsRefreshFallbackIntervalMs } from '../src/lib/jobsEvents';
+import { jobsRefreshFallbackIntervalMs, jobsRefreshMinIntervalMs } from '../src/lib/jobsEvents';
 
 const session = {
   user: { id: 'usr_test', username: 'mac', role: 'admin' },
@@ -13,6 +13,9 @@ const maintenanceJob = {
   description: 'Scan tracked files that are missing media metadata and enqueue durable extraction work.',
   running: false
 };
+
+const controlledClockStart = new Date('2026-01-01T00:00:00Z');
+const controlledClockPause = new Date('2026-01-01T00:00:10Z');
 
 type OperationEventTestWindow = Window & typeof globalThis & {
   __emitOperationEvent?: () => void;
@@ -113,6 +116,7 @@ test('refreshes durable operations when the SSE stream stays silent', async ({ p
 });
 
 test('refreshes active operations from one throttled SSE signal stream', async ({ page }) => {
+  await page.clock.install({ time: controlledClockStart });
   await mockAuth(page);
   await mockShellApis(page);
   await mockOperationEvents(page);
@@ -129,6 +133,7 @@ test('refreshes active operations from one throttled SSE signal stream', async (
   await expect.poll(() => operationRequests).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => (window as OperationEventTestWindow).__operationEventSourceCount ?? 0)).toBe(1);
   await page.waitForTimeout(100);
+  await page.clock.pauseAt(controlledClockPause);
   const initialRequests = operationRequests;
 
   await page.evaluate(() => (window as OperationEventTestWindow).__emitOperationEvent?.());
@@ -141,9 +146,10 @@ test('refreshes active operations from one throttled SSE signal stream', async (
     testWindow.__emitOperationEvent?.();
     testWindow.__emitOperationEvent?.();
   });
-  await page.waitForTimeout(100);
+  await page.clock.fastForward(jobsRefreshMinIntervalMs - 1);
   expect(operationRequests).toBe(firstRefreshRequests);
-  await expect.poll(() => operationRequests, { timeout: 1200 }).toBe(firstRefreshRequests + 1);
+  await page.clock.fastForward(1);
+  await expect.poll(() => operationRequests).toBe(firstRefreshRequests + 1);
 });
 
 test('runs a maintenance job from one dropdown and shows the durable job row', async ({ page }) => {

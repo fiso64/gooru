@@ -12,24 +12,29 @@ const backgroundUploadImportOperationKind = "upload_import"
 
 type backgroundOperationReservationRecovery interface {
 	CancelUnattachedHiddenBackgroundOperations(string) (int64, error)
+	ListUnattachedBackgroundOperationIDs(string) ([]string, error)
 	CancelUnattachedBackgroundOperationIDs(string) ([]string, error)
 }
 
 // recoverBackgroundOperationReservations releases producer admission reservations
 // left behind before a durable task was attached. Startup invokes this before
 // constructing workers and before the HTTP server begins accepting new producer
-// requests. Upload staging cleanup is restricted to exact operation ids canceled
-// by the durable recovery transaction; it never sweeps unrelated filesystem data.
+// requests. Upload staging cleanup is restricted to exact operation ids selected
+// by durable recovery, and cleanup completes before cancellation so a filesystem
+// failure remains discoverable and retryable on the next startup.
 func recoverBackgroundOperationReservations(recovery backgroundOperationReservationRecovery, uploadTargets []UploadTarget) error {
 	if recovery == nil {
 		return nil
 	}
-	operationIDs, err := recovery.CancelUnattachedBackgroundOperationIDs(backgroundUploadImportOperationKind)
+	operationIDs, err := recovery.ListUnattachedBackgroundOperationIDs(backgroundUploadImportOperationKind)
 	if err != nil {
 		return fmt.Errorf("recover upload background operation reservations: %w", err)
 	}
 	if err := reclaimInterruptedUploadStaging(uploadTargets, operationIDs); err != nil {
 		return fmt.Errorf("reclaim interrupted upload staging: %w", err)
+	}
+	if _, err := recovery.CancelUnattachedBackgroundOperationIDs(backgroundUploadImportOperationKind); err != nil {
+		return fmt.Errorf("cancel recovered upload background operation reservations: %w", err)
 	}
 	if _, err := recovery.CancelUnattachedHiddenBackgroundOperations(core.BackgroundTagMutationOperationKind); err != nil {
 		return fmt.Errorf("recover tag mutation background operation reservations: %w", err)

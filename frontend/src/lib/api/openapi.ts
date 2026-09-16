@@ -759,7 +759,44 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * Get original content metadata for a tracked file.
+         * @description Returns the same original-media headers and range semantics as GET without a response body.
+         */
+        head: {
+            parameters: {
+                query?: never;
+                header?: {
+                    /** @example bytes=0-1048575 */
+                    Range?: string;
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Original file metadata. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Partial original file metadata. */
+                206: {
+                    headers: {
+                        "Content-Range"?: string;
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
         patch?: never;
         trace?: never;
     };
@@ -813,7 +850,43 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * Get original download metadata for a tracked file.
+         * @description Returns the same attachment and range headers as GET without a response body.
+         */
+        head: {
+            parameters: {
+                query?: never;
+                header?: {
+                    Range?: string;
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Original file download metadata. */
+                200: {
+                    headers: {
+                        "Content-Disposition"?: string;
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Partial original file download metadata. */
+                206: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
         patch?: never;
         trace?: never;
     };

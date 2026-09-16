@@ -18,7 +18,8 @@ import (
 )
 
 var userCreateAdminFlags struct {
-	username string
+	username  string
+	ifMissing bool
 }
 
 var userCmd = &cobra.Command{
@@ -54,16 +55,32 @@ var userCreateAdminCmd = &cobra.Command{
 			}
 		}
 		authStore := serve.NewAuthStore(store.DB, cfg.Auth.SessionTTL)
-		user, err := authStore.CreateAdmin(context.Background(), userCreateAdminFlags.username, password)
-		if errors.Is(err, serve.ErrDuplicateUsername) {
-			return fmt.Errorf("user %q already exists", userCreateAdminFlags.username)
-		}
+		created, err := createAdminWithPolicy(context.Background(), authStore, userCreateAdminFlags.username, password, userCreateAdminFlags.ifMissing)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "created admin user %s\n", user.Username)
+		username := strings.TrimSpace(userCreateAdminFlags.username)
+		if !created {
+			fmt.Fprintf(cmd.OutOrStdout(), "admin user %s already exists\n", username)
+			return nil
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "created admin user %s\n", username)
 		return nil
 	},
+}
+
+func createAdminWithPolicy(ctx context.Context, authStore *serve.AuthStore, username, password string, ifMissing bool) (bool, error) {
+	_, err := authStore.CreateAdmin(ctx, username, password)
+	if errors.Is(err, serve.ErrDuplicateUsername) {
+		if ifMissing {
+			return false, nil
+		}
+		return false, fmt.Errorf("user %q already exists", username)
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, error) {
@@ -175,4 +192,5 @@ func init() {
 	rootCmd.AddCommand(userCmd)
 	userCmd.AddCommand(userCreateAdminCmd)
 	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.username, "username", "", "Admin username")
+	userCreateAdminCmd.Flags().BoolVar(&userCreateAdminFlags.ifMissing, "if-missing", false, "Succeed without changing the account when the username already exists")
 }

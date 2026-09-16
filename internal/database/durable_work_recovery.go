@@ -43,6 +43,47 @@ func (s *Store) CancelUnattachedHiddenBackgroundOperations(kind string) (int64, 
 	return count, nil
 }
 
+// ListUnattachedBackgroundOperationIDs returns pending operations of one kind
+// that have no durable child task without mutating them. Producers with external
+// recovery state use this to reclaim that state before making interruption
+// cancellation terminal, so cleanup failures remain discoverable on restart.
+func (s *Store) ListUnattachedBackgroundOperationIDs(kind string) ([]string, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("background operation store is required")
+	}
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return nil, errors.New("background operation kind is required")
+	}
+	rows, err := s.DB.Query(`
+		SELECT id
+		FROM background_operations
+		WHERE kind = ?
+		  AND status = 'pending'
+		  AND NOT EXISTS (
+			SELECT 1 FROM background_tasks
+			WHERE background_tasks.operation_id = background_operations.id
+		  )
+		ORDER BY id
+	`, kind)
+	if err != nil {
+		return nil, fmt.Errorf("list unattached background operations: %w", err)
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("read unattached background operation id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list unattached background operations rows: %w", err)
+	}
+	return ids, nil
+}
+
 // CancelUnattachedBackgroundOperations cancels pending operations of one kind
 // that have no durable child task, regardless of visibility. Visible upload
 // receiving operations use this at startup because a process death can occur

@@ -36,3 +36,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build packaged application
         run: nix build .#packages.x86_64-linux.default --print-build-logs
+      - name: Validate NixOS module
+        run: nix build .#checks.x86_64-linux.nixos-module --print-build-logs

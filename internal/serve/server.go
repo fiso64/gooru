@@ -107,7 +107,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/file-selections/", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileSelection))))
 	mux.Handle("/api/v1/file-selections", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileSelections))))
 	mux.Handle("/api/v1/files/tags", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleMutateTags))))
-	mux.Handle("/api/v1/files/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFile))))
+	mux.Handle("/api/v1/files/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, s.fileRouteHandler())))
 	mux.Handle("/api/v1/files", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFiles))))
 	mux.Handle("/api/v1/files/search", authMiddleware(s.cfg, s.auth, requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileSearch))))
 	mux.Handle("/api/v1/comics/", s.protected(http.HandlerFunc(s.handleComic)))
@@ -130,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	h = requestSizeMiddleware(s.cfg.Server.MaxRequestBodyBytes, h)
 	h = corsMiddleware(s.cfg.Server.CORSOrigins, h)
 	h = requestLoggingMiddleware(h)
+	h = requestWriteTimeoutMiddleware(s.cfg.Server.WriteTimeout, h)
 	h = requestReadTimeoutMiddleware(s.cfg.Server.ReadTimeout, h)
 	return h
 }
