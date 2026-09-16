@@ -2243,24 +2243,41 @@ func (s *Store) BatchDisassociateTagsByContentQueryTx(q Querier, subQuery string
 		return 0, nil
 	}
 
-	placeholders := strings.Repeat("?,", len(tagIDs)-1) + "?"
-	query := fmt.Sprintf(
-		"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
-		placeholders,
-		subQuery,
-	)
-
-	finalArgs := make([]interface{}, 0, len(args)+len(tagIDs))
-	for _, id := range tagIDs {
-		finalArgs = append(finalArgs, id)
+	batchSize := maxVars - len(args)
+	if batchSize <= 0 {
+		return 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag disassociation", len(args))
 	}
-	finalArgs = append(finalArgs, args...)
 
-	res, err := q.Exec(query, finalArgs...)
-	if err != nil {
-		return 0, err
+	var totalAffected int64
+	for start := 0; start < len(tagIDs); start += batchSize {
+		end := start + batchSize
+		if end > len(tagIDs) {
+			end = len(tagIDs)
+		}
+		batch := tagIDs[start:end]
+
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		query := fmt.Sprintf(
+			"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
+			placeholders,
+			subQuery,
+		)
+
+		finalArgs := make([]interface{}, 0, len(args)+len(batch))
+		for _, id := range batch {
+			finalArgs = append(finalArgs, id)
+		}
+		finalArgs = append(finalArgs, args...)
+
+		res, err := q.Exec(query, finalArgs...)
+		if err != nil {
+			return 0, err
+		}
+		affected, _ := res.RowsAffected()
+		totalAffected += affected
 	}
-	return res.RowsAffected()
+
+	return totalAffected, nil
 }
 
 // RemoveLocationsByContentQueryTx removes locations for content matching a subquery.
