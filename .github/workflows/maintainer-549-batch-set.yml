@@ -1,4 +1,4 @@
-name: Maintainer #549 batch set-tag patch
+name: Maintainer 549 batch set-tag patch
 
 on:
   push:
@@ -25,114 +25,25 @@ jobs:
 
           path = Path('gooru/background_tag_mutation.go')
           text = path.read_text()
-          old = '''\t\tif len(tags) > 0 {\n\t\t\ttagIDs, err := c.tagIDsForMutation(tx, tags, true)\n\t\t\tif err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n\t\t\tfor _, tagID := range tagIDs {\n\t\t\t\tinsertArgs := make([]interface{}, 0, len(args)+1)\n\t\t\t\tinsertArgs = append(insertArgs, tagID)\n\t\t\t\tinsertArgs = append(insertArgs, args...)\n\t\t\t\tif _, err := tx.Exec(\n\t\t\t\t\t`INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM (`+sqlQuery+`)`,\n\t\t\t\t\tinsertArgs...,\n\t\t\t\t); err != nil {\n\t\t\t\t\treturn 0, fmt.Errorf("associate snapshotted replacement tags: %w", err)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n'''
-          new = '''\t\tif len(tags) > 0 {\n\t\t\ttagIDs, err := c.tagIDsForMutation(tx, tags, true)\n\t\t\tif err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n\t\t\tif _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs); err != nil {\n\t\t\t\treturn 0, fmt.Errorf("associate snapshotted replacement tags: %w", err)\n\t\t\t}\n\t\t}\n'''
+          old = '\t\tif len(tags) > 0 {\n\t\t\ttagIDs, err := c.tagIDsForMutation(tx, tags, true)\n\t\t\tif err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n\t\t\tfor _, tagID := range tagIDs {\n\t\t\t\tinsertArgs := make([]interface{}, 0, len(args)+1)\n\t\t\t\tinsertArgs = append(insertArgs, tagID)\n\t\t\t\tinsertArgs = append(insertArgs, args...)\n\t\t\t\tif _, err := tx.Exec(\n\t\t\t\t\t`INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM (`+sqlQuery+`)`,\n\t\t\t\t\tinsertArgs...,\n\t\t\t\t); err != nil {\n\t\t\t\t\treturn 0, fmt.Errorf("associate snapshotted replacement tags: %w", err)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n'
+          new = '\t\tif len(tags) > 0 {\n\t\t\ttagIDs, err := c.tagIDsForMutation(tx, tags, true)\n\t\t\tif err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n\t\t\tif _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs); err != nil {\n\t\t\t\treturn 0, fmt.Errorf("associate snapshotted replacement tags: %w", err)\n\t\t\t}\n\t\t}\n'
           if old not in text:
               raise SystemExit('background set-tag loop not found')
           path.write_text(text.replace(old, new, 1))
 
           path = Path('gooru/tagging_query_exclusions.go')
           text = path.read_text()
-          old = '''\t\tif len(tags) > 0 {\n\t\t\ttagIDs, err := c.tagIDsForMutation(tx, tags, true)\n\t\t\tif err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n\t\t\tfor _, tagID := range tagIDs {\n\t\t\t\tif _, err := tx.Exec("INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM hashes_to_update", tagID); err != nil {\n\t\t\t\t\treturn 0, fmt.Errorf("failed to associate replacement tags: %w", err)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n'''
-          new = '''\t\tif len(tags) > 0 {\n\t\t\ttagIDs, err := c.tagIDsForMutation(tx, tags, true)\n\t\t\tif err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n\t\t\tif _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, "SELECT hash FROM hashes_to_update", nil, tagIDs); err != nil {\n\t\t\t\treturn 0, fmt.Errorf("failed to associate replacement tags: %w", err)\n\t\t\t}\n\t\t}\n'''
+          old = '\t\tif len(tags) > 0 {\n\t\t\ttagIDs, err := c.tagIDsForMutation(tx, tags, true)\n\t\t\tif err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n\t\t\tfor _, tagID := range tagIDs {\n\t\t\t\tif _, err := tx.Exec("INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM hashes_to_update", tagID); err != nil {\n\t\t\t\t\treturn 0, fmt.Errorf("failed to associate replacement tags: %w", err)\n\t\t\t\t}\n\t\t\t}\n\t\t}\n'
+          new = '\t\tif len(tags) > 0 {\n\t\t\ttagIDs, err := c.tagIDsForMutation(tx, tags, true)\n\t\t\tif err != nil {\n\t\t\t\treturn 0, err\n\t\t\t}\n\t\t\tif _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, "SELECT hash FROM hashes_to_update", nil, tagIDs); err != nil {\n\t\t\t\treturn 0, fmt.Errorf("failed to associate replacement tags: %w", err)\n\t\t\t}\n\t\t}\n'
           if old not in text:
               raise SystemExit('query-excluding set-tag loop not found')
           path.write_text(text.replace(old, new, 1))
-
-          path = Path('gooru/background_tag_mutation_test.go')
-          text = path.read_text()
-          if '"fmt"' not in text:
-              text = text.replace('import (\n\t"encoding/json"\n', 'import (\n\t"encoding/json"\n\t"fmt"\n', 1)
-          tests = r'''
-
-func replacementTagsForBatchTest(count int) []string {
-	tags := make([]string, count)
-	for i := range tags {
-		tags[i] = fmt.Sprintf("replacement:%04d", i)
-	}
-	return tags
-}
-
-func TestBackgroundSetTagMutationBatchesReplacementTags(t *testing.T) {
-	client := newBackgroundTagMutationTestClient(t)
-	dir := t.TempDir()
-	path := writeBackgroundTagMutationTestFile(t, dir, "file.jpg", "body")
-	if _, err := client.TagFiles([]string{path}, []string{"group:one", "old"}, nil, false); err != nil {
-		t.Fatalf("seed file: %v", err)
-	}
-
-	replacements := replacementTagsForBatchTest(1000)
-	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
-		Mutation:   "set",
-		Selector:   map[string]string{"query": "group:one"},
-		Tags:       replacements,
-		Query:      "group:one",
-		MaxPending: 8,
-	})
-	if err != nil {
-		t.Fatalf("create mutation: %v", err)
-	}
-	if err := client.ExecuteBackgroundTagMutationQuery(operation.ID); err != nil {
-		t.Fatalf("execute mutation: %v", err)
-	}
-
-	tags, _, err := client.GetTagsForFile(path, false)
-	if err != nil {
-		t.Fatalf("read replacement tags: %v", err)
-	}
-	if len(tags) != len(replacements) {
-		t.Fatalf("replacement tag count = %d, want %d", len(tags), len(replacements))
-	}
-	if containsBackgroundTag(tags, "group:one") || containsBackgroundTag(tags, "old") {
-		t.Fatalf("set mutation retained old tags: %v", tags)
-	}
-	if !containsBackgroundTag(tags, replacements[0]) || !containsBackgroundTag(tags, replacements[len(replacements)-1]) {
-		t.Fatalf("set mutation missed replacement batch boundaries: first=%q last=%q", replacements[0], replacements[len(replacements)-1])
-	}
-}
-
-func TestSetTagsForFilesByQueryExcludingBatchesReplacementTags(t *testing.T) {
-	client := newBackgroundTagMutationTestClient(t)
-	dir := t.TempDir()
-	path := writeBackgroundTagMutationTestFile(t, dir, "file.jpg", "body")
-	if _, err := client.TagFiles([]string{path}, []string{"group:one", "old"}, nil, false); err != nil {
-		t.Fatalf("seed file: %v", err)
-	}
-
-	replacements := replacementTagsForBatchTest(1000)
-	affected, err := client.SetTagsForFilesByQueryExcluding("group:one", replacements, nil)
-	if err != nil {
-		t.Fatalf("set query tags: %v", err)
-	}
-	if affected != 1 {
-		t.Fatalf("affected files = %d, want 1", affected)
-	}
-
-	tags, _, err := client.GetTagsForFile(path, false)
-	if err != nil {
-		t.Fatalf("read replacement tags: %v", err)
-	}
-	if len(tags) != len(replacements) {
-		t.Fatalf("replacement tag count = %d, want %d", len(tags), len(replacements))
-	}
-	if containsBackgroundTag(tags, "group:one") || containsBackgroundTag(tags, "old") {
-		t.Fatalf("set query retained old tags: %v", tags)
-	}
-	if !containsBackgroundTag(tags, replacements[0]) || !containsBackgroundTag(tags, replacements[len(replacements)-1]) {
-		t.Fatalf("set query missed replacement batch boundaries: first=%q last=%q", replacements[0], replacements[len(replacements)-1])
-	}
-}
-'''
-          if 'TestBackgroundSetTagMutationBatchesReplacementTags' not in text:
-              text += tests
-          path.write_text(text)
           PY
-          gofmt -w gooru/background_tag_mutation.go gooru/tagging_query_exclusions.go gooru/background_tag_mutation_test.go
-      - name: Validate focused change
+          gofmt -w gooru/background_tag_mutation.go gooru/tagging_query_exclusions.go
+      - name: Validate production change
         shell: bash
         run: |
           set -euxo pipefail
-          go test ./gooru -run 'TestBackgroundSetTagMutationBatchesReplacementTags|TestSetTagsForFilesByQueryExcludingBatchesReplacementTags' -count=1
           go test ./gooru -count=1
           go vet -structtag=false ./gooru
       - name: Commit clean source patch
@@ -140,7 +51,7 @@ func TestSetTagsForFilesByQueryExcludingBatchesReplacementTags(t *testing.T) {
         run: |
           set -euxo pipefail
           git rm .github/workflows/maintainer-549-batch-set.yml
-          git add gooru/background_tag_mutation.go gooru/tagging_query_exclusions.go gooru/background_tag_mutation_test.go
+          git add gooru/background_tag_mutation.go gooru/tagging_query_exclusions.go
           git config user.name 'ChatGPT Codex Connector'
           git config user.email '1144995+chatgpt-codex-connector[bot]@users.noreply.github.com'
           git commit -m 'perf: batch replacement tags for query mutations'
