@@ -25,68 +25,23 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          replacements = {
-              'frontend/src/lib/components/PasswordDialog.svelte': (
-                  '''  function handleBackdropKeydown(event: KeyboardEvent) {
-            if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-            event.preventDefault();
-            event.stopPropagation();
-            close();
+          next_functions = {
+              'frontend/src/lib/components/PasswordDialog.svelte': 'handleKeydown',
+              'frontend/src/lib/components/PreviewDialog.svelte': 'modifiedLabel',
+              'frontend/src/lib/components/UploadViewerDialog.svelte': 'handleWindowKeydown',
           }
-
-          function handleKeydown(event: KeyboardEvent) {''',
-                  '''  function handleBackdropKeydown(event: KeyboardEvent) {
-    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-    event.preventDefault();
-    event.stopPropagation();
-    close();
-  }
-
-  function handleKeydown(event: KeyboardEvent) {''',
-              ),
-              'frontend/src/lib/components/PreviewDialog.svelte': (
-                  '''  function handleBackdropKeydown(event: KeyboardEvent) {
-            if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-            event.preventDefault();
-            event.stopPropagation();
-            onClose();
-          }
-
-          function modifiedLabel(value: string) {''',
-                  '''  function handleBackdropKeydown(event: KeyboardEvent) {
-    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-    event.preventDefault();
-    event.stopPropagation();
-    onClose();
-  }
-
-  function modifiedLabel(value: string) {''',
-              ),
-              'frontend/src/lib/components/UploadViewerDialog.svelte': (
-                  '''  function handleBackdropKeydown(event: KeyboardEvent) {
-            if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-            event.preventDefault();
-            event.stopPropagation();
-            onClose();
-          }
-
-          function handleWindowKeydown(event: KeyboardEvent) {''',
-                  '''  function handleBackdropKeydown(event: KeyboardEvent) {
-    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-    event.preventDefault();
-    event.stopPropagation();
-    onClose();
-  }
-
-  function handleWindowKeydown(event: KeyboardEvent) {''',
-              ),
-          }
-          for filename, (old, new) in replacements.items():
+          for filename, next_function in next_functions.items():
               path = Path(filename)
               text = path.read_text()
-              if old not in text:
-                  raise SystemExit(f'expected malformed helper not found in {filename}')
-              path.write_text(text.replace(old, new, 1))
+              start = text.index('  function handleBackdropKeydown')
+              marker = '\n}\n\nfunction ' + next_function
+              end = text.index(marker, start)
+              block = text[start:end + 2]
+              lines = block.splitlines()
+              fixed = '\n'.join([lines[0], *[('  ' + line) if line else line for line in lines[1:]]])
+              text = text[:start] + fixed + text[end + 2:]
+              text = text.replace('\n\nfunction ' + next_function, '\n\n  function ' + next_function, 1)
+              path.write_text(text)
           PY
       - name: Revalidate frontend
         shell: bash
