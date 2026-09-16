@@ -63,7 +63,7 @@
 
   let stageElement = $state<HTMLDivElement | undefined>();
   let comicTransition = $state<'' | 'entering' | 'exiting'>('');
-  let previousComicEntered = comicEntered;
+  let previousComicEntered = untrack(() => comicEntered);
   let panViewportElement = $state<HTMLDivElement | undefined>();
   let imageElement = $state<HTMLImageElement | undefined>();
   let freezeCanvasElement = $state<HTMLCanvasElement | undefined>();
