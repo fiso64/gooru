@@ -69,6 +69,11 @@ jobs:
           rm scripts/maintainer_720_patch.py .github/workflows/maintainer-720.yml
           changed_go="$(git diff --name-only --diff-filter=ACM -- '*.go')"
           if [ -n "$changed_go" ]; then printf '%s\n' "$changed_go" | xargs gofmt -w; fi
+          # Stage the post-transform tree before tests. The storage architecture
+          # guard intentionally enumerates git's index via `git ls-files`; without
+          # staging, files deliberately deleted by this change still appear there.
+          git add -A
+          git diff --cached --check
           echo '=== remaining upload-policy/replacement-specific symbols ==='
           git grep -n -E 'uploads\.conflict_policy|case "skip"|case "replace"|activatedSavedReplacement|upload_replacement_recovery|conflict_policy.*skip|conflict_policy.*replace' -- internal/serve docs spec scripts frontend/src frontend/tests || true
           git status --short
