@@ -81,7 +81,7 @@ func (c *Client) fileRegistrationBackgroundTasksForChangedLocations(hashes []str
 		return nil, nil
 	}
 	if c.fileRegistrationHooks == nil {
-		return mediaMetadataRegistrationTasksForOperation(true, strings.TrimSpace(operationID))
+		return mediaMetadataRegistrationTasksForProducerOperation(true, strings.TrimSpace(operationID))
 	}
 	return c.fileRegistrationBackgroundTasksForOperation(unique, operationID)
 }
