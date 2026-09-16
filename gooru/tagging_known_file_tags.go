@@ -1,7 +1,9 @@
 package gooru
 
 import (
+	"database/sql"
 	"fmt"
+	"strings"
 
 	"gooru.local/internal/query"
 	"gooru.local/types"
@@ -73,7 +75,9 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 	// Producer-owned operations (notably a browser upload spanning many chunk
 	// transactions) are part of the registration event. Build their checkpoint
 	// once here so hook-created work can inherit the same lifetime, then reuse the
-	// exact state when persisting the producer checkpoint below.
+	// exact state when persisting the producer checkpoint below. Task-scoped state
+	// intentionally omits OperationID so a segment cannot overwrite its aggregate
+	// operation result; recover that task's parent solely for child-work binding.
 	operationID := ""
 	effectiveStateBuilder := stateBuilder
 	if stateBuilder != nil {
@@ -81,7 +85,13 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 		if err != nil {
 			return result, fmt.Errorf("build background operation transaction state: %w", err)
 		}
-		operationID = state.OperationID
+		operationID = strings.TrimSpace(state.OperationID)
+		if operationID == "" && strings.TrimSpace(state.TaskID) != "" {
+			operationID, err = backgroundTaskOperationIDInTx(tx, state.TaskID)
+			if err != nil {
+				return result, fmt.Errorf("resolve background task parent operation: %w", err)
+			}
+		}
 		effectiveStateBuilder = func(int) (BackgroundOperationTransactionState, error) {
 			return state, nil
 		}
@@ -109,6 +119,14 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 		}
 	}
 	return result, nil
+}
+
+func backgroundTaskOperationIDInTx(tx *databaseTx, taskID string) (string, error) {
+	var operationID sql.NullString
+	if err := tx.QueryRow(`SELECT operation_id FROM background_tasks WHERE id = ?`, strings.TrimSpace(taskID)).Scan(&operationID); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(operationID.String), nil
 }
 
 func (c *Client) associateKnownFileTagsByHash(tx *databaseTx, tagsByHash map[string][]string) (int64, error) {
