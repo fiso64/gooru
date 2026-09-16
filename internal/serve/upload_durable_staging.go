@@ -245,12 +245,6 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 		}
 		path, destinationErr := chooseDurableUploadDestination(target.Path, file.name, conflictPolicy, reserved)
 		if destinationErr != nil {
-			if errors.Is(destinationErr, errUploadConflict) {
-				_ = os.Remove(file.path)
-				file.path = ""
-				saved = append(saved, savedUpload{name: file.name, size: file.size, targetID: target.ID, status: "error", error: errUploadConflict.Error()})
-				continue
-			}
 			return nil, saved, uploadFileError{name: file.name, err: destinationErr}
 		}
 		stagedPath, moveErr := moveStreamedUploadIntoDir(file.path, targetDir, file.name)

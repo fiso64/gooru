@@ -75,7 +75,7 @@ uploads:
 
 Upload target paths must be absolute. Gooru exposes target IDs and display names to clients, not the configured filesystem paths.
 
-Uploads are staged before being committed to their final names. Same-name uploads are renamed by default; API clients may explicitly request `conflict_policy=error` to reject a path collision.
+Uploads are staged before being committed to their final names. Same-name uploads are renamed by default; API clients may explicitly request `conflict_policy=error` to reject the request when a destination path collides.
 
 ## Network access
 

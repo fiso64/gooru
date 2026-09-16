@@ -267,10 +267,6 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 		dst, path, tmpPath, err := createUploadDestination(target.Path, name, conflictPolicy)
 		if err != nil {
 			_ = src.Close()
-			if len(files) > 1 && errors.Is(err, errUploadConflict) {
-				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: err.Error()})
-				continue
-			}
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
 		}
@@ -291,10 +287,6 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 		}
 		if err := commitUploadDestinationWithOwnership(tmpPath, path); err != nil {
 			_ = os.Remove(tmpPath)
-			if len(files) > 1 && errors.Is(err, errUploadConflict) {
-				saved = append(saved, savedUpload{name: name, size: header.Size, targetID: target.ID, status: "error", error: err.Error()})
-				continue
-			}
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
 		}

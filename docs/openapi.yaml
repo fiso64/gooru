@@ -874,7 +874,7 @@ paths:
                   type: string
                   enum: [rename, error]
                   default: rename
-                  description: How to handle a requested filename that already exists in the target; omitted values default to rename.
+                  description: How to handle a requested filename that already exists in the target; omitted values default to rename, while error rejects the request on a path collision.
                 tags:
                   type: string
                   description: Space- or comma-separated fallback initial tags applied to files that do not provide item_tags.

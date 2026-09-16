@@ -150,3 +150,21 @@ func TestDurableStagedUploadsKeepsLegacyPublishedTaskCompatible(t *testing.T) {
 		t.Fatalf("legacy activation should be a no-op: %v", err)
 	}
 }
+
+func TestChooseDurableUploadDestinationErrorRejectsExistingOrReservedName(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "photo.jpg")
+	if err := os.WriteFile(existing, []byte("existing"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := chooseDurableUploadDestination(root, "photo.jpg", "error", map[string]struct{}{}); !errors.Is(err, errUploadConflict) {
+		t.Fatalf("existing destination error = %v, want upload conflict", err)
+	}
+	if err := os.Remove(existing); err != nil {
+		t.Fatal(err)
+	}
+	reserved := map[string]struct{}{existing: {}}
+	if _, err := chooseDurableUploadDestination(root, "photo.jpg", "error", reserved); !errors.Is(err, errUploadConflict) {
+		t.Fatalf("reserved destination error = %v, want upload conflict", err)
+	}
+}
