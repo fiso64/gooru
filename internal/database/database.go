@@ -576,7 +576,8 @@ func (s *Store) ApplyRelinkAdditionsTx(q Querier, toAdd map[string]types.Locatio
 	}
 
 	var locationsAdded int
-	const batchSize = 250
+	const columns = 5 // content_hash, path, size_bytes, mod_time, extension
+	batchSize := maxVars / columns
 	var args []interface{}
 	var queryBuilder strings.Builder
 	// The tags_cache is now populated by triggers, so we don't insert it here.
