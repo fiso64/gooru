@@ -336,7 +336,7 @@ func (c *Client) GetFileInfoForSource(filePath string, source io.ReaderAt, size 
 		if err != nil {
 			return types.FileInfo{Path: filePath}, 0, err
 		}
-		return types.FileInfo{Path: filePath, Hash: dbInfo.Hash, Size: size, ModTime: dbInfo.ModTime, Tags: tags}, types.StatusOK, nil
+		return types.FileInfo{Path: filePath, Hash: dbInfo.Hash, Size: size, ModTime: modTime, Tags: tags}, types.StatusOK, nil
 	}
 	tags, status, err := c.getUntrackedContentStatus(currentHash)
 	if err != nil {
