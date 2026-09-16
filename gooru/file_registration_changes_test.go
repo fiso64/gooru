@@ -64,11 +64,11 @@ func TestNewLocationOfKnownContentEnqueuesMetadataSweep(t *testing.T) {
 	}
 }
 
-func TestKnownHashNewLocationBindsMetadataWakeToParentOperation(t *testing.T) {
+func TestKnownHashNewLocationSeparatesMetadataWakeFromParentOperation(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 	dir := t.TempDir()
 	existing := registerKnownContentWithoutHooks(t, client, filepath.Join(dir, "existing.jpg"), "shared-upload-hash")
-	operation, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "upload.import", Visible: true})
+	operation, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "upload.import", Visible: true, ProgressTotal: 63})
 	if err != nil {
 		t.Fatalf("create upload operation: %v", err)
 	}
@@ -81,17 +81,25 @@ func TestKnownHashNewLocationBindsMetadataWakeToParentOperation(t *testing.T) {
 	}
 
 	var count int
-	var operationID string
-	if err := client.store.DB.QueryRow(`SELECT count(*), min(operation_id) FROM background_tasks WHERE kind = ?`, BackgroundMediaMetadataSweepTaskKind).Scan(&count, &operationID); err != nil {
+	var metadataOperationID string
+	if err := client.store.DB.QueryRow(`SELECT count(*), min(operation_id) FROM background_tasks WHERE kind = ?`, BackgroundMediaMetadataSweepTaskKind).Scan(&count, &metadataOperationID); err != nil {
 		t.Fatalf("inspect metadata wake: %v", err)
 	}
-	if count != 1 || operationID != operation.ID {
-		t.Fatalf("metadata wakes = %d on operation %q, want one on %q", count, operationID, operation.ID)
+	if count != 1 || metadataOperationID == "" || metadataOperationID == operation.ID {
+		t.Fatalf("metadata wakes = %d on operation %q, want one separate from upload %q", count, metadataOperationID, operation.ID)
 	}
-	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_operations WHERE kind = ?`, BackgroundMediaMetadataSweepOperationKind).Scan(&count); err != nil {
-		t.Fatalf("count standalone metadata operations: %v", err)
+	var visible int
+	if err := client.store.DB.QueryRow(`SELECT visible FROM background_operations WHERE id = ? AND kind = ?`, metadataOperationID, BackgroundMediaMetadataSweepOperationKind).Scan(&visible); err != nil {
+		t.Fatalf("inspect metadata operation: %v", err)
 	}
-	if count != 0 {
-		t.Fatalf("standalone metadata operation count = %d, want 0", count)
+	if visible != 0 {
+		t.Fatalf("upload-triggered metadata operation visible = %d, want hidden", visible)
+	}
+	var uploadChildren int
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_tasks WHERE operation_id = ?`, operation.ID).Scan(&uploadChildren); err != nil {
+		t.Fatalf("count upload children: %v", err)
+	}
+	if uploadChildren != 0 {
+		t.Fatalf("upload operation gained %d metadata children, want 0", uploadChildren)
 	}
 }

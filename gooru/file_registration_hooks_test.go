@@ -136,9 +136,9 @@ func TestRetagKnownFileDoesNotEnqueueMetadataSweep(t *testing.T) {
 	}
 }
 
-func TestKnownFileRegistrationBindsMetadataWakeToParentOperation(t *testing.T) {
+func TestKnownFileRegistrationSeparatesMetadataSweepFromParentOperation(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
-	operation, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "upload.import", Visible: true})
+	operation, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "upload.import", Visible: true, ProgressTotal: 63})
 	if err != nil {
 		t.Fatalf("create upload operation: %v", err)
 	}
@@ -151,18 +151,30 @@ func TestKnownFileRegistrationBindsMetadataWakeToParentOperation(t *testing.T) {
 	}
 
 	var count int
-	var operationID string
-	if err := client.store.DB.QueryRow(`SELECT count(*), min(operation_id) FROM background_tasks WHERE kind = ?`, BackgroundMediaMetadataSweepTaskKind).Scan(&count, &operationID); err != nil {
+	var metadataOperationID string
+	if err := client.store.DB.QueryRow(`SELECT count(*), min(operation_id) FROM background_tasks WHERE kind = ?`, BackgroundMediaMetadataSweepTaskKind).Scan(&count, &metadataOperationID); err != nil {
 		t.Fatalf("inspect metadata wake: %v", err)
 	}
-	if count != 1 || operationID != operation.ID {
-		t.Fatalf("metadata wakes = %d on operation %q, want one on %q", count, operationID, operation.ID)
+	if count != 1 || metadataOperationID == "" || metadataOperationID == operation.ID {
+		t.Fatalf("metadata wakes = %d on operation %q, want one separate from upload %q", count, metadataOperationID, operation.ID)
 	}
-	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_operations WHERE kind = ?`, BackgroundMediaMetadataSweepOperationKind).Scan(&count); err != nil {
-		t.Fatalf("count standalone metadata operations: %v", err)
+	var visible int
+	if err := client.store.DB.QueryRow(`SELECT visible FROM background_operations WHERE id = ? AND kind = ?`, metadataOperationID, BackgroundMediaMetadataSweepOperationKind).Scan(&visible); err != nil {
+		t.Fatalf("inspect metadata operation: %v", err)
 	}
-	if count != 0 {
-		t.Fatalf("standalone metadata operation count = %d, want 0", count)
+	if visible != 0 {
+		t.Fatalf("upload-triggered metadata operation visible = %d, want hidden", visible)
+	}
+	var progressTotal int64
+	var uploadChildren int
+	if err := client.store.DB.QueryRow(`SELECT progress_total FROM background_operations WHERE id = ?`, operation.ID).Scan(&progressTotal); err != nil {
+		t.Fatalf("inspect upload progress total: %v", err)
+	}
+	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_tasks WHERE operation_id = ?`, operation.ID).Scan(&uploadChildren); err != nil {
+		t.Fatalf("count upload children: %v", err)
+	}
+	if progressTotal != 63 || uploadChildren != 0 {
+		t.Fatalf("upload accounting after metadata registration = total %d children %d, want 63 and 0", progressTotal, uploadChildren)
 	}
 }
 
@@ -211,5 +223,25 @@ func TestMediaMetadataRegistrationTasksUseParentOperation(t *testing.T) {
 	}
 	if task.InputKey != mediaMetadataRegistrationInputKey || !task.CoalescePendingEquivalent {
 		t.Fatalf("parent-bound registration produced unexpected wake: %#v", task)
+	}
+}
+
+func TestMediaMetadataRegistrationTasksForProducerOperationUsesHiddenSweep(t *testing.T) {
+	tasks, err := mediaMetadataRegistrationTasksForProducerOperation(true, " upload-op ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("producer registration produced %d tasks, want one", len(tasks))
+	}
+	task := tasks[0]
+	if task.OperationID != "" {
+		t.Fatalf("producer registration bound metadata wake to producer %q", task.OperationID)
+	}
+	if task.Operation == nil || task.Operation.Kind != BackgroundMediaMetadataSweepOperationKind || task.Operation.Visible {
+		t.Fatalf("producer registration produced unexpected hidden operation: %#v", task.Operation)
+	}
+	if task.OperationBinding != BackgroundOperationReuseActive || task.InputKey != mediaMetadataRegistrationInputKey || !task.CoalescePendingEquivalent {
+		t.Fatalf("producer registration produced unexpected wake: %#v", task)
 	}
 }
