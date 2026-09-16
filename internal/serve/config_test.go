@@ -40,9 +40,6 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Server.FrontendDir == "" {
 		t.Fatal("server.frontend_dir should point at the static frontend build by default")
 	}
-	if cfg.Uploads.ConflictPolicy != "rename" {
-		t.Fatalf("unexpected upload conflict policy default %q", cfg.Uploads.ConflictPolicy)
-	}
 	if !cfg.Uploads.PreserveModTime {
 		t.Fatal("uploads.preserve_modtime should default true")
 	}
@@ -250,15 +247,6 @@ func TestLoadConfigNormalizesUploadTargets(t *testing.T) {
 	target := cfg.Uploads.Targets[0]
 	if target.ID != "default" || target.Name != "Default" || target.Path != strings.TrimSpace(target.Path) {
 		t.Fatalf("upload target was not normalized: %+v", target)
-	}
-}
-
-func TestLoadConfigRejectsInvalidUploadConflictPolicy(t *testing.T) {
-	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
-	cfg.Uploads.ConflictPolicy = "overwrite"
-	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "uploads.conflict_policy") {
-		t.Fatalf("expected upload conflict policy validation error, got %v", err)
 	}
 }
 

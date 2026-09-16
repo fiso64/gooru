@@ -103,7 +103,7 @@ Endpoints that offer durable asynchronous execution document `Prefer: respond-as
 *   `PUT /api/v1/saved-searches/{id}`: Replaces a saved search owned by the current user.
 *   `DELETE /api/v1/saved-searches/{id}`: Deletes a saved search owned by the current user.
 *   `GET /api/v1/upload-targets`: Lists configured upload target IDs and names without exposing filesystem paths.
-*   `POST /api/v1/uploads`: Uploads files into a configured upload target and imports them. Multipart requests use `target_id`, `files`, and optional initial `tags`; same-name conflicts follow the server-side `uploads.conflict_policy`.
+*   `POST /api/v1/uploads`: Uploads files into a configured upload target and imports them. Multipart requests use `target_id`, `files`, and optional initial `tags`; same-name conflicts are renamed by default, and API callers may request `conflict_policy=error` to reject a path collision.
 
 #### Durable Operations
 

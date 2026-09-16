@@ -47,7 +47,7 @@ func TestActivateDurableUploadDestinationDropsStaleMarkerOnConflictingReplay(t *
 		t.Fatal(err)
 	}
 
-	if _, err := activateSavedDurableUploads(saved); !errors.Is(err, errUploadConflict) {
+	if err := activateSavedDurableUploads(saved); !errors.Is(err, errUploadConflict) {
 		t.Fatalf("activation error = %v, want upload conflict", err)
 	}
 	if _, err := os.Stat(markerPath); !errors.Is(err, os.ErrNotExist) {
@@ -73,7 +73,7 @@ func TestCleanupCanceledClaimedUploadPropagatesRemovalFailure(t *testing.T) {
 	}
 	files := []savedUpload{{name: "blocked-stage", path: stagedPath, destinationPath: stagedPath, targetID: "default"}}
 
-	err := cleanupCanceledClaimedUpload(files, nil)
+	err := cleanupCanceledClaimedUpload(files)
 	if err == nil {
 		t.Fatal("cleanup unexpectedly succeeded while staged path was non-empty")
 	}

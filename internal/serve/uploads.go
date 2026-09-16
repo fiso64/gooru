@@ -129,28 +129,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusRequestEntityTooLarge, "payload_too_large", fileErr.Error(), uploadErrorDetails(fileErr))
 		return
 	}
-	activated, err := activateSavedReplacements(saved)
-	if err != nil {
-		removeSavedUploads(saved)
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to import uploaded files", nil)
-		return
-	}
 	response, err := importer.ImportUploadedFiles(r.Context(), stagedUploads(saved), tags)
 	if err != nil {
-		rollbackErr := rollbackSavedReplacements(activated)
 		removeSavedUploads(saved)
-		if rollbackErr != nil {
-			err = fmt.Errorf("%w; replacement rollback failed: %v", err, rollbackErr)
-		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			writeError(w, http.StatusRequestTimeout, "request_canceled", "request was canceled", nil)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to import uploaded files", nil)
-		return
-	}
-	if err := settleSavedReplacements(activated, response); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal_error", "failed to finalize uploaded files", nil)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -188,7 +174,6 @@ type savedUpload struct {
 	targetID        string
 	status          string
 	error           string
-	replace         bool
 	sourceModTime   time.Time
 	addedAt         time.Time
 	conflictPolicy  string
@@ -244,25 +229,14 @@ func uploadAddedAtStrategy(requested string, fallback string) (string, error) {
 	}
 }
 
-func uploadConflictPolicy(requested string, fallback string) (string, error) {
-	requested = strings.TrimSpace(requested)
-	if requested != "" {
-		switch requested {
-		case "skip", "rename", "replace":
-			return requested, nil
-		default:
-			return "", errors.New("conflict_policy must be one of: skip, rename, replace")
-		}
-	}
-	fallback = strings.TrimSpace(fallback)
-	if fallback == "" {
+func uploadConflictPolicy(requested string) (string, error) {
+	switch strings.TrimSpace(requested) {
+	case "", "rename":
 		return "rename", nil
-	}
-	switch fallback {
-	case "skip", "rename", "replace", "error":
-		return fallback, nil
+	case "error":
+		return "error", nil
 	default:
-		return "", errors.New("configured uploads.conflict_policy is invalid")
+		return "", errors.New("conflict_policy must be one of: rename, error")
 	}
 }
 
@@ -290,7 +264,7 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: fileErr}
 		}
-		dst, path, tmpPath, skipped, err := createUploadDestination(target.Path, name, conflictPolicy)
+		dst, path, tmpPath, err := createUploadDestination(target.Path, name, conflictPolicy)
 		if err != nil {
 			_ = src.Close()
 			if len(files) > 1 && errors.Is(err, errUploadConflict) {
@@ -299,11 +273,6 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 			}
 			removeSavedUploads(saved)
 			return nil, uploadFileError{name: name, err: err}
-		}
-		if skipped {
-			_ = src.Close()
-			saved = append(saved, savedUpload{name: name, path: path, destinationPath: path, size: header.Size, targetID: target.ID, status: "skipped"})
-			continue
 		}
 		size, copyErr := s.persistUploadedFile(dst, src)
 		closeErr := dst.Close()
@@ -319,17 +288,6 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 				return nil, uploadFileError{name: name, err: copyErr}
 			}
 			return nil, uploadFileError{name: name, err: fmt.Errorf("failed to write uploaded file")}
-		}
-		if conflictPolicy == "replace" {
-			saved = append(saved, savedUpload{
-				name:            filepath.Base(path),
-				path:            tmpPath,
-				destinationPath: path,
-				size:            size,
-				targetID:        target.ID,
-				replace:         true,
-			})
-			continue
 		}
 		if err := commitUploadDestinationWithOwnership(tmpPath, path); err != nil {
 			_ = os.Remove(tmpPath)
@@ -348,10 +306,6 @@ func (s *Server) saveUploadedFiles(target UploadTarget, files []*multipart.FileH
 func removeSavedUploads(files []savedUpload) {
 	for _, file := range files {
 		if file.status == "skipped" || file.status == "error" {
-			continue
-		}
-		if file.replace {
-			_ = os.Remove(file.path)
 			continue
 		}
 		if file.ownershipPath == "" {
@@ -375,61 +329,6 @@ func releaseSavedUploadOwnership(files []savedUpload) {
 	}
 }
 
-type activatedReplacement struct {
-	finalPath            string
-	backupPath           string
-	noOriginalMarkerPath string
-	hadOriginal          bool
-}
-
-type activatedSavedReplacement struct {
-	index       int
-	replacement activatedReplacement
-}
-
-func activateSavedReplacements(files []savedUpload) ([]activatedSavedReplacement, error) {
-	activated := make([]activatedSavedReplacement, 0)
-	for i, file := range files {
-		if !file.replace {
-			continue
-		}
-		replacement, err := activateReplacement(file.path, file.destinationPath)
-		if err != nil {
-			rollbackErr := rollbackSavedReplacements(activated)
-			if rollbackErr != nil {
-				return nil, fmt.Errorf("%w; replacement rollback failed: %v", err, rollbackErr)
-			}
-			return nil, err
-		}
-		activated = append(activated, activatedSavedReplacement{index: i, replacement: replacement})
-	}
-	return activated, nil
-}
-
-func settleSavedReplacements(activated []activatedSavedReplacement, response UploadImportResponse) error {
-	var errs []error
-	for _, item := range activated {
-		if item.index < len(response.Files) && response.Files[item.index].Status == "imported" {
-			commitReplacement(item.replacement)
-			continue
-		}
-		if err := rollbackReplacement(item.replacement); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
-}
-
-func rollbackSavedReplacements(activated []activatedSavedReplacement) error {
-	var errs []error
-	for i := len(activated) - 1; i >= 0; i-- {
-		if err := rollbackReplacement(activated[i].replacement); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	return errors.Join(errs...)
-}
-
 func safeUploadName(name string) (string, error) {
 	name = strings.TrimSpace(strings.ReplaceAll(name, "\\", "/"))
 	name = filepath.Base(name)
@@ -442,7 +341,7 @@ func safeUploadName(name string) (string, error) {
 	return name, nil
 }
 
-func createUploadDestination(dir string, name string, conflictPolicy string) (*os.File, string, string, bool, error) {
+func createUploadDestination(dir string, name string, conflictPolicy string) (*os.File, string, string, error) {
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(filepath.Base(name), ext)
 	if base == "" {
@@ -455,29 +354,20 @@ func createUploadDestination(dir string, name string, conflictPolicy string) (*o
 		}
 		path := filepath.Join(dir, candidate)
 		if _, err := os.Stat(path); err == nil {
-			switch conflictPolicy {
-			case "skip":
-				return nil, path, "", true, nil
-			case "error":
-				return nil, "", "", false, errUploadConflict
-			case "replace":
-				file, err := os.CreateTemp(dir, "."+candidate+".tmp-*")
-				if err != nil {
-					return nil, "", "", false, fmt.Errorf("failed to create uploaded file")
-				}
-				return file, path, file.Name(), false, nil
+			if conflictPolicy == "error" {
+				return nil, "", "", errUploadConflict
 			}
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return nil, "", "", false, fmt.Errorf("failed to create uploaded file")
+			return nil, "", "", fmt.Errorf("failed to create uploaded file")
 		}
 		file, err := os.CreateTemp(dir, "."+candidate+".tmp-*")
 		if err != nil {
-			return nil, "", "", false, fmt.Errorf("failed to create uploaded file")
+			return nil, "", "", fmt.Errorf("failed to create uploaded file")
 		}
-		return file, path, file.Name(), false, nil
+		return file, path, file.Name(), nil
 	}
-	return nil, "", "", false, errors.New("could not choose a non-conflicting upload filename")
+	return nil, "", "", errors.New("could not choose a non-conflicting upload filename")
 }
 
 func commitUploadDestination(tmpPath string, finalPath string) error {
@@ -499,136 +389,6 @@ func commitUploadDestinationWithOwnership(tmpPath string, finalPath string) erro
 		return fmt.Errorf("failed to store uploaded file")
 	}
 	return nil
-}
-
-func activateReplacement(stagedPath string, finalPath string) (activatedReplacement, error) {
-	if stagedPath == "" || finalPath == "" || stagedPath == finalPath {
-		return activatedReplacement{}, errors.New("invalid staged replacement")
-	}
-	replacement := activatedReplacement{
-		finalPath:            finalPath,
-		backupPath:           stagedPath + ".backup",
-		noOriginalMarkerPath: stagedPath + ".no-original",
-	}
-	stagedExists, err := replacementPathExists(stagedPath)
-	if err != nil {
-		return activatedReplacement{}, fmt.Errorf("failed to inspect staged replacement")
-	}
-	finalExists, err := replacementPathExists(finalPath)
-	if err != nil {
-		return activatedReplacement{}, fmt.Errorf("failed to inspect existing file before replacement")
-	}
-	backupExists, err := replacementPathExists(replacement.backupPath)
-	if err != nil {
-		return activatedReplacement{}, fmt.Errorf("failed to inspect preserved file before replacement")
-	}
-	markerExists, err := replacementPathExists(replacement.noOriginalMarkerPath)
-	if err != nil {
-		return activatedReplacement{}, fmt.Errorf("failed to inspect replacement state marker")
-	}
-	if backupExists && markerExists {
-		return activatedReplacement{}, errors.New("inconsistent staged replacement state")
-	}
-	if backupExists {
-		replacement.hadOriginal = true
-		return resumeReplacementActivation(replacement, stagedPath, stagedExists, finalExists)
-	}
-	if markerExists {
-		return resumeReplacementActivation(replacement, stagedPath, stagedExists, finalExists)
-	}
-	if !stagedExists {
-		return activatedReplacement{}, errors.New("staged replacement is missing")
-	}
-	if finalExists {
-		if err := os.Rename(finalPath, replacement.backupPath); err != nil {
-			return activatedReplacement{}, fmt.Errorf("failed to preserve existing file before replacement")
-		}
-		replacement.hadOriginal = true
-	} else if err := createReplacementStateMarker(replacement.noOriginalMarkerPath); err != nil {
-		return activatedReplacement{}, fmt.Errorf("failed to record replacement state")
-	}
-	if err := os.Rename(stagedPath, finalPath); err != nil {
-		if replacement.hadOriginal {
-			_ = os.Rename(replacement.backupPath, finalPath)
-		} else {
-			_ = os.Remove(replacement.noOriginalMarkerPath)
-		}
-		return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
-	}
-	return replacement, nil
-}
-
-func resumeReplacementActivation(replacement activatedReplacement, stagedPath string, stagedExists, finalExists bool) (activatedReplacement, error) {
-	switch {
-	case stagedExists && !finalExists:
-		if err := os.Rename(stagedPath, replacement.finalPath); err != nil {
-			return activatedReplacement{}, fmt.Errorf("failed to store uploaded replacement")
-		}
-		return replacement, nil
-	case !stagedExists && finalExists:
-		return replacement, nil
-	default:
-		return activatedReplacement{}, errors.New("inconsistent staged replacement state")
-	}
-}
-
-func createReplacementStateMarker(path string) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err != nil {
-		return err
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return err
-	}
-	return nil
-}
-
-func replacementPathExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	return false, err
-}
-
-func rollbackReplacement(replacement activatedReplacement) error {
-	if replacement.hadOriginal {
-		backupExists, err := replacementPathExists(replacement.backupPath)
-		if err != nil {
-			return fmt.Errorf("failed to inspect preserved original before replacement rollback")
-		}
-		if !backupExists {
-			finalExists, err := replacementPathExists(replacement.finalPath)
-			if err != nil {
-				return fmt.Errorf("failed to inspect replacement rollback state")
-			}
-			if finalExists {
-				return nil
-			}
-			return fmt.Errorf("failed to restore original file after replacement failure")
-		}
-	}
-	if err := os.Remove(replacement.finalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("failed to remove rejected replacement")
-	}
-	if replacement.hadOriginal {
-		if err := os.Rename(replacement.backupPath, replacement.finalPath); err != nil {
-			return fmt.Errorf("failed to restore original file after replacement failure")
-		}
-	} else {
-		_ = os.Remove(replacement.backupPath)
-		_ = os.Remove(replacement.noOriginalMarkerPath)
-	}
-	return nil
-}
-
-func commitReplacement(replacement activatedReplacement) {
-	_ = os.Remove(replacement.backupPath)
-	_ = os.Remove(replacement.noOriginalMarkerPath)
 }
 
 func copyUpload(dst io.Writer, src io.Reader, maxSize int64) (int64, error) {
@@ -737,9 +497,6 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 	out := make([]StagedUpload, 0, len(files))
 	for _, file := range files {
 		path := file.path
-		if file.replace {
-			path = file.destinationPath
-		}
 		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, Tags: cloneUploadTags(file.tags), OwnershipPath: file.ownershipPath})
 	}
 	return out
@@ -751,7 +508,7 @@ type protectedUploadMove struct {
 }
 
 func (l *GooruLibrary) ImportUploadedFiles(ctx context.Context, files []StagedUpload, tags []string) (UploadImportResponse, error) {
-	return l.importUploadedFiles(ctx, files, tags, backgroundUploadImportState{}, nil)
+	return l.importUploadedFiles(ctx, files, tags, backgroundUploadImportState{})
 }
 
 func (l *GooruLibrary) setBackgroundUploadImportCheckpoint(state backgroundUploadImportState, checkpoint backgroundUploadCheckpoint) error {
@@ -812,7 +569,7 @@ func (l *GooruLibrary) populateUploadFileIDs(response *UploadImportResponse, fil
 	return nil
 }
 
-func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUpload, tags []string, state backgroundUploadImportState, activated []activatedSavedReplacement) (UploadImportResponse, error) {
+func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUpload, tags []string, state backgroundUploadImportState) (UploadImportResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return UploadImportResponse{}, err
 	}
@@ -832,7 +589,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 		if (state.operationID == "" && state.taskID == "") || !shouldPersistUploadProgress(completed, len(files)) {
 			return nil
 		}
-		return l.setBackgroundUploadImportCheckpoint(state, backgroundUploadActivatedCheckpoint(activated, len(files), completed, completedPrefix))
+		return l.setBackgroundUploadImportCheckpoint(state, backgroundUploadActivatedCheckpoint(len(files), completed, completedPrefix))
 	})
 	if analysisErr != nil {
 		return UploadImportResponse{}, analysisErr
@@ -966,7 +723,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	} else {
 		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(importLocations, tagsByHash, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
 			response.AffectedCount = affectedCount
-			checkpoint := backgroundUploadImportedCheckpoint(activated, response)
+			checkpoint := backgroundUploadImportedCheckpoint(response)
 			return core.BackgroundOperationTransactionState{OperationID: state.operationID, TaskID: state.taskID, Checkpoint: checkpoint, Result: response}, nil
 		}, progress)
 	}

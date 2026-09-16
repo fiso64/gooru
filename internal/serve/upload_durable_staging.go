@@ -216,7 +216,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 		queueTotal := parseUploadOrdinal(queueTotalValues, i, len(streamed))
 		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)
 	}
-	conflictPolicy, err := uploadConflictPolicy(conflictRequested, s.cfg.Uploads.ConflictPolicy)
+	conflictPolicy, err := uploadConflictPolicy(conflictRequested)
 	if err != nil {
 		return nil, saved, multipartUploadError{message: err.Error(), err: err}
 	}
@@ -243,7 +243,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 			saved = append(saved, savedUpload{name: file.name, size: file.size, targetID: target.ID, status: "error", error: file.error})
 			continue
 		}
-		path, skipped, replace, destinationErr := chooseDurableUploadDestination(target.Path, file.name, conflictPolicy, reserved)
+		path, destinationErr := chooseDurableUploadDestination(target.Path, file.name, conflictPolicy, reserved)
 		if destinationErr != nil {
 			if errors.Is(destinationErr, errUploadConflict) {
 				_ = os.Remove(file.path)
@@ -252,12 +252,6 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 				continue
 			}
 			return nil, saved, uploadFileError{name: file.name, err: destinationErr}
-		}
-		if skipped {
-			_ = os.Remove(file.path)
-			file.path = ""
-			saved = append(saved, savedUpload{name: file.name, path: path, destinationPath: path, size: file.size, targetID: target.ID, status: "skipped", sourceModTime: file.sourceModTime})
-			continue
 		}
 		stagedPath, moveErr := moveStreamedUploadIntoDir(file.path, targetDir, file.name)
 		if moveErr != nil {
@@ -268,7 +262,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 			return nil, saved, uploadFileError{name: file.name, err: err}
 		}
 		file.path = ""
-		saved = append(saved, savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, replace: replace, sourceModTime: file.sourceModTime, addedAt: file.addedAt, conflictPolicy: conflictPolicy})
+		saved = append(saved, savedUpload{name: filepath.Base(path), path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, addedAt: file.addedAt, conflictPolicy: conflictPolicy})
 		reserved[path] = struct{}{}
 	}
 	if err := attachUploadItemTags(saved, itemTagValues); err != nil {
@@ -293,7 +287,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 	return parsedTags, saved, nil
 }
 
-func chooseDurableUploadDestination(dir, name, conflictPolicy string, reserved map[string]struct{}) (path string, skipped bool, replace bool, err error) {
+func chooseDurableUploadDestination(dir, name, conflictPolicy string, reserved map[string]struct{}) (string, error) {
 	ext := filepath.Ext(name)
 	base := name[:len(name)-len(ext)]
 	if base == "" {
@@ -304,25 +298,19 @@ func chooseDurableUploadDestination(dir, name, conflictPolicy string, reserved m
 		if i > 0 {
 			candidate = fmt.Sprintf("%s-%d%s", base, i, ext)
 		}
-		path = filepath.Join(dir, candidate)
+		path := filepath.Join(dir, candidate)
 		_, planned := reserved[path]
 		_, statErr := os.Stat(path)
-		exists := statErr == nil || planned
-		if exists {
-			switch conflictPolicy {
-			case "skip":
-				return path, true, false, nil
-			case "error":
-				return "", false, false, errUploadConflict
-			case "replace":
-				return path, false, true, nil
+		if statErr == nil || planned {
+			if conflictPolicy == "error" {
+				return "", errUploadConflict
 			}
 			continue
 		}
 		if errors.Is(statErr, os.ErrNotExist) {
-			return path, false, false, nil
+			return path, nil
 		}
-		return "", false, false, errors.New("failed to inspect upload destination")
+		return "", errors.New("failed to inspect upload destination")
 	}
-	return "", false, false, errors.New("could not choose a non-conflicting upload filename")
+	return "", errors.New("could not choose a non-conflicting upload filename")
 }

@@ -18,10 +18,9 @@ func TestBackgroundUploadTaskRoundTripsStagedExecutionState(t *testing.T) {
 			destinationPath: "/uploads/replace.png",
 			size:            123,
 			targetID:        "default",
-			replace:         true,
 			sourceModTime:   sourceModTime,
 			addedAt:         addedAt,
-			conflictPolicy:  "replace",
+			conflictPolicy:  "rename",
 		},
 		{
 			name:     "bad.png",
@@ -117,12 +116,12 @@ func TestBackgroundUploadTaskAcceptsMoreThanOneThousandFiles(t *testing.T) {
 }
 
 func TestBackgroundUploadCheckpointCarriesFileProgress(t *testing.T) {
-	checkpoint := backgroundUploadActivatedCheckpoint(nil, 1000, 420, 417)
+	checkpoint := backgroundUploadActivatedCheckpoint(1000, 420, 417)
 	if checkpoint.FileTotal != 1000 || checkpoint.FilesCompleted != 420 || checkpoint.FilesCompletedPrefix != 417 {
 		t.Fatalf("checkpoint progress = %+v", checkpoint)
 	}
 	response := UploadImportResponse{Files: make([]UploadedFileDTO, 1000)}
-	checkpoint = backgroundUploadImportedCheckpoint(nil, response)
+	checkpoint = backgroundUploadImportedCheckpoint(response)
 	if checkpoint.FileTotal != 1000 || checkpoint.FilesCompleted != 1000 || checkpoint.FilesCompletedPrefix != 1000 {
 		t.Fatalf("terminal checkpoint progress = %+v", checkpoint)
 	}

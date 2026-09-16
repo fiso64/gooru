@@ -66,9 +66,8 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 | `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, `path`, and optional `added_at_strategy`. |
 | `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
 | `uploads.preserve_modtime` | `true` | Preserve each browser-uploaded file's source modification timestamp on the stored destination. Source timestamps are still carried through upload processing when disabled. |
-| `uploads.conflict_policy` | `rename` | Default same-name behavior: `skip`, `rename`, `replace`, or `error`. |
 
-Upload throughput concurrency is not currently configurable through YAML or a `serve` flag. The upload worker keeps mutation/replacement/protected-storage transitions serialized for correctness, while the safe per-file analysis/read/hash/status stage uses an internal bounded pool of four workers.
+Upload throughput concurrency is not currently configurable through YAML or a `serve` flag. The upload worker keeps mutation/protected-storage transitions serialized for correctness, while the safe per-file analysis/read/hash/status stage uses an internal bounded pool of four workers.
 
 Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `added_at_strategy`. The strategy defaults to `queue` and accepts `queue`, `reverse_queue`, or `modtime`.
 
@@ -80,7 +79,7 @@ Each entry in `uploads.targets` supports `id`, `name`, `path`, and optional `add
 | `added_at_strategy` | Optional default for library-added ordering: `queue` (default), `reverse_queue`, or `modtime`. An upload request may override the target default. |
 | `default_tags` | Optional list of tags used to pre-populate the Upload tab when this destination is selected. Defaults are additive tags only; removal/exclusion syntax is invalid. These values remain visible and editable before upload. |
 
-Upload targets must not overlap Gooru-owned application paths. Startup rejects a target that contains, is contained by, or resolves through symlinks onto the configured database, encryption key file, media cache, frontend directory, or an explicitly configured absolute ffmpeg/ffprobe executable path. Keep application state and executables outside directories that Gooru is allowed to upload into, replace within, or delete from.
+Upload targets must not overlap Gooru-owned application paths. Startup rejects a target that contains, is contained by, or resolves through symlinks onto the configured database, encryption key file, media cache, frontend directory, or an explicitly configured absolute ffmpeg/ffprobe executable path. Keep application state and executables outside directories that Gooru is allowed to upload into or delete from.
 
 Example:
 
@@ -97,7 +96,6 @@ uploads:
         - source:upload
   max_file_size_bytes: 104857600
   preserve_modtime: true
-  conflict_policy: skip
 ```
 
 ## `media`
@@ -187,8 +185,6 @@ uploads:
       added_at_strategy: queue
   max_file_size_bytes: 104857600
   preserve_modtime: true
-  conflict_policy: skip
-
 media:
   cache_dir: /srv/gooru/cache/media
   thumbnail_sizes: [256, 512]

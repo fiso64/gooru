@@ -1259,7 +1259,7 @@ export interface paths {
                          * @default skip
                          * @enum {string}
                          */
-                        conflict_policy?: "skip" | "rename" | "replace";
+                        conflict_policy?: "rename" | "error";
                         /** @description Space- or comma-separated fallback initial tags applied to files that do not provide item_tags. */
                         tags?: string;
                         /** @description Per-file initial tag strings aligned with files. Each entry accepts space- or comma-separated tags; an explicit empty entry means no tags for that file and suppresses fallback tags. Omit item_tags entirely to apply fallback tags to every file. */

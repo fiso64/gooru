@@ -10,10 +10,10 @@ import (
 const durableUploadActivatedMarkerSuffix = ".activated"
 
 func durableUploadNeedsActivation(file savedUpload) bool {
-	return !file.replace && file.status != "error" && file.status != "skipped" && file.destinationPath != "" && filepath.Clean(file.path) != filepath.Clean(file.destinationPath)
+	return file.status != "error" && file.status != "skipped" && file.destinationPath != "" && filepath.Clean(file.path) != filepath.Clean(file.destinationPath)
 }
 
-func activateSavedDurableUploads(files []savedUpload) ([]activatedSavedReplacement, error) {
+func activateSavedDurableUploads(files []savedUpload) error {
 	for _, file := range files {
 		if !durableUploadNeedsActivation(file) {
 			continue
@@ -21,46 +21,21 @@ func activateSavedDurableUploads(files []savedUpload) ([]activatedSavedReplaceme
 		if err := activateDurableUploadDestination(file.path, file.destinationPath); err != nil {
 			rollbackErr := restoreDurableNonreplacementActivations(files)
 			if rollbackErr != nil {
-				return nil, uploadFileError{name: file.name, err: fmt.Errorf("%w; durable activation rollback failed: %v", err, rollbackErr)}
+				return uploadFileError{name: file.name, err: fmt.Errorf("%w; durable activation rollback failed: %v", err, rollbackErr)}
 			}
-			return nil, uploadFileError{name: file.name, err: err}
+			return uploadFileError{name: file.name, err: err}
 		}
-	}
-
-	activated, err := activateSavedDurableReplacements(files)
-	if err != nil {
-		rollbackErr := restoreDurableNonreplacementActivations(files)
-		if rollbackErr != nil {
-			return nil, fmt.Errorf("%w; durable activation rollback failed: %v", err, rollbackErr)
-		}
-		return nil, err
 	}
 	if err := finalizeDurableNonreplacementActivations(files); err != nil {
-		replacementRollbackErr := rollbackDurableSavedReplacements(files, activated)
-		durableRollbackErr := restoreDurableNonreplacementActivations(files)
-		if replacementRollbackErr != nil || durableRollbackErr != nil {
-			return nil, errors.Join(
-				fmt.Errorf("finalize durable upload activation: %w", err),
-				wrapOptionalError("replacement rollback failed", replacementRollbackErr),
-				wrapOptionalError("durable activation rollback failed", durableRollbackErr),
-			)
+		rollbackErr := restoreDurableNonreplacementActivations(files)
+		if rollbackErr != nil {
+			return errors.Join(fmt.Errorf("finalize durable upload activation: %w", err), fmt.Errorf("durable activation rollback failed: %w", rollbackErr))
 		}
-		return nil, fmt.Errorf("finalize durable upload activation: %w", err)
+		return fmt.Errorf("finalize durable upload activation: %w", err)
 	}
-	return activated, nil
+	return nil
 }
 
-func wrapOptionalError(message string, err error) error {
-	if err == nil {
-		return nil
-	}
-	return fmt.Errorf("%s: %w", message, err)
-}
-
-// activateDurableUploadDestination prepares a non-replacement destination but
-// deliberately keeps the staged path until the whole activation batch has
-// succeeded. The marker is a hard link to the upload data, so later recovery
-// can prove ownership even if a crash happens after the staged link is removed.
 func activateDurableUploadDestination(stagedPath, destinationPath string) error {
 	markerPath := stagedPath + durableUploadActivatedMarkerSuffix
 	markerExists, err := durableUploadPathExists(markerPath)
@@ -315,7 +290,7 @@ func settleDurableNonreplacementActivations(files []savedUpload) error {
 	if failures > 0 {
 		result = fmt.Errorf("settle %d durable upload activation artifacts", failures)
 	}
-	return errors.Join(result, settleDurableReplacementRecoveryMarkers(files))
+	return result
 }
 
 func durableStagedUploads(files []savedUpload) []StagedUpload {

@@ -194,7 +194,7 @@ func TestRunBackgroundUploadTaskEnrichesImportedCheckpointBeforePublishingResult
 	response := UploadImportResponse{Files: []UploadedFileDTO{{Name: "already-rejected.jpg", Size: 12, TargetID: "default", Status: "error", Error: "rejected"}}}
 	importer := &uploadIdentityReplayImporter{}
 	store := &recordingUploadWorkerStore{
-		checkpoint:      backgroundUploadImportedCheckpoint(nil, response),
+		checkpoint:      backgroundUploadImportedCheckpoint(response),
 		found:           true,
 		operationStatus: core.BackgroundWorkRunning,
 	}
