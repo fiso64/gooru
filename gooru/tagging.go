@@ -677,14 +677,39 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 		return 0, nil, err
 	}
 
-	// 4. Build registration-hook work and persist it together with any caller-owned
+	// 4. Producer-owned operations (notably a browser upload spanning many chunk
+	// transactions) are part of the registration event. Build their checkpoint
+	// once here so hook-created work can inherit the same lifetime, then reuse the
+	// exact state when persisting the producer checkpoint below. Task-scoped state
+	// intentionally omits OperationID so a segment cannot overwrite its aggregate
+	// operation result; recover that task's parent solely for child-work binding.
+	operationID := ""
+	effectiveStateBuilder := stateBuilder
+	if stateBuilder != nil {
+		state, err := stateBuilder(int(affectedCount))
+		if err != nil {
+			return 0, nil, fmt.Errorf("build background operation transaction state: %w", err)
+		}
+		operationID = state.OperationID
+		if operationID == "" && state.TaskID != "" {
+			operationID, err = backgroundTaskOperationIDInTx(tx, state.TaskID)
+			if err != nil {
+				return 0, nil, fmt.Errorf("resolve background task parent operation: %w", err)
+			}
+		}
+		effectiveStateBuilder = func(int) (BackgroundOperationTransactionState, error) {
+			return state, nil
+		}
+	}
+
+	// Build registration-hook work and persist it together with any caller-owned
 	// durable follow-up work in the same transaction as content registration.
-	hookTasks, err := c.fileRegistrationBackgroundTasksForChangedLocations(registrationHashes, "")
+	hookTasks, err := c.fileRegistrationBackgroundTasksForChangedLocations(registrationHashes, operationID)
 	if err != nil {
 		return 0, nil, fmt.Errorf("build file registration background tasks: %w", err)
 	}
 	tasks = append(tasks, hookTasks...)
-	operationChanged, err = c.persistTaggingFollowUpTrackedInTx(tx, tasks, stateBuilder, affectedCount)
+	operationChanged, err = c.persistTaggingFollowUpTrackedInTx(tx, tasks, effectiveStateBuilder, affectedCount)
 	if err != nil {
 		return 0, nil, err
 	}
