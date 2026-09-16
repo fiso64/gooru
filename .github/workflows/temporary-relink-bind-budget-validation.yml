@@ -7,10 +7,35 @@ on:
     paths:
       - .github/workflows/temporary-relink-bind-budget-validation.yml
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
-      - name: Run relink bind-budget regression
-        run: go test ./internal/database -run '^TestApplyRelinkAdditionsTxRespectsVariableBudget$' -count=1
+        with:
+          fetch-depth: 0
+      - name: Apply narrow fix and validate database package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          old = "\tvar locationsAdded int\n\tconst batchSize = 250\n"
+          new = "\tvar locationsAdded int\n\tconst columns = 5 // content_hash, path, size_bytes, mod_time, extension\n\tbatchSize := maxVars / columns\n"
+          if text.count(old) != 1:
+              raise SystemExit(f'unexpected relink batch block count: {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          go test ./internal/database -run '^TestApplyRelinkAdditionsTxRespectsVariableBudget$' -count=1
+          go test ./internal/database -count=1
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add internal/database/database.go
+          git rm .github/workflows/temporary-relink-bind-budget-validation.yml
+          git commit -m 'fix: bound relink addition batches'
+          git push origin HEAD:maintainer/549-relink-addition-bind-budget
