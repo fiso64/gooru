@@ -284,16 +284,8 @@ func (c *Client) applyBackgroundTagMutationQueryInTx(
 			if err != nil {
 				return 0, err
 			}
-			for _, tagID := range tagIDs {
-				insertArgs := make([]interface{}, 0, len(args)+1)
-				insertArgs = append(insertArgs, tagID)
-				insertArgs = append(insertArgs, args...)
-				if _, err := tx.Exec(
-					`INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM (`+sqlQuery+`)`,
-					insertArgs...,
-				); err != nil {
-					return 0, fmt.Errorf("associate snapshotted replacement tags: %w", err)
-				}
+			if _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs); err != nil {
+				return 0, fmt.Errorf("associate snapshotted replacement tags: %w", err)
 			}
 		}
 		return matchedFiles, nil
