@@ -1,0 +1,224 @@
+name: temporary 549 batch disassociate tags
+
+on:
+  push:
+    branches:
+      - maintainer/549-batch-disassociate-tags-query
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-commit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Add regression and prove it red
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > internal/database/batch_disassociate_tags_test.go <<'EOF'
+          package database
+
+          import (
+          	"database/sql"
+          	"fmt"
+          	"strings"
+          	"testing"
+
+          	"gooru.local/types"
+          )
+
+          type tagDisassociationExecCountingQuerier struct {
+          	Querier
+          	disassociationExecs int
+          	maxExecArgs         int
+          }
+
+          func (q *tagDisassociationExecCountingQuerier) Exec(query string, args ...interface{}) (sql.Result, error) {
+          	if strings.Contains(query, "DELETE FROM content_tags WHERE tag_id IN") {
+          		q.disassociationExecs++
+          		if len(args) > q.maxExecArgs {
+          			q.maxExecArgs = len(args)
+          		}
+          		if len(args) > maxVars {
+          			return nil, fmt.Errorf("tag disassociation used %d bind variables, max %d", len(args), maxVars)
+          		}
+          	}
+          	return q.Querier.Exec(query, args...)
+          }
+
+          func TestBatchDisassociateTagsByContentQueryTxRespectsVariableBudget(t *testing.T) {
+          	store := newMemoryTestStore(t)
+          	if err := store.BatchInsertContents(store.DB, []string{"hash-one", "hash-two"}); err != nil {
+          		t.Fatalf("BatchInsertContents: %v", err)
+          	}
+
+          	const subQueryArgs = 2
+          	tagCount := maxVars - subQueryArgs + 1
+          	parsedTags := make([]types.ParsedTag, tagCount)
+          	for i := range parsedTags {
+          		parsedTags[i] = types.ParsedTag{Key: fmt.Sprintf("remove-%03d", i)}
+          	}
+          	tagIDMap, err := store.BatchGetOrCreateTags(store.DB, parsedTags)
+          	if err != nil {
+          		t.Fatalf("BatchGetOrCreateTags: %v", err)
+          	}
+          	tagIDs := make([]int64, 0, len(parsedTags))
+          	for _, tag := range parsedTags {
+          		tagIDs = append(tagIDs, tagIDMap[parsedTagString(tag)])
+          	}
+
+          	seeded, err := store.BatchAssociateTagsByContentQueryTx(
+          		store.DB,
+          		"SELECT hash FROM contents WHERE hash = ? OR hash = ?",
+          		[]interface{}{"hash-one", "hash-two"},
+          		tagIDs,
+          	)
+          	if err != nil {
+          		t.Fatalf("seed associations: %v", err)
+          	}
+          	if seeded != int64(tagCount*2) {
+          		t.Fatalf("seeded associations = %d, want %d", seeded, tagCount*2)
+          	}
+
+          	counting := &tagDisassociationExecCountingQuerier{Querier: store.DB}
+          	affected, err := store.BatchDisassociateTagsByContentQueryTx(
+          		counting,
+          		"SELECT hash FROM contents WHERE hash = ? OR hash = ?",
+          		[]interface{}{"hash-one", "missing"},
+          		tagIDs,
+          	)
+          	if err != nil {
+          		t.Fatalf("BatchDisassociateTagsByContentQueryTx: %v", err)
+          	}
+          	if counting.disassociationExecs != 2 {
+          		t.Fatalf("tag disassociation Exec calls = %d, want 2 for %d tags plus %d subquery args", counting.disassociationExecs, tagCount, subQueryArgs)
+          	}
+          	if counting.maxExecArgs > maxVars {
+          		t.Fatalf("largest tag disassociation used %d bind variables, max %d", counting.maxExecArgs, maxVars)
+          	}
+          	if affected != int64(tagCount) {
+          		t.Fatalf("affected associations = %d, want %d", affected, tagCount)
+          	}
+
+          	var count int
+          	if err := store.QueryRow(`SELECT COUNT(*) FROM content_tags WHERE content_hash = 'hash-one'`).Scan(&count); err != nil {
+          		t.Fatalf("count removed associations: %v", err)
+          	}
+          	if count != 0 {
+          		t.Fatalf("remaining hash-one associations = %d, want 0", count)
+          	}
+          	if err := store.QueryRow(`SELECT COUNT(*) FROM content_tags WHERE content_hash = 'hash-two'`).Scan(&count); err != nil {
+          		t.Fatalf("count excluded associations: %v", err)
+          	}
+          	if count != tagCount {
+          		t.Fatalf("remaining hash-two associations = %d, want %d", count, tagCount)
+          	}
+          }
+          EOF
+          gofmt -w internal/database/batch_disassociate_tags_test.go
+          set +e
+          go test ./internal/database -run TestBatchDisassociateTagsByContentQueryTxRespectsVariableBudget -count=1 >/tmp/red.log 2>&1
+          status=$?
+          set -e
+          cat /tmp/red.log
+          if [ "$status" -eq 0 ]; then
+            echo "expected regression to fail before implementation" >&2
+            exit 1
+          fi
+          grep -q "tag disassociation used 901 bind variables, max 900" /tmp/red.log
+      - name: Implement bounded disassociation batches
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          old = '''func (s *Store) BatchDisassociateTagsByContentQueryTx(q Querier, subQuery string, args []interface{}, tagIDs []int64) (int64, error) {
+          \tif len(tagIDs) == 0 {
+          \t\treturn 0, nil
+          \t}
+
+          \tplaceholders := strings.Repeat("?,", len(tagIDs)-1) + "?"
+          \tquery := fmt.Sprintf(
+          \t\t"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
+          \t\tplaceholders,
+          \t\tsubQuery,
+          \t)
+
+          \tfinalArgs := make([]interface{}, 0, len(args)+len(tagIDs))
+          \tfor _, id := range tagIDs {
+          \t\tfinalArgs = append(finalArgs, id)
+          \t}
+          \tfinalArgs = append(finalArgs, args...)
+
+          \tres, err := q.Exec(query, finalArgs...)
+          \tif err != nil {
+          \t\treturn 0, err
+          \t}
+          \treturn res.RowsAffected()
+          }
+          '''
+          new = '''func (s *Store) BatchDisassociateTagsByContentQueryTx(q Querier, subQuery string, args []interface{}, tagIDs []int64) (int64, error) {
+          \tif len(tagIDs) == 0 {
+          \t\treturn 0, nil
+          \t}
+
+          \tbatchSize := maxVars - len(args)
+          \tif batchSize <= 0 {
+          \t\treturn 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag disassociation", len(args))
+          \t}
+
+          \tvar totalAffected int64
+          \tfor start := 0; start < len(tagIDs); start += batchSize {
+          \t\tend := start + batchSize
+          \t\tif end > len(tagIDs) {
+          \t\t\tend = len(tagIDs)
+          \t\t}
+          \t\tbatch := tagIDs[start:end]
+
+          \t\tplaceholders := strings.Repeat("?,", len(batch)-1) + "?"
+          \t\tquery := fmt.Sprintf(
+          \t\t\t"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
+          \t\t\tplaceholders,
+          \t\t\tsubQuery,
+          \t\t)
+
+          \t\tfinalArgs := make([]interface{}, 0, len(args)+len(batch))
+          \t\tfor _, id := range batch {
+          \t\t\tfinalArgs = append(finalArgs, id)
+          \t\t}
+          \t\tfinalArgs = append(finalArgs, args...)
+
+          \t\tres, err := q.Exec(query, finalArgs...)
+          \t\tif err != nil {
+          \t\t\treturn 0, err
+          \t\t}
+          \t\taffected, _ := res.RowsAffected()
+          \t\ttotalAffected += affected
+          \t}
+
+          \treturn totalAffected, nil
+          }
+          '''
+          if old not in text:
+              raise SystemExit('target function did not match expected develop source')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          gofmt -w internal/database/database.go internal/database/batch_disassociate_tags_test.go
+          go test ./internal/database -run TestBatchDisassociateTagsByContentQueryTxRespectsVariableBudget -count=1
+          go test ./internal/database -count=1
+      - name: Commit validated change and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/temporary-549-batch-disassociate-tags.yml
+          git config user.name "chatgpt-codex-connector"
+          git config user.email "64778819+fiso64@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: bound query tag disassociation batches"
+          git push origin HEAD:maintainer/549-batch-disassociate-tags-query
