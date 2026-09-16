@@ -294,13 +294,13 @@
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
-  if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-  event.preventDefault();
-  event.stopPropagation();
-  onClose();
-}
+    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  }
 
-function modifiedLabel(value: string) {
+  function modifiedLabel(value: string) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString('en-GB', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });

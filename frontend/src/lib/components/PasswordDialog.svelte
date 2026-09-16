@@ -54,13 +54,13 @@
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
-  if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-  event.preventDefault();
-  event.stopPropagation();
-  close();
-}
+    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+  }
 
-function handleKeydown(event: KeyboardEvent) {
+  function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
       event.preventDefault();
       close();

@@ -197,13 +197,13 @@
   }
 
   function handleBackdropKeydown(event: KeyboardEvent) {
-  if (event.target !== event.currentTarget || event.key !== 'Escape') return;
-  event.preventDefault();
-  event.stopPropagation();
-  onClose();
-}
+    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  }
 
-function handleWindowKeydown(event: KeyboardEvent) {
+  function handleWindowKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event)) return;
 
     if (remoteViewerFile) {
