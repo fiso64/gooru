@@ -2200,16 +2200,30 @@ func (s *Store) BatchAssociateTagsByContentQueryTx(q Querier, subQuery string, a
 		return 0, nil
 	}
 
-	var totalAffected int64
-	for _, tagID := range tagIDs {
-		// We use a subquery to select the hashes and a constant for the tag_id.
-		query := fmt.Sprintf(
-			"INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM (%s)",
-			subQuery,
-		)
+	batchSize := maxVars - len(args)
+	if batchSize <= 0 {
+		return 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag association", len(args))
+	}
 
-		finalArgs := make([]interface{}, 0, len(args)+1)
-		finalArgs = append(finalArgs, tagID)
+	var totalAffected int64
+	for start := 0; start < len(tagIDs); start += batchSize {
+		end := start + batchSize
+		if end > len(tagIDs) {
+			end = len(tagIDs)
+		}
+		batch := tagIDs[start:end]
+
+		placeholders := strings.Repeat("(?),", len(batch)-1) + "(?)"
+		query := fmt.Sprintf(`WITH tag_ids(tag_id) AS (VALUES %s)
+			INSERT OR IGNORE INTO content_tags (content_hash, tag_id)
+			SELECT selected_hashes.hash, tag_ids.tag_id
+			FROM (%s) AS selected_hashes
+			CROSS JOIN tag_ids`, placeholders, subQuery)
+
+		finalArgs := make([]interface{}, 0, len(args)+len(batch))
+		for _, tagID := range batch {
+			finalArgs = append(finalArgs, tagID)
+		}
 		finalArgs = append(finalArgs, args...)
 
 		res, err := q.Exec(query, finalArgs...)
