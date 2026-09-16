@@ -171,15 +171,8 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		fsPaths[path] = logicalMetadata{size: info.Size, modTime: info.ModTime.Unix()}
 	}
 
-	// Now that both fsPaths and dbLocations are looking at the same conceptual set of files,
-	// the comparison logic will be correct.
-
-	// 1. Fast check: If the number of files differs, a scan is definitely needed.
-	if len(dbLocations) != len(fsPaths) {
-		return true, nil
-	}
-
-	// 2. Slower check: Compare metadata for each file the DB expects to be there.
+	// Compare every tracked path first. Missing or changed tracked content always
+	// requires a full relink regardless of unrelated files elsewhere in the scan.
 	for path, dbInfo := range dbLocations {
 		logicalInfo, ok := fsPaths[path]
 		if !ok {
@@ -200,6 +193,25 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 			}
 		} else if logicalInfo.size != dbInfo.Size || logicalInfo.modTime != dbInfo.ModTime {
 			return true, nil // Metadata mismatch.
+		}
+	}
+
+	// The size filter is deliberately broader than the full planner: unrelated
+	// content can share a byte size with known content. Hash only those extra
+	// same-size paths so the pre-check agrees with Relink without paying the
+	// full-scan hashing cost for the common no-extra-files case.
+	for path, logicalInfo := range fsPaths {
+		if _, tracked := dbLocations[path]; tracked {
+			continue
+		}
+		currentHash, err := c.hasher.HashFile(path)
+		if err != nil {
+			return false, fmt.Errorf("hash %q during relink pre-check: %w", path, err)
+		}
+		for _, knownHash := range sizeToHashes[logicalInfo.size] {
+			if currentHash == knownHash {
+				return true, nil
+			}
 		}
 	}
 
