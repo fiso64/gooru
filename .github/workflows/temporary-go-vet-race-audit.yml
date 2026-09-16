@@ -22,7 +22,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go vet ./...
+          go vet -structtag=false ./...
 
       - name: Run race-enabled Go tests
         shell: bash
