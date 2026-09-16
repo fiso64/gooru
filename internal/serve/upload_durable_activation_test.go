@@ -29,8 +29,8 @@ func TestActivateSavedDurableUploadsRollsBackEarlierNonreplacementOnLaterConflic
 	}
 
 	files := []savedUpload{
-		{name: "first.txt", path: firstStaged, destinationPath: firstDestination},
-		{name: "second.txt", path: secondStaged, destinationPath: secondDestination},
+		{name: "first.txt", path: firstStaged, destinationPath: firstDestination, conflictPolicy: "error"},
+		{name: "second.txt", path: secondStaged, destinationPath: secondDestination, conflictPolicy: "error"},
 	}
 	err := activateSavedDurableUploads(files)
 	if !errors.Is(err, errUploadConflict) {

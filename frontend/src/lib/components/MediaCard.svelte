@@ -12,12 +12,13 @@
 
   let {
     file, cardWidth, cardHeight = cardWidth, fitMedia = false, mediaInset = 0, pixelRatio, viewportRoot, selected,
-    selectionActive, onOpen, onToggleSelect, onThumbnailAspect
+    selectionActive, onOpen, onToggleSelect, onThumbnailAspect, onGridKeydown
   } = $props<{
     file: FileItem; cardWidth: number; cardHeight?: number; fitMedia?: boolean; mediaInset?: number; pixelRatio: number; viewportRoot?: Element;
     selected: boolean; selectionActive: boolean; onOpen: (file: FileItem) => void;
     onToggleSelect: (file: FileItem, range: boolean) => void;
     onThumbnailAspect?: (fileID: string, aspect: number) => void;
+    onGridKeydown?: (event: KeyboardEvent) => void;
   }>();
 
   let cardHost = $state<HTMLElement | undefined>();
@@ -155,10 +156,15 @@
     if (event.code === 'Space') { event.preventDefault(); event.stopPropagation(); onToggleSelect(file, false); return; }
     if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); onOpen(file); }
   }
+
+  function handleKeydown(event: KeyboardEvent) {
+    handleKeyboardAction(event);
+    if (!event.cancelBubble) onGridKeydown?.(event);
+  }
 </script>
 
 <article bind:this={cardHost} class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={`--thumb-media-inset:${mediaInset}px;${cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''}`} onpointerenter={startHoverPreview} onpointerleave={stopHoverPreview}>
-  <button class="thumb-open" type="button" aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeyboardAction}>
+  <button class="thumb-open" type="button" aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeydown}>
     {#if thumbnailActive}<img class:preview-covered={hoverPreviewActive && previewReady} src={thumbnailSource} alt={file.name} decoding="async" draggable="false" onload={reportThumbnailAspect} />{/if}
     {#if hoverPreviewActive && videoFile}
       <video class:contain-preview={fitMedia} class:is-ready={previewReady} class="hover-preview-media" data-testid="hover-video-preview" src={file.media_urls.content} muted autoplay loop playsinline preload="metadata" onloadeddata={markPreviewReady} ontimeupdate={updateVideoProgress} ondurationchange={updateVideoProgress}></video>

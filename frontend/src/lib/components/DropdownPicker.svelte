@@ -41,7 +41,8 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || !picker?.open) return;
+    const target = event.target;
+    if (event.key !== 'Escape' || !picker?.open || !(target instanceof Node) || !picker.contains(target)) return;
     event.preventDefault();
     close();
     picker.querySelector('summary')?.focus();
@@ -53,7 +54,9 @@
   });
 </script>
 
-<details bind:this={picker} onkeydown={handleKeydown} style="position: relative; width: 100%;">
+<svelte:window onkeydown={handleKeydown} />
+
+<details bind:this={picker} style="position: relative; width: 100%;">
   <summary class="g-input" aria-label={triggerAriaLabel} style="cursor: pointer; list-style: none;">
     {selected?.label ?? options[0]?.label ?? placeholder}
   </summary>

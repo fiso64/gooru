@@ -173,12 +173,15 @@ test('ready transparent gif replaces the thumbnail backing layer', async ({ page
 });
 
 test('gif playback leaves the normal card affordances above playback', async ({ page }) => {
+  await page.clock.install({ time: controlledClockStart });
   await mockLibrary(page);
+  await page.clock.pauseAt(controlledClockPause);
   await page.route('**/api/v1/files/gif-one/content**', async (route) => route.fulfill({ contentType: 'image/gif', body: twoFrameGif }));
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
   const card = gifCard.locator('..');
   await gifCard.hover();
+  await page.clock.fastForward(hoverDwellMs);
   const gif = page.getByTestId('hover-gif-preview');
   await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
   await expect(gif).toHaveCSS('z-index', '1');

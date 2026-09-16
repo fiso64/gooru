@@ -97,10 +97,110 @@ func TestActivateDurableUploadDestinationIsReplaySafe(t *testing.T) {
 	}
 }
 
-func TestActivateDurableUploadDestinationDoesNotOverwriteDestinationRace(t *testing.T) {
+func TestActivateDurableUploadDestinationRenamesDestinationRace(t *testing.T) {
 	root := t.TempDir()
 	server := newUploadTestServer(t, root, true, &recordingUploadLibrary{})
 	req := uploadRequest(t, map[string]string{"photo.jpg": "staged"}, nil)
+	_, saved, err := server.stageDurableMultipartUpload(req, testDurableUploadOperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalDestination := saved[0].destinationPath
+	if err := os.WriteFile(originalDestination, []byte("racer"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := activateSavedDurableUploads(saved); err != nil {
+		t.Fatalf("activation error = %v, want rename retry", err)
+	}
+	if got := string(mustReadFile(t, originalDestination)); got != "racer" {
+		t.Fatalf("racing destination content = %q, want racer", got)
+	}
+	if got, want := filepath.Base(saved[0].destinationPath), "photo-1.jpg"; got != want {
+		t.Fatalf("renamed destination = %q, want %q", got, want)
+	}
+	if got := string(mustReadFile(t, saved[0].destinationPath)); got != "staged" {
+		t.Fatalf("renamed upload content = %q, want staged", got)
+	}
+	staged := durableStagedUploads(saved)
+	if len(staged) != 1 || staged[0].Name != "photo-1.jpg" {
+		t.Fatalf("durable staged upload name = %#v, want photo-1.jpg", staged)
+	}
+}
+
+func TestActivateDurableUploadDestinationContinuesOriginalSuffixSequence(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "photo.jpg"), []byte("existing"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	server := newUploadTestServer(t, root, true, &recordingUploadLibrary{})
+	req := uploadRequest(t, map[string]string{"photo.jpg": "staged"}, nil)
+	_, saved, err := server.stageDurableMultipartUpload(req, testDurableUploadOperationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := filepath.Base(saved[0].destinationPath), "photo-1.jpg"; got != want {
+		t.Fatalf("preflight destination = %q, want %q", got, want)
+	}
+	if saved[0].name != "photo.jpg" {
+		t.Fatalf("stable requested name = %q, want photo.jpg", saved[0].name)
+	}
+	if err := os.WriteFile(saved[0].destinationPath, []byte("racer"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := activateSavedDurableUploads(saved); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := filepath.Base(saved[0].destinationPath), "photo-2.jpg"; got != want {
+		t.Fatalf("retry destination = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(root, "photo-1-1.jpg")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("retry nested the selected suffix instead of continuing the original sequence: %v", err)
+	}
+}
+
+func TestActivateDurableUploadDestinationRecoversRetriedDestinationFromMarker(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"photo.jpg", "photo-1.jpg"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("racer"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	requestDir := filepath.Join(root, durableUploadStagingRootName, testDurableUploadOperationID, "request-crash")
+	if err := os.MkdirAll(requestDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	stagedPath := filepath.Join(requestDir, "staged")
+	if err := os.WriteFile(stagedPath, []byte("staged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	markerPath := stagedPath + durableUploadActivatedMarkerSuffix
+	if err := os.Link(stagedPath, markerPath); err != nil {
+		t.Fatal(err)
+	}
+	ownedDestination := filepath.Join(root, "photo-2.jpg")
+	if err := os.Link(markerPath, ownedDestination); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(stagedPath); err != nil {
+		t.Fatal(err)
+	}
+
+	files := []savedUpload{{name: "photo.jpg", path: stagedPath, destinationPath: filepath.Join(root, "photo-1.jpg"), conflictPolicy: "rename"}}
+	if err := activateSavedDurableUploads(files); err != nil {
+		t.Fatalf("recover activation: %v", err)
+	}
+	if files[0].destinationPath != ownedDestination {
+		t.Fatalf("recovered destination = %q, want %q", files[0].destinationPath, ownedDestination)
+	}
+	if _, err := os.Stat(filepath.Join(root, "photo-3.jpg")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replay allocated an extra destination instead of recovering ownership: %v", err)
+	}
+}
+
+func TestActivateDurableUploadDestinationErrorPolicyRejectsDestinationRace(t *testing.T) {
+	root := t.TempDir()
+	server := newUploadTestServer(t, root, true, &recordingUploadLibrary{})
+	req := uploadRequestWithConflict(t, map[string]string{"photo.jpg": "staged"}, nil, "", "error")
 	_, saved, err := server.stageDurableMultipartUpload(req, testDurableUploadOperationID)
 	if err != nil {
 		t.Fatal(err)
@@ -113,12 +213,6 @@ func TestActivateDurableUploadDestinationDoesNotOverwriteDestinationRace(t *test
 	}
 	if got := string(mustReadFile(t, saved[0].destinationPath)); got != "racer" {
 		t.Fatalf("racing destination content = %q, want racer", got)
-	}
-	if err := rollbackDurableNonreplacementActivations(saved); err != nil {
-		t.Fatal(err)
-	}
-	if got := string(mustReadFile(t, saved[0].destinationPath)); got != "racer" {
-		t.Fatalf("rollback removed racing destination: %q", got)
 	}
 }
 

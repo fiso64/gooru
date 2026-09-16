@@ -275,11 +275,28 @@ func finalizeStreamedUpload(target UploadTarget, file streamedUpload, conflictPo
 		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
-	if err := commitUploadDestinationWithOwnership(stagedPath, path); err != nil {
+	path, err = commitUploadDestinationWithRenameRetry(stagedPath, target.Path, file.name, path, conflictPolicy)
+	if err != nil {
 		_ = os.Remove(stagedPath)
 		return savedUpload{}, uploadFileError{name: file.name, err: err}
 	}
 	return savedUpload{name: filepath.Base(path), path: path, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, ownershipPath: stagedPath}, nil
+}
+
+func commitUploadDestinationWithRenameRetry(stagedPath, dir, requestedName, path, conflictPolicy string) (string, error) {
+	for {
+		err := commitUploadDestinationWithOwnership(stagedPath, path)
+		if err == nil {
+			return path, nil
+		}
+		if conflictPolicy != "rename" || !errors.Is(err, errUploadConflict) {
+			return "", err
+		}
+		path, err = chooseUploadDestination(dir, requestedName, conflictPolicy)
+		if err != nil {
+			return "", err
+		}
+	}
 }
 
 func parseUploadOrdinal(values []string, index int, fallback int) int {
