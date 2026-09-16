@@ -20,8 +20,48 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/maintainer_720_patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          def rw(path, old, new):
+              p = root / path
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'{path}: missing {old!r}')
+              p.write_text(text.replace(old, new))
+
+          rw('internal/serve/background_upload_import_state_test.go', 'backgroundUploadImportState{taskID: task.ID}, nil)', 'backgroundUploadImportState{taskID: task.ID})')
+          rw('internal/serve/background_upload_worker_test.go', 'backgroundUploadImportedCheckpoint(nil, response)', 'backgroundUploadImportedCheckpoint(response)')
+          rw('internal/serve/background_uploads_test.go', 'backgroundUploadActivatedCheckpoint(nil,', 'backgroundUploadActivatedCheckpoint(')
+          rw('internal/serve/background_uploads_test.go', 'backgroundUploadImportedCheckpoint(nil,', 'backgroundUploadImportedCheckpoint(')
+          rw('internal/serve/upload_durable_recovery_test.go', 'cleanupCanceledClaimedUpload(files, nil)', 'cleanupCanceledClaimedUpload(files)')
+
+          for path in root.glob('internal/serve/*_test.go'):
+              text = path.read_text()
+              text = re.sub(r'(?m)^([ \t]*)_, err := activateSavedDurableUploads\(([^\n]+)\)$', r'\1err := activateSavedDurableUploads(\2)', text)
+              text = re.sub(r'if _, err := activateSavedDurableUploads\(([^;]+)\);', r'if err := activateSavedDurableUploads(\1);', text)
+              path.write_text(text)
+
+          # Delete any replacement-transaction worker tests that do not advertise
+          # "Replacement" in the test name but still construct replace:true state.
+          p = root / 'internal/serve/background_upload_worker_test.go'
+          text = p.read_text()
+          starts = list(re.finditer(r'(?m)^func (Test\w+)\(', text))
+          removals = []
+          for i, m in enumerate(starts):
+              end = starts[i + 1].start() if i + 1 < len(starts) else len(text)
+              chunk = text[m.start():end]
+              if 'replace: true' in chunk or 'activatedReplacement' in chunk or 'prepareDurableReplacementRecoveryMarkers' in chunk:
+                  removals.append((m.start(), end))
+          for start, end in reversed(removals):
+              text = text[:start] + text[end:]
+          p.write_text(text)
+          PY
           rm scripts/maintainer_720_patch.py .github/workflows/maintainer-720.yml
-          gofmt -w internal/serve scripts/devprofile/main.go
+          changed_go="$(git diff --name-only --diff-filter=ACM -- '*.go')"
+          if [ -n "$changed_go" ]; then printf '%s\n' "$changed_go" | xargs gofmt -w; fi
           echo '=== remaining upload-policy/replacement-specific symbols ==='
           git grep -n -E 'uploads\.conflict_policy|case "skip"|case "replace"|activatedSavedReplacement|upload_replacement_recovery|conflict_policy.*skip|conflict_policy.*replace' -- internal/serve docs spec scripts frontend/src frontend/tests || true
           git status --short
