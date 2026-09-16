@@ -113,3 +113,32 @@ func TestBatchGetOrCreateTagsBatchesInserts(t *testing.T) {
 		t.Fatalf("created tag count = %d, want %d", count, len(parsedTags))
 	}
 }
+
+func TestBatchGetOrCreateTagsUsesInputSpellingForExistingTag(t *testing.T) {
+	store := newMemoryTestStore(t)
+	tx, err := store.Begin()
+	if err != nil {
+		t.Fatalf("begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	mixedResult, err := tx.Exec("INSERT INTO tags (key, value) VALUES (?, ?)", "MiXeD", "VaLuE")
+	if err != nil {
+		t.Fatalf("insert mixed-case tag: %v", err)
+	}
+	mixedID, err := mixedResult.LastInsertId()
+	if err != nil {
+		t.Fatalf("mixed-case tag ID: %v", err)
+	}
+	if _, err := tx.Exec("INSERT INTO tags (key, value) VALUES (?, ?)", "unrelated", ""); err != nil {
+		t.Fatalf("insert unrelated tag: %v", err)
+	}
+
+	got, err := store.BatchGetOrCreateTags(tx, []types.ParsedTag{{Key: "mixed", Value: "value"}})
+	if err != nil {
+		t.Fatalf("BatchGetOrCreateTags: %v", err)
+	}
+	if got["mixed:value"] != mixedID {
+		t.Fatalf("ID for input spelling = %d, want existing case-insensitive tag ID %d", got["mixed:value"], mixedID)
+	}
+}
