@@ -17,25 +17,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('internal/serve/upload_stream.go')
-          text = p.read_text()
-          old = '''\t\tvar fileScoped uploadFileError
-\t\tif errors.As(finalErr, &fileScoped) && errors.Is(finalErr, errUploadConflict) {
-\t\t\t_ = os.Remove(file.path)
-\t\t\tfile.path = ""
-\t\t\tsaved = append(saved, savedUpload{name: fileScoped.name, size: file.size, targetID: target.ID, status: "error", error: fileScoped.err.Error()})
-\t\t\tcontinue
-\t\t}
-\t\treturn nil, saved, finalErr
-'''
-          new = '''\t\treturn nil, saved, finalErr
-'''
-          if old not in text:
-              raise SystemExit('streaming conflict-isolation block not found')
-          p.write_text(text.replace(old, new, 1))
-          PY
+          python3 -c 'from pathlib import Path; p=Path("internal/serve/upload_stream.go"); t=p.read_text(); a="\\t\\tvar fileScoped uploadFileError\\n\\t\\tif errors.As(finalErr, &fileScoped) && errors.Is(finalErr, errUploadConflict) {\\n\\t\\t\\t_ = os.Remove(file.path)\\n\\t\\t\\tfile.path = \\\"\\\"\\n\\t\\t\\tsaved = append(saved, savedUpload{name: fileScoped.name, size: file.size, targetID: target.ID, status: \\\"error\\\", error: fileScoped.err.Error()})\\n\\t\\t\\tcontinue\\n\\t\\t}\\n\\t\\treturn nil, saved, finalErr\\n"; b="\\t\\treturn nil, saved, finalErr\\n"; assert a in t; p.write_text(t.replace(a,b,1))'
           gofmt -w internal/serve/upload_stream.go
           rm .github/workflows/maintainer-720-stream-error-fix.yml
           git add -A
