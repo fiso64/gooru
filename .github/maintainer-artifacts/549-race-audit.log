@@ -1,0 +1,242 @@
+?   	gooru.local/cmd/gooru	[no test files]
+ok  	gooru.local/cmd/gooru/cmd	41.928s
+?   	gooru.local/cmd/gooru/config	[no test files]
+?   	gooru.local/cmd/gooru/display	[no test files]
+ok  	gooru.local/gooru	134.390s
+ok  	gooru.local/internal/background	8.223s
+ok  	gooru.local/internal/buildinfo	1.009s
+ok  	gooru.local/internal/config	1.012s
+ok  	gooru.local/internal/database	153.808s
+ok  	gooru.local/internal/encryptedfile	1.756s
+ok  	gooru.local/internal/encryptionkeys	1.013s
+ok  	gooru.local/internal/filesource	1.083s
+ok  	gooru.local/internal/hashing	1.017s
+ok  	gooru.local/internal/hashing/hashes	1.067s
+?   	gooru.local/internal/ipc	[no test files]
+ok  	gooru.local/internal/managedfile	1.014s
+ok  	gooru.local/internal/query	1.089s
+ok  	gooru.local/internal/relink	1.011s
+ok  	gooru.local/internal/scanning	1.013s
+ok  	gooru.local/internal/securekey	1.014s
+2026/09/16 20:51:19 INFO authentication succeeded
+2026/09/16 20:51:19 INFO http request completed method=POST route=/api/v1/auth/login status=200 duration=2.260319ms
+2026/09/16 20:51:19 INFO password change rejected
+2026/09/16 20:51:19 INFO http request completed method=POST route=/api/v1/auth/change-password status=401 duration=1.817124ms
+2026/09/16 20:51:22 INFO password changed
+2026/09/16 20:51:22 INFO http request completed method=POST route=/api/v1/auth/change-password status=200 duration=3.127728ms
+2026/09/16 20:51:28 INFO authentication succeeded
+2026/09/16 20:51:28 INFO http request completed method=POST route=/api/v1/auth/login status=200 duration=2.166251ms
+2026/09/16 20:51:28 INFO http request completed method=POST route=/api/v1/auth/logout status=403 duration=1.399661ms
+2026/09/16 20:51:28 INFO session revoked
+2026/09/16 20:51:28 INFO http request completed method=POST route=/api/v1/auth/logout status=200 duration=2.085667ms
+2026/09/16 20:51:28 INFO http request completed method=POST route=/api/v1/auth/login status=404 duration=37.192µs
+2026/09/16 20:51:28 INFO http request completed method=POST route=/api/v1/auth/logout status=404 duration=26.847µs
+2026/09/16 20:51:28 INFO http request completed method=POST route=/api/v1/auth/change-password status=404 duration=32.622µs
+2026/09/16 20:51:32 INFO http request completed method=POST route=/api/v1/uploads status=403 duration=1.420031ms
+2026/09/16 20:51:32 INFO http request completed method=POST route=/api/v1/files/tags status=403 duration=1.357072ms
+2026/09/16 20:51:32 INFO http request completed method=DELETE route=/api/v1/files/ status=403 duration=1.426953ms
+2026/09/16 20:51:34 INFO http request completed method=POST route=/api/v1/operations/events status=405 duration=28.515µs
+2026/09/16 20:51:37 INFO http request completed method=POST route=/api/v1/files/tags status=200 duration=219.653758ms
+2026/09/16 20:51:42 INFO http request completed method=POST route=/api/v1/uploads status=202 duration=58.825654ms
+2026/09/16 20:51:47 WARN http request completed method=GET route=/api/v1/files status=500 duration=43.938µs
+2026/09/16 20:52:06 INFO http request completed method=DELETE route=/api/v1/files/ status=200 duration=38.633292ms
+2026/09/16 20:52:08 INFO http request completed method=DELETE route=/api/v1/files/ status=400 duration=48.205µs
+2026/09/16 20:52:10 INFO http request completed method=POST route=/api/v1/saved-searches status=201 duration=10.771056ms
+2026/09/16 20:52:11 INFO http request completed method=PUT route=/api/v1/saved-searches/ status=200 duration=15.513849ms
+2026/09/16 20:52:11 INFO http request completed method=PUT route=/api/v1/saved-searches/ status=404 duration=1.819353ms
+2026/09/16 20:52:11 INFO http request completed method=DELETE route=/api/v1/saved-searches/ status=200 duration=14.398824ms
+2026/09/16 20:52:18 INFO http request completed method=DELETE route=/api/v1/files status=202 duration=19.776423ms
+2026/09/16 20:52:20 INFO http request completed method=DELETE route=/api/v1/files/ status=200 duration=39.648064ms
+2026/09/16 20:52:23 INFO http request completed method=DELETE route=/api/v1/files/ status=200 duration=40.829068ms
+2026/09/16 20:52:25 INFO http request completed method=DELETE route=/api/v1/files/ status=409 duration=2.363158ms
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/files/ status=405 duration=39.498µs
+2026/09/16 20:52:25 INFO http request completed method=DELETE route=/api/v1/files/ status=405 duration=34.852µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/files/ status=405 duration=33.318µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=517.164µs
+2026/09/16 20:52:25 INFO http request completed method=DELETE route=/api/v1/files status=202 duration=148.321µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=163.951µs
+2026/09/16 20:52:25 INFO http request completed method=DELETE route=/api/v1/files status=202 duration=131.608µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=141.99µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/file-selections/ status=200 duration=85.786µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=148.481µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/files/tags status=200 duration=92.844µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=132.181µs
+2026/09/16 20:52:25 INFO http request completed method=DELETE route=/api/v1/files status=410 duration=58.075µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/file-selections status=201 duration=136.619µs
+2026/09/16 20:52:25 INFO http request completed method=POST route=/api/v1/files/tags status=410 duration=62.447µs
+2026/09/16 20:52:30 INFO http request completed method=POST route=/api/v1/uploads status=200 duration=540.353137ms
+==================
+WARNING: DATA RACE
+Write at 0x00c000234e48 by goroutine 6400:
+  gooru.local/internal/serve.(*durableUploadTestStore).AttachBackgroundTaskAndRevealOperation()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/uploads_durable_test.go:102 +0x34e
+  gooru.local/internal/serve.(*Server).handleDurableUpload()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/uploads_durable.go:200 +0x1b0d
+  gooru.local/internal/serve.(*Server).handleDurableUpload()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/uploads_durable.go:153 +0x1234
+  gooru.local/internal/serve.(*Server).handleUploadEndpoint()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/uploads_durable.go:76 +0x84
+  gooru.local/internal/serve.(*Server).handleUploadEndpoint-fm()
+      <autogenerated>:1 +0x51
+  net/http.HandlerFunc.ServeHTTP()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/net/http/server.go:2320 +0x47
+  net/http.(*ServeMux).ServeHTTP()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/net/http/server.go:2859 +0x242
+  gooru.local/internal/serve.(*Server).Handler.securityHeadersMiddleware.func27()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/server.go:225 +0xfc
+  net/http.HandlerFunc.ServeHTTP()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/net/http/server.go:2320 +0x47
+  gooru.local/internal/serve.(*Server).Handler.requestLoggingMiddleware.func31()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/logging.go:23 +0x218
+  net/http.HandlerFunc.ServeHTTP()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/net/http/server.go:2320 +0x47
+  gooru.local/internal/serve.(*Server).Handler.requestWriteTimeoutMiddleware.func32()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/request_write_timeout.go:17 +0xcd
+  net/http.HandlerFunc.ServeHTTP()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/net/http/server.go:2320 +0x47
+  gooru.local/internal/serve.(*Server).Handler.requestReadTimeoutMiddleware.func33()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/server.go:251 +0x708
+  net/http.HandlerFunc.ServeHTTP()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/net/http/server.go:2320 +0x47
+  gooru.local/internal/serve.TestDurableUploadSyncCancellationCancelsOperation.func1()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/uploads_durable_test.go:451 +0x62
+
+Previous read at 0x00c000234e48 by goroutine 6399:
+  gooru.local/internal/serve.TestDurableUploadSyncCancellationCancelsOperation()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/uploads_durable_test.go:455 +0x7c4
+  testing.tRunner()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:1934 +0x21c
+  testing.(*T).Run.gowrap1()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:1997 +0x44
+
+Goroutine 6400 (running) created at:
+  gooru.local/internal/serve.TestDurableUploadSyncCancellationCancelsOperation()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/serve/uploads_durable_test.go:450 +0x7b4
+  testing.tRunner()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:1934 +0x21c
+  testing.(*T).Run.gowrap1()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:1997 +0x44
+
+Goroutine 6399 (running) created at:
+  testing.(*T).Run()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:1997 +0x9d2
+  testing.runTests.func1()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:2477 +0x84
+  testing.tRunner()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:1934 +0x21c
+  testing.runTests()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:2475 +0x96c
+  testing.(*M).Run()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/testing/testing.go:2337 +0xed4
+  main.main()
+      _testmain.go:1025 +0x164
+  runtime.main()
+      /nix/store/fzphrb50ix97p5sl5qa1l4d32hsjcw7q-go-1.25.13/share/go/src/runtime/proc.go:285 +0x29c
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x196
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x704
+  github.com/alecthomas/participle/v2.visit.func1()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:40 +0x5f3
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x196
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0xe3
+  github.com/alecthomas/participle/v2.isLeftRecursive.visit.func3()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:48 +0x3f9
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x3fa
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x1ae
+  github.com/alecthomas/participle/v2.isLeftRecursive()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:33 +0x72
+  github.com/alecthomas/participle/v2.Build[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }].validate.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:17 +0xb4
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0xe3
+  github.com/alecthomas/participle/v2.visit.func1.visit.4()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:40 +0x277
+  github.com/alecthomas/participle/v2.Build[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }].validate.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:26 +0x165
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x8e4
+  github.com/alecthomas/participle/v2.visit.func1()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:30 +0x7de
+  github.com/alecthomas/participle/v2.Build[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }].validate.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:26 +0x165
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0xe3
+  github.com/alecthomas/participle/v2.Build[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }].validate.visit.func3()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:19 +0x9c4
+  github.com/alecthomas/participle/v2.Build[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }].validate.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:26 +0x857
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x72d
+  github.com/alecthomas/participle/v2.validate()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:15 +0x56d
+  github.com/alecthomas/participle/v2.Build[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }]()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/parser.go:131 +0xc27
+  github.com/alecthomas/participle/v2.visit.func1.visit.2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:34 +0x3c4
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x196
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x5ba
+  github.com/alecthomas/participle/v2.visit.func1()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:19 +0x4a9
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x196
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0xe3
+  github.com/alecthomas/participle/v2.visit.func1.visit.8()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:40 +0x277
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x196
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x1a9
+  github.com/alecthomas/participle/v2.visit.func1()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:48 +0xab
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x196
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0xe3
+  github.com/alecthomas/participle/v2.visit.func1.visit.6()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:19 +0x211
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x196
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x704
+  github.com/alecthomas/participle/v2.visit.func1()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:40 +0x5f3
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x196
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0xe3
+  github.com/alecthomas/participle/v2.isLeftRecursive.visit.func3()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:30 +0x618
+  github.com/alecthomas/participle/v2.isLeftRecursive.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:52 +0x3fa
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x1ae
+  github.com/alecthomas/participle/v2.isLeftRecursive()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:33 +0x72
+  github.com/alecthomas/participle/v2.Build[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }].validate.func2()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:17 +0x6a4
+  github.com/alecthomas/participle/v2.visit()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/visit.go:9 +0x72d
+  github.com/alecthomas/participle/v2.validate()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/validate.go:15 +0x56d
+  github.com/alecthomas/participle/v2.Build[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }]()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/parser.go:131 +0xc27
+  github.com/alecthomas/participle/v2.MustBuild[go.shape.struct { Or []*gooru.local/internal/query.AndTerm "@@ (\"|\" @@)*" }]()
+      /var/cache/github-runner-cache-gooru/go-mod/github.com/alecthomas/participle/v2@v2.1.4/parser.go:53 +0x444
+  gooru.local/internal/query.init()
+      /var/cache/github-runner-work-gooru/gooru/gooru/internal/query/parser.go:52 +0x3cd
+==================
+--- FAIL: TestDurableUploadSyncCancellationCancelsOperation (0.00s)
+    testing.go:1617: race detected during execution of test
+FAIL
+FAIL	gooru.local/internal/serve	129.445s
+?   	gooru.local/scripts/devprofile	[no test files]
+?   	gooru.local/types	[no test files]
+FAIL
