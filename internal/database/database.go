@@ -235,22 +235,25 @@ func (s *Store) ContentExists(hash string) (bool, error) {
 
 func (s *Store) UpsertMediaMetadata(meta types.MediaMetadata) error {
 	_, err := s.Exec(`
-		INSERT INTO media_metadata (
-			location_id, media_kind, mime_type, image_width, image_height,
-			video_width, video_height, duration_seconds, frame_count, page_count, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(location_id) DO UPDATE SET
-			media_kind=excluded.media_kind,
-			mime_type=excluded.mime_type,
-			image_width=excluded.image_width,
-			image_height=excluded.image_height,
-			video_width=excluded.video_width,
-			video_height=excluded.video_height,
-			duration_seconds=excluded.duration_seconds,
-			frame_count=excluded.frame_count,
-			page_count=excluded.page_count,
-			updated_at=CURRENT_TIMESTAMP
-	`, meta.LocationID, meta.MediaKind, meta.MimeType, meta.ImageWidth, meta.ImageHeight, meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds, meta.FrameCount, meta.PageCount)
+        INSERT INTO media_metadata (
+  content_hash, media_kind, mime_type, image_width, image_height,
+  video_width, video_height, duration_seconds, frame_count, page_count, updated_at
+        )
+        SELECT content_hash, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
+        FROM locations
+        WHERE id = ?
+        ON CONFLICT(content_hash) DO UPDATE SET
+  media_kind=excluded.media_kind,
+  mime_type=excluded.mime_type,
+  image_width=excluded.image_width,
+  image_height=excluded.image_height,
+  video_width=excluded.video_width,
+  video_height=excluded.video_height,
+  duration_seconds=excluded.duration_seconds,
+  frame_count=excluded.frame_count,
+  page_count=excluded.page_count,
+  updated_at=CURRENT_TIMESTAMP
+    `, meta.MediaKind, meta.MimeType, meta.ImageWidth, meta.ImageHeight, meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds, meta.FrameCount, meta.PageCount, meta.LocationID)
 	return err
 }
 
@@ -258,9 +261,11 @@ func (s *Store) GetMediaMetadata(locationID int64) (types.MediaMetadata, error) 
 	var meta types.MediaMetadata
 	meta.LocationID = locationID
 	err := s.QueryRow(`
-		SELECT media_kind, mime_type, image_width, image_height, video_width, video_height, duration_seconds, frame_count, page_count
-		FROM media_metadata WHERE location_id = ?
-	`, locationID).Scan(&meta.MediaKind, &meta.MimeType, &meta.ImageWidth, &meta.ImageHeight, &meta.VideoWidth, &meta.VideoHeight, &meta.DurationSeconds, &meta.FrameCount, &meta.PageCount)
+        SELECT mm.media_kind, mm.mime_type, mm.image_width, mm.image_height, mm.video_width, mm.video_height, mm.duration_seconds, mm.frame_count, mm.page_count
+        FROM locations l
+        JOIN media_metadata mm ON mm.content_hash = l.content_hash
+        WHERE l.id = ?
+    `, locationID).Scan(&meta.MediaKind, &meta.MimeType, &meta.ImageWidth, &meta.ImageHeight, &meta.VideoWidth, &meta.VideoHeight, &meta.DurationSeconds, &meta.FrameCount, &meta.PageCount)
 	return meta, err
 }
 
@@ -827,7 +832,7 @@ func (s *Store) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, er
 
 // GetFileInfoByLocationID retrieves detailed info for one tracked file location.
 func (s *Store) GetFileInfoByLocationID(id int64) (types.FileInfo, error) {
-	query := `SELECT ` + fileInfoColumns() + ` FROM locations l LEFT JOIN media_metadata mm ON mm.location_id = l.id WHERE l.id = ?`
+	query := `SELECT ` + fileInfoColumns() + ` FROM locations l LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash WHERE l.id = ?`
 	files, err := s.scanFileInfos(query, id)
 	if err != nil {
 		return types.FileInfo{}, err
@@ -852,7 +857,7 @@ func (s *Store) GetLocationIDByPublicID(publicID string) (int64, error) {
 
 // GetFileInfoByPath retrieves detailed info for one tracked file path without hashing the file.
 func (s *Store) GetFileInfoByPath(path string) (types.FileInfo, error) {
-	query := `SELECT ` + fileInfoColumns() + ` FROM locations l LEFT JOIN media_metadata mm ON mm.location_id = l.id WHERE l.path = ?`
+	query := `SELECT ` + fileInfoColumns() + ` FROM locations l LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash WHERE l.path = ?`
 	files, err := s.scanFileInfos(query, path)
 	if err != nil {
 		return types.FileInfo{}, err
@@ -1229,7 +1234,7 @@ func (s *Store) KindFacetsByLocationQuery(query string, args []interface{}) ([]t
 		SELECT %s AS kind, COUNT(*)
 		FROM locations l
 		JOIN result_locations rl ON l.id = rl.id
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		GROUP BY kind
 		ORDER BY COUNT(*) DESC, kind ASC
 	`, query, fileKindExpression())
@@ -1884,7 +1889,7 @@ func (s *Store) GetFilesInfoByLocationQueryPageSorted(query string, args []inter
 		SELECT %s
 		FROM locations l
 		JOIN result_locations rl ON l.id = rl.id
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE 1=1 %s
 		ORDER BY %s %s, l.id ASC
 		LIMIT ?
@@ -1901,7 +1906,7 @@ func (s *Store) GetFilesInfoByLocationQueryPageSortedOffset(query string, args [
 		SELECT %s
 		FROM locations l
 		JOIN result_locations rl ON l.id = rl.id
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		ORDER BY %s %s, l.id ASC
 		LIMIT ? OFFSET ?
 	`, query, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))
@@ -1918,7 +1923,7 @@ func (s *Store) GetAllFilesInfoPageSorted(limit int, cursor *types.PageCursor, s
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE 1=1 %s
 		ORDER BY %s %s, l.id ASC
 		LIMIT ?
@@ -1932,7 +1937,7 @@ func (s *Store) GetAllFilesInfoPageSortedOffset(limit int, offset int, sort stri
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		ORDER BY %s %s, l.id ASC
 		LIMIT ? OFFSET ?
 	`, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))
@@ -2030,7 +2035,7 @@ func (s *Store) cursorKeyForLocation(locationID int64, sort string) (interface{}
 	query := fmt.Sprintf(`
 		SELECT %s
 		FROM locations l
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE l.id = ?
 	`, fileSortExpression(sort))
 	switch sort {

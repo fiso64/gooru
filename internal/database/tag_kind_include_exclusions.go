@@ -53,7 +53,7 @@ func (s *Store) KindFacetsForIncludedTagExcludingTags(included TagFacetExclusion
 		SELECT %s AS kind, COUNT(*) AS files_count
 		FROM included_excluded ie
 		JOIN locations l ON l.content_hash = ie.content_hash
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		GROUP BY kind
 		ORDER BY files_count DESC, kind ASC
 	`, strings.Join(exclusionConditions, " OR "), includeCondition, fileKindExpression())

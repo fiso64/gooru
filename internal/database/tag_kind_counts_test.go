@@ -37,24 +37,24 @@ func TestTagKindCountsTrackEffectiveKindsAndMutations(t *testing.T) {
 	}
 	jpgID := insertTagKindTestLocation(t, db, "a", "file_a_jpg", "/a.jpg", ".jpg")
 	cbzID := insertTagKindTestLocation(t, db, "a", "file_a_cbz", "/a.cbz", ".cbz")
-	txtID := insertTagKindTestLocation(t, db, "b", "file_b_txt", "/b.txt", ".txt")
+	insertTagKindTestLocation(t, db, "b", "file_b_txt", "/b.txt", ".txt")
 	if _, err := db.Exec(`INSERT INTO content_tags (content_hash, tag_id) VALUES ('b', ?)`, tagID); err != nil {
 		t.Fatal(err)
 	}
 	assertTagKindCountsMatchRecomputed(t, db, tagID)
 
 	// Legacy metadata must not override CBZ's authoritative comic kind.
-	if _, err := db.Exec(`INSERT INTO media_metadata (location_id, media_kind, mime_type) VALUES (?, 'other', 'application/vnd.comicbook+zip')`, cbzID); err != nil {
+	if _, err := db.Exec(`INSERT INTO media_metadata (content_hash, media_kind, mime_type) VALUES ('a', 'other', 'application/vnd.comicbook+zip')`); err != nil {
 		t.Fatal(err)
 	}
 	assertTagKindCountsMatchRecomputed(t, db, tagID)
 
-	if _, err := db.Exec(`INSERT INTO media_metadata (location_id, media_kind, mime_type) VALUES (?, 'video', 'video/mp4')`, txtID); err != nil {
+	if _, err := db.Exec(`INSERT INTO media_metadata (content_hash, media_kind, mime_type) VALUES ('b', 'video', 'video/mp4')`); err != nil {
 		t.Fatal(err)
 	}
 	assertTagKindCountsMatchRecomputed(t, db, tagID)
 
-	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'audio' WHERE location_id = ?`, txtID); err != nil {
+	if _, err := db.Exec(`UPDATE media_metadata SET media_kind = 'audio' WHERE content_hash = 'b'`); err != nil {
 		t.Fatal(err)
 	}
 	assertTagKindCountsMatchRecomputed(t, db, tagID)
@@ -68,7 +68,7 @@ func TestTagKindCountsTrackEffectiveKindsAndMutations(t *testing.T) {
 	}
 	assertTagKindCountsMatchRecomputed(t, db, tagID)
 
-	if _, err := db.Exec(`DELETE FROM media_metadata WHERE location_id = ?`, txtID); err != nil {
+	if _, err := db.Exec(`DELETE FROM media_metadata WHERE content_hash = 'b'`); err != nil {
 		t.Fatal(err)
 	}
 	assertTagKindCountsMatchRecomputed(t, db, tagID)
@@ -178,7 +178,7 @@ func assertTagKindCountsMatchRecomputed(t *testing.T, db *sql.DB, tagID int64) {
 		END AS kind, COUNT(*)
 		FROM content_tags ct
 		JOIN locations l ON l.content_hash = ct.content_hash
-		LEFT JOIN media_metadata mm ON mm.location_id = l.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE ct.tag_id = ?
 		GROUP BY kind
 	`, tagID)

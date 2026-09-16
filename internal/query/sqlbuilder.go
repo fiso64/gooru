@@ -191,7 +191,7 @@ func (b *SQLBuilder) buildMediaTypeQuery(value string) {
 		union = ` UNION ALL `
 	}
 
-	b.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.id = mm.location_id WHERE lower(l.extension) <> '.cbz' AND lower(mm.media_kind) = lower(?)`)
+	b.query.WriteString(`SELECT ` + selectColumn + ` FROM media_metadata mm JOIN locations l ON l.content_hash = mm.content_hash WHERE lower(l.extension) <> '.cbz' AND lower(mm.media_kind) = lower(?)`)
 	b.args = append(b.args, value)
 
 	if strings.EqualFold(value, "comic") {
@@ -203,7 +203,7 @@ func (b *SQLBuilder) buildMediaTypeQuery(value string) {
 	if fallback == "" {
 		return
 	}
-	b.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE ` + fallback + ` AND NOT EXISTS (SELECT 1 FROM media_metadata mm WHERE mm.location_id = l.id)`)
+	b.query.WriteString(union + `SELECT ` + selectColumn + ` FROM locations l WHERE ` + fallback + ` AND NOT EXISTS (SELECT 1 FROM media_metadata mm WHERE mm.content_hash = l.content_hash)`)
 }
 
 func quoteFTS5Phrase(value string) string {
