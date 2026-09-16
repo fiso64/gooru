@@ -1,0 +1,111 @@
+name: Temporary apply batched query tag associations
+
+on:
+  push:
+    branches:
+      - maintainer/549-batch-associate-tags-query
+    paths:
+      - .github/workflows/temporary-apply-batch-associate-tags.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply implementation and validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('internal/database/database.go')
+          text = path.read_text()
+          old = '''func (s *Store) BatchAssociateTagsByContentQueryTx(q Querier, subQuery string, args []interface{}, tagIDs []int64) (int64, error) {
+          \tif len(tagIDs) == 0 {
+          \t\treturn 0, nil
+          \t}
+
+          \tvar totalAffected int64
+          \tfor _, tagID := range tagIDs {
+          \t\t// We use a subquery to select the hashes and a constant for the tag_id.
+          \t\tquery := fmt.Sprintf(
+          \t\t\t"INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM (%s)",
+          \t\t\tsubQuery,
+          \t\t)
+
+          \t\tfinalArgs := make([]interface{}, 0, len(args)+1)
+          \t\tfinalArgs = append(finalArgs, tagID)
+          \t\tfinalArgs = append(finalArgs, args...)
+
+          \t\tres, err := q.Exec(query, finalArgs...)
+          \t\tif err != nil {
+          \t\t\treturn 0, err
+          \t\t}
+          \t\taffected, _ := res.RowsAffected()
+          \t\ttotalAffected += affected
+          \t}
+
+          \treturn totalAffected, nil
+          }
+          '''
+          new = '''func (s *Store) BatchAssociateTagsByContentQueryTx(q Querier, subQuery string, args []interface{}, tagIDs []int64) (int64, error) {
+          \tif len(tagIDs) == 0 {
+          \t\treturn 0, nil
+          \t}
+
+          \tbatchSize := maxVars - len(args)
+          \tif batchSize <= 0 {
+          \t\treturn 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag association", len(args))
+          \t}
+
+          \tvar totalAffected int64
+          \tfor start := 0; start < len(tagIDs); start += batchSize {
+          \t\tend := start + batchSize
+          \t\tif end > len(tagIDs) {
+          \t\t\tend = len(tagIDs)
+          \t\t}
+          \t\tbatch := tagIDs[start:end]
+
+          \t\tplaceholders := strings.Repeat("(?),", len(batch)-1) + "(?)"
+          \t\tquery := fmt.Sprintf(`WITH tag_ids(tag_id) AS (VALUES %s)
+          \t\t\tINSERT OR IGNORE INTO content_tags (content_hash, tag_id)
+          \t\t\tSELECT selected_hashes.hash, tag_ids.tag_id
+          \t\t\tFROM (%s) AS selected_hashes
+          \t\t\tCROSS JOIN tag_ids`, placeholders, subQuery)
+
+          \t\tfinalArgs := make([]interface{}, 0, len(args)+len(batch))
+          \t\tfor _, tagID := range batch {
+          \t\t\tfinalArgs = append(finalArgs, tagID)
+          \t\t}
+          \t\tfinalArgs = append(finalArgs, args...)
+
+          \t\tres, err := q.Exec(query, finalArgs...)
+          \t\tif err != nil {
+          \t\t\treturn 0, err
+          \t\t}
+          \t\taffected, _ := res.RowsAffected()
+          \t\ttotalAffected += affected
+          \t}
+
+          \treturn totalAffected, nil
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one old function block, found {text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+          gofmt -w internal/database/database.go
+          go test ./internal/database -run '^TestBatchAssociateTagsByContentQueryTx' -count=1
+          go test ./internal/database -count=1
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git rm .github/workflows/temporary-apply-batch-associate-tags.yml
+          git add internal/database/database.go
+          git commit -m 'perf: batch query tag associations'
+          git push origin HEAD:maintainer/549-batch-associate-tags-query
