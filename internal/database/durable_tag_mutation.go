@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -93,21 +94,31 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 
 	switch targetKind {
 	case BackgroundTagTargetFileID:
-		stmt, err := tx.Prepare(`
-			INSERT OR IGNORE INTO background_tag_mutation_targets
-				(operation_id, target_id, target_order)
-			VALUES (?, ?, ?)
-		`)
-		if err != nil {
-			return 0, fmt.Errorf("prepare background tag mutation targets: %w", err)
-		}
-		defer stmt.Close()
-		for index, targetID := range targetIDs {
-			if targetID == "" {
-				return 0, fmt.Errorf("background tag mutation target %d is blank", index)
+		const columns = 3 // operation_id, target_id, target_order
+		batchSize := maxVars / columns
+		for start := 0; start < len(targetIDs); start += batchSize {
+			end := start + batchSize
+			if end > len(targetIDs) {
+				end = len(targetIDs)
 			}
-			if _, err := stmt.Exec(operationID, targetID, index); err != nil {
-				return 0, fmt.Errorf("insert background tag mutation target %d: %w", index, err)
+			var query strings.Builder
+			query.WriteString(`INSERT OR IGNORE INTO background_tag_mutation_targets
+				(operation_id, target_id, target_order)
+			VALUES `)
+			args := make([]interface{}, 0, (end-start)*columns)
+			for index := start; index < end; index++ {
+				targetID := targetIDs[index]
+				if targetID == "" {
+					return 0, fmt.Errorf("background tag mutation target %d is blank", index)
+				}
+				if index > start {
+					query.WriteString(", ")
+				}
+				query.WriteString("(?, ?, ?)")
+				args = append(args, operationID, targetID, index)
+			}
+			if _, err := tx.Exec(query.String(), args...); err != nil {
+				return 0, fmt.Errorf("insert background tag mutation targets %d-%d: %w", start, end-1, err)
 			}
 		}
 	case BackgroundTagTargetContentHash:
