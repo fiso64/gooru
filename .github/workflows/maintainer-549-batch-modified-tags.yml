@@ -1,0 +1,38 @@
+name: Maintainer 549 batched modified tag validation
+
+on:
+  push:
+    branches:
+      - "maintainer/549-batch-modified-file-tags"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Format
+        run: |
+          gofmt -w gooru/tagging.go gooru/tagging_modified_batch_test.go internal/database/batch_content_tags.go internal/database/batch_content_tags_test.go
+      - name: Validate
+        run: |
+          go test ./internal/database -run 'TestBatchGetTagsForContents' -count=1
+          go test ./gooru -run 'TestClient_TagFilesModifiedSharedContentPreservesOrphanedTags|TestClient_TagFiles/tagging_a_modified_file_updates_record_and_orphans_old_tags' -count=1
+          go test ./internal/database -count=1
+          go test ./gooru -count=1
+          go vet -structtag=false ./internal/database ./gooru
+      - name: Commit validated implementation
+        if: success()
+        run: |
+          rm .github/workflows/maintainer-549-batch-modified-tags.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add gooru/tagging.go gooru/tagging_modified_batch_test.go internal/database/batch_content_tags.go internal/database/batch_content_tags_test.go .github/workflows/maintainer-549-batch-modified-tags.yml
+          git commit -m "perf: batch modified file tag reads"
+          git push origin HEAD:maintainer/549-batch-modified-file-tags
