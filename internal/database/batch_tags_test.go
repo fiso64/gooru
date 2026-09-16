@@ -18,7 +18,7 @@ type tagBatchCountingQuerier struct {
 }
 
 func (q *tagBatchCountingQuerier) Query(query string, args ...interface{}) (*sql.Rows, error) {
-	if strings.Contains(query, "SELECT id, key, value FROM tags WHERE (key, value) IN") {
+	if strings.Contains(query, "SELECT") && (strings.Contains(query, "FROM tags") || strings.Contains(query, "JOIN tags")) {
 		q.lookupQueries++
 		if len(args) > q.maxLookupArgs {
 			q.maxLookupArgs = len(args)
