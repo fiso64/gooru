@@ -34,7 +34,7 @@ func TestDurableStagedUploadsUsesActivatedDestinationForAnalysis(t *testing.T) {
 func TestActivateDurableUploadDestinationDropsStaleMarkerOnConflictingReplay(t *testing.T) {
 	root := t.TempDir()
 	server := newUploadTestServer(t, root, true, &recordingUploadLibrary{})
-	req := uploadRequest(t, map[string]string{"photo.jpg": "staged"}, nil)
+	req := uploadRequestWithConflict(t, map[string]string{"photo.jpg": "staged"}, nil, "", "error")
 	_, saved, err := server.stageDurableMultipartUpload(req, testDurableUploadOperationID)
 	if err != nil {
 		t.Fatal(err)
