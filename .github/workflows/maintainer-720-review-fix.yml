@@ -19,77 +19,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path('docs/openapi.yaml')
-          text = p.read_text()
-          old = '''                conflict_policy:
-                  type: string
-                  enum: [rename, error]
-                  default: skip
-                  description: How to handle uploaded filenames that already exist in the target; omitted values default to skip.
-'''
-          new = '''                conflict_policy:
-                  type: string
-                  enum: [rename, error]
-                  default: rename
-                  description: How to handle a requested filename that already exists in the target; omitted values default to rename.
-'''
-          if old not in text:
-              raise SystemExit('stale OpenAPI conflict policy block not found')
-          p.write_text(text.replace(old, new, 1))
-          PY
-          cat > internal/serve/upload_conflict_policy_batch_test.go <<'EOF'
-          package serve
-
-          import (
-           	"encoding/json"
-           	"net/http"
-           	"net/http/httptest"
-           	"os"
-           	"path/filepath"
-           	"testing"
-          )
-
-          func TestUploadConflictPolicyErrorIsolatesExistingNameWithinBatch(t *testing.T) {
-           	dir := t.TempDir()
-           	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("existing"), 0600); err != nil {
-           		t.Fatalf("write existing file: %v", err)
-           	}
-           	server := newUploadTestServer(t, dir, true, &recordingUploadLibrary{})
-           	rec := httptest.NewRecorder()
-
-           	server.Handler().ServeHTTP(rec, uploadRequestWithConflict(t, map[string]string{
-           		"a.txt": "valid",
-           		"b.txt": "replacement",
-           	}, nil, "", "error"))
-
-           	if rec.Code != http.StatusOK {
-           		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-           	}
-           	var response UploadImportResponse
-           	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
-           		t.Fatalf("decode response: %v", err)
-           	}
-           	byName := make(map[string]UploadedFileDTO, len(response.Files))
-           	for _, file := range response.Files {
-           		byName[file.Name] = file
-           	}
-           	if byName["a.txt"].Status != "imported" {
-           		t.Fatalf("valid sibling should import, got %+v", byName)
-           	}
-           	if byName["b.txt"].Status != "error" || byName["b.txt"].Error != errUploadConflict.Error() {
-           		t.Fatalf("conflicting member should fail independently, got %+v", byName)
-           	}
-           	if got := string(mustReadFile(t, filepath.Join(dir, "a.txt"))); got != "valid" {
-           		t.Fatalf("valid sibling was not retained: %q", got)
-           	}
-           	if got := string(mustReadFile(t, filepath.Join(dir, "b.txt"))); got != "existing" {
-           		t.Fatalf("existing file was changed: %q", got)
-           	}
-          }
-          EOF
+          python3 -c 'from pathlib import Path; p=Path("docs/openapi.yaml"); t=p.read_text(); a="                  default: skip\n                  description: How to handle uploaded filenames that already exist in the target; omitted values default to skip."; b="                  default: rename\n                  description: How to handle a requested filename that already exists in the target; omitted values default to rename."; assert a in t; p.write_text(t.replace(a,b,1))'
+          echo 'cGFja2FnZSBzZXJ2ZQoKaW1wb3J0ICgKCSJlbmNvZGluZy9qc29uIgoJIm5ldC9odHRwIgoJIm5ldC9odHRwL2h0dHB0ZXN0IgoJIm9zIgoJInBhdGgvZmlsZXBhdGgiCgkidGVzdGluZyIKKQoKZnVuYyBUZXN0VXBsb2FkQ29uZmxpY3RQb2xpY3lFcnJvcklzb2xhdGVzRXhpc3RpbmdOYW1lV2l0aGluQmF0Y2godCAqdGVzdGluZy5UKSB7CglkaXIgOj0gdC5UZW1wRGlyKCkKCWlmIGVyciA6PSBvcy5Xcml0ZUZpbGUoZmlsZXBhdGguSm9pbihkaXIsICJiLnR4dCIpLCBbXWJ5dGUoImV4aXN0aW5nIiksIDA2MDApOyBlcnIgIT0gbmlsIHsKCQl0LkZhdGFsZigid3JpdGUgZXhpc3RpbmcgZmlsZTogJXYiLCBlcnIpCgl9CglzZXJ2ZXIgOj0gbmV3VXBsb2FkVGVzdFNlcnZlcih0LCBkaXIsIHRydWUsICZyZWNvcmRpbmdVcGxvYWRMaWJyYXJ5e30pCglyZWMgOj0gaHR0cHRlc3QuTmV3UmVjb3JkZXIoKQoKCXNlcnZlci5IYW5kbGVyKCkuU2VydmVIVFRQKHJlYywgdXBsb2FkUmVxdWVzdFdpdGhDb25mbGljdCh0LCBtYXBbc3RyaW5nXXN0cmluZ3sKCQkiYS50eHQiOiAidmFsaWQiLAoJCSJiLnR4dCI6ICJyZXBsYWNlbWVudCIsCgl9LCBuaWwsICIiLCAiZXJyb3IiKSkKCglpZiByZWMuQ29kZSAhPSBodHRwLlN0YXR1c09LIHsKCQl0LkZhdGFsZigiZXhwZWN0ZWQgMjAwLCBnb3QgJWQ6ICVzIiwgcmVjLkNvZGUsIHJlYy5Cb2R5LlN0cmluZygpKQoJfQoJdmFyIHJlc3BvbnNlIFVwbG9hZEltcG9ydFJlc3BvbnNlCglpZiBlcnIgOj0ganNvbi5OZXdEZWNvZGVyKHJlYy5Cb2R5KS5EZWNvZGUoJnJlc3BvbnNlKTsgZXJyICE9IG5pbCB7CgkJdC5GYXRhbGYoImRlY29kZSByZXNwb25zZTogJXYiLCBlcnIpCgl9CglieU5hbWUgOj0gbWFrZShtYXBbc3RyaW5nXVVwbG9hZGVkRmlsZURUTywgbGVuKHJlc3BvbnNlLkZpbGVzKSkKCWZvciBfLCBmaWxlIDo9IHJhbmdlIHJlc3BvbnNlLkZpbGVzIHsKCQlieU5hbWVbZmlsZS5OYW1lXSA9IGZpbGUKCX0KCWlmIGJ5TmFtZVsiYS50eHQiXS5TdGF0dXMgIT0gImltcG9ydGVkIiB7CgkJdC5GYXRhbGYoInZhbGlkIHNpYmxpbmcgc2hvdWxkIGltcG9ydCwgZ290ICUrdiIsIGJ5TmFtZSkKCX0KCWlmIGJ5TmFtZVsiYi50eHQiXS5TdGF0dXMgIT0gImVycm9yIiB8fCBieU5hbWVbImIudHh0Il0uRXJyb3IgIT0gZXJyVXBsb2FkQ29uZmxpY3QuRXJyb3IoKSB7CgkJdC5GYXRhbGYoImNvbmZsaWN0aW5nIG1lbWJlciBzaG91bGQgZmFpbCBpbmRlcGVuZGVudGx5LCBnb3QgJSt2IiwgYnlOYW1lKQoJfQoJaWYgZ290IDo9IHN0cmluZyhtdXN0UmVhZEZpbGUodCwgZmlsZXBhdGguSm9pbihkaXIsICJhLnR4dCIpKSk7IGdvdCAhPSAidmFsaWQiIHsKCQl0LkZhdGFsZigidmFsaWQgc2libGluZyB3YXMgbm90IHJldGFpbmVkOiAlcSIsIGdvdCkKCX0KCWlmIGdvdCA6PSBzdHJpbmcobXVzdFJlYWRGaWxlKHQsIGZpbGVwYXRoLkpvaW4oZGlyLCAiYi50eHQiKSkpOyBnb3QgIT0gImV4aXN0aW5nIiB7CgkJdC5GYXRhbGYoImV4aXN0aW5nIGZpbGUgd2FzIGNoYW5nZWQ6ICVxIiwgZ290KQoJfQp9Cg==' | base64 -d > internal/serve/upload_conflict_policy_batch_test.go
           gofmt -w internal/serve/upload_conflict_policy_batch_test.go
           cd frontend
           npm ci --prefer-offline --no-audit
@@ -98,7 +29,6 @@ jobs:
           rm .github/workflows/maintainer-720-review-fix.yml
           git add -A
           git diff --cached --check
-          git status --short
       - name: Focused Go tests
         run: go test -count=1 ./internal/serve
       - name: Frontend check
