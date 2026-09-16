@@ -68,10 +68,8 @@ func (c *Client) mutateTagsByQueryExcluding(expression string, tags, excludedHas
 			if err != nil {
 				return 0, err
 			}
-			for _, tagID := range tagIDs {
-				if _, err := tx.Exec("INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM hashes_to_update", tagID); err != nil {
-					return 0, fmt.Errorf("failed to associate replacement tags: %w", err)
-				}
+			if _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, "SELECT hash FROM hashes_to_update", nil, tagIDs); err != nil {
+				return 0, fmt.Errorf("failed to associate replacement tags: %w", err)
 			}
 		}
 		return affectedCount, tx.Commit()
