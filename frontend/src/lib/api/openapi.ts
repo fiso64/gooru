@@ -1255,8 +1255,8 @@ export interface paths {
                         /** @description Configured upload target ID. Defaults to the first configured target. */
                         target_id?: string;
                         /**
-                         * @description How to handle uploaded filenames that already exist in the target; omitted values default to skip.
-                         * @default skip
+                         * @description How to handle a requested filename that already exists in the target; omitted values default to rename.
+                         * @default rename
                          * @enum {string}
                          */
                         conflict_policy?: "rename" | "error";

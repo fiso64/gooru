@@ -873,8 +873,8 @@ paths:
                 conflict_policy:
                   type: string
                   enum: [rename, error]
-                  default: skip
-                  description: How to handle uploaded filenames that already exist in the target; omitted values default to skip.
+                  default: rename
+                  description: How to handle a requested filename that already exists in the target; omitted values default to rename.
                 tags:
                   type: string
                   description: Space- or comma-separated fallback initial tags applied to files that do not provide item_tags.
