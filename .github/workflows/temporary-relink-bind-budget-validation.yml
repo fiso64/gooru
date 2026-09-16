@@ -1,0 +1,16 @@
+name: Temporary relink bind-budget validation
+
+on:
+  push:
+    branches:
+      - maintainer/549-relink-addition-bind-budget
+    paths:
+      - .github/workflows/temporary-relink-bind-budget-validation.yml
+
+jobs:
+  validate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run relink bind-budget regression
+        run: go test ./internal/database -run '^TestApplyRelinkAdditionsTxRespectsVariableBudget$' -count=1
