@@ -69,12 +69,17 @@
     buttons[nextIndex]?.focus({ preventScroll: true });
     buttons[nextIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
+
+  function handleTagPageKeydown(event: KeyboardEvent) {
+    handleGridKeydown(event);
+    focusFirstTag(event);
+  }
 </script>
 
-<svelte:window onkeydown={focusFirstTag} />
+<svelte:window onkeydown={handleTagPageKeydown} />
 
 <main class="main">
-  <div bind:this={tagPage} class="page" onkeydown={handleGridKeydown}>
+  <div bind:this={tagPage} class="page">
     <div class="page-header">
       <div class="g-eyebrow g-eyebrow-accent">Tags</div>
       <h1>{tags.length.toLocaleString()} tags across {libraryCount.toLocaleString()} files</h1>
