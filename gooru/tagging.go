@@ -504,13 +504,11 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 			if err != nil {
 				return 0, fmt.Errorf("failed to get or create tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-			for _, hash := range hashes {
-				for _, tagStr := range tags {
-					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
-				}
+			tagIDs := make([]int64, 0, len(tags))
+			for _, tagStr := range tags {
+				tagIDs = append(tagIDs, tagIDMap[tagStr])
 			}
-			affected, err := c.store.BatchAssociateTags(tx, pairs)
+			affected, err := c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
 			if err != nil {
 				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
 			}
@@ -531,13 +529,11 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 			if err != nil {
 				return 0, fmt.Errorf("failed to get or create tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-			for _, hash := range hashes {
-				for _, tagStr := range tags {
-					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
-				}
+			tagIDs := make([]int64, 0, len(tags))
+			for _, tagStr := range tags {
+				tagIDs = append(tagIDs, tagIDMap[tagStr])
 			}
-			associated, err = c.store.BatchAssociateTags(tx, pairs)
+			associated, err = c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
 			if err != nil {
 				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
 			}
@@ -553,15 +549,13 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 			if err != nil {
 				return 0, fmt.Errorf("failed to look up tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-			for _, hash := range hashes {
-				for _, tagStr := range tags {
-					if tagID, ok := tagIDMap[tagStr]; ok {
-						pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagID})
-					}
+			tagIDs := make([]int64, 0, len(tags))
+			for _, tagStr := range tags {
+				if tagID, ok := tagIDMap[tagStr]; ok {
+					tagIDs = append(tagIDs, tagID)
 				}
 			}
-			affected, err := c.store.BatchDisassociateTags(tx, pairs)
+			affected, err := c.store.BatchDisassociateTagsForContentHashes(tx, hashes, tagIDs)
 			if err != nil {
 				return 0, fmt.Errorf("failed to batch disassociate tags: %w", err)
 			}
