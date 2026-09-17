@@ -83,7 +83,7 @@ describe('upload panel rows', () => {
     });
   });
 
-  it('uses the already-polled durable operation progress after transport completes', () => {
+  it('keeps completed transport progress while durable import runs', () => {
     const source = [uploadRow(0, 5).item, uploadRow(1, 5).item].map((item) => ({
       ...item,
       status: 'queued' as const,
@@ -107,7 +107,7 @@ describe('upload panel rows', () => {
       [100, 25],
       [100, 25]
     ]);
-    expect(summarizeUploadQueueBatch(batch!).progress).toBe(25);
+    expect(summarizeUploadQueueBatch(batch!).progress).toBe(100);
   });
 
   it('keeps transport progress while another segment is still uploading', () => {
@@ -135,7 +135,7 @@ describe('upload panel rows', () => {
 
     const summary = summarizeUploadQueueBatch(batch!);
 
-    expect(summary.progress).toBe(23);
+    expect(summary.progress).toBe(100);
     expect(summary.counts).toEqual({ importing: 150_000 });
     expect(summary.status).toBe('150000 importing');
   });
