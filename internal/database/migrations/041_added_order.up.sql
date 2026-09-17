@@ -11,19 +11,16 @@ SET added_at = added_at * 1000;
 
 ALTER TABLE locations ADD COLUMN added_order INTEGER NOT NULL DEFAULT 0;
 
--- Compatibility: callers predating this migration may still provide Unix
--- seconds. Normalize those values on insert while allowing new millisecond
--- callers through unchanged. A zero value keeps the historical "assign now"
--- behavior, now at millisecond precision.
+-- After this migration, added_at is unambiguously Unix milliseconds.
+-- Only the zero sentinel needs database-side normalization; trying to infer
+-- seconds from magnitude would corrupt legitimate early-epoch millisecond
+-- timestamps used by modified-time ordering.
 CREATE TRIGGER set_location_added_at_on_insert
 AFTER INSERT ON locations
-WHEN NEW.added_at < 100000000000
+WHEN NEW.added_at = 0
 BEGIN
     UPDATE locations
-    SET added_at = CASE
-        WHEN NEW.added_at = 0 THEN CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
-        ELSE NEW.added_at * 1000
-    END
+    SET added_at = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
     WHERE id = NEW.id;
 END;
 

@@ -89,8 +89,8 @@ func TestLocationAddedAtMigrationBackfillsAndDefaultsNewRows(t *testing.T) {
 	if err := db.QueryRow(`SELECT added_at FROM locations WHERE public_id = 'file_existing'`).Scan(&explicit); err != nil {
 		t.Fatal(err)
 	}
-	if explicit != 4321*1000 {
-		t.Fatalf("explicit added_at = %d, want %d", explicit, int64(4321*1000))
+	if explicit != 4321 {
+		t.Fatalf("explicit added_at = %d, want 4321 milliseconds unchanged", explicit)
 	}
 
 	if _, err := db.Exec(`INSERT INTO contents (hash) VALUES ('new')`); err != nil {

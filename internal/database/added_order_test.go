@@ -58,3 +58,28 @@ func TestAddedOrderKeysetPaginationPreservesEqualTimestampOrder(t *testing.T) {
 	assertPagedPaths("asc", []string{"/library/a.jpg", "/library/b.jpg", "/library/c.jpg"})
 	assertPagedPaths("desc", []string{"/library/c.jpg", "/library/b.jpg", "/library/a.jpg"})
 }
+
+func TestAddedOrderUpsertPreservesEarlyEpochMilliseconds(t *testing.T) {
+	store := newMemoryTestStore(t)
+	if err := store.BatchInsertContents(store.DB, []string{"hash-early"}); err != nil {
+		t.Fatalf("BatchInsertContents: %v", err)
+	}
+
+	// 1971-01-01 UTC in Unix milliseconds. This is deliberately below the old
+	// magnitude heuristic that mistook early millisecond values for Unix seconds.
+	const addedAt int64 = 31_536_000_000
+	path := "/library/early.jpg"
+	locations := map[string]types.LocationInfo{
+		path: {Path: path, Hash: "hash-early", Size: 1, ModTime: 1, AddedAt: addedAt, Extension: ".jpg"},
+	}
+	if err := store.BatchUpsertLocationsWithAddedOrder(store.DB, locations, map[string]int64{path: 7}); err != nil {
+		t.Fatalf("BatchUpsertLocationsWithAddedOrder: %v", err)
+	}
+	var got int64
+	if err := store.QueryRow(`SELECT added_at FROM locations WHERE path = ?`, path).Scan(&got); err != nil {
+		t.Fatalf("read stored added_at: %v", err)
+	}
+	if got != addedAt {
+		t.Fatalf("added_at=%d want early-epoch milliseconds %d unchanged", got, addedAt)
+	}
+}
