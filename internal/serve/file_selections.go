@@ -192,12 +192,11 @@ func (s *Server) handleFileSelections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request.Query = strings.TrimSpace(request.Query)
-	if request.Query == "" {
-		request.Query = "*"
-	}
-	if err := validateFileSelectionQuery(request.Query); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
-		return
+	if request.Query != "" {
+		if err := validateFileSelectionQuery(request.Query); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_query", err.Error(), nil)
+			return
+		}
 	}
 
 	fileIDs, err := selectionLibrary.ListPublicFileIDs(r.Context(), request.Query)
