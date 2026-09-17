@@ -1,0 +1,25 @@
+name: Maintainer audit
+
+on:
+  push:
+    branches:
+      - maintainer/772-upload-row-interactions
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect upload row styles and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== upload row/tag selectors ==='
+          git grep -n -C 4 -E 'upload-item-tags|upload-tags-control|upload-row|tag-autocomplete' -- frontend/src frontend/tests || true
+          echo '=== booru hover/background selectors ==='
+          git grep -n -C 5 -E 'upload.*hover|upload-row|accent-soft|background.*hover|booru-light|booru-dark' -- frontend/src/lib/styles frontend/src/lib/components/UploadPanel.svelte frontend/tests || true
+          echo '=== upload browser tests ==='
+          find frontend/tests -maxdepth 1 -type f -print | sort | grep -i upload || true
