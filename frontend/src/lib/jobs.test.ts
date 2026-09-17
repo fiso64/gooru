@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Job } from '$lib/api/types';
-import { jobAffectedCount, jobFailedCount } from '$lib/jobs';
+import { jobAffectedCount, jobFailedCount, jobProgressPercent } from '$lib/jobs';
 
 function job(overrides: Partial<Job>): Job {
   return {
@@ -73,5 +73,50 @@ describe('jobFailedCount', () => {
 
   it('does not infer semantic failures from durable task progress', () => {
     expect(jobFailedCount(job({ progress_failed: 3 }))).toBeUndefined();
+  });
+});
+
+
+describe('jobProgressPercent', () => {
+  it('keeps generic job progress unchanged', () => {
+    expect(jobProgressPercent(job({ status: 'running', progress: 0.42 }))).toBe(42);
+  });
+
+  it('maps upload receiving progress from the server transport half to 0-100%', () => {
+    expect(jobProgressPercent(job({
+      type: 'upload_import',
+      status: 'running',
+      stage: 'receiving',
+      progress: 0.25
+    }))).toBe(50);
+    expect(jobProgressPercent(job({
+      type: 'upload_import',
+      status: 'running',
+      stage: 'receiving',
+      progress: 0.5
+    }))).toBe(100);
+  });
+
+  it('does not jump backward when an upload moves from receiving to importing', () => {
+    expect(jobProgressPercent(job({
+      type: 'upload_import',
+      status: 'running',
+      stage: 'importing',
+      progress: 0.5
+    }))).toBe(100);
+    expect(jobProgressPercent(job({
+      type: 'upload_import',
+      status: 'running',
+      stage: 'importing',
+      progress: 0.71
+    }))).toBe(100);
+  });
+
+  it('shows completed upload jobs at 100 even for stale composite progress', () => {
+    expect(jobProgressPercent(job({
+      type: 'upload_import',
+      status: 'completed',
+      progress: 0.5
+    }))).toBe(100);
   });
 });
