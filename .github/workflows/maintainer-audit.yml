@@ -1,0 +1,25 @@
+name: Maintainer audit
+
+on:
+  push:
+    branches:
+      - maintainer/549-added-order-audit
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect added-order paging APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== added-order wrapper references ==='
+          git grep -n -E 'Get(AllFilesInfoPageSorted|FilesInfoByLocationQueryPageSorted)(Offset)?AddedOrder' -- '*.go' || true
+          echo '=== legacy paging helper references ==='
+          git grep -n -E 'GetAllFilesInfoPageSorted\(|GetFilesInfoByLocationQueryPageSorted\(|GetAllFilesInfoPageSortedOffset\(|GetFilesInfoByLocationQueryPageSortedOffset\(' -- '*.go' || true
+          echo '=== added_order.go line count ==='
+          wc -l internal/database/added_order.go
