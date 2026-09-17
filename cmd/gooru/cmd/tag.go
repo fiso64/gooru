@@ -14,9 +14,10 @@ import (
 )
 
 var (
-	multiInputTag     bool
-	tagExpressionMode bool
-	tagUseMetadata    bool
+	multiInputTag       bool
+	tagExpressionMode   bool
+	tagUseMetadata      bool
+	tagRegistrationSort string
 )
 
 // tagCmd represents the tag command
@@ -61,6 +62,10 @@ Expression mode (tag files matching a query):
 			}
 			fileSpecs = args[0:1]
 			tags = args[1:]
+		}
+
+		if err := validateRegistrationSortUsage(tagExpressionMode, cmd.Flags().Changed("sort")); err != nil {
+			return err
 		}
 
 		if verbose {
@@ -114,7 +119,7 @@ Expression mode (tag files matching a query):
 				}
 			}
 
-			result, err := svc.TagFiles(files, tags, progressCb, tagUseMetadata)
+			result, err := tagFilesWithRegistrationSort(files, tags, progressCb, tagUseMetadata, tagRegistrationSort)
 			if err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
@@ -155,4 +160,5 @@ func init() {
 	tagCmd.Flags().BoolVarP(&multiInputTag, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
 	tagCmd.Flags().BoolVarP(&tagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 	tagCmd.Flags().BoolVar(&tagUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
+	tagCmd.Flags().StringVar(&tagRegistrationSort, "sort", "newest-last", registrationSortHelp)
 }

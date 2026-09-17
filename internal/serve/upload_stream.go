@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	core "gooru.local/gooru"
 )
 
 const maxUploadFieldBytes = 1 << 20
@@ -187,8 +189,9 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		queueIndex := parseUploadOrdinal(queueIndexValues, i, i)
 		queueTotal := parseUploadOrdinal(queueTotalValues, i, len(streamed))
 		// The resolved value is copied into saved/staged state before async job submission.
-		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)
-		streamed[i].addedOrder = resolveUploadAddedOrder(addedAtStrategy, queueIndex, queueTotal)
+		resolved := resolveUploadRegistrationSort(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)
+		streamed[i].addedAt = resolved.AddedAt
+		streamed[i].addedOrder = resolved.AddedOrder
 	}
 	conflictPolicy, err := uploadConflictPolicy(conflictRequested)
 	if err != nil {
@@ -312,41 +315,29 @@ func parseUploadOrdinal(values []string, index int, fallback int) int {
 	return fallback
 }
 
-func normalizeUploadOrdinal(queueIndex, queueTotal int) (int, int) {
-	if queueIndex < 0 {
-		queueIndex = 0
-	}
-	if queueTotal <= 0 {
-		queueTotal = queueIndex + 1
-	}
-	if queueIndex >= queueTotal {
-		queueIndex = queueTotal - 1
-	}
-	return queueIndex, queueTotal
-}
-
-func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstTime, queueLastTime time.Time, queueIndex, queueTotal int) time.Time {
+func resolveUploadRegistrationSort(strategy string, sourceModTime, queueTime, queueFirstTime, queueLastTime time.Time, queueIndex, queueTotal int) core.FileRegistrationSortValue {
 	if queueTime.IsZero() {
 		queueTime = time.Now().UTC()
 	}
-	if strategy == "modtime" && !sourceModTime.IsZero() {
-		return sourceModTime.UTC()
-	}
-	// Queue-based strategies use one honest batch timestamp. Ordering within the
-	// batch is carried separately by resolveUploadAddedOrder instead of fabricating
-	// later wall-clock times. queueFirstTime is stable across segmented workers.
+	batchTime := queueTime
 	if !queueFirstTime.IsZero() {
-		return queueFirstTime.UTC()
+		batchTime = queueFirstTime
 	}
-	return queueTime.UTC()
+	sort, err := core.ParseFileRegistrationSort(strategy)
+	if err != nil {
+		// uploadAddedAtStrategy validates requests before they reach this helper;
+		// retain the historical default for direct/internal callers.
+		sort = core.FileRegistrationSortNewestLast
+	}
+	return core.ResolveFileRegistrationSort(sort, sourceModTime, batchTime, queueIndex, queueTotal)
+}
+
+func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstTime, queueLastTime time.Time, queueIndex, queueTotal int) time.Time {
+	return resolveUploadRegistrationSort(strategy, sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal).AddedAt
 }
 
 func resolveUploadAddedOrder(strategy string, queueIndex, queueTotal int) int64 {
-	queueIndex, queueTotal = normalizeUploadOrdinal(queueIndex, queueTotal)
-	if strategy == "reverse_queue" {
-		return int64(queueTotal - 1 - queueIndex)
-	}
-	return int64(queueIndex)
+	return resolveUploadRegistrationSort(strategy, time.Time{}, time.Time{}, time.Time{}, time.Time{}, queueIndex, queueTotal).AddedOrder
 }
 
 func parseUploadSourceModTime(value string) time.Time {
