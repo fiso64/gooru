@@ -3,12 +3,13 @@ package serve
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func (s *Server) handleFrontend(w http.ResponseWriter, r *http.Request) {
@@ -69,8 +70,12 @@ func serveStaticFile(w http.ResponseWriter, r *http.Request, root string, assetP
 		if err != nil {
 			return false
 		}
-		w.Header().Set("Content-Security-Policy", contentSecurityPolicy(inlineScriptHashes(data)))
-		http.ServeContent(w, r, info.Name(), info.ModTime(), bytes.NewReader(data))
+		sum := sha256.Sum256(data)
+		w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:])+`"`)
+		// index.html is mutable across frontend deployments. Its content-derived
+		// ETag is authoritative; omitting Last-Modified avoids treating equal
+		// mtimes from reproducible/store builds as proof that content is unchanged.
+		http.ServeContent(w, r, info.Name(), time.Time{}, bytes.NewReader(data))
 		return true
 	} else if strings.HasPrefix(assetPath, "_app/immutable/") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -79,36 +84,6 @@ func serveStaticFile(w http.ResponseWriter, r *http.Request, root string, assetP
 	}
 	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 	return true
-}
-
-func inlineScriptHashes(html []byte) []string {
-	var hashes []string
-	remaining := html
-	for {
-		start := bytes.Index(remaining, []byte("<script"))
-		if start < 0 {
-			return hashes
-		}
-		afterStart := remaining[start:]
-		openEnd := bytes.IndexByte(afterStart, '>')
-		if openEnd < 0 {
-			return hashes
-		}
-		contentStart := openEnd + 1
-		contentAndRest := afterStart[contentStart:]
-		closeStart := bytes.Index(contentAndRest, []byte("</script>"))
-		if closeStart < 0 {
-			return hashes
-		}
-		content := contentAndRest[:closeStart]
-		if bytes.Contains(afterStart[:openEnd], []byte("src=")) {
-			remaining = contentAndRest[closeStart+len("</script>"):]
-			continue
-		}
-		sum := sha256.Sum256(content)
-		hashes = append(hashes, base64.StdEncoding.EncodeToString(sum[:]))
-		remaining = contentAndRest[closeStart+len("</script>"):]
-	}
 }
 
 func safeJoin(root string, assetPath string) (string, bool) {
