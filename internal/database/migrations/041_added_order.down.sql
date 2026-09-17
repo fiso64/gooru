@@ -1,3 +1,4 @@
+DROP INDEX IF EXISTS idx_locations_extension_lower_added_at_order_desc_id_asc;
 DROP INDEX IF EXISTS idx_locations_added_at_order_desc_id_asc;
 DROP INDEX IF EXISTS idx_locations_added_at_order_id;
 DROP TRIGGER IF EXISTS set_location_added_at_on_insert;
@@ -21,3 +22,6 @@ ON locations(added_at, id);
 
 CREATE INDEX idx_locations_added_at_desc_id_asc
 ON locations(added_at DESC, id ASC);
+
+CREATE INDEX idx_locations_extension_lower_added_at_desc_id_asc
+ON locations(lower(extension), added_at DESC, id ASC);
