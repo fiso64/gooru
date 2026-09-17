@@ -8,6 +8,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestOpenAPIBulkDownloadMethods(t *testing.T) {
+	data, err := os.ReadFile("../../docs/openapi.yaml")
+	require.NoError(t, err)
+
+	var spec struct {
+		Paths map[string]map[string]any `yaml:"paths"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &spec))
+
+	create, ok := spec.Paths["/file-downloads"]
+	require.True(t, ok, "missing bulk download creation path")
+	require.Contains(t, create, "post")
+	require.NotContains(t, create, "get")
+
+	stream, ok := spec.Paths["/file-downloads/{id}"]
+	require.True(t, ok, "missing bulk download stream path")
+	require.Contains(t, stream, "get")
+	require.NotContains(t, stream, "post")
+}
+
 func TestOpenAPIOriginalMediaMethods(t *testing.T) {
 	data, err := os.ReadFile("../../docs/openapi.yaml")
 	require.NoError(t, err)
