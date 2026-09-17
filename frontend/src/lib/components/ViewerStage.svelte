@@ -823,7 +823,11 @@
 
 <svelte:window onkeydown={handleViewerKeydown} />
 
+<!-- Pointer motion only tracks fullscreen cursor idleness; keyboard viewer controls are handled globally. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
+  <!-- Drag panning supplements native viewport scrolling; an interactive ARIA role would misdescribe this surface. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={panViewportElement}
     class="viewer-pan-viewport"
@@ -902,6 +906,8 @@
   {/if}
 
   {#if renderedFile.media_kind === 'video' || comicEntered}
+    <!-- Pointer entry keeps transient controls visible; onfocusin is the keyboard/focus equivalent. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="lightbox-video-controls" class:comic-controls={comicEntered} class:is-idle={playbackControlsIdle} onpointerenter={handleControlsPointerEnter} onfocusin={showPlaybackControls}>
       {#if comicEntered}
         <button class="video-play comic-exit" type="button" aria-label="Exit comic (Space)" onclick={(event) => { onToggleComic?.(); restoreStageFocusAfterPointer(event); }}>

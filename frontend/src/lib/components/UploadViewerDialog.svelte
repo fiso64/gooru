@@ -196,6 +196,13 @@
     onRemove(index);
   }
 
+  function handleBackdropKeydown(event: KeyboardEvent) {
+    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  }
+
   function handleWindowKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event)) return;
 
@@ -299,6 +306,7 @@
     aria-labelledby="upload-viewer-title"
     tabindex="-1"
     onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    onkeydown={handleBackdropKeydown}
   >
     <ViewerSidebar
       titleID="upload-viewer-title"

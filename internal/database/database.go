@@ -576,7 +576,8 @@ func (s *Store) ApplyRelinkAdditionsTx(q Querier, toAdd map[string]types.Locatio
 	}
 
 	var locationsAdded int
-	const batchSize = 250
+	const columns = 5 // content_hash, path, size_bytes, mod_time, extension
+	batchSize := maxVars / columns
 	var args []interface{}
 	var queryBuilder strings.Builder
 	// The tags_cache is now populated by triggers, so we don't insert it here.
@@ -1309,42 +1310,61 @@ const (
 	maxVars = 900
 )
 
+func parsedTagString(tag types.ParsedTag) string {
+	if tag.Value == "" {
+		return tag.Key
+	}
+	return tag.Key + ":" + tag.Value
+}
+
 func (s *Store) BatchGetTags(q Querier, parsedTags []types.ParsedTag) (map[string]int64, error) {
 	tagIDMap := make(map[string]int64)
 	if len(parsedTags) == 0 {
 		return tagIDMap, nil
 	}
 
-	var placeholders []string
-	var args []interface{}
-	for _, t := range parsedTags {
-		placeholders = append(placeholders, "(?, ?)")
-		args = append(args, t.Key, t.Value)
-	}
-	// Note: Using row value constructor `(key, value) IN ((?,?), ...)`
-	query := `SELECT id, key, value FROM tags WHERE (key, value) IN (` + strings.Join(placeholders, ",") + `)`
+	const columns = 2 // key, value
+	batchSize := maxVars / columns
+	for i := 0; i < len(parsedTags); i += batchSize {
+		end := i + batchSize
+		if end > len(parsedTags) {
+			end = len(parsedTags)
+		}
+		batch := parsedTags[i:end]
 
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, 0, len(batch)*columns)
+		for j, tag := range batch {
+			placeholders[j] = "(?, ?)"
+			args = append(args, tag.Key, tag.Value)
+		}
+		query := `WITH requested(key, value) AS (VALUES ` + strings.Join(placeholders, ",") + `)
+			SELECT t.id, requested.key, requested.value
+			FROM requested
+			JOIN tags t ON t.key = requested.key AND t.value = requested.value`
 
-	for rows.Next() {
-		var id int64
-		var key, value string
-		if err := rows.Scan(&id, &key, &value); err != nil {
+		rows, err := q.Query(query, args...)
+		if err != nil {
 			return nil, err
 		}
-		var tagStr string
-		if value == "" {
-			tagStr = key
-		} else {
-			tagStr = key + ":" + value
+		for rows.Next() {
+			var id int64
+			var key, value string
+			if err := rows.Scan(&id, &key, &value); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			tagIDMap[parsedTagString(types.ParsedTag{Key: key, Value: value})] = id
 		}
-		tagIDMap[tagStr] = id
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
 	}
-	return tagIDMap, rows.Err()
+	return tagIDMap, nil
 }
 
 func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (map[string]int64, error) {
@@ -1353,35 +1373,50 @@ func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (m
 		return nil, err
 	}
 
-	// 2. Insert any tags that weren't found
-	for _, t := range parsedTags {
-		var tagStr string
-		if t.Value == "" {
-			tagStr = t.Key
-		} else {
-			tagStr = t.Key + ":" + t.Value
+	missing := make([]types.ParsedTag, 0, len(parsedTags)-len(tagIDMap))
+	seenMissing := make(map[string]struct{})
+	for _, tag := range parsedTags {
+		tagStr := parsedTagString(tag)
+		if _, exists := tagIDMap[tagStr]; exists {
+			continue
 		}
+		if _, exists := seenMissing[tagStr]; exists {
+			continue
+		}
+		seenMissing[tagStr] = struct{}{}
+		missing = append(missing, tag)
+	}
+	if len(missing) == 0 {
+		return tagIDMap, nil
+	}
 
-		if _, exists := tagIDMap[tagStr]; !exists {
-			res, err := q.Exec("INSERT OR IGNORE INTO tags (key, value) VALUES (?, ?)", t.Key, t.Value)
-			if err != nil {
-				return nil, err
-			}
-			id, err := res.LastInsertId()
-			if err != nil {
-				return nil, err
-			}
-			// If LastInsertId is 0, another concurrent transaction might have inserted it. Re-query.
-			if id == 0 {
-				err := q.QueryRow("SELECT id FROM tags WHERE key = ? AND value = ?", t.Key, t.Value).Scan(&id)
-				if err != nil {
-					return nil, err
-				}
-			}
-			tagIDMap[tagStr] = id
+	const columns = 2 // key, value
+	batchSize := maxVars / columns
+	for i := 0; i < len(missing); i += batchSize {
+		end := i + batchSize
+		if end > len(missing) {
+			end = len(missing)
+		}
+		batch := missing[i:end]
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, 0, len(batch)*columns)
+		for j, tag := range batch {
+			placeholders[j] = "(?, ?)"
+			args = append(args, tag.Key, tag.Value)
+		}
+		query := "INSERT OR IGNORE INTO tags (key, value) VALUES " + strings.Join(placeholders, ",")
+		if _, err := q.Exec(query, args...); err != nil {
+			return nil, err
 		}
 	}
 
+	created, err := s.BatchGetTags(q, missing)
+	if err != nil {
+		return nil, err
+	}
+	for tagStr, id := range created {
+		tagIDMap[tagStr] = id
+	}
 	return tagIDMap, nil
 }
 
@@ -1449,13 +1484,26 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 		if _, err := q.Exec(query, args...); err != nil {
 			return err
 		}
+		managedPlaceholders := make([]string, 0, len(batch))
+		managedArgs := make([]interface{}, 0, len(batch)*2)
 		for _, loc := range batch {
 			if strings.TrimSpace(loc.StoragePath) == "" {
 				continue
 			}
-			if _, err := q.Exec(`INSERT INTO managed_storage_locations (location_id, physical_path)
-				SELECT id, ? FROM locations WHERE path = ?
-				ON CONFLICT(location_id) DO UPDATE SET physical_path = excluded.physical_path`, loc.StoragePath, loc.Path); err != nil {
+			managedPlaceholders = append(managedPlaceholders, "(?, ?)")
+			managedArgs = append(managedArgs, loc.StoragePath, loc.Path)
+		}
+		if len(managedPlaceholders) > 0 {
+			managedQuery := `WITH managed(physical_path, path) AS (VALUES ` +
+				strings.Join(managedPlaceholders, ",") +
+				`)
+				INSERT INTO managed_storage_locations (location_id, physical_path)
+				SELECT l.id, managed.physical_path
+				FROM managed
+				JOIN locations l ON l.path = managed.path
+				WHERE true
+				ON CONFLICT(location_id) DO UPDATE SET physical_path = excluded.physical_path`
+			if _, err := q.Exec(managedQuery, managedArgs...); err != nil {
 				return err
 			}
 		}
@@ -2152,16 +2200,30 @@ func (s *Store) BatchAssociateTagsByContentQueryTx(q Querier, subQuery string, a
 		return 0, nil
 	}
 
-	var totalAffected int64
-	for _, tagID := range tagIDs {
-		// We use a subquery to select the hashes and a constant for the tag_id.
-		query := fmt.Sprintf(
-			"INSERT OR IGNORE INTO content_tags (content_hash, tag_id) SELECT hash, ? FROM (%s)",
-			subQuery,
-		)
+	batchSize := maxVars - len(args)
+	if batchSize <= 0 {
+		return 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag association", len(args))
+	}
 
-		finalArgs := make([]interface{}, 0, len(args)+1)
-		finalArgs = append(finalArgs, tagID)
+	var totalAffected int64
+	for start := 0; start < len(tagIDs); start += batchSize {
+		end := start + batchSize
+		if end > len(tagIDs) {
+			end = len(tagIDs)
+		}
+		batch := tagIDs[start:end]
+
+		placeholders := strings.Repeat("(?),", len(batch)-1) + "(?)"
+		query := fmt.Sprintf(`WITH tag_ids(tag_id) AS (VALUES %s)
+			INSERT OR IGNORE INTO content_tags (content_hash, tag_id)
+			SELECT selected_hashes.hash, tag_ids.tag_id
+			FROM (%s) AS selected_hashes
+			CROSS JOIN tag_ids`, placeholders, subQuery)
+
+		finalArgs := make([]interface{}, 0, len(args)+len(batch))
+		for _, tagID := range batch {
+			finalArgs = append(finalArgs, tagID)
+		}
 		finalArgs = append(finalArgs, args...)
 
 		res, err := q.Exec(query, finalArgs...)
@@ -2181,24 +2243,41 @@ func (s *Store) BatchDisassociateTagsByContentQueryTx(q Querier, subQuery string
 		return 0, nil
 	}
 
-	placeholders := strings.Repeat("?,", len(tagIDs)-1) + "?"
-	query := fmt.Sprintf(
-		"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
-		placeholders,
-		subQuery,
-	)
-
-	finalArgs := make([]interface{}, 0, len(args)+len(tagIDs))
-	for _, id := range tagIDs {
-		finalArgs = append(finalArgs, id)
+	batchSize := maxVars - len(args)
+	if batchSize <= 0 {
+		return 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag disassociation", len(args))
 	}
-	finalArgs = append(finalArgs, args...)
 
-	res, err := q.Exec(query, finalArgs...)
-	if err != nil {
-		return 0, err
+	var totalAffected int64
+	for start := 0; start < len(tagIDs); start += batchSize {
+		end := start + batchSize
+		if end > len(tagIDs) {
+			end = len(tagIDs)
+		}
+		batch := tagIDs[start:end]
+
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		query := fmt.Sprintf(
+			"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
+			placeholders,
+			subQuery,
+		)
+
+		finalArgs := make([]interface{}, 0, len(args)+len(batch))
+		for _, id := range batch {
+			finalArgs = append(finalArgs, id)
+		}
+		finalArgs = append(finalArgs, args...)
+
+		res, err := q.Exec(query, finalArgs...)
+		if err != nil {
+			return 0, err
+		}
+		affected, _ := res.RowsAffected()
+		totalAffected += affected
 	}
-	return res.RowsAffected()
+
+	return totalAffected, nil
 }
 
 // RemoveLocationsByContentQueryTx removes locations for content matching a subquery.

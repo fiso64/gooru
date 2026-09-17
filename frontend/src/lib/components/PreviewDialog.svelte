@@ -293,6 +293,13 @@
     else onNext();
   }
 
+  function handleBackdropKeydown(event: KeyboardEvent) {
+    if (event.target !== event.currentTarget || event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  }
+
   function modifiedLabel(value: string) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
@@ -310,6 +317,7 @@
   aria-labelledby="preview-title"
   tabindex="-1"
   onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}
+  onkeydown={handleBackdropKeydown}
 >
   <ViewerSidebar
     titleID="preview-title"

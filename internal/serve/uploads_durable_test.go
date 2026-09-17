@@ -447,12 +447,13 @@ func TestDurableUploadSyncCancellationCancelsOperation(t *testing.T) {
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 	done := make(chan struct{})
+	attached := store.attached
 	go func() {
 		server.Handler().ServeHTTP(rec, req)
 		close(done)
 	}()
 
-	<-store.attached
+	<-attached
 	cancel()
 	<-done
 

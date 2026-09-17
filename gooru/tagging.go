@@ -1,7 +1,6 @@
 package gooru
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -352,6 +351,7 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 		potentialMoves:    make(map[string]string),
 	}
 	processedPaths := make(map[string]bool)
+	modifiedDataIndexes := make(map[string][]int)
 
 	// 1a. Resolve paths and collect absolute paths.
 	absPaths := make([]string, 0, len(filePaths))
@@ -460,16 +460,6 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 			analysis.potentialMoves[hash] = absPath
 		}
 
-		var orphanedTags []string
-		if isModification {
-			oldTags, err := c.store.GetTagsForContent(dbInfo.Hash)
-			if err != nil && err != sql.ErrNoRows {
-				// Log? For now, just proceed.
-			} else {
-				orphanedTags = oldTags
-			}
-		}
-
 		locInfo := types.LocationInfo{
 			Path:      absPath,
 			Hash:      hash,
@@ -478,13 +468,31 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 			Extension: filepath.Ext(absPath),
 		}
 		analysis.allFileData = append(analysis.allFileData, fileData{
-			path:         originalPath,
-			info:         locInfo,
-			wasModified:  isModification,
-			orphanedTags: orphanedTags,
+			path:        originalPath,
+			info:        locInfo,
+			wasModified: isModification,
 		})
+		if isModification {
+			index := len(analysis.allFileData) - 1
+			modifiedDataIndexes[dbInfo.Hash] = append(modifiedDataIndexes[dbInfo.Hash], index)
+		}
 		analysis.allHashes = append(analysis.allHashes, hash)
 		analysis.locationsToUpsert[absPath] = locInfo
+	}
+
+	if len(modifiedDataIndexes) > 0 {
+		oldHashes := make([]string, 0, len(modifiedDataIndexes))
+		for hash := range modifiedDataIndexes {
+			oldHashes = append(oldHashes, hash)
+		}
+		// Orphaned tags are notification metadata, so preserve the previous
+		// best-effort behavior: a read failure must not block the tag mutation.
+		tagsByHash, _ := c.store.BatchGetTagsForContents(oldHashes)
+		for hash, indexes := range modifiedDataIndexes {
+			for _, index := range indexes {
+				analysis.allFileData[index].orphanedTags = tagsByHash[hash]
+			}
+		}
 	}
 
 	return analysis, nil
@@ -504,13 +512,11 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 			if err != nil {
 				return 0, fmt.Errorf("failed to get or create tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-			for _, hash := range hashes {
-				for _, tagStr := range tags {
-					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
-				}
+			tagIDs := make([]int64, 0, len(tags))
+			for _, tagStr := range tags {
+				tagIDs = append(tagIDs, tagIDMap[tagStr])
 			}
-			affected, err := c.store.BatchAssociateTags(tx, pairs)
+			affected, err := c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
 			if err != nil {
 				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
 			}
@@ -531,13 +537,11 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 			if err != nil {
 				return 0, fmt.Errorf("failed to get or create tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-			for _, hash := range hashes {
-				for _, tagStr := range tags {
-					pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagIDMap[tagStr]})
-				}
+			tagIDs := make([]int64, 0, len(tags))
+			for _, tagStr := range tags {
+				tagIDs = append(tagIDs, tagIDMap[tagStr])
 			}
-			associated, err = c.store.BatchAssociateTags(tx, pairs)
+			associated, err = c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
 			if err != nil {
 				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
 			}
@@ -553,15 +557,13 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 			if err != nil {
 				return 0, fmt.Errorf("failed to look up tags: %w", err)
 			}
-			pairs := make([]database.ContentTagPair, 0, len(hashes)*len(tags))
-			for _, hash := range hashes {
-				for _, tagStr := range tags {
-					if tagID, ok := tagIDMap[tagStr]; ok {
-						pairs = append(pairs, database.ContentTagPair{ContentHash: hash, TagID: tagID})
-					}
+			tagIDs := make([]int64, 0, len(tags))
+			for _, tagStr := range tags {
+				if tagID, ok := tagIDMap[tagStr]; ok {
+					tagIDs = append(tagIDs, tagID)
 				}
 			}
-			affected, err := c.store.BatchDisassociateTags(tx, pairs)
+			affected, err := c.store.BatchDisassociateTagsForContentHashes(tx, hashes, tagIDs)
 			if err != nil {
 				return 0, fmt.Errorf("failed to batch disassociate tags: %w", err)
 			}

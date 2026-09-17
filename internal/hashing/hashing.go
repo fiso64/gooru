@@ -114,13 +114,27 @@ func (h *Hasher) ConcurrentlyHashFiles(filesToHash []string) map[string]Result {
 		return make(map[string]Result)
 	}
 
-	jobs := make(chan Job, len(filesToHash))
-	results := make(chan Result, len(filesToHash))
+	uniqueFiles := make([]string, 0, len(filesToHash))
+	seen := make(map[string]struct{}, len(filesToHash))
+	for _, filePath := range filesToHash {
+		if _, ok := seen[filePath]; ok {
+			continue
+		}
+		seen[filePath] = struct{}{}
+		uniqueFiles = append(uniqueFiles, filePath)
+	}
 
 	numWorkers := runtime.NumCPU()
-	if len(filesToHash) < numWorkers {
-		numWorkers = len(filesToHash)
+	if len(uniqueFiles) < numWorkers {
+		numWorkers = len(uniqueFiles)
 	}
+
+	// Keep queue storage proportional to worker concurrency rather than the
+	// entire file set. Tagging can hand this helper millions of changed paths;
+	// buffering every Job and Result would duplicate O(N) state before any hash
+	// work starts. Production and result collection therefore run concurrently.
+	jobs := make(chan Job, numWorkers)
+	results := make(chan Result, numWorkers)
 
 	var wg sync.WaitGroup
 	for w := 0; w < numWorkers; w++ {
@@ -128,18 +142,21 @@ func (h *Hasher) ConcurrentlyHashFiles(filesToHash []string) map[string]Result {
 		go h.worker(&wg, jobs, results)
 	}
 
-	// Send all jobs to the workers
-	for _, f := range filesToHash {
-		jobs <- Job{FilePath: f}
-	}
-	close(jobs)
+	go func() {
+		for _, f := range uniqueFiles {
+			jobs <- Job{FilePath: f}
+		}
+		close(jobs)
+	}()
 
-	// Wait for all workers to finish
-	wg.Wait()
-	close(results)
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
 
-	// Collect all results into a map for easy lookup
-	resultMap := make(map[string]Result, len(filesToHash))
+	// Collect results while workers run so the bounded result queue cannot
+	// backpressure completion.
+	resultMap := make(map[string]Result, len(uniqueFiles))
 	for r := range results {
 		resultMap[r.FilePath] = r
 	}
