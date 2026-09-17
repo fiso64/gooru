@@ -23,6 +23,7 @@ type Server struct {
 	auth                 *AuthStore
 	urlState             *urlStateCodec
 	fileSelections       *fileSelectionStore
+	fileDownloads        *fileDownloadStore
 	managedFiles         *managedfile.Writer
 	backgroundContent    contentHashLibrary
 	backgroundOperations backgroundOperationReader
@@ -64,6 +65,7 @@ func NewServerWithLibrary(cfg Config, library Library) *Server {
 		meta:                 metadata,
 		urlState:             newURLStateCodec(cfg),
 		fileSelections:       newFileSelectionStore(),
+		fileDownloads:        newFileDownloadStore(),
 		managedFiles:         managedFiles,
 		backgroundContent:    backgroundContent,
 		backgroundOperations: backgroundOperations,
@@ -106,6 +108,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/uploads", s.adminProtected(http.HandlerFunc(s.handleUploadEndpoint)))
 	mux.Handle("/api/v1/file-selections/", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileSelection))))
 	mux.Handle("/api/v1/file-selections", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileSelections))))
+	mux.Handle("/api/v1/file-downloads/", s.adminProtected(http.HandlerFunc(s.handleFileDownload)))
+	mux.Handle("/api/v1/file-downloads", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileDownloads))))
 	mux.Handle("/api/v1/files/tags", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleMutateTags))))
 	mux.Handle("/api/v1/files/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, s.fileRouteHandler())))
 	mux.Handle("/api/v1/files", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFiles))))
