@@ -15,12 +15,12 @@ function resultFor(file: File, id?: string): UploadImportResponse {
 }
 
 describe('completed upload local previews', () => {
-  it('releases the local File when the completed result has remote identity', () => {
+  it('preserves the local File when the completed result has remote identity', () => {
     const file = new File(['payload'], 'photo.jpg', { type: 'image/jpeg' });
     const [item] = itemsFromResult(resultFor(file, 'file-1'), stagedUploadItems([file]));
 
     expect(item?.remoteFileID).toBe('file-1');
-    expect(item?.previewFile).toBeUndefined();
+    expect(item?.previewFile).toBe(file);
   });
 
   it('preserves the local File when the completed result has no remote identity', () => {
