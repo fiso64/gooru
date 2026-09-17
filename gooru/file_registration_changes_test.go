@@ -92,8 +92,8 @@ func TestKnownHashNewLocationSeparatesMetadataWakeFromParentOperation(t *testing
 	if err := client.store.DB.QueryRow(`SELECT visible FROM background_operations WHERE id = ? AND kind = ?`, metadataOperationID, BackgroundMediaMetadataSweepOperationKind).Scan(&visible); err != nil {
 		t.Fatalf("inspect metadata operation: %v", err)
 	}
-	if visible != 0 {
-		t.Fatalf("upload-triggered metadata operation visible = %d, want hidden", visible)
+	if visible != 1 {
+		t.Fatalf("upload-triggered metadata operation visible = %d, want visible auxiliary", visible)
 	}
 	var uploadChildren int
 	if err := client.store.DB.QueryRow(`SELECT count(*) FROM background_tasks WHERE operation_id = ?`, operation.ID).Scan(&uploadChildren); err != nil {
