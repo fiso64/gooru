@@ -36,7 +36,7 @@ The complete server configuration is documented in [docs/CONFIG.md](docs/CONFIG.
 
 ### NixOS
 
-The flake exposes `nixosModules.default`. A minimal automatic first boot can initialize the database and create an admin without putting the password in the Nix store:
+The flake exposes `nixosModules.default`. A minimal automatic deployment can initialize the database and declaratively manage an admin without putting the password in the Nix store:
 
 ```nix
 {
@@ -51,7 +51,10 @@ The flake exposes `nixosModules.default`. A minimal automatic first boot can ini
           services.gooru = {
             enable = true;
             initialDatabase.hashingStrategy = "partial"; # or "full"
-            initialAdmins.admin.passwordFile = "/run/secrets/gooru-admin";
+            admins.primary = {
+              username = "admin";
+              passwordFile = "/run/agenix/gooru-admin";
+            };
           };
         }
       ];
@@ -60,7 +63,9 @@ The flake exposes `nixosModules.default`. A minimal automatic first boot can ini
 }
 ```
 
-`initialDatabase.hashingStrategy` is consulted only when the database file is missing. An existing database keeps its stored hashing strategy. `initialAdmins` likewise creates only missing accounts; it does not reconcile or rotate passwords. `passwordFile` is a runtime path string loaded through a systemd credential, so use a secret manager or another mechanism that makes that file available on the host rather than a Nix-store path.
+`initialDatabase.hashingStrategy` is consulted only when the database file is missing; an existing database keeps its stored hashing strategy. `admins` is ongoing declarative state. Each attribute name (such as `primary`) is a stable declaration identity: changing `username` renames the same Gooru user and preserves its `usr_…` ID and per-user data, while changing the password file contents updates the actual password. Unchanged passwords incur one normal password-verification operation on service startup and are not re-hashed. Removing an `admins` entry does **not** delete its Gooru user, and declaration IDs should not be reused for a different account.
+
+`passwordFile` is a runtime path string loaded through a systemd credential. This is designed to work with secret managers such as agenix or sops-nix: point it at the runtime secret path they materialize. Do not use a Nix-store path containing plaintext credentials.
 
 ## Documentation
 
@@ -83,4 +88,4 @@ The flake exposes `nixosModules.default`. A minimal automatic first boot can ini
 
 ## License
 
-Gooru is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE) for the license text and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and assets.
+Gooru is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE.md) for the license text and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and assets.
