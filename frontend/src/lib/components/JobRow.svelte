@@ -160,17 +160,7 @@
   .status.error { color: var(--danger); }
 
   .job-progress {
-    width: 100%;
     height: 4px;
-    background: var(--surface-2);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .job-progress > div {
-    height: 100%;
-    background: var(--accent);
-    transition: width 0.3s ease;
   }
 
   .job-progress.running > div { background: var(--info, oklch(0.72 0.15 250)); }
