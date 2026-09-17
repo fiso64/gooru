@@ -15,7 +15,7 @@ npm run build
 cd ..
 ```
 
-The generated static site is written to `frontend/build`. Node is not required at runtime once the frontend has been built.
+The generated static site is written to `frontend/build`. Node is not required at runtime once the frontend has been built. Because `frontend/build` is intentionally ignored by Git, pulling newer source does not refresh an existing build directory; rerun `npm run build` after frontend source changes before restarting `gooru serve`, otherwise the new backend can serve an older WebUI bundle.
 
 ### 2. Build the Go binary
 
