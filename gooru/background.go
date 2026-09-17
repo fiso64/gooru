@@ -222,14 +222,17 @@ type BackgroundTaskCleanupRequest struct {
 
 // BackgroundOperationBinding controls how an operation request attached to a
 // task is resolved. The zero value creates a new owning operation. ReuseActive
-// instead attaches to an active operation of the same kind when one exists,
-// creating that operation only when necessary. The lookup/create decision is
-// made in the caller's transaction so it is safe across independent clients.
+// attaches to an active operation of the same kind when one exists. Associate
+// WithProducer creates or reuses a separate auxiliary operation associated with
+// the concrete producer in OperationID without making the auxiliary task a
+// producer progress child. Lookup/create decisions happen in the caller's
+// transaction so they are safe across independent clients.
 type BackgroundOperationBinding uint8
 
 const (
 	BackgroundOperationCreateNew BackgroundOperationBinding = iota
 	BackgroundOperationReuseActive
+	BackgroundOperationAssociateWithProducer
 )
 
 // BackgroundTaskRequest describes durable work to enqueue. DedupeKey is the
@@ -237,13 +240,15 @@ const (
 // that changes the promised result. AvailableAt is optional and defaults to now.
 // Operation requests an owning logical operation that is created atomically with
 // the task when the producer is already inside a domain transaction. It is
-// mutually exclusive with OperationID. OperationBinding explicitly controls
-// whether that operation must be new or may reuse active work of the same kind.
-// CoalescePendingEquivalent is a narrower opt-in for a concrete parent operation
-// or reusable operation request: after resolving the operation, an equivalent
-// pending task may be reused, while a running task never suppresses a newly
-// committed wake. PostponePendingEquivalent additionally moves a reused pending
-// task's availability later to AvailableAt.
+// mutually exclusive with OperationID except for AssociateWithProducer, where
+// OperationID identifies the producer and Operation describes the separate
+// auxiliary operation. OperationBinding explicitly controls whether that owning
+// operation must be new, may reuse active work of the same kind, or is associated
+// with a producer. CoalescePendingEquivalent is a narrower opt-in for a concrete
+// parent operation or reusable operation request: after resolving the operation,
+// an equivalent pending task may be reused, while a running task never suppresses
+// a newly committed wake. PostponePendingEquivalent additionally moves a reused
+// pending task's availability later to AvailableAt.
 type BackgroundTaskRequest struct {
 	OperationID                string
 	Operation                  *BackgroundOperationRequest
@@ -297,8 +302,11 @@ func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task Back
 		}
 		return task, created, nil
 	}
-	if request.OperationID != "" {
+	if request.OperationID != "" && request.OperationBinding != BackgroundOperationAssociateWithProducer {
 		return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
+	}
+	if request.OperationBinding == BackgroundOperationAssociateWithProducer && request.OperationID == "" {
+		return BackgroundTask{}, false, fmt.Errorf("associated background operation requires a producer operation id")
 	}
 
 	binding := request.OperationBinding
@@ -329,7 +337,7 @@ func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task Back
 func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
 	if request.CoalescePendingEquivalent {
 		hasConcreteOperation := request.Operation == nil && request.OperationID != ""
-		hasReusableOperationRequest := request.Operation != nil && request.OperationBinding == BackgroundOperationReuseActive
+		hasReusableOperationRequest := request.Operation != nil && (request.OperationBinding == BackgroundOperationReuseActive || request.OperationBinding == BackgroundOperationAssociateWithProducer)
 		if !hasConcreteOperation && !hasReusableOperationRequest {
 			return BackgroundTask{}, false, fmt.Errorf("pending-equivalent background task coalescing requires a concrete operation or reusable operation request")
 		}
@@ -362,14 +370,22 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 			}
 		}
 	} else {
-		if request.OperationID != "" {
+		binding := request.OperationBinding
+		producerOperationID := ""
+		if binding == BackgroundOperationAssociateWithProducer {
+			producerOperationID = request.OperationID
+			if producerOperationID == "" {
+				return BackgroundTask{}, false, fmt.Errorf("associated background operation requires a producer operation id")
+			}
+			request.OperationID = ""
+		} else if request.OperationID != "" {
 			return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
 		}
 		operationRequest := *request.Operation
 		request.Operation = nil
 
 		operationID := ""
-		switch request.OperationBinding {
+		switch binding {
 		case BackgroundOperationCreateNew:
 		case BackgroundOperationReuseActive:
 			activeID, found, err := c.store.FindActiveBackgroundOperationIDByKind(q, operationRequest.Kind)
@@ -379,8 +395,16 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 			if found {
 				operationID = activeID
 			}
+		case BackgroundOperationAssociateWithProducer:
+			activeID, found, err := c.store.FindActiveAssociatedBackgroundOperationID(q, producerOperationID, operationRequest.Kind)
+			if err != nil {
+				return BackgroundTask{}, false, fmt.Errorf("find associated background task operation: %w", err)
+			}
+			if found {
+				operationID = activeID
+			}
 		default:
-			return BackgroundTask{}, false, fmt.Errorf("unsupported background operation binding %d", request.OperationBinding)
+			return BackgroundTask{}, false, fmt.Errorf("unsupported background operation binding %d", binding)
 		}
 		if operationID == "" {
 			operation, err := c.createBackgroundOperation(q, operationRequest)
@@ -388,6 +412,11 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 				return BackgroundTask{}, false, fmt.Errorf("create background task operation: %w", err)
 			}
 			operationID = operation.ID
+			if binding == BackgroundOperationAssociateWithProducer {
+				if err := c.store.AssociateBackgroundOperation(q, producerOperationID, operationRequest.Kind, operationID, operation.CreatedAt); err != nil {
+					return BackgroundTask{}, false, fmt.Errorf("associate background task operation: %w", err)
+				}
+			}
 		}
 		request.OperationBinding = BackgroundOperationCreateNew
 		request, err = bindBackgroundChildTask(request, operationID, 0)

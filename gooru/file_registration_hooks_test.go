@@ -162,8 +162,19 @@ func TestKnownFileRegistrationSeparatesMetadataSweepFromParentOperation(t *testi
 	if err := client.store.DB.QueryRow(`SELECT visible FROM background_operations WHERE id = ? AND kind = ?`, metadataOperationID, BackgroundMediaMetadataSweepOperationKind).Scan(&visible); err != nil {
 		t.Fatalf("inspect metadata operation: %v", err)
 	}
-	if visible != 0 {
-		t.Fatalf("upload-triggered metadata operation visible = %d, want hidden", visible)
+	if visible != 1 {
+		t.Fatalf("upload-triggered metadata operation visible = %d, want visible auxiliary work", visible)
+	}
+	var associatedOperationID string
+	if err := client.store.DB.QueryRow(`
+		SELECT auxiliary_operation_id
+		FROM background_operation_associations
+		WHERE producer_operation_id = ? AND auxiliary_kind = ?
+	`, operation.ID, BackgroundMediaMetadataSweepOperationKind).Scan(&associatedOperationID); err != nil {
+		t.Fatalf("inspect metadata association: %v", err)
+	}
+	if associatedOperationID != metadataOperationID {
+		t.Fatalf("associated metadata operation = %q, want %q", associatedOperationID, metadataOperationID)
 	}
 	var progressTotal int64
 	var uploadChildren int
@@ -226,8 +237,8 @@ func TestMediaMetadataRegistrationTasksUseParentOperation(t *testing.T) {
 	}
 }
 
-func TestMediaMetadataRegistrationTasksForProducerOperationUsesHiddenSweep(t *testing.T) {
-	tasks, err := mediaMetadataRegistrationTasksForProducerOperation(true, " upload-op ")
+func TestMediaMetadataRegistrationTasksForAssociatedProducerOperation(t *testing.T) {
+	tasks, err := mediaMetadataRegistrationTasksForAssociatedProducerOperation(true, " upload-op ")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,13 +246,13 @@ func TestMediaMetadataRegistrationTasksForProducerOperationUsesHiddenSweep(t *te
 		t.Fatalf("producer registration produced %d tasks, want one", len(tasks))
 	}
 	task := tasks[0]
-	if task.OperationID != "" {
-		t.Fatalf("producer registration bound metadata wake to producer %q", task.OperationID)
+	if task.OperationID != "upload-op" {
+		t.Fatalf("producer registration id = %q, want upload-op", task.OperationID)
 	}
-	if task.Operation == nil || task.Operation.Kind != BackgroundMediaMetadataSweepOperationKind || task.Operation.Visible {
-		t.Fatalf("producer registration produced unexpected hidden operation: %#v", task.Operation)
+	if task.Operation == nil || task.Operation.Kind != BackgroundMediaMetadataSweepOperationKind || !task.Operation.Visible {
+		t.Fatalf("producer registration produced unexpected auxiliary operation: %#v", task.Operation)
 	}
-	if task.OperationBinding != BackgroundOperationReuseActive || task.InputKey != mediaMetadataRegistrationInputKey || !task.CoalescePendingEquivalent {
+	if task.OperationBinding != BackgroundOperationAssociateWithProducer || task.InputKey != mediaMetadataRegistrationInputKey || !task.CoalescePendingEquivalent {
 		t.Fatalf("producer registration produced unexpected wake: %#v", task)
 	}
 }

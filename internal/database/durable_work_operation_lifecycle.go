@@ -98,6 +98,27 @@ func recordBackgroundOperationTaskTerminal(tx *Tx, operationID string, now time.
 		return nil
 	}
 
+	var producerActive int
+	if err := tx.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1
+			FROM background_operation_associations AS association
+			JOIN background_operations AS producer
+			  ON producer.id = association.producer_operation_id
+			WHERE association.auxiliary_operation_id = ?
+			  AND producer.status IN ('pending', 'running')
+			LIMIT 1
+		)
+	`, operationID).Scan(&producerActive); err != nil {
+		return fmt.Errorf("inspect active producer for background operation %s: %w", operationID, err)
+	}
+	if producerActive != 0 {
+		// Associated auxiliary operations remain active while their producer can
+		// still commit more work. The association extends only the auxiliary
+		// lifetime and never consumes producer progress slots.
+		return nil
+	}
+
 	status := BackgroundWorkCompleted
 	errorCode := ""
 	errorMessage := ""
