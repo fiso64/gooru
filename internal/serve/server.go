@@ -227,17 +227,13 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		header.Set("X-Frame-Options", "DENY")
-		header.Set("Content-Security-Policy", contentSecurityPolicy(nil))
+		header.Set("Content-Security-Policy", contentSecurityPolicy())
 		next.ServeHTTP(w, r)
 	})
 }
 
-func contentSecurityPolicy(scriptHashes []string) string {
-	scriptSrc := "script-src 'self'"
-	for _, hash := range scriptHashes {
-		scriptSrc += " 'sha256-" + hash + "'"
-	}
-	return "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; " + scriptSrc + "; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+func contentSecurityPolicy() string {
+	return "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 }
 
 func requestReadTimeoutMiddleware(timeout time.Duration, next http.Handler) http.Handler {
