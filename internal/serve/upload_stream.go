@@ -56,6 +56,7 @@ type streamedUpload struct {
 	error         string
 	sourceModTime time.Time
 	addedAt       time.Time
+	addedOrder    int64
 }
 
 func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []savedUpload, retErr error) {
@@ -187,6 +188,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		queueTotal := parseUploadOrdinal(queueTotalValues, i, len(streamed))
 		// The resolved value is copied into saved/staged state before async job submission.
 		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)
+		streamed[i].addedOrder = resolveUploadAddedOrder(addedAtStrategy, queueIndex, queueTotal)
 	}
 	conflictPolicy, err := uploadConflictPolicy(conflictRequested)
 	if err != nil {
@@ -205,6 +207,7 @@ func (s *Server) stageMultipartUpload(r *http.Request) (tags []string, saved []s
 		finalized, finalErr := finalizeStreamedUpload(target, *file, conflictPolicy, s.cfg.Uploads.PreserveModTime)
 		if finalErr == nil {
 			finalized.addedAt = file.addedAt
+			finalized.addedOrder = file.addedOrder
 			finalized.conflictPolicy = conflictPolicy
 			file.path = ""
 			saved = append(saved, finalized)

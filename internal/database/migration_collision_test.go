@@ -22,6 +22,10 @@ func TestRunMigrationsRepairsHistoricalMediaMetadataVersionCollision(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
+			if len(migrations) == 0 {
+				t.Fatal("no embedded migrations")
+			}
+			latestVersion := migrations[len(migrations)-1].version
 			if err := ensureMigrationTable(db); err != nil {
 				t.Fatal(err)
 			}
@@ -110,8 +114,8 @@ END;
 			if err != nil {
 				t.Fatal(err)
 			}
-			if version != 40 || dirty {
-				t.Fatalf("schema_migrations = (%d, %t), want (40, false)", version, dirty)
+			if version != latestVersion || dirty {
+				t.Fatalf("schema_migrations = (%d, %t), want (%d, false)", version, dirty, latestVersion)
 			}
 
 			var legacyTriggerCount int
