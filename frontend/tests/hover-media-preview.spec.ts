@@ -207,10 +207,13 @@ test('reduced motion and disabled media options suppress hover playback', async 
 });
 
 test('square grid preview keeps the card box geometry stable', async ({ page }) => {
+  await page.clock.install({ time: controlledClockStart });
   await mockLibrary(page);
+  await page.clock.pauseAt(controlledClockPause);
   const card = page.getByRole('button', { name: 'Preview video-one.mp4' });
   const before = await card.boundingBox();
   await card.hover();
+  await page.clock.fastForward(hoverDwellMs);
   await expect(page.getByTestId('hover-video-preview')).toHaveCount(1, { timeout: 500 });
   const after = await card.boundingBox();
   expect(after).toEqual(before);
