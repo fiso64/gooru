@@ -206,3 +206,40 @@ func TestUserCommandsAreRegistered(t *testing.T) {
 		t.Fatal("create-admin provisioning flags are not registered")
 	}
 }
+
+func TestUserCommandsSkipConfiguredClientPreRun(t *testing.T) {
+	previousDatabasePath := databasePath
+	previousConfigPath := configPath
+	previousVerbose := verbose
+	previousSvc := svc
+	defer func() {
+		if svc != nil && svc != previousSvc {
+			_ = svc.Close()
+		}
+		databasePath = previousDatabasePath
+		configPath = previousConfigPath
+		verbose = previousVerbose
+		svc = previousSvc
+	}()
+
+	databasePath = filepath.Join(t.TempDir(), "missing.db")
+	configPath = ""
+	verbose = false
+	svc = nil
+
+	for name, command := range map[string]*cobra.Command{
+		"create-admin":    userCreateAdminCmd,
+		"set-password":    userSetPasswordCmd,
+		"reconcile-admin": userReconcileAdminCmd,
+	} {
+		if err := rootCmd.PersistentPreRunE(command, nil); err != nil {
+			t.Fatalf("user %s unexpectedly ran configured client pre-run: %v", name, err)
+		}
+		if svc != nil {
+			t.Fatalf("user %s unexpectedly opened the configured client", name)
+		}
+	}
+	if _, err := os.Stat(databasePath); !os.IsNotExist(err) {
+		t.Fatalf("user command pre-run touched missing database: %v", err)
+	}
+}
