@@ -3,6 +3,7 @@
 -- used to preserve deterministic ordering within one upload batch.
 DROP INDEX IF EXISTS idx_locations_added_at_desc_id_asc;
 DROP INDEX IF EXISTS idx_locations_added_at_id;
+DROP INDEX IF EXISTS idx_locations_extension_lower_added_at_desc_id_asc;
 DROP TRIGGER IF EXISTS set_location_added_at_on_insert;
 
 UPDATE locations
@@ -31,3 +32,6 @@ ON locations(added_at ASC, added_order ASC, id ASC);
 
 CREATE INDEX idx_locations_added_at_order_desc_id_asc
 ON locations(added_at DESC, added_order DESC, id ASC);
+
+CREATE INDEX idx_locations_extension_lower_added_at_order_desc_id_asc
+ON locations(lower(extension), added_at DESC, added_order DESC, id ASC);
