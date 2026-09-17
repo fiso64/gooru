@@ -14,12 +14,29 @@ import (
 // contain already-tracked hashes, which lets callers update duplicate content
 // atomically with newly registered files.
 func (c *Client) TagKnownFilesWithBackgroundTasksByHashTags(files []types.LocationInfo, tagsByHash map[string][]string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
-	return c.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files, tagsByHash, tasks, nil, progressCb)
+	return c.tagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files, nil, tagsByHash, tasks, nil, progressCb)
+}
+
+// TagKnownFilesWithBackgroundTasksByHashTagsWithAddedOrder is the upload-aware
+// registration path. addedOrderByPath is persisted only for newly inserted
+// locations and supplies the secondary ordering key for equal added timestamps.
+func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsWithAddedOrder(files []types.LocationInfo, addedOrderByPath map[string]int64, tagsByHash map[string][]string, tasks []BackgroundTaskRequest, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+	return c.tagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files, addedOrderByPath, tagsByHash, tasks, nil, progressCb)
 }
 
 // TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState also persists
 // producer recovery state in that same transaction.
 func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files []types.LocationInfo, tagsByHash map[string][]string, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+	return c.tagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files, nil, tagsByHash, tasks, stateBuilder, progressCb)
+}
+
+// TagKnownFilesWithBackgroundTasksByHashTagsAndOperationStateWithAddedOrder is
+// the durable upload variant of TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState.
+func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationStateWithAddedOrder(files []types.LocationInfo, addedOrderByPath map[string]int64, tagsByHash map[string][]string, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
+	return c.tagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files, addedOrderByPath, tagsByHash, tasks, stateBuilder, progressCb)
+}
+
+func (c *Client) tagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(files []types.LocationInfo, addedOrderByPath map[string]int64, tagsByHash map[string][]string, tasks []BackgroundTaskRequest, stateBuilder BackgroundOperationTransactionStateBuilder, progressCb func(filePath string, err error)) (types.TagOperationResult, error) {
 	result := types.TagOperationResult{}
 	for hash, tags := range tagsByHash {
 		if hash == "" {
@@ -63,7 +80,12 @@ func (c *Client) TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(fil
 		if err := c.store.BatchInsertContents(tx, hashes); err != nil {
 			return result, fmt.Errorf("failed to batch insert contents: %w", err)
 		}
-		if err := c.store.BatchUpsertLocations(tx, locations); err != nil {
+		if addedOrderByPath == nil {
+			err = c.store.BatchUpsertLocations(tx, locations)
+		} else {
+			err = c.store.BatchUpsertLocationsWithAddedOrder(tx, locations, addedOrderByPath)
+		}
+		if err != nil {
 			return result, fmt.Errorf("failed to batch upsert locations: %w", err)
 		}
 	}
