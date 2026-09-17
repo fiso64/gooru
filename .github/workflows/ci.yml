@@ -80,3 +80,45 @@ jobs:
         run: npm run build
       - name: Verify built CSP
         run: node tests/verify-build-csp.mjs
+      - name: Root selection through Go server
+        working-directory: ${{ github.workspace }}
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          server_pid=""
+          cleanup() {
+            if [[ -n "$server_pid" ]]; then
+              kill "$server_pid" 2>/dev/null || true
+              wait "$server_pid" 2>/dev/null || true
+            fi
+            rm -rf "$tmp"
+          }
+          trap cleanup EXIT
+
+          go build -o "$tmp/gooru" ./cmd/gooru
+          "$tmp/gooru" --database "$tmp/gooru.db" init --hashing-strategy partial
+          "$tmp/gooru" --database "$tmp/gooru.db" serve --listen 127.0.0.1:4174 >"$tmp/server.log" 2>&1 &
+          server_pid=$!
+
+          ready=0
+          for _ in $(seq 1 60); do
+            if node -e "fetch('http://127.0.0.1:4174/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              ready=1
+              break
+            fi
+            sleep 0.5
+          done
+          if (( ready == 0 )); then
+            cat "$tmp/server.log"
+            exit 1
+          fi
+
+          if ! (
+            cd frontend
+            GOORU_E2E_BASE_URL=http://127.0.0.1:4174 npx playwright test selection-root-query.spec.ts
+          ); then
+            cat "$tmp/server.log"
+            exit 1
+          fi
