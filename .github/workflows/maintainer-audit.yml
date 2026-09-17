@@ -26,32 +26,37 @@ jobs:
                   raise SystemExit(f'{label}: expected 1 match, found {count}')
               return text.replace(old, new, 1)
 
+          def lines(*values: str) -> str:
+              return '\n'.join(values)
+
           panel_path = Path('frontend/src/lib/components/UploadPanel.svelte')
           panel = panel_path.read_text()
           panel = replace_once(
               panel,
-              '''  .upload-item-tags {
-            position: relative;
-            z-index: 2;
-            margin-top: 6px;
-            min-height: 30px;
-          }
-          ''',
-              '''  .upload-item-tags {
-            margin-top: 6px;
-            min-height: 30px;
-          }
-
-          .upload-item-tags .g-tag,
-          .upload-item-tags :global(.tag-autocomplete) {
-            position: relative;
-            z-index: 2;
-          }
-
-          :global(.gooru-theme-booru-style) .upload-row-staged:not(:hover) {
-            background: var(--bg);
-          }
-          ''',
+              lines(
+                  '  .upload-item-tags {',
+                  '    position: relative;',
+                  '    z-index: 2;',
+                  '    margin-top: 6px;',
+                  '    min-height: 30px;',
+                  '  }',
+              ),
+              lines(
+                  '  .upload-item-tags {',
+                  '    margin-top: 6px;',
+                  '    min-height: 30px;',
+                  '  }',
+                  '',
+                  '  .upload-item-tags .g-tag,',
+                  '  .upload-item-tags :global(.tag-autocomplete) {',
+                  '    position: relative;',
+                  '    z-index: 2;',
+                  '  }',
+                  '',
+                  '  :global(.gooru-theme-booru-style) .upload-row-staged:not(:hover) {',
+                  '    background: var(--bg);',
+                  '  }',
+              ),
               'upload tag hit-area styles',
           )
           panel_path.write_text(panel)
@@ -60,73 +65,81 @@ jobs:
           test = test_path.read_text()
           test = replace_once(
               test,
-              '''  fileRemovals?: FileRemoval[];
-          } = {}) {''',
-              '''  fileRemovals?: FileRemoval[];
-            uiTheme?: 'default' | 'booru-light' | 'booru-dark';
-          } = {}) {''',
+              lines('  fileRemovals?: FileRemoval[];', '} = {}) {'),
+              lines("  fileRemovals?: FileRemoval[];", "  uiTheme?: 'default' | 'booru-light' | 'booru-dark';", '} = {}) {'),
               'mock upload theme option',
           )
           test = replace_once(
               test,
-              '''  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));''',
-              '''  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
-            contentType: 'application/json',
-            body: JSON.stringify({ ui_theme: options.uiTheme ?? 'default' })
-          }));''',
+              "  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));",
+              lines(
+                  "  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({",
+                  "    contentType: 'application/json',",
+                  "    body: JSON.stringify({ ui_theme: options.uiTheme ?? 'default' })",
+                  '  }));',
+              ),
               'mock upload ui config',
           )
           test = replace_once(
               test,
-              '''  await mockUploadApp(page);
-            await page.locator('input[type="file"]').setInputFiles([''',
-              '''  await mockUploadApp(page);
-            const initialTagInput = page.getByLabel('Initial tags');
-            await initialTagInput.fill('row:tag');
-            await initialTagInput.press('Enter');
-            await page.locator('input[type="file"]').setInputFiles([''',
+              lines(
+                  '  await mockUploadApp(page);',
+                  "  await page.locator('input[type=\"file\"]').setInputFiles([",
+              ),
+              lines(
+                  '  await mockUploadApp(page);',
+                  "  const initialTagInput = page.getByLabel('Initial tags');",
+                  "  await initialTagInput.fill('row:tag');",
+                  "  await initialTagInput.press('Enter');",
+                  "  await page.locator('input[type=\"file\"]').setInputFiles([",
+              ),
               'seed row tag',
           )
           test = replace_once(
               test,
-              '''  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });
-            const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();
-            if (!tagControlBox) throw new Error('staged tag control has no layout box');
-            await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);
-            await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
-            await rowTagInput.click();''',
-              '''  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });
-            const rowTagPill = alphaRow.locator('.g-tag').filter({ hasText: 'row:tag' });
-            await rowTagPill.click({ position: { x: 4, y: 4 } });
-            await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
-
-            const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();
-            if (!tagControlBox) throw new Error('staged tag control has no layout box');
-            await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);
-            const emptyTagAreaDialog = page.getByRole('dialog', { name: 'alpha.png' });
-            await expect(emptyTagAreaDialog).toBeVisible();
-            await emptyTagAreaDialog.getByRole('button', { name: 'Close upload preview' }).click();
-
-            await rowTagInput.click();''',
+              lines(
+                  "  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });",
+                  "  const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();",
+                  "  if (!tagControlBox) throw new Error('staged tag control has no layout box');",
+                  '  await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);',
+                  "  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);",
+                  '  await rowTagInput.click();',
+              ),
+              lines(
+                  "  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });",
+                  "  const rowTagPill = alphaRow.locator('.g-tag').filter({ hasText: 'row:tag' });",
+                  '  await rowTagPill.click({ position: { x: 4, y: 4 } });',
+                  "  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);",
+                  '',
+                  "  const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();",
+                  "  if (!tagControlBox) throw new Error('staged tag control has no layout box');",
+                  '  await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);',
+                  "  const emptyTagAreaDialog = page.getByRole('dialog', { name: 'alpha.png' });",
+                  '  await expect(emptyTagAreaDialog).toBeVisible();',
+                  "  await emptyTagAreaDialog.getByRole('button', { name: 'Close upload preview' }).click();",
+                  '',
+                  '  await rowTagInput.click();',
+              ),
               'row tag hit-area regression',
           )
-          insertion = '''
-          for (const theme of ['booru-light', 'booru-dark'] as const) {
-            test(`${theme} staged upload rows rest on the theme background and highlight on hover`, async ({ page }) => {
-              await mockUploadApp(page, { uiTheme: theme });
-              await page.locator('input[type="file"]').setInputFiles({ name: 'theme.png', mimeType: 'image/png', buffer: png });
-
-              const row = page.getByTestId('upload-row-0');
-              await expect(row).toBeVisible();
-              const rootBackground = await page.locator('.gooru-root').evaluate((element) => getComputedStyle(element).backgroundColor);
-              await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(rootBackground);
-
-              await row.hover();
-              await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(rootBackground);
-            });
-          }
-
-          '''
+          insertion = lines(
+              "for (const theme of ['booru-light', 'booru-dark'] as const) {",
+              '  test(`${theme} staged upload rows rest on the theme background and highlight on hover`, async ({ page }) => {',
+              '    await mockUploadApp(page, { uiTheme: theme });',
+              "    await page.locator('input[type=\"file\"]').setInputFiles({ name: 'theme.png', mimeType: 'image/png', buffer: png });",
+              '',
+              "    const row = page.getByTestId('upload-row-0');",
+              '    await expect(row).toBeVisible();',
+              "    const rootBackground = await page.locator('.gooru-root').evaluate((element) => getComputedStyle(element).backgroundColor);",
+              '    await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(rootBackground);',
+              '',
+              '    await row.hover();',
+              '    await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(rootBackground);',
+              '  });',
+              '}',
+              '',
+              '',
+          )
           marker = "test('staged tag occurrences augment backend completion counts'"
           if test.count(marker) != 1:
               raise SystemExit('theme regression insertion marker missing or duplicated')
