@@ -199,6 +199,75 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /file-downloads:
+    post:
+      summary: Prepare a short-lived bulk download for a selected set of files.
+      description: Creates an owner-scoped download ticket for either explicit file IDs or an immutable selection snapshot with include/exclude deltas. The ticket is then consumed through the streaming GET endpoint so browsers do not need to buffer the ZIP in JavaScript.
+      security:
+        - sessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CSRF"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FileDownloadRequest"
+      responses:
+        "201":
+          description: Bulk download ticket created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileDownloadCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "410":
+          description: Referenced selection snapshot expired or is no longer available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /file-downloads/{id}:
+    get:
+      summary: Stream a prepared bulk download as a ZIP archive.
+      description: Streams selected originals directly into a ZIP using stored entries (no compression). The archive is generated incrementally and may omit Content-Length.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Streaming ZIP archive containing the selected originals.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "410":
+          description: Download ticket or referenced selection snapshot expired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /files:
     get:
       summary: List tracked files for browser grids.
@@ -1578,6 +1647,36 @@ components:
           type: array
           items:
             type: string
+    FileDownloadRequest:
+      type: object
+      description: Exactly one of file_ids or selection_id must be provided. Include/exclude deltas are valid only with selection_id.
+      properties:
+        file_ids:
+          type: array
+          items:
+            type: string
+        selection_id:
+          type: string
+          description: Immutable selection snapshot ID. Mutually exclusive with file_ids.
+        include_file_ids:
+          type: array
+          items:
+            type: string
+          description: Explicit additions to a selection snapshot. Valid only with selection_id.
+        exclude_file_ids:
+          type: array
+          items:
+            type: string
+          description: Explicit exclusions from a selection snapshot. Valid only with selection_id.
+    FileDownloadCreateResponse:
+      type: object
+      required: [id, url]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          description: Same-origin URL that streams the prepared ZIP archive.
     FileRemovalSelector:
       type: object
       properties:
