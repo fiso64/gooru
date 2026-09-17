@@ -29,6 +29,9 @@ const file = {
 test('root-library Select all posts the empty query through the real browser path', async ({ page }) => {
   let loggedIn = false;
   let postedQuery: unknown = undefined;
+  let downloadSelector: unknown = undefined;
+  let downloadCSRF = '';
+  let downloadRequested = false;
 
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({
     status: loggedIn ? 200 : 401,
@@ -54,6 +57,21 @@ test('root-library Select all posts the empty query through the real browser pat
     await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'selection-one', count: 1 }) });
   });
   await page.route('**/api/v1/file-selections/*/members', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ file_ids: ['one'] }) }));
+  await page.route('**/api/v1/file-downloads', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback();
+    downloadSelector = route.request().postDataJSON();
+    downloadCSRF = route.request().headers()['x-gooru-csrf'] ?? '';
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'download-one', url: '/api/v1/file-downloads/download-one' }) });
+  });
+  await page.route('**/api/v1/file-downloads/download-one', async (route) => {
+    downloadRequested = true;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/zip',
+      headers: { 'Content-Disposition': 'attachment; filename="gooru-download.zip"' },
+      body: 'zip'
+    });
+  });
 
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
@@ -65,4 +83,11 @@ test('root-library Select all posts the empty query through the real browser pat
 
   await expect.poll(() => postedQuery).toBe('');
   await expect(page.getByText('1 selected')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Download' })).toBeEnabled();
+
+  await page.keyboard.press('d');
+
+  await expect.poll(() => downloadSelector).toEqual({ selection_id: 'selection-one' });
+  expect(downloadCSRF).toBe('csrf-one');
+  await expect.poll(() => downloadRequested).toBe(true);
 });
