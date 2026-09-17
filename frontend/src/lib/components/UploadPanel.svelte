@@ -98,7 +98,10 @@
   const queueRows = $derived(partitionedRows.queue);
   const queueBatches = $derived.by(() => {
     const rows = queueRows;
-    return untrack(() => groupUploadQueueRows(rows));
+    // Unlike staged-vs-queue membership, batch summaries depend on in-place
+    // per-row status/progress updates. Track those reads so the one-pass
+    // grouping/summary snapshot stays live without a second batch scan.
+    return groupUploadQueueRows(rows);
   });
   const completionTags = $derived(mergeTagCandidateOccurrenceCounts(tags, stagedTagCandidates));
   const stagedBytes = $derived(uploadFiles.reduce((sum: number, file: File) => sum + file.size, 0));
