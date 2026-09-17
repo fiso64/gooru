@@ -29,7 +29,7 @@ func TestDirsConcurrentlyPrunesDuplicateAndNestedRoots(t *testing.T) {
 
 	locations, filesScanned, err := DirsConcurrently(
 		[]string{root, root, nested},
-		map[int64][]string{int64(len(content)): {"known-hash"}},
+		map[int64]struct{}{int64(len(content)): {}},
 		hasher,
 	)
 	if err != nil {

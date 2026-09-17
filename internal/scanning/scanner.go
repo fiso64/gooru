@@ -26,7 +26,7 @@ type result struct {
 // DirsConcurrently intelligently scans directories, only hashing files whose
 // logical plaintext size matches a known file. Physical encrypted-container
 // size is never used for identity filtering.
-func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *hashing.Hasher) (map[string]types.LocationInfo, int, error) {
+func DirsConcurrently(dirs []string, knownSizes map[int64]struct{}, hasher *hashing.Hasher) (map[string]types.LocationInfo, int, error) {
 	dirs = pruneRedundantDirs(dirs)
 	jobs := make(chan job)
 	results := make(chan result)
@@ -36,7 +36,7 @@ func DirsConcurrently(dirs []string, sizeToHashes map[int64][]string, hasher *ha
 	numWorkers := runtime.NumCPU()
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
-		go worker(&wg, jobs, results, sizeToHashes, hasher)
+		go worker(&wg, jobs, results, knownSizes, hasher)
 	}
 
 	var walkWg sync.WaitGroup
@@ -133,7 +133,7 @@ func pruneRedundantDirs(dirs []string) []string {
 	return kept
 }
 
-func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHashes map[int64][]string, hasher *hashing.Hasher) {
+func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, knownSizes map[int64]struct{}, hasher *hashing.Hasher) {
 	defer wg.Done()
 	for job := range jobs {
 		metadata, err := hasher.FileMetadata(job.path)
@@ -141,7 +141,7 @@ func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, sizeToHa
 			results <- result{path: job.path, err: err}
 			continue
 		}
-		if _, ok := sizeToHashes[metadata.Size]; !ok {
+		if _, ok := knownSizes[metadata.Size]; !ok {
 			results <- result{path: job.path, skipped: true}
 			continue
 		}
