@@ -10,7 +10,7 @@ export async function createFileSelection(csrfToken: string, query: string, sign
   return requestJSON<FileSelectionSnapshot>('/api/v1/file-selections', csrfToken, {
     method: 'POST',
     signal,
-    body: JSON.stringify({ query: query.trim() || '*' })
+    body: JSON.stringify({ query: query.trim() })
   });
 }
 
