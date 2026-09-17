@@ -47,6 +47,7 @@ type StagedUpload struct {
 	Error          string
 	SourceModTime  time.Time
 	AddedAt        time.Time
+	AddedOrder     int64
 	ConflictPolicy string
 	Tags           *[]string
 	OwnershipPath  string
@@ -176,6 +177,7 @@ type savedUpload struct {
 	error           string
 	sourceModTime   time.Time
 	addedAt         time.Time
+	addedOrder      int64
 	conflictPolicy  string
 	tags            *[]string
 	ownershipPath   string
@@ -489,7 +491,7 @@ func stagedUploads(files []savedUpload) []StagedUpload {
 	out := make([]StagedUpload, 0, len(files))
 	for _, file := range files {
 		path := file.path
-		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, ConflictPolicy: file.conflictPolicy, Tags: cloneUploadTags(file.tags), OwnershipPath: file.ownershipPath})
+		out = append(out, StagedUpload{Name: file.name, Path: path, AnalysisPath: path, Size: file.size, TargetID: file.targetID, Status: file.status, Error: file.error, SourceModTime: file.sourceModTime, AddedAt: file.addedAt, AddedOrder: file.addedOrder, ConflictPolicy: file.conflictPolicy, Tags: cloneUploadTags(file.tags), OwnershipPath: file.ownershipPath})
 	}
 	return out
 }
@@ -569,6 +571,7 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	firstResponseIndexByHash := make(map[string]int, len(files))
 	duplicateCanonicalResponseIndex := make(map[int]int)
 	importLocations := make([]types.LocationInfo, 0, len(files))
+	addedOrderByPath := make(map[string]int64, len(files))
 	responseIndexByPath := make(map[string]int, len(files))
 	analysisPathByDestination := make(map[string]string, len(files))
 	ownershipPathByDestination := make(map[string]string, len(files))
@@ -684,8 +687,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 		ownershipPathByDestination[file.Path] = file.OwnershipPath
 		addedAt := int64(0)
 		if !file.AddedAt.IsZero() {
-			addedAt = file.AddedAt.Unix()
+			addedAt = file.AddedAt.UnixMilli()
 		}
+		addedOrderByPath[file.Path] = file.AddedOrder
 		importLocations = append(importLocations, types.LocationInfo{
 			Path:        file.Path,
 			StoragePath: storagePath,
@@ -711,9 +715,9 @@ func (l *GooruLibrary) importUploadedFiles(ctx context.Context, files []StagedUp
 	var result types.TagOperationResult
 	var err error
 	if state.operationID == "" && state.taskID == "" {
-		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTags(importLocations, tagsByHash, backgroundTasks, progress)
+		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTagsWithAddedOrder(importLocations, addedOrderByPath, tagsByHash, backgroundTasks, progress)
 	} else {
-		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(importLocations, tagsByHash, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
+		result, err = l.client.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationStateWithAddedOrder(importLocations, addedOrderByPath, tagsByHash, backgroundTasks, func(affectedCount int) (core.BackgroundOperationTransactionState, error) {
 			response.AffectedCount = affectedCount
 			checkpoint := backgroundUploadImportedCheckpoint(response)
 			return core.BackgroundOperationTransactionState{OperationID: state.operationID, TaskID: state.taskID, Checkpoint: checkpoint, Result: response}, nil
