@@ -1,0 +1,73 @@
+name: maintainer-750-finish
+
+on:
+  push:
+    branches:
+      - maintainer/750-honest-added-order
+
+permissions:
+  contents: write
+
+jobs:
+  finish:
+    if: github.repository == 'fiso64/gooru'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/750-honest-added-order
+          fetch-depth: 0
+      - name: Wire durable upload order
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/serve/upload_stream.go')
+          s = p.read_text()
+          replacements = [
+              (
+                  '\taddedAt       time.Time\n}',
+                  '\taddedAt       time.Time\n\taddedOrder    int64\n}',
+              ),
+              (
+                  '\t\tstreamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)\n',
+                  '\t\tstreamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)\n\t\tstreamed[i].addedOrder = resolveUploadAddedOrder(addedAtStrategy, queueIndex, queueTotal)\n',
+              ),
+              (
+                  '\t\t\tfinalized.addedAt = file.addedAt\n',
+                  '\t\t\tfinalized.addedAt = file.addedAt\n\t\t\tfinalized.addedOrder = file.addedOrder\n',
+              ),
+          ]
+          for old, new in replacements:
+              count = s.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match, got {count}: {old!r}')
+              s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          gofmt -w internal/serve/upload_stream.go
+      - name: Validate focused packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./internal/serve ./internal/database ./gooru
+      - name: Audit added timestamp conversions
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '--- AddedAt / added_at references ---'
+          grep -RInE 'AddedAt|added_at' --include='*.go' --include='*.sql' . | head -n 500
+      - name: Commit validated fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/maintainer-750-finish.yml
+          git add internal/serve/upload_stream.go
+          if git diff --cached --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'upload: carry durable added order through staging'
+          git push origin HEAD:maintainer/750-honest-added-order
