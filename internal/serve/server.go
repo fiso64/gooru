@@ -227,13 +227,16 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		header.Set("X-Frame-Options", "DENY")
+		// The frontend build owns resource-loading CSP so SvelteKit can hash its
+		// generated inline bootstrap at build time. Keep directives that require
+		// an HTTP header (notably frame-ancestors) at the server boundary.
 		header.Set("Content-Security-Policy", contentSecurityPolicy())
 		next.ServeHTTP(w, r)
 	})
 }
 
 func contentSecurityPolicy() string {
-	return "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	return "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 }
 
 func requestReadTimeoutMiddleware(timeout time.Duration, next http.Handler) http.Handler {
