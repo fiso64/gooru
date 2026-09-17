@@ -352,6 +352,7 @@ func TestGooruUploadImportCachesImageMetadata(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+	waitForTestBackgroundIdle(t, client)
 	file, err := client.GetFileInfoByPath(filepath.Join(uploadDir, "image.png"))
 	if err != nil {
 		t.Fatalf("get uploaded file: %v", err)
@@ -391,6 +392,7 @@ func TestGooruUploadImportCachesVideoMetadata(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+	waitForTestBackgroundIdle(t, client)
 	file, err := client.GetFileInfoByPath(filepath.Join(uploadDir, "clip.mp4"))
 	if err != nil {
 		t.Fatalf("get uploaded file: %v", err)

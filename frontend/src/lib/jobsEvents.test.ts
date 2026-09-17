@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { jobsEventsURL, jobsRefreshMinIntervalMs, subscribeJobsEvents } from './jobsEvents';
+import {
+  jobsEventsURL,
+  jobsRefreshFallbackIntervalMs,
+  jobsRefreshMinIntervalMs,
+  subscribeJobsEvents
+} from './jobsEvents';
 
 class FakeEventSource {
   readonly url: string;
@@ -44,17 +49,40 @@ describe('subscribeJobsEvents', () => {
     source?.emitOperation();
     source?.emitOperation();
     expect(refresh).toHaveBeenCalledTimes(1);
-    expect(vi.getTimerCount()).toBe(1);
 
     clock = jobsRefreshMinIntervalMs;
     vi.advanceTimersByTime(100);
     expect(refresh).toHaveBeenCalledTimes(2);
 
     stop();
+    expect(vi.getTimerCount()).toBe(0);
     expect(source?.closed).toBe(true);
   });
 
-  it('cancels a queued refresh when the authenticated subscription closes', () => {
+  it('refreshes periodically when the operations stream stays silent', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    let source: FakeEventSource | undefined;
+    const refresh = vi.fn();
+    const stop = subscribeJobsEvents(refresh, {
+      createEventSource: (url) => (source = new FakeEventSource(url))
+    });
+
+    vi.advanceTimersByTime(jobsRefreshFallbackIntervalMs - 1);
+    expect(refresh).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(source?.closed).toBe(false);
+
+    vi.advanceTimersByTime(jobsRefreshFallbackIntervalMs);
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cancels queued and fallback refreshes when the authenticated subscription closes', () => {
     vi.useFakeTimers();
     let clock = 0;
     let source: FakeEventSource | undefined;
@@ -68,6 +96,7 @@ describe('subscribeJobsEvents', () => {
     clock = 10;
     source?.emitOperation();
     stop();
+    expect(vi.getTimerCount()).toBe(0);
     vi.runAllTimers();
 
     expect(refresh).toHaveBeenCalledTimes(1);

@@ -9,10 +9,13 @@ import (
 
 func TestTagKnownFilesByHashTagsRollsBackExistingAndNewContentTogether(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
+	client.SetFileRegistrationHooks()
 	existing := types.LocationInfo{Path: "/library/existing.jpg", Hash: "hash-atomic-existing", Size: 11, ModTime: 21, Extension: ".jpg"}
 	if _, err := client.TagKnownFilesWithBackgroundTasksByHashTags([]types.LocationInfo{existing}, map[string][]string{existing.Hash: {"seed"}}, nil, nil); err != nil {
 		t.Fatalf("seed existing content: %v", err)
 	}
+	client.ResetFileRegistrationHooks()
+
 	fresh := types.LocationInfo{Path: "/library/fresh.jpg", Hash: "hash-atomic-fresh", Size: 12, ModTime: 22, Extension: ".jpg"}
 	_, err := client.TagKnownFilesWithBackgroundTasksByHashTagsAndOperationState(
 		[]types.LocationInfo{fresh},
@@ -39,6 +42,60 @@ func TestTagKnownFilesByHashTagsRollsBackExistingAndNewContentTogether(t *testin
 	}
 	if exists {
 		t.Fatal("fresh content committed despite rollback")
+	}
+	operations, err := client.ListBackgroundOperations(BackgroundOperationListOptions{VisibleOnly: true})
+	if err != nil {
+		t.Fatalf("ListBackgroundOperations: %v", err)
+	}
+	if len(operations) != 0 {
+		t.Fatalf("registration follow-up committed despite rollback: %+v", operations)
+	}
+}
+
+func TestTagKnownFilesByHashTagsSchedulesAggregatedRegistrationSweep(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	changes, unsubscribe := client.SubscribeBackgroundOperationChanges()
+	defer unsubscribe()
+
+	first := types.LocationInfo{Path: "/library/first.jpg", Hash: "hash-known-first", Size: 11, ModTime: 21, Extension: ".jpg"}
+	if _, err := client.TagKnownFilesWithBackgroundTasksByHashTags([]types.LocationInfo{first}, nil, nil, nil); err != nil {
+		t.Fatalf("register first known file: %v", err)
+	}
+	select {
+	case <-changes:
+	default:
+		t.Fatal("known-file registration did not signal committed background operation change")
+	}
+
+	operations, err := client.ListBackgroundOperations(BackgroundOperationListOptions{VisibleOnly: true})
+	if err != nil {
+		t.Fatalf("ListBackgroundOperations(first): %v", err)
+	}
+	if len(operations) != 1 {
+		t.Fatalf("visible operation count = %d, want one registration sweep: %+v", len(operations), operations)
+	}
+	operation := operations[0]
+	if operation.Kind != BackgroundMediaMetadataSweepOperationKind || operation.Status != BackgroundWorkPending {
+		t.Fatalf("unexpected registration sweep: %+v", operation)
+	}
+	task, found, err := client.GetBackgroundOperationTask(operation.ID)
+	if err != nil {
+		t.Fatalf("GetBackgroundOperationTask: %v", err)
+	}
+	if !found || task.Kind != BackgroundMediaMetadataSweepTaskKind {
+		t.Fatalf("unexpected registration sweep task: found=%v task=%+v", found, task)
+	}
+
+	second := types.LocationInfo{Path: "/library/second.jpg", Hash: "hash-known-second", Size: 12, ModTime: 22, Extension: ".jpg"}
+	if _, err := client.TagKnownFilesWithBackgroundTasksByHashTags([]types.LocationInfo{second}, nil, nil, nil); err != nil {
+		t.Fatalf("register second known file: %v", err)
+	}
+	operations, err = client.ListBackgroundOperations(BackgroundOperationListOptions{VisibleOnly: true})
+	if err != nil {
+		t.Fatalf("ListBackgroundOperations(second): %v", err)
+	}
+	if len(operations) != 1 || operations[0].ID != operation.ID {
+		t.Fatalf("registration sweeps were not coalesced: %+v", operations)
 	}
 }
 

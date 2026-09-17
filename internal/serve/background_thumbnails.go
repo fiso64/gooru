@@ -14,7 +14,7 @@ import (
 
 const (
 	backgroundThumbnailTaskKind      = "media.thumbnail"
-	backgroundThumbnailResourceClass = "media"
+	backgroundThumbnailResourceClass = core.BackgroundMediaMetadataResourceClass
 )
 
 type contentHashLibrary interface {
@@ -98,12 +98,16 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 	if err := recoverBackgroundOperationReservations(client, s.cfg.Uploads.Targets); err != nil {
 		return nil, err
 	}
+	if _, err := client.EnsureMediaMetadataSweep(); err != nil {
+		return nil, fmt.Errorf("recover media metadata sweep: %w", err)
+	}
 	mediaRuntime, err := client.NewBackgroundRuntime(core.BackgroundWorkerConfig{
 		ResourceClass: backgroundThumbnailResourceClass,
 		WorkerID:      workerID + "-media",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundThumbnailTaskKind:     s.backgroundThumbnailHandler,
-			backgroundMediaMetadataTaskKind: s.backgroundMediaMetadataHandler,
+			backgroundThumbnailTaskKind:                   s.backgroundThumbnailHandler,
+			backgroundMediaMetadataTaskKind:               s.backgroundMediaMetadataHandler,
+			core.BackgroundMediaMetadataSweepTaskKind:     s.backgroundMediaMetadataSweepHandler,
 		},
 	})
 	if err != nil {
@@ -124,7 +128,7 @@ func (s *Server) NewBackgroundRuntime(client *core.Client, workerID string) (Bac
 		ResourceClass: backgroundUploadResourceClass,
 		WorkerID:      workerID + "-upload",
 		Handlers: map[string]core.BackgroundTaskHandler{
-			backgroundUploadTaskKind:        s.backgroundUploadHandler(newBackgroundUploadFinalizingStore(client, client)),
+			backgroundUploadTaskKind:        s.backgroundUploadHandler(client),
 			backgroundUploadCleanupTaskKind: s.backgroundUploadCleanupHandlerV2(client),
 		},
 	})

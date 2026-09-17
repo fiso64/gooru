@@ -8,6 +8,9 @@ import (
 
 func TestTagKnownFilesWithBackgroundTasksAndOperationStateCommitsTaskStateAtomically(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
+	client.SetFileRegistrationHooks(func(event FileRegistrationEvent) ([]BackgroundTaskRequest, error) {
+		return mediaMetadataRegistrationTasksForOperation(len(event.ContentHashes) > 0, event.OperationID)
+	})
 	operation, tasks, err := client.CreateBackgroundOperationWithTasks(
 		BackgroundOperationRequest{Kind: "upload_import", Visible: true, ProgressTotal: 2},
 		[]BackgroundTaskRequest{
@@ -49,6 +52,20 @@ func TestTagKnownFilesWithBackgroundTasksAndOperationStateCommitsTaskStateAtomic
 	}
 	if rawResult == "" {
 		t.Fatal("task result_json was not persisted")
+	}
+	var metadataTasks int
+	if err := client.store.DB.QueryRow(`SELECT COUNT(*) FROM background_tasks WHERE operation_id = ? AND kind = 'media.metadata-sweep'`, operation.ID).Scan(&metadataTasks); err != nil {
+		t.Fatalf("count parent-bound metadata tasks: %v", err)
+	}
+	if metadataTasks != 1 {
+		t.Fatalf("parent-bound metadata task count = %d, want 1", metadataTasks)
+	}
+	var standaloneSweeps int
+	if err := client.store.DB.QueryRow(`SELECT COUNT(*) FROM background_operations WHERE kind = 'media.metadata-sweep'`).Scan(&standaloneSweeps); err != nil {
+		t.Fatalf("count standalone metadata operations: %v", err)
+	}
+	if standaloneSweeps != 0 {
+		t.Fatalf("standalone metadata operation count = %d, want 0", standaloneSweeps)
 	}
 }
 

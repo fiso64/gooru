@@ -1123,6 +1123,67 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /maintenance-jobs:
+    get:
+      summary: List manually runnable maintenance jobs.
+      description: Returns the backend-owned catalog of maintenance jobs that an administrator can start manually from the Jobs view.
+      security:
+        - sessionAuth: []
+      responses:
+        "200":
+          description: Manually runnable maintenance jobs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaintenanceJobListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /maintenance-jobs/{id}:
+    post:
+      summary: Run a maintenance job.
+      description: Requests the selected backend-owned maintenance job through the durable background job system. A 200 response with created=false means an equivalent job is already pending or running. Explicit no-work requests still create an observable durable job that completes normally.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/CSRF"
+      responses:
+        "200":
+          description: An equivalent maintenance job is already pending or running; no duplicate durable work was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaintenanceJobRunResponse"
+        "202":
+          description: New durable maintenance work was queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaintenanceJobRunResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Maintenance job ID is not registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Maintenance work could not be queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /operations:
     get:
       summary: List durable background operations.
@@ -1704,6 +1765,36 @@ components:
                 items:
                   type: string
                 description: Visible editable tags and -tag exclusions prefilled for this upload target.
+    MaintenanceJob:
+      type: object
+      required: [id, name, description, running]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        running:
+          type: boolean
+          description: True when this maintenance job already has a pending or running durable operation.
+    MaintenanceJobListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaintenanceJob"
+    MaintenanceJobRunResponse:
+      type: object
+      required: [job, created]
+      properties:
+        job:
+          $ref: "#/components/schemas/MaintenanceJob"
+        created:
+          type: boolean
+          description: True when this invocation created new durable maintenance work.
     BackgroundOperation:
       type: object
       required: [id, kind, status, progress_total, progress_completed, progress_failed, created_at]

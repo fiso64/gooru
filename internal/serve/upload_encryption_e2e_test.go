@@ -45,6 +45,7 @@ func TestEncryptedUploadImportAndContentGoldenPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("upload status = %d: %s", rec.Code, rec.Body.String())
 	}
+	waitForTestBackgroundIdle(t, client)
 
 	logicalPath := filepath.Join(uploadDir, "secret.png")
 	if _, err := os.Stat(logicalPath); !os.IsNotExist(err) {

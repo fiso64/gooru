@@ -15,7 +15,12 @@ import (
 //go:embed migrations
 var migrationsFS embed.FS
 
-const migrationTable = "schema_migrations"
+const (
+	migrationTable                              = "schema_migrations"
+	historicalMediaMetadataCollisionVersion    = 38
+	historicalMediaMetadataCollisionMaxVersion = 39
+	historicalMediaMetadataMigrationName       = "038_media_metadata_content_identity.up.sql"
+)
 
 type embeddedMigration struct {
 	version int
@@ -55,6 +60,9 @@ func RunMigrations(db *sql.DB) error {
 	if dirty {
 		return fmt.Errorf("database migration version %d is dirty", current)
 	}
+	if err := repairHistoricalMediaMetadataMigrationCollision(db, migrations, current); err != nil {
+		return err
+	}
 
 	for _, migration := range migrations {
 		if migration.version <= current {
@@ -66,6 +74,90 @@ func RunMigrations(db *sql.DB) error {
 		current = migration.version
 	}
 	return nil
+}
+
+// repairHistoricalMediaMetadataMigrationCollision repairs databases created by
+// the long-lived #670 development branch before it incorporated the content-
+// identity metadata migration. That branch briefly used migration version 38
+// for a different trigger-only change. Because schema_migrations records only a
+// numeric version, a database that ran that historical migration later skipped
+// the canonical 038_media_metadata_content_identity migration and could advance
+// to version 39 while still retaining media_metadata.location_id.
+//
+// Only versions that the collided development branch could have recorded are
+// eligible. The canonical migration body is replayed without changing the
+// ledger, preserving an already-applied version 39. Valid content-identity
+// schemas are a no-op and unexpected schemas fail closed.
+func repairHistoricalMediaMetadataMigrationCollision(db *sql.DB, migrations []embeddedMigration, current int) error {
+	if current < historicalMediaMetadataCollisionVersion || current > historicalMediaMetadataCollisionMaxVersion {
+		return nil
+	}
+
+	columns, err := tableColumnNames(db, "media_metadata")
+	if err != nil {
+		return fmt.Errorf("inspect media_metadata for historical migration collision: %w", err)
+	}
+	if columns["content_hash"] {
+		return nil
+	}
+	if !columns["location_id"] {
+		return fmt.Errorf("media_metadata schema at migration version %d has neither content_hash nor legacy location_id", current)
+	}
+
+	var repair embeddedMigration
+	found := false
+	for _, migration := range migrations {
+		if migration.version == historicalMediaMetadataCollisionVersion && migration.name == historicalMediaMetadataMigrationName {
+			repair = migration
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("historical media metadata migration repair %q is unavailable", historicalMediaMetadataMigrationName)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin historical media metadata migration repair: %w", err)
+	}
+	// The collided #670 migration created this location trigger. It references
+	// the legacy media_metadata table and must be removed before the canonical
+	// migration drops that table, otherwise SQLite rejects the repair while
+	// reparsing the still-live trigger against the transient missing table.
+	if _, err := tx.Exec(`DROP TRIGGER IF EXISTS invalidate_media_metadata_on_location_content_change`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("remove historical media metadata collision trigger: %w", err)
+	}
+	if _, err := tx.Exec(repair.sql); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("repair historical media metadata migration collision: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit historical media metadata migration repair: %w", err)
+	}
+	return nil
+}
+
+func tableColumnNames(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return columns, nil
 }
 
 func loadEmbeddedMigrations() ([]embeddedMigration, error) {
@@ -145,7 +237,7 @@ func setMigrationVersion(db *sql.DB, version int, dirty bool) error {
 		return fmt.Errorf("write migration version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit migration version: %w", err)
+		return fmt.Errorf("commit migration version update: %w", err)
 	}
 	return nil
 }

@@ -3,6 +3,7 @@
   import ClearCompletedJobsButton from './ClearCompletedJobsButton.svelte';
   import JobRow from './JobRow.svelte';
   import PageNav from './PageNav.svelte';
+  import RunMaintenanceJobMenu from './RunMaintenanceJobMenu.svelte';
   import { authState } from '$lib/stores/auth';
   import { createJobsQuery } from '$lib/queries/jobs';
   import type { Job } from '$lib/api/types';
@@ -46,6 +47,11 @@
   function resetPagination() {
     pageIndex = 0;
   }
+
+  async function handleMaintenanceStarted() {
+    resetPagination();
+    await pageQuery.refetch();
+  }
 </script>
 
 <main class="main">
@@ -55,6 +61,7 @@
       <div class="jobs-title-row">
         <h1>Background work</h1>
         <div class="jobs-page-actions">
+          <RunMaintenanceJobMenu {jobs} {authScope} onStarted={handleMaintenanceStarted} />
           <CancelActiveJobsButton />
           <ClearCompletedJobsButton onCleared={resetPagination} />
         </div>
@@ -145,7 +152,7 @@
     padding: 0 0 14px;
   }
 
-  @media (max-width: 600px) {
+  @media (max-width: 760px) {
     .jobs-title-row {
       align-items: flex-start;
       flex-direction: column;

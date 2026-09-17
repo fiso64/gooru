@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS background_operations_release_associated_auxiliaries_after_terminal;
+DROP TABLE IF EXISTS background_operation_associations;

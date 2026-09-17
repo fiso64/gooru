@@ -1628,6 +1628,121 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/maintenance-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List manually runnable maintenance jobs.
+         * @description Returns the backend-owned catalog of maintenance jobs that an administrator can start manually from the Jobs view.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Manually runnable maintenance jobs. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MaintenanceJobListResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/maintenance-jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a maintenance job.
+         * @description Requests the selected backend-owned maintenance job through the durable background job system. A 200 response with created=false means an equivalent job is already pending or running. Explicit no-work requests still create an observable durable job that completes normally.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description An equivalent maintenance job is already pending or running; no duplicate durable work was created. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MaintenanceJobRunResponse"];
+                    };
+                };
+                /** @description New durable maintenance work was queued. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MaintenanceJobRunResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                /** @description Maintenance job ID is not registered. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Maintenance work could not be queued. */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/operations": {
         parameters: {
             query?: never;
@@ -2035,6 +2150,21 @@ export interface components {
                 /** @description Visible editable tags and -tag exclusions prefilled for this upload target. */
                 default_tags?: string[];
             }[];
+        };
+        MaintenanceJob: {
+            id: string;
+            name: string;
+            description: string;
+            /** @description True when this maintenance job already has a pending or running durable operation. */
+            running: boolean;
+        };
+        MaintenanceJobListResponse: {
+            items: components["schemas"]["MaintenanceJob"][];
+        };
+        MaintenanceJobRunResponse: {
+            job: components["schemas"]["MaintenanceJob"];
+            /** @description True when this invocation created new durable maintenance work. */
+            created: boolean;
         };
         BackgroundOperation: {
             id: string;
