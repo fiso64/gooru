@@ -391,6 +391,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/file-downloads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare a short-lived bulk download for a selected set of files.
+         * @description Creates an owner-scoped download ticket for either explicit file IDs or an immutable selection snapshot with include/exclude deltas. The ticket is then consumed through the streaming GET endpoint so browsers do not need to buffer the ZIP in JavaScript.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description CSRF token returned by /auth/login or /auth/me. Required for cookie-authenticated mutating requests. */
+                    "X-Gooru-CSRF": components["parameters"]["CSRF"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FileDownloadRequest"];
+                };
+            };
+            responses: {
+                /** @description Bulk download ticket created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FileDownloadCreateResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                /** @description Referenced selection snapshot expired or is no longer available. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/file-downloads/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream a prepared bulk download as a ZIP archive.
+         * @description Streams selected originals directly into a ZIP using stored entries (no compression). The archive is generated incrementally and may omit Content-Length.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Streaming ZIP archive containing the selected originals. */
+                200: {
+                    headers: {
+                        "Content-Disposition"?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                /** @description Download ticket or referenced selection snapshot expired. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files": {
         parameters: {
             query?: never;
@@ -2061,6 +2173,21 @@ export interface components {
         };
         FileSelectionMembersResponse: {
             file_ids: string[];
+        };
+        /** @description Exactly one of file_ids or selection_id must be provided. Include/exclude deltas are valid only with selection_id. */
+        FileDownloadRequest: {
+            file_ids?: string[];
+            /** @description Immutable selection snapshot ID. Mutually exclusive with file_ids. */
+            selection_id?: string;
+            /** @description Explicit additions to a selection snapshot. Valid only with selection_id. */
+            include_file_ids?: string[];
+            /** @description Explicit exclusions from a selection snapshot. Valid only with selection_id. */
+            exclude_file_ids?: string[];
+        };
+        FileDownloadCreateResponse: {
+            id: string;
+            /** @description Same-origin URL that streams the prepared ZIP archive. */
+            url: string;
         };
         FileRemovalSelector: {
             file_ids?: string[];
