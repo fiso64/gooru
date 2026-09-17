@@ -12,6 +12,7 @@
   import TagsView from '$lib/components/TagsView.svelte';
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient, ApiError } from '$lib/api/client';
+  import { createFileDownload } from '$lib/api/fileDownloads';
   import { createFileSelection, deleteFileSelection, fileSelectionMembers } from '$lib/api/fileSelections';
   import { authState } from '$lib/stores/auth';
   import { runtimeConfig, type PaginationMode } from '$lib/stores/runtimeConfig';
@@ -63,6 +64,8 @@
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let cancelRequestedJobID = $state('');
   let jobsDrawerOpen = $state(false);
+  let bulkDownloadBusy = $state(false);
+  let bulkDownloadError = $state('');
   let nestedPreviewNavigation = $state(false);
   let observedItemsPerPage = $state($runtimeConfig.itemsPerPage);
   let trackUploadResults = $state(false);
@@ -279,6 +282,7 @@
       if (action) {
         event.preventDefault();
         if (action === 'select-all') selectAllFiles();
+        else if (action === 'download-selected') void bulkDownloadSelected();
         else if (action === 'tag-selected') bulkTagSelected();
         else if (action === 'untag-selected') bulkUntagSelected();
         else if (action === 'untrack-selected') bulkUntrackSelected();
@@ -798,6 +802,8 @@
         libraryCount={liveLibraryCount}
         searchActive={Boolean($submittedSearch)}
         selectedCount={selectedCount}
+        {bulkDownloadBusy}
+        {bulkDownloadError}
         isSelected={library.isSelected}
         hasNextPage={Boolean(filesQuery.hasNextPage)}
         isFetchingNextPage={Boolean(filesQuery.isFetchingNextPage)}
@@ -811,6 +817,7 @@
         onToggleSelect={library.toggleSelect}
         onSelectAll={selectAllFiles}
         onClearSelection={library.clearSelection}
+        onBulkDownload={bulkDownloadSelected}
         onBulkTag={bulkTagSelected}
         onBulkUntag={bulkUntagSelected}
         onBulkUntrack={bulkUntrackSelected}
