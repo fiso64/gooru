@@ -1,0 +1,29 @@
+name: maintainer-750-addedat-audit
+
+on:
+  push:
+    branches:
+      - maintainer/750-honest-added-order
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: github.repository == 'fiso64/gooru'
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer/750-honest-added-order
+          fetch-depth: 0
+      - name: Audit AddedAt producers and location upserts
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '--- AddedAt references ---'
+          grep -RIn 'AddedAt' --include='*.go' . | head -n 1000 || true
+          echo '--- BatchUpsertLocations call sites ---'
+          grep -RIn 'BatchUpsertLocations' --include='*.go' . | head -n 500 || true
+          echo '--- Unix() producers near LocationInfo ---'
+          grep -RInE 'LocationInfo|\.Unix\(\)|UnixMilli\(' --include='*.go' gooru internal cmd types | head -n 1200 || true
