@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	addUseMetadata bool
+	addUseMetadata      bool
+	addRegistrationSort string
 )
 
 // addCmd represents the add command
@@ -71,7 +72,7 @@ will automatically add and track any new files it's given.`,
 		}
 
 		// `add` is just `tag` with no tags.
-		result, err := svc.TagFiles(files, []string{}, progressCb, addUseMetadata)
+		result, err := tagFilesWithRegistrationSort(files, []string{}, progressCb, addUseMetadata, addRegistrationSort)
 		if err != nil {
 			return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
 		}
@@ -104,4 +105,5 @@ will automatically add and track any new files it's given.`,
 func init() {
 	rootCmd.AddCommand(addCmd)
 	addCmd.Flags().BoolVar(&addUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
+	addCmd.Flags().StringVar(&addRegistrationSort, "sort", "queue", registrationSortHelp)
 }

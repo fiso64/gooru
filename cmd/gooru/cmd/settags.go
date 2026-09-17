@@ -14,9 +14,10 @@ import (
 )
 
 var (
-	multiInputSetTags     bool
-	setTagsExpressionMode bool
-	settagsUseMetadata    bool
+	multiInputSetTags       bool
+	setTagsExpressionMode   bool
+	settagsUseMetadata      bool
+	settagsRegistrationSort string
 )
 
 // settagsCmd represents the settags command
@@ -116,7 +117,7 @@ Expression mode (set tags for files matching a query):
 				}
 			}
 
-			result, err := svc.SetTagsForFiles(files, tags, progressCb, settagsUseMetadata)
+			result, err := setTagsForFilesWithRegistrationSort(files, tags, progressCb, settagsUseMetadata, settagsRegistrationSort)
 			if err != nil {
 				// This will be a DB error that caused a rollback.
 				return fmt.Errorf("a database error occurred, all changes have been rolled back: %w", err)
@@ -161,4 +162,5 @@ func init() {
 	settagsCmd.Flags().BoolVarP(&multiInputSetTags, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
 	settagsCmd.Flags().BoolVarP(&setTagsExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 	settagsCmd.Flags().BoolVar(&settagsUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
+	settagsCmd.Flags().StringVar(&settagsRegistrationSort, "sort", "queue", registrationSortHelp)
 }
