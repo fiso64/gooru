@@ -108,3 +108,57 @@ func TestAssociatedBackgroundOperationIsSeparateAndHeldUntilProducerTerminal(t *
 		t.Fatalf("released auxiliary status = %q, want completed", auxiliaryStatus)
 	}
 }
+
+func TestReuseActiveIgnoresProducerAssociatedOperations(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	producer, err := client.CreateBackgroundOperation(BackgroundOperationRequest{
+		Kind:    "producer-test",
+		Visible: true,
+	})
+	if err != nil {
+		t.Fatalf("create producer operation: %v", err)
+	}
+
+	associated, created, err := client.EnqueueBackgroundTask(associatedBackgroundTaskRequest(producer.ID, "associated-wake"))
+	if err != nil {
+		t.Fatalf("enqueue associated task: %v", err)
+	}
+	if !created {
+		t.Fatal("associated task reused existing work")
+	}
+
+	standaloneRequest := BackgroundTaskRequest{
+		Operation: &BackgroundOperationRequest{
+			Kind:    "auxiliary-test",
+			Visible: true,
+		},
+		OperationBinding:          BackgroundOperationReuseActive,
+		CoalescePendingEquivalent: true,
+		DedupeKey:                 "standalone-a",
+		Kind:                      "auxiliary-test.task",
+		SubjectKind:               "library",
+		SubjectID:                 "standalone",
+		InputKey:                  "wake",
+		ResourceClass:             "auxiliary-test",
+		MaxAttempts:               1,
+	}
+	standalone, created, err := client.EnqueueBackgroundTask(standaloneRequest)
+	if err != nil {
+		t.Fatalf("enqueue standalone reusable task: %v", err)
+	}
+	if !created {
+		t.Fatal("first standalone reusable task reused existing work")
+	}
+	if standalone.OperationID == "" || standalone.OperationID == associated.OperationID || standalone.OperationID == producer.ID {
+		t.Fatalf("standalone operation = %q, want separate from associated %q and producer %q", standalone.OperationID, associated.OperationID, producer.ID)
+	}
+
+	standaloneRequest.DedupeKey = "standalone-b"
+	second, created, err := client.EnqueueBackgroundTask(standaloneRequest)
+	if err != nil {
+		t.Fatalf("reuse standalone operation: %v", err)
+	}
+	if created || second.ID != standalone.ID || second.OperationID != standalone.OperationID {
+		t.Fatalf("second standalone task = %+v created=%v, want existing %+v", second, created, standalone)
+	}
+}

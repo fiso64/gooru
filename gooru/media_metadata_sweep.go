@@ -52,35 +52,6 @@ func mediaMetadataRegistrationTasksForOperation(hasRegistrations bool, operation
 	return []BackgroundTaskRequest{wake}, nil
 }
 
-// mediaMetadataRegistrationTasksForProducerOperation keeps automatic metadata
-// work separate from producer-owned progress accounting. A browser upload has a
-// fixed segment reservation, so metadata wakes must not consume its declared
-// child slots or make it terminal before all upload segments arrive. Producer-
-// triggered sweeps therefore use the same single-flight metadata operation as
-// other registrations, but create it hidden when no metadata sweep is active so
-// upload chunks do not add standalone rows to the Jobs UI.
-func mediaMetadataRegistrationTasksForProducerOperation(hasRegistrations bool, producerOperationID string) ([]BackgroundTaskRequest, error) {
-	producerOperationID = strings.TrimSpace(producerOperationID)
-	if producerOperationID == "" {
-		return mediaMetadataRegistrationTasks(hasRegistrations)
-	}
-	if !hasRegistrations {
-		return nil, nil
-	}
-	wake, err := newMediaMetadataSweepTaskRequest()
-	if err != nil {
-		return nil, err
-	}
-	wake.Operation = &BackgroundOperationRequest{
-		Kind:    BackgroundMediaMetadataSweepOperationKind,
-		Visible: false,
-	}
-	wake.OperationBinding = BackgroundOperationReuseActive
-	wake.CoalescePendingEquivalent = true
-	wake.InputKey = mediaMetadataRegistrationInputKey
-	return []BackgroundTaskRequest{wake}, nil
-}
-
 func newMediaMetadataSweepTaskRequest() (BackgroundTaskRequest, error) {
 	wakeID, err := newBackgroundWorkID("media-metadata-wake")
 	if err != nil {

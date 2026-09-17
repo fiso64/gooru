@@ -110,8 +110,8 @@ END;
 			if err != nil {
 				t.Fatal(err)
 			}
-			if version != 39 || dirty {
-				t.Fatalf("schema_migrations = (%d, %t), want (39, false)", version, dirty)
+			if version != 40 || dirty {
+				t.Fatalf("schema_migrations = (%d, %t), want (40, false)", version, dirty)
 			}
 
 			var legacyTriggerCount int

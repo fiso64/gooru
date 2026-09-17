@@ -388,7 +388,7 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		switch binding {
 		case BackgroundOperationCreateNew:
 		case BackgroundOperationReuseActive:
-			activeID, found, err := c.store.FindActiveBackgroundOperationIDByKind(q, operationRequest.Kind)
+			activeID, found, err := c.store.FindActiveStandaloneBackgroundOperationIDByKind(q, operationRequest.Kind)
 			if err != nil {
 				return BackgroundTask{}, false, fmt.Errorf("find reusable background task operation: %w", err)
 			}
