@@ -31,6 +31,26 @@ gooru init --if-missing --hashing-strategy full
 
 `--hashing-strategy` skips the prompt and accepts only `partial` or `full`. When `--if-missing` finds an existing database file, it leaves that database completely unchanged; it does not reconcile the stored hashing strategy. When the database is missing, `--if-missing` requires an explicit `--hashing-strategy` so automation never silently chooses a permanent database invariant.
 
+## Manage local database users
+
+User-management commands operate only on an already initialized database; they never create or initialize one.
+
+Create an administrator interactively:
+
+```bash
+gooru user create-admin --username alice
+```
+
+Add `--if-missing` when provisioning should succeed without changing an existing user. For non-interactive automation, `GOORU_ADMIN_PASSWORD` supplies the password instead of prompting.
+
+Rotate an existing user's password with:
+
+```bash
+gooru user set-password --username alice
+```
+
+`set-password` preserves the user's Gooru identity and revokes the user's active sessions after the password is replaced. It also accepts `GOORU_ADMIN_PASSWORD` for non-interactive local automation.
+
 ## Track and tag files
 
 `tag` both tracks files and adds tags:
