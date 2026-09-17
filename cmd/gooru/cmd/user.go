@@ -118,7 +118,10 @@ func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, erro
 }
 
 func adminPassword(cmd *cobra.Command) (string, error) {
-	if password, ok := os.LookupEnv("GOORU_ADMIN_PASSWORD"); ok && password != "" {
+	if password, ok := os.LookupEnv("GOORU_ADMIN_PASSWORD"); ok {
+		if err := serve.ValidatePassword(password); err != nil {
+			return "", err
+		}
 		return password, nil
 	}
 	return promptPassword(cmd)
@@ -176,11 +179,4 @@ func readLineSecret(cmd *cobra.Command, reader *bufio.Reader, prompt string) (st
 		return "", err
 	}
 	return strings.TrimRight(value, "\r\n"), nil
-}
-
-func init() {
-	rootCmd.AddCommand(userCmd)
-	userCmd.AddCommand(userCreateAdminCmd)
-	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.username, "username", "", "Admin username")
-	userCreateAdminCmd.Flags().BoolVar(&userCreateAdminFlags.ifMissing, "if-missing", false, "Succeed without changing the account when the username already exists")
 }
