@@ -20,6 +20,10 @@ func TestCreateBackgroundTagMutationSnapshotBatchesFileTargets(t *testing.T) {
 	for i := range targetIDs {
 		targetIDs[i] = fmt.Sprintf("file_%04d", i)
 	}
+	// Repeat an earlier target in the second batch so INSERT OR IGNORE must
+	// report only the unique target cardinality across the batch boundary.
+	targetIDs[len(targetIDs)-1] = targetIDs[0]
+	uniqueTargetCount := targetCount - 1
 
 	_, created, err := store.CreateBackgroundOperationWithPendingLimit(operationID, "tag_mutation", false, int64(targetCount), 8)
 	if err != nil {
@@ -42,8 +46,8 @@ func TestCreateBackgroundTagMutationSnapshotBatchesFileTargets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create background tag mutation snapshot: %v", err)
 	}
-	if matched != targetCount {
-		t.Fatalf("matched targets = %d, want %d", matched, targetCount)
+	if matched != uniqueTargetCount {
+		t.Fatalf("matched targets = %d, want %d", matched, uniqueTargetCount)
 	}
 
 	logged := queryLog.String()
@@ -57,15 +61,18 @@ func TestCreateBackgroundTagMutationSnapshotBatchesFileTargets(t *testing.T) {
 	if strings.Contains(logged, "-- ARGS: 901 bound values redacted") {
 		t.Fatalf("target snapshot exceeded maxVars; log:\n%s", logged)
 	}
+	if strings.Contains(logged, "SELECT COUNT(*)\n\t\tFROM background_tag_mutation_targets") {
+		t.Fatalf("target snapshot issued a redundant target-count query; log:\n%s", logged)
+	}
 
 	got, err := store.ListBackgroundTagMutationTargets(operationID)
 	if err != nil {
 		t.Fatalf("list background tag mutation targets: %v", err)
 	}
-	if len(got) != len(targetIDs) {
-		t.Fatalf("listed targets = %d, want %d", len(got), len(targetIDs))
+	if len(got) != uniqueTargetCount {
+		t.Fatalf("listed targets = %d, want %d", len(got), uniqueTargetCount)
 	}
-	for i := range targetIDs {
+	for i := 0; i < uniqueTargetCount; i++ {
 		if got[i] != targetIDs[i] {
 			t.Fatalf("target %d = %q, want %q", i, got[i], targetIDs[i])
 		}
