@@ -195,7 +195,7 @@ func (s *Server) streamFileDownloadArchive(w http.ResponseWriter, ctx context.Co
 	w.Header().Set("Content-Disposition", `attachment; filename="gooru-download.zip"`)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	archive := zip.NewWriter(w)
-	names := make(map[string]struct{}, len(fileIDs))
+	names := make(map[string]int)
 	copyBuffer := make([]byte, fileDownloadCopyBufferSize)
 
 	writeBatch := func(files []types.FileInfo) error {
@@ -266,25 +266,30 @@ func verifyDownloadBatch(fileIDs []string, files []types.FileInfo, publicID func
 	return nil
 }
 
-func uniqueDownloadArchiveName(name string, used map[string]struct{}) string {
+func uniqueDownloadArchiveName(name string, used map[string]int) string {
 	name = strings.TrimSpace(name)
 	if name == "" || name == "." || name == string(filepath.Separator) {
 		name = "file"
 	}
 	key := strings.ToLower(name)
-	if _, exists := used[key]; !exists {
-		used[key] = struct{}{}
+	nextSuffix, exists := used[key]
+	if !exists {
+		used[key] = 2
 		return name
 	}
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
-	for suffix := 2; ; suffix++ {
+	if nextSuffix < 2 {
+		nextSuffix = 2
+	}
+	for suffix := nextSuffix; ; suffix++ {
 		candidate := fmt.Sprintf("%s (%d)%s", stem, suffix, ext)
-		key = strings.ToLower(candidate)
-		if _, exists := used[key]; exists {
+		candidateKey := strings.ToLower(candidate)
+		if _, exists := used[candidateKey]; exists {
 			continue
 		}
-		used[key] = struct{}{}
+		used[key] = suffix + 1
+		used[candidateKey] = 2
 		return candidate
 	}
 }
