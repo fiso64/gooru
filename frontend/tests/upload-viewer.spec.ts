@@ -20,6 +20,7 @@ async function mockUploadApp(page: Page, options: {
   tagMutations?: TagMutation[];
   tagMutationGate?: Promise<void>;
   fileRemovals?: FileRemoval[];
+  uiTheme?: 'default' | 'booru-light' | 'booru-dark';
 } = {}) {
   let loggedIn = false;
   let uploadIndex = 0;
@@ -32,7 +33,10 @@ async function mockUploadApp(page: Page, options: {
     loggedIn = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
-  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ ui_theme: options.uiTheme ?? 'default' })
+  }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
@@ -144,6 +148,9 @@ async function mockUploadApp(page: Page, options: {
 
 test('staged rows open as a whole, use viewer shortcuts, and edit the underlying tags', async ({ page }) => {
   await mockUploadApp(page);
+  const initialTagInput = page.getByLabel('Initial tags');
+  await initialTagInput.fill('row:tag');
+  await initialTagInput.press('Enter');
   await page.locator('input[type="file"]').setInputFiles([
     { name: 'alpha.png', mimeType: 'image/png', buffer: png },
     { name: 'beta.png', mimeType: 'image/png', buffer: png },
@@ -162,10 +169,17 @@ test('staged rows open as a whole, use viewer shortcuts, and edit the underlying
   await expect(page.getByRole('button', { name: 'Preview beta.png' })).toHaveCount(0);
 
   const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });
+  const rowTagPill = alphaRow.locator('.g-tag').filter({ hasText: 'row:tag' });
+  await rowTagPill.click({ position: { x: 4, y: 4 } });
+  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
+
   const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();
   if (!tagControlBox) throw new Error('staged tag control has no layout box');
   await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);
-  await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
+  const emptyTagAreaDialog = page.getByRole('dialog', { name: 'alpha.png' });
+  await expect(emptyTagAreaDialog).toBeVisible();
+  await emptyTagAreaDialog.getByRole('button', { name: 'Close upload preview' }).click();
+
   await rowTagInput.click();
   await expect(rowTagInput).toBeFocused();
   await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
@@ -206,6 +220,21 @@ test('staged rows open as a whole, use viewer shortcuts, and edit the underlying
   await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Preview alpha.png' })).toHaveCount(0);
 });
+
+for (const theme of ['booru-light', 'booru-dark'] as const) {
+  test(`${theme} staged upload rows rest on the theme background and highlight on hover`, async ({ page }) => {
+    await mockUploadApp(page, { uiTheme: theme });
+    await page.locator('input[type="file"]').setInputFiles({ name: 'theme.png', mimeType: 'image/png', buffer: png });
+
+    const row = page.getByTestId('upload-row-0');
+    await expect(row).toBeVisible();
+    const rootBackground = await page.locator('.gooru-root').evaluate((element) => getComputedStyle(element).backgroundColor);
+    await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(rootBackground);
+
+    await row.hover();
+    await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(rootBackground);
+  });
+}
 
 test('staged tag occurrences augment backend completion counts', async ({ page }) => {
   await mockUploadApp(page);
