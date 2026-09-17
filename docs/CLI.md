@@ -41,7 +41,7 @@ Create an administrator interactively:
 gooru user create-admin --username alice
 ```
 
-Add `--if-missing` when provisioning should succeed without changing an existing user. For non-interactive automation, `GOORU_ADMIN_PASSWORD` supplies the password instead of prompting.
+Add `--if-missing` when provisioning should succeed without changing an existing user. For non-interactive automation, `GOORU_ADMIN_PASSWORD` supplies the password instead of prompting; its value is used exactly rather than trimmed.
 
 Rotate an existing user's password with:
 
@@ -50,6 +50,15 @@ gooru user set-password --username alice
 ```
 
 `set-password` preserves the user's Gooru identity and revokes the user's active sessions after the password is replaced. It also accepts `GOORU_ADMIN_PASSWORD` for non-interactive local automation.
+
+The NixOS module uses the machine-oriented reconciliation command:
+
+```bash
+GOORU_ADMIN_PASSWORD='desired password' \
+  gooru user reconcile-admin --username alice
+```
+
+The command prints the stable Gooru user ID. Persist that ID and pass it back on later runs with `--user-id`: the same user can then be renamed without losing per-user data. With an unchanged password, reconciliation performs one normal password verification and does not create a new hash. A changed password is re-hashed and active sessions for that user are revoked. A persisted `--user-id` that no longer exists is an error rather than permission to adopt a different account.
 
 ## Track and tag files
 
@@ -168,7 +177,7 @@ Server users can own saved searches. The CLI exposes management under:
 gooru saved-search --help
 ```
 
-Saved searches are scoped to a DB-backed username.
+Saved searches are scoped to the stable DB-backed user identity, so changing a username does not change ownership.
 
 ## Virtual filesystem
 
