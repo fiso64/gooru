@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { TagItem } from '$lib/api/types';
+  import { createAllTagsQuery } from '$lib/queries/library';
+  import { authState } from '$lib/stores/auth';
   import { isGridDirection, nextGridIndex } from '$lib/utils/gridNavigation';
+  import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   let {
-    tags,
     libraryCount,
-    loading,
-    error,
     onTag,
     onNamespace
   } = $props<{
@@ -18,6 +18,15 @@
     onTag: (tag: string) => void;
     onNamespace: (namespace: string) => void;
   }>();
+
+  const allTagsQuery = createAllTagsQuery(
+    () => Boolean($authState.user),
+    () => $authState.user?.username ?? ''
+  );
+  const tags = $derived(allTagsQuery.data?.tags ?? []);
+  const loading = $derived(allTagsQuery.isLoading);
+  const error = $derived(allTagsQuery.isError ? errorMessage(allTagsQuery.error) : '');
+  const completeLibraryCount = $derived(allTagsQuery.data?.library_count ?? libraryCount);
 
   let filter = $state('');
   let tagPage = $state<HTMLElement | undefined>();
@@ -82,7 +91,7 @@
   <div bind:this={tagPage} class="page">
     <div class="page-header">
       <div class="g-eyebrow g-eyebrow-accent">Tags</div>
-      <h1>{tags.length.toLocaleString()} tags across {libraryCount.toLocaleString()} files</h1>
+      <h1>{tags.length.toLocaleString()} tags across {completeLibraryCount.toLocaleString()} files</h1>
     </div>
 
     <div class="tag-filter-sticky">
