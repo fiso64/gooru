@@ -230,11 +230,11 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	if err != nil {
 		return result, fmt.Errorf("could not get in-scope db locations: %w", err)
 	}
-	sizeToHashes, err := c.store.GetSizeToHashesMap()
+	knownSizes, err := c.store.GetKnownSizes()
 	if err != nil {
-		return result, fmt.Errorf("could not build size-to-hash map: %w", err)
+		return result, fmt.Errorf("could not get known file sizes: %w", err)
 	}
-	fsLocations, filesScanned, err := scanning.DirsConcurrently(absDirs, sizeToHashes, c.hasher)
+	fsLocations, filesScanned, err := scanning.DirsConcurrently(absDirs, knownSizes, c.hasher)
 	if err != nil {
 		return result, fmt.Errorf("scan relink directories: %w", err)
 	}
