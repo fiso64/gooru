@@ -83,7 +83,7 @@ test('root-library Select all posts the empty query through the real browser pat
 
   await expect.poll(() => postedQuery).toBe('');
   await expect(page.getByText('1 selected')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Download' })).toBeEnabled();
+  await expect(page.getByTitle('Download selected files')).toBeEnabled();
 
   await page.keyboard.press('d');
 
