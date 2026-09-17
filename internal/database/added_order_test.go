@@ -29,7 +29,7 @@ func TestAddedOrderKeysetPaginationPreservesEqualTimestampOrder(t *testing.T) {
 
 	assertPagedPaths := func(order string, want []string) {
 		t.Helper()
-		first, err := store.GetAllFilesInfoPageSortedAddedOrder(2, nil, "added", order)
+		first, err := store.GetAllFilesInfoPageSorted(2, nil, "added", order)
 		if err != nil {
 			t.Fatalf("first %s page: %v", order, err)
 		}
@@ -37,7 +37,7 @@ func TestAddedOrderKeysetPaginationPreservesEqualTimestampOrder(t *testing.T) {
 			t.Fatalf("first %s page len=%d want=2", order, len(first))
 		}
 		cursor := &types.PageCursor{Sort: "added", Order: order, ID: first[len(first)-1].ID}
-		second, err := store.GetAllFilesInfoPageSortedAddedOrder(2, cursor, "added", order)
+		second, err := store.GetAllFilesInfoPageSorted(2, cursor, "added", order)
 		if err != nil {
 			t.Fatalf("second %s page: %v", order, err)
 		}

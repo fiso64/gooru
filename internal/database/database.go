@@ -1939,9 +1939,9 @@ func (s *Store) GetFilesInfoByLocationQueryPageSorted(query string, args []inter
 		JOIN result_locations rl ON l.id = rl.id
 		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE 1=1 %s
-		ORDER BY %s %s, l.id ASC
+		ORDER BY %s
 		LIMIT ?
-	`, query, fileInfoColumns(), cursorClause, fileSortExpression(sort), sortOrder(order))
+	`, query, fileInfoColumns(), cursorClause, fileSortClause(sort, order))
 	pagedArgs := append(append([]interface{}{}, args...), cursorArgs...)
 	pagedArgs = append(pagedArgs, limit)
 	return s.scanFileInfos(finalQuery, pagedArgs...)
@@ -1955,9 +1955,9 @@ func (s *Store) GetFilesInfoByLocationQueryPageSortedOffset(query string, args [
 		FROM locations l
 		JOIN result_locations rl ON l.id = rl.id
 		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
-		ORDER BY %s %s, l.id ASC
+		ORDER BY %s
 		LIMIT ? OFFSET ?
-	`, query, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))
+	`, query, fileInfoColumns(), fileSortClause(sort, order))
 	pagedArgs := append(append([]interface{}{}, args...), limit, offset)
 	return s.scanFileInfos(finalQuery, pagedArgs...)
 }
@@ -1973,9 +1973,9 @@ func (s *Store) GetAllFilesInfoPageSorted(limit int, cursor *types.PageCursor, s
 		FROM locations l
 		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE 1=1 %s
-		ORDER BY %s %s, l.id ASC
+		ORDER BY %s
 		LIMIT ?
-	`, fileInfoColumns(), cursorClause, fileSortExpression(sort), sortOrder(order))
+	`, fileInfoColumns(), cursorClause, fileSortClause(sort, order))
 	args := append(cursorArgs, limit)
 	return s.scanFileInfos(query, args...)
 }
@@ -1986,9 +1986,9 @@ func (s *Store) GetAllFilesInfoPageSortedOffset(limit int, offset int, sort stri
 		SELECT %s
 		FROM locations l
 		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
-		ORDER BY %s %s, l.id ASC
+		ORDER BY %s
 		LIMIT ? OFFSET ?
-	`, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))
+	`, fileInfoColumns(), fileSortClause(sort, order))
 	return s.scanFileInfos(query, limit, offset)
 }
 
@@ -2051,6 +2051,13 @@ func fileSortExpression(sort string) string {
 	}
 }
 
+func fileSortClause(sort string, order string) string {
+	if sort == "added" {
+		return addedOrderSortClause(order)
+	}
+	return fmt.Sprintf("%s %s, l.id ASC", fileSortExpression(sort), sortOrder(order))
+}
+
 func fileKindExpression() string {
 	return `CASE
 		WHEN lower(l.extension) = '.cbz' THEN 'comic'
@@ -2066,6 +2073,9 @@ func fileKindExpression() string {
 func (s *Store) fileCursorClause(cursor *types.PageCursor, sort string, order string) (string, []interface{}, error) {
 	if cursor == nil {
 		return "", nil, nil
+	}
+	if sort == "added" {
+		return s.addedOrderCursorClause(cursor, order)
 	}
 	expr := fileSortExpression(sort)
 	key, err := s.cursorKeyForLocation(cursor.ID, sort)
