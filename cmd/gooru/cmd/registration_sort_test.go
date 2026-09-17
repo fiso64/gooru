@@ -42,6 +42,26 @@ func TestParseRegistrationSortRejectsUnknownValue(t *testing.T) {
 	}
 }
 
+func TestValidateRegistrationSortUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		expressionMode bool
+		sortChanged    bool
+		wantErr        bool
+	}{
+		{name: "path mode explicit sort", sortChanged: true},
+		{name: "expression mode default sort", expressionMode: true},
+		{name: "expression mode explicit sort", expressionMode: true, sortChanged: true, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateRegistrationSortUsage(tc.expressionMode, tc.sortChanged)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("validateRegistrationSortUsage(%v, %v) error=%v wantErr=%v", tc.expressionMode, tc.sortChanged, err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestAddCommandModTimeSortPersistsSourceModificationTime(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")

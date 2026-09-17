@@ -64,6 +64,10 @@ Expression mode (tag files matching a query):
 			tags = args[1:]
 		}
 
+		if err := validateRegistrationSortUsage(tagExpressionMode, cmd.Flags().Changed("sort")); err != nil {
+			return err
+		}
+
 		if verbose {
 			fmt.Fprintf(cmd.OutOrStderr(), "--- VERBOSE ---\n")
 			fmt.Fprintf(cmd.OutOrStderr(), "Command: tag\n")

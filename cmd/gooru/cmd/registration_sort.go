@@ -15,6 +15,13 @@ func parseRegistrationSort(value string) (core.FileRegistrationSort, error) {
 	return sort, nil
 }
 
+func validateRegistrationSortUsage(expressionMode, sortChanged bool) error {
+	if expressionMode && sortChanged {
+		return fmt.Errorf("--sort applies only to path-based registration, not expression mode")
+	}
+	return nil
+}
+
 func tagFilesWithRegistrationSort(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadata bool, sortValue string) (types.TagOperationResult, error) {
 	sort, err := parseRegistrationSort(sortValue)
 	if err != nil {
