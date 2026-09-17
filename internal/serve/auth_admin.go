@@ -90,7 +90,7 @@ WHERE user_id = ? AND revoked_at IS NULL`, now, user.ID); err != nil {
 	return user, nil
 }
 
-// ReconcileAdmin applies the declarative username and password to one stable
+// ReconcileAdmin applies declarative username/password state to one stable
 // admin identity. If userID is empty, an existing user with desiredUsername is
 // adopted, or a new admin is created. Once a userID is persisted by the caller,
 // a missing ID is an error rather than permission to adopt a different user.
@@ -120,9 +120,29 @@ func (s *AuthStore) ReconcileAdmin(ctx context.Context, userID, desiredUsername,
 		return User{}, errors.New("declarative admin identity is not an admin")
 	}
 
+	matches, err := s.verifyPassword(passwordHash, password)
+	if err != nil {
+		return User{}, err
+	}
+	var newHash string
+	if !matches {
+		newHash, err = s.hashPassword(password)
+		if err != nil {
+			return User{}, err
+		}
+	}
+	if matches && user.Username == desiredUsername {
+		return user, nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return User{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	now := s.now()
 	if user.Username != desiredUsername {
-		now := s.now()
-		result, err := s.db.ExecContext(ctx, `UPDATE users SET username = ?, updated_at = ? WHERE id = ?`, desiredUsername, now, user.ID)
+		result, err := tx.ExecContext(ctx, `UPDATE users SET username = ?, updated_at = ? WHERE id = ?`, desiredUsername, now, user.ID)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "unique") {
 				return User{}, ErrDuplicateUsername
@@ -136,15 +156,21 @@ func (s *AuthStore) ReconcileAdmin(ctx context.Context, userID, desiredUsername,
 			return User{}, ErrUserNotFound
 		}
 		user.Username = desiredUsername
-		user.UpdatedAt = now
 	}
-
-	matches, err := s.verifyPassword(passwordHash, password)
-	if err != nil {
+	if !matches {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`, newHash, now, user.ID); err != nil {
+			return User{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+UPDATE sessions
+SET revoked_at = ?
+WHERE user_id = ? AND revoked_at IS NULL`, now, user.ID); err != nil {
+			return User{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return User{}, err
 	}
-	if matches {
-		return user, nil
-	}
-	return s.setPassword(ctx, user, password)
+	user.UpdatedAt = now
+	return user, nil
 }
