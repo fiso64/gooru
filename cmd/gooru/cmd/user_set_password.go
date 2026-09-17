@@ -94,6 +94,10 @@ var userReconcileAdminCmd = &cobra.Command{
 }
 
 func init() {
+	rootCmd.AddCommand(userCmd)
+	userCmd.AddCommand(userCreateAdminCmd)
+	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.username, "username", "", "Admin username")
+	userCreateAdminCmd.Flags().BoolVar(&userCreateAdminFlags.ifMissing, "if-missing", false, "Succeed without changing the account when the username already exists")
 	userCmd.AddCommand(userSetPasswordCmd)
 	userSetPasswordCmd.Flags().StringVar(&userSetPasswordFlags.username, "username", "", "Username whose password should be replaced")
 	userCmd.AddCommand(userReconcileAdminCmd)
