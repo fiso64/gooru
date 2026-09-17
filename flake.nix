@@ -80,6 +80,23 @@
           validInitialAdminUsername = username:
             builtins.stringLength username <= 64
             && builtins.match "[A-Za-z0-9._-]+" username != null;
+          initialDatabaseCommand = ''
+            ${cfg.package}/bin/gooru --config /etc/gooru/serve.yaml init --if-missing --hashing-strategy ${cfg.initialDatabase.hashingStrategy}
+          '';
+          # `user create-admin` deliberately never performs database/storage
+          # initialization. Protected-mode first boot therefore opens a normal
+          # client once after `init`, allowing the standard database encryption
+          # migration to complete before missing admins are provisioned.
+          protectedStoragePreparationCommand = lib.optionalString
+            (initialAdminNames != [ ] && lib.attrByPath [ "encryption" "enabled" ] false effectiveSettings) ''
+              ${cfg.package}/bin/gooru --config /etc/gooru/serve.yaml count >/dev/null
+            '';
+          initialAdminCommands = lib.concatMapStringsSep "\n" (username:
+            let credentialName = adminCredentialName username;
+            in ''
+              GOORU_ADMIN_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/${credentialName}")" \
+                ${cfg.package}/bin/gooru --config /etc/gooru/serve.yaml user create-admin --if-missing --username ${lib.escapeShellArg username}
+            '') initialAdminNames;
         in {
           options.services.gooru = {
             enable = lib.mkEnableOption "Gooru web application";
@@ -107,6 +124,16 @@
               inherit (yaml) type;
               default = { };
               description = "Gooru serve configuration written to YAML. Defaults provide state/cache paths and the packaged frontend.";
+            };
+
+            initialDatabase.hashingStrategy = lib.mkOption {
+              type = lib.types.enum [ "partial" "full" ];
+              default = "partial";
+              description = ''
+                Hashing strategy used only when the service creates its database on first boot.
+                Once a database file exists, its stored strategy is authoritative and is never
+                reconciled to this option.
+              '';
             };
 
             initialAdmins = lib.mkOption {
@@ -169,12 +196,7 @@
               wantedBy = [ "multi-user.target" ];
               after = [ "network.target" ];
               path = [ pkgs.ffmpeg ];
-              preStart = lib.concatMapStringsSep "\n" (username:
-                let credentialName = adminCredentialName username;
-                in ''
-                  GOORU_ADMIN_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/${credentialName}")" \
-                    ${cfg.package}/bin/gooru --config /etc/gooru/serve.yaml user create-admin --if-missing --username ${lib.escapeShellArg username}
-                '') initialAdminNames;
+              preStart = initialDatabaseCommand + protectedStoragePreparationCommand + initialAdminCommands;
               serviceConfig = {
                 User = cfg.user;
                 Group = cfg.group;
@@ -213,6 +235,36 @@
               }
             ];
           };
+          fullHashModuleEval = nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [
+              self.nixosModules.default
+              {
+                system.stateVersion = "26.05";
+                services.gooru = {
+                  enable = true;
+                  initialDatabase.hashingStrategy = "full";
+                };
+              }
+            ];
+          };
+          protectedModuleEval = nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [
+              self.nixosModules.default
+              {
+                system.stateVersion = "26.05";
+                services.gooru = {
+                  enable = true;
+                  settings.encryption = {
+                    enabled = true;
+                    key_file = "/run/secrets/gooru-encryption-key";
+                  };
+                  initialAdmins.alice.passwordFile = "/run/secrets/gooru-admin-alice";
+                };
+              }
+            ];
+          };
           longUsername = builtins.concatStringsSep "" (nixpkgs.lib.replicate 65 "a");
           invalidUsernameEval = nixpkgs.lib.nixosSystem {
             inherit system;
@@ -228,9 +280,17 @@
             ];
           };
           moduleService = moduleEval.config.systemd.services.gooru;
+          fullHashService = fullHashModuleEval.config.systemd.services.gooru;
+          protectedService = protectedModuleEval.config.systemd.services.gooru;
+          modulePreStartLines = nixpkgs.lib.filter (line: line != "") (nixpkgs.lib.splitString "\n" moduleService.preStart);
           invalidUsernameAssertions = invalidUsernameEval.config.assertions;
           moduleCheck =
             assert builtins.elem "gooru-admin-alice:/run/secrets/gooru-admin-alice" moduleService.serviceConfig.LoadCredential;
+            assert nixpkgs.lib.hasInfix "init --if-missing --hashing-strategy partial" moduleService.preStart;
+            assert nixpkgs.lib.hasInfix "init --if-missing --hashing-strategy partial" (builtins.head modulePreStartLines);
+            assert nixpkgs.lib.hasInfix "init --if-missing --hashing-strategy full" fullHashService.preStart;
+            assert nixpkgs.lib.hasInfix "count >/dev/null" protectedService.preStart;
+            assert !(nixpkgs.lib.hasInfix "count >/dev/null" moduleService.preStart);
             assert nixpkgs.lib.hasInfix "--if-missing" moduleService.preStart;
             assert nixpkgs.lib.hasInfix "$CREDENTIALS_DIRECTORY/gooru-admin-alice" moduleService.preStart;
             assert nixpkgs.lib.any (entry: !entry.assertion && nixpkgs.lib.hasInfix "64 characters or fewer" entry.message) invalidUsernameAssertions;

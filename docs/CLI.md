@@ -21,6 +21,16 @@ gooru init
 
 Initialization is a one-time operation. It creates the database and records the hashing strategy. See [HASHING.md](HASHING.md) for the differences between partial and full hashing and how to choose between them.
 
+For non-interactive first-boot automation, choose the strategy explicitly and make creation idempotent:
+
+```bash
+gooru init --if-missing --hashing-strategy partial
+# or
+gooru init --if-missing --hashing-strategy full
+```
+
+`--hashing-strategy` skips the prompt and accepts only `partial` or `full`. When `--if-missing` finds an existing database file, it leaves that database completely unchanged; it does not reconcile the stored hashing strategy. When the database is missing, `--if-missing` requires an explicit `--hashing-strategy` so automation never silently chooses a permanent database invariant.
+
 ## Track and tag files
 
 `tag` both tracks files and adds tags:

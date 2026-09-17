@@ -34,6 +34,34 @@ See [Running Gooru](docs/SERVE.md) for building the application, creating the fi
 
 The complete server configuration is documented in [docs/CONFIG.md](docs/CONFIG.md).
 
+### NixOS
+
+The flake exposes `nixosModules.default`. A minimal automatic first boot can initialize the database and create an admin without putting the password in the Nix store:
+
+```nix
+{
+  inputs.gooru.url = "github:fiso64/gooru";
+
+  outputs = { nixpkgs, gooru, ... }: {
+    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        gooru.nixosModules.default
+        {
+          services.gooru = {
+            enable = true;
+            initialDatabase.hashingStrategy = "partial"; # or "full"
+            initialAdmins.admin.passwordFile = "/run/secrets/gooru-admin";
+          };
+        }
+      ];
+    };
+  };
+}
+```
+
+`initialDatabase.hashingStrategy` is consulted only when the database file is missing. An existing database keeps its stored hashing strategy. `initialAdmins` likewise creates only missing accounts; it does not reconcile or rotate passwords. `passwordFile` is a runtime path string loaded through a systemd credential, so use a secret manager or another mechanism that makes that file available on the host rather than a Nix-store path.
+
 ## Documentation
 
 | Topic | Documentation |
