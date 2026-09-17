@@ -22,6 +22,10 @@ type backgroundOperationReader interface {
 	GetBackgroundOperationResult(string, any) (bool, error)
 }
 
+type backgroundOperationSummaryReader interface {
+	GetBackgroundOperationResultSummaries([]string) (map[string]core.BackgroundOperationResultSummary, error)
+}
+
 type backgroundOperationHistoryClearer interface {
 	ClearTerminalBackgroundOperations() (int64, error)
 }
@@ -55,6 +59,9 @@ type BackgroundOperationDTO struct {
 	FinishedAt              *time.Time                `json:"finished_at,omitempty"`
 	ErrorCode               string                    `json:"error_code,omitempty"`
 	ErrorMessage            string                    `json:"error_message,omitempty"`
+	ResultOutcome           string                    `json:"-"`
+	ResultAffectedCount     *int64                    `json:"-"`
+	ResultFailedCount       *int64                    `json:"-"`
 	Result                  json.RawMessage           `json:"result,omitempty"`
 }
 
@@ -74,6 +81,10 @@ func (l *GooruLibrary) GetBackgroundOperation(operationID string) (core.Backgrou
 
 func (l *GooruLibrary) ListBackgroundOperations(options core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error) {
 	return l.client.ListBackgroundOperations(options)
+}
+
+func (l *GooruLibrary) GetBackgroundOperationResultSummaries(operationIDs []string) (map[string]core.BackgroundOperationResultSummary, error) {
+	return l.client.GetBackgroundOperationResultSummaries(operationIDs)
 }
 
 func (l *GooruLibrary) ClearTerminalBackgroundOperations() (int64, error) {
@@ -236,22 +247,30 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to count background operations", nil)
 		return
 	}
+	summaries := make(map[string]core.BackgroundOperationResultSummary)
+	if reader, ok := s.backgroundOperations.(backgroundOperationSummaryReader); ok {
+		ids := make([]string, 0, len(operations))
+		for _, operation := range operations {
+			if operation.Visible && operation.Status == core.BackgroundWorkCompleted {
+				ids = append(ids, operation.ID)
+			}
+		}
+		summaries, err = reader.GetBackgroundOperationResultSummaries(ids)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation summaries", nil)
+			return
+		}
+	}
 	items := make([]BackgroundOperationDTO, 0, len(operations))
 	for _, operation := range operations {
 		if !operation.Visible {
 			continue
 		}
-		dto := s.backgroundOperationDTO(operation)
-		if operation.Status == core.BackgroundWorkCompleted {
-			var result json.RawMessage
-			found, err := s.backgroundOperationResult(operation, &result)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation result", nil)
-				return
-			}
-			if found {
-				dto.Result = result
-			}
+		dto := s.backgroundOperationListDTO(operation)
+		if summary, ok := summaries[operation.ID]; ok {
+			dto.ResultOutcome = summary.Outcome
+			dto.ResultAffectedCount = summary.AffectedCount
+			dto.ResultFailedCount = summary.FailedCount
 		}
 		items = append(items, dto)
 	}
@@ -321,6 +340,16 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 
 func backgroundOperationDTO(operation core.BackgroundOperationState) BackgroundOperationDTO {
 	return BackgroundOperationDTO{ID: operation.ID, Kind: operation.Kind, Status: operation.Status, ProgressTotal: operation.ProgressTotal, ProgressCompleted: operation.ProgressCompleted, ProgressFailed: operation.ProgressFailed, CreatedAt: operation.CreatedAt, StartedAt: operation.StartedAt, FinishedAt: operation.FinishedAt, ErrorCode: operation.ErrorCode, ErrorMessage: operation.ErrorMessage}
+}
+
+// backgroundOperationListDTO avoids loading terminal upload checkpoints. An
+// imported checkpoint retains the full per-file response for crash recovery,
+// which is useful for explicit operation reads but defeats the bounded list API.
+func (s *Server) backgroundOperationListDTO(operation core.BackgroundOperationState) BackgroundOperationDTO {
+	if operation.Status == core.BackgroundWorkCompleted {
+		return backgroundOperationDTO(operation)
+	}
+	return s.backgroundOperationDTO(operation)
 }
 
 func (s *Server) backgroundOperationDTO(operation core.BackgroundOperationState) BackgroundOperationDTO {

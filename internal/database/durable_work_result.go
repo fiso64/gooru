@@ -43,11 +43,36 @@ func (s *Store) setBackgroundOperationResult(q Querier, operationID string, resu
 	if len(resultJSON) > maxBackgroundOperationResultBytes {
 		return fmt.Errorf("background operation result exceeds %d bytes", maxBackgroundOperationResultBytes)
 	}
+	summary := summarizeBackgroundOperationResult(resultJSON)
+	if isBackgroundTagMutationDurableResult(resultJSON) {
+		var affected sql.NullInt64
+		if err := q.QueryRow(`
+			SELECT affected_count
+			FROM background_tag_mutations
+			WHERE operation_id = ?
+		`, operationID).Scan(&affected); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return errors.New("background tag mutation result is missing")
+			}
+			return fmt.Errorf("read background tag mutation result summary: %w", err)
+		}
+		if !affected.Valid {
+			return errors.New("background tag mutation result is missing affected count")
+		}
+		if affected.Int64 < 0 {
+			return errors.New("background tag mutation result affected count cannot be negative")
+		}
+		value := affected.Int64
+		summary.AffectedCount = &value
+	}
 	res, err := q.Exec(`
 		UPDATE background_operations
-		SET result_json = ?
+		SET result_json = ?,
+		    result_outcome = ?,
+		    result_affected_count = ?,
+		    result_failed_count = ?
 		WHERE id = ? AND status IN ('pending', 'running')
-	`, string(resultJSON), operationID)
+	`, string(resultJSON), summary.Outcome, nullableBackgroundResultCount(summary.AffectedCount), nullableBackgroundResultCount(summary.FailedCount), operationID)
 	if err != nil {
 		return fmt.Errorf("set background operation result: %w", err)
 	}
@@ -59,6 +84,67 @@ func (s *Store) setBackgroundOperationResult(q Querier, operationID string, resu
 		return errors.New("background operation is missing or no longer active")
 	}
 	return nil
+}
+
+func isBackgroundTagMutationDurableResult(resultJSON []byte) bool {
+	var marker struct {
+		DurableResult string `json:"durable_result"`
+	}
+	if err := json.Unmarshal(resultJSON, &marker); err != nil {
+		return false
+	}
+	return marker.DurableResult == "tag_mutation"
+}
+
+func summarizeBackgroundOperationResult(resultJSON []byte) BackgroundOperationResultSummary {
+	zero := int64(0)
+	summary := BackgroundOperationResultSummary{Outcome: "success", FailedCount: &zero}
+	var projection struct {
+		Files *[]struct {
+			Status string `json:"status"`
+		} `json:"files"`
+		MatchedFiles  *int64 `json:"matched_files"`
+		AffectedCount *int64 `json:"affected_count"`
+	}
+	if err := json.Unmarshal(resultJSON, &projection); err != nil {
+		return summary
+	}
+	if projection.Files != nil {
+		var imported, failed int64
+		for _, file := range *projection.Files {
+			switch file.Status {
+			case "imported":
+				imported++
+			case "error":
+				failed++
+			}
+		}
+		summary.AffectedCount = &imported
+		summary.FailedCount = &failed
+		if failed > 0 {
+			if failed == int64(len(*projection.Files)) {
+				summary.Outcome = "error"
+			} else {
+				summary.Outcome = "partial_success"
+			}
+		}
+		return summary
+	}
+	if projection.MatchedFiles != nil && *projection.MatchedFiles >= 0 {
+		summary.AffectedCount = projection.MatchedFiles
+		return summary
+	}
+	if projection.AffectedCount != nil && *projection.AffectedCount >= 0 {
+		summary.AffectedCount = projection.AffectedCount
+	}
+	return summary
+}
+
+func nullableBackgroundResultCount(value *int64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 // GetBackgroundOperationResult returns a completed operation's structured result. An
