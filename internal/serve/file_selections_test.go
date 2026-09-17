@@ -42,7 +42,7 @@ func (l *snapshotTestLibrary) ListFiles(_ context.Context, expression string) ([
 	defer l.mu.Unlock()
 	files := make([]types.FileInfo, 0, len(l.files))
 	for _, file := range l.files {
-		if expression != "*" && !snapshotContainsString(file.Tags, expression) {
+		if expression != "" && expression != "*" && !snapshotContainsString(file.Tags, expression) {
 			continue
 		}
 		files = append(files, file)
@@ -171,6 +171,22 @@ func createSnapshotForTest(t *testing.T, server *Server, query string) fileSelec
 func quoteJSON(value string) string {
 	body, _ := json.Marshal(value)
 	return string(body)
+}
+
+func TestFileSelectionSnapshotSupportsRootLibraryEmptyQuery(t *testing.T) {
+	library := newSnapshotTestLibrary("a", "b")
+	server := newSnapshotTestServer(t, library)
+	snapshot := createSnapshotForTest(t, server, "")
+	if snapshot.Count != 2 {
+		t.Fatalf("expected root-library snapshot count 2, got %d", snapshot.Count)
+	}
+	ids, err := server.fileSelections.resolve("", snapshot.ID)
+	if err != nil {
+		t.Fatalf("resolve root-library snapshot: %v", err)
+	}
+	if len(ids) != 2 || ids[0] != "a" || ids[1] != "b" {
+		t.Fatalf("expected root-library selection [a b], got %v", ids)
+	}
 }
 
 func TestFileSelectionSnapshotDoesNotGrowWithLiveQuery(t *testing.T) {
