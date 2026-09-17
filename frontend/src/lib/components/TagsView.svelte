@@ -11,10 +11,7 @@
     onTag,
     onNamespace
   } = $props<{
-    tags: TagItem[];
     libraryCount: number;
-    loading: boolean;
-    error: string;
     onTag: (tag: string) => void;
     onNamespace: (namespace: string) => void;
   }>();
