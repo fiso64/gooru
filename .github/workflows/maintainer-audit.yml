@@ -1,4 +1,4 @@
-name: Maintainer audit
+name: Maintainer validation
 
 on:
   push:
@@ -6,20 +6,151 @@ on:
       - maintainer/772-upload-row-interactions
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit:
+  fix-and-validate:
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect upload row styles and tests
+      - name: Apply upload row fixes and regressions
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== upload row/tag selectors ==='
-          git grep -n -C 4 -E 'upload-item-tags|upload-tags-control|upload-row|tag-autocomplete' -- frontend/src frontend/tests || true
-          echo '=== booru hover/background selectors ==='
-          git grep -n -C 5 -E 'upload.*hover|upload-row|accent-soft|background.*hover|booru-light|booru-dark' -- frontend/src/lib/styles frontend/src/lib/components/UploadPanel.svelte frontend/tests || true
-          echo '=== upload browser tests ==='
-          find frontend/tests -maxdepth 1 -type f -print | sort | grep -i upload || true
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {count}')
+              return text.replace(old, new, 1)
+
+          panel_path = Path('frontend/src/lib/components/UploadPanel.svelte')
+          panel = panel_path.read_text()
+          panel = replace_once(
+              panel,
+              '''  .upload-item-tags {
+            position: relative;
+            z-index: 2;
+            margin-top: 6px;
+            min-height: 30px;
+          }
+          ''',
+              '''  .upload-item-tags {
+            margin-top: 6px;
+            min-height: 30px;
+          }
+
+          .upload-item-tags .g-tag,
+          .upload-item-tags :global(.tag-autocomplete) {
+            position: relative;
+            z-index: 2;
+          }
+
+          :global(.gooru-theme-booru-style) .upload-row-staged:not(:hover) {
+            background: var(--bg);
+          }
+          ''',
+              'upload tag hit-area styles',
+          )
+          panel_path.write_text(panel)
+
+          test_path = Path('frontend/tests/upload-viewer.spec.ts')
+          test = test_path.read_text()
+          test = replace_once(
+              test,
+              '''  fileRemovals?: FileRemoval[];
+          } = {}) {''',
+              '''  fileRemovals?: FileRemoval[];
+            uiTheme?: 'default' | 'booru-light' | 'booru-dark';
+          } = {}) {''',
+              'mock upload theme option',
+          )
+          test = replace_once(
+              test,
+              '''  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({}) }));''',
+              '''  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ ui_theme: options.uiTheme ?? 'default' })
+          }));''',
+              'mock upload ui config',
+          )
+          test = replace_once(
+              test,
+              '''  await mockUploadApp(page);
+            await page.locator('input[type="file"]').setInputFiles([''',
+              '''  await mockUploadApp(page);
+            const initialTagInput = page.getByLabel('Initial tags');
+            await initialTagInput.fill('row:tag');
+            await initialTagInput.press('Enter');
+            await page.locator('input[type="file"]').setInputFiles([''',
+              'seed row tag',
+          )
+          test = replace_once(
+              test,
+              '''  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });
+            const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();
+            if (!tagControlBox) throw new Error('staged tag control has no layout box');
+            await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);
+            await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
+            await rowTagInput.click();''',
+              '''  const rowTagInput = alphaRow.getByRole('textbox', { name: 'Add tag to alpha.png' });
+            const rowTagPill = alphaRow.locator('.g-tag').filter({ hasText: 'row:tag' });
+            await rowTagPill.click({ position: { x: 4, y: 4 } });
+            await expect(page.getByRole('dialog', { name: 'alpha.png' })).toHaveCount(0);
+
+            const tagControlBox = await alphaRow.locator('.upload-item-tags').boundingBox();
+            if (!tagControlBox) throw new Error('staged tag control has no layout box');
+            await page.mouse.click(tagControlBox.x + tagControlBox.width - 2, tagControlBox.y + tagControlBox.height / 2);
+            const emptyTagAreaDialog = page.getByRole('dialog', { name: 'alpha.png' });
+            await expect(emptyTagAreaDialog).toBeVisible();
+            await emptyTagAreaDialog.getByRole('button', { name: 'Close upload preview' }).click();
+
+            await rowTagInput.click();''',
+              'row tag hit-area regression',
+          )
+          insertion = '''
+          for (const theme of ['booru-light', 'booru-dark'] as const) {
+            test(`${theme} staged upload rows rest on the theme background and highlight on hover`, async ({ page }) => {
+              await mockUploadApp(page, { uiTheme: theme });
+              await page.locator('input[type="file"]').setInputFiles({ name: 'theme.png', mimeType: 'image/png', buffer: png });
+
+              const row = page.getByTestId('upload-row-0');
+              await expect(row).toBeVisible();
+              const rootBackground = await page.locator('.gooru-root').evaluate((element) => getComputedStyle(element).backgroundColor);
+              await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(rootBackground);
+
+              await row.hover();
+              await expect.poll(() => row.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(rootBackground);
+            });
+          }
+
+          '''
+          marker = "test('staged tag occurrences augment backend completion counts'"
+          if test.count(marker) != 1:
+              raise SystemExit('theme regression insertion marker missing or duplicated')
+          test = test.replace(marker, insertion + marker, 1)
+          test_path.write_text(test)
+          PY
+          git diff --check
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend check
+        working-directory: frontend
+        run: npm run check
+      - name: Focused upload viewer regressions
+        working-directory: frontend
+        run: npx playwright test tests/upload-viewer.spec.ts
+      - name: Commit validated fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/maintainer-audit.yml
+          git diff --check
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add frontend/src/lib/components/UploadPanel.svelte frontend/tests/upload-viewer.spec.ts .github/workflows/maintainer-audit.yml
+          git commit -m 'fix(frontend): restore upload row interactions'
+          git push origin HEAD:maintainer/772-upload-row-interactions
