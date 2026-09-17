@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import type { Job } from '$lib/api/types';
-  import { jobAffectedCount, jobFailedCount } from '$lib/jobs';
+  import { jobAffectedCount, jobFailedCount, jobProgressPercent } from '$lib/jobs';
 
   let {
     job,
@@ -11,7 +11,7 @@
     onCancel?: (job: Job) => void;
   }>();
 
-  const percent = $derived(job.progress === undefined ? undefined : Math.round(Math.max(0, Math.min(1, job.progress)) * 100));
+  const percent = $derived(jobProgressPercent(job));
   const cancellable = $derived(job.status === 'pending' || job.status === 'running');
   const visualStatus = $derived(
     job.status === 'canceled'

@@ -1749,3 +1749,5 @@ button.tagscloud-item {
   inset: 0 auto 0 0;
   background: var(--accent);
 }
+
+.upload-batch-card:has(.upload-list > .upload-row:only-child):not(:has(.upload-list-pager)) .upload-batch-progress { display: none; }

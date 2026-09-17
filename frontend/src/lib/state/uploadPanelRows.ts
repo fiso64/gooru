@@ -6,10 +6,7 @@ export type UploadQueueBatch = { batchID?: number; rows: IndexedUploadRow[]; byt
 export type UploadRowPage = { page: number; pageCount: number; rows: IndexedUploadRow[] };
 
 type UploadQueueBatchSummaryState = {
-  transportActive: boolean;
   itemProgressTotal: number;
-  operationProgressMinimum: number;
-  operationProgressCount: number;
 };
 
 export function partitionUploadRows(rows: IndexedUploadRow[]): { staged: IndexedUploadRow[]; queue: IndexedUploadRow[] } {
@@ -38,10 +35,7 @@ export function groupUploadQueueRows(rows: IndexedUploadRow[]): UploadQueueBatch
     if (!batch || !summaryState) {
       batch = { batchID, rows: [], bytes: 0, summary: { progress: 0, counts: {}, status: '' } };
       summaryState = {
-        transportActive: false,
-        itemProgressTotal: 0,
-        operationProgressMinimum: 100,
-        operationProgressCount: 0
+        itemProgressTotal: 0
       };
       batches.set(batchID, batch);
       summaryStates.set(batchID, summaryState);
@@ -52,23 +46,16 @@ export function groupUploadQueueRows(rows: IndexedUploadRow[]): UploadQueueBatch
     const item = row.item;
     const counts = batch.summary.counts;
     counts[item.status] = (counts[item.status] ?? 0) + 1;
-    if (item.status === 'waiting' || item.status === 'uploading') summaryState.transportActive = true;
     summaryState.itemProgressTotal += Math.max(0, Math.min(100, item.progress));
-    if (typeof item.operationProgress === 'number') {
-      summaryState.operationProgressMinimum = Math.min(
-        summaryState.operationProgressMinimum,
-        Math.max(0, Math.min(100, item.operationProgress))
-      );
-      summaryState.operationProgressCount += 1;
-    }
   }
 
   const grouped = [...batches.values()];
   for (const batch of grouped) {
     const summaryState = summaryStates.get(batch.batchID)!;
-    batch.summary.progress = !summaryState.transportActive && summaryState.operationProgressCount > 0
-      ? Math.round(summaryState.operationProgressMinimum)
-      : Math.round(summaryState.itemProgressTotal / batch.rows.length);
+    // Row progress is transport progress. Keep the batch summary on the same
+    // scale instead of switching to the server's synthetic cross-phase
+    // operation percentage after transport reaches 100%.
+    batch.summary.progress = Math.round(summaryState.itemProgressTotal / batch.rows.length);
     batch.summary.status = uploadSummaryFromCounts(batch.summary.counts);
   }
   return grouped.sort((left, right) => {
