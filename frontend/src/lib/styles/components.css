@@ -1750,4 +1750,4 @@ button.tagscloud-item {
   background: var(--accent);
 }
 
-.upload-batch-card:has(.upload-list > .upload-row:only-child):not(:has(.upload-list-pager)) .upload-batch-progress { visibility: hidden; }
+.upload-batch-card:has(.upload-list > .upload-row:only-child):not(:has(.upload-list-pager)) .upload-batch-progress { display: none; }
