@@ -47,3 +47,23 @@ export function jobFailedCount(job: Job): number | undefined {
   }
   return Math.trunc(job.failed_count);
 }
+
+
+export function jobProgressPercent(job: Job): number | undefined {
+  const rawProgress =
+    typeof job.progress === 'number' && Number.isFinite(job.progress)
+      ? Math.max(0, Math.min(1, job.progress))
+      : undefined;
+
+  if (job.type === 'upload_import') {
+    if (job.status === 'completed' || job.stage === 'importing') return 100;
+    if (job.stage === 'receiving' && rawProgress !== undefined) {
+      // Upload operation progress reserves the first half for request-body
+      // transport. Present that phase as its honest 0–100% byte progress
+      // instead of exposing the server's cross-phase 0–50% weighting.
+      return Math.round(Math.min(1, rawProgress * 2) * 100);
+    }
+  }
+
+  return rawProgress === undefined ? undefined : Math.round(rawProgress * 100);
+}
