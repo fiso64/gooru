@@ -2,23 +2,17 @@ package cmd
 
 import (
 	"fmt"
-	"strings"
 
 	core "gooru.local/gooru"
 	"gooru.local/types"
 )
 
 func parseRegistrationSort(value string) (core.FileRegistrationSort, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "queue":
-		return core.FileRegistrationSortQueue, nil
-	case "reverse", "reverse-queue", "reverse_queue":
-		return core.FileRegistrationSortReverseQueue, nil
-	case "modtime", "mtime":
-		return core.FileRegistrationSortModTime, nil
-	default:
-		return "", fmt.Errorf("invalid --sort %q: expected queue, reverse, or modtime", value)
+	sort, err := core.ParseFileRegistrationSort(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid --sort %q: expected newest-last, newest-first, or modtime", value)
 	}
+	return sort, nil
 }
 
 func tagFilesWithRegistrationSort(filePaths []string, tags []string, progressCb func(filePath string, err error), useMetadata bool, sortValue string) (types.TagOperationResult, error) {
@@ -37,4 +31,4 @@ func setTagsForFilesWithRegistrationSort(filePaths []string, tags []string, prog
 	return svc.SetTagsForFilesWithSort(filePaths, tags, progressCb, useMetadata, sort)
 }
 
-const registrationSortHelp = "Order newly tracked files by added time: queue (last input newest), reverse (first input newest), or modtime"
+const registrationSortHelp = "Order newly tracked files by added time: newest-last (last input newest), newest-first (first input newest), or modtime"

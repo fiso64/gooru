@@ -15,10 +15,12 @@ func TestParseRegistrationSort(t *testing.T) {
 		input string
 		want  core.FileRegistrationSort
 	}{
-		{input: "queue", want: core.FileRegistrationSortQueue},
-		{input: "reverse", want: core.FileRegistrationSortReverseQueue},
-		{input: "reverse-queue", want: core.FileRegistrationSortReverseQueue},
-		{input: "reverse_queue", want: core.FileRegistrationSortReverseQueue},
+		{input: "newest-last", want: core.FileRegistrationSortNewestLast},
+		{input: "newest_last", want: core.FileRegistrationSortNewestLast},
+		{input: "queue", want: core.FileRegistrationSortNewestLast},
+		{input: "newest-first", want: core.FileRegistrationSortNewestFirst},
+		{input: "newest_first", want: core.FileRegistrationSortNewestFirst},
+		{input: "reverse_queue", want: core.FileRegistrationSortNewestFirst},
 		{input: "modtime", want: core.FileRegistrationSortModTime},
 		{input: "mtime", want: core.FileRegistrationSortModTime},
 	} {

@@ -3,6 +3,7 @@ package gooru
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gooru.local/internal/query"
@@ -13,21 +14,73 @@ import (
 type FileRegistrationSort string
 
 const (
-	// FileRegistrationSortQueue makes later input paths newer within one batch.
-	FileRegistrationSortQueue FileRegistrationSort = "queue"
-	// FileRegistrationSortReverseQueue makes earlier input paths newer within one batch.
-	FileRegistrationSortReverseQueue FileRegistrationSort = "reverse_queue"
+	// FileRegistrationSortNewestLast makes later input paths newer within one batch.
+	FileRegistrationSortNewestLast FileRegistrationSort = "newest_last"
+	// FileRegistrationSortNewestFirst makes earlier input paths newer within one batch.
+	FileRegistrationSortNewestFirst FileRegistrationSort = "newest_first"
 	// FileRegistrationSortModTime uses each file's filesystem modification time.
 	FileRegistrationSortModTime FileRegistrationSort = "modtime"
+
+	// Legacy names remain as aliases for the existing WebUI/upload contract.
+	FileRegistrationSortQueue        = FileRegistrationSortNewestLast
+	FileRegistrationSortReverseQueue = FileRegistrationSortNewestFirst
 )
+
+// ParseFileRegistrationSort accepts the user-facing names plus legacy WebUI/upload aliases.
+func ParseFileRegistrationSort(value string) (FileRegistrationSort, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "newest-last", "newest_last", "queue":
+		return FileRegistrationSortNewestLast, nil
+	case "newest-first", "newest_first", "reverse", "reverse-queue", "reverse_queue":
+		return FileRegistrationSortNewestFirst, nil
+	case "modtime", "mtime":
+		return FileRegistrationSortModTime, nil
+	default:
+		return "", fmt.Errorf("registration sort must be one of: newest-last, newest-first, modtime")
+	}
+}
 
 func validateFileRegistrationSort(sort FileRegistrationSort) error {
 	switch sort {
-	case FileRegistrationSortQueue, FileRegistrationSortReverseQueue, FileRegistrationSortModTime:
+	case FileRegistrationSortNewestLast, FileRegistrationSortNewestFirst, FileRegistrationSortModTime:
 		return nil
 	default:
-		return fmt.Errorf("registration sort must be one of: queue, reverse_queue, modtime")
+		return fmt.Errorf("registration sort must be one of: newest-last, newest-first, modtime")
 	}
+}
+
+// FileRegistrationSortValue is the durable added-time metadata for one path.
+type FileRegistrationSortValue struct {
+	AddedAt    time.Time
+	AddedOrder int64
+}
+
+// ResolveFileRegistrationSort centralizes the ordering semantics shared by CLI
+// path registration and WebUI uploads. Positional strategies use one honest
+// batch timestamp and added_order as the deterministic in-batch tie-breaker.
+func ResolveFileRegistrationSort(sort FileRegistrationSort, sourceModTime, batchTime time.Time, index, total int) FileRegistrationSortValue {
+	if index < 0 {
+		index = 0
+	}
+	if total <= 0 {
+		total = index + 1
+	}
+	if index >= total {
+		index = total - 1
+	}
+	if batchTime.IsZero() {
+		batchTime = time.Now().UTC()
+	}
+
+	addedAt := batchTime.UTC()
+	if sort == FileRegistrationSortModTime && !sourceModTime.IsZero() {
+		addedAt = sourceModTime.UTC()
+	}
+	addedOrder := int64(index)
+	if sort == FileRegistrationSortNewestFirst {
+		addedOrder = int64(total - 1 - index)
+	}
+	return FileRegistrationSortValue{AddedAt: addedAt, AddedOrder: addedOrder}
 }
 
 // TagFilesWithSort behaves like TagFiles, but controls added ordering for paths
@@ -58,18 +111,14 @@ func registrationSortValues(analysis *fileStateAnalysis, sort FileRegistrationSo
 	values := make(map[string]registrationSortValue, len(analysis.allFileData))
 	total := len(analysis.allFileData)
 	for index, data := range analysis.allFileData {
-		addedAt := batchTime.UnixMilli()
-		addedOrder := int64(index)
-		switch sort {
-		case FileRegistrationSortReverseQueue:
-			addedOrder = int64(total - 1 - index)
-		case FileRegistrationSortModTime:
-			addedOrder = 0
+		var sourceModTime time.Time
+		if sort == FileRegistrationSortModTime {
 			if info, err := os.Stat(data.info.Path); err == nil {
-				addedAt = info.ModTime().UnixMilli()
+				sourceModTime = info.ModTime()
 			}
 		}
-		values[data.info.Path] = registrationSortValue{addedAt: addedAt, addedOrder: addedOrder}
+		resolved := ResolveFileRegistrationSort(sort, sourceModTime, batchTime, index, total)
+		values[data.info.Path] = registrationSortValue{addedAt: resolved.AddedAt.UnixMilli(), addedOrder: resolved.AddedOrder}
 	}
 	return values
 }

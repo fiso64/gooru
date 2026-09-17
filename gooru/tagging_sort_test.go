@@ -34,14 +34,67 @@ func writeRegistrationSortFiles(t *testing.T, dir string, names ...string) []str
 	return paths
 }
 
-func TestTagFilesWithSortQueueAndReverseQueue(t *testing.T) {
+func TestParseFileRegistrationSortNamesAndLegacyAliases(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		want  FileRegistrationSort
+	}{
+		{"newest-last", FileRegistrationSortNewestLast},
+		{"newest_last", FileRegistrationSortNewestLast},
+		{"queue", FileRegistrationSortNewestLast},
+		{"newest-first", FileRegistrationSortNewestFirst},
+		{"newest_first", FileRegistrationSortNewestFirst},
+		{"reverse_queue", FileRegistrationSortNewestFirst},
+		{"modtime", FileRegistrationSortModTime},
+		{"mtime", FileRegistrationSortModTime},
+	} {
+		t.Run(tc.input, func(t *testing.T) {
+			got, err := ParseFileRegistrationSort(tc.input)
+			if err != nil {
+				t.Fatalf("ParseFileRegistrationSort(%q): %v", tc.input, err)
+			}
+			if got != tc.want {
+				t.Fatalf("ParseFileRegistrationSort(%q)=%q want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveFileRegistrationSortMatchesUploadSemantics(t *testing.T) {
+	batch := time.Date(2024, 1, 2, 3, 4, 5, 400_000_000, time.UTC)
+	source := time.Date(2020, 7, 8, 9, 10, 11, 456_000_000, time.UTC)
+	for _, tc := range []struct {
+		name      string
+		sort      FileRegistrationSort
+		index     int
+		wantTime  time.Time
+		wantOrder int64
+	}{
+		{"newest last", FileRegistrationSortNewestLast, 1, batch, 1},
+		{"newest first", FileRegistrationSortNewestFirst, 1, batch, 1},
+		{"modtime keeps positional tie break", FileRegistrationSortModTime, 1, source, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResolveFileRegistrationSort(tc.sort, source, batch, tc.index, 3)
+			if !got.AddedAt.Equal(tc.wantTime) || got.AddedOrder != tc.wantOrder {
+				t.Fatalf("ResolveFileRegistrationSort()=%+v want time=%v order=%d", got, tc.wantTime, tc.wantOrder)
+			}
+		})
+	}
+	first := ResolveFileRegistrationSort(FileRegistrationSortNewestFirst, time.Time{}, batch, 0, 3)
+	if first.AddedOrder != 2 {
+		t.Fatalf("newest-first first input added_order=%d want 2", first.AddedOrder)
+	}
+}
+
+func TestTagFilesWithSortNewestLastAndNewestFirst(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		sort FileRegistrationSort
 		want []int64
 	}{
-		{name: "queue", sort: FileRegistrationSortQueue, want: []int64{0, 1, 2}},
-		{name: "reverse", sort: FileRegistrationSortReverseQueue, want: []int64{2, 1, 0}},
+		{name: "newest-last", sort: FileRegistrationSortNewestLast, want: []int64{0, 1, 2}},
+		{name: "newest-first", sort: FileRegistrationSortNewestFirst, want: []int64{2, 1, 0}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := newBackgroundEnqueueTestClient(t)
@@ -83,8 +136,8 @@ func TestTagFilesWithSortModTime(t *testing.T) {
 		if got.addedAt != modtimes[index].UnixMilli() {
 			t.Fatalf("%s added_at=%d want modtime %d", path, got.addedAt, modtimes[index].UnixMilli())
 		}
-		if got.addedOrder != 0 {
-			t.Fatalf("%s added_order=%d want 0", path, got.addedOrder)
+		if got.addedOrder != int64(index) {
+			t.Fatalf("%s added_order=%d want positional tie-break %d", path, got.addedOrder, index)
 		}
 	}
 }
@@ -92,7 +145,7 @@ func TestTagFilesWithSortModTime(t *testing.T) {
 func TestTagFilesWithSortPreservesExistingRegistrationOrder(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 	path := writeRegistrationSortFiles(t, t.TempDir(), "existing.jpg")[0]
-	if _, err := client.TagFilesWithSort([]string{path}, nil, nil, false, FileRegistrationSortQueue); err != nil {
+	if _, err := client.TagFilesWithSort([]string{path}, nil, nil, false, FileRegistrationSortNewestLast); err != nil {
 		t.Fatalf("initial TagFilesWithSort: %v", err)
 	}
 	before := readStoredRegistrationSort(t, client, path)
