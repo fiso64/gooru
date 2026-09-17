@@ -170,6 +170,9 @@
     uploadResultsFloor = 0;
     cancelRequestedJobID = '';
     jobsDrawerOpen = false;
+    bulkDownloadBusy = false;
+    bulkDownloadError = '';
+    bulkDownloadURL = '';
     stopUploadMetadataRefresh();
     closeActionDialog();
   });
@@ -226,6 +229,10 @@
 
   $effect(() => {
     if (!library.activeFile) nestedPreviewNavigation = false;
+  });
+
+  $effect(() => {
+    if (selectedCount === 0) bulkDownloadError = '';
   });
 
   $effect(() => {
