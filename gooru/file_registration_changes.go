@@ -3,17 +3,39 @@ package gooru
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"gooru.local/types"
 )
 
 const fileRegistrationLocationLookupBatchSize = 400
 
+// normalizeRegistrationAddedAt resolves the zero "use insertion time" sentinel
+// at the shared registration boundary. Migration 041 made locations.added_at
+// unambiguously Unix milliseconds, so registrations must not pass a zero value
+// to the legacy BatchUpsertLocations seconds fallback. Explicit timestamps are
+// already in the storage unit and are preserved unchanged.
+func normalizeRegistrationAddedAt(locations map[string]types.LocationInfo) {
+	if len(locations) == 0 {
+		return
+	}
+	addedAt := time.Now().UnixMilli()
+	for path, location := range locations {
+		if location.AddedAt != 0 {
+			continue
+		}
+		location.AddedAt = addedAt
+		locations[path] = location
+	}
+}
+
 // fileRegistrationHashesForLocationUpserts reports content identities whose
 // tracked location will actually be inserted or changed by the current
 // transaction. A tag-only mutation of an already-tracked path is not a
 // registration event, while a new path for an already-known content hash is.
 //
+// This is also the shared boundary immediately before location upserts, so it
+// resolves zero added-time sentinels to Unix milliseconds before classification.
 // The lookup is bounded by the candidate paths supplied by the caller; it never
 // scans the library, which keeps external scans and large imports scalable.
 func fileRegistrationHashesForLocationUpserts(q databaseQuerier, locations map[string]types.LocationInfo) ([]string, error) {
@@ -23,6 +45,7 @@ func fileRegistrationHashesForLocationUpserts(q databaseQuerier, locations map[s
 	if len(locations) == 0 {
 		return nil, nil
 	}
+	normalizeRegistrationAddedAt(locations)
 
 	paths := make([]string, 0, len(locations))
 	for path := range locations {
