@@ -25,20 +25,13 @@ jobs:
           p = Path('internal/serve/upload_stream.go')
           s = p.read_text()
           replacements = [
-              (
-                  '\taddedAt       time.Time\n}',
-                  '\taddedAt       time.Time\n\taddedOrder    int64\n}',
-              ),
-              (
-                  '\t\tstreamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)\n',
-                  '\t\tstreamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)\n\t\tstreamed[i].addedOrder = resolveUploadAddedOrder(addedAtStrategy, queueIndex, queueTotal)\n',
-              ),
-              (
-                  '\t\t\tfinalized.addedAt = file.addedAt\n',
-                  '\t\t\tfinalized.addedAt = file.addedAt\n\t\t\tfinalized.addedOrder = file.addedOrder\n',
-              ),
+              ('\taddedAt       time.Time\n}', '\taddedAt       time.Time\n\taddedOrder    int64\n}'),
+              ('\t\tstreamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)\n', '\t\tstreamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)\n\t\tstreamed[i].addedOrder = resolveUploadAddedOrder(addedAtStrategy, queueIndex, queueTotal)\n'),
+              ('\t\t\tfinalized.addedAt = file.addedAt\n', '\t\t\tfinalized.addedAt = file.addedAt\n\t\t\tfinalized.addedOrder = file.addedOrder\n'),
           ]
           for old, new in replacements:
+              if new in s:
+                  continue
               count = s.count(old)
               if count != 1:
                   raise SystemExit(f'expected exactly one match, got {count}: {old!r}')
@@ -46,17 +39,17 @@ jobs:
           p.write_text(s)
           PY
           gofmt -w internal/serve/upload_stream.go
+      - name: Audit added timestamp conversions
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '--- production AddedAt / added_at references ---'
+          grep -RInE 'AddedAt|added_at' --include='*.go' --include='*.sql' gooru internal types cmd 2>/dev/null | head -n 800 || true
       - name: Validate focused packages
         shell: bash
         run: |
           set -euo pipefail
           go test ./internal/serve ./internal/database ./gooru
-      - name: Audit added timestamp conversions
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo '--- AddedAt / added_at references ---'
-          grep -RInE 'AddedAt|added_at' --include='*.go' --include='*.sql' . | head -n 500
       - name: Commit validated fix and remove temporary workflow
         shell: bash
         run: |
