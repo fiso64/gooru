@@ -164,30 +164,81 @@ When packaging outside the source tree, ship the built frontend directory too an
 
 ## NixOS
 
-The repository flake exports a NixOS module under `gooru.nixosModules.default`. The module maps `services.gooru.settings` directly to the normal YAML configuration, so [CONFIG.md](CONFIG.md) remains the option reference. Its default `services.gooru.package` is the flake package, which is built with libvips image thumbnail support enabled.
+The repository flake exports `gooru.nixosModules.default`. The module maps `services.gooru.settings` directly to the normal YAML configuration, so [CONFIG.md](CONFIG.md) remains the server-setting reference. Its default `services.gooru.package` is the flake package, which is built with libvips image thumbnail support enabled.
 
-Example:
+### Flake setup
+
+A minimal automatic deployment can initialize the database and declaratively manage an administrator without putting the password in the Nix store:
 
 ```nix
-services.gooru = {
-  enable = true;
-  settings = {
-    server.listen = "127.0.0.1:5678";
-    uploads = {
-      enabled = true;
-      targets = [{
-        id = "default";
-        name = "Default";
-        path = "/srv/gooru/incoming";
-      }];
+{
+  inputs.gooru.url = "github:fiso64/gooru";
+
+  outputs = { nixpkgs, gooru, ... }: {
+    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        gooru.nixosModules.default
+        {
+          services.gooru = {
+            enable = true;
+            initialDatabase.hashingStrategy = "partial"; # or "full"
+            admins.primary = {
+              username = "admin";
+              passwordFile = "/run/agenix/gooru-admin";
+            };
+          };
+        }
+      ];
     };
+  };
+}
+```
+
+Server settings stay under the same module:
+
+```nix
+services.gooru.settings = {
+  server.listen = "127.0.0.1:5678";
+  uploads = {
+    enabled = true;
+    targets = [{
+      id = "default";
+      name = "Default";
+      path = "/srv/gooru/incoming";
+    }];
   };
 };
 ```
 
-Create configured upload directories with permissions appropriate for the service user. The module defaults to a `gooru` system user, application state under `/var/lib/gooru`, media cache under `/var/cache/gooru`, and generated config at `/etc/gooru/serve.yaml`.
+### First-boot database initialization
 
-Open the firewall only when the configured listen address is intentionally reachable from the network.
+`services.gooru.initialDatabase.hashingStrategy` accepts `"partial"` or `"full"` and is used only when the service creates a missing database. Once the database file exists, its stored hashing strategy is authoritative; changing the Nix option does not rewrite or reconcile an existing database.
+
+This is intentionally a first-boot setting rather than a general mirror of `gooru init` arguments.
+
+### Declarative administrators
+
+`services.gooru.admins` is ongoing declarative state. The attribute name is a stable declaration identity, while `username` is mutable desired state:
+
+```nix
+services.gooru.admins.primary = {
+  username = "alice";
+  passwordFile = "/run/secrets/gooru-admin-alice";
+};
+```
+
+If `username` changes, Gooru renames the same user while preserving its stable `usr_…` ID and associated per-user data. Changing the contents of `passwordFile` updates the actual password. An unchanged password performs one normal password verification during service startup and is not re-hashed.
+
+Removing an `admins` entry does **not** delete the corresponding Gooru user. Do not reuse a declaration identity for a different account.
+
+`passwordFile` is a runtime path string loaded through a systemd credential. It is designed to compose with secret managers such as agenix or sops-nix: pass the runtime path they materialize. Do not use a Nix-store path containing plaintext credentials.
+
+### Service paths and network access
+
+The module defaults to a `gooru` system user, application state under `/var/lib/gooru`, media cache under `/var/cache/gooru`, and generated config at `/etc/gooru/serve.yaml`.
+
+Create configured upload directories with permissions appropriate for the service user. Open the firewall only when the configured listen address is intentionally reachable from the network.
 
 ## Troubleshooting
 

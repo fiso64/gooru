@@ -32,40 +32,9 @@ My unironic proudest contribution is the name Gooru, which sounds like the word 
 
 See [Running Gooru](docs/SERVE.md) for building the application, creating the first user, configuring the server, and deployment options.
 
+NixOS users can use the repository's flake module; see the [NixOS deployment guide](docs/SERVE.md#nixos).
+
 The complete server configuration is documented in [docs/CONFIG.md](docs/CONFIG.md).
-
-### NixOS
-
-The flake exposes `nixosModules.default`. A minimal automatic deployment can initialize the database and declaratively manage an admin without putting the password in the Nix store:
-
-```nix
-{
-  inputs.gooru.url = "github:fiso64/gooru";
-
-  outputs = { nixpkgs, gooru, ... }: {
-    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        gooru.nixosModules.default
-        {
-          services.gooru = {
-            enable = true;
-            initialDatabase.hashingStrategy = "partial"; # or "full"
-            admins.primary = {
-              username = "admin";
-              passwordFile = "/run/agenix/gooru-admin";
-            };
-          };
-        }
-      ];
-    };
-  };
-}
-```
-
-`initialDatabase.hashingStrategy` is consulted only when the database file is missing; an existing database keeps its stored hashing strategy. `admins` is ongoing declarative state. Each attribute name (such as `primary`) is a stable declaration identity: changing `username` renames the same Gooru user and preserves its `usr_…` ID and per-user data, while changing the password file contents updates the actual password. Unchanged passwords incur one normal password-verification operation on service startup and are not re-hashed. Removing an `admins` entry does **not** delete its Gooru user, and declaration IDs should not be reused for a different account.
-
-`passwordFile` is a runtime path string loaded through a systemd credential. This is designed to work with secret managers such as agenix or sops-nix: point it at the runtime secret path they materialize. Do not use a Nix-store path containing plaintext credentials.
 
 ## Documentation
 
