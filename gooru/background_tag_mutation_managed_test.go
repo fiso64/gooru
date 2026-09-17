@@ -120,3 +120,35 @@ func TestBackgroundTagMutationManagedFileUsesStoragePath(t *testing.T) {
 		t.Fatalf("managed identity changed: path=%q storage=%q", got.Path, got.StoragePath)
 	}
 }
+
+func TestPopulateOrphanedTagsSharedPreviousHash(t *testing.T) {
+	client := newBackgroundTagMutationTestClient(t)
+	path := filepath.Join(t.TempDir(), "seed.jpg")
+	const previousHash = "shared-previous-hash"
+	if _, err := client.TagKnownFiles([]types.LocationInfo{{
+		Path:      path,
+		Hash:      previousHash,
+		Size:      1,
+		ModTime:   1,
+		Extension: ".jpg",
+	}}, []string{"initial"}, nil); err != nil {
+		t.Fatalf("seed previous content tags: %v", err)
+	}
+
+	data := []fileData{
+		{wasModified: true, previousHash: previousHash},
+		{wasModified: true, previousHash: previousHash},
+		{},
+	}
+	if err := client.populateOrphanedTags(data); err != nil {
+		t.Fatalf("populate orphaned tags: %v", err)
+	}
+	for index := 0; index < 2; index++ {
+		if len(data[index].orphanedTags) != 1 || data[index].orphanedTags[0] != "initial" {
+			t.Fatalf("modified file %d orphaned tags = %v, want [initial]", index, data[index].orphanedTags)
+		}
+	}
+	if len(data[2].orphanedTags) != 0 {
+		t.Fatalf("unmodified file orphaned tags = %v, want none", data[2].orphanedTags)
+	}
+}

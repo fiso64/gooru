@@ -1,7 +1,6 @@
 package gooru
 
 import (
-	"database/sql"
 	"fmt"
 	"path/filepath"
 
@@ -59,12 +58,9 @@ func (c *Client) ExecuteBackgroundTagMutationFiles(operationID string, files []t
 			}
 		}
 		isModification := hash != file.Hash
-		var orphanedTags []string
+		previousHash := ""
 		if isModification {
-			orphanedTags, err = c.store.GetTagsForContent(file.Hash)
-			if err != nil && err != sql.ErrNoRows {
-				return fmt.Errorf("read tags for modified managed file %q: %w", file.Path, err)
-			}
+			previousHash = file.Hash
 		}
 		location := types.LocationInfo{
 			Path:        file.Path,
@@ -79,10 +75,14 @@ func (c *Client) ExecuteBackgroundTagMutationFiles(operationID string, files []t
 			path:         file.Path,
 			info:         location,
 			wasModified:  isModification,
-			orphanedTags: orphanedTags,
+			previousHash: previousHash,
 		})
 		analysis.allHashes = append(analysis.allHashes, hash)
 		analysis.locationsToUpsert[file.Path] = location
+	}
+
+	if err := c.populateOrphanedTags(analysis.allFileData); err != nil {
+		return fmt.Errorf("read tags for modified managed files: %w", err)
 	}
 
 	if len(externalPaths) > 0 {
