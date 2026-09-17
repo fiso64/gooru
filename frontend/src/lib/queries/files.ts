@@ -132,8 +132,7 @@ export function filesQueryOptions(
     // Paged mode deliberately retains one transport page. Infinite mode must keep its fetched
     // logical prefix stable because rendering is independently virtualized and eviction can repack
     // already-visible tile geometry.
-    ...(paged ? { maxPages: 1 } : {}),
-    placeholderData: (previousData: InfiniteData<FileListResponse, string> | undefined) => previousData
+    ...(paged ? { maxPages: 1 } : {})
   };
 }
 
