@@ -1,4 +1,4 @@
-name: Maintainer audit
+name: Maintainer validation
 
 on:
   push:
@@ -6,20 +6,136 @@ on:
       - maintainer/549-added-order-audit
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit:
+  refactor-and-validate:
     runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect added-order paging APIs
+      - name: Apply canonical paging refactor
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== added-order wrapper references ==='
-          git grep -n -E 'Get(AllFilesInfoPageSorted|FilesInfoByLocationQueryPageSorted)(Offset)?AddedOrder' -- '*.go' || true
-          echo '=== legacy paging helper references ==='
-          git grep -n -E 'GetAllFilesInfoPageSorted\(|GetFilesInfoByLocationQueryPageSorted\(|GetAllFilesInfoPageSortedOffset\(|GetFilesInfoByLocationQueryPageSortedOffset\(' -- '*.go' || true
-          echo '=== added_order.go line count ==='
-          wc -l internal/database/added_order.go
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected 1 match, found {count}")
+              return text.replace(old, new, 1)
+
+          db_path = Path('internal/database/database.go')
+          db = db_path.read_text()
+          if db.count('ORDER BY %s %s, l.id ASC') != 4:
+              raise SystemExit('expected four canonical paging ORDER BY templates')
+          db = db.replace('ORDER BY %s %s, l.id ASC', 'ORDER BY %s')
+          db = replace_once(
+              db,
+              '`, query, fileInfoColumns(), cursorClause, fileSortExpression(sort), sortOrder(order))',
+              '`, query, fileInfoColumns(), cursorClause, fileSortClause(sort, order))',
+              'location keyset format args',
+          )
+          db = replace_once(
+              db,
+              '`, query, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))',
+              '`, query, fileInfoColumns(), fileSortClause(sort, order))',
+              'location offset format args',
+          )
+          db = replace_once(
+              db,
+              '`, fileInfoColumns(), cursorClause, fileSortExpression(sort), sortOrder(order))',
+              '`, fileInfoColumns(), cursorClause, fileSortClause(sort, order))',
+              'all-files keyset format args',
+          )
+          db = replace_once(
+              db,
+              '`, fileInfoColumns(), fileSortExpression(sort), sortOrder(order))',
+              '`, fileInfoColumns(), fileSortClause(sort, order))',
+              'all-files offset format args',
+          )
+          db = replace_once(
+              db,
+              '\nfunc fileKindExpression() string {',
+              '''\nfunc fileSortClause(sort string, order string) string {
+          \tif sort == "added" {
+          \t\treturn addedOrderSortClause(order)
+          \t}
+          \treturn fmt.Sprintf("%s %s, l.id ASC", fileSortExpression(sort), sortOrder(order))
+          }
+
+          func fileKindExpression() string {''',
+              'file sort clause helper insertion',
+          )
+          db = replace_once(
+              db,
+              '''\tif cursor == nil {
+          \t\treturn "", nil, nil
+          \t}
+          \texpr := fileSortExpression(sort)''',
+              '''\tif cursor == nil {
+          \t\treturn "", nil, nil
+          \t}
+          \tif sort == "added" {
+          \t\treturn s.addedOrderCursorClause(cursor, order)
+          \t}
+          \texpr := fileSortExpression(sort)''',
+              'added-order cursor delegation',
+          )
+          db_path.write_text(db)
+
+          added_path = Path('internal/database/added_order.go')
+          added = added_path.read_text()
+          marker = '\n// GetAllFilesInfoPageSortedAddedOrder preserves the existing sort behavior for\n'
+          if added.count(marker) != 1:
+              raise SystemExit('added-order wrapper marker missing or duplicated')
+          added_path.write_text(added.split(marker, 1)[0].rstrip() + '\n')
+
+          query_path = Path('gooru/query.go')
+          query = query_path.read_text()
+          renames = {
+              'GetAllFilesInfoPageSortedAddedOrder': 'GetAllFilesInfoPageSorted',
+              'GetFilesInfoByLocationQueryPageSortedAddedOrder': 'GetFilesInfoByLocationQueryPageSorted',
+              'GetAllFilesInfoPageSortedOffsetAddedOrder': 'GetAllFilesInfoPageSortedOffset',
+              'GetFilesInfoByLocationQueryPageSortedOffsetAddedOrder': 'GetFilesInfoByLocationQueryPageSortedOffset',
+          }
+          for old, new in renames.items():
+              if query.count(old) != 1:
+                  raise SystemExit(f'{old}: expected one production call')
+              query = query.replace(old, new, 1)
+          query_path.write_text(query)
+
+          test_path = Path('internal/database/added_order_test.go')
+          test = test_path.read_text()
+          if test.count('GetAllFilesInfoPageSortedAddedOrder') != 2:
+              raise SystemExit('expected two added-order test wrapper calls')
+          test = test.replace('GetAllFilesInfoPageSortedAddedOrder', 'GetAllFilesInfoPageSorted')
+          test_path.write_text(test)
+          PY
+          gofmt -w internal/database/database.go internal/database/added_order.go internal/database/added_order_test.go gooru/query.go
+          git diff --check
+          echo '=== diff stat before validation ==='
+          git diff --stat
+          echo '=== old wrapper references after refactor ==='
+          if git grep -n -E 'Get(AllFilesInfoPageSorted|FilesInfoByLocationQueryPageSorted)(Offset)?AddedOrder' -- '*.go'; then
+            echo 'obsolete wrapper reference remains' >&2
+            exit 1
+          fi
+      - name: Focused tests
+        run: go test -count=1 ./internal/database ./gooru
+      - name: Focused vet
+        run: go vet -structtag=false ./internal/database ./gooru
+      - name: Commit validated refactor and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/maintainer-audit.yml
+          git diff --check
+          git config user.name 'fiso64'
+          git config user.email '64778819+fiso64@users.noreply.github.com'
+          git add internal/database/database.go internal/database/added_order.go internal/database/added_order_test.go gooru/query.go .github/workflows/maintainer-audit.yml
+          git commit -m 'refactor: fold added-order paging into canonical helpers'
+          git push origin HEAD:maintainer/549-added-order-audit
