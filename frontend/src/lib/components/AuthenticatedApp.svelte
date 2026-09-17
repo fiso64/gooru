@@ -766,10 +766,7 @@
       <SettingsView username={$authState.user.username} onLogout={logout} onChangePassword={changePassword} />
     {:else if library.route === 'tags'}
       <TagsView
-        tags={tagsQuery.data?.tags ?? []}
         libraryCount={liveLibraryCount}
-        loading={tagsQuery.isLoading}
-        error={tagsQuery.isError ? errorMessage(tagsQuery.error) : ''}
         onTag={library.runTagSearch}
         onNamespace={(namespace) => library.runTagSearch(`${namespace}:`)}
       />
