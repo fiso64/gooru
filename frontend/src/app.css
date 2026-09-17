@@ -12,6 +12,13 @@
 @import './lib/styles/booru-viewer.css';
 @import './lib/styles/booru-variants.css';
 
+.gooru-theme-booru-style progress,
+.gooru-theme-booru-style .progress,
+.gooru-theme-booru-style .job-progress,
+.gooru-theme-booru-style .video-progress {
+  border-radius: 0;
+}
+
 .gooru-root [data-testid='refresh-upload-results'] {
   background: var(--accent);
   color: var(--accent-ink);
