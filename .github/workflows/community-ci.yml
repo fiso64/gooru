@@ -1,0 +1,97 @@
+name: Community CI
+
+# Keep the workflow definition on the trusted base branch while executing
+# untrusted community PR code only on GitHub-hosted runners.
+on:
+  pull_request_target:
+    branches:
+      - develop
+
+permissions: {}
+
+concurrency:
+  group: community-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Community Go
+    if: github.event.pull_request.user.login != 'fiso64' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout untrusted PR head without credentials
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.clone_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "$HEAD_REPO"
+          git fetch --depth=1 origin "$HEAD_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Test
+        env:
+          GOTOOLCHAIN: local
+        run: go test -count=1 ./...
+
+      - name: Build
+        env:
+          GOTOOLCHAIN: local
+        run: go build ./...
+
+  frontend:
+    name: Community Frontend
+    if: github.event.pull_request.user.login != 'fiso64' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout untrusted PR head without credentials
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.clone_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "$HEAD_REPO"
+          git fetch --depth=1 origin "$HEAD_SHA"
+          git checkout --detach FETCH_HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci --no-audit
+
+      - name: Verify generated API client
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/lib/api/openapi.ts
+
+      - name: Check
+        run: npm run check
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Install Chromium and system dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser regressions
+        run: npm run test:e2e -- booru-theme.spec.ts booru-search-feedback.spec.ts viewer-image-geometry-hold.spec.ts startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-cancel-inflight.spec.ts upload-viewer.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-polling.spec.ts jobs-history-controls.spec.ts jobs-history-controls.spec.ts issue-606-followup.spec.ts build-identity.spec.ts grid-layout-config.spec.ts
+
+      - name: Build
+        run: npm run build
