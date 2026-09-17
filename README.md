@@ -32,6 +32,8 @@ My unironic proudest contribution is the name Gooru, which sounds like the word 
 
 See [Running Gooru](docs/SERVE.md) for building the application, creating the first user, configuring the server, and deployment options.
 
+NixOS users can use the repository's flake module; see the [NixOS deployment guide](docs/SERVE.md#nixos).
+
 The complete server configuration is documented in [docs/CONFIG.md](docs/CONFIG.md).
 
 ## Documentation
