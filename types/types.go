@@ -98,7 +98,7 @@ type LocationInfo struct {
 	Hash        string
 	Size        int64
 	ModTime     int64 // Unix time
-	AddedAt     int64 // Unix time; zero lets the database assign insertion time
+	AddedAt     int64 // Unix milliseconds; zero lets the database assign insertion time
 	Extension   string
 	TagsCache   string
 }
@@ -112,7 +112,7 @@ type FileInfo struct {
 	Hash        string
 	Size        int64
 	ModTime     int64 // Unix time
-	AddedAt     int64 // Unix time
+	AddedAt     int64 // Unix milliseconds
 	Tags        []string
 	Metadata    *MediaMetadata
 }

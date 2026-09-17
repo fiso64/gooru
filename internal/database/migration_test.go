@@ -90,7 +90,7 @@ func TestLocationAddedAtMigrationBackfillsAndDefaultsNewRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	if explicit != 4321 {
-		t.Fatalf("explicit added_at = %d, want 4321", explicit)
+		t.Fatalf("explicit added_at = %d, want 4321 milliseconds unchanged", explicit)
 	}
 
 	if _, err := db.Exec(`INSERT INTO contents (hash) VALUES ('new')`); err != nil {
@@ -107,7 +107,7 @@ func TestLocationAddedAtMigrationBackfillsAndDefaultsNewRows(t *testing.T) {
 	if err := db.QueryRow(`SELECT added_at FROM locations WHERE public_id = 'file_new'`).Scan(&automatic); err != nil {
 		t.Fatal(err)
 	}
-	if automatic <= 0 || automatic == 99 {
+	if automatic < 100000000000 || automatic == 99*1000 {
 		t.Fatalf("automatic added_at = %d, want current Gooru insertion time independent of mod_time", automatic)
 	}
 }
@@ -151,8 +151,8 @@ func TestLocationAddedAtMigrationBackfillsExistingRows(t *testing.T) {
 	if err := db.QueryRow(`SELECT added_at FROM locations WHERE public_id = 'file_legacy'`).Scan(&addedAt); err != nil {
 		t.Fatal(err)
 	}
-	if addedAt != 2468 {
-		t.Fatalf("backfilled added_at = %d, want legacy mod_time 2468", addedAt)
+	if addedAt != 2468*1000 {
+		t.Fatalf("backfilled added_at = %d, want legacy mod_time %d", addedAt, int64(2468*1000))
 	}
 }
 

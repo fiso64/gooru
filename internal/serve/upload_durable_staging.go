@@ -215,6 +215,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 		queueIndex := parseUploadOrdinal(queueIndexValues, i, i)
 		queueTotal := parseUploadOrdinal(queueTotalValues, i, len(streamed))
 		streamed[i].addedAt = resolveUploadAddedAt(addedAtStrategy, streamed[i].sourceModTime, queueTime, queueFirstTime, queueLastTime, queueIndex, queueTotal)
+		streamed[i].addedOrder = resolveUploadAddedOrder(addedAtStrategy, queueIndex, queueTotal)
 	}
 	conflictPolicy, err := uploadConflictPolicy(conflictRequested)
 	if err != nil {
@@ -256,7 +257,7 @@ func (s *Server) stageDurableMultipartUpload(r *http.Request, operationID string
 			return nil, saved, uploadFileError{name: file.name, err: err}
 		}
 		file.path = ""
-		saved = append(saved, savedUpload{name: file.name, path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, addedAt: file.addedAt, conflictPolicy: conflictPolicy})
+		saved = append(saved, savedUpload{name: file.name, path: stagedPath, destinationPath: path, size: file.size, targetID: target.ID, sourceModTime: file.sourceModTime, addedAt: file.addedAt, addedOrder: file.addedOrder, conflictPolicy: conflictPolicy})
 		reserved[path] = struct{}{}
 	}
 	if err := attachUploadItemTags(saved, itemTagValues); err != nil {

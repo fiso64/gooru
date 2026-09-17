@@ -51,10 +51,10 @@ func TestDefaultLibrarySortUsesExactDirectionIndex(t *testing.T) {
 		SELECT l.id, l.path
 		FROM locations l
 		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
-		ORDER BY l.added_at DESC, l.id ASC
+		ORDER BY l.added_at DESC, l.added_order DESC, l.id ASC
 		LIMIT 61 OFFSET 0
 	`)
-	if !strings.Contains(plan, "idx_locations_added_at_desc_id_asc") {
+	if !strings.Contains(plan, "idx_locations_added_at_order_desc_id_asc") {
 		t.Fatalf("default library query did not use mixed-direction index:\n%s", plan)
 	}
 	if strings.Contains(plan, "USE TEMP B-TREE FOR ORDER BY") {
@@ -88,10 +88,10 @@ func TestExtensionFilterDefaultSortUsesCoveringOrderIndex(t *testing.T) {
 		FROM locations l
 		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		WHERE lower(l.extension) = lower(?)
-		ORDER BY l.added_at DESC, l.id ASC
+		ORDER BY l.added_at DESC, l.added_order DESC, l.id ASC
 		LIMIT 61 OFFSET 0
 	`, ".CBZ")
-	if !strings.Contains(plan, "idx_locations_extension_lower_added_at_desc_id_asc") {
+	if !strings.Contains(plan, "idx_locations_extension_lower_added_at_order_desc_id_asc") {
 		t.Fatalf("extension-filtered default library query did not use composite index:\n%s", plan)
 	}
 	if strings.Contains(plan, "USE TEMP B-TREE FOR ORDER BY") {

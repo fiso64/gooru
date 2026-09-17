@@ -12,13 +12,13 @@ import (
 )
 
 func TestUploadAddedAtStrategyUsesTargetDefaultAndRequestOverride(t *testing.T) {
-	base := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
-	source := time.Date(2020, 7, 8, 9, 10, 11, 0, time.UTC)
+	base := time.Date(2024, 1, 2, 3, 4, 5, 123_000_000, time.UTC)
+	source := time.Date(2020, 7, 8, 9, 10, 11, 456_000_000, time.UTC)
 	for _, tc := range []struct {
 		name, targetStrategy, requestStrategy string
 		want                                  time.Time
 	}{
-		{"target reverse", "reverse_queue", "", base.Add(2 * time.Second)},
+		{"target reverse", "reverse_queue", "", base},
 		{"request modtime", "reverse_queue", "modtime", source},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -39,20 +39,39 @@ func TestUploadAddedAtStrategyUsesTargetDefaultAndRequestOverride(t *testing.T) 
 	}
 }
 
-func TestUploadQueueAddedAtMakesLastQueuedNewest(t *testing.T) {
+type uploadAddedSortItem struct {
+	index      int
+	addedAt    time.Time
+	addedOrder int64
+}
+
+func newestUploadItems(items []uploadAddedSortItem) {
+	sort.Slice(items, func(i, j int) bool {
+		if !items[i].addedAt.Equal(items[j].addedAt) {
+			return items[i].addedAt.After(items[j].addedAt)
+		}
+		if items[i].addedOrder != items[j].addedOrder {
+			return items[i].addedOrder > items[j].addedOrder
+		}
+		return items[i].index < items[j].index
+	})
+}
+
+func TestUploadQueueOrderMakesLastQueuedNewestWithoutChangingTime(t *testing.T) {
 	base := time.Date(2024, 1, 2, 3, 4, 5, 400_000_000, time.UTC)
-	got := make([]struct {
-		index   int
-		addedAt time.Time
-	}, 3)
+	got := make([]uploadAddedSortItem, 3)
 	for index := range got {
-		got[index] = struct {
-			index   int
-			addedAt time.Time
-		}{index: index, addedAt: resolveUploadAddedAt("queue", time.Time{}, base, time.Time{}, time.Time{}, index, len(got))}
+		got[index] = uploadAddedSortItem{
+			index:      index,
+			addedAt:    resolveUploadAddedAt("queue", time.Time{}, base, base, base, index, len(got)),
+			addedOrder: resolveUploadAddedOrder("queue", index, len(got)),
+		}
+		if !got[index].addedAt.Equal(base) {
+			t.Fatalf("queue index %d changed honest timestamp: got=%v want=%v", index, got[index].addedAt, base)
+		}
 	}
 
-	sort.Slice(got, func(i, j int) bool { return got[i].addedAt.After(got[j].addedAt) })
+	newestUploadItems(got)
 	for position, item := range got {
 		want := len(got) - 1 - position
 		if item.index != want {
@@ -61,20 +80,21 @@ func TestUploadQueueAddedAtMakesLastQueuedNewest(t *testing.T) {
 	}
 }
 
-func TestUploadReverseQueueAddedAtMakesFirstQueuedNewest(t *testing.T) {
+func TestUploadReverseQueueOrderMakesFirstQueuedNewestWithoutChangingTime(t *testing.T) {
 	base := time.Date(2024, 1, 2, 3, 4, 5, 400_000_000, time.UTC)
-	got := make([]struct {
-		index   int
-		addedAt time.Time
-	}, 3)
+	got := make([]uploadAddedSortItem, 3)
 	for index := range got {
-		got[index] = struct {
-			index   int
-			addedAt time.Time
-		}{index: index, addedAt: resolveUploadAddedAt("reverse_queue", time.Time{}, base, time.Time{}, time.Time{}, index, len(got))}
+		got[index] = uploadAddedSortItem{
+			index:      index,
+			addedAt:    resolveUploadAddedAt("reverse_queue", time.Time{}, base, base, base, index, len(got)),
+			addedOrder: resolveUploadAddedOrder("reverse_queue", index, len(got)),
+		}
+		if !got[index].addedAt.Equal(base) {
+			t.Fatalf("queue index %d changed honest timestamp: got=%v want=%v", index, got[index].addedAt, base)
+		}
 	}
 
-	sort.Slice(got, func(i, j int) bool { return got[i].addedAt.After(got[j].addedAt) })
+	newestUploadItems(got)
 	for position, item := range got {
 		if item.index != position {
 			t.Fatalf("newest-first position %d has queue index %d: %+v", position, item.index, got)
@@ -82,28 +102,27 @@ func TestUploadReverseQueueAddedAtMakesFirstQueuedNewest(t *testing.T) {
 	}
 }
 
-func TestUploadQueueAddedAtUsesAdmissionOrderAcrossRapidSelections(t *testing.T) {
+func TestUploadQueueUsesOneBatchTimestampAcrossRapidSelections(t *testing.T) {
 	first := time.Date(2024, 1, 2, 3, 4, 5, 100_000_000, time.UTC)
 	queueTimes := []time.Time{
 		first,
 		first.Add(5 * time.Second),
 		first.Add(10 * time.Second),
 	}
-	added := make([]time.Time, len(queueTimes))
 	for index, queueTime := range queueTimes {
-		added[index] = resolveUploadAddedAt("queue", time.Time{}, queueTime, queueTimes[0], queueTimes[len(queueTimes)-1], index, len(queueTimes))
-	}
-	for index := 1; index < len(added); index++ {
-		if !added[index].After(added[index-1]) {
-			t.Fatalf("later queue item is not newer at %d: added=%v", index, added)
+		added := resolveUploadAddedAt("queue", time.Time{}, queueTime, queueTimes[0], queueTimes[len(queueTimes)-1], index, len(queueTimes))
+		if !added.Equal(first) {
+			t.Fatalf("queue index %d added_at=%v want shared batch time %v", index, added, first)
+		}
+		if order := resolveUploadAddedOrder("queue", index, len(queueTimes)); order != int64(index) {
+			t.Fatalf("queue index %d added_order=%d", index, order)
 		}
 	}
 }
 
-func TestUploadQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.T) {
-	first := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+func TestUploadQueueUsesSharedBatchTimestampAcrossDistinctWorkers(t *testing.T) {
+	first := time.Date(2024, 1, 2, 3, 4, 5, 123_000_000, time.UTC)
 	last := first.Add(10 * time.Second)
-	results := make([]time.Time, 2)
 	for index, queueTime := range []time.Time{first, last} {
 		dir := t.TempDir()
 		library := &recordingUploadLibrary{}
@@ -117,66 +136,26 @@ func TestUploadQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.T) {
 		if len(library.files) != 1 {
 			t.Fatalf("worker %d imported %d files", index, len(library.files))
 		}
-		results[index] = library.files[0].AddedAt
-	}
-	if !results[1].After(results[0]) {
-		t.Fatalf("later queue item should be newer across distinct worker times: first=%v last=%v", results[0], results[1])
+		if got := library.files[0].AddedAt; !got.Equal(first) {
+			t.Fatalf("worker %d added_at=%v want=%v", index, got, first)
+		}
 	}
 }
 
 func TestUploadQueueKeepsNewerBatchAheadOfOlderBatch(t *testing.T) {
-	dir := t.TempDir()
-	library := &recordingUploadLibrary{}
-	server := newUploadTestServer(t, dir, true, library)
-	base := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
-	type queuedItem struct {
-		name       string
-		queueTime  time.Time
-		batchFirst time.Time
-		batchLast  time.Time
-		queueIndex int
-		queueTotal int
-	}
-	items := []queuedItem{
-		{name: "a1", queueTime: base, batchFirst: base, batchLast: base.Add(5 * time.Second), queueIndex: 0, queueTotal: 2},
-		{name: "a2", queueTime: base.Add(5 * time.Second), batchFirst: base, batchLast: base.Add(5 * time.Second), queueIndex: 1, queueTotal: 2},
-		{name: "b1", queueTime: base.Add(20 * time.Second), batchFirst: base.Add(20 * time.Second), batchLast: base.Add(25 * time.Second), queueIndex: 0, queueTotal: 2},
-		{name: "b2", queueTime: base.Add(25 * time.Second), batchFirst: base.Add(20 * time.Second), batchLast: base.Add(25 * time.Second), queueIndex: 1, queueTotal: 2},
-	}
-
-	ordered := make([]struct {
-		name    string
-		addedAt time.Time
-	}, 0, len(items))
-	for _, item := range items {
-		rec := httptest.NewRecorder()
-		req := uploadAddedAtRequestWithBounds(t, item.queueTime, time.Time{}, item.batchFirst, item.batchLast, item.queueIndex, item.queueTotal, "queue")
-		server.Handler().ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("%s status=%d body=%s", item.name, rec.Code, rec.Body.String())
-		}
-		if len(library.files) != 1 {
-			t.Fatalf("%s imported file count=%d want=1", item.name, len(library.files))
-		}
-		ordered = append(ordered, struct {
-			name    string
-			addedAt time.Time
-		}{name: item.name, addedAt: library.files[0].AddedAt})
-	}
-
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].addedAt.After(ordered[j].addedAt) })
-	want := []string{"b2", "b1", "a2", "a1"}
-	for index, name := range want {
-		if ordered[index].name != name {
-			t.Fatalf("newest-first order[%d]=%s want=%s; got=%+v", index, ordered[index].name, name, ordered)
-		}
+	base := time.Date(2024, 1, 2, 3, 4, 5, 100_000_000, time.UTC)
+	olderFirst := base
+	newerFirst := base.Add(20 * time.Second)
+	older := resolveUploadAddedAt("queue", time.Time{}, base.Add(5*time.Second), olderFirst, base.Add(5*time.Second), 1, 2)
+	newer := resolveUploadAddedAt("queue", time.Time{}, base.Add(25*time.Second), newerFirst, base.Add(25*time.Second), 1, 2)
+	if !newer.After(older) {
+		t.Fatalf("newer batch added_at=%v must be after older batch added_at=%v", newer, older)
 	}
 }
 
-func TestUploadReverseQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.T) {
-	first := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+func TestUploadReverseQueueUsesSharedBatchTimestampAcrossDistinctWorkers(t *testing.T) {
+	first := time.Date(2024, 1, 2, 3, 4, 5, 321_000_000, time.UTC)
 	last := first.Add(10 * time.Second)
-	results := make([]time.Time, 2)
 	for index, queueTime := range []time.Time{first, last} {
 		dir := t.TempDir()
 		library := &recordingUploadLibrary{}
@@ -190,18 +169,29 @@ func TestUploadReverseQueueUsesSharedBoundsAcrossDistinctWorkerTimes(t *testing.
 		if len(library.files) != 1 {
 			t.Fatalf("worker %d imported %d files", index, len(library.files))
 		}
-		results[index] = library.files[0].AddedAt
+		if got := library.files[0].AddedAt; !got.Equal(first) {
+			t.Fatalf("worker %d added_at=%v want=%v", index, got, first)
+		}
 	}
-	if !results[0].After(results[1]) {
-		t.Fatalf("reverse queue did not invert distinct queue times: first=%v last=%v", results[0], results[1])
+	if firstOrder, lastOrder := resolveUploadAddedOrder("reverse_queue", 0, 2), resolveUploadAddedOrder("reverse_queue", 1, 2); firstOrder <= lastOrder {
+		t.Fatalf("reverse queue order not inverted: first=%d last=%d", firstOrder, lastOrder)
 	}
 }
 
-func TestUploadAddedAtStrategyModtimeFallsBackToQueue(t *testing.T) {
-	base := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
-	got := resolveUploadAddedAt("modtime", time.Time{}, base, time.Time{}, time.Time{}, 1, 3)
-	if want := base.Add(time.Second); !got.Equal(want) {
-		t.Fatalf("got=%v want=%v", got, want)
+func TestUploadAddedAtStrategyModtimeFallsBackToBatchTime(t *testing.T) {
+	base := time.Date(2024, 1, 2, 3, 4, 5, 234_000_000, time.UTC)
+	got := resolveUploadAddedAt("modtime", time.Time{}, base.Add(time.Second), base, base.Add(time.Second), 1, 3)
+	if !got.Equal(base) {
+		t.Fatalf("got=%v want=%v", got, base)
+	}
+}
+
+func TestUploadAddedOrderNormalizesInvalidOrdinals(t *testing.T) {
+	if got := resolveUploadAddedOrder("queue", -1, 0); got != 0 {
+		t.Fatalf("negative queue index normalized to %d, want 0", got)
+	}
+	if got := resolveUploadAddedOrder("reverse_queue", 10, 3); got != 0 {
+		t.Fatalf("out-of-range reverse queue index normalized to %d, want 0", got)
 	}
 }
 

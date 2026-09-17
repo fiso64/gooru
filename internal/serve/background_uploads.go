@@ -49,6 +49,7 @@ type backgroundUploadTaskFile struct {
 	LegacyReplace   bool      `json:"replace,omitempty"`
 	SourceModTime   time.Time `json:"source_mod_time,omitempty"`
 	AddedAt         time.Time `json:"added_at,omitempty"`
+	AddedOrder      int64     `json:"added_order,omitempty"`
 	ConflictPolicy  string    `json:"conflict_policy,omitempty"`
 	Tags            *[]string `json:"tags,omitempty"`
 }
@@ -134,6 +135,7 @@ func backgroundUploadTaskRequest(operationID string, files []savedUpload, tags [
 			Error:           file.error,
 			SourceModTime:   file.sourceModTime,
 			AddedAt:         file.addedAt,
+			AddedOrder:      file.addedOrder,
 			ConflictPolicy:  file.conflictPolicy,
 			Tags:            cloneUploadTags(file.tags),
 		})
@@ -202,6 +204,7 @@ func decodeBackgroundUploadTask(task core.BackgroundTask) ([]savedUpload, []stri
 			error:           file.Error,
 			sourceModTime:   file.SourceModTime,
 			addedAt:         file.AddedAt,
+			addedOrder:      file.AddedOrder,
 			conflictPolicy:  file.ConflictPolicy,
 			tags:            cloneUploadTags(file.Tags),
 		})

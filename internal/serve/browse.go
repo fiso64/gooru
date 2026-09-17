@@ -728,7 +728,7 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 		Name:            filepath.Base(file.Path),
 		SafeDisplayPath: safeDisplayPath(file.Path),
 		Size:            file.Size,
-		AddedAt:         time.Unix(file.AddedAt, 0).UTC(),
+		AddedAt:         time.UnixMilli(file.AddedAt).UTC(),
 		ModifiedTime:    time.Unix(file.ModTime, 0).UTC(),
 		MediaType:       mediaType,
 		MediaKind:       mediaKind,
