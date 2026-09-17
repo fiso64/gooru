@@ -309,10 +309,7 @@ func parseUploadOrdinal(values []string, index int, fallback int) int {
 	return fallback
 }
 
-func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstTime, queueLastTime time.Time, queueIndex, queueTotal int) time.Time {
-	if queueTime.IsZero() {
-		queueTime = time.Now().UTC()
-	}
+func normalizeUploadOrdinal(queueIndex, queueTotal int) (int, int) {
 	if queueIndex < 0 {
 		queueIndex = 0
 	}
@@ -322,23 +319,31 @@ func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstT
 	if queueIndex >= queueTotal {
 		queueIndex = queueTotal - 1
 	}
-	queueOffset := queueIndex
+	return queueIndex, queueTotal
+}
+
+func resolveUploadAddedAt(strategy string, sourceModTime, queueTime, queueFirstTime, queueLastTime time.Time, queueIndex, queueTotal int) time.Time {
+	if queueTime.IsZero() {
+		queueTime = time.Now().UTC()
+	}
 	if strategy == "modtime" && !sourceModTime.IsZero() {
 		return sourceModTime.UTC()
 	}
-	if strategy == "reverse_queue" {
-		queueOffset = queueTotal - 1 - queueIndex
-		if !queueFirstTime.IsZero() && !queueLastTime.IsZero() && !queueLastTime.Before(queueFirstTime) && !queueTime.Before(queueFirstTime) && !queueTime.After(queueLastTime) {
-			// Reflect each item's real queue-entry time across the batch envelope, then
-			// use the reversed ordinal as the second-granularity tie breaker. This
-			// keeps one-file async worker requests globally reversed even when files
-			// were appended to the UI queue in separate selections.
-			queueTime = queueFirstTime.Add(queueLastTime.Sub(queueTime))
-		}
+	// Queue-based strategies use one honest batch timestamp. Ordering within the
+	// batch is carried separately by resolveUploadAddedOrder instead of fabricating
+	// later wall-clock times. queueFirstTime is stable across segmented workers.
+	if !queueFirstTime.IsZero() {
+		return queueFirstTime.UTC()
 	}
-	// locations.added_at is second-granularity; offset equal-time batch items by one
-	// second so async worker completion order cannot affect stable queue ordering.
-	return queueTime.UTC().Truncate(time.Second).Add(time.Duration(queueOffset) * time.Second)
+	return queueTime.UTC()
+}
+
+func resolveUploadAddedOrder(strategy string, queueIndex, queueTotal int) int64 {
+	queueIndex, queueTotal = normalizeUploadOrdinal(queueIndex, queueTotal)
+	if strategy == "reverse_queue" {
+		return int64(queueTotal - 1 - queueIndex)
+	}
+	return int64(queueIndex)
 }
 
 func parseUploadSourceModTime(value string) time.Time {
