@@ -15,20 +15,21 @@
 
   let {
     sessionActive, isLoading, isError, error, files, retainedStartIndex, totalCount, displayTotalCount = totalCount, libraryCount,
-    searchActive, selectedCount, isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,
+    searchActive, selectedCount, bulkDownloadBusy = false, bulkDownloadError = '', isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,
     isFetchingPreviousPage, pagedMode = false, pageNumber = 1, pageCount = 1,
     loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,
-    onToggleSelect, onSelectAll, onClearSelection, onBulkTag, onBulkUntag, onBulkUntrack,
+    onToggleSelect, onSelectAll, onClearSelection, onBulkDownload, onBulkTag, onBulkUntag, onBulkUntrack,
     onBulkDelete, onLoadMore, onLoadPrevious, onPage, actions
   } = $props<{
     sessionActive: boolean; isLoading: boolean; isError: boolean; error: unknown; files: FileItem[];
     retainedStartIndex: number; totalCount: number; displayTotalCount?: number; libraryCount: number; searchActive: boolean;
-    selectedCount: number; isSelected: (fileID: string) => boolean; hasNextPage: boolean;
+    selectedCount: number; bulkDownloadBusy?: boolean; bulkDownloadError?: string;
+    isSelected: (fileID: string) => boolean; hasNextPage: boolean;
     isFetchingNextPage: boolean; hasPreviousPage: boolean; isFetchingPreviousPage: boolean;
     pagedMode?: boolean; pageNumber?: number; pageCount?: number;
     loadMoreSentinel?: HTMLDivElement; onOpen: (file: FileItem, files: FileItem[]) => void;
     onToggleSelect: (file: FileItem, files: FileItem[], range: boolean) => void; onSelectAll: () => void;
-    onClearSelection: () => void; onBulkTag: () => void; onBulkUntag: () => void;
+    onClearSelection: () => void; onBulkDownload: () => void | Promise<void>; onBulkTag: () => void; onBulkUntag: () => void;
     onBulkUntrack: () => void; onBulkDelete: () => void; onLoadMore: () => void | Promise<void>;
     onLoadPrevious: () => void | Promise<void>; onPage: (pageIndex: number) => void; actions?: Snippet;
   }>();
@@ -187,7 +188,24 @@
 <svelte:window onkeydown={focusFirstGridItem} />
 <main bind:this={mainHost} class="main" tabindex="-1" data-testid="library-viewport" onscroll={handleScroll}>
   {#if selectedCount > 0}
-    <div class="selection-bar"><div class="selection-summary"><Icon name="check" size={14} active /><span><b>{selectedCount}</b> selected</span>{#if selectedCount < (totalCount || files.length)}<button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}><span>Select</span><span style="margin-left: 0.3em"><u>a</u>ll {(totalCount || files.length).toLocaleString()}</span></button>{/if}</div><div class="sb-actions"><button class="g-btn g-btn-sm" type="button" disabled title="Export bundles are not supported yet"><Icon name="download" size={13} /> Export</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> <u>T</u>ag…</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="tag_remove" size={13} /> <u>U</u>ntag…</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkUntrack}><Icon name="untrack" size={13} /> Untrack</button><button class="g-btn g-btn-sm" type="button" onclick={onBulkDelete}><Icon name="trash" size={13} /> Delete</button><button class="g-btn g-btn-sm g-btn-icon" type="button" title="Clear" aria-label="Clear selection" onclick={onClearSelection}><Icon name="close" size={13} /></button></div></div>
+    <div class="selection-bar">
+      <div class="selection-summary">
+        <Icon name="check" size={14} active />
+        <span><b>{selectedCount}</b> selected</span>
+        {#if selectedCount < (totalCount || files.length)}
+          <button class="g-btn g-btn-sm" type="button" onclick={onSelectAll}><span>Select</span><span style="margin-left: 0.3em"><u>a</u>ll {(totalCount || files.length).toLocaleString()}</span></button>
+        {/if}
+        {#if bulkDownloadError}<span class="selection-download-error" role="alert">{bulkDownloadError}</span>{/if}
+      </div>
+      <div class="sb-actions">
+        <button class="g-btn g-btn-sm" type="button" disabled={bulkDownloadBusy} title="Download selected files" onclick={onBulkDownload}><Icon name="download" size={13} /> <u>D</u>ownload{bulkDownloadBusy ? '…' : ''}</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkTag}><Icon name="tag" size={13} /> <u>T</u>ag…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntag}><Icon name="tag_remove" size={13} /> <u>U</u>ntag…</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkUntrack}><Icon name="untrack" size={13} /> Untrack</button>
+        <button class="g-btn g-btn-sm" type="button" onclick={onBulkDelete}><Icon name="trash" size={13} /> Delete</button>
+        <button class="g-btn g-btn-sm g-btn-icon" type="button" title="Clear" aria-label="Clear selection" onclick={onClearSelection}><Icon name="close" size={13} /></button>
+      </div>
+    </div>
   {/if}
   <div class="library-head"><div class="library-head-title"><h1>Library</h1><span class="library-head-meta" data-testid="library-header-count">{#if searchActive}{displayTotalCount.toLocaleString()} matching · {libraryCount.toLocaleString()} file{libraryCount === 1 ? '' : 's'}{:else}{(displayTotalCount || files.length).toLocaleString()} file{(displayTotalCount || files.length) === 1 ? '' : 's'}{/if}</span></div>{#if actions}{@render actions()}{/if}</div>
 
