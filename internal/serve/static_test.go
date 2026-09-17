@@ -95,7 +95,7 @@ func TestFrontendImmutableAssetsUseLongCache(t *testing.T) {
 	}
 }
 
-func TestFrontendIndexUsesStaticCSP(t *testing.T) {
+func TestFrontendServerCSPDoesNotOverrideBuildResourcePolicy(t *testing.T) {
 	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
 	cfg.Server.FrontendDir = writeFrontendBuildWithIndex(t, `<script>window.__gooru = true;</script><script src="/_app/immutable/app.js"></script>`)
 	rec := httptest.NewRecorder()
@@ -107,11 +107,15 @@ func TestFrontendIndexUsesStaticCSP(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	csp := rec.Header().Get("Content-Security-Policy")
-	if !strings.Contains(csp, "script-src 'self'") {
-		t.Fatalf("index CSP missing static script policy, got %q", csp)
+	for _, want := range []string{"frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'"} {
+		if !strings.Contains(csp, want) {
+			t.Fatalf("server CSP missing %s, got %q", want, csp)
+		}
 	}
-	if strings.Contains(csp, "sha256-") {
-		t.Fatalf("index CSP should not derive runtime script hashes, got %q", csp)
+	for _, unwanted := range []string{"default-src", "script-src", "style-src", "sha256-"} {
+		if strings.Contains(csp, unwanted) {
+			t.Fatalf("server CSP should leave resource policy to the frontend build; found %q in %q", unwanted, csp)
+		}
 	}
 }
 
