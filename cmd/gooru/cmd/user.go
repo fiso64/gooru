@@ -45,12 +45,9 @@ var userCreateAdminCmd = &cobra.Command{
 			return err
 		}
 		defer store.Close()
-		password := strings.TrimSpace(os.Getenv("GOORU_ADMIN_PASSWORD"))
-		if password == "" {
-			password, err = promptPassword(cmd)
-			if err != nil {
-				return err
-			}
+		password, err := adminPassword(cmd)
+		if err != nil {
+			return err
 		}
 		authStore := serve.NewAuthStore(store.DB, cfg.Auth.SessionTTL)
 		created, err := createAdminWithPolicy(context.Background(), authStore, userCreateAdminFlags.username, password, userCreateAdminFlags.ifMissing)
@@ -118,6 +115,13 @@ func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, erro
 		return closeOnError(fmt.Errorf("failed to read hashing strategy: %w", err))
 	}
 	return store, nil
+}
+
+func adminPassword(cmd *cobra.Command) (string, error) {
+	if password, ok := os.LookupEnv("GOORU_ADMIN_PASSWORD"); ok && password != "" {
+		return password, nil
+	}
+	return promptPassword(cmd)
 }
 
 func promptPassword(cmd *cobra.Command) (string, error) {
