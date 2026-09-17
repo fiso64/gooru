@@ -3,6 +3,7 @@ package serve
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -51,8 +52,8 @@ func (s *Server) handleFileDownloads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var request fileDownloadRequest
-	if err := decodeSingleJSON(r, &request); err != nil {
+	request, err := decodeFileDownloadRequest(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error(), nil)
 		return
 	}
@@ -90,6 +91,23 @@ func (s *Server) handleFileDownloads(w http.ResponseWriter, r *http.Request) {
 		ID:  id,
 		URL: "/api/v1/file-downloads/" + id,
 	})
+}
+
+func decodeFileDownloadRequest(r *http.Request) (fileDownloadRequest, error) {
+	defer r.Body.Close()
+	var request fileDownloadRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		if errors.Is(err, io.EOF) {
+			return request, errors.New("request body is required")
+		}
+		return request, fmt.Errorf("invalid JSON body: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return request, errors.New("request body must contain a single JSON object")
+	}
+	return request, nil
 }
 
 func validateFileDownloadRequest(request fileDownloadRequest) error {
