@@ -188,3 +188,21 @@ func TestPrepareAdminDatabasePreservesExistingParentPermissions(t *testing.T) {
 		t.Fatalf("db file mode = %o, want 600", got)
 	}
 }
+
+func TestUserCommandsAreRegistered(t *testing.T) {
+	if userCmd.Parent() != rootCmd {
+		t.Fatal("user command is not registered on the root command")
+	}
+	for name, command := range map[string]*cobra.Command{
+		"create-admin":    userCreateAdminCmd,
+		"set-password":    userSetPasswordCmd,
+		"reconcile-admin": userReconcileAdminCmd,
+	} {
+		if command.Parent() != userCmd {
+			t.Fatalf("user %s command is not registered on the user command", name)
+		}
+	}
+	if userCreateAdminCmd.Flags().Lookup("username") == nil || userCreateAdminCmd.Flags().Lookup("if-missing") == nil {
+		t.Fatal("create-admin provisioning flags are not registered")
+	}
+}
