@@ -6,7 +6,7 @@ on:
       - maintainer/750-honest-added-order
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   audit:
@@ -17,13 +17,112 @@ jobs:
         with:
           ref: maintainer/750-honest-added-order
           fetch-depth: 0
-      - name: Audit AddedAt producers and location upserts
+      - name: Make post-migration AddedAt units unambiguous
         shell: bash
         run: |
           set -euo pipefail
-          echo '--- AddedAt references ---'
-          grep -RIn 'AddedAt' --include='*.go' . | head -n 1000 || true
-          echo '--- BatchUpsertLocations call sites ---'
-          grep -RIn 'BatchUpsertLocations' --include='*.go' . | head -n 500 || true
-          echo '--- Unix() producers near LocationInfo ---'
-          grep -RInE 'LocationInfo|\.Unix\(\)|UnixMilli\(' --include='*.go' gooru internal cmd types | head -n 1200 || true
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('internal/database/migrations/041_added_order.up.sql')
+          s = p.read_text()
+          old = '''-- Compatibility: callers predating this migration may still provide Unix
+-- seconds. Normalize those values on insert while allowing new millisecond
+-- callers through unchanged. A zero value keeps the historical "assign now"
+-- behavior, now at millisecond precision.
+CREATE TRIGGER set_location_added_at_on_insert
+AFTER INSERT ON locations
+WHEN NEW.added_at < 100000000000
+BEGIN
+    UPDATE locations
+    SET added_at = CASE
+        WHEN NEW.added_at = 0 THEN CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+        ELSE NEW.added_at * 1000
+    END
+    WHERE id = NEW.id;
+END;
+'''
+          new = '''-- After this migration, added_at is unambiguously Unix milliseconds.
+-- Only the zero sentinel needs database-side normalization; trying to infer
+-- seconds from magnitude would corrupt legitimate early-epoch millisecond
+-- timestamps used by modified-time ordering.
+CREATE TRIGGER set_location_added_at_on_insert
+AFTER INSERT ON locations
+WHEN NEW.added_at = 0
+BEGIN
+    UPDATE locations
+    SET added_at = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+    WHERE id = NEW.id;
+END;
+'''
+          if s.count(old) != 1:
+              raise SystemExit('migration trigger block did not match exactly once')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('internal/database/database_test.go')
+          s = p.read_text()
+          s = s.replace('if file.AddedAt != 1234*1000 {', 'if file.AddedAt != 1234 {')
+          s = s.replace('t.Fatalf("added_at=%d want %d", file.AddedAt, int64(1234*1000))', 't.Fatalf("added_at=%d want 1234", file.AddedAt)')
+          s = s.replace('t.Fatalf("existing added_at changed to %d, want stable %d", file.AddedAt, int64(1234*1000))', 't.Fatalf("existing added_at changed to %d, want stable 1234", file.AddedAt)')
+          p.write_text(s)
+
+          p = Path('internal/database/migration_test.go')
+          s = p.read_text()
+          s = s.replace('if explicit != 4321*1000 {', 'if explicit != 4321 {', 1)
+          s = s.replace('t.Fatalf("explicit added_at = %d, want %d", explicit, int64(4321*1000))', 't.Fatalf("explicit added_at = %d, want 4321 milliseconds unchanged", explicit)', 1)
+          p.write_text(s)
+
+          p = Path('internal/database/added_order_test.go')
+          s = p.read_text()
+          addition = '''
+
+func TestAddedOrderUpsertPreservesEarlyEpochMilliseconds(t *testing.T) {
+	store := newMemoryTestStore(t)
+	if err := store.BatchInsertContents(store.DB, []string{"hash-early"}); err != nil {
+		t.Fatalf("BatchInsertContents: %v", err)
+	}
+
+	// 1971-01-01 UTC in Unix milliseconds. This is deliberately below the old
+	// magnitude heuristic that mistook early millisecond values for Unix seconds.
+	const addedAt int64 = 31_536_000_000
+	path := "/library/early.jpg"
+	locations := map[string]types.LocationInfo{
+		path: {Path: path, Hash: "hash-early", Size: 1, ModTime: 1, AddedAt: addedAt, Extension: ".jpg"},
+	}
+	if err := store.BatchUpsertLocationsWithAddedOrder(store.DB, locations, map[string]int64{path: 7}); err != nil {
+		t.Fatalf("BatchUpsertLocationsWithAddedOrder: %v", err)
+	}
+	got, err := store.GetLocationByPath(path)
+	if err != nil {
+		t.Fatalf("GetLocationByPath: %v", err)
+	}
+	if got.AddedAt != addedAt {
+		t.Fatalf("added_at=%d want early-epoch milliseconds %d unchanged", got.AddedAt, addedAt)
+	}
+}
+'''
+          if 'TestAddedOrderUpsertPreservesEarlyEpochMilliseconds' not in s:
+              s += addition
+          p.write_text(s)
+          PY
+          gofmt -w internal/database/database_test.go internal/database/migration_test.go internal/database/added_order_test.go
+      - name: Validate focused packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./internal/database ./gooru ./internal/serve
+      - name: Validate full repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./...
+      - name: Commit edge-case fix and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/maintainer-750-addedat-audit.yml
+          git add internal/database/migrations/041_added_order.up.sql internal/database/database_test.go internal/database/migration_test.go internal/database/added_order_test.go
+          git config user.name 'chatgpt-codex-connector'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'db: keep added timestamp units unambiguous'
+          git push origin HEAD:maintainer/750-honest-added-order
