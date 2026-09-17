@@ -45,12 +45,9 @@ var userCreateAdminCmd = &cobra.Command{
 			return err
 		}
 		defer store.Close()
-		password := strings.TrimSpace(os.Getenv("GOORU_ADMIN_PASSWORD"))
-		if password == "" {
-			password, err = promptPassword(cmd)
-			if err != nil {
-				return err
-			}
+		password, err := adminPassword(cmd)
+		if err != nil {
+			return err
 		}
 		authStore := serve.NewAuthStore(store.DB, cfg.Auth.SessionTTL)
 		created, err := createAdminWithPolicy(context.Background(), authStore, userCreateAdminFlags.username, password, userCreateAdminFlags.ifMissing)
@@ -120,6 +117,16 @@ func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, erro
 	return store, nil
 }
 
+func adminPassword(cmd *cobra.Command) (string, error) {
+	if password, ok := os.LookupEnv("GOORU_ADMIN_PASSWORD"); ok {
+		if err := serve.ValidatePassword(password); err != nil {
+			return "", err
+		}
+		return password, nil
+	}
+	return promptPassword(cmd)
+}
+
 func promptPassword(cmd *cobra.Command) (string, error) {
 	fd := int(os.Stdin.Fd())
 	var password string
@@ -172,11 +179,4 @@ func readLineSecret(cmd *cobra.Command, reader *bufio.Reader, prompt string) (st
 		return "", err
 	}
 	return strings.TrimRight(value, "\r\n"), nil
-}
-
-func init() {
-	rootCmd.AddCommand(userCmd)
-	userCmd.AddCommand(userCreateAdminCmd)
-	userCreateAdminCmd.Flags().StringVar(&userCreateAdminFlags.username, "username", "", "Admin username")
-	userCreateAdminCmd.Flags().BoolVar(&userCreateAdminFlags.ifMissing, "if-missing", false, "Succeed without changing the account when the username already exists")
 }

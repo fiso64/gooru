@@ -21,6 +21,45 @@ gooru init
 
 Initialization is a one-time operation. It creates the database and records the hashing strategy. See [HASHING.md](HASHING.md) for the differences between partial and full hashing and how to choose between them.
 
+For non-interactive first-boot automation, choose the strategy explicitly and make creation idempotent:
+
+```bash
+gooru init --if-missing --hashing-strategy partial
+# or
+gooru init --if-missing --hashing-strategy full
+```
+
+`--hashing-strategy` skips the prompt and accepts only `partial` or `full`. When `--if-missing` finds an existing database file, it leaves that database completely unchanged; it does not reconcile the stored hashing strategy. When the database is missing, `--if-missing` requires an explicit `--hashing-strategy` so automation never silently chooses a permanent database invariant.
+
+## Manage local database users
+
+User-management commands operate only on an already initialized database; they never create or initialize one.
+
+Create an administrator interactively:
+
+```bash
+gooru user create-admin --username alice
+```
+
+Add `--if-missing` when provisioning should succeed without changing an existing user. For non-interactive automation, `GOORU_ADMIN_PASSWORD` supplies the password instead of prompting; its value is used exactly rather than trimmed.
+
+Rotate an existing user's password with:
+
+```bash
+gooru user set-password --username alice
+```
+
+`set-password` preserves the user's Gooru identity and revokes the user's active sessions after the password is replaced. It also accepts `GOORU_ADMIN_PASSWORD` for non-interactive local automation.
+
+The NixOS module uses the machine-oriented reconciliation command:
+
+```bash
+GOORU_ADMIN_PASSWORD='desired password' \
+  gooru user reconcile-admin --username alice
+```
+
+The command prints the stable Gooru user ID. Persist that ID and pass it back on later runs with `--user-id`: the same user can then be renamed without losing per-user data. With an unchanged password, reconciliation performs one normal password verification and does not create a new hash. A changed password is re-hashed and active sessions for that user are revoked. A persisted `--user-id` that no longer exists is an error rather than permission to adopt a different account.
+
 ## Track and tag files
 
 `tag` both tracks files and adds tags:
@@ -138,7 +177,7 @@ Server users can own saved searches. The CLI exposes management under:
 gooru saved-search --help
 ```
 
-Saved searches are scoped to a DB-backed username.
+Saved searches are scoped to the stable DB-backed user identity, so changing a username does not change ownership.
 
 ## Virtual filesystem
 
