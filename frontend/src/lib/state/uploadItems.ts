@@ -275,7 +275,7 @@ export function itemsFromResult(response: UploadImportResponse, previous: Upload
       name: file.name,
       size: file.size,
       type: prior?.type ?? '',
-      previewFile: file.id ? undefined : prior?.previewFile,
+      previewFile: prior?.previewFile,
       batchID: prior?.batchID,
       tags: prior?.tags ? [...prior.tags] : [],
       tagSyncBaseTags: prior?.tagSyncBaseTags ? [...prior.tagSyncBaseTags] : undefined,
