@@ -7,14 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 	"gooru.local/internal/database"
 	"gooru.local/internal/serve"
-	"gooru.local/types"
 )
 
 var userCreateAdminFlags struct {
@@ -88,24 +86,16 @@ func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, erro
 	if dbPath == "" {
 		return nil, errors.New("database.path is required")
 	}
-	if dir := filepath.Dir(dbPath); dir != "." && dir != "" {
-		if _, err := os.Stat(dir); err != nil {
-			if !os.IsNotExist(err) {
-				return nil, fmt.Errorf("failed to inspect database directory: %w", err)
-			}
-			if err := os.MkdirAll(dir, 0700); err != nil {
-				return nil, fmt.Errorf("failed to create database directory: %w", err)
-			}
-			if err := os.Chmod(dir, 0700); err != nil {
-				return nil, fmt.Errorf("failed to secure database directory: %w", err)
-			}
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("database not initialized at %q; run 'gooru init' first", dbPath)
 		}
+		return nil, fmt.Errorf("failed to inspect configured admin database: %w", err)
 	}
 
-	// The admin path uses the same configured storage composition as serve and
-	// ordinary CLI commands. This keeps plaintext/encrypted SQLite selection and
-	// key handling out of feature code while still allowing create-admin to
-	// bootstrap a fresh database before a full Gooru client can be opened.
+	// User management must not perform database initialization. Open the existing
+	// configured storage composition, then verify the initialization invariants
+	// established by `gooru init` before making any user changes.
 	store, err := openConfiguredAuthStore(cfg, verbose)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open configured admin database: %w", err)
@@ -114,22 +104,18 @@ func prepareAdminDatabase(cfg serve.Config, verbose bool) (*database.Store, erro
 		_ = store.Close()
 		return nil, err
 	}
-	if err := database.RunMigrations(store.DB); err != nil {
-		return closeOnError(fmt.Errorf("failed to migrate configured admin database: %w", err))
+	initialized, err := store.IsInitialized()
+	if err != nil {
+		return closeOnError(fmt.Errorf("failed to inspect database initialization state: %w", err))
 	}
-	if err := database.SecureDBFiles(dbPath); err != nil {
-		return closeOnError(err)
+	if !initialized {
+		return closeOnError(errors.New("database not initialized; run 'gooru init' first"))
 	}
 	if _, err := store.GetHashingStrategy(); err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return closeOnError(fmt.Errorf("failed to read hashing strategy: %w", err))
+		if errors.Is(err, sql.ErrNoRows) {
+			return closeOnError(errors.New("database not initialized: hashing strategy is missing; run 'gooru init' first"))
 		}
-		if err := store.SetHashingStrategy(types.StrategyPartial); err != nil {
-			return closeOnError(fmt.Errorf("failed to save default hashing strategy: %w", err))
-		}
-		if err := database.SecureDBFiles(dbPath); err != nil {
-			return closeOnError(err)
-		}
+		return closeOnError(fmt.Errorf("failed to read hashing strategy: %w", err))
 	}
 	return store, nil
 }
