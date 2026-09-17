@@ -25,8 +25,7 @@ var (
 		Short: "A blazing-fast local file tagger.",
 		Long:  `Gooru is a CLI tool for tagging local files. It uses content hashing to track files, so tags are stable across renames and moves.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// The 'init' command is special: it creates the DB and must run before a client can be initialized.
-			if cmd.Name() == "init" || cmd.Name() == "serve" || cmd.Name() == "version" || cmd.CommandPath() == "gooru user create-admin" {
+			if !commandUsesConfiguredClient(cmd) {
 				return nil
 			}
 
@@ -52,6 +51,18 @@ var (
 		},
 	}
 )
+
+func commandUsesConfiguredClient(cmd *cobra.Command) bool {
+	// These commands either create/open storage through their own composition
+	// boundary or do not need the application client at all. In particular, user
+	// management must not run the full client pre-run: that path applies schema
+	// and protected-storage migrations before the dedicated auth-store checks.
+	if cmd.Name() == "init" || cmd.Name() == "serve" || cmd.Name() == "version" {
+		return false
+	}
+	path := cmd.CommandPath()
+	return path != "gooru user" && !strings.HasPrefix(path, "gooru user ")
+}
 
 func defaultDatabasePath() (string, error) {
 	return config.GetDBPath()
