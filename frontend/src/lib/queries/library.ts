@@ -11,7 +11,8 @@ export const libraryKeys = {
   tagsRoot: ['library', 'tags'] as const,
   savedSearchesRoot: ['library', 'saved-searches'] as const,
   savedSearches: (scope: number) => ['library', 'saved-searches', scope] as const,
-  tags: (scope: number) => ['library', 'tags', scope] as const,
+  tags: (scope: number) => ['library', 'tags', 'common', scope] as const,
+  allTags: (username: string) => ['library', 'tags', 'all', username] as const,
   uploadTargets: (scope: number) => ['library', 'upload-targets', scope] as const,
   suggestions: (scope: number, q: string, existing: string) => ['library', 'suggestions', scope, q, existing] as const
 };
@@ -36,7 +37,15 @@ export function createTagsQuery(getAuthenticated: () => boolean, getAuthScope: (
   return createQuery(() => ({
     queryKey: libraryKeys.tags(getAuthScope()),
     enabled: getAuthenticated(),
-    queryFn: () => new ApiClient().listTags(true)
+    queryFn: () => new ApiClient().listTags(true, 20)
+  }));
+}
+
+export function createAllTagsQuery(getAuthenticated: () => boolean, getUsername: () => string) {
+  return createQuery(() => ({
+    queryKey: libraryKeys.allTags(getUsername()),
+    enabled: getAuthenticated(),
+    queryFn: () => new ApiClient().listTags(true, 0)
   }));
 }
 
