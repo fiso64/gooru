@@ -64,7 +64,9 @@ func TestFrontendIndexETagTracksContentWithSameModTime(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("If-None-Match", oldETag)
+	// Reproduce a validator left by an older build that served the filesystem
+	// mtime. The new build must ignore that timestamp and return its new body.
+	req.Header.Set("If-Modified-Since", modTime.UTC().Format(http.TimeFormat))
 	server.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("changed index with same mtime expected 200, got %d", rec.Code)
