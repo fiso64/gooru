@@ -55,13 +55,22 @@ func seedCartesianContentTags(t *testing.T, store *Store) ([]string, []int64) {
 	return hashes, tagIDs
 }
 
+func repeatCartesianHashes(hashes []string, repeats int) []string {
+	repeated := make([]string, 0, len(hashes)*repeats)
+	for range repeats {
+		repeated = append(repeated, hashes...)
+	}
+	return repeated
+}
+
 func TestBatchAssociateTagsForContentHashesBoundsPairBatches(t *testing.T) {
 	store := newMemoryTestStore(t)
 	hashes, tagIDs := seedCartesianContentTags(t, store)
 	wantAssociations := int64(len(hashes) * len(tagIDs))
+	repeatedHashes := repeatCartesianHashes(hashes, 4)
 
 	counting := &cartesianContentTagExecCountingQuerier{Querier: store.DB}
-	affected, err := store.BatchAssociateTagsForContentHashes(counting, hashes, tagIDs)
+	affected, err := store.BatchAssociateTagsForContentHashes(counting, repeatedHashes, tagIDs)
 	if err != nil {
 		t.Fatalf("BatchAssociateTagsForContentHashes: %v", err)
 	}
@@ -69,7 +78,7 @@ func TestBatchAssociateTagsForContentHashesBoundsPairBatches(t *testing.T) {
 		t.Fatalf("affected associations = %d, want %d", affected, wantAssociations)
 	}
 	if counting.associationExecs != 2 {
-		t.Fatalf("association Exec calls = %d, want 2 for 453 pairs", counting.associationExecs)
+		t.Fatalf("association Exec calls = %d, want 2 for 453 distinct pairs", counting.associationExecs)
 	}
 	if counting.maxExecArgs > maxVars {
 		t.Fatalf("largest content-tag batch used %d bind variables, max %d", counting.maxExecArgs, maxVars)
@@ -93,9 +102,10 @@ func TestBatchDisassociateTagsForContentHashesBoundsPairBatches(t *testing.T) {
 	} else if affected != wantAssociations {
 		t.Fatalf("seeded associations = %d, want %d", affected, wantAssociations)
 	}
+	repeatedHashes := repeatCartesianHashes(hashes, 4)
 
 	counting := &cartesianContentTagExecCountingQuerier{Querier: store.DB}
-	affected, err := store.BatchDisassociateTagsForContentHashes(counting, hashes, tagIDs)
+	affected, err := store.BatchDisassociateTagsForContentHashes(counting, repeatedHashes, tagIDs)
 	if err != nil {
 		t.Fatalf("BatchDisassociateTagsForContentHashes: %v", err)
 	}
@@ -103,7 +113,7 @@ func TestBatchDisassociateTagsForContentHashesBoundsPairBatches(t *testing.T) {
 		t.Fatalf("affected disassociations = %d, want %d", affected, wantAssociations)
 	}
 	if counting.disassociationExecs != 2 {
-		t.Fatalf("disassociation Exec calls = %d, want 2 for 453 pairs", counting.disassociationExecs)
+		t.Fatalf("disassociation Exec calls = %d, want 2 for 453 distinct pairs", counting.disassociationExecs)
 	}
 	if counting.maxExecArgs > maxVars {
 		t.Fatalf("largest content-tag batch used %d bind variables, max %d", counting.maxExecArgs, maxVars)

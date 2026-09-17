@@ -25,6 +25,7 @@ func (s *Store) batchContentTagCartesian(
 	const columns = 2
 	batchSize := maxVars / columns
 	pairs := make([]ContentTagPair, 0, batchSize)
+	seenHashes := make(map[string]struct{}, len(hashes))
 	var totalAffected int64
 
 	flush := func() error {
@@ -38,6 +39,10 @@ func (s *Store) batchContentTagCartesian(
 	}
 
 	for _, hash := range hashes {
+		if _, seen := seenHashes[hash]; seen {
+			continue
+		}
+		seenHashes[hash] = struct{}{}
 		for _, tagID := range tagIDs {
 			pairs = append(pairs, ContentTagPair{ContentHash: hash, TagID: tagID})
 			if len(pairs) == batchSize {
