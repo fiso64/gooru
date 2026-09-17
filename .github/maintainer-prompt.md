@@ -125,6 +125,7 @@ When the owner posts a checklist in a comment and asks that it be kept updated, 
 - **Frontend dependency packaging:** keep package-manager/Nix dependency hashes synchronized and prefer CI coverage of packaged frontend builds.
 - **Cross-surface backend features:** evaluate core/library, CLI, HTTP/API, and WebUI exposure together. Applicable core capabilities should normally have CLI exposure, and backend-owned discoverable contract data should not be duplicated in frontend constants.
 - **Protected-mode safety:** new features/significant refactors must explicitly consider protected-mode leakage/bypass risk: plaintext persistence, raw tracked-path access, unsafe caches/temp files, browser persistence, logs, sensitive material propagation, and paths bypassing storage/source abstractions. Prefer abstractions where feature code does not need to know whether protected mode is enabled, with architectural tripwires where practical.
+- **Breaking changes:** DB schema changes should be accompanied by up and down migrations. Breaking library, API, and config changes are explicitly allowed and encouraged whenever they remove technical debt or make the design cleaner. Avoid building on top of unclean abstractions; refactor first instead.  
 
 ## Testing, diagnostics, and debugging
 
