@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -218,6 +219,40 @@ func TestBulkDownloadReadsProtectedOriginals(t *testing.T) {
 	}
 	if got := rec.Header().Get("Cache-Control"); got != protectedAPICacheControl {
 		t.Fatalf("Cache-Control = %q, want %q", got, protectedAPICacheControl)
+	}
+}
+
+func TestBulkDownloadBoundsMetadataLookupBatches(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "tiny.bin")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	files := make(map[string]types.FileInfo, fileDownloadLookupBatch+1)
+	ids := make([]string, 0, fileDownloadLookupBatch+1)
+	for index := 0; index < fileDownloadLookupBatch+1; index++ {
+		id := fmt.Sprintf("file-%03d", index)
+		ids = append(ids, id)
+		files[id] = types.FileInfo{PublicID: id, Path: path, Size: 1}
+	}
+
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "gooru.db"))
+	cfg.Auth.Enabled = false
+	server, library := newDownloadTestServer(t, cfg, files)
+	rec := httptest.NewRecorder()
+	started, err := server.streamFileDownloadArchive(rec, context.Background(), ids)
+	if err != nil {
+		t.Fatalf("stream archive: %v", err)
+	}
+	if !started {
+		t.Fatal("archive did not start")
+	}
+	if got := fmt.Sprint(library.batchSizes); got != "[256 1]" {
+		t.Fatalf("metadata lookup batches = %s, want [256 1]", got)
+	}
+	if len(readZipForTest(t, rec.Body.Bytes())) != len(ids) {
+		t.Fatalf("zip entry count did not match %d selected files", len(ids))
 	}
 }
 
