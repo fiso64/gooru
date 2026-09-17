@@ -606,10 +606,18 @@
   }
 
   .upload-item-tags {
-    position: relative;
-    z-index: 2;
     margin-top: 6px;
     min-height: 30px;
+  }
+
+  .upload-item-tags .g-tag,
+  .upload-item-tags :global(.tag-autocomplete) {
+    position: relative;
+    z-index: 2;
+  }
+
+  :global(.gooru-theme-booru-style) .upload-row-staged:not(:hover) {
+    background: var(--bg);
   }
 
   .upload-filter-input {
