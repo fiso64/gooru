@@ -333,6 +333,7 @@ type fileData struct {
 	path         string // original path for callbacks
 	info         types.LocationInfo
 	wasModified  bool
+	previousHash string
 	orphanedTags []string
 }
 
@@ -351,7 +352,6 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 		potentialMoves:    make(map[string]string),
 	}
 	processedPaths := make(map[string]bool)
-	modifiedDataIndexes := make(map[string][]int)
 
 	// 1a. Resolve paths and collect absolute paths.
 	absPaths := make([]string, 0, len(filePaths))
@@ -467,35 +467,44 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 			ModTime:   info.ModTime().Unix(),
 			Extension: filepath.Ext(absPath),
 		}
-		analysis.allFileData = append(analysis.allFileData, fileData{
-			path:        originalPath,
-			info:        locInfo,
-			wasModified: isModification,
-		})
+		previousHash := ""
 		if isModification {
-			index := len(analysis.allFileData) - 1
-			modifiedDataIndexes[dbInfo.Hash] = append(modifiedDataIndexes[dbInfo.Hash], index)
+			previousHash = dbInfo.Hash
 		}
+		analysis.allFileData = append(analysis.allFileData, fileData{
+			path:         originalPath,
+			info:         locInfo,
+			wasModified:  isModification,
+			previousHash: previousHash,
+		})
 		analysis.allHashes = append(analysis.allHashes, hash)
 		analysis.locationsToUpsert[absPath] = locInfo
 	}
 
-	if len(modifiedDataIndexes) > 0 {
-		oldHashes := make([]string, 0, len(modifiedDataIndexes))
-		for hash := range modifiedDataIndexes {
-			oldHashes = append(oldHashes, hash)
-		}
-		// Orphaned tags are notification metadata, so preserve the previous
-		// best-effort behavior: a read failure must not block the tag mutation.
-		tagsByHash, _ := c.store.BatchGetTagsForContents(oldHashes)
-		for hash, indexes := range modifiedDataIndexes {
-			for _, index := range indexes {
-				analysis.allFileData[index].orphanedTags = tagsByHash[hash]
-			}
-		}
-	}
+	// Orphaned tags are notification metadata, so preserve the previous
+	// best-effort behavior: a read failure must not block the tag mutation.
+	_ = c.populateOrphanedTags(analysis.allFileData)
 
 	return analysis, nil
+}
+
+func (c *Client) populateOrphanedTags(data []fileData) error {
+	previousHashes := make([]string, 0, len(data))
+	for _, file := range data {
+		if file.previousHash != "" {
+			previousHashes = append(previousHashes, file.previousHash)
+		}
+	}
+	tagsByHash, err := c.store.BatchGetTagsForContents(previousHashes)
+	if err != nil {
+		return err
+	}
+	for index := range data {
+		if data[index].previousHash != "" {
+			data[index].orphanedTags = tagsByHash[data[index].previousHash]
+		}
+	}
+	return nil
 }
 
 // applyTaggingOperationInTx contains the switch logic for tag, settags, and untag.
