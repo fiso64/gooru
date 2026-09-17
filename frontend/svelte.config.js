@@ -11,7 +11,20 @@ const config = {
       fallback: 'index.html',
       precompress: false,
       strict: true
-    })
+    }),
+    csp: {
+      mode: 'hash',
+      directives: {
+        'default-src': ['self'],
+        'img-src': ['self', 'blob:', 'data:'],
+        'media-src': ['self', 'blob:'],
+        'style-src': ['self', 'unsafe-inline'],
+        'script-src': ['self'],
+        'connect-src': ['self'],
+        'base-uri': ['self'],
+        'form-action': ['self']
+      }
+    }
   }
 };
 
