@@ -78,3 +78,5 @@ jobs:
           retention-days: 7
       - name: Build
         run: npm run build
+      - name: Verify built CSP
+        run: node tests/verify-build-csp.mjs
