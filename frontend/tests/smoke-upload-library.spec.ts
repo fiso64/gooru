@@ -182,11 +182,18 @@ test('upload, browse, thumbnail, and delete a stable mixed-media corpus', async 
     saveTimings();
 
     await page.locator('.sidebar button.sidebar-item').filter({ hasText: 'Library' }).click();
+    const formattedCount = fileCount.toLocaleString('en-US');
+    await expect(page.getByTestId('library-header-count')).toHaveText(`${formattedCount} files`, { timeout: operationTimeout });
+
+    await page.keyboard.press('a');
+    await expect(page.locator('.selection-summary')).toContainText(`${fileCount} selected`, { timeout: operationTimeout });
+    await page.getByRole('button', { name: 'Clear selection' }).click();
+    await expect(page.locator('.selection-summary')).toHaveCount(0);
+
     const search = page.getByLabel('Search library');
     await search.fill(tag);
     await search.press('Enter');
 
-    const formattedCount = fileCount.toLocaleString('en-US');
     await expect(page.getByTestId('library-header-count')).toHaveText(`${formattedCount} matching · ${formattedCount} files`, { timeout: operationTimeout });
 
     const grid = page.getByTestId('virtual-media-grid');

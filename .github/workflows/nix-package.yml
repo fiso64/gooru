@@ -3,8 +3,7 @@ name: Nix package
 on:
   pull_request:
     paths:
-      - 'frontend/package.json'
-      - 'frontend/package-lock.json'
+      - 'frontend/**'
       - 'flake.nix'
       - 'flake.lock'
       - 'VERSION'
@@ -13,8 +12,7 @@ on:
   push:
     branches: [develop]
     paths:
-      - 'frontend/package.json'
-      - 'frontend/package-lock.json'
+      - 'frontend/**'
       - 'flake.nix'
       - 'flake.lock'
       - 'VERSION'
