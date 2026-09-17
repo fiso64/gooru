@@ -332,6 +332,7 @@
           modulePreStartLines = nixpkgs.lib.filter (line: line != "") (nixpkgs.lib.splitString "\n" moduleService.preStart);
           invalidUsernameAssertions = invalidUsernameEval.config.assertions;
           moduleCheck =
+            assert moduleEval.config.services.gooru.admins.primary.username == "alice";
             assert builtins.elem "gooru-admin-primary:/run/secrets/gooru-admin-alice" moduleService.serviceConfig.LoadCredential;
             assert nixpkgs.lib.hasInfix "init --if-missing --hashing-strategy partial" moduleService.preStart;
             assert nixpkgs.lib.hasInfix "init --if-missing --hashing-strategy partial" (builtins.head modulePreStartLines);
@@ -339,8 +340,9 @@
             assert nixpkgs.lib.hasInfix "count >/dev/null" protectedService.preStart;
             assert !(nixpkgs.lib.hasInfix "count >/dev/null" moduleService.preStart);
             assert nixpkgs.lib.hasInfix "user reconcile-admin" moduleService.preStart;
-            assert nixpkgs.lib.hasInfix "--username alice" moduleService.preStart;
-            assert nixpkgs.lib.hasInfix "declarative-admins/gooru-admin-primary.user-id" moduleService.preStart;
+            assert nixpkgs.lib.hasInfix "alice" moduleService.preStart;
+            assert nixpkgs.lib.hasInfix "/var/lib/gooru/declarative-admins" moduleService.preStart;
+            assert nixpkgs.lib.hasInfix "gooru-admin-primary.user-id" moduleService.preStart;
             assert nixpkgs.lib.hasInfix "$CREDENTIALS_DIRECTORY/gooru-admin-primary" moduleService.preStart;
             assert nixpkgs.lib.any (entry: !entry.assertion && nixpkgs.lib.hasInfix "64 characters or fewer" entry.message) invalidUsernameAssertions;
             pkgs.runCommand "gooru-nixos-module-check" { } ''
