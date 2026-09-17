@@ -1,7 +1,6 @@
 package gooru
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -352,6 +351,7 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 		potentialMoves:    make(map[string]string),
 	}
 	processedPaths := make(map[string]bool)
+	modifiedDataIndexes := make(map[string][]int)
 
 	// 1a. Resolve paths and collect absolute paths.
 	absPaths := make([]string, 0, len(filePaths))
@@ -460,16 +460,6 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 			analysis.potentialMoves[hash] = absPath
 		}
 
-		var orphanedTags []string
-		if isModification {
-			oldTags, err := c.store.GetTagsForContent(dbInfo.Hash)
-			if err != nil && err != sql.ErrNoRows {
-				// Log? For now, just proceed.
-			} else {
-				orphanedTags = oldTags
-			}
-		}
-
 		locInfo := types.LocationInfo{
 			Path:      absPath,
 			Hash:      hash,
@@ -478,13 +468,31 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 			Extension: filepath.Ext(absPath),
 		}
 		analysis.allFileData = append(analysis.allFileData, fileData{
-			path:         originalPath,
-			info:         locInfo,
-			wasModified:  isModification,
-			orphanedTags: orphanedTags,
+			path:        originalPath,
+			info:        locInfo,
+			wasModified: isModification,
 		})
+		if isModification {
+			index := len(analysis.allFileData) - 1
+			modifiedDataIndexes[dbInfo.Hash] = append(modifiedDataIndexes[dbInfo.Hash], index)
+		}
 		analysis.allHashes = append(analysis.allHashes, hash)
 		analysis.locationsToUpsert[absPath] = locInfo
+	}
+
+	if len(modifiedDataIndexes) > 0 {
+		oldHashes := make([]string, 0, len(modifiedDataIndexes))
+		for hash := range modifiedDataIndexes {
+			oldHashes = append(oldHashes, hash)
+		}
+		// Orphaned tags are notification metadata, so preserve the previous
+		// best-effort behavior: a read failure must not block the tag mutation.
+		tagsByHash, _ := c.store.BatchGetTagsForContents(oldHashes)
+		for hash, indexes := range modifiedDataIndexes {
+			for _, index := range indexes {
+				analysis.allFileData[index].orphanedTags = tagsByHash[hash]
+			}
+		}
 	}
 
 	return analysis, nil
