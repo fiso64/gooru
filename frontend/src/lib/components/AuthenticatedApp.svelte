@@ -239,6 +239,19 @@
     syncSelectionMembership();
   });
 
+  $effect(() => {
+    const files = loadedFiles;
+    if (!files.length) return;
+    untrack(() => {
+      const tagsByID = new Map(files.map((file) => [file.id, file.tags ?? []]));
+      upload.items.forEach((item, index) => {
+        if (!item.remoteFileID || !tagsByID.has(item.remoteFileID)) return;
+        const expectedBaseTags = item.tagSyncBaseTags ? [...item.tagSyncBaseTags] : undefined;
+        rebaseUploadItemTagsFromRemote(index, tagsByID.get(item.remoteFileID) ?? [], expectedBaseTags);
+      });
+    });
+  });
+
   function savedSearchContext() {
     return {
       query: library.filterQuery(),
