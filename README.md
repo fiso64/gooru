@@ -88,4 +88,4 @@ The flake exposes `nixosModules.default`. A minimal automatic deployment can ini
 
 ## License
 
-Gooru is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE.md) for the license text and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and assets.
+Gooru is licensed under **AGPL-3.0-only**. See [LICENSE](LICENSE) for the license text and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party components and assets.
