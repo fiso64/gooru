@@ -48,6 +48,10 @@ func backgroundOperationJobSummary(dto BackgroundOperationDTO) (backgroundOperat
 		return "", nil, nil
 	}
 
+	if outcome, ok := persistedBackgroundOperationOutcome(dto.ResultOutcome); ok {
+		return outcome, dto.ResultAffectedCount, dto.ResultFailedCount
+	}
+
 	outcome := backgroundOperationOutcomeSuccess
 	zero := int64(0)
 	failedCount := &zero
@@ -99,4 +103,13 @@ func backgroundOperationJobSummary(dto BackgroundOperationDTO) (backgroundOperat
 		return outcome, result.AffectedCount, failedCount
 	}
 	return outcome, nil, failedCount
+}
+
+func persistedBackgroundOperationOutcome(value string) (backgroundOperationOutcome, bool) {
+	switch backgroundOperationOutcome(value) {
+	case backgroundOperationOutcomeSuccess, backgroundOperationOutcomePartialSuccess, backgroundOperationOutcomeError:
+		return backgroundOperationOutcome(value), true
+	default:
+		return "", false
+	}
 }
