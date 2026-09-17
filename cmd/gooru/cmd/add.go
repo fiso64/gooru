@@ -105,5 +105,5 @@ will automatically add and track any new files it's given.`,
 func init() {
 	rootCmd.AddCommand(addCmd)
 	addCmd.Flags().BoolVar(&addUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
-	addCmd.Flags().StringVar(&addRegistrationSort, "sort", "queue", registrationSortHelp)
+	addCmd.Flags().StringVar(&addRegistrationSort, "sort", "newest-last", registrationSortHelp)
 }

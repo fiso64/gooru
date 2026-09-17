@@ -156,5 +156,5 @@ func init() {
 	tagCmd.Flags().BoolVarP(&multiInputTag, "multi", "m", false, "Enable multi-input mode (for multiple file paths or expression parts)")
 	tagCmd.Flags().BoolVarP(&tagExpressionMode, "expression", "e", false, "Use a query expression instead of file paths")
 	tagCmd.Flags().BoolVar(&tagUseMetadata, "use-metadata", false, "Use fast but unreliable (size+modtime) check to detect file changes")
-	tagCmd.Flags().StringVar(&tagRegistrationSort, "sort", "queue", registrationSortHelp)
+	tagCmd.Flags().StringVar(&tagRegistrationSort, "sort", "newest-last", registrationSortHelp)
 }
