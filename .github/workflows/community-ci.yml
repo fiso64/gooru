@@ -91,7 +91,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Browser regressions
-        run: npm run test:e2e -- booru-theme.spec.ts booru-search-feedback.spec.ts viewer-image-geometry-hold.spec.ts startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-cancel-inflight.spec.ts upload-viewer.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-polling.spec.ts jobs-history-controls.spec.ts jobs-history-controls.spec.ts issue-606-followup.spec.ts build-identity.spec.ts grid-layout-config.spec.ts
+        run: npm run test:e2e -- booru-theme.spec.ts booru-search-feedback.spec.ts viewer-image-geometry-hold.spec.ts startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-cancel-inflight.spec.ts upload-viewer.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-polling.spec.ts jobs-history-controls.spec.ts issue-606-followup.spec.ts build-identity.spec.ts grid-layout-config.spec.ts
 
       - name: Build
         run: npm run build
