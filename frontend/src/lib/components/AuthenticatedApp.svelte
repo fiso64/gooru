@@ -66,6 +66,7 @@
   let jobsDrawerOpen = $state(false);
   let bulkDownloadBusy = $state(false);
   let bulkDownloadError = $state('');
+  let bulkDownloadURL = $state('');
   let nestedPreviewNavigation = $state(false);
   let observedItemsPerPage = $state($runtimeConfig.itemsPerPage);
   let trackUploadResults = $state(false);
@@ -410,6 +411,25 @@
 
   function bulkDeleteSelected() {
     actionDialog = { kind: 'bulk-delete-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
+  }
+
+  async function bulkDownloadSelected() {
+    if (bulkDownloadBusy || selectedCount <= 0) return;
+    bulkDownloadBusy = true;
+    bulkDownloadError = '';
+    try {
+      const selector = await ensureSelectionReady();
+      const download = await createFileDownload($authState.csrfToken, selector);
+      const url = new URL(download.url, window.location.origin);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/v1/file-downloads/')) {
+        throw new Error('Server returned an invalid file download URL.');
+      }
+      bulkDownloadURL = url.href;
+    } catch (error) {
+      bulkDownloadError = errorMessage(error);
+    } finally {
+      bulkDownloadBusy = false;
+    }
   }
 
   function isBulkTagDialog(kind = actionDialog.kind) {
@@ -864,6 +884,10 @@
       </MediaGrid>
     {/if}
   </AppShell>
+
+  {#if bulkDownloadURL}
+    <iframe title="Bulk download" src={bulkDownloadURL} aria-hidden="true" tabindex="-1" style="display: none"></iframe>
+  {/if}
 
   {#if library.activeFile}
     <PreviewDialog
