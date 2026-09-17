@@ -44,6 +44,27 @@ func (s *Store) setBackgroundOperationResult(q Querier, operationID string, resu
 		return fmt.Errorf("background operation result exceeds %d bytes", maxBackgroundOperationResultBytes)
 	}
 	summary := summarizeBackgroundOperationResult(resultJSON)
+	if isBackgroundTagMutationDurableResult(resultJSON) {
+		var affected sql.NullInt64
+		if err := q.QueryRow(`
+			SELECT affected_count
+			FROM background_tag_mutations
+			WHERE operation_id = ?
+		`, operationID).Scan(&affected); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return errors.New("background tag mutation result is missing")
+			}
+			return fmt.Errorf("read background tag mutation result summary: %w", err)
+		}
+		if !affected.Valid {
+			return errors.New("background tag mutation result is missing affected count")
+		}
+		if affected.Int64 < 0 {
+			return errors.New("background tag mutation result affected count cannot be negative")
+		}
+		value := affected.Int64
+		summary.AffectedCount = &value
+	}
 	res, err := q.Exec(`
 		UPDATE background_operations
 		SET result_json = ?,
@@ -63,6 +84,16 @@ func (s *Store) setBackgroundOperationResult(q Querier, operationID string, resu
 		return errors.New("background operation is missing or no longer active")
 	}
 	return nil
+}
+
+func isBackgroundTagMutationDurableResult(resultJSON []byte) bool {
+	var marker struct {
+		DurableResult string `json:"durable_result"`
+	}
+	if err := json.Unmarshal(resultJSON, &marker); err != nil {
+		return false
+	}
+	return marker.DurableResult == "tag_mutation"
 }
 
 func summarizeBackgroundOperationResult(resultJSON []byte) BackgroundOperationResultSummary {
