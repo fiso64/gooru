@@ -1,0 +1,112 @@
+name: Maintainer 549 share tag parsing
+
+on:
+  push:
+    branches:
+      - maintainer-549-share-tag-parsing
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer-549-share-tag-parsing
+          fetch-depth: 0
+
+      - name: Apply guarded refactor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          tag_path = Path("internal/query/tag.go")
+          tag_src = tag_path.read_text()
+          helper = """
+          
+          // ParseTags parses a collection of tag strings while preserving caller order.
+          func ParseTags(tags []string) []types.ParsedTag {
+          \tparsedTags := make([]types.ParsedTag, len(tags))
+          \tfor i, tag := range tags {
+          \t\tparsedTags[i] = ParseTag(tag)
+          \t}
+          \treturn parsedTags
+          }
+          """
+          if "func ParseTags(" in tag_src:
+              raise SystemExit("ParseTags already exists")
+          tag_src = tag_src.rstrip() + helper + "\n"
+          tag_path.write_text(tag_src)
+
+          path = Path("gooru/tagging.go")
+          src = path.read_text()
+
+          old_import = """import (
+          \t"encoding/json"
+          \t"errors"
+          \t"fmt"
+          \t"os"
+          \t"path/filepath"
+          """
+          new_import = """import (
+          \t"encoding/json"
+          \t"errors"
+          \t"fmt"
+          \t"maps"
+          \t"os"
+          \t"path/filepath"
+          \t"slices"
+          """
+          if src.count(old_import) != 1:
+              raise SystemExit("unexpected import block")
+          src = src.replace(old_import, new_import)
+
+          parse_loop = re.compile(
+              r"\tparsedTags := make\(\[\]types\.ParsedTag, len\(tags\)\)\n"
+              r"\tfor i, t := range tags \{\n"
+              r"\t\tparsedTags\[i\] = query\.ParseTag\(t\)\n"
+              r"\t\}"
+          )
+          src, parse_count = parse_loop.subn("\tparsedTags := query.ParseTags(tags)", src)
+          if parse_count != 5:
+              raise SystemExit(f"expected 5 parse loops, got {parse_count}")
+
+          ids_loop = re.compile(
+              r"\ttagIDs := make\(\[\]int64, 0, len\(tagIDMap\)\)\n"
+              r"\tfor _, id := range tagIDMap \{\n"
+              r"\t\ttagIDs = append\(tagIDs, id\)\n"
+              r"\t\}"
+          )
+          src, ids_count = ids_loop.subn("\ttagIDs := slices.Collect(maps.Values(tagIDMap))", src)
+          if ids_count != 3:
+              raise SystemExit(f"expected 3 unordered tag ID loops, got {ids_count}")
+
+          path.write_text(src)
+          PY
+
+          gofmt -w internal/query/tag.go gooru/tagging.go
+          git diff --check
+          git diff --stat
+          additions="$(git diff --numstat -- internal/query/tag.go gooru/tagging.go | awk '{sum += $1} END {print sum+0}')"
+          deletions="$(git diff --numstat -- internal/query/tag.go gooru/tagging.go | awk '{sum += $2} END {print sum+0}')"
+          test "$deletions" -gt "$additions"
+
+      - name: Validate focused packages
+        shell: bash
+        run: |
+          go test -count=1 ./internal/query ./gooru
+          go vet -structtag=false ./internal/query ./gooru
+
+      - name: Commit refactor and remove workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/maintainer-549-share-tag-parsing.yml
+          git add internal/query/tag.go gooru/tagging.go
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "refactor: share tag parsing"
+          git push origin HEAD:maintainer-549-share-tag-parsing
