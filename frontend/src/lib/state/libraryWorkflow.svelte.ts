@@ -60,6 +60,7 @@ export function createLibraryWorkflow(
   let sort: FileSort = $state(initialLibraryState.sort);
   let order: SortOrder = $state(initialLibraryState.order);
   let page = $state(initialLibraryState.page);
+  let transportPage = $state(initialPaginationEnabled || initialLibraryState.fileID ? initialLibraryState.page : 1);
   let paginationEnabled = $state(initialPaginationEnabled);
   let selection: LibrarySelection = $state(emptySelection());
   let selectionAnchorID = $state('');
@@ -90,18 +91,19 @@ export function createLibraryWorkflow(
       sort,
       order,
       fileID: pendingPreviewID,
-      page: paginationEnabled ? page : 1
+      page: paginationEnabled || pendingPreviewID ? page : 1
     };
   }
 
   function applyRestoredLibraryState(nextLibraryState: typeof defaultLibraryURLState) {
-    restoredStateKey = stateKey({ ...nextLibraryState, page: paginationEnabled ? normalizePage(nextLibraryState.page) : 1 });
+    restoredStateKey = stateKey({ ...nextLibraryState, page: paginationEnabled || nextLibraryState.fileID ? normalizePage(nextLibraryState.page) : 1 });
     const restoredQuery = nextLibraryState.kind ? replaceSidebarKind(nextLibraryState.query, `type:${nextLibraryState.kind}`) : nextLibraryState.query;
     activeKind = '';
     activeSavedSearch = '';
     sort = nextLibraryState.sort;
     order = nextLibraryState.order;
     page = normalizePage(nextLibraryState.page);
+    transportPage = paginationEnabled || nextLibraryState.fileID ? page : 1;
     pendingPreviewID = nextLibraryState.fileID;
     searchDraft.set(restoredQuery);
     suggestionSearch.set(restoredQuery);
@@ -219,6 +221,7 @@ export function createLibraryWorkflow(
 
   function resetPage() {
     page = 1;
+    transportPage = 1;
   }
 
   function reset() {
@@ -379,8 +382,9 @@ export function createLibraryWorkflow(
     return selectionCount(selection);
   }
 
-  function openPreview(file: FileItem, files: FileItem[] = []) {
-    void files;
+  function openPreview(file: FileItem, files: FileItem[] = [], retainedStartIndex = 0, pageSize = 60) {
+    const localIndex = files.findIndex((candidate) => candidate.id === file.id);
+    if (localIndex >= 0) page = Math.floor((Math.max(0, retainedStartIndex) + localIndex) / Math.max(1, pageSize)) + 1;
     clearViewerPreloadCache();
     activeFile = file;
     pendingPreviewID = file.id;
@@ -445,6 +449,7 @@ export function createLibraryWorkflow(
     set order(value: SortOrder) { order = value; resetPage(); },
     get page() { return page; },
     set page(value: number) { page = normalizePage(value); },
+    get transportPage() { return transportPage; },
     get selection() { return selection; },
     get selectionPending() { return selectionPending(selection); },
     get selectionError() { return selectionError(selection); },
@@ -452,7 +457,10 @@ export function createLibraryWorkflow(
     get selectionRequestID() { return selectionRequestID(selection); },
     get activeFile() { return activeFile; },
     get pendingPreviewID() { return pendingPreviewID; },
-    setPaginationEnabled(value: boolean) { paginationEnabled = value; },
+    setPaginationEnabled(value: boolean) {
+      paginationEnabled = value;
+      transportPage = value ? page : (pendingPreviewID ? transportPage : 1);
+    },
     reset,
     submitSearch,
     setSearch,

@@ -38,6 +38,46 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 	if s == nil || s.DB == nil {
 		return 0, errors.New("background tag mutation store is required")
 	}
+	tx, err := s.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("begin background tag mutation snapshot: %w", err)
+	}
+	defer tx.Rollback()
+
+	matched, err := s.createBackgroundTagMutationSnapshot(
+		tx,
+		operationID,
+		mutation,
+		selectorJSON,
+		tagsJSON,
+		targetKind,
+		targetIDs,
+		targetQuery,
+		targetArgs,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit background tag mutation snapshot: %w", err)
+	}
+	return matched, nil
+}
+
+func (s *Store) createBackgroundTagMutationSnapshot(
+	q Querier,
+	operationID string,
+	mutation string,
+	selectorJSON []byte,
+	tagsJSON []byte,
+	targetKind string,
+	targetIDs []string,
+	targetQuery string,
+	targetArgs []interface{},
+) (int, error) {
+	if q == nil {
+		return 0, errors.New("background tag mutation querier is required")
+	}
 	if operationID == "" {
 		return 0, errors.New("background tag mutation operation id is required")
 	}
@@ -60,16 +100,10 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 		return 0, errors.New("content-hash background tag mutation cannot use explicit targets")
 	}
 
-	tx, err := s.Begin()
-	if err != nil {
-		return 0, fmt.Errorf("begin background tag mutation snapshot: %w", err)
-	}
-	defer tx.Rollback()
-
 	var visible int
 	var status string
 	var attached int
-	if err := tx.QueryRow(`
+	if err := q.QueryRow(`
 		SELECT visible, status,
 		       (SELECT count(*) FROM background_tasks WHERE operation_id = background_operations.id)
 		FROM background_operations
@@ -84,7 +118,7 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 		return 0, errors.New("background tag mutation operation is not an unattached hidden pending reservation")
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := q.Exec(`
 		INSERT INTO background_tag_mutations
 			(operation_id, mutation, selector_json, tags_json, target_kind, matched_files)
 		VALUES (?, ?, ?, ?, ?, 0)
@@ -95,7 +129,7 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 	matched := 0
 	switch targetKind {
 	case BackgroundTagTargetFileID:
-		const columns = 3 // operation_id, target_id, target_order
+		const columns = 3
 		batchSize := maxVars / columns
 		for start := 0; start < len(targetIDs); start += batchSize {
 			end := start + batchSize
@@ -118,7 +152,7 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 				query.WriteString("(?, ?, ?)")
 				args = append(args, operationID, targetID, index)
 			}
-			result, err := tx.Exec(query.String(), args...)
+			result, err := q.Exec(query.String(), args...)
 			if err != nil {
 				return 0, fmt.Errorf("insert background tag mutation targets %d-%d: %w", start, end-1, err)
 			}
@@ -138,7 +172,7 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 			args := make([]interface{}, 0, len(targetArgs)+1)
 			args = append(args, operationID)
 			args = append(args, targetArgs...)
-			result, err := tx.Exec(snapshotQuery, args...)
+			result, err := q.Exec(snapshotQuery, args...)
 			if err != nil {
 				return 0, fmt.Errorf("snapshot background tag mutation query: %w", err)
 			}
@@ -150,15 +184,12 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 		}
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := q.Exec(`
 		UPDATE background_tag_mutations
 		SET matched_files = ?
 		WHERE operation_id = ?
 	`, matched, operationID); err != nil {
 		return 0, fmt.Errorf("update background tag mutation target count: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit background tag mutation snapshot: %w", err)
 	}
 	return matched, nil
 }

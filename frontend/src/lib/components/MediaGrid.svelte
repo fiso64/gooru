@@ -16,7 +16,7 @@
   let {
     sessionActive, isLoading, isError, error, files, retainedStartIndex, totalCount, displayTotalCount = totalCount, libraryCount,
     searchActive, selectedCount, bulkDownloadBusy = false, bulkDownloadError = '', isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,
-    isFetchingPreviousPage, pagedMode = false, pageNumber = 1, pageCount = 1,
+    isFetchingPreviousPage, pagedMode = false, deferPreviousLoad = false, pageNumber = 1, pageCount = 1,
     loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,
     onToggleSelect, onExtendSelection, onSelectAll, onClearSelection, onBulkDownload, onBulkTag, onBulkUntag, onBulkUntrack,
     onBulkDelete, onLoadMore, onLoadPrevious, onPage, actions
@@ -26,7 +26,7 @@
     selectedCount: number; bulkDownloadBusy?: boolean; bulkDownloadError?: string;
     isSelected: (fileID: string) => boolean; hasNextPage: boolean;
     isFetchingNextPage: boolean; hasPreviousPage: boolean; isFetchingPreviousPage: boolean;
-    pagedMode?: boolean; pageNumber?: number; pageCount?: number;
+    pagedMode?: boolean; deferPreviousLoad?: boolean; pageNumber?: number; pageCount?: number;
     loadMoreSentinel?: HTMLDivElement; onOpen: (file: FileItem, files: FileItem[]) => void;
     onToggleSelect: (file: FileItem, files: FileItem[], range: boolean) => void;
     onExtendSelection: (current: FileItem, target: FileItem, files: FileItem[]) => void; onSelectAll: () => void;
@@ -166,7 +166,7 @@
   });
 
   $effect(() => {
-    if (pagedMode) return;
+    if (pagedMode || deferPreviousLoad) return;
     const needsPrevious = tileMode ? tileVirtual.needsPrevious : squareVirtual.needsPrevious;
     if (needsPrevious && hasPreviousPage && !isFetchingPreviousPage) onLoadPrevious();
   });

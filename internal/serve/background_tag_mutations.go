@@ -18,6 +18,10 @@ type durableTagMutationLibrary interface {
 	executeBackgroundTagMutation(context.Context, core.BackgroundTask) error
 }
 
+type backgroundTagMutationResultReader interface {
+	backgroundTagMutationResponse(string) (TagMutationResponse, bool, error)
+}
+
 func (l *GooruLibrary) createBackgroundTagMutation(
 	ctx context.Context,
 	operation TagOperation,
@@ -71,7 +75,7 @@ func (l *GooruLibrary) executeBackgroundTagMutation(ctx context.Context, task co
 	}
 	switch state.TargetKind {
 	case core.BackgroundTagMutationTargetContentHash:
-		return l.client.ExecuteBackgroundTagMutationQuery(task.OperationID)
+		return l.client.ExecuteClaimedBackgroundTagMutationQuery(task)
 	case core.BackgroundTagMutationTargetFileID:
 		targets, err := l.client.ListBackgroundTagMutationTargets(task.OperationID)
 		if err != nil {
@@ -81,7 +85,7 @@ func (l *GooruLibrary) executeBackgroundTagMutation(ctx context.Context, task co
 		if err != nil {
 			return err
 		}
-		return l.client.ExecuteBackgroundTagMutationFiles(task.OperationID, files)
+		return l.client.ExecuteClaimedBackgroundTagMutationFiles(task, files)
 	default:
 		return fmt.Errorf("tag mutation background state has invalid target kind %q", state.TargetKind)
 	}
@@ -131,6 +135,7 @@ func waitForDurableTagMutation(ctx context.Context, operations backgroundOperati
 	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+	resultReader, _ := operations.(backgroundTagMutationResultReader)
 	for {
 		state, found, err := operations.GetBackgroundOperation(operationID)
 		if err != nil {
@@ -141,6 +146,16 @@ func waitForDurableTagMutation(ctx context.Context, operations backgroundOperati
 		}
 		switch state.Status {
 		case core.BackgroundWorkCompleted:
+			if resultReader != nil {
+				response, ready, err := resultReader.backgroundTagMutationResponse(operationID)
+				if err != nil {
+					return TagMutationResponse{}, err
+				}
+				if ready {
+					return response, nil
+				}
+				return TagMutationResponse{}, errors.New("completed tag mutation operation has no durable tag result")
+			}
 			var response TagMutationResponse
 			found, err := operations.GetBackgroundOperationResult(operationID, &response)
 			if err != nil {

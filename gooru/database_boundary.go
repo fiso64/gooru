@@ -2,6 +2,7 @@ package gooru
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gooru.local/internal/background"
@@ -30,6 +31,46 @@ func createDatabaseBackgroundOperation(client *Client, q databaseQuerier, id str
 		return BackgroundOperation{}, err
 	}
 	return backgroundOperationFromDatabase(operation), nil
+}
+
+func createDatabaseBackgroundTagMutationWithTask(
+	client *Client,
+	operationID string,
+	taskID string,
+	operationRequest BackgroundOperationRequest,
+	maxPending int,
+	mutation string,
+	selectorJSON []byte,
+	tagsJSON []byte,
+	targetKind string,
+	targetIDs []string,
+	targetQuery string,
+	targetArgs []interface{},
+	checkpointJSON []byte,
+	taskRequest BackgroundTaskRequest,
+) (BackgroundOperation, bool, error) {
+	operation, created, err := client.store.CreateBackgroundTagMutationWithTask(
+		database.NewBackgroundOperation{
+			ID:            operationID,
+			Kind:          operationRequest.Kind,
+			Visible:       operationRequest.Visible,
+			ProgressTotal: operationRequest.ProgressTotal,
+		},
+		maxPending,
+		mutation,
+		selectorJSON,
+		tagsJSON,
+		targetKind,
+		targetIDs,
+		targetQuery,
+		targetArgs,
+		checkpointJSON,
+		databaseBackgroundTask(taskID, taskRequest),
+	)
+	if err != nil || !created {
+		return BackgroundOperation{}, created, err
+	}
+	return backgroundOperationFromDatabase(operation), true, nil
 }
 
 func getDatabaseBackgroundOperation(client *Client, operationID string) (BackgroundOperationState, bool, error) {
@@ -163,6 +204,17 @@ func setDatabaseBackgroundTaskState(client *Client, tx *databaseTx, taskID strin
 	return client.store.SetBackgroundTaskResultTx(tx, taskID, resultJSON)
 }
 
+func completeDatabaseBackgroundTaskAttemptTx(client *Client, tx *databaseTx, task BackgroundTask) error {
+	if task.ID == "" || task.claimAttempt < 1 {
+		return fmt.Errorf("background task claim generation is required")
+	}
+	return client.store.CompleteBackgroundTaskAttemptTx(tx, task.ID, task.claimAttempt, time.Now().UTC())
+}
+
+func backgroundTaskFinalizedByHandlerError() error {
+	return background.ErrTaskFinalizedByHandler
+}
+
 type backgroundChangeTaskStoreBackend interface {
 	RecoverExpiredBackgroundTaskLeases(time.Time) (int, error)
 	ClaimNextBackgroundTask(resourceClass, workerID string, now time.Time, leaseDuration time.Duration) (database.BackgroundTask, bool, error)
@@ -274,6 +326,7 @@ func backgroundTaskFromDatabase(task database.BackgroundTask) BackgroundTask {
 		Kind:        task.Kind,
 		SubjectKind: task.SubjectKind,
 		SubjectID:   task.SubjectID,
-		InputKey:    task.InputKey,
+		InputKey:     task.InputKey,
+		claimAttempt: task.AttemptCount,
 	}
 }

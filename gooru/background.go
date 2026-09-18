@@ -198,12 +198,13 @@ func (c *Client) CancelBackgroundOperation(operationID string) (bool, error) {
 // retry bookkeeping, scheduling metadata, and terminal status remain runtime
 // implementation details.
 type BackgroundTask struct {
-	ID          string
-	OperationID string
-	Kind        string
-	SubjectKind string
-	SubjectID   string
-	InputKey    string
+	ID           string
+	OperationID  string
+	Kind         string
+	SubjectKind  string
+	SubjectID    string
+	InputKey     string
+	claimAttempt int
 }
 
 // BackgroundTaskCleanupRequest describes detached compensation to enqueue

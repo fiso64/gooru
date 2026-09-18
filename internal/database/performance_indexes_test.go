@@ -137,3 +137,47 @@ func TestActiveBackgroundOperationLookupUsesKindAndRecencyIndex(t *testing.T) {
 		t.Fatalf("active background operation lookup still sorts operation history:\n%s", plan)
 	}
 }
+
+
+func TestSingleFileTagPathUsesBoundedIndexes(t *testing.T) {
+	db := migratedPerformanceDB(t)
+	defer db.Close()
+
+	publicIDPlan := explainPlan(t, db, `
+		SELECT l.id, l.content_hash
+		FROM locations l
+		WHERE l.public_id = ?
+	`, "file_example")
+	if !strings.Contains(publicIDPlan, "idx_locations_public_id") || strings.Contains(publicIDPlan, "SCAN locations") {
+		t.Fatalf("public-ID lookup is not index-bounded:\n%s", publicIDPlan)
+	}
+
+	targetPlan := explainPlan(t, db, `
+		SELECT target_id
+		FROM background_tag_mutation_targets
+		WHERE operation_id = ?
+		ORDER BY target_order ASC, target_id ASC
+	`, "operation-example")
+	if !strings.Contains(targetPlan, "idx_background_tag_mutation_targets_order") || strings.Contains(targetPlan, "SCAN background_tag_mutation_targets") {
+		t.Fatalf("durable tag target lookup is not operation-bounded:\n%s", targetPlan)
+	}
+
+	locationPlan := explainPlan(t, db, `
+		SELECT id
+		FROM locations
+		WHERE content_hash = ?
+	`, "hash-example")
+	if !strings.Contains(locationPlan, "idx_locations_content_hash") || strings.Contains(locationPlan, "SCAN locations") {
+		t.Fatalf("tag-cache location lookup is not content-bounded:\n%s", locationPlan)
+	}
+
+	orphanPlan := explainPlan(t, db, `
+		SELECT 1
+		FROM content_tags
+		WHERE tag_id = ?
+		LIMIT 1
+	`, 1)
+	if !strings.Contains(orphanPlan, "idx_content_tags_tag_id") || strings.Contains(orphanPlan, "SCAN content_tags") {
+		t.Fatalf("orphan-tag lookup is not tag-bounded:\n%s", orphanPlan)
+	}
+}

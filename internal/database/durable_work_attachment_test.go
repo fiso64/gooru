@@ -167,3 +167,55 @@ func TestAttachBackgroundTaskAcceptsVisibleReceivingReservation(t *testing.T) {
 		t.Fatalf("attached task count = %d, want 1", count)
 	}
 }
+
+
+func TestBackgroundTagMutationSetupLeavesNoPartialStateOnTaskError(t *testing.T) {
+	store, db := newDurableWorkTestDB(t)
+	store.DB = db
+
+	_, created, err := store.CreateBackgroundTagMutationWithTask(
+		NewBackgroundOperation{ID: "tag-op", Kind: "tag_mutation", Visible: false, ProgressTotal: 1},
+		8,
+		"add",
+		[]byte(`{"file_ids":["file-1"]}`),
+		[]byte(`["reviewed"]`),
+		BackgroundTagTargetFileID,
+		[]string{"file-1"},
+		"",
+		nil,
+		[]byte(`{"version":1}`),
+		NewBackgroundTask{
+			ID:            "tag-task",
+			OperationID:   "tag-op",
+			DedupeKey:     "tag-op:mutate",
+			SubjectKind:   "operation",
+			SubjectID:     "tag-op",
+			InputKey:      "v1",
+			ResourceClass: "metadata",
+			MaxAttempts:   5,
+		},
+	)
+	if err == nil || created {
+		t.Fatalf("invalid tag task setup = created %v err %v, want an error", created, err)
+	}
+
+	var operations int
+	if err := db.QueryRow("SELECT count(*) FROM background_operations").Scan(&operations); err != nil {
+		t.Fatal(err)
+	}
+	var mutations int
+	if err := db.QueryRow("SELECT count(*) FROM background_tag_mutations").Scan(&mutations); err != nil {
+		t.Fatal(err)
+	}
+	var targets int
+	if err := db.QueryRow("SELECT count(*) FROM background_tag_mutation_targets").Scan(&targets); err != nil {
+		t.Fatal(err)
+	}
+	var tasks int
+	if err := db.QueryRow("SELECT count(*) FROM background_tasks").Scan(&tasks); err != nil {
+		t.Fatal(err)
+	}
+	if operations != 0 || mutations != 0 || targets != 0 || tasks != 0 {
+		t.Fatalf("partial tag setup remained: operations=%d mutations=%d targets=%d tasks=%d", operations, mutations, targets, tasks)
+	}
+}

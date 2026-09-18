@@ -73,21 +73,6 @@ func (c *Client) CreateBackgroundTagMutation(request BackgroundTagMutationReques
 		return BackgroundOperation{}, fmt.Errorf("encode background tag mutation tags: %w", err)
 	}
 
-	operation, err := c.CreateBackgroundOperationWithPendingLimit(BackgroundOperationRequest{
-		Kind:          BackgroundTagMutationOperationKind,
-		Visible:       false,
-		ProgressTotal: 1,
-	}, request.MaxPending)
-	if err != nil {
-		return BackgroundOperation{}, err
-	}
-	attached := false
-	defer func() {
-		if !attached {
-			_, _ = c.CancelBackgroundOperation(operation.ID)
-		}
-	}()
-
 	targetKind := BackgroundTagMutationTargetFileID
 	var targetQuery string
 	var targetArgs []interface{}
@@ -101,8 +86,41 @@ func (c *Client) CreateBackgroundTagMutation(request BackgroundTagMutationReques
 			targetQuery, targetArgs = excludeContentHashes(targetQuery, targetArgs, request.ExcludedHashes)
 		}
 	}
-	if _, err := c.store.CreateBackgroundTagMutationSnapshot(
-		operation.ID,
+
+	operationID, err := newBackgroundWorkID("operation")
+	if err != nil {
+		return BackgroundOperation{}, err
+	}
+	taskID, err := newBackgroundWorkID("task")
+	if err != nil {
+		return BackgroundOperation{}, err
+	}
+	taskRequest, err := bindBackgroundChildTask(BackgroundTaskRequest{
+		DedupeKey:     "mutate",
+		Kind:          BackgroundTagMutationTaskKind,
+		SubjectKind:   "operation",
+		SubjectID:     operationID,
+		InputKey:      "v1",
+		ResourceClass: BackgroundTagMutationResourceClass,
+		MaxAttempts:   5,
+	}, operationID, 0)
+	if err != nil {
+		return BackgroundOperation{}, err
+	}
+	checkpointJSON, err := json.Marshal(map[string]int{"version": backgroundTagMutationInputVersion})
+	if err != nil {
+		return BackgroundOperation{}, fmt.Errorf("encode background tag mutation checkpoint: %w", err)
+	}
+	operation, created, err := createDatabaseBackgroundTagMutationWithTask(
+		c,
+		operationID,
+		taskID,
+		BackgroundOperationRequest{
+			Kind:          BackgroundTagMutationOperationKind,
+			Visible:       false,
+			ProgressTotal: 1,
+		},
+		request.MaxPending,
 		request.Mutation,
 		selectorJSON,
 		tagsJSON,
@@ -110,27 +128,16 @@ func (c *Client) CreateBackgroundTagMutation(request BackgroundTagMutationReques
 		request.FileIDs,
 		targetQuery,
 		targetArgs,
-	); err != nil {
+		checkpointJSON,
+		taskRequest,
+	)
+	if err != nil {
 		return BackgroundOperation{}, err
 	}
-
-	if _, err := c.AttachBackgroundTaskAndRevealOperation(
-		operation.ID,
-		map[string]int{"version": backgroundTagMutationInputVersion},
-		BackgroundTaskRequest{
-			DedupeKey:     "mutate",
-			Kind:          BackgroundTagMutationTaskKind,
-			SubjectKind:   "operation",
-			SubjectID:     operation.ID,
-			InputKey:      "v1",
-			ResourceClass: BackgroundTagMutationResourceClass,
-			MaxAttempts:   5,
-		},
-	); err != nil {
-		return BackgroundOperation{}, err
+	if !created {
+		return BackgroundOperation{}, ErrBackgroundOperationPendingLimit
 	}
-	attached = true
-	operation.Visible = true
+	c.notifyBackgroundOperationChange()
 	return operation, nil
 }
 
@@ -169,6 +176,18 @@ func (c *Client) ListBackgroundTagMutationTargets(operationID string) ([]string,
 }
 
 func (c *Client) ExecuteBackgroundTagMutationQuery(operationID string) error {
+	return c.executeBackgroundTagMutationQuery(BackgroundTask{OperationID: operationID})
+}
+
+func (c *Client) ExecuteClaimedBackgroundTagMutationQuery(task BackgroundTask) error {
+	if task.ID == "" || task.OperationID == "" || task.claimAttempt < 1 {
+		return errors.New("claimed background tag mutation task generation is required")
+	}
+	return c.executeBackgroundTagMutationQuery(task)
+}
+
+func (c *Client) executeBackgroundTagMutationQuery(task BackgroundTask) error {
+	operationID := task.OperationID
 	state, found, err := c.GetBackgroundTagMutation(operationID)
 	if err != nil {
 		return err
@@ -203,7 +222,19 @@ func (c *Client) ExecuteBackgroundTagMutationQuery(operationID string) error {
 	if err := c.persistBackgroundTagMutationResultTx(tx, operationID, result); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if task.ID != "" {
+		if err := completeDatabaseBackgroundTaskAttemptTx(c, tx, task); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	c.notifyBackgroundOperationChange()
+	if task.ID != "" {
+		return backgroundTaskFinalizedByHandlerError()
+	}
+	return nil
 }
 
 func (c *Client) ExecuteBackgroundTagMutationPaths(operationID string, paths []string) error {
@@ -232,7 +263,11 @@ func (c *Client) ExecuteBackgroundTagMutationPaths(operationID string, paths []s
 		if err := c.persistBackgroundTagMutationResultTx(tx, operationID, types.TagOperationResult{}); err != nil {
 			return err
 		}
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		c.notifyBackgroundOperationChange()
+		return nil
 	}
 	kind, err := backgroundTagMutationKind(state.Mutation, state.Tags)
 	if err != nil {
@@ -249,6 +284,9 @@ func (c *Client) ExecuteBackgroundTagMutationPaths(operationID string, paths []s
 		result := backgroundTagOperationResult(analysis, int(affectedCount), movesHandled)
 		return c.persistBackgroundTagMutationResultTx(tx, operationID, result)
 	})
+	if err == nil {
+		c.notifyBackgroundOperationChange()
+	}
 	return err
 }
 

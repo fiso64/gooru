@@ -128,6 +128,19 @@ func TestRunnerCompletesSuccessfulTask(t *testing.T) {
 	}
 }
 
+func TestRunnerSkipsCompletionForAtomicallyFinalizedHandler(t *testing.T) {
+	store := &fakeTaskStore{}
+	runner := newTestRunner(t, store, map[string]Handler{"thumbnail": func(context.Context, database.BackgroundTask) error { return ErrTaskFinalizedByHandler }})
+	if err := runner.runClaimed(context.Background(), database.BackgroundTask{ID: "task-finalized", Kind: "thumbnail"}); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if len(store.completed) != 0 || len(store.failed) != 0 {
+		t.Fatalf("runner wrote a second outcome: completed=%#v failed=%#v", store.completed, store.failed)
+	}
+}
+
 func TestRunnerRetriesHandlerFailure(t *testing.T) {
 	store := &fakeTaskStore{}
 	runner := newTestRunner(t, store, map[string]Handler{"thumbnail": func(context.Context, database.BackgroundTask) error { return errors.New("decoder unavailable") }})

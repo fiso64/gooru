@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	core "gooru.local/gooru"
 	"gooru.local/types"
@@ -83,6 +84,49 @@ func TestTagMutationAsyncReturnsDurableOperation(t *testing.T) {
 	}
 }
 
+func TestWaitForDurableTagMutationRequiresCompletedOperation(t *testing.T) {
+	dir := t.TempDir()
+	server, client := newTestBrowseServerAt(t, dir, filepath.Join(dir, "gooru.db"))
+	defer client.Close()
+	selector := TagMutationSelector{Query: "kind:image"}
+	operation, err := client.CreateBackgroundTagMutation(core.BackgroundTagMutationRequest{
+		Mutation: "add", Selector: selector, Tags: []string{"reviewed"},
+		Query: selector.Query, MaxPending: defaultDurableTagMutationPendingLimit,
+	})
+	if err != nil {
+		t.Fatalf("create mutation: %v", err)
+	}
+	if err := client.ExecuteBackgroundTagMutationQuery(operation.ID); err != nil {
+		t.Fatalf("persist result: %v", err)
+	}
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer shortCancel()
+	if _, err := waitForDurableTagMutation(shortCtx, server.backgroundOperations, operation.ID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait returned before durable task completion: %v", err)
+	}
+	runtime, err := server.NewBackgroundRuntime(client, "tag-mutation-completion-test")
+	if err != nil {
+		t.Fatalf("create runtime: %v", err)
+	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(runCtx) }()
+	defer func() {
+		cancelRun()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("stop runtime: %v", err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	response, err := waitForDurableTagMutation(ctx, server.backgroundOperations, operation.ID)
+	if err != nil {
+		t.Fatalf("wait for completed mutation: %v", err)
+	}
+	if response.MatchedFiles < 1 || response.AffectedCount < 1 || response.Operation != TagOperationAdd {
+		t.Fatalf("unexpected completed result: %+v", response)
+	}
+}
 func TestTagMutationQueueFullReturnsStableJSONError(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")

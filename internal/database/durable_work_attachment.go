@@ -14,30 +14,43 @@ func (s *Store) AttachBackgroundTaskAndRevealOperation(operationID string, check
 	if s == nil || s.DB == nil {
 		return BackgroundTask{}, errors.New("background operation store is required")
 	}
-	if operationID == "" {
-		return BackgroundTask{}, errors.New("background operation id is required")
-	}
-
 	tx, err := s.Begin()
 	if err != nil {
 		return BackgroundTask{}, fmt.Errorf("begin background operation attachment: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Make the first statement a write. With SQLite WAL, reading first and then
-	// upgrading the snapshot to a writer can fail immediately with SQLITE_BUSY if
-	// an idle durable worker commits between the read and write; busy_timeout does
-	// not make that stale snapshot upgrade retryable. The checkpoint write acquires
-	// writer ownership up front, and any later reservation-validation failure rolls
-	// it back with the rest of this transaction.
-	if err := s.setBackgroundOperationCheckpoint(tx, operationID, checkpointJSON); err != nil {
+	attachedTask, err := s.attachBackgroundTaskAndRevealOperation(tx, operationID, checkpointJSON, task)
+	if err != nil {
+		return BackgroundTask{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return BackgroundTask{}, fmt.Errorf("commit background operation attachment: %w", err)
+	}
+	return attachedTask, nil
+}
+
+func (s *Store) attachBackgroundTaskAndRevealOperation(q Querier, operationID string, checkpointJSON []byte, task NewBackgroundTask) (BackgroundTask, error) {
+	if q == nil {
+		return BackgroundTask{}, errors.New("background operation querier is required")
+	}
+	if operationID == "" {
+		return BackgroundTask{}, errors.New("background operation id is required")
+	}
+
+	// Make the first statement a write for standalone attachment transactions.
+	// With SQLite WAL, reading first and then upgrading the snapshot to a writer
+	// can fail immediately with SQLITE_BUSY if another writer commits between
+	// the read and write. Atomic producer transactions may already own the writer
+	// slot; repeating this checkpoint write is still part of the same commit.
+	if err := s.setBackgroundOperationCheckpoint(q, operationID, checkpointJSON); err != nil {
 		return BackgroundTask{}, err
 	}
 
 	var visible int
 	var status string
 	var attached int
-	if err := tx.QueryRow(`
+	if err := q.QueryRow(`
 		SELECT visible, status,
 		       (SELECT count(*) FROM background_tasks WHERE operation_id = background_operations.id)
 		FROM background_operations
@@ -53,18 +66,78 @@ func (s *Store) AttachBackgroundTaskAndRevealOperation(operationID string, check
 	}
 
 	task.OperationID = operationID
-	attachedTask, created, err := s.EnqueueBackgroundTask(tx, task)
+	attachedTask, created, err := s.EnqueueBackgroundTask(q, task)
 	if err != nil {
 		return BackgroundTask{}, fmt.Errorf("attach background child task: %w", err)
 	}
 	if !created {
 		return BackgroundTask{}, errors.New("attach background child task: scoped dedupe key already active")
 	}
-	if err := s.setBackgroundOperationVisible(tx, operationID, true); err != nil {
+	if err := s.setBackgroundOperationVisible(q, operationID, true); err != nil {
 		return BackgroundTask{}, fmt.Errorf("reveal background operation: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return BackgroundTask{}, fmt.Errorf("commit background operation attachment: %w", err)
-	}
 	return attachedTask, nil
+}
+
+func (s *Store) CreateBackgroundTagMutationWithTask(
+	operation NewBackgroundOperation,
+	maxPending int,
+	mutation string,
+	selectorJSON []byte,
+	tagsJSON []byte,
+	targetKind string,
+	targetIDs []string,
+	targetQuery string,
+	targetArgs []interface{},
+	checkpointJSON []byte,
+	task NewBackgroundTask,
+) (BackgroundOperation, bool, error) {
+	if s == nil || s.DB == nil {
+		return BackgroundOperation{}, false, errors.New("background operation store is required")
+	}
+	if operation.Visible {
+		return BackgroundOperation{}, false, errors.New("background tag mutation must start hidden")
+	}
+	tx, err := s.Begin()
+	if err != nil {
+		return BackgroundOperation{}, false, fmt.Errorf("begin background tag mutation transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stored, created, err := s.createBackgroundOperationWithPendingLimit(
+		tx,
+		operation.ID,
+		operation.Kind,
+		false,
+		operation.ProgressTotal,
+		maxPending,
+	)
+	if err != nil || !created {
+		return BackgroundOperation{}, created, err
+	}
+	if _, err := s.createBackgroundTagMutationSnapshot(
+		tx,
+		stored.ID,
+		mutation,
+		selectorJSON,
+		tagsJSON,
+		targetKind,
+		targetIDs,
+		targetQuery,
+		targetArgs,
+	); err != nil {
+		return BackgroundOperation{}, false, err
+	}
+	if task.OperationID != "" && task.OperationID != stored.ID {
+		return BackgroundOperation{}, false, errors.New("background tag mutation task belongs to a different operation")
+	}
+	task.OperationID = stored.ID
+	if _, err := s.attachBackgroundTaskAndRevealOperation(tx, stored.ID, checkpointJSON, task); err != nil {
+		return BackgroundOperation{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return BackgroundOperation{}, false, fmt.Errorf("commit background tag mutation transaction: %w", err)
+	}
+	stored.Visible = true
+	return stored, true, nil
 }

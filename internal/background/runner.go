@@ -23,6 +23,9 @@ const (
 // slot when several resource workers recover at once.
 var leaseRecoveryMu sync.Mutex
 
+// ErrTaskFinalizedByHandler indicates that the handler atomically committed its domain result and task completion.
+var ErrTaskFinalizedByHandler = errors.New("background task finalized by handler transaction")
+
 type TaskStore interface {
 	RecoverExpiredBackgroundTaskLeases(time.Time) (int, error)
 	ClaimNextBackgroundTask(resourceClass, workerID string, now time.Time, leaseDuration time.Duration) (database.BackgroundTask, bool, error)
@@ -194,15 +197,22 @@ func (r *Runner) runClaimed(ctx context.Context, task database.BackgroundTask) e
 	go r.renewLease(handlerCtx, cancel, task.ID, stopRenew, renewDone)
 
 	err := handler(handlerCtx, task)
+	handlerFinalized := errors.Is(err, ErrTaskFinalizedByHandler)
 	close(stopRenew)
 	renewErr := <-renewDone
 
 	if renewErr != nil {
+		if handlerFinalized && errors.Is(renewErr, database.ErrBackgroundTaskLeaseLost) {
+			return nil
+		}
 		// Lease loss is the ownership boundary. Never write a handler outcome after it.
 		if errors.Is(renewErr, database.ErrBackgroundTaskLeaseLost) {
 			return r.recoverLeaseLoss(ctx, task.ID)
 		}
 		return fmt.Errorf("renew background task %s lease: %w", task.ID, renewErr)
+	}
+	if handlerFinalized {
+		return nil
 	}
 	if ctx.Err() != nil {
 		// Leave the task leased. Restart recovery will abandon/requeue it after expiry,

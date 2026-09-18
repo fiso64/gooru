@@ -107,7 +107,7 @@
     () => library.route === 'library',
     () => $runtimeConfig.itemsPerPage,
     () => pagedMode,
-    () => library.page - 1
+    () => (pagedMode ? library.page : library.transportPage) - 1
   );
   const sidebarBaseQuery = $derived(queryWithoutSidebarKind($submittedSearch));
   const kindFacetsQuery = createFileFacetsQuery(() => Boolean($authState.user), () => sidebarBaseQuery, () => authScope, () => library.route === 'library' && sidebarBaseQuery !== $submittedSearch);
@@ -960,10 +960,11 @@
         hasPreviousPage={Boolean(filesQuery.hasPreviousPage)}
         isFetchingPreviousPage={Boolean(filesQuery.isFetchingPreviousPage)}
         {pagedMode}
+        deferPreviousLoad={Boolean(library.pendingPreviewID && !pagedMode && library.transportPage > 1)}
         pageNumber={library.page}
         pageCount={pagedPageCount}
         bind:loadMoreSentinel
-        onOpen={library.openPreview}
+        onOpen={(file, files) => library.openPreview(file, files, retainedStartIndex, $runtimeConfig.itemsPerPage)}
         onToggleSelect={library.toggleSelect}
         onExtendSelection={library.extendSelection}
         onSelectAll={selectAllFiles}

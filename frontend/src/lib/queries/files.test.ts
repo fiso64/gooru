@@ -38,6 +38,38 @@ describe('files query options', () => {
     expect(requests[1].url).not.toContain('include_facets=true');
   });
 
+
+  it('starts infinite transport at a restored viewer page and requests facets there', async () => {
+    const requests: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = new Request(input, init);
+      requests.push(`${new URL(request.url).pathname}${new URL(request.url).search}`);
+      return Response.json({ files: [], next_page_token: '', previous_page_token: '240', total_count: 360, library_count: 360 });
+    }) as typeof fetch;
+
+    const options = filesQueryOptions(
+      () => true,
+      () => '',
+      () => '',
+      () => 'modified',
+      () => 'desc',
+      () => 8,
+      () => pageLimit,
+      () => false,
+      () => 5
+    );
+    const signal = new AbortController().signal;
+    const client = new QueryClient();
+
+    expect(pageTokenOffset(options.initialPageParam)).toBe(300);
+    expect(options.queryKey.at(-1)).toBe('infinite:5');
+    await options.queryFn({ client, pageParam: options.initialPageParam, signal, queryKey: options.queryKey, direction: 'forward', meta: undefined });
+
+    const url = new URL(requests[0], 'http://localhost');
+    expect(pageTokenOffset(url.searchParams.get('page_token') ?? '')).toBe(300);
+    expect(url.searchParams.get('include_facets')).toBe('true');
+  });
+
   it('does not expose placeholder rows for a changed library query', () => {
     const options = filesQueryOptions(
       () => true,

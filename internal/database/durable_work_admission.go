@@ -11,6 +11,13 @@ import (
 // already pending. The limit check and insert are one SQLite statement so
 // concurrent producers cannot over-admit through a read-before-write race.
 func (s *Store) CreateBackgroundOperationWithPendingLimit(id string, kind string, visible bool, progressTotal int64, maxPending int) (BackgroundOperation, bool, error) {
+	return s.createBackgroundOperationWithPendingLimit(s, id, kind, visible, progressTotal, maxPending)
+}
+
+func (s *Store) createBackgroundOperationWithPendingLimit(q Querier, id string, kind string, visible bool, progressTotal int64, maxPending int) (BackgroundOperation, bool, error) {
+	if q == nil {
+		return BackgroundOperation{}, false, errors.New("background operation querier is required")
+	}
 	if id == "" {
 		return BackgroundOperation{}, false, errors.New("background operation id is required")
 	}
@@ -29,7 +36,7 @@ func (s *Store) CreateBackgroundOperationWithPendingLimit(id string, kind string
 	if visible {
 		visibleValue = 1
 	}
-	result, err := s.Exec(`
+	result, err := q.Exec(`
 		INSERT INTO background_operations
 			(id, kind, visible, status, progress_total, created_at)
 		SELECT ?, ?, ?, 'pending', ?, ?

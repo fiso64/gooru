@@ -15,7 +15,7 @@ export type SortOrder = 'asc' | 'desc';
 export const fileKeys = {
   all: ['files'] as const,
   pages: (scope: number, query: string, kind: string, sort: FileSort, order: SortOrder, limit: number, paged: boolean, pageIndex: number) =>
-    ['files', 'pages', scope, query, kind, sort, order, limit, paged ? `paged:${pageIndex}` : 'infinite'] as const,
+    ['files', 'pages', scope, query, kind, sort, order, limit, paged ? `paged:${pageIndex}` : (pageIndex > 0 ? `infinite:${pageIndex}` : 'infinite')] as const,
   count: (scope: number, query: string) => ['files', 'count', scope, query] as const,
   facets: (scope: number, query: string) => ['files', 'facets', scope, query] as const,
   suggestions: (scope: number, q: string, existing: string) => ['files', 'suggestions', scope, q, existing] as const
@@ -113,11 +113,12 @@ export function filesQueryOptions(
 ) {
   const limit = getPageLimit();
   const paged = getPaged();
-  const pageIndex = paged ? Math.max(0, Math.floor(getPageIndex())) : 0;
+  const pageIndex = Math.max(0, Math.floor(getPageIndex()));
+  const initialPageParam = offsetPageToken(pageIndex, limit);
   return {
     queryKey: fileKeys.pages(getAuthScope(), getSearch(), getKind(), getSort(), getOrder(), limit, paged, pageIndex),
     enabled: getAuthenticated(),
-    initialPageParam: paged ? offsetPageToken(pageIndex, limit) : '',
+    initialPageParam,
     queryFn: ({ pageParam, signal }: QueryFunctionContext<ReturnType<typeof fileKeys.pages>, string>) =>
       new ApiClient().listFiles({
         query: queryWithKind(getSearch(), getKind()),
@@ -125,7 +126,7 @@ export function filesQueryOptions(
         pageToken: pageParam || undefined,
         sort: getSort(),
         order: getOrder(),
-        includeFacets: paged || !pageParam,
+        includeFacets: paged || pageParam === initialPageParam,
         signal
       }),
     getNextPageParam: (lastPage: FileListResponse) => lastPage.next_page_token || undefined,
