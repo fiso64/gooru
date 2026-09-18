@@ -12,7 +12,6 @@
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
-  import type { UploadStagedTagOperation } from '$lib/state/uploadWorkflow.svelte';
   import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, summarizeUploadQueueBatch, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
   import { uploadItemCanOpenViewer, uploadViewerScope, type UploadViewerScope } from '$lib/state/uploadViewer';
 
@@ -35,7 +34,6 @@
     onFiles,
     onTagsInput,
     onItemTagsInput,
-    onStagedTags,
     onItemRemoteTagsLoaded,
     onAddedAtStrategyInput,
     onAutoUploadInput,
@@ -65,7 +63,6 @@
     onFiles: (files: FileList | File[] | null) => void;
     onTagsInput: (value: string) => void;
     onItemTagsInput: (index: number, tags: string[]) => void;
-    onStagedTags: (operation: UploadStagedTagOperation, tags: string[]) => void;
     onItemRemoteTagsLoaded: (index: number, tags: string[], expectedBaseTags: string[] | undefined) => void;
     onAddedAtStrategyInput: (value: 'queue' | 'reverse_queue' | 'modtime') => void;
     onAutoUploadInput: (value: boolean) => void;
