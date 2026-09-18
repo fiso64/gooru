@@ -20,6 +20,7 @@ type fakeBackgroundOperationReader struct {
 	listOptions core.BackgroundOperationListOptions
 	listErr     error
 	getErr      error
+	batchIDs    []string
 	resultErr   error
 	cancelErr   error
 	canceledID  string
