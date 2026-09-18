@@ -91,11 +91,12 @@ export function uploadShortcutAction(
   return 'submit-upload';
 }
 
-export type LibraryShortcutAction = 'select-all' | 'tag-selected' | 'untag-selected' | 'untrack-selected' | 'delete-selected' | null;
+export type LibraryShortcutAction = 'select-all' | 'download-selected' | 'tag-selected' | 'untag-selected' | 'untrack-selected' | 'delete-selected' | null;
 
 export function libraryShortcutAction(key: string, selectedCount: number, shiftKey = false): LibraryShortcutAction {
   switch (key.toLowerCase()) {
     case 'a': return 'select-all';
+    case 'd': return selectedCount > 0 ? 'download-selected' : null;
     case 't': return selectedCount > 0 ? 'tag-selected' : null;
     case 'u': return selectedCount > 0 ? 'untag-selected' : null;
     case 'delete': return selectedCount > 0 ? (shiftKey ? 'delete-selected' : 'untrack-selected') : null;

@@ -12,6 +12,7 @@
   import TagsView from '$lib/components/TagsView.svelte';
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient, ApiError } from '$lib/api/client';
+  import { createFileDownload } from '$lib/api/fileDownloads';
   import { createFileSelection, deleteFileSelection, fileSelectionMembers } from '$lib/api/fileSelections';
   import { authState } from '$lib/stores/auth';
   import { runtimeConfig, type PaginationMode } from '$lib/stores/runtimeConfig';
@@ -63,6 +64,9 @@
   let loadMoreSentinel = $state<HTMLDivElement | undefined>();
   let cancelRequestedJobID = $state('');
   let jobsDrawerOpen = $state(false);
+  let bulkDownloadBusy = $state(false);
+  let bulkDownloadError = $state('');
+  let bulkDownloadURL = $state('');
   let nestedPreviewNavigation = $state(false);
   let observedItemsPerPage = $state($runtimeConfig.itemsPerPage);
   let trackUploadResults = $state(false);
@@ -166,6 +170,9 @@
     uploadResultsFloor = 0;
     cancelRequestedJobID = '';
     jobsDrawerOpen = false;
+    bulkDownloadBusy = false;
+    bulkDownloadError = '';
+    bulkDownloadURL = '';
     stopUploadMetadataRefresh();
     closeActionDialog();
   });
@@ -225,6 +232,10 @@
   });
 
   $effect(() => {
+    if (selectedCount === 0) bulkDownloadError = '';
+  });
+
+  $effect(() => {
     const nextSnapshotID = library.selectionSnapshotID;
     const csrf = $authState.csrfToken;
     if (nextSnapshotID === observedSelectionSnapshotID) return;
@@ -279,6 +290,7 @@
       if (action) {
         event.preventDefault();
         if (action === 'select-all') selectAllFiles();
+        else if (action === 'download-selected') void bulkDownloadSelected();
         else if (action === 'tag-selected') bulkTagSelected();
         else if (action === 'untag-selected') bulkUntagSelected();
         else if (action === 'untrack-selected') bulkUntrackSelected();
@@ -406,6 +418,25 @@
 
   function bulkDeleteSelected() {
     actionDialog = { kind: 'bulk-delete-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
+  }
+
+  async function bulkDownloadSelected() {
+    if (bulkDownloadBusy || selectedCount <= 0) return;
+    bulkDownloadBusy = true;
+    bulkDownloadError = '';
+    try {
+      const selector = await ensureSelectionReady();
+      const download = await createFileDownload($authState.csrfToken, selector);
+      const url = new URL(download.url, window.location.origin);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/v1/file-downloads/')) {
+        throw new Error('Server returned an invalid file download URL.');
+      }
+      bulkDownloadURL = url.href;
+    } catch (error) {
+      bulkDownloadError = errorMessage(error);
+    } finally {
+      bulkDownloadBusy = false;
+    }
   }
 
   function isBulkTagDialog(kind = actionDialog.kind) {
@@ -798,6 +829,8 @@
         libraryCount={liveLibraryCount}
         searchActive={Boolean($submittedSearch)}
         selectedCount={selectedCount}
+        {bulkDownloadBusy}
+        {bulkDownloadError}
         isSelected={library.isSelected}
         hasNextPage={Boolean(filesQuery.hasNextPage)}
         isFetchingNextPage={Boolean(filesQuery.isFetchingNextPage)}
@@ -811,6 +844,7 @@
         onToggleSelect={library.toggleSelect}
         onSelectAll={selectAllFiles}
         onClearSelection={library.clearSelection}
+        onBulkDownload={bulkDownloadSelected}
         onBulkTag={bulkTagSelected}
         onBulkUntag={bulkUntagSelected}
         onBulkUntrack={bulkUntrackSelected}
@@ -857,6 +891,10 @@
       </MediaGrid>
     {/if}
   </AppShell>
+
+  {#if bulkDownloadURL}
+    <iframe title="Bulk download" src={bulkDownloadURL} aria-hidden="true" tabindex="-1" style="display: none"></iframe>
+  {/if}
 
   {#if library.activeFile}
     <PreviewDialog

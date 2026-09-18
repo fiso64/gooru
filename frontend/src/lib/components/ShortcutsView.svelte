@@ -42,6 +42,7 @@
     name: 'Selection',
     items: [
       { keys: ['a'], description: 'Select all files in the current view' },
+      { keys: ['d'], description: 'Download selected files' },
       { keys: ['t'], description: 'Tag selected files' },
       { keys: ['u'], description: 'Untag selected files' },
       { keys: ['Del'], description: 'Remove selected files from library' },

@@ -66,10 +66,13 @@ describe('global shortcut target policy', () => {
   it('maps library action shortcuts without enabling tag actions for an empty selection', () => {
     expect(libraryShortcutAction('a', 0)).toBe('select-all');
     expect(libraryShortcutAction('A', 3)).toBe('select-all');
+    expect(libraryShortcutAction('d', 2)).toBe('download-selected');
+    expect(libraryShortcutAction('D', 2)).toBe('download-selected');
     expect(libraryShortcutAction('t', 2)).toBe('tag-selected');
     expect(libraryShortcutAction('u', 2)).toBe('untag-selected');
     expect(libraryShortcutAction('Delete', 2)).toBe('untrack-selected');
     expect(libraryShortcutAction('Delete', 2, true)).toBe('delete-selected');
+    expect(libraryShortcutAction('d', 0)).toBeNull();
     expect(libraryShortcutAction('t', 0)).toBeNull();
     expect(libraryShortcutAction('u', 0)).toBeNull();
     expect(libraryShortcutAction('Delete', 0)).toBeNull();
