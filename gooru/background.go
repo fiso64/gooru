@@ -284,42 +284,31 @@ func (c *Client) EnqueueBackgroundTask(request BackgroundTaskRequest) (task Back
 			}
 			return task, created, err
 		}
-
-		tx, err := c.store.Begin()
-		if err != nil {
-			return BackgroundTask{}, false, fmt.Errorf("begin background task transaction: %w", err)
+	} else {
+		if request.OperationID != "" && request.OperationBinding != BackgroundOperationAssociateWithProducer {
+			return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
 		}
-		defer func() { _ = tx.Rollback() }()
-		task, created, err = c.enqueueBackgroundTask(tx, request)
-		if err != nil {
-			return BackgroundTask{}, false, err
+		if request.OperationBinding == BackgroundOperationAssociateWithProducer && request.OperationID == "" {
+			return BackgroundTask{}, false, fmt.Errorf("associated background operation requires a producer operation id")
 		}
-		if err := tx.Commit(); err != nil {
-			return BackgroundTask{}, false, fmt.Errorf("commit background task transaction: %w", err)
-		}
-		if created && task.OperationID != "" {
-			c.notifyBackgroundOperationChange()
-		}
-		return task, created, nil
-	}
-	if request.OperationID != "" && request.OperationBinding != BackgroundOperationAssociateWithProducer {
-		return BackgroundTask{}, false, fmt.Errorf("background task cannot declare both operation id and operation request")
-	}
-	if request.OperationBinding == BackgroundOperationAssociateWithProducer && request.OperationID == "" {
-		return BackgroundTask{}, false, fmt.Errorf("associated background operation requires a producer operation id")
 	}
 
-	binding := request.OperationBinding
+	return c.enqueueBackgroundTaskTransaction(request)
+}
+
+func (c *Client) enqueueBackgroundTaskTransaction(request BackgroundTaskRequest) (task BackgroundTask, created bool, err error) {
+	requireCreated := request.Operation != nil && request.OperationBinding == BackgroundOperationCreateNew
 	tx, err := c.store.Begin()
 	if err != nil {
 		return BackgroundTask{}, false, fmt.Errorf("begin background task transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
 	task, created, err = c.enqueueBackgroundTask(tx, request)
 	if err != nil {
 		return BackgroundTask{}, false, err
 	}
-	if !created && binding == BackgroundOperationCreateNew {
+	if !created && requireCreated {
 		return BackgroundTask{}, false, fmt.Errorf("new background operation child task dedupe key already active")
 	}
 	if err := tx.Commit(); err != nil {
