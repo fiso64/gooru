@@ -82,35 +82,39 @@ func TestBatchGetTagsRespectsVariableBudget(t *testing.T) {
 
 func TestBatchGetOrCreateTagsBatchesInserts(t *testing.T) {
 	store := newMemoryTestStore(t)
-	parsedTags := []types.ParsedTag{
-		{Key: "batched-one"},
-		{Key: "batched-two", Value: "value"},
-		{Key: "batched-three"},
+	const tagCount = maxVars/2 + 1
+	parsedTags := make([]types.ParsedTag, tagCount)
+	for i := range parsedTags {
+		parsedTags[i] = types.ParsedTag{Key: fmt.Sprintf("batched-%04d", i)}
 	}
+
 	counting := &tagBatchCountingQuerier{Querier: store.DB}
 	got, err := store.BatchGetOrCreateTags(counting, parsedTags)
 	if err != nil {
 		t.Fatalf("BatchGetOrCreateTags: %v", err)
 	}
-	if counting.insertExecs != 1 {
-		t.Fatalf("tag insert Exec calls = %d, want 1 for one missing-tag batch", counting.insertExecs)
+	if counting.insertExecs != 2 {
+		t.Fatalf("tag insert Exec calls = %d, want 2 for %d tags", counting.insertExecs, tagCount)
 	}
 	if counting.maxInsertArgs > maxVars {
 		t.Fatalf("largest tag insert used %d bind variables, max %d", counting.maxInsertArgs, maxVars)
 	}
-
-	wantKeys := []string{"batched-one", "batched-two:value", "batched-three"}
-	for _, key := range wantKeys {
+	if len(got) != tagCount {
+		t.Fatalf("created tag IDs = %d, want %d", len(got), tagCount)
+	}
+	for _, index := range []int{0, maxVars/2 - 1, maxVars / 2} {
+		key := parsedTags[index].Key
 		if got[key] <= 0 {
 			t.Fatalf("missing ID for created tag %q", key)
 		}
 	}
+
 	var count int
 	if err := store.QueryRow("SELECT COUNT(*) FROM tags WHERE key LIKE 'batched-%'").Scan(&count); err != nil {
 		t.Fatalf("count created tags: %v", err)
 	}
-	if count != len(parsedTags) {
-		t.Fatalf("created tag count = %d, want %d", count, len(parsedTags))
+	if count != tagCount {
+		t.Fatalf("created tag count = %d, want %d", count, tagCount)
 	}
 }
 
