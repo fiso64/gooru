@@ -78,14 +78,18 @@ func (s *Store) failBackgroundOperation(operationID string, failedAt time.Time, 
 	result.Failed = true
 
 	var childTasks int64
+	var completedTasks int64
+	var failedTasks int64
 	var latestRunningLease sql.NullInt64
 	if err := tx.QueryRow(`
 		SELECT COUNT(*),
 		       COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0),
 		       MAX(CASE WHEN status = 'running' THEN lease_expires_at END)
 		FROM background_tasks
 		WHERE operation_id = ?
-	`, operationID).Scan(&childTasks, &result.RunningTasks, &latestRunningLease); err != nil {
+	`, operationID).Scan(&childTasks, &result.RunningTasks, &completedTasks, &failedTasks, &latestRunningLease); err != nil {
 		return BackgroundOperationFailure{}, fmt.Errorf("inspect background operation tasks during failure: %w", err)
 	}
 	if result.RunningTasks > 0 && !latestRunningLease.Valid {
@@ -117,16 +121,10 @@ func (s *Store) failBackgroundOperation(operationID string, failedAt time.Time, 
 	}
 	if _, err := tx.Exec(`
 		UPDATE background_operations
-		SET progress_completed = (
-		        SELECT count(*) FROM background_tasks
-		        WHERE operation_id = ? AND status = 'completed'
-		    ),
-		    progress_failed = (
-		        SELECT count(*) FROM background_tasks
-		        WHERE operation_id = ? AND status = 'failed'
-		    )
+		SET progress_completed = ?,
+		    progress_failed = ?
 		WHERE id = ?
-	`, operationID, operationID, operationID); err != nil {
+	`, completedTasks, failedTasks, operationID); err != nil {
 		return BackgroundOperationFailure{}, fmt.Errorf("refresh failed background operation progress: %w", err)
 	}
 
