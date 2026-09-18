@@ -50,6 +50,44 @@ func bindBatches[T any](values []T) iter.Seq2[string, []any] {
 // bindPairBatches yields SQLite-sized two-column row batches. The row
 // placeholder string is supplied by the caller so existing SQL formatting can
 // remain unchanged while the chunking and argument-buffer logic is shared.
+func bindRowBatchesReserved[T any](
+	values []T,
+	rowPlaceholders string,
+	columns int,
+	reservedArgs int,
+	fill func([]any, T, int),
+) iter.Seq2[string, []any] {
+	return func(yield func(string, []any) bool) {
+		if len(values) == 0 {
+			return
+		}
+
+		batchSize := min(len(values), (maxVars-reservedArgs)/columns)
+		placeholders := strings.TrimSuffix(strings.Repeat(rowPlaceholders+",", batchSize), ",")
+		args := make([]any, batchSize*columns, batchSize*columns+reservedArgs)
+
+		for start := 0; start < len(values); start += batchSize {
+			batch := values[start:min(start+batchSize, len(values))]
+			for i, value := range batch {
+				fill(args[i*columns:(i+1)*columns], value, start+i)
+			}
+			placeholderLen := len(batch)*(len(rowPlaceholders)+1) - 1
+			if !yield(placeholders[:placeholderLen], args[:len(batch)*columns]) {
+				return
+			}
+		}
+	}
+}
+
+func bindRowBatches[T any](
+	values []T,
+	rowPlaceholders string,
+	columns int,
+	fill func([]any, T, int),
+) iter.Seq2[string, []any] {
+	return bindRowBatchesReserved(values, rowPlaceholders, columns, 0, fill)
+}
+
 func bindPairBatches[T any](
 	values []T,
 	rowPlaceholders string,
@@ -64,27 +102,9 @@ func bindPairBatchesReserved[T any](
 	reservedArgs int,
 	fields func(T) (any, any),
 ) iter.Seq2[string, []any] {
-	return func(yield func(string, []any) bool) {
-		if len(values) == 0 {
-			return
-		}
-
-		const columns = 2
-		batchSize := min(len(values), (maxVars-reservedArgs)/columns)
-		placeholders := strings.TrimSuffix(strings.Repeat(rowPlaceholders+",", batchSize), ",")
-		args := make([]any, batchSize*columns, batchSize*columns+reservedArgs)
-
-		for start := 0; start < len(values); start += batchSize {
-			batch := values[start:min(start+batchSize, len(values))]
-			for i, value := range batch {
-				args[i*columns], args[i*columns+1] = fields(value)
-			}
-			placeholderLen := len(batch)*(len(rowPlaceholders)+1) - 1
-			if !yield(placeholders[:placeholderLen], args[:len(batch)*columns]) {
-				return
-			}
-		}
-	}
+	return bindRowBatchesReserved(values, rowPlaceholders, 2, reservedArgs, func(args []any, value T, _ int) {
+		args[0], args[1] = fields(value)
+	})
 }
 
 func parsedTagBindBatches(tags []types.ParsedTag) iter.Seq2[string, []any] {
