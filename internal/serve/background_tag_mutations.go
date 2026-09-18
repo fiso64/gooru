@@ -157,6 +157,10 @@ func waitForDurableTagMutation(ctx context.Context, operations backgroundOperati
 		select {
 		case <-ctx.Done():
 			return TagMutationResponse{}, ctx.Err()
+		case _, open := <-changes:
+			if !open {
+				changes = nil
+			}
 		case <-ticker.C:
 		}
 	}
