@@ -7,17 +7,19 @@ import (
 	"gooru.local/types"
 )
 
-// bindBatches yields SQLite-sized placeholder and argument batches. It reuses
-// one argument buffer and one placeholder string across yields, so callers must
-// consume each args slice synchronously.
-func bindBatches[T any](values []T) iter.Seq2[string, []any] {
+// bindValueBatches yields SQLite-sized one-column placeholder and argument
+// batches. The placeholder form is caller-supplied so the same chunking can
+// serve both IN lists ("?") and VALUES rows ("(?)"). It reuses one argument
+// buffer and one placeholder string across yields, so callers must consume each
+// args slice synchronously.
+func bindValueBatches[T any](values []T, valuePlaceholder string) iter.Seq2[string, []any] {
 	return func(yield func(string, []any) bool) {
 		if len(values) == 0 {
 			return
 		}
 
 		batchSize := min(len(values), maxVars)
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", batchSize), ",")
+		placeholders := strings.TrimSuffix(strings.Repeat(valuePlaceholder+",", batchSize), ",")
 		args := make([]any, batchSize)
 
 		for start := 0; start < len(values); start += batchSize {
@@ -25,11 +27,16 @@ func bindBatches[T any](values []T) iter.Seq2[string, []any] {
 			for i, value := range batch {
 				args[i] = value
 			}
-			if !yield(placeholders[:2*len(batch)-1], args[:len(batch)]) {
+			placeholderLen := len(batch)*(len(valuePlaceholder)+1) - 1
+			if !yield(placeholders[:placeholderLen], args[:len(batch)]) {
 				return
 			}
 		}
 	}
+}
+
+func bindBatches[T any](values []T) iter.Seq2[string, []any] {
+	return bindValueBatches(values, "?")
 }
 
 // bindPairBatches yields SQLite-sized two-column row batches. The row
