@@ -5,6 +5,7 @@ on:
     paths:
       - 'frontend/**'
       - 'flake.nix'
+      - 'nix/**'
       - 'flake.lock'
       - 'VERSION'
       - 'internal/buildinfo/**'
@@ -14,6 +15,7 @@ on:
     paths:
       - 'frontend/**'
       - 'flake.nix'
+      - 'nix/**'
       - 'flake.lock'
       - 'VERSION'
       - 'internal/buildinfo/**'
