@@ -21,8 +21,8 @@ func TestIssue841ScaledTagLatency(t *testing.T) {
 	server, client := newTestBrowseServerAt(t, dir, dbPath)
 	defer client.Close()
 
-	extra := make([]string, 0, librarySize-3)
-	for index := 3; index < librarySize; index++ {
+	extra := make([]string, 0, librarySize-2)
+	for index := 0; index < librarySize-2; index++ {
 		ext := ".jpg"
 		switch {
 		case index >= 500 && index < 1240:
@@ -34,12 +34,12 @@ func TestIssue841ScaledTagLatency(t *testing.T) {
 	}
 	for start := 0; start < len(extra); start += 100 {
 		end := min(start+100, len(extra))
-		if _, err := client.TagFiles(extra[start:end], []string{"scale:seed"}, nil, false); err != nil {
+		if _, err := client.TagFiles(extra[start:end], []string{"kind:image", "scale:seed"}, nil, false); err != nil {
 			t.Fatalf("seed scaled library %d:%d: %v", start, end, err)
 		}
 	}
 
-	page := listTestFiles(t, server, "", 1)
+	page := listTestFiles(t, server, "kind:image", 1)
 	if page.TotalCount != librarySize {
 		t.Fatalf("scaled library count = %d, want %d", page.TotalCount, librarySize)
 	}
