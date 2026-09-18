@@ -1781,6 +1781,19 @@ func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{},
 	return scanBasicFileInfos(rows)
 }
 
+// GetFilesInfoByLocationQuerySorted executes a location-ID query and returns all matching rows in a validated order.
+func (s *Store) GetFilesInfoByLocationQuerySorted(query string, args []interface{}, sort string, order string) ([]types.FileInfo, error) {
+	finalQuery := fmt.Sprintf(`
+		WITH result_locations(id) AS (%s)
+		SELECT %s
+		FROM locations l
+		JOIN result_locations rl ON l.id = rl.id
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
+		ORDER BY %s
+	`, query, fileInfoColumns(), fileSortClause(sort, order))
+	return s.scanFileInfos(finalQuery, args...)
+}
+
 // GetFilesInfoByLocationQueryPageSorted executes a location-ID query and returns one bounded keyset page.
 func (s *Store) GetFilesInfoByLocationQueryPageSorted(query string, args []interface{}, limit int, cursor *types.PageCursor, sort string, order string) ([]types.FileInfo, error) {
 	cursorClause, cursorArgs, err := s.fileCursorClause(cursor, sort, order)
@@ -1815,6 +1828,17 @@ func (s *Store) GetFilesInfoByLocationQueryPageSortedOffset(query string, args [
 	`, query, fileInfoColumns(), fileSortClause(sort, order))
 	pagedArgs := append(append([]interface{}{}, args...), limit, offset)
 	return s.scanFileInfos(finalQuery, pagedArgs...)
+}
+
+// GetAllFilesInfoSorted retrieves all tracked files in a validated order.
+func (s *Store) GetAllFilesInfoSorted(sort string, order string) ([]types.FileInfo, error) {
+	query := fmt.Sprintf(`
+		SELECT %s
+		FROM locations l
+		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
+		ORDER BY %s
+	`, fileInfoColumns(), fileSortClause(sort, order))
+	return s.scanFileInfos(query)
 }
 
 // GetAllFilesInfoPageSorted retrieves one bounded keyset page with a validated sort.
