@@ -91,8 +91,9 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if (readOnly || event.isComposing) return;
     onKeydown?.(event);
-    if (event.defaultPrevented || readOnly || event.isComposing) return;
+    if (event.defaultPrevented) return;
     if (event.key === 'ArrowDown' && suggestions.length) {
       event.preventDefault();
       open = true;
