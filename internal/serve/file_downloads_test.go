@@ -178,7 +178,7 @@ func TestBulkDownloadUsesFrozenSelectionWithDeltas(t *testing.T) {
 	}
 }
 
-func TestBulkDownloadReadsProtectedOriginals(t *testing.T) {
+func TestSingleFileDownloadUsesProtectedOriginalSemantics(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "secret.bin")
 	plaintext := []byte("private-download-content")
@@ -201,21 +201,14 @@ func TestBulkDownloadReadsProtectedOriginals(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("download: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	entries := readZipForTest(t, rec.Body.Bytes())
-	if len(entries) != 1 {
-		t.Fatalf("zip entries = %d, want 1", len(entries))
+	if got := rec.Header().Get("Content-Type"); got == "application/zip" {
+		t.Fatalf("single-file download Content-Type = %q, must use original-file semantics", got)
 	}
-	reader, err := entries[0].Open()
-	if err != nil {
-		t.Fatal(err)
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") || !strings.Contains(got, "secret.bin") {
+		t.Fatalf("Content-Disposition = %q, want attachment for secret.bin", got)
 	}
-	got, err := io.ReadAll(reader)
-	_ = reader.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, plaintext) {
-		t.Fatalf("protected zip entry = %q, want original plaintext", got)
+	if got := rec.Body.Bytes(); !bytes.Equal(got, plaintext) {
+		t.Fatalf("single-file body = %q, want original plaintext", got)
 	}
 	if got := rec.Header().Get("Cache-Control"); got != protectedAPICacheControl {
 		t.Fatalf("Cache-Control = %q, want %q", got, protectedAPICacheControl)
