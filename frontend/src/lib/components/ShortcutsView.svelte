@@ -39,14 +39,15 @@
   } as const;
 
   const selectionGroup = {
-    name: 'Selection',
+    name: 'Library actions',
     items: [
       { keys: ['a'], description: 'Select all files in the current view' },
-      { keys: ['d'], description: 'Download selected files' },
-      { keys: ['t'], description: 'Tag selected files' },
-      { keys: ['u'], description: 'Untag selected files' },
-      { keys: ['Del'], description: 'Remove selected files from library' },
-      { keys: ['⇧', 'Del'], description: 'Delete selected files from disk' }
+      { keys: ['d'], description: 'Download selection, or cursor file' },
+      { keys: ['t'], description: 'Tag selection, or cursor file' },
+      { keys: ['Alt', 'Enter'], description: 'Tag selection, or cursor file' },
+      { keys: ['u'], description: 'Untag selection, or cursor file' },
+      { keys: ['Del'], description: 'Remove selection, or cursor file' },
+      { keys: ['⇧', 'Del'], description: 'Delete selection, or cursor file from disk' }
     ]
   } as const;
 
