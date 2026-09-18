@@ -661,23 +661,12 @@ func (s *Store) RemoveLocationsByPathTx(q Querier, paths []string) (int, error) 
 	if len(paths) == 0 {
 		return 0, nil
 	}
-	const columns = 1
-	batchSize := maxVars / columns
 
 	var totalRemoved int
-	for i := 0; i < len(paths); i += batchSize {
-		end := i + batchSize
-		if end > len(paths) {
-			end = len(paths)
-		}
-		batch := paths[i:end]
-
-		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+	for start := 0; start < len(paths); start += maxVars {
+		end := min(start+maxVars, len(paths))
+		placeholders, args := stringBatchArgs(paths[start:end])
 		query := "DELETE FROM locations WHERE path IN (" + placeholders + ")"
-		args := make([]interface{}, len(batch))
-		for j, v := range batch {
-			args[j] = v
-		}
 		res, err := q.Exec(query, args...)
 		if err != nil {
 			return 0, err
@@ -1398,23 +1387,12 @@ func (s *Store) BatchClearTagsForContent(q Querier, hashes []string) (int64, err
 	if len(hashes) == 0 {
 		return 0, nil
 	}
-	const columns = 1
-	batchSize := maxVars / columns
 
 	var totalAffected int64
-	for i := 0; i < len(hashes); i += batchSize {
-		end := i + batchSize
-		if end > len(hashes) {
-			end = len(hashes)
-		}
-		batch := hashes[i:end]
-
-		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+	for start := 0; start < len(hashes); start += maxVars {
+		end := min(start+maxVars, len(hashes))
+		placeholders, args := stringBatchArgs(hashes[start:end])
 		query := "DELETE FROM content_tags WHERE content_hash IN (" + placeholders + ")"
-		args := make([]interface{}, len(batch))
-		for j, h := range batch {
-			args[j] = h
-		}
 
 		res, err := q.Exec(query, args...)
 		if err != nil {
@@ -1468,22 +1446,11 @@ func (s *Store) BatchFindContentHashesByPaths(paths []string) (map[string]string
 		return make(map[string]string), nil
 	}
 	pathMap := make(map[string]string)
-	const columns = 1
-	batchSize := maxVars / columns
 
-	for i := 0; i < len(paths); i += batchSize {
-		end := i + batchSize
-		if end > len(paths) {
-			end = len(paths)
-		}
-		batch := paths[i:end]
-
-		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+	for start := 0; start < len(paths); start += maxVars {
+		end := min(start+maxVars, len(paths))
+		placeholders, args := stringBatchArgs(paths[start:end])
 		query := "SELECT path, content_hash FROM locations WHERE path IN (" + placeholders + ")"
-		args := make([]interface{}, len(batch))
-		for j, p := range batch {
-			args[j] = p
-		}
 
 		rows, err := s.Query(query, args...)
 		if err != nil {
@@ -1512,22 +1479,11 @@ func (s *Store) BatchGetLocationsByPaths(paths []string) (map[string]types.Locat
 		return make(map[string]types.LocationInfo), nil
 	}
 	locationMap := make(map[string]types.LocationInfo)
-	const columns = 1
-	batchSize := maxVars / columns
 
-	for i := 0; i < len(paths); i += batchSize {
-		end := i + batchSize
-		if end > len(paths) {
-			end = len(paths)
-		}
-		batch := paths[i:end]
-
-		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+	for start := 0; start < len(paths); start += maxVars {
+		end := min(start+maxVars, len(paths))
+		placeholders, args := stringBatchArgs(paths[start:end])
 		query := "SELECT path, content_hash, size_bytes, mod_time FROM locations WHERE path IN (" + placeholders + ")"
-		args := make([]interface{}, len(batch))
-		for j, p := range batch {
-			args[j] = p
-		}
 
 		rows, err := s.Query(query, args...)
 		if err != nil {
@@ -1686,22 +1642,11 @@ func (s *Store) BatchGetPathsForHashes(q Querier, hashes []string) (map[string][
 		return make(map[string][]string), nil
 	}
 	pathMap := make(map[string][]string)
-	const columns = 1
-	batchSize := maxVars / columns
 
-	for i := 0; i < len(hashes); i += batchSize {
-		end := i + batchSize
-		if end > len(hashes) {
-			end = len(hashes)
-		}
-		batch := hashes[i:end]
-
-		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+	for start := 0; start < len(hashes); start += maxVars {
+		end := min(start+maxVars, len(hashes))
+		placeholders, args := stringBatchArgs(hashes[start:end])
 		query := "SELECT content_hash, path FROM locations WHERE content_hash IN (" + placeholders + ")"
-		args := make([]interface{}, len(batch))
-		for j, h := range batch {
-			args[j] = h
-		}
 
 		rows, err := q.Query(query, args...)
 		if err != nil {
