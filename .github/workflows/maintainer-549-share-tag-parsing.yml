@@ -1,0 +1,27 @@
+name: Maintainer 549 tag refactor
+on:
+  push:
+    branches: [maintainer-549-share-tag-parsing]
+permissions:
+  contents: write
+jobs:
+  refactor:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer-549-share-tag-parsing
+          fetch-depth: 0
+      - run: |
+          python3 maintainer-tag-refactor.py
+          gofmt -w internal/query/tag.go gooru/tagging.go
+          git diff --check
+          go test -count=1 ./internal/query ./gooru
+          go vet -structtag=false ./internal/query ./gooru
+      - run: |
+          git rm .github/workflows/maintainer-549-share-tag-parsing.yml maintainer-tag-refactor.py maintainer-trigger.txt
+          git add internal/query/tag.go gooru/tagging.go
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "refactor: share tag parsing"
+          git push origin HEAD:maintainer-549-share-tag-parsing
