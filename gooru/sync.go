@@ -103,11 +103,11 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		return false, fmt.Errorf("could not look up tracked sources for pre-check: %w", err)
 	}
 
-	// IMPORTANT: Get the size-to-hash map to filter the FS walk, exactly like the full Relink scan does.
-	// This ensures both functions see the same set of "relevant" files on disk.
-	sizeToHashes, err := c.store.GetSizeToHashesMap()
+	// The filesystem filter only needs size membership. Defer loading hashes
+	// until an untracked same-size candidate actually needs verification.
+	knownSizes, err := c.store.GetKnownSizes()
 	if err != nil {
-		return false, fmt.Errorf("could not build size-to-hash map for pre-check: %w", err)
+		return false, fmt.Errorf("could not get known file sizes for pre-check: %w", err)
 	}
 
 	// Get FS state for "relevant" files in the given directories. Logical
@@ -130,7 +130,7 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 					return fmt.Errorf("inspect %q: %w", path, err)
 				}
 				// The core filtering logic that must match Relink's scanner.
-				if _, ok := sizeToHashes[info.Size]; ok {
+				if _, ok := knownSizes[info.Size]; ok {
 					fsPaths[path] = logicalMetadata{size: info.Size, modTime: info.ModTime.Unix()}
 				}
 			}
@@ -198,9 +198,27 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 	}
 
 	// The size filter is deliberately broader than the full planner: unrelated
-	// content can share a byte size with known content. Hash only those extra
-	// same-size paths so the pre-check agrees with Relink without paying the
-	// full-scan hashing cost for the common no-extra-files case.
+	// content can share a byte size with known content. Only load hashes for sizes
+	// that occur on extra paths, keeping the common stable-library path independent
+	// of total tracked hash cardinality.
+	candidateSizes := make(map[int64]struct{})
+	for path, logicalInfo := range fsPaths {
+		if _, tracked := dbLocations[path]; !tracked {
+			candidateSizes[logicalInfo.size] = struct{}{}
+		}
+	}
+	if len(candidateSizes) == 0 {
+		return false, nil
+	}
+	sizes := make([]int64, 0, len(candidateSizes))
+	for size := range candidateSizes {
+		sizes = append(sizes, size)
+	}
+	hashesBySize, err := c.store.GetHashesBySizes(sizes)
+	if err != nil {
+		return false, fmt.Errorf("could not get known hashes for relink candidates: %w", err)
+	}
+
 	for path, logicalInfo := range fsPaths {
 		if _, tracked := dbLocations[path]; tracked {
 			continue
@@ -209,10 +227,8 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 		if err != nil {
 			return false, fmt.Errorf("hash %q during relink pre-check: %w", path, err)
 		}
-		for _, knownHash := range sizeToHashes[logicalInfo.size] {
-			if currentHash == knownHash {
-				return true, nil
-			}
+		if _, known := hashesBySize[logicalInfo.size][currentHash]; known {
+			return true, nil
 		}
 	}
 
