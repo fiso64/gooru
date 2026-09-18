@@ -32,6 +32,9 @@ func TestAnalyzeFileStatesMetadataHeuristicReusesUnchangedHash(t *testing.T) {
 	if len(analysis.potentialMoves) != 0 {
 		t.Fatalf("unchanged file was hashed despite matching metadata: potential moves=%v", analysis.potentialMoves)
 	}
+	if len(analysis.locationsToUpsert) != 0 {
+		t.Fatalf("unchanged file scheduled a location rewrite: %v", analysis.locationsToUpsert)
+	}
 }
 
 func TestBackgroundTagMutationPathHeuristicStillDetectsModifiedContent(t *testing.T) {
