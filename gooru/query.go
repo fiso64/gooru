@@ -369,14 +369,8 @@ func (c *Client) ListFilesByTagsAnd(tags []string, notTags []string) ([]string, 
 	if err := query.ValidateTags(notTags); err != nil {
 		return nil, err
 	}
-	parsedTags := make([]types.ParsedTag, len(tags))
-	for i, t := range tags {
-		parsedTags[i] = query.ParseTag(t)
-	}
-	parsedNotTags := make([]types.ParsedTag, len(notTags))
-	for i, t := range notTags {
-		parsedNotTags[i] = query.ParseTag(t)
-	}
+	parsedTags := query.ParseTags(tags)
+	parsedNotTags := query.ParseTags(notTags)
 	return c.store.ListFilesByTagsAnd(parsedTags, parsedNotTags)
 }
 
@@ -428,14 +422,8 @@ func (c *Client) GetFilesInfoByTagsAnd(tags []string, notTags []string) ([]types
 	if err := query.ValidateTags(notTags); err != nil {
 		return nil, err
 	}
-	parsedTags := make([]types.ParsedTag, len(tags))
-	for i, t := range tags {
-		parsedTags[i] = query.ParseTag(t)
-	}
-	parsedNotTags := make([]types.ParsedTag, len(notTags))
-	for i, t := range notTags {
-		parsedNotTags[i] = query.ParseTag(t)
-	}
+	parsedTags := query.ParseTags(tags)
+	parsedNotTags := query.ParseTags(notTags)
 	return c.store.GetFilesInfoByTagsAnd(parsedTags, parsedNotTags)
 }
 
