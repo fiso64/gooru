@@ -18,6 +18,10 @@ type durableTagMutationLibrary interface {
 	executeBackgroundTagMutation(context.Context, core.BackgroundTask) error
 }
 
+type backgroundTagMutationResultReader interface {
+	backgroundTagMutationResponse(string) (TagMutationResponse, bool, error)
+}
+
 func (l *GooruLibrary) createBackgroundTagMutation(
 	ctx context.Context,
 	operation TagOperation,
@@ -131,7 +135,17 @@ func waitForDurableTagMutation(ctx context.Context, operations backgroundOperati
 	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+	resultReader, _ := operations.(backgroundTagMutationResultReader)
 	for {
+		if resultReader != nil {
+			response, ready, err := resultReader.backgroundTagMutationResponse(operationID)
+			if err != nil {
+				return TagMutationResponse{}, err
+			}
+			if ready {
+				return response, nil
+			}
+		}
 		state, found, err := operations.GetBackgroundOperation(operationID)
 		if err != nil {
 			return TagMutationResponse{}, err

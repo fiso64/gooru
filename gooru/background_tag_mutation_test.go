@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gooru.local/types"
 )
@@ -30,6 +31,37 @@ func writeBackgroundTagMutationTestFile(t *testing.T, dir, name, body string) st
 		t.Fatalf("write %s: %v", path, err)
 	}
 	return path
+}
+
+func TestBackgroundTagMutationResultNotifiesSubscribers(t *testing.T) {
+	client := newBackgroundTagMutationTestClient(t)
+	dir := t.TempDir()
+	path := writeBackgroundTagMutationTestFile(t, dir, "file.jpg", "body")
+	if _, err := client.TagFiles([]string{path}, []string{"group:one"}, nil, false); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	changes, unsubscribe := client.SubscribeBackgroundOperationChanges()
+	defer unsubscribe()
+	operation, err := client.CreateBackgroundTagMutation(BackgroundTagMutationRequest{
+		Mutation: "add", Selector: map[string]string{"query": "group:one"},
+		Tags: []string{"reviewed"}, Query: "group:one", MaxPending: 8,
+	})
+	if err != nil {
+		t.Fatalf("create mutation: %v", err)
+	}
+	select {
+	case <-changes:
+	case <-time.After(time.Second):
+		t.Fatal("admission did not notify background operation subscribers")
+	}
+	if err := client.ExecuteBackgroundTagMutationQuery(operation.ID); err != nil {
+		t.Fatalf("execute mutation: %v", err)
+	}
+	select {
+	case <-changes:
+	case <-time.After(time.Second):
+		t.Fatal("committed mutation result did not notify background operation subscribers")
+	}
 }
 
 func TestBackgroundTagMutationQueryUsesAdmissionSnapshot(t *testing.T) {

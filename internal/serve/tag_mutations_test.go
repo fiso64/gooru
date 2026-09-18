@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	core "gooru.local/gooru"
 	"gooru.local/types"
@@ -80,6 +81,52 @@ func TestTagMutationAsyncReturnsDurableOperation(t *testing.T) {
 	}
 	if got, want := rec.Header().Get("Location"), "/api/v1/operations/"+operation.ID; got != want {
 		t.Fatalf("Location = %q, want %q", got, want)
+	}
+}
+
+func TestWaitForDurableTagMutationReturnsCommittedResultBeforeTaskCompletion(t *testing.T) {
+	dir := t.TempDir()
+	server, client := newTestBrowseServerAt(t, dir, filepath.Join(dir, "gooru.db"))
+	defer client.Close()
+	page := listTestFiles(t, server, "kind:image", 1)
+	if len(page.Files) != 1 {
+		t.Fatalf("expected one file, got %d", len(page.Files))
+	}
+	mutator, ok := server.library.(durableTagMutationLibrary)
+	if !ok {
+		t.Fatal("durable tag mutation library is unavailable")
+	}
+	selector := TagMutationSelector{FileIDs: []string{page.Files[0].ID}}
+	operation, err := mutator.createBackgroundTagMutation(
+		context.Background(), TagOperationAdd, selector,
+		TagMutationRequest{FileIDs: selector.FileIDs, Tags: []string{"reviewed"}},
+		defaultDurableTagMutationPendingLimit,
+	)
+	if err != nil {
+		t.Fatalf("create mutation: %v", err)
+	}
+	task := core.BackgroundTask{
+		OperationID: operation.ID, Kind: core.BackgroundTagMutationTaskKind,
+		SubjectKind: "operation", SubjectID: operation.ID, InputKey: "v1",
+	}
+	if err := mutator.executeBackgroundTagMutation(context.Background(), task); err != nil {
+		t.Fatalf("execute mutation: %v", err)
+	}
+	state, found, err := server.backgroundOperations.GetBackgroundOperation(operation.ID)
+	if err != nil || !found {
+		t.Fatalf("read operation: found=%v err=%v", found, err)
+	}
+	if state.Status == core.BackgroundWorkCompleted {
+		t.Fatalf("direct handler unexpectedly completed durable task: %+v", state)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	response, err := waitForDurableTagMutation(ctx, server.backgroundOperations, operation.ID)
+	if err != nil {
+		t.Fatalf("wait for committed result: %v", err)
+	}
+	if response.AffectedCount != 1 || response.MatchedFiles != 1 || response.Operation != TagOperationAdd {
+		t.Fatalf("unexpected committed result: %+v", response)
 	}
 }
 

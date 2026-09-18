@@ -109,5 +109,8 @@ func (c *Client) ExecuteBackgroundTagMutationFiles(operationID string, files []t
 		result := backgroundTagOperationResult(analysis, int(affectedCount), movesHandled)
 		return c.persistBackgroundTagMutationResultTx(tx, operationID, result)
 	})
+	if err == nil {
+		c.notifyBackgroundOperationChange()
+	}
 	return err
 }

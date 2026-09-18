@@ -210,7 +210,11 @@ func (c *Client) ExecuteBackgroundTagMutationQuery(operationID string) error {
 	if err := c.persistBackgroundTagMutationResultTx(tx, operationID, result); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	c.notifyBackgroundOperationChange()
+	return nil
 }
 
 func (c *Client) ExecuteBackgroundTagMutationPaths(operationID string, paths []string) error {
@@ -239,7 +243,11 @@ func (c *Client) ExecuteBackgroundTagMutationPaths(operationID string, paths []s
 		if err := c.persistBackgroundTagMutationResultTx(tx, operationID, types.TagOperationResult{}); err != nil {
 			return err
 		}
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		c.notifyBackgroundOperationChange()
+		return nil
 	}
 	kind, err := backgroundTagMutationKind(state.Mutation, state.Tags)
 	if err != nil {
@@ -256,6 +264,9 @@ func (c *Client) ExecuteBackgroundTagMutationPaths(operationID string, paths []s
 		result := backgroundTagOperationResult(analysis, int(affectedCount), movesHandled)
 		return c.persistBackgroundTagMutationResultTx(tx, operationID, result)
 	})
+	if err == nil {
+		c.notifyBackgroundOperationChange()
+	}
 	return err
 }
 
