@@ -27,6 +27,13 @@ func parseAndValidateQuery(expression string) (*query.Expression, error) {
 	return ast, nil
 }
 
+func writeQueryDebug(verbose bool, expression, sqlQuery string, args []interface{}) {
+	if !verbose {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
+}
+
 func (c *Client) buildQueryAST(ast *query.Expression) (string, []interface{}, error) {
 	// NEW: Intelligently build query using tag counts for optimization.
 	// 1. Extract all user-defined tags from the query AST.
@@ -162,13 +169,7 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 		return 0, nil
 	}
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
-		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
-		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
-		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
-		fmt.Fprintf(os.Stderr, "-------------\n")
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 
 	return c.store.GetCountByContentQuery(sqlQuery, args)
 }
@@ -186,9 +187,7 @@ func (c *Client) CountFileLocationsByQuery(expression string, verbose bool) (int
 	if sqlQuery == "" {
 		return 0, nil
 	}
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 	return c.store.GetCountByLocationQuery(sqlQuery, args)
 }
 
@@ -233,13 +232,7 @@ func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, erro
 		return false, nil
 	}
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
-		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
-		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
-		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
-		fmt.Fprintf(os.Stderr, "-------------\n")
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 
 	return c.store.ExistsByContentQuery(sqlQuery, args)
 }
@@ -397,13 +390,7 @@ func (c *Client) ListFilesByQuery(expression string, verbose bool) ([]string, er
 		return []string{}, nil
 	}
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
-		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
-		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
-		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
-		fmt.Fprintf(os.Stderr, "-------------\n")
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 
 	return c.store.GetPathsByContentQuery(sqlQuery, args)
 }
@@ -462,13 +449,7 @@ func (c *Client) GetFilesInfoByQuery(expression string, verbose bool) ([]types.F
 		return []types.FileInfo{}, nil
 	}
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
-		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
-		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
-		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
-		fmt.Fprintf(os.Stderr, "-------------\n")
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 
 	return c.store.GetFilesInfoByContentQuery(sqlQuery, args)
 }
@@ -483,9 +464,7 @@ func (c *Client) ListPublicFileIDsByQuery(expression string, verbose bool) ([]st
 	if sqlQuery == "" {
 		return c.store.ListAllPublicFileIDs()
 	}
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 	return c.store.GetPublicFileIDsByLocationQuery(sqlQuery, args)
 }
 
@@ -499,13 +478,7 @@ func (c *Client) GetFilesInfoByQueryPage(expression string, limit int, offset in
 		return []types.FileInfo{}, nil
 	}
 
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\n")
-		fmt.Fprintf(os.Stderr, "Expression: %s\n", expression)
-		fmt.Fprintf(os.Stderr, "Built SQL : %s\n", sqlQuery)
-		fmt.Fprintf(os.Stderr, "SQL Args  : %v\n", args)
-		fmt.Fprintf(os.Stderr, "-------------\n")
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 
 	return c.store.GetFilesInfoByContentQueryPage(sqlQuery, args, limit, offset)
 }
@@ -518,9 +491,7 @@ func (c *Client) GetFilesInfoByQueryPageSorted(expression string, limit int, cur
 	if sqlQuery == "" {
 		return c.store.GetAllFilesInfoPageSorted(limit, cursor, sort, order)
 	}
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 	return c.store.GetFilesInfoByLocationQueryPageSorted(sqlQuery, args, limit, cursor, sort, order)
 }
 
@@ -532,9 +503,7 @@ func (c *Client) GetFilesInfoByQueryPageSortedOffset(expression string, limit in
 	if sqlQuery == "" {
 		return c.store.GetAllFilesInfoPageSortedOffset(limit, offset, sort, order)
 	}
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 	return c.store.GetFilesInfoByLocationQueryPageSortedOffset(sqlQuery, args, limit, offset, sort, order)
 }
 
@@ -566,9 +535,7 @@ func (c *Client) KindFacetsByQuery(expression string, verbose bool) ([]types.Tag
 	if sqlQuery == "" {
 		return c.store.KindFacets()
 	}
-	if verbose {
-		fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
-	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
 	return c.store.KindFacetsByLocationQuery(sqlQuery, args)
 }
 
