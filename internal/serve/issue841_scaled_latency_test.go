@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -15,6 +16,43 @@ import (
 )
 
 
+
+func issue841Median(values []time.Duration) time.Duration {
+	ordered := append([]time.Duration(nil), values...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
+	middle := len(ordered) / 2
+	if len(ordered)%2 == 1 {
+		return ordered[middle]
+	}
+	return (ordered[middle-1] + ordered[middle]) / 2
+}
+
+func waitForIssue841Completion(ctx context.Context, operations backgroundOperationReader, operationID string) (core.BackgroundOperationState, error) {
+	ticker := time.NewTicker(2 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		state, found, err := operations.GetBackgroundOperation(operationID)
+		if err != nil {
+			return core.BackgroundOperationState{}, err
+		}
+		if !found {
+			return core.BackgroundOperationState{}, errors.New("diagnostic operation disappeared")
+		}
+		switch state.Status {
+		case core.BackgroundWorkCompleted:
+			return state, nil
+		case core.BackgroundWorkFailed:
+			return state, fmt.Errorf("diagnostic operation failed: %s", state.ErrorMessage)
+		case core.BackgroundWorkCanceled:
+			return state, context.Canceled
+		}
+		select {
+		case <-ctx.Done():
+			return core.BackgroundOperationState{}, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
 
 // Temporary diagnostic: compare durable-result response latency with task lifecycle cost.
 func TestIssue841DirectHandlerLatency(t *testing.T) {
@@ -35,6 +73,7 @@ func TestIssue841DirectHandlerLatency(t *testing.T) {
 
 	ctx := context.Background()
 	var total time.Duration
+	durations := make([]time.Duration, 0, operations)
 	minimum := time.Duration(1<<63 - 1)
 	var maximum time.Duration
 	for operation := 0; operation < operations; operation++ {
@@ -66,10 +105,11 @@ func TestIssue841DirectHandlerLatency(t *testing.T) {
 		}
 		elapsed := time.Since(started)
 		total += elapsed
+		durations = append(durations, elapsed)
 		if elapsed < minimum { minimum = elapsed }
 		if elapsed > maximum { maximum = elapsed }
 	}
-	t.Logf("issue841 direct handler: library=3 operations=%d avg=%s min=%s max=%s", operations, total/operations, minimum, maximum)
+	t.Logf("issue841 direct handler: library=3 operations=%d avg=%s p50=%s min=%s max=%s", operations, total/operations, issue841Median(durations), minimum, maximum)
 	t.Fatalf("issue 841 direct-handler diagnostic complete; timings are logged above")
 }
 
@@ -101,6 +141,31 @@ func TestIssue841SmallTagLatencySplit(t *testing.T) {
 	}()
 
 	for run := 0; run < runs; run++ {
+		var total time.Duration
+		durations := make([]time.Duration, 0, operationsPerRun)
+		minDuration := time.Duration(1<<63 - 1)
+		var maxDuration time.Duration
+		for operation := 0; operation < operationsPerRun; operation++ {
+			method := http.MethodPost
+			if (run*operationsPerRun+operation)%2 == 1 {
+				method = http.MethodDelete
+			}
+			rec := httptest.NewRecorder()
+			started := time.Now()
+			server.Handler().ServeHTTP(rec, authedJSONRequest(method, "/api/v1/files/tags", `{"file_ids":["`+fileID+`"],"tags":["bench"],"verbose":false}`))
+			elapsed := time.Since(started)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("small sync mutation %d/%d returned %d: %s", run, operation, rec.Code, rec.Body.String())
+			}
+			total += elapsed
+			durations = append(durations, elapsed)
+			if elapsed < minDuration { minDuration = elapsed }
+			if elapsed > maxDuration { maxDuration = elapsed }
+		}
+		t.Logf("issue841 small sync run %d: library=3 operations=%d avg=%s p50=%s min=%s max=%s", run+1, operationsPerRun, total/operationsPerRun, issue841Median(durations), minDuration, maxDuration)
+	}
+
+	for run := 0; run < runs; run++ {
 		var admissionTotal time.Duration
 		var queueTotal time.Duration
 		var workerTotal time.Duration
@@ -130,13 +195,13 @@ func TestIssue841SmallTagLatencySplit(t *testing.T) {
 				t.Fatalf("decode small async mutation %d/%d: %v", run, operation, err)
 			}
 			if _, err := waitForDurableTagMutation(ctx, server.backgroundOperations, admitted.ID); err != nil {
-				t.Fatalf("wait small async mutation %d/%d: %v", run, operation, err)
+				t.Fatalf("wait small async mutation %d/%d result: %v", run, operation, err)
 			}
-			state, found, err := server.backgroundOperations.GetBackgroundOperation(admitted.ID)
+			state, err := waitForIssue841Completion(ctx, server.backgroundOperations, admitted.ID)
 			if err != nil {
-				t.Fatalf("read small async mutation %d/%d: %v", run, operation, err)
+				t.Fatalf("wait small async mutation %d/%d completion: %v", run, operation, err)
 			}
-			if !found || state.StartedAt == nil || state.FinishedAt == nil {
+			if state.StartedAt == nil || state.FinishedAt == nil {
 				t.Fatalf("small async mutation %d/%d has incomplete lifecycle timestamps: %+v", run, operation, state)
 			}
 			queueElapsed := state.StartedAt.Sub(state.CreatedAt)
@@ -224,6 +289,7 @@ func TestIssue841ScaledTagLatency(t *testing.T) {
 
 	for run := 0; run < runs; run++ {
 		var total time.Duration
+		durations := make([]time.Duration, 0, operationsPerRun)
 		minDuration := time.Duration(1<<63 - 1)
 		var maxDuration time.Duration
 		for operation := 0; operation < operationsPerRun; operation++ {
@@ -239,10 +305,11 @@ func TestIssue841ScaledTagLatency(t *testing.T) {
 				t.Fatalf("mutation %d/%d returned %d: %s", run, operation, rec.Code, rec.Body.String())
 			}
 			total += elapsed
+			durations = append(durations, elapsed)
 			if elapsed < minDuration { minDuration = elapsed }
 			if elapsed > maxDuration { maxDuration = elapsed }
 		}
-		t.Logf("issue841 scaled run %d: library=%d operations=%d avg=%s min=%s max=%s", run+1, librarySize, operationsPerRun, total/operationsPerRun, minDuration, maxDuration)
+		t.Logf("issue841 scaled run %d: library=%d operations=%d avg=%s p50=%s min=%s max=%s", run+1, librarySize, operationsPerRun, total/operationsPerRun, issue841Median(durations), minDuration, maxDuration)
 	}
 
 	for run := 0; run < runs; run++ {
@@ -278,13 +345,13 @@ func TestIssue841ScaledTagLatency(t *testing.T) {
 				t.Fatalf("async mutation %d/%d returned no operation id", run, operation)
 			}
 			if _, err := waitForDurableTagMutation(ctx, server.backgroundOperations, admitted.ID); err != nil {
-				t.Fatalf("wait async mutation %d/%d: %v", run, operation, err)
+				t.Fatalf("wait async mutation %d/%d result: %v", run, operation, err)
 			}
-			state, found, err := server.backgroundOperations.GetBackgroundOperation(admitted.ID)
+			state, err := waitForIssue841Completion(ctx, server.backgroundOperations, admitted.ID)
 			if err != nil {
-				t.Fatalf("read async mutation %d/%d: %v", run, operation, err)
+				t.Fatalf("wait async mutation %d/%d completion: %v", run, operation, err)
 			}
-			if !found || state.StartedAt == nil || state.FinishedAt == nil {
+			if state.StartedAt == nil || state.FinishedAt == nil {
 				t.Fatalf("async mutation %d/%d has incomplete lifecycle timestamps: %+v", run, operation, state)
 			}
 			queueElapsed := state.StartedAt.Sub(state.CreatedAt)
