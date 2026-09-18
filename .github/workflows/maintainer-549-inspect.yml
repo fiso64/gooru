@@ -1,0 +1,19 @@
+name: Temporary #549 tag-filter inspection
+
+on:
+  push:
+    branches:
+      - maintainer-549-share-tag-filter-query
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find tag-filter call sites and tests
+        run: |
+          set -euo pipefail
+          git grep -n -E 'ListFilesByTagsAnd|GetFilesInfoByTagsAnd' -- ':!internal/database/database.go' || true
