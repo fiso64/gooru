@@ -211,3 +211,19 @@ test('single-file tag editor stages changes until Apply', async ({ page }) => {
   expect(tagRequests[0].method).toBe('PUT');
   expect(tagRequests[0].body).toMatchObject({ file_ids: ['one'], tags: ['alpha', 'beta'] });
 });
+
+
+test('cursor download sends a single-file selector', async ({ page }) => {
+  const requests: Array<Record<string, unknown>> = [];
+  await page.route('**/api/v1/file-downloads', async (route) => {
+    requests.push(route.request().postDataJSON());
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'dl-one', url: '/api/v1/file-downloads/dl-one' }) });
+  });
+  await page.route('**/api/v1/file-downloads/*', async (route) => route.fulfill({ status: 204 }));
+  await mockApp(page);
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('d');
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ file_ids: ['one'] });
+});
