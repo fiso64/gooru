@@ -117,6 +117,14 @@ func (s *Server) backgroundTagMutationHandler(ctx context.Context, task core.Bac
 }
 
 func waitForDurableTagMutation(ctx context.Context, operations backgroundOperationReader, operationID string) (TagMutationResponse, error) {
+	var changes <-chan struct{}
+	var unsubscribe func()
+	if subscriber, ok := operations.(backgroundOperationChangeSubscriber); ok {
+		changes, unsubscribe = subscriber.SubscribeBackgroundOperationChanges()
+		if unsubscribe != nil {
+			defer unsubscribe()
+		}
+	}
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
