@@ -56,6 +56,12 @@ func (c *Client) GetBackgroundOperation(operationID string) (operation Backgroun
 	return getDatabaseBackgroundOperation(c, operationID)
 }
 
+// GetBackgroundOperations returns the latest durable states for the requested
+// operation IDs. Missing IDs are omitted from the result.
+func (c *Client) GetBackgroundOperations(operationIDs []string) (map[string]BackgroundOperationState, error) {
+	return getDatabaseBackgroundOperations(c, operationIDs)
+}
+
 // GetBackgroundOperationTask returns the first durable child task attached to
 // an operation. found=false means no child has been attached.
 func (c *Client) GetBackgroundOperationTask(operationID string) (task BackgroundTaskState, found bool, err error) {
