@@ -1703,9 +1703,9 @@ button.tagscloud-item {
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 360px;
-  padding: 8px 12px;
+  gap: 12px;
+  width: min(420px, calc(100% - 32px));
+  padding: 10px 14px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.55);

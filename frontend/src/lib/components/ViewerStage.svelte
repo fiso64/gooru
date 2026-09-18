@@ -95,6 +95,7 @@
   let playbackControlsIdle = $state(false);
   let playbackControlsTimer: ReturnType<typeof setTimeout> | undefined;
   let videoSeekPointerId: number | undefined;
+  let videoSeekPlaybackState: { video: HTMLVideoElement; paused: boolean; muted: boolean } | undefined;
   let cursorIdle = $state(false);
   let cursorIdleTimer: ReturnType<typeof setTimeout> | undefined;
   let zoom = $state(1);
@@ -790,10 +791,15 @@
   function beginVideoSeek(event: PointerEvent) {
     if (event.button !== 0) return;
     const control = event.currentTarget;
-    if (!(control instanceof HTMLElement)) return;
+    const video = videoElement;
+    if (!(control instanceof HTMLElement) || !video || !videoLength) return;
     event.preventDefault();
     restoreStageFocusAfterPointer(event);
     videoSeekPointerId = event.pointerId;
+    videoSeekPlaybackState = { video, paused: video.paused, muted: video.muted };
+    video.muted = true;
+    video.pause();
+    syncVideo();
     control.setPointerCapture(event.pointerId);
     seekVideoAt(event.clientX, control);
   }
@@ -804,14 +810,30 @@
     if (control instanceof HTMLElement) seekVideoAt(event.clientX, control);
   }
 
+  function restoreVideoSeekPlayback() {
+    const playbackState = videoSeekPlaybackState;
+    videoSeekPlaybackState = undefined;
+    if (!playbackState) return;
+    playbackState.video.muted = playbackState.muted;
+    if (!playbackState.paused) void playbackState.video.play().catch(() => {});
+    if (playbackState.video === videoElement) syncVideo();
+  }
+
   function endVideoSeek(event: PointerEvent) {
     if (videoSeekPointerId !== event.pointerId) return;
     const control = event.currentTarget;
+    videoSeekPointerId = undefined;
     if (control instanceof HTMLElement) {
       seekVideoAt(event.clientX, control);
       if (control.hasPointerCapture(event.pointerId)) control.releasePointerCapture(event.pointerId);
     }
+    restoreVideoSeekPlayback();
+  }
+
+  function loseVideoSeekCapture(event: PointerEvent) {
+    if (videoSeekPointerId !== event.pointerId) return;
     videoSeekPointerId = undefined;
+    restoreVideoSeekPlayback();
   }
 
   function clock(seconds: number) {
@@ -923,7 +945,7 @@
           <Icon name={videoPaused ? 'play' : 'pause'} size={14} />
         </button>
         <span class="video-time">{clock(videoTime)}</span>
-        <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo} onpointerdown={beginVideoSeek} onpointermove={dragVideoSeek} onpointerup={endVideoSeek} onpointercancel={endVideoSeek}>
+        <button class="video-progress" type="button" aria-label="Seek video" onclick={seekVideo} onpointerdown={beginVideoSeek} onpointermove={dragVideoSeek} onpointerup={endVideoSeek} onpointercancel={endVideoSeek} onlostpointercapture={loseVideoSeekCapture}>
           <span style={`width: ${videoProgress}%`}></span>
         </button>
         <span class="video-time">{videoLength ? clock(videoLength) : (mediaDuration(renderedFile) || '0:00')}</span>
