@@ -96,6 +96,7 @@ func DirsConcurrently(dirs []string, knownSizes map[int64]struct{}, hasher *hash
 	return foundFiles, filesScanned, nil
 }
 
+// PruneRedundantDirs removes exact duplicate and nested scan roots while preserving surviving caller order.
 func PruneRedundantDirs(dirs []string) []string {
 	if len(dirs) < 2 {
 		return dirs
