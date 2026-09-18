@@ -81,7 +81,6 @@
   <details class="maintenance-menu" bind:open={menuOpen}>
     <summary
       class="g-btn g-btn-sm"
-      role="button"
       aria-haspopup="menu"
       aria-expanded={menuOpen}
     >Run job</summary>
