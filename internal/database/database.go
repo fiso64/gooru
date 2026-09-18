@@ -1278,28 +1278,22 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 		return nil
 	}
 	const columns = 6 // content_hash, path, size_bytes, mod_time, added_at, extension
-	batchSize := maxVars / columns
 
 	locs := make([]types.LocationInfo, 0, len(locations))
 	for _, loc := range locations {
 		locs = append(locs, loc)
 	}
 
-	for i := 0; i < len(locs); i += batchSize {
-		end := i + batchSize
-		if end > len(locs) {
-			end = len(locs)
-		}
-		batch := locs[i:end]
-
-		var placeholders []string
-		var args []interface{}
-		for _, loc := range batch {
-			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, COALESCE(NULLIF(?, 0), CAST(strftime('%s','now') AS INTEGER)), ?)")
-			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.AddedAt, loc.Extension)
-		}
+	const rowPlaceholders = "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, COALESCE(NULLIF(?, 0), CAST(strftime('%s','now') AS INTEGER)), ?)"
+	batchStart := 0
+	for placeholders, args := range bindRowBatches(locs, rowPlaceholders, columns, func(args []any, loc types.LocationInfo, _ int) {
+		args[0], args[1], args[2] = loc.Hash, loc.Path, loc.Size
+		args[3], args[4], args[5] = loc.ModTime, loc.AddedAt, loc.Extension
+	}) {
+		batchEnd := batchStart + len(args)/columns
+		batch := locs[batchStart:batchEnd]
 		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, added_at, extension) VALUES ` +
-			strings.Join(placeholders, ",") +
+			placeholders +
 			` ON CONFLICT(path) DO UPDATE SET
 				content_hash=excluded.content_hash,
 				size_bytes=excluded.size_bytes,
@@ -1332,6 +1326,7 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 				return err
 			}
 		}
+		batchStart = batchEnd
 	}
 	return nil
 }
