@@ -42,7 +42,7 @@
   }
 </script>
 
-<div class="tag-editor" onkeydown={handleModeShortcut}>
+<div class="tag-editor">
   <div class="lightbox-tag-input" class:untag-mode={mode === 'remove'}>
     {#if onModeToggle}
       <button
@@ -75,6 +75,7 @@
       ariaLabel={`${mode === 'remove' ? 'Remove tags from' : 'Tags for'} ${fileName}`}
       {onInput}
       {onCommit}
+      onKeydown={handleModeShortcut}
     />
     {#if !draft}
       <span class="tag-mode-hint" aria-hidden="true">add <u>t</u>ag · <u>u</u>ntag</span>
