@@ -53,6 +53,43 @@ func TestBackgroundOperationReadExposesLifecycleState(t *testing.T) {
 	}
 }
 
+func TestBackgroundOperationBatchRead(t *testing.T) {
+	client := newBackgroundEnqueueTestClient(t)
+	first, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "first", Visible: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.CreateBackgroundOperation(BackgroundOperationRequest{Kind: "second", Visible: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.store.DB.Exec(`UPDATE background_operations SET status = 'running' WHERE id = ?`, second.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	states, err := client.GetBackgroundOperations([]string{second.ID, "missing", first.ID})
+	if err != nil {
+		t.Fatalf("batch read: %v", err)
+	}
+	if len(states) != 2 {
+		t.Fatalf("states = %+v", states)
+	}
+	if got := states[first.ID]; got.ID != first.ID || got.Kind != "first" || !got.Visible {
+		t.Fatalf("first state = %+v", got)
+	}
+	if got := states[second.ID]; got.ID != second.ID || got.Kind != "second" || got.Visible || got.Status != BackgroundWorkRunning {
+		t.Fatalf("second state = %+v", got)
+	}
+	if _, ok := states["missing"]; ok {
+		t.Fatalf("missing operation unexpectedly returned: %+v", states)
+	}
+
+	empty, err := client.GetBackgroundOperations(nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty batch = %+v, %v", empty, err)
+	}
+}
+
 func TestBackgroundTaskReadByStableID(t *testing.T) {
 	client := newBackgroundEnqueueTestClient(t)
 	operation, tasks, err := client.CreateBackgroundOperationWithTasks(
