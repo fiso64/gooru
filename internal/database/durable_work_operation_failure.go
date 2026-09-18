@@ -78,16 +78,15 @@ func (s *Store) failBackgroundOperation(operationID string, failedAt time.Time, 
 	result.Failed = true
 
 	var childTasks int64
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM background_tasks WHERE operation_id = ?`, operationID).Scan(&childTasks); err != nil {
-		return BackgroundOperationFailure{}, fmt.Errorf("count background operation tasks during failure: %w", err)
-	}
 	var latestRunningLease sql.NullInt64
 	if err := tx.QueryRow(`
-		SELECT COUNT(*), MAX(lease_expires_at)
+		SELECT COUNT(*),
+		       COALESCE(SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END), 0),
+		       MAX(CASE WHEN status = 'running' THEN lease_expires_at END)
 		FROM background_tasks
-		WHERE operation_id = ? AND status = 'running'
-	`, operationID).Scan(&result.RunningTasks, &latestRunningLease); err != nil {
-		return BackgroundOperationFailure{}, fmt.Errorf("inspect running background tasks during failure: %w", err)
+		WHERE operation_id = ?
+	`, operationID).Scan(&childTasks, &result.RunningTasks, &latestRunningLease); err != nil {
+		return BackgroundOperationFailure{}, fmt.Errorf("inspect background operation tasks during failure: %w", err)
 	}
 	if result.RunningTasks > 0 && !latestRunningLease.Valid {
 		return BackgroundOperationFailure{}, errors.New("running background task is missing a lease expiry")
