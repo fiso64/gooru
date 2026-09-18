@@ -107,6 +107,7 @@ func TestIssue841SmallTagLatencySplit(t *testing.T) {
 			workerMax,
 		)
 	}
+	t.Fatalf("issue 841 small diagnostic complete; split timings are logged above")
 }
 
 func TestIssue841ScaledTagLatency(t *testing.T) {
