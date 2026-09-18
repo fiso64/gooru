@@ -360,15 +360,6 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		if request.OperationBinding != BackgroundOperationCreateNew {
 			return BackgroundTask{}, false, fmt.Errorf("background operation binding requires an operation request")
 		}
-		if coalescePendingEquivalent {
-			existing, found, err := c.coalescePendingBackgroundTask(q, request, postponePendingEquivalent)
-			if err != nil {
-				return BackgroundTask{}, false, err
-			}
-			if found {
-				return existing, false, nil
-			}
-		}
 	} else {
 		binding := request.OperationBinding
 		producerOperationID := ""
@@ -423,14 +414,14 @@ func (c *Client) enqueueBackgroundTask(q databaseQuerier, request BackgroundTask
 		if err != nil {
 			return BackgroundTask{}, false, err
 		}
-		if coalescePendingEquivalent {
-			existing, found, err := c.coalescePendingBackgroundTask(q, request, postponePendingEquivalent)
-			if err != nil {
-				return BackgroundTask{}, false, err
-			}
-			if found {
-				return existing, false, nil
-			}
+	}
+	if coalescePendingEquivalent {
+		existing, found, err := c.coalescePendingBackgroundTask(q, request, postponePendingEquivalent)
+		if err != nil {
+			return BackgroundTask{}, false, err
+		}
+		if found {
+			return existing, false, nil
 		}
 	}
 
