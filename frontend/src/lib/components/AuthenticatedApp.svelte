@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import AppShell from '$lib/components/AppShell.svelte';
   import ActionDialog from '$lib/components/ActionDialog.svelte';
+  import FileTagDialog from '$lib/components/FileTagDialog.svelte';
   import GlobalFileDrop from '$lib/components/GlobalFileDrop.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import JobsView from '$lib/components/JobsView.svelte';
@@ -12,7 +13,7 @@
   import TagsView from '$lib/components/TagsView.svelte';
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient, ApiError } from '$lib/api/client';
-  import { createFileDownload } from '$lib/api/fileDownloads';
+  import { createFileDownload, type FileDownloadSelector } from '$lib/api/fileDownloads';
   import { createFileSelection, deleteFileSelection, fileSelectionMembers } from '$lib/api/fileSelections';
   import { authState } from '$lib/stores/auth';
   import { runtimeConfig, type PaginationMode } from '$lib/stores/runtimeConfig';
@@ -40,7 +41,7 @@
   import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
   import { previewNeighbor } from '$lib/utils/viewerNavigation';
   import { useQueryClient } from '@tanstack/svelte-query';
-  import type { Job, SavedSearchRequest } from '$lib/api/types';
+  import type { FileItem, Job, SavedSearchRequest } from '$lib/api/types';
 
   const paginationPreferenceKey = browserPersistenceRegistry.libraryPaginationMode.key;
   const uploadMetadataRefreshIntervalMs = 700;
@@ -93,6 +94,7 @@
     name: string;
     previousQuery: string;
   }>({ kind: 'none', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' });
+  let fileTagDialog = $state<{ file: FileItem | null; mode: 'add' | 'remove'; fromSelection: boolean; busy: boolean; error: string }>({ file: null, mode: 'add', fromSelection: false, busy: false, error: '' });
 
   const filesQuery = createFilesQuery(
     () => Boolean($authState.user),
