@@ -18,7 +18,7 @@
     searchActive, selectedCount, bulkDownloadBusy = false, bulkDownloadError = '', isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,
     isFetchingPreviousPage, pagedMode = false, pageNumber = 1, pageCount = 1,
     loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,
-    onToggleSelect, onSelectAll, onClearSelection, onBulkDownload, onBulkTag, onBulkUntag, onBulkUntrack,
+    onToggleSelect, onExtendSelection, onSelectAll, onClearSelection, onBulkDownload, onBulkTag, onBulkUntag, onBulkUntrack,
     onBulkDelete, onLoadMore, onLoadPrevious, onPage, actions
   } = $props<{
     sessionActive: boolean; isLoading: boolean; isError: boolean; error: unknown; files: FileItem[];
@@ -28,7 +28,8 @@
     isFetchingNextPage: boolean; hasPreviousPage: boolean; isFetchingPreviousPage: boolean;
     pagedMode?: boolean; pageNumber?: number; pageCount?: number;
     loadMoreSentinel?: HTMLDivElement; onOpen: (file: FileItem, files: FileItem[]) => void;
-    onToggleSelect: (file: FileItem, files: FileItem[], range: boolean) => void; onSelectAll: () => void;
+    onToggleSelect: (file: FileItem, files: FileItem[], range: boolean) => void;
+    onExtendSelection: (current: FileItem, target: FileItem, files: FileItem[]) => void; onSelectAll: () => void;
     onClearSelection: () => void; onBulkDownload: () => void | Promise<void>; onBulkTag: () => void; onBulkUntag: () => void;
     onBulkUntrack: () => void; onBulkDelete: () => void; onLoadMore: () => void | Promise<void>;
     onLoadPrevious: () => void | Promise<void>; onPage: (pageIndex: number) => void; actions?: Snippet;
@@ -122,8 +123,14 @@
     if (currentIndex < 0) return;
     const nextIndex = nextGridIndex(buttons.map((button) => button.getBoundingClientRect()), currentIndex, event.key, { wrapHorizontal: true });
     if (nextIndex === currentIndex) return;
-    event.preventDefault(); event.stopPropagation(); buttons[nextIndex]?.focus({ preventScroll: true });
-    buttons[nextIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const nextButton = buttons[nextIndex];
+    if (event.shiftKey) {
+      const currentFile = files.find((file) => file.id === event.target.dataset.fileId);
+      const targetFile = files.find((file) => file.id === nextButton?.dataset.fileId);
+      if (currentFile && targetFile) onExtendSelection(currentFile, targetFile, files);
+    }
+    event.preventDefault(); event.stopPropagation(); nextButton?.focus({ preventScroll: true });
+    nextButton?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
   $effect(() => {
