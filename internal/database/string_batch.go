@@ -69,6 +69,34 @@ func parsedTagBindBatches(tags []types.ParsedTag) iter.Seq2[string, []any] {
 	}
 }
 
+func contentTagPairBindBatches(pairs []ContentTagPair) iter.Seq2[string, []any] {
+	return func(yield func(string, []any) bool) {
+		if len(pairs) == 0 {
+			return
+		}
+
+		const (
+			columns         = 2
+			rowPlaceholders = "(?,?)"
+		)
+		batchSize := min(len(pairs), maxVars/columns)
+		placeholders := strings.TrimSuffix(strings.Repeat(rowPlaceholders+",", batchSize), ",")
+		args := make([]any, batchSize*columns)
+
+		for start := 0; start < len(pairs); start += batchSize {
+			batch := pairs[start:min(start+batchSize, len(pairs))]
+			for i, pair := range batch {
+				args[i*columns] = pair.ContentHash
+				args[i*columns+1] = pair.TagID
+			}
+			placeholderLen := len(batch)*(len(rowPlaceholders)+1) - 1
+			if !yield(placeholders[:placeholderLen], args[:len(batch)*columns]) {
+				return
+			}
+		}
+	}
+}
+
 func stringBindBatches(values []string) iter.Seq2[string, []any] {
 	return bindBatches(values)
 }
