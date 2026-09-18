@@ -1,0 +1,34 @@
+name: Maintainer 817 docs
+
+on:
+  push:
+    branches: [maintainer-817-nixos-instances]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply NixOS docs
+        shell: bash
+        run: |
+          if [[ ! -f docs/nixos-multi-section.md ]]; then exit 0; fi
+          python - <<'PY'
+          from pathlib import Path
+          target = Path("docs/SERVE.md")
+          text = target.read_text()
+          start = text.index("## NixOS\n")
+          end = text.index("## Troubleshooting\n")
+          section = Path("docs/nixos-multi-section.md").read_text()
+          target.write_text(text[:start] + section + "\n" + text[end:])
+          PY
+          rm docs/nixos-multi-section.md
+          git diff --check
+          git config user.name gooru-maintainer
+          git config user.email 64778819+fiso64@users.noreply.github.com
+          git add docs/SERVE.md docs/nixos-multi-section.md
+          git commit -m 'docs(nix): document named Gooru instances'
+          git push origin HEAD:maintainer-817-nixos-instances
