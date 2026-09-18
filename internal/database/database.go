@@ -663,9 +663,7 @@ func (s *Store) RemoveLocationsByPathTx(q Querier, paths []string) (int, error) 
 	}
 
 	var totalRemoved int
-	for start := 0; start < len(paths); start += maxVars {
-		end := min(start+maxVars, len(paths))
-		placeholders, args := stringBatchArgs(paths[start:end])
+	for placeholders, args := range stringBindBatches(paths) {
 		query := "DELETE FROM locations WHERE path IN (" + placeholders + ")"
 		res, err := q.Exec(query, args...)
 		if err != nil {
@@ -1389,9 +1387,7 @@ func (s *Store) BatchClearTagsForContent(q Querier, hashes []string) (int64, err
 	}
 
 	var totalAffected int64
-	for start := 0; start < len(hashes); start += maxVars {
-		end := min(start+maxVars, len(hashes))
-		placeholders, args := stringBatchArgs(hashes[start:end])
+	for placeholders, args := range stringBindBatches(hashes) {
 		query := "DELETE FROM content_tags WHERE content_hash IN (" + placeholders + ")"
 
 		res, err := q.Exec(query, args...)
@@ -1447,9 +1443,7 @@ func (s *Store) BatchFindContentHashesByPaths(paths []string) (map[string]string
 	}
 	pathMap := make(map[string]string)
 
-	for start := 0; start < len(paths); start += maxVars {
-		end := min(start+maxVars, len(paths))
-		placeholders, args := stringBatchArgs(paths[start:end])
+	for placeholders, args := range stringBindBatches(paths) {
 		query := "SELECT path, content_hash FROM locations WHERE path IN (" + placeholders + ")"
 
 		rows, err := s.Query(query, args...)
@@ -1480,9 +1474,7 @@ func (s *Store) BatchGetLocationsByPaths(paths []string) (map[string]types.Locat
 	}
 	locationMap := make(map[string]types.LocationInfo)
 
-	for start := 0; start < len(paths); start += maxVars {
-		end := min(start+maxVars, len(paths))
-		placeholders, args := stringBatchArgs(paths[start:end])
+	for placeholders, args := range stringBindBatches(paths) {
 		query := "SELECT path, content_hash, size_bytes, mod_time FROM locations WHERE path IN (" + placeholders + ")"
 
 		rows, err := s.Query(query, args...)
@@ -1643,9 +1635,7 @@ func (s *Store) BatchGetPathsForHashes(q Querier, hashes []string) (map[string][
 	}
 	pathMap := make(map[string][]string)
 
-	for start := 0; start < len(hashes); start += maxVars {
-		end := min(start+maxVars, len(hashes))
-		placeholders, args := stringBatchArgs(hashes[start:end])
+	for placeholders, args := range stringBindBatches(hashes) {
 		query := "SELECT content_hash, path FROM locations WHERE content_hash IN (" + placeholders + ")"
 
 		rows, err := q.Query(query, args...)
