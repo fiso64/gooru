@@ -1264,26 +1264,8 @@ func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (m
 }
 
 func (s *Store) BatchInsertContents(q Querier, hashes []string) error {
-	if len(hashes) == 0 {
-		return nil
-	}
-	const columns = 1 // hash
-	batchSize := maxVars / columns
-
-	for i := 0; i < len(hashes); i += batchSize {
-		end := i + batchSize
-		if end > len(hashes) {
-			end = len(hashes)
-		}
-		batch := hashes[i:end]
-
-		placeholders := strings.Repeat("(?),", len(batch)-1) + "(?)"
+	for placeholders, args := range bindValueBatches(hashes, "(?)") {
 		query := "INSERT OR IGNORE INTO contents (hash) VALUES " + placeholders
-		args := make([]interface{}, len(batch))
-		for j, h := range batch {
-			args[j] = h
-		}
-
 		if _, err := q.Exec(query, args...); err != nil {
 			return err
 		}
