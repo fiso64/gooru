@@ -21,13 +21,14 @@
     busy?: boolean;
     error?: string;
     onCancel: () => void;
-    onConfirm: (tags: string[]) => void;
+    onConfirm: (tags: string[], initialTags: string[]) => void;
   }>();
 
   let dialogRef = $state<HTMLDivElement | undefined>();
   let mode = $state<'add' | 'remove'>(untrack(() => initialMode));
   let draft = $state('');
-  let stagedTags = $state(untrack(() => [...file.tags]));
+  const initialTags = untrack(() => [...file.tags]);
+  let stagedTags = $state([...initialTags]);
   const tagGroups = $derived(groupTags(stagedTags));
   const hasTagNamespaces = $derived(tagGroups.some((group) => Boolean(group.namespace)));
 
@@ -57,7 +58,7 @@
     const nextTags = draft.trim() ? applyDraft(draft) : stagedTags;
     stagedTags = nextTags;
     draft = '';
-    onConfirm(nextTags);
+    onConfirm(nextTags, initialTags);
   }
 
   onMount(() => {
