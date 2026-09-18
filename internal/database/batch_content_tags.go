@@ -24,9 +24,7 @@ func (s *Store) BatchGetTagsForContents(hashes []string) (map[string][]string, e
 		uniqueHashes = append(uniqueHashes, hash)
 	}
 
-	for start := 0; start < len(uniqueHashes); start += maxVars {
-		end := min(start+maxVars, len(uniqueHashes))
-		placeholders, args := stringBatchArgs(uniqueHashes[start:end])
+	for placeholders, args := range stringBindBatches(uniqueHashes) {
 
 		rows, err := s.Query(`
 			SELECT ct.content_hash, t.key, t.value

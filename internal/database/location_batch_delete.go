@@ -11,9 +11,7 @@ func (s *Store) RemoveLocationsByPublicIDTx(q Querier, publicIDs []string) (int,
 	}
 
 	totalRemoved := 0
-	for start := 0; start < len(publicIDs); start += maxVars {
-		end := min(start+maxVars, len(publicIDs))
-		placeholders, args := stringBatchArgs(publicIDs[start:end])
+	for placeholders, args := range stringBindBatches(publicIDs) {
 		result, err := q.Exec("DELETE FROM locations WHERE public_id IN ("+placeholders+")", args...)
 		if err != nil {
 			return 0, fmt.Errorf("remove locations by public id: %w", err)
