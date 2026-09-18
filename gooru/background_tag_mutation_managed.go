@@ -13,6 +13,18 @@ import (
 // retaining their logical Path as the database identity, so opaque protected
 // storage never requires the logical pathname to exist on disk.
 func (c *Client) ExecuteBackgroundTagMutationFiles(operationID string, files []types.FileInfo) error {
+	return c.executeBackgroundTagMutationFiles(BackgroundTask{OperationID: operationID}, files)
+}
+
+func (c *Client) ExecuteClaimedBackgroundTagMutationFiles(task BackgroundTask, files []types.FileInfo) error {
+	if task.ID == "" || task.OperationID == "" || task.claimAttempt < 1 {
+		return fmt.Errorf("claimed background tag mutation task generation is required")
+	}
+	return c.executeBackgroundTagMutationFiles(task, files)
+}
+
+func (c *Client) executeBackgroundTagMutationFiles(task BackgroundTask, files []types.FileInfo) error {
+	operationID := task.OperationID
 	state, found, err := c.GetBackgroundTagMutation(operationID)
 	if err != nil {
 		return err
@@ -107,10 +119,20 @@ func (c *Client) ExecuteBackgroundTagMutationFiles(operationID string, files []t
 
 	_, _, err = c.executeTaggingTransaction(analysis, state.Tags, kind, nil, nil, func(tx *databaseTx, affectedCount int64, movesHandled map[string]string) error {
 		result := backgroundTagOperationResult(analysis, int(affectedCount), movesHandled)
-		return c.persistBackgroundTagMutationResultTx(tx, operationID, result)
+		if err := c.persistBackgroundTagMutationResultTx(tx, operationID, result); err != nil {
+			return err
+		}
+		if task.ID != "" {
+			return completeDatabaseBackgroundTaskAttemptTx(c, tx, task)
+		}
+		return nil
 	})
-	if err == nil {
-		c.notifyBackgroundOperationChange()
+	if err != nil {
+		return err
 	}
-	return err
+	c.notifyBackgroundOperationChange()
+	if task.ID != "" {
+		return backgroundTaskFinalizedByHandlerError()
+	}
+	return nil
 }

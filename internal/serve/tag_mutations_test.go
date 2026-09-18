@@ -84,52 +84,49 @@ func TestTagMutationAsyncReturnsDurableOperation(t *testing.T) {
 	}
 }
 
-func TestWaitForDurableTagMutationReturnsCommittedResultBeforeTaskCompletion(t *testing.T) {
+func TestWaitForDurableTagMutationRequiresCompletedOperation(t *testing.T) {
 	dir := t.TempDir()
 	server, client := newTestBrowseServerAt(t, dir, filepath.Join(dir, "gooru.db"))
 	defer client.Close()
-	page := listTestFiles(t, server, "kind:image", 1)
-	if len(page.Files) != 1 {
-		t.Fatalf("expected one file, got %d", len(page.Files))
-	}
-	mutator, ok := server.library.(durableTagMutationLibrary)
-	if !ok {
-		t.Fatal("durable tag mutation library is unavailable")
-	}
-	selector := TagMutationSelector{FileIDs: []string{page.Files[0].ID}}
-	operation, err := mutator.createBackgroundTagMutation(
-		context.Background(), TagOperationAdd, selector,
-		TagMutationRequest{FileIDs: selector.FileIDs, Tags: []string{"reviewed"}},
-		defaultDurableTagMutationPendingLimit,
-	)
+	selector := TagMutationSelector{Query: "kind:image"}
+	operation, err := client.CreateBackgroundTagMutation(core.BackgroundTagMutationRequest{
+		Mutation: "add", Selector: selector, Tags: []string{"reviewed"},
+		Query: selector.Query, MaxPending: defaultDurableTagMutationPendingLimit,
+	})
 	if err != nil {
 		t.Fatalf("create mutation: %v", err)
 	}
-	task := core.BackgroundTask{
-		OperationID: operation.ID, Kind: core.BackgroundTagMutationTaskKind,
-		SubjectKind: "operation", SubjectID: operation.ID, InputKey: "v1",
+	if err := client.ExecuteBackgroundTagMutationQuery(operation.ID); err != nil {
+		t.Fatalf("persist result: %v", err)
 	}
-	if err := mutator.executeBackgroundTagMutation(context.Background(), task); err != nil {
-		t.Fatalf("execute mutation: %v", err)
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer shortCancel()
+	if _, err := waitForDurableTagMutation(shortCtx, server.backgroundOperations, operation.ID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait returned before durable task completion: %v", err)
 	}
-	state, found, err := server.backgroundOperations.GetBackgroundOperation(operation.ID)
-	if err != nil || !found {
-		t.Fatalf("read operation: found=%v err=%v", found, err)
+	runtime, err := server.NewBackgroundRuntime(client, "tag-mutation-completion-test")
+	if err != nil {
+		t.Fatalf("create runtime: %v", err)
 	}
-	if state.Status == core.BackgroundWorkCompleted {
-		t.Fatalf("direct handler unexpectedly completed durable task: %+v", state)
-	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(runCtx) }()
+	defer func() {
+		cancelRun()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("stop runtime: %v", err)
+		}
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	response, err := waitForDurableTagMutation(ctx, server.backgroundOperations, operation.ID)
 	if err != nil {
-		t.Fatalf("wait for committed result: %v", err)
+		t.Fatalf("wait for completed mutation: %v", err)
 	}
-	if response.AffectedCount != 1 || response.MatchedFiles != 1 || response.Operation != TagOperationAdd {
-		t.Fatalf("unexpected committed result: %+v", response)
+	if response.MatchedFiles < 1 || response.AffectedCount < 1 || response.Operation != TagOperationAdd {
+		t.Fatalf("unexpected completed result: %+v", response)
 	}
 }
-
 func TestTagMutationQueueFullReturnsStableJSONError(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "gooru.db")
