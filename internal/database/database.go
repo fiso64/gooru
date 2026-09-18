@@ -1039,6 +1039,18 @@ func (s *Store) GetAllTagsWithCounts() ([]types.TagWithCount, error) {
 	return s.GetTagsWithCounts(0)
 }
 
+func scanTagWithCounts(rows *sql.Rows) ([]types.TagWithCount, error) {
+	var out []types.TagWithCount
+	for rows.Next() {
+		var item types.TagWithCount
+		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 // GetTagsWithCounts retrieves tags and their usage counts, sorted by count descending.
 // A positive limit constrains the number of returned rows for bounded tag-index UIs.
 func (s *Store) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
@@ -1064,15 +1076,7 @@ func (s *Store) GetTagsWithCounts(limit int) ([]types.TagWithCount, error) {
 	}
 	defer rows.Close()
 
-	var tags []types.TagWithCount
-	for rows.Next() {
-		var item types.TagWithCount
-		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
-			return nil, err
-		}
-		tags = append(tags, item)
-	}
-	return tags, rows.Err()
+	return scanTagWithCounts(rows)
 }
 
 func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
@@ -1134,15 +1138,7 @@ func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCou
 		return nil, err
 	}
 	defer rows.Close()
-	var out []types.TagWithCount
-	for rows.Next() {
-		var item types.TagWithCount
-		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
+	return scanTagWithCounts(rows)
 }
 
 func (s *Store) ListNamespaceSuggestions(prefix string, limit int) ([]types.TagWithCount, error) {
@@ -1161,15 +1157,7 @@ func (s *Store) ListNamespaceSuggestions(prefix string, limit int) ([]types.TagW
 		return nil, err
 	}
 	defer rows.Close()
-	var out []types.TagWithCount
-	for rows.Next() {
-		var item types.TagWithCount
-		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
+	return scanTagWithCounts(rows)
 }
 
 func (s *Store) ListTagValueSuggestions(namespace string, valuePrefix string, limit int) ([]types.TagWithCount, error) {
@@ -1188,15 +1176,7 @@ func (s *Store) ListTagValueSuggestions(namespace string, valuePrefix string, li
 		return nil, err
 	}
 	defer rows.Close()
-	var out []types.TagWithCount
-	for rows.Next() {
-		var item types.TagWithCount
-		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
+	return scanTagWithCounts(rows)
 }
 
 func (s *Store) ListTagNamespaces() ([]string, error) {
@@ -1236,15 +1216,7 @@ func (s *Store) KindFacets() ([]types.TagWithCount, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []types.TagWithCount
-	for rows.Next() {
-		var item types.TagWithCount
-		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
+	return scanTagWithCounts(rows)
 }
 
 func (s *Store) KindFacetsByLocationQuery(query string, args []interface{}) ([]types.TagWithCount, error) {
@@ -1262,15 +1234,7 @@ func (s *Store) KindFacetsByLocationQuery(query string, args []interface{}) ([]t
 		return nil, err
 	}
 	defer rows.Close()
-	var out []types.TagWithCount
-	for rows.Next() {
-		var item types.TagWithCount
-		if err := rows.Scan(&item.Tag, &item.Count); err != nil {
-			return nil, err
-		}
-		out = append(out, item)
-	}
-	return out, rows.Err()
+	return scanTagWithCounts(rows)
 }
 
 func (s *Store) DeleteLocationByID(id int64) (bool, error) {
