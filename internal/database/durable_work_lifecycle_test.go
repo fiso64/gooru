@@ -189,6 +189,43 @@ func TestCompleteBackgroundTaskTxRollsBackWithCaller(t *testing.T) {
 	}
 }
 
+
+func TestCompleteBackgroundTaskAttemptTxRejectsRecoveredClaim(t *testing.T) {
+	store := newDurableLifecycleTestStore(t)
+	now := time.Date(2026, time.September, 7, 23, 0, 0, 0, time.UTC)
+	if _, created, err := store.EnqueueBackgroundTask(store.DB, NewBackgroundTask{
+		ID: "claim-generation", DedupeKey: "claim-generation", Kind: "thumbnail", ResourceClass: "image", MaxAttempts: 3, CreatedAt: now,
+	}); err != nil || !created {
+		t.Fatalf("enqueue = created %v, err %v", created, err)
+	}
+	first, ok, err := store.ClaimNextBackgroundTask("image", "worker-a", now, time.Minute)
+	if err != nil || !ok || first.AttemptCount != 1 {
+		t.Fatalf("first claim = (%+v, %v, %v)", first, ok, err)
+	}
+	if recovered, err := store.RecoverExpiredBackgroundTaskLeases(now.Add(time.Minute)); err != nil || recovered != 1 {
+		t.Fatalf("recover first claim = %d, %v", recovered, err)
+	}
+	secondStart := now.Add(time.Minute)
+	second, ok, err := store.ClaimNextBackgroundTask("image", "worker-b", secondStart, time.Minute)
+	if err != nil || !ok || second.AttemptCount != 2 {
+		t.Fatalf("second claim = (%+v, %v, %v)", second, ok, err)
+	}
+
+	tx, err := store.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.CompleteBackgroundTaskAttemptTx(tx, first.ID, first.AttemptCount, secondStart.Add(time.Second))
+	_ = tx.Rollback()
+	if !errors.Is(err, ErrBackgroundTaskLeaseLost) {
+		t.Fatalf("stale claim completion error = %v, want ErrBackgroundTaskLeaseLost", err)
+	}
+	if err := store.CompleteBackgroundTask(second.ID, "worker-b", secondStart.Add(2*time.Second)); err != nil {
+		t.Fatalf("current claim completion: %v", err)
+	}
+}
+
+
 func TestRecoverExpiredBackgroundTaskLeasesRetriesThenExhausts(t *testing.T) {
 	store := newDurableLifecycleTestStore(t)
 	now := time.Date(2026, time.September, 7, 23, 0, 0, 0, time.UTC)
