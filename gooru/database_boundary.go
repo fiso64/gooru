@@ -2,6 +2,7 @@ package gooru
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gooru.local/internal/background"
@@ -203,6 +204,17 @@ func setDatabaseBackgroundTaskState(client *Client, tx *databaseTx, taskID strin
 	return client.store.SetBackgroundTaskResultTx(tx, taskID, resultJSON)
 }
 
+func completeDatabaseBackgroundTaskAttemptTx(client *Client, tx *databaseTx, task BackgroundTask) error {
+	if task.ID == "" || task.claimAttempt < 1 {
+		return fmt.Errorf("background task claim generation is required")
+	}
+	return client.store.CompleteBackgroundTaskAttemptTx(tx, task.ID, task.claimAttempt, time.Now().UTC())
+}
+
+func backgroundTaskFinalizedByHandlerError() error {
+	return background.ErrTaskFinalizedByHandler
+}
+
 type backgroundChangeTaskStoreBackend interface {
 	RecoverExpiredBackgroundTaskLeases(time.Time) (int, error)
 	ClaimNextBackgroundTask(resourceClass, workerID string, now time.Time, leaseDuration time.Duration) (database.BackgroundTask, bool, error)
@@ -314,6 +326,7 @@ func backgroundTaskFromDatabase(task database.BackgroundTask) BackgroundTask {
 		Kind:        task.Kind,
 		SubjectKind: task.SubjectKind,
 		SubjectID:   task.SubjectID,
-		InputKey:    task.InputKey,
+		InputKey:     task.InputKey,
+		claimAttempt: task.AttemptCount,
 	}
 }
