@@ -29,6 +29,7 @@
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
     check: '<path d="m5 12 5 5L20 7"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
+    minus: '<path d="M5 12h14"/>',
     chev_left: '<path d="m15 6-6 6 6 6"/>',
     chev_right: '<path d="m9 6 6 6-6 6"/>',
     sliders: '<path d="M4 8h11M19 8h1"/><circle cx="17" cy="8" r="2"/><path d="M4 16h3M11 16h9"/><circle cx="9" cy="16" r="2"/>',
