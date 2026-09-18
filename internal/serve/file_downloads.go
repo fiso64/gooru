@@ -293,7 +293,12 @@ func verifyDownloadBatch(fileIDs []string, files []types.FileInfo, publicID func
 
 func uniqueDownloadArchiveName(name string, used map[string]int) string {
 	name = strings.TrimSpace(name)
-	if name == "" || name == "." || name == string(filepath.Separator) {
+	// ZIP entry separators are always forward slashes, but archives are commonly
+	// extracted on a different OS than the server. Remove both separator styles
+	// so a legal Unix filename containing backslashes cannot become a Windows
+	// path, and never emit the special parent-directory entry.
+	name = strings.NewReplacer("/", "_", "\\", "_").Replace(name)
+	if name == "" || name == "." || name == ".." {
 		name = "file"
 	}
 	key := strings.ToLower(name)
