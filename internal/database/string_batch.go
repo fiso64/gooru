@@ -5,6 +5,15 @@ import (
 	"strings"
 )
 
+func stringBatchArgs(values []string) (string, []any) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
+	args := make([]any, len(values))
+	for i, value := range values {
+		args[i] = value
+	}
+	return placeholders, args
+}
+
 // stringBindBatches yields SQLite-sized placeholder and argument batches for
 // string IN clauses. It reuses one argument buffer and one placeholder string
 // across yields, so callers must consume each args slice synchronously.
