@@ -3,7 +3,6 @@ package database
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"gooru.local/types"
 )
@@ -90,19 +89,9 @@ func (s *Store) ReorderSavedSearches(userID string, ids []string) error {
 		return err
 	}
 
-	const columns = 3 // user_id, saved_search_id, position
-	batchSize := maxVars / columns
-	for start := 0; start < len(ids); start += batchSize {
-		end := start + batchSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-		batch := ids[start:end]
-		placeholders := strings.Repeat("(?, ?, ?),", len(batch)-1) + "(?, ?, ?)"
-		args := make([]interface{}, 0, len(batch)*columns)
-		for offset, id := range batch {
-			args = append(args, userID, id, start+offset)
-		}
+	for placeholders, args := range bindRowBatches(ids, "(?, ?, ?)", 3, func(args []any, id string, position int) {
+		args[0], args[1], args[2] = userID, id, position
+	}) {
 		if _, err := tx.Exec(
 			"INSERT INTO saved_search_order (user_id, saved_search_id, position) VALUES "+placeholders,
 			args...,
