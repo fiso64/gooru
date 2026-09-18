@@ -3,6 +3,8 @@ package database
 import (
 	"iter"
 	"strings"
+
+	"gooru.local/types"
 )
 
 func stringBatchArgs(values []string) (string, []any) {
@@ -33,6 +35,34 @@ func bindBatches[T any](values []T) iter.Seq2[string, []any] {
 				args[i] = value
 			}
 			if !yield(placeholders[:2*len(batch)-1], args[:len(batch)]) {
+				return
+			}
+		}
+	}
+}
+
+func parsedTagBindBatches(tags []types.ParsedTag) iter.Seq2[string, []any] {
+	return func(yield func(string, []any) bool) {
+		if len(tags) == 0 {
+			return
+		}
+
+		const (
+			columns         = 2
+			rowPlaceholders = "(?, ?)"
+		)
+		batchSize := min(len(tags), maxVars/columns)
+		placeholders := strings.TrimSuffix(strings.Repeat(rowPlaceholders+",", batchSize), ",")
+		args := make([]any, batchSize*columns)
+
+		for start := 0; start < len(tags); start += batchSize {
+			batch := tags[start:min(start+batchSize, len(tags))]
+			for i, tag := range batch {
+				args[i*columns] = tag.Key
+				args[i*columns+1] = tag.Value
+			}
+			placeholderLen := len(batch)*(len(rowPlaceholders)+1) - 1
+			if !yield(placeholders[:placeholderLen], args[:len(batch)*columns]) {
 				return
 			}
 		}
