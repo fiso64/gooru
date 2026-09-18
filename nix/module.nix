@@ -6,6 +6,12 @@ let
   yaml = pkgs.formats.yaml { };
   hostSystem = pkgs.stdenv.hostPlatform.system;
 
+  serviceName = name: "gooru-${name}";
+  stateDir = name: "/var/lib/${serviceName name}";
+  cacheDir = name: "/var/cache/${serviceName name}";
+  configRelativePath = name: "gooru/${name}/serve.yaml";
+  configPath = name: "/etc/${configRelativePath name}";
+
   validInstanceIdentifier = value:
     builtins.stringLength value <= 24
     && builtins.match "[a-z0-9][a-z0-9_-]*" value != null;
@@ -13,28 +19,25 @@ let
     builtins.stringLength value <= 64
     && builtins.match "[A-Za-z0-9._-]+" value != null;
 
-  enabledInstances = lib.filterAttrs (_: instance: instance.enable) cfg.instances;
-
   instanceType = lib.types.submodule ({ name, ... }: {
     options = {
       enable = lib.mkEnableOption "Gooru instance ${name}";
 
       package = lib.mkOption {
-        type = lib.types.package;
-        default = cfg.package;
-        defaultText = lib.literalExpression "config.services.gooru.package";
-        description = "Gooru package to run for this instance.";
+        type = lib.types.nullOr lib.types.package;
+        default = null;
+        description = "Optional package override for this instance. When null, services.gooru.package is used.";
       };
 
       user = lib.mkOption {
         type = lib.types.str;
-        default = "gooru-${name}";
+        default = serviceName name;
         description = "User account under which this Gooru instance runs.";
       };
 
       group = lib.mkOption {
         type = lib.types.str;
-        default = "gooru-${name}";
+        default = serviceName name;
         description = "Group under which this Gooru instance runs.";
       };
 
@@ -81,20 +84,10 @@ let
           };
         }));
         default = { };
-        example = lib.literalExpression ''
-          {
-            primary = {
-              username = "admin";
-              passwordFile = "/run/agenix/gooru-admin";
-            };
-          }
-        '';
         description = ''
           Declaratively managed Gooru administrators for this instance. Each attribute name is
           a stable declaration identity and must not be reused for a different person/account.
-          The username defaults to that attribute name. On startup Gooru adopts or creates the
-          declared user, preserves its stable user ID across username changes, and reconciles
-          the password. Removing a declaration does not delete the Gooru user.
+          Removing a declaration does not delete the Gooru user.
         '';
       };
 
@@ -106,9 +99,22 @@ let
     };
   });
 
-  instanceAssertions = lib.concatMap (name:
+  enabledInstances = lib.filterAttrs (_: instance: instance.enable) cfg.instances;
+  packageFor = instance: if instance.package == null then cfg.package else instance.package;
+  listenFor = instance: lib.attrByPath [ "server" "listen" ] null instance.settings;
+
+  settingsFor = name: instance:
+    lib.recursiveUpdate {
+      server.frontend_dir = "${packageFor instance}/share/gooru/frontend";
+      database.path = "${stateDir name}/gooru.db";
+      media.cache_dir = "${cacheDir name}/media";
+    } instance.settings;
+
+  configFileFor = name: instance:
+    yaml.generate "gooru-${name}.yaml" (settingsFor name instance);
+
+  mkAssertions = name: instance:
     let
-      instance = cfg.instances.${name};
       adminDeclarationIDs = lib.attrNames instance.admins;
     in [
       {
@@ -117,8 +123,7 @@ let
       }
     ] ++ lib.optionals instance.enable [
       {
-        assertion = lib.hasAttrByPath [ "server" "listen" ] instance.settings
-          && instance.settings.server.listen != "";
+        assertion = listenFor instance != null && listenFor instance != "";
         message = "services.gooru.instances.${name}.settings.server.listen must be set explicitly for every enabled instance";
       }
       {
@@ -133,99 +138,75 @@ let
         assertion = lib.all (declarationID: instance.admins.${declarationID}.passwordFile != "") adminDeclarationIDs;
         message = "services.gooru.instances.${name}.admins passwordFile values must not be empty";
       }
-    ]) (lib.attrNames cfg.instances);
+    ];
 
-  mkInstanceConfig = name: instance:
+  preStartFor = name: instance:
     let
-      serviceName = "gooru-${name}";
-      defaultUser = serviceName;
-      defaultGroup = serviceName;
-      stateName = serviceName;
-      stateDir = "/var/lib/${stateName}";
-      cacheDir = "/var/cache/${stateName}";
-      configRelativePath = "gooru/${name}/serve.yaml";
-      configPath = "/etc/${configRelativePath}";
-      adminStateDir = "${stateDir}/declarative-admins";
-      adminCredentialName = declarationID: "gooru-${name}-admin-${declarationID}";
-      adminStateName = declarationID: "gooru-admin-${declarationID}.user-id";
-      adminDeclarationIDs = lib.attrNames instance.admins;
-      effectiveSettings = lib.recursiveUpdate {
-        server.frontend_dir = "${instance.package}/share/gooru/frontend";
-        database.path = "${stateDir}/gooru.db";
-        media.cache_dir = "${cacheDir}/media";
-      } instance.settings;
-      configFile = yaml.generate "gooru-${name}.yaml" effectiveSettings;
-      initialDatabaseCommand = ''
-        ${instance.package}/bin/gooru --config ${configPath} init --if-missing --hashing-strategy ${instance.initialDatabase.hashingStrategy}
+      package = packageFor instance;
+      path = configPath name;
+      declarationIDs = lib.attrNames instance.admins;
+      adminStateDir = "${stateDir name}/declarative-admins";
+      credentialName = declarationID: "gooru-${name}-admin-${declarationID}";
+      stateName = declarationID: "gooru-admin-${declarationID}.user-id";
+      initialDatabase = ''
+        ${package}/bin/gooru --config ${path} init --if-missing --hashing-strategy ${instance.initialDatabase.hashingStrategy}
       '';
-      # `user reconcile-admin` deliberately never performs database/storage
-      # initialization. Protected-mode first boot therefore opens a normal
-      # client once after `init`, allowing the standard database encryption
-      # migration to complete before declarative users are reconciled.
-      protectedStoragePreparationCommand = lib.optionalString
-        (adminDeclarationIDs != [ ] && lib.attrByPath [ "encryption" "enabled" ] false effectiveSettings) ''
-          ${instance.package}/bin/gooru --config ${configPath} count >/dev/null
+      protectedStoragePreparation = lib.optionalString
+        (declarationIDs != [ ] && lib.attrByPath [ "encryption" "enabled" ] false (settingsFor name instance)) ''
+          ${package}/bin/gooru --config ${path} count >/dev/null
         '';
-      adminReconciliationCommands = lib.concatMapStringsSep "\n" (declarationID:
+      reconcileAdmins = lib.concatMapStringsSep "\n" (declarationID:
         let
           admin = instance.admins.${declarationID};
-          credentialName = adminCredentialName declarationID;
-          stateNameForAdmin = adminStateName declarationID;
         in ''
           umask 077
           admin_state_dir="${adminStateDir}"
           mkdir -p "$admin_state_dir"
-          admin_state_file="$admin_state_dir/${stateNameForAdmin}"
+          admin_state_file="$admin_state_dir/${stateName declarationID}"
           admin_state_tmp="$admin_state_file.tmp"
           if [ -s "$admin_state_file" ]; then
             admin_user_id="$(cat "$admin_state_file")"
-            GOORU_ADMIN_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/${credentialName}")" \
-              ${instance.package}/bin/gooru --config ${configPath} user reconcile-admin \
+            GOORU_ADMIN_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/${credentialName declarationID}")" \
+              ${package}/bin/gooru --config ${path} user reconcile-admin \
                 --user-id "$admin_user_id" --username ${lib.escapeShellArg admin.username} > "$admin_state_tmp"
           else
-            GOORU_ADMIN_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/${credentialName}")" \
-              ${instance.package}/bin/gooru --config ${configPath} user reconcile-admin \
+            GOORU_ADMIN_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/${credentialName declarationID}")" \
+              ${package}/bin/gooru --config ${path} user reconcile-admin \
                 --username ${lib.escapeShellArg admin.username} > "$admin_state_tmp"
           fi
           mv "$admin_state_tmp" "$admin_state_file"
-        '') adminDeclarationIDs;
+        '') declarationIDs;
+    in initialDatabase + protectedStoragePreparation + reconcileAdmins;
+
+  serviceFor = name: instance:
+    let
+      package = packageFor instance;
+      unitName = serviceName name;
     in {
-      users.users.${instance.user} = lib.mkIf (instance.user == defaultUser) {
-        isSystemUser = true;
-        group = instance.group;
-        home = stateDir;
+      description = "Gooru web application (${name})";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+      path = [ pkgs.ffmpeg ];
+      preStart = preStartFor name instance;
+      serviceConfig = {
+        User = instance.user;
+        Group = instance.group;
+        ExecStart = "${package}/bin/gooru serve --config ${configPath name}";
+        Restart = "on-failure";
+        StateDirectory = unitName;
+        CacheDirectory = unitName;
+        WorkingDirectory = stateDir name;
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        LoadCredential = lib.mapAttrsToList (declarationID: admin:
+          "gooru-${name}-admin-${declarationID}:${admin.passwordFile}"
+        ) instance.admins;
       };
-      users.groups.${instance.group} = lib.mkIf (instance.group == defaultGroup) { };
-
-      environment.systemPackages = [ instance.package ];
-      environment.etc.${configRelativePath}.source = configFile;
-
-      systemd.services.${serviceName} = {
-        description = "Gooru web application (${name})";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-        path = [ pkgs.ffmpeg ];
-        preStart = initialDatabaseCommand + protectedStoragePreparationCommand + adminReconciliationCommands;
-        serviceConfig = {
-          User = instance.user;
-          Group = instance.group;
-          ExecStart = "${instance.package}/bin/gooru serve --config ${configPath}";
-          Restart = "on-failure";
-          StateDirectory = stateName;
-          CacheDirectory = stateName;
-          WorkingDirectory = stateDir;
-          NoNewPrivileges = true;
-          PrivateTmp = true;
-          LoadCredential = lib.mapAttrsToList (declarationID: admin:
-            "${adminCredentialName declarationID}:${admin.passwordFile}"
-          ) instance.admins;
-        };
-      };
-
-      networking.firewall.allowedTCPPorts = lib.mkIf instance.openFirewall [
-        (lib.toInt (lib.last (lib.splitString ":" effectiveSettings.server.listen)))
-      ];
     };
+
+  defaultUserInstances = lib.filterAttrs (name: instance: instance.user == serviceName name) enabledInstances;
+  defaultGroupInstances = lib.filterAttrs (name: instance: instance.group == serviceName name) enabledInstances;
+  firewallInstances = lib.filterAttrs (_: instance: instance.openFirewall && listenFor instance != null) enabledInstances;
 in {
   options.services.gooru = {
     package = lib.mkOption {
@@ -242,12 +223,35 @@ in {
     };
   };
 
-  config = lib.mkMerge (
-    [
-      {
-        assertions = instanceAssertions;
+  config = lib.mkIf (cfg.instances != { }) {
+    assertions = lib.flatten (lib.mapAttrsToList mkAssertions cfg.instances);
+
+    users.users = lib.mapAttrs' (name: instance:
+      lib.nameValuePair instance.user {
+        isSystemUser = true;
+        group = instance.group;
+        home = stateDir name;
       }
-    ]
-    ++ lib.mapAttrsToList mkInstanceConfig enabledInstances
-  );
+    ) defaultUserInstances;
+
+    users.groups = lib.mapAttrs' (_: instance:
+      lib.nameValuePair instance.group { }
+    ) defaultGroupInstances;
+
+    environment.systemPackages = lib.mapAttrsToList (_: instance: packageFor instance) enabledInstances;
+
+    environment.etc = lib.mapAttrs' (name: instance:
+      lib.nameValuePair (configRelativePath name) {
+        source = configFileFor name instance;
+      }
+    ) enabledInstances;
+
+    systemd.services = lib.mapAttrs' (name: instance:
+      lib.nameValuePair (serviceName name) (serviceFor name instance)
+    ) enabledInstances;
+
+    networking.firewall.allowedTCPPorts = lib.mapAttrsToList (_: instance:
+      lib.toInt (lib.last (lib.splitString ":" (listenFor instance)))
+    ) firewallInstances;
+  };
 }
