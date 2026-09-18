@@ -2081,34 +2081,30 @@ func (s *Store) UpdateLocationMetadata(path string, size int64, modTime int64) e
 // Returns a map of the original tag string to its count.
 func (s *Store) BatchGetTagCounts(parsedTags []types.ParsedTag) (map[string]int, error) {
 	counts := make(map[string]int)
-	if len(parsedTags) == 0 {
-		return counts, nil
-	}
-
-	var placeholders []string
-	var args []interface{}
-	for _, t := range parsedTags {
-		placeholders = append(placeholders, "(?, ?)")
-		args = append(args, t.Key, t.Value)
-	}
-	// Note: Using row value constructor `(key, value) IN ((?,?), ...)`
-	query := `SELECT key, value, files_count FROM tags WHERE (key, value) IN (` + strings.Join(placeholders, ",") + `)`
-
-	rows, err := s.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var key, value string
-		var count int
-		if err := rows.Scan(&key, &value, &count); err != nil {
+	for placeholders, args := range parsedTagBindBatches(parsedTags) {
+		query := `SELECT key, value, files_count FROM tags WHERE (key, value) IN (` + placeholders + `)`
+		rows, err := s.Query(query, args...)
+		if err != nil {
 			return nil, err
 		}
-		counts[parsedTagString(types.ParsedTag{Key: key, Value: value})] = count
+		for rows.Next() {
+			var key, value string
+			var count int
+			if err := rows.Scan(&key, &value, &count); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			counts[parsedTagString(types.ParsedTag{Key: key, Value: value})] = count
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
 	}
-	return counts, rows.Err()
+	return counts, nil
 }
 
 // TransferTagsAndRehashLocation transactionally updates a location to a new content hash,
