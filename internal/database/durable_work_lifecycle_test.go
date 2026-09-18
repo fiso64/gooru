@@ -156,6 +156,39 @@ func TestCompleteBackgroundTaskRejectsStaleWorker(t *testing.T) {
 	}
 }
 
+func TestCompleteBackgroundTaskTxRollsBackWithCaller(t *testing.T) {
+	store := newDurableLifecycleTestStore(t)
+	now := time.Date(2026, time.September, 7, 23, 0, 0, 0, time.UTC)
+	if _, created, err := store.EnqueueBackgroundTask(store.DB, NewBackgroundTask{ID: "tx-complete", DedupeKey: "tx-complete", Kind: "thumbnail", ResourceClass: "image", CreatedAt: now}); err != nil || !created {
+		t.Fatalf("enqueue = created %v, err %v", created, err)
+	}
+	claimed, ok, err := store.ClaimNextBackgroundTask("image", "worker-a", now, time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim = (%+v, %v, %v)", claimed, ok, err)
+	}
+	tx, err := store.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteBackgroundTaskTx(tx, claimed.ID, "worker-a", now.Add(time.Second)); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("transaction completion: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback completion: %v", err)
+	}
+	var taskStatus, attemptOutcome string
+	if err := store.DB.QueryRow(`SELECT status FROM background_tasks WHERE id = ?`, claimed.ID).Scan(&taskStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DB.QueryRow(`SELECT outcome FROM background_task_attempts WHERE task_id = ? AND attempt_number = 1`, claimed.ID).Scan(&attemptOutcome); err != nil {
+		t.Fatal(err)
+	}
+	if taskStatus != "running" || attemptOutcome != "running" {
+		t.Fatalf("rolled-back completion leaked: task=%q attempt=%q", taskStatus, attemptOutcome)
+	}
+}
+
 func TestRecoverExpiredBackgroundTaskLeasesRetriesThenExhausts(t *testing.T) {
 	store := newDurableLifecycleTestStore(t)
 	now := time.Date(2026, time.September, 7, 23, 0, 0, 0, time.UTC)

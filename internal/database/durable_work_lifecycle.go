@@ -92,28 +92,40 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 		return errors.New("background task id and worker id are required")
 	}
 	finishedAt = normalizeWorkTime(finishedAt)
-
 	tx, err := s.Begin()
 	if err != nil {
 		return fmt.Errorf("begin background task completion: %w", err)
 	}
 	defer tx.Rollback()
+	if err := s.CompleteBackgroundTaskTx(tx, taskID, workerID, finishedAt); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit background task completion: %w", err)
+	}
+	return nil
+}
 
+// CompleteBackgroundTaskTx applies lease-guarded completion in an existing transaction.
+func (s *Store) CompleteBackgroundTaskTx(tx *Tx, taskID, workerID string, finishedAt time.Time) error {
+	if s == nil || s.DB == nil {
+		return errors.New("background task store is required")
+	}
+	if tx == nil {
+		return errors.New("background task completion transaction is required")
+	}
+	if taskID == "" || workerID == "" {
+		return errors.New("background task id and worker id are required")
+	}
+	finishedAt = normalizeWorkTime(finishedAt)
 	var attemptNumber int
 	var operationID sql.NullString
 	if err := tx.QueryRow(`
 		UPDATE background_tasks
-		SET status = 'completed',
-		    finished_at = ?,
-		    lease_owner = '',
-		    lease_expires_at = NULL,
-		    last_error_code = '',
-		    last_error_message = ''
-		WHERE id = ?
-		  AND status = 'running'
-		  AND lease_owner = ?
-		  AND lease_expires_at IS NOT NULL
-		  AND lease_expires_at > ?
+		SET status = 'completed', finished_at = ?, lease_owner = '', lease_expires_at = NULL,
+		    last_error_code = '', last_error_message = ''
+		WHERE id = ? AND status = 'running' AND lease_owner = ?
+		  AND lease_expires_at IS NOT NULL AND lease_expires_at > ?
 		RETURNING attempt_count, operation_id
 	`, workTimeValue(finishedAt), taskID, workerID, workTimeValue(finishedAt)).Scan(&attemptNumber, &operationID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -121,7 +133,6 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 		}
 		return fmt.Errorf("complete background task: %w", err)
 	}
-
 	res, err := tx.Exec(`
 		UPDATE background_task_attempts
 		SET finished_at = ?, outcome = 'completed', error_code = '', error_message = ''
@@ -135,9 +146,6 @@ func (s *Store) CompleteBackgroundTask(taskID, workerID string, finishedAt time.
 	}
 	if err := recordBackgroundOperationTaskTerminal(tx, operationID.String, finishedAt, 1, 0); err != nil {
 		return fmt.Errorf("advance background operation after task completion: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit background task completion: %w", err)
 	}
 	return nil
 }
