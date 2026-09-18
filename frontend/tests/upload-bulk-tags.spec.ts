@@ -55,8 +55,10 @@ test('bulk staged tag controls add, remove, set, clear, and explain initial-tag 
 
   const addTags = page.getByRole('button', { name: 'Add tags to staged files' });
   const removeTags = page.getByRole('button', { name: 'Remove tags from staged files' });
-  await expect(addTags).toHaveText('+');
-  await expect(removeTags).toHaveText('-');
+  await expect(addTags).toHaveText('');
+  await expect(removeTags).toHaveText('');
+  await expect(addTags.locator('svg')).toHaveCount(1);
+  await expect(removeTags.locator('svg')).toHaveCount(1);
   const [addBox, removeBox] = await Promise.all([addTags.boundingBox(), removeTags.boundingBox()]);
   expect(addBox).not.toBeNull();
   expect(removeBox).not.toBeNull();
