@@ -188,7 +188,7 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 	// Once ZIP bytes are on the wire we cannot replace the response with JSON.
 	// Leaving the central directory incomplete makes the client fail closed
 	// instead of presenting a silently partial archive.
-	slog.Error("bulk file download stream failed", "download_id", id, "selected_files", len(target.FileIDs), "error", err)
+	slog.Error("bulk file download stream failed", "download_id", id, "selected_files", len(target.FileIDs))
 }
 
 func (s *Server) streamFileDownloadArchive(w http.ResponseWriter, ctx context.Context, fileIDs []string) (bool, error) {
