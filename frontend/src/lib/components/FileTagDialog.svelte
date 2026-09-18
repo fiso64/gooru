@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import TagEditor from './TagEditor.svelte';
   import { groupTags, parseTags } from '$lib/utils/format';
@@ -25,9 +25,9 @@
   }>();
 
   let dialogRef = $state<HTMLDivElement | undefined>();
-  let mode = $state<'add' | 'remove'>(initialMode);
+  let mode = $state<'add' | 'remove'>(untrack(() => initialMode));
   let draft = $state('');
-  let stagedTags = $state([...file.tags]);
+  let stagedTags = $state(untrack(() => [...file.tags]));
   const tagGroups = $derived(groupTags(stagedTags));
   const hasTagNamespaces = $derived(tagGroups.some((group) => Boolean(group.namespace)));
 
