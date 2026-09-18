@@ -10,8 +10,67 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	core "gooru.local/gooru"
 )
 
+
+
+func TestIssue841DirectHandlerLatency(t *testing.T) {
+	const operations = 20
+
+	dir := t.TempDir()
+	server, client := newTestBrowseServerAt(t, dir, filepath.Join(dir, "gooru.db"))
+	defer client.Close()
+	page := listTestFiles(t, server, "", 1)
+	if len(page.Files) != 1 {
+		t.Fatalf("direct-handler control returned %d files, want 1", len(page.Files))
+	}
+	fileID := page.Files[0].ID
+	mutator, ok := server.library.(durableTagMutationLibrary)
+	if !ok {
+		t.Fatal("durable tag mutation library is unavailable")
+	}
+
+	ctx := context.Background()
+	var total time.Duration
+	minimum := time.Duration(1<<63 - 1)
+	var maximum time.Duration
+	for operation := 0; operation < operations; operation++ {
+		method := http.MethodPost
+		if operation%2 == 1 {
+			method = http.MethodDelete
+		}
+		req := authedJSONRequest(method, "/api/v1/files/tags", `{"file_ids":["`+fileID+`"],"tags":["bench"],"verbose":false}`)
+		req.Header.Set("Prefer", "respond-async")
+		rec := httptest.NewRecorder()
+		server.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("direct-handler admission %d returned %d: %s", operation, rec.Code, rec.Body.String())
+		}
+		var admitted BackgroundOperationDTO
+		if err := json.Unmarshal(rec.Body.Bytes(), &admitted); err != nil {
+			t.Fatalf("decode direct-handler admission %d: %v", operation, err)
+		}
+		task := core.BackgroundTask{
+			OperationID: admitted.ID,
+			Kind:        core.BackgroundTagMutationTaskKind,
+			SubjectKind: "operation",
+			SubjectID:   admitted.ID,
+			InputKey:    "v1",
+		}
+		started := time.Now()
+		if err := mutator.executeBackgroundTagMutation(ctx, task); err != nil {
+			t.Fatalf("direct-handler mutation %d: %v", operation, err)
+		}
+		elapsed := time.Since(started)
+		total += elapsed
+		if elapsed < minimum { minimum = elapsed }
+		if elapsed > maximum { maximum = elapsed }
+	}
+	t.Logf("issue841 direct handler: library=3 operations=%d avg=%s min=%s max=%s", operations, total/operations, minimum, maximum)
+	t.Fatalf("issue 841 direct-handler diagnostic complete; timings are logged above")
+}
 
 func TestIssue841SmallTagLatencySplit(t *testing.T) {
 	const operationsPerRun = 20
