@@ -680,8 +680,13 @@
   }
 
   function handleViewerKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
+    if (event.defaultPrevented || hasCommandModifier(event)) return;
     const target = event.target;
+    const shiftedArrow = event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
+    const emptyViewerTagInput = target instanceof HTMLInputElement
+      && target.id === 'tags-' + renderedFile.id
+      && target.value === '';
+    if (isEditableShortcutTarget(target) && !(shiftedArrow && emptyViewerTagInput)) return;
     const targetInsideStage = target instanceof Node && Boolean(stageElement?.contains(target));
     if (targetInsideStage && isInteractiveShortcutTarget(target)) return;
 
@@ -700,7 +705,7 @@
       return;
     }
 
-    if (event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+    if (shiftedArrow) {
       const delta = event.key === 'ArrowLeft' ? -5 : 5;
       if (seekPlayback(delta)) {
         event.preventDefault();
