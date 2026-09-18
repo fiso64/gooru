@@ -14,10 +14,10 @@ func stringBatchArgs(values []string) (string, []any) {
 	return placeholders, args
 }
 
-// stringBindBatches yields SQLite-sized placeholder and argument batches for
-// string IN clauses. It reuses one argument buffer and one placeholder string
-// across yields, so callers must consume each args slice synchronously.
-func stringBindBatches(values []string) iter.Seq2[string, []any] {
+// bindBatches yields SQLite-sized placeholder and argument batches. It reuses
+// one argument buffer and one placeholder string across yields, so callers must
+// consume each args slice synchronously.
+func bindBatches[T any](values []T) iter.Seq2[string, []any] {
 	return func(yield func(string, []any) bool) {
 		if len(values) == 0 {
 			return
@@ -37,4 +37,8 @@ func stringBindBatches(values []string) iter.Seq2[string, []any] {
 			}
 		}
 	}
+}
+
+func stringBindBatches(values []string) iter.Seq2[string, []any] {
+	return bindBatches(values)
 }
