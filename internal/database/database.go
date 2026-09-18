@@ -1998,25 +1998,14 @@ func batchTagIDsByContentQueryTx(
 	if len(tagIDs) == 0 {
 		return 0, nil
 	}
-
-	batchSize := maxVars - len(subQueryArgs)
-	if batchSize <= 0 {
+	if len(subQueryArgs) >= maxVars {
 		return 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag %s", len(subQueryArgs), operation)
 	}
 
-	finalArgs := make([]interface{}, 0, len(subQueryArgs)+batchSize)
 	var totalAffected int64
-	for start := 0; start < len(tagIDs); start += batchSize {
-		batch := tagIDs[start:min(start+batchSize, len(tagIDs))]
-		placeholders := strings.TrimSuffix(strings.Repeat(valuePlaceholder+",", len(batch)), ",")
-
-		finalArgs = finalArgs[:0]
-		for _, tagID := range batch {
-			finalArgs = append(finalArgs, tagID)
-		}
-		finalArgs = append(finalArgs, subQueryArgs...)
-
-		res, err := q.Exec(fmt.Sprintf(queryFormat, placeholders, subQuery), finalArgs...)
+	for placeholders, args := range bindValueBatchesReserved(tagIDs, valuePlaceholder, len(subQueryArgs)) {
+		args = append(args, subQueryArgs...)
+		res, err := q.Exec(fmt.Sprintf(queryFormat, placeholders, subQuery), args...)
 		if err != nil {
 			return 0, err
 		}
