@@ -2,7 +2,6 @@ package database
 
 import (
 	"fmt"
-	"strings"
 
 	"gooru.local/types"
 )
@@ -17,24 +16,8 @@ func (s *Store) KindFacetsForIncludedTagExcludingTags(included TagFacetExclusion
 		return nil, nil
 	}
 
-	exclusionConditions := make([]string, 0, len(exclusions))
-	args := make([]interface{}, 0, 2+len(exclusions)*2)
-	for _, exclusion := range exclusions {
-		if exclusion.KeyOnly {
-			exclusionConditions = append(exclusionConditions, "et.key = ?")
-			args = append(args, exclusion.Tag.Key)
-		} else {
-			exclusionConditions = append(exclusionConditions, "(et.key = ? AND et.value = ?)")
-			args = append(args, exclusion.Tag.Key, exclusion.Tag.Value)
-		}
-	}
-
-	includeCondition := "it.key = ?"
-	includeArgs := []interface{}{included.Tag.Key}
-	if !included.KeyOnly {
-		includeCondition = "(it.key = ? AND it.value = ?)"
-		includeArgs = append(includeArgs, included.Tag.Value)
-	}
+	exclusionConditions, args := tagFacetConditions("et", exclusions...)
+	includeCondition, includeArgs := tagFacetConditions("it", included)
 	args = append(args, includeArgs...)
 
 	query := fmt.Sprintf(`
@@ -56,7 +39,7 @@ func (s *Store) KindFacetsForIncludedTagExcludingTags(included TagFacetExclusion
 		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		GROUP BY kind
 		ORDER BY files_count DESC, kind ASC
-	`, strings.Join(exclusionConditions, " OR "), includeCondition, fileKindExpression())
+	`, exclusionConditions, includeCondition, fileKindExpression())
 
 	rows, err := s.Query(query, args...)
 	if err != nil {
