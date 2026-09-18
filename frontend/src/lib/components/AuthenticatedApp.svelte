@@ -350,6 +350,8 @@
     if (event.defaultPrevented) return;
     const editable = isEditableShortcutTarget(event.target);
     const modified = hasCommandModifier(event);
+    const altTagShortcut = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'Enter';
+    const cursorFile = selectedCount === 0 ? libraryCursorFile(event.target) : null;
     const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
     if (shortcutsKey && !modified && !editable) {
       event.preventDefault();
@@ -357,16 +359,28 @@
       return;
     }
 
-    if (!modified && !editable && library.route === 'library' && !library.activeFile && actionDialog.kind === 'none') {
-      const action = libraryShortcutAction(event.key, selectedCount, event.shiftKey);
+    if ((!modified || altTagShortcut) && !editable && library.route === 'library' && !library.activeFile && actionDialog.kind === 'none' && !fileTagDialog.file) {
+      const action = libraryShortcutAction(event.key, {
+        selectedCount,
+        cursorAvailable: Boolean(cursorFile),
+        shiftKey: event.shiftKey,
+        altKey: event.altKey
+      });
       if (action) {
         event.preventDefault();
         if (action === 'select-all') selectAllFiles();
-        else if (action === 'download-selected') void bulkDownloadSelected();
-        else if (action === 'tag-selected') bulkTagSelected();
-        else if (action === 'untag-selected') bulkUntagSelected();
-        else if (action === 'untrack-selected') bulkUntrackSelected();
-        else bulkDeleteSelected();
+        else if (action === 'download-selected') {
+          if (selectedCount > 0) void bulkDownloadSelected();
+          else if (cursorFile) void downloadCursorFile(cursorFile);
+        } else if (action === 'tag-selected') void openTagShortcut('add', cursorFile);
+        else if (action === 'untag-selected') void openTagShortcut('remove', cursorFile);
+        else if (action === 'untrack-selected') {
+          if (selectedCount > 0) bulkUntrackSelected();
+          else if (cursorFile) untrackPreview(cursorFile);
+        } else {
+          if (selectedCount > 0) bulkDeleteSelected();
+          else if (cursorFile) deletePreview(cursorFile);
+        }
         return;
       }
     }
