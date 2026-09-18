@@ -208,8 +208,8 @@ test('single-file tag editor stages changes until Apply', async ({ page }) => {
 
   await dialog.getByRole('button', { name: 'Apply' }).click();
   await expect.poll(() => tagRequests.length).toBe(1);
-  expect(tagRequests[0].method).toBe('PUT');
-  expect(tagRequests[0].body).toMatchObject({ file_ids: ['one'], tags: ['alpha', 'beta'] });
+  expect(tagRequests[0].method).toBe('POST');
+  expect(tagRequests[0].body).toMatchObject({ file_ids: ['one'], tags: ['beta'] });
 });
 
 
