@@ -3,6 +3,7 @@ import { ApiClient } from '$lib/api/client';
 import { libraryKeys } from './library';
 import { jobKeys } from './jobs';
 import { offsetPageToken } from '$lib/utils/pagination';
+import { applyTagOperation } from '$lib/utils/tags';
 import type { FileListResponse, FileRemovalRequest, FileRemovalResponse, TagMutationOperation, TagMutationRequest, TagMutationResponse } from '$lib/api/types';
 import type { QueryClient } from '@tanstack/query-core';
 import type { InfiniteData, QueryFunctionContext } from '@tanstack/query-core';
@@ -141,12 +142,58 @@ export interface TagMutationVariables {
   body: TagMutationRequest;
 }
 
+function isUnfilteredFilePagesQueryKey(queryKey: readonly unknown[]) {
+  return queryKey[0] === 'files' && queryKey[1] === 'pages' && queryKey[3] === '' && queryKey[4] === '';
+}
+
+export function reconcileExplicitTagMutationCache(
+  queryClient: QueryClient,
+  variables: TagMutationVariables,
+  response: TagMutationResponse
+) {
+  const fileIDs = variables.body.file_ids ?? [];
+  if (!fileIDs.length || response.notifications?.length) return false;
+
+  const targetIDs = new Set(fileIDs);
+  const tags = variables.body.tags ?? [];
+  queryClient.setQueriesData<InfiniteData<FileListResponse, string>>(
+    {
+      queryKey: ['files', 'pages'],
+      predicate: (query) => isUnfilteredFilePagesQueryKey(query.queryKey)
+    },
+    (data) => {
+      if (!data) return data;
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          files: page.files.map((file) => {
+            if (!targetIDs.has(file.id)) return file;
+            const nextTags = variables.operation === 'remove' && tags.length === 0
+              ? []
+              : applyTagOperation(file.tags, variables.operation, tags);
+            return { ...file, tags: nextTags };
+          })
+        }))
+      };
+    }
+  );
+  return true;
+}
+
 export function createTagMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<TagMutationResponse, Error, TagMutationVariables>(() => ({
     mutationFn: ({ operation, body }) => new ApiClient(getCSRFToken()).mutateTags(operation, body),
-    onSuccess: async () => {
+    onSuccess: async (response, variables) => {
+      const reconciledUnfilteredPages = reconcileExplicitTagMutationCache(queryClient, variables, response);
+      const fileRefresh = reconciledUnfilteredPages
+        ? queryClient.invalidateQueries({
+            queryKey: fileKeys.all,
+            predicate: (query) => !isUnfilteredFilePagesQueryKey(query.queryKey)
+          })
+        : queryClient.invalidateQueries({ queryKey: fileKeys.all });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: fileKeys.all }),
+        fileRefresh,
         queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
       ]);
     }
