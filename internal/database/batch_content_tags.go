@@ -6,9 +6,8 @@ import (
 	"gooru.local/types"
 )
 
-// BatchGetTagsForContents returns tags for the requested content hashes while
-// bounding each query to SQLite's variable limit. Duplicate hashes are queried
-// only once. Hashes with no tags are omitted from the result map.
+// BatchGetTagsForContents returns tags for requested content hashes in SQLite-sized batches.
+// Duplicate hashes are queried once; hashes without tags are omitted.
 func (s *Store) BatchGetTagsForContents(hashes []string) (map[string][]string, error) {
 	result := make(map[string][]string)
 	if len(hashes) == 0 {
