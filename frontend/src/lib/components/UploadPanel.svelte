@@ -199,16 +199,30 @@
     stagedTagDialogValue = '';
   }
 
+  function bulkEditStagedTags(operation: 'add' | 'remove' | 'set', operand: string[]) {
+    if (operation !== 'set' && operand.length === 0) return;
+    const removed = new Set(operand);
+    for (const row of stagedRows) {
+      const previous = row.item.tags ?? [];
+      const next = operation === 'set'
+        ? [...operand]
+        : operation === 'add'
+          ? Array.from(new Set([...previous, ...operand]))
+          : previous.filter((tag) => !removed.has(tag));
+      if (previous.length === next.length && previous.every((tag, index) => tag === next[index])) continue;
+      onItemTagsInput(row.index, next);
+    }
+  }
+
   function applyStagedTagDialog() {
     if (!stagedTagDialogMode) return;
-    const tags = parseTags(stagedTagDialogValue);
-    if (tags.length > 0) onStagedTags(stagedTagDialogMode, tags);
+    bulkEditStagedTags(stagedTagDialogMode, parseTags(stagedTagDialogValue));
     closeStagedTagDialog();
   }
 
   function setStagedTagsFromInitial() {
     if (stagedRows.length === 0) return;
-    onStagedTags('set', initialTags);
+    bulkEditStagedTags('set', initialTags);
     initialTagsChangedWithStaged = false;
   }
 
