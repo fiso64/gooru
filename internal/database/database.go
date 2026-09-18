@@ -522,21 +522,13 @@ func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
 // GetLocationsForDirs retrieves a map of all known paths to their content hashes for the given directories.
 func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInfo, error) {
 	locations := make(map[string]types.LocationInfo)
-	for i := 0; i < len(dirs); i += maxVars {
-		end := i + maxVars
-		if end > len(dirs) {
-			end = len(dirs)
-		}
-		batch := dirs[i:end]
-		placeholders := make([]string, len(batch))
-		args := make([]interface{}, len(batch))
-		for j, dir := range batch {
-			placeholders[j] = "(?)"
-			args[j] = escapeLikeLiteral(dir+string(filepath.Separator)) + "%"
-		}
-
+	patterns := make([]string, len(dirs))
+	for i, dir := range dirs {
+		patterns[i] = escapeLikeLiteral(dir+string(filepath.Separator)) + "%"
+	}
+	for placeholders, args := range bindValueBatches(patterns, "(?)") {
 		rows, err := s.Query(`
-			WITH requested(pattern) AS (VALUES `+strings.Join(placeholders, ",")+`)
+			WITH requested(pattern) AS (VALUES `+placeholders+`)
 			SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.extension, l.tags_cache
 			FROM locations l
 			WHERE EXISTS (
