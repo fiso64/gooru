@@ -18,3 +18,12 @@ func ParseTag(tag string) types.ParsedTag {
 	// Handles "key" (simple tag)
 	return types.ParsedTag{Key: tag, Value: ""}
 }
+
+// ParseTags parses a collection of tag strings while preserving caller order.
+func ParseTags(tags []string) []types.ParsedTag {
+	parsedTags := make([]types.ParsedTag, len(tags))
+	for i, tag := range tags {
+		parsedTags[i] = ParseTag(tag)
+	}
+	return parsedTags
+}
