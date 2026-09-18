@@ -385,6 +385,18 @@ func (s *Store) GetTagsForContent(hash string) ([]string, error) {
 	return tags, rows.Err()
 }
 
+func scanStrings(rows *sql.Rows) ([]string, error) {
+	var out []string
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		out = append(out, value)
+	}
+	return out, rows.Err()
+}
+
 // ListAllFiles retrieves all file paths from the database.
 func (s *Store) ListAllFiles() ([]string, error) {
 	rows, err := s.Query("SELECT path FROM locations ORDER BY path")
@@ -393,15 +405,7 @@ func (s *Store) ListAllFiles() ([]string, error) {
 	}
 	defer rows.Close()
 
-	var paths []string
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			return nil, err
-		}
-		paths = append(paths, path)
-	}
-	return paths, rows.Err()
+	return scanStrings(rows)
 }
 
 // CountAllFiles counts all location records in the database.
@@ -444,15 +448,7 @@ func (s *Store) ListFilesByTag(key, value string) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var paths []string
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			return nil, err
-		}
-		paths = append(paths, path)
-	}
-	return paths, rows.Err()
+	return scanStrings(rows)
 }
 
 // GetAllContentHashes retrieves a set of all known content hashes for fast lookups.
@@ -792,15 +788,7 @@ func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag, notTags []types.Parse
 	}
 	defer rows.Close()
 
-	var paths []string
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			return nil, err
-		}
-		paths = append(paths, path)
-	}
-	return paths, rows.Err()
+	return scanStrings(rows)
 }
 
 func scanBasicFileInfos(rows *sql.Rows) ([]types.FileInfo, error) {
@@ -1168,15 +1156,7 @@ func (s *Store) ListTagNamespaces() ([]string, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var value string
-		if err := rows.Scan(&value); err != nil {
-			return nil, err
-		}
-		out = append(out, value)
-	}
-	return out, rows.Err()
+	return scanStrings(rows)
 }
 
 func (s *Store) KindFacets() ([]types.TagWithCount, error) {
@@ -1813,15 +1793,7 @@ func (s *Store) GetPathsByContentQuery(query string, args []interface{}) ([]stri
 	}
 	defer rows.Close()
 
-	var paths []string
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			return nil, err
-		}
-		paths = append(paths, path)
-	}
-	return paths, rows.Err()
+	return scanStrings(rows)
 }
 
 // GetFilesInfoByContentQuery executes a complex query for content hashes and returns their full info.
@@ -2119,15 +2091,7 @@ func (s *Store) GetHashesByContentQueryTx(q Querier, subQuery string, args []int
 	}
 	defer rows.Close()
 
-	var hashes []string
-	for rows.Next() {
-		var hash string
-		if err := rows.Scan(&hash); err != nil {
-			return nil, err
-		}
-		hashes = append(hashes, hash)
-	}
-	return hashes, rows.Err()
+	return scanStrings(rows)
 }
 
 // BatchClearTagsByContentQueryTx removes all tag associations for content matching a subquery.
