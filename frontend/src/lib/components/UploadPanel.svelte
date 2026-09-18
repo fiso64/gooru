@@ -82,7 +82,7 @@
   let stagedTagDialogMode = $state<'add' | 'remove' | null>(null);
   let stagedTagDialogValue = $state('');
   let initialTagsChangedWithStaged = $state(false);
-  let observedUploadTags = $state(uploadTags);
+  let observedUploadTags = $state(untrack(() => uploadTags));
   let itemTagDrafts = $state<Record<number, string>>({});
   let stagedFilter = $state('');
   let stagedPage = $state(0);
