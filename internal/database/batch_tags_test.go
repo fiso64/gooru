@@ -80,6 +80,34 @@ func TestBatchGetTagsRespectsVariableBudget(t *testing.T) {
 	}
 }
 
+
+func TestBatchGetTagCountsCrossesBindBoundary(t *testing.T) {
+	store := newMemoryTestStore(t)
+	const tagCount = maxVars/2 + 1
+	parsedTags := make([]types.ParsedTag, tagCount)
+	for i := range parsedTags {
+		parsedTags[i] = types.ParsedTag{Key: fmt.Sprintf("count-key-%03d", i)}
+		tag := parsedTags[i]
+		if _, err := store.Exec("INSERT INTO tags (key, value) VALUES (?, ?)", tag.Key, tag.Value); err != nil {
+			t.Fatalf("seed tag %d: %v", i, err)
+		}
+	}
+
+	got, err := store.BatchGetTagCounts(parsedTags)
+	if err != nil {
+		t.Fatalf("BatchGetTagCounts: %v", err)
+	}
+	if len(got) != tagCount {
+		t.Fatalf("tag counts = %d, want %d", len(got), tagCount)
+	}
+	for _, index := range []int{0, maxVars/2 - 1, maxVars / 2} {
+		key := parsedTags[index].Key
+		if _, ok := got[key]; !ok {
+			t.Fatalf("missing count for seeded tag %q", key)
+		}
+	}
+}
+
 func TestBatchGetOrCreateTagsBatchesInserts(t *testing.T) {
 	store := newMemoryTestStore(t)
 	const tagCount = maxVars/2 + 1
