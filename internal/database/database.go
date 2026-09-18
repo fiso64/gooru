@@ -385,8 +385,7 @@ func scanTagStrings(rows *sql.Rows) ([]string, error) {
 	return tags, rows.Err()
 }
 
-func scanStrings(rows *sql.Rows) ([]string, error) {
-	var out []string
+func scanStringsInto(rows *sql.Rows, out []string) ([]string, error) {
 	for rows.Next() {
 		var value string
 		if err := rows.Scan(&value); err != nil {
@@ -395,6 +394,10 @@ func scanStrings(rows *sql.Rows) ([]string, error) {
 		out = append(out, value)
 	}
 	return out, rows.Err()
+}
+
+func scanStrings(rows *sql.Rows) ([]string, error) {
+	return scanStringsInto(rows, nil)
 }
 
 // ListAllFiles retrieves all file paths from the database.
@@ -563,6 +566,7 @@ func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInf
 	}
 	return locations, nil
 }
+
 // ApplyRelinkAdditions transactionally adds new locations.
 func (s *Store) ApplyRelinkAdditions(toAdd map[string]types.LocationInfo) (int, error) {
 	if len(toAdd) == 0 {
@@ -2224,13 +2228,7 @@ func (s *Store) BatchGetTagCounts(parsedTags []types.ParsedTag) (map[string]int,
 		if err := rows.Scan(&key, &value, &count); err != nil {
 			return nil, err
 		}
-		var tagStr string
-		if value == "" {
-			tagStr = key
-		} else {
-			tagStr = key + ":" + value
-		}
-		counts[tagStr] = count
+		counts[parsedTagString(types.ParsedTag{Key: key, Value: value})] = count
 	}
 	return counts, rows.Err()
 }
@@ -2366,15 +2364,7 @@ func (s *Store) ListAllPublicFileIDs() ([]string, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	ids := make([]string, 0)
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+	return scanStringsInto(rows, []string{})
 }
 
 // GetPublicFileIDsByLocationQuery executes a location-ID subquery and projects only public IDs.
@@ -2391,13 +2381,5 @@ func (s *Store) GetPublicFileIDsByLocationQuery(query string, args []interface{}
 		return nil, err
 	}
 	defer rows.Close()
-	ids := make([]string, 0)
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+	return scanStringsInto(rows, []string{})
 }
