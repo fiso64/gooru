@@ -20,9 +20,7 @@ type BackgroundOperationResultSummary struct {
 // created before summary persistence existed.
 func (s *Store) GetBackgroundOperationResultSummaries(operationIDs []string) (map[string]BackgroundOperationResultSummary, error) {
 	summaries := make(map[string]BackgroundOperationResultSummary)
-	for start := 0; start < len(operationIDs); start += maxVars {
-		end := min(start+maxVars, len(operationIDs))
-		placeholders, args := stringBatchArgs(operationIDs[start:end])
+	for placeholders, args := range stringBindBatches(operationIDs) {
 		rows, err := s.Query(`
 			SELECT id, result_outcome, result_affected_count, result_failed_count
 			FROM background_operations
