@@ -177,6 +177,7 @@
     bulkDownloadURL = '';
     stopUploadMetadataRefresh();
     closeActionDialog();
+    closeFileTagDialog();
   });
 
   $effect(() => {
@@ -274,6 +275,75 @@
       update: (id: string, body: SavedSearchRequest) => updateSavedSearchMutation.mutateAsync({ id, body }),
       remove: (id: string) => deleteSavedSearchMutation.mutateAsync(id)
     };
+  }
+
+  function libraryCursorFile(target: EventTarget | null) {
+    if (!(target instanceof Element)) return null;
+    const fileID = target.closest<HTMLElement>('.thumb-open[data-file-id]')?.dataset.fileId;
+    return fileID ? (loadedFiles.find((file) => file.id === fileID) ?? null) : null;
+  }
+
+  function singleSelectedFileID() {
+    if (selectedCount !== 1) return '';
+    const loaded = loadedFiles.find((file) => library.isSelected(file.id));
+    if (loaded) return loaded.id;
+    const selection = library.selection;
+    if (selection.mode === 'explicit') return [...selection.ids][0] ?? '';
+    const candidates = new Set([...selection.optimisticIDs, ...selection.knownMembers, ...selection.includedIDs]);
+    for (const excluded of selection.excludedIDs) candidates.delete(excluded);
+    return candidates.size === 1 ? ([...candidates][0] ?? '') : '';
+  }
+
+  function openFileTagDialog(file: FileItem, mode: 'add' | 'remove', fromSelection: boolean) {
+    fileTagDialog = { file, mode, fromSelection, busy: false, error: '' };
+  }
+
+  function closeFileTagDialog() {
+    fileTagDialog = { file: null, mode: 'add', fromSelection: false, busy: false, error: '' };
+  }
+
+  async function openTagShortcut(mode: 'add' | 'remove', cursorFile: FileItem | null) {
+    if (selectedCount === 0) {
+      if (cursorFile) openFileTagDialog(cursorFile, mode, false);
+      return;
+    }
+    if (selectedCount > 1) {
+      if (mode === 'add') bulkTagSelected();
+      else bulkUntagSelected();
+      return;
+    }
+
+    const loaded = loadedFiles.find((file) => library.isSelected(file.id));
+    if (loaded) {
+      openFileTagDialog(loaded, mode, true);
+      return;
+    }
+
+    const fileID = singleSelectedFileID();
+    if (fileID) {
+      try {
+        openFileTagDialog(await new ApiClient().getFile(fileID), mode, true);
+        return;
+      } catch {
+        // Fall through to the existing selection modal when the sole row is not materializable.
+      }
+    }
+    if (mode === 'add') bulkTagSelected();
+    else bulkUntagSelected();
+  }
+
+  async function submitFileTagDialog(tags: string[]) {
+    const { file, fromSelection } = fileTagDialog;
+    if (!file || fileTagDialog.busy) return;
+    fileTagDialog = { ...fileTagDialog, busy: true, error: '' };
+    try {
+      await tagMutation.mutateAsync({ operation: 'set', body: { file_ids: [file.id], tags } });
+      file.tags = [...tags];
+      if (fromSelection) library.clearSelection();
+      closeFileTagDialog();
+    } catch (error) {
+      fileTagDialog = { ...fileTagDialog, busy: false, error: errorMessage(error) };
+    }
   }
 
   function handleKeydown(event: KeyboardEvent) {
