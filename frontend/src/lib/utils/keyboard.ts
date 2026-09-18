@@ -93,13 +93,24 @@ export function uploadShortcutAction(
 
 export type LibraryShortcutAction = 'select-all' | 'download-selected' | 'tag-selected' | 'untag-selected' | 'untrack-selected' | 'delete-selected' | null;
 
-export function libraryShortcutAction(key: string, selectedCount: number, shiftKey = false): LibraryShortcutAction {
+export interface LibraryShortcutContext {
+  selectedCount: number;
+  cursorAvailable: boolean;
+  shiftKey?: boolean;
+  altKey?: boolean;
+}
+
+export function libraryShortcutAction(key: string, context: LibraryShortcutContext): LibraryShortcutAction {
+  const { selectedCount, cursorAvailable, shiftKey = false, altKey = false } = context;
+  const targetAvailable = selectedCount > 0 || cursorAvailable;
+  if (altKey) return key === 'Enter' && !shiftKey && targetAvailable ? 'tag-selected' : null;
+
   switch (key.toLowerCase()) {
     case 'a': return 'select-all';
-    case 'd': return selectedCount > 0 ? 'download-selected' : null;
-    case 't': return selectedCount > 0 ? 'tag-selected' : null;
-    case 'u': return selectedCount > 0 ? 'untag-selected' : null;
-    case 'delete': return selectedCount > 0 ? (shiftKey ? 'delete-selected' : 'untrack-selected') : null;
+    case 'd': return targetAvailable ? 'download-selected' : null;
+    case 't': return targetAvailable ? 'tag-selected' : null;
+    case 'u': return targetAvailable ? 'untag-selected' : null;
+    case 'delete': return targetAvailable ? (shiftKey ? 'delete-selected' : 'untrack-selected') : null;
     default: return null;
   }
 }
