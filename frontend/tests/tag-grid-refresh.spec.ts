@@ -162,7 +162,12 @@ test('restored deep viewer does not page the background infinite grid forward', 
   }));
   await page.route('**/api/v1/files?**', async (route) => {
     const url = new URL(route.request().url());
-    const offset = Number(url.searchParams.get('page_token') ?? '0');
+    const token = url.searchParams.get('page_token') ?? '';
+    let offset = /^\d+$/.test(token) ? Number(token) : 0;
+    if (token && !/^\d+$/.test(token)) {
+      const decoded = atob(token.replace(/-/g, '+').replace(/_/g, '/'));
+      offset = Number(decoded.match(/^offset:(\d+)$/)?.[1] ?? '0');
+    }
     requestedOffsets.push(offset);
     const pageFiles = files.slice(offset, offset + 60);
     await route.fulfill({
@@ -171,7 +176,7 @@ test('restored deep viewer does not page the background infinite grid forward', 
         files: pageFiles,
         total_count: files.length,
         library_count: files.length,
-        facets: offset === 0 ? { kind: [{ value: 'photo', count: files.length }] } : undefined,
+        facets: { kind: [{ value: 'photo', count: files.length }] },
         next_page_token: offset + 60 < files.length ? String(offset + 60) : undefined,
         previous_page_token: offset > 0 ? String(Math.max(0, offset - 60)) : undefined
       })
