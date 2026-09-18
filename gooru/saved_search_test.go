@@ -54,6 +54,28 @@ func TestSavedSearchForUsernamePersistsAndExecutesQuery(t *testing.T) {
 	if len(files) != 1 || files[0].Path != catPath {
 		t.Fatalf("expected only %q, got %+v", catPath, files)
 	}
+
+	if _, err := client.CreateSavedSearchForUsername("alice", "All", "", "name", "desc"); err != nil {
+		t.Fatalf("create all-files saved search: %v", err)
+	}
+	files, err = client.SearchSavedSearchForUsername("alice", "all", false)
+	if err != nil {
+		t.Fatalf("execute all-files saved search: %v", err)
+	}
+	if len(files) != 2 || files[0].Path != dogPath || files[1].Path != catPath {
+		t.Fatalf("expected name-desc order [%q %q], got %+v", dogPath, catPath, files)
+	}
+
+	if _, err := client.CreateSavedSearchForUsername("alice", "No matches", "animal:absent", "name", "asc"); err != nil {
+		t.Fatalf("create no-match search: %v", err)
+	}
+	files, err = client.SearchSavedSearchForUsername("alice", "no matches", false)
+	if err != nil {
+		t.Fatalf("execute no-match search: %v", err)
+	}
+	if files == nil || len(files) != 0 {
+		t.Fatalf("expected empty result, got %v", files)
+	}
 }
 
 func TestCreateSavedSearchNormalizesSortAndRejectsInvalidQuery(t *testing.T) {

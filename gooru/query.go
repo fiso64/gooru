@@ -440,6 +440,19 @@ func (c *Client) ListPublicFileIDsByQuery(expression string, verbose bool) ([]st
 	return c.store.GetPublicFileIDsByLocationQuery(sqlQuery, args)
 }
 
+// GetFilesInfoByQuerySorted parses and executes a location query, returning all matching files in the requested order.
+func (c *Client) GetFilesInfoByQuerySorted(expression string, sort string, order string, verbose bool) ([]types.FileInfo, error) {
+	sqlQuery, args, err := c.buildLocationQuery(expression)
+	if err != nil {
+		return nil, err
+	}
+	if sqlQuery == "" {
+		return c.store.GetAllFilesInfoSorted(sort, order)
+	}
+	writeQueryDebug(verbose, expression, sqlQuery, args)
+	return c.store.GetFilesInfoByLocationQuerySorted(sqlQuery, args, sort, order)
+}
+
 // GetFilesInfoByQueryPage parses and executes a query expression with bounded pagination.
 func (c *Client) GetFilesInfoByQueryPage(expression string, limit int, offset int, verbose bool) ([]types.FileInfo, error) {
 	sqlQuery, args, err := c.buildQuery(expression)
