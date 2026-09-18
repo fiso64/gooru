@@ -34,6 +34,26 @@ func writeQueryDebug(verbose bool, expression, sqlQuery string, args []interface
 	fmt.Fprintf(os.Stderr, "--- DEBUG ---\nExpression: %s\nBuilt SQL : %s\nSQL Args  : %v\n-------------\n", expression, sqlQuery, args)
 }
 
+func (c *Client) simpleUserTagCount(ast *query.Expression) (int, bool, error) {
+	if len(ast.Or) != 1 || len(ast.Or[0].And) != 1 {
+		return 0, false, nil
+	}
+	term := ast.Or[0].And[0]
+	if term.Not || term.Factor.SubExpr != nil || term.Factor.Tag == nil {
+		return 0, false, nil
+	}
+	tagStr := *term.Factor.Tag
+	if strings.HasPrefix(tagStr, "@") {
+		return 0, false, nil
+	}
+	parsedTag := query.ParseTag(tagStr)
+	if parsedTag.Key == "ext" || parsedTag.Key == "type" || (parsedTag.Value == "" && !strings.HasSuffix(tagStr, ":")) {
+		return 0, false, nil
+	}
+	count, err := c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
+	return count, true, err
+}
+
 func (c *Client) buildQueryAST(ast *query.Expression) (string, []interface{}, error) {
 	// NEW: Intelligently build query using tag counts for optimization.
 	// 1. Extract all user-defined tags from the query AST.
@@ -144,20 +164,8 @@ func (c *Client) CountFilesByQuery(expression string, verbose bool) (int, error)
 		return 0, err
 	}
 
-	// Optimization for simple, single-tag queries
-	if len(ast.Or) == 1 && len(ast.Or[0].And) == 1 {
-		term := ast.Or[0].And[0]
-		if !term.Not && term.Factor.SubExpr == nil && term.Factor.Tag != nil {
-			tagStr := *term.Factor.Tag
-			// This optimization does not apply to meta-tags like @tagged
-			if !strings.HasPrefix(tagStr, "@") {
-				parsedTag := query.ParseTag(tagStr)
-				// This optimization only applies to user tags, not virtual tags like ext:
-				if parsedTag.Key != "ext" && parsedTag.Key != "type" && (parsedTag.Value != "" || strings.HasSuffix(tagStr, ":")) {
-					return c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
-				}
-			}
-		}
+	if count, ok, err := c.simpleUserTagCount(ast); ok {
+		return count, err
 	}
 
 	// Fallback to full query for complex expressions using the already parsed AST.
@@ -205,22 +213,8 @@ func (c *Client) ExistsFilesByQuery(expression string, verbose bool) (bool, erro
 		return false, err
 	}
 
-	// Optimization for simple, single-tag queries
-	if len(ast.Or) == 1 && len(ast.Or[0].And) == 1 {
-		term := ast.Or[0].And[0]
-		if !term.Not && term.Factor.SubExpr == nil && term.Factor.Tag != nil {
-			tagStr := *term.Factor.Tag
-			// This optimization does not apply to meta-tags like @tagged
-			if !strings.HasPrefix(tagStr, "@") {
-				parsedTag := query.ParseTag(tagStr)
-				// This optimization only applies to user tags, not virtual tags like ext:
-				if parsedTag.Key != "ext" && parsedTag.Key != "type" && (parsedTag.Value != "" || strings.HasSuffix(tagStr, ":")) {
-					// Using the pre-calculated count is faster than a new query.
-					count, err := c.store.GetCountForTag(parsedTag.Key, parsedTag.Value)
-					return count > 0, err
-				}
-			}
-		}
+	if count, ok, err := c.simpleUserTagCount(ast); ok {
+		return count > 0, err
 	}
 
 	// Fallback to full query for complex expressions using the already parsed AST.
