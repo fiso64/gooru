@@ -91,6 +91,7 @@ func (c *Client) NeedsRelink(dirs []string, alwaysVerifyHash bool) (bool, error)
 	if err != nil {
 		return false, err
 	}
+	absDirs = scanning.PruneRedundantDirs(absDirs)
 
 	// Get DB state for the given directories.
 	dbLocations, err := c.store.GetLocationsForDirs(absDirs)
@@ -225,6 +226,7 @@ func (c *Client) Relink(dirs []string) (types.RelinkResult, error) {
 	if err != nil {
 		return result, err
 	}
+	absDirs = scanning.PruneRedundantDirs(absDirs)
 
 	dbLocationsInScope, err := c.store.GetLocationsForDirs(absDirs)
 	if err != nil {
