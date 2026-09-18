@@ -38,20 +38,12 @@ func (s *Store) BatchGetQueryTagCounts(tagStrings []string) (map[string]int, err
 		exact = append(exact, types.ParsedTag{Key: key, Value: value})
 	}
 
-	const exactColumns = 2 // key, value
-	exactBatchSize := maxVars / exactColumns
-	for start := 0; start < len(exact); start += exactBatchSize {
-		end := start + exactBatchSize
-		if end > len(exact) {
-			end = len(exact)
-		}
-		exactCounts, err := s.BatchGetTagCounts(exact[start:end])
-		if err != nil {
-			return nil, err
-		}
-		for tag, count := range exactCounts {
-			counts[tag] = count
-		}
+	exactCounts, err := s.BatchGetTagCounts(exact)
+	if err != nil {
+		return nil, err
+	}
+	for tag, count := range exactCounts {
+		counts[tag] = count
 	}
 	if len(keys) == 0 {
 		return counts, nil
