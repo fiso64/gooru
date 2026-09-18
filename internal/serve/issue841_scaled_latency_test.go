@@ -12,6 +12,103 @@ import (
 	"time"
 )
 
+
+func TestIssue841SmallTagLatencySplit(t *testing.T) {
+	const operationsPerRun = 20
+	const runs = 3
+
+	dir := t.TempDir()
+	server, client := newTestBrowseServerAt(t, dir, filepath.Join(dir, "gooru.db"))
+	defer client.Close()
+	page := listTestFiles(t, server, "", 1)
+	if len(page.Files) != 1 {
+		t.Fatalf("small control returned %d files, want 1", len(page.Files))
+	}
+	fileID := page.Files[0].ID
+
+	runtime, err := server.NewBackgroundRuntime(client, "tag-mutation-small-bench")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(ctx) }()
+	defer func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("stop background runtime: %v", err)
+		}
+	}()
+
+	for run := 0; run < runs; run++ {
+		var admissionTotal time.Duration
+		var queueTotal time.Duration
+		var workerTotal time.Duration
+		admissionMin := time.Duration(1<<63 - 1)
+		queueMin := time.Duration(1<<63 - 1)
+		workerMin := time.Duration(1<<63 - 1)
+		var admissionMax time.Duration
+		var queueMax time.Duration
+		var workerMax time.Duration
+
+		for operation := 0; operation < operationsPerRun; operation++ {
+			method := http.MethodPost
+			if (run*operationsPerRun+operation)%2 == 1 {
+				method = http.MethodDelete
+			}
+			req := authedJSONRequest(method, "/api/v1/files/tags", `{"file_ids":["`+fileID+`"],"tags":["bench"],"verbose":false}`)
+			req.Header.Set("Prefer", "respond-async")
+			rec := httptest.NewRecorder()
+			started := time.Now()
+			server.Handler().ServeHTTP(rec, req)
+			admissionElapsed := time.Since(started)
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("small async mutation %d/%d returned %d: %s", run, operation, rec.Code, rec.Body.String())
+			}
+			var admitted BackgroundOperationDTO
+			if err := json.Unmarshal(rec.Body.Bytes(), &admitted); err != nil {
+				t.Fatalf("decode small async mutation %d/%d: %v", run, operation, err)
+			}
+			if _, err := waitForDurableTagMutation(ctx, server.backgroundOperations, admitted.ID); err != nil {
+				t.Fatalf("wait small async mutation %d/%d: %v", run, operation, err)
+			}
+			state, found, err := server.backgroundOperations.GetBackgroundOperation(admitted.ID)
+			if err != nil {
+				t.Fatalf("read small async mutation %d/%d: %v", run, operation, err)
+			}
+			if !found || state.StartedAt == nil || state.FinishedAt == nil {
+				t.Fatalf("small async mutation %d/%d has incomplete lifecycle timestamps: %+v", run, operation, state)
+			}
+			queueElapsed := state.StartedAt.Sub(state.CreatedAt)
+			workerElapsed := state.FinishedAt.Sub(*state.StartedAt)
+
+			admissionTotal += admissionElapsed
+			queueTotal += queueElapsed
+			workerTotal += workerElapsed
+			if admissionElapsed < admissionMin { admissionMin = admissionElapsed }
+			if admissionElapsed > admissionMax { admissionMax = admissionElapsed }
+			if queueElapsed < queueMin { queueMin = queueElapsed }
+			if queueElapsed > queueMax { queueMax = queueElapsed }
+			if workerElapsed < workerMin { workerMin = workerElapsed }
+			if workerElapsed > workerMax { workerMax = workerElapsed }
+		}
+		t.Logf(
+			"issue841 small split run %d: library=3 operations=%d admission_avg=%s admission_min=%s admission_max=%s queue_avg=%s queue_min=%s queue_max=%s worker_avg=%s worker_min=%s worker_max=%s",
+			run+1,
+			operationsPerRun,
+			admissionTotal/operationsPerRun,
+			admissionMin,
+			admissionMax,
+			queueTotal/operationsPerRun,
+			queueMin,
+			queueMax,
+			workerTotal/operationsPerRun,
+			workerMin,
+			workerMax,
+		)
+	}
+}
+
 func TestIssue841ScaledTagLatency(t *testing.T) {
 	const librarySize = 1340
 	const operationsPerRun = 20
