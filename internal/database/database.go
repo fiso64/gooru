@@ -803,16 +803,7 @@ func (s *Store) ListFilesByTagsAnd(tags []types.ParsedTag, notTags []types.Parse
 	return paths, rows.Err()
 }
 
-// GetAllFilesInfo retrieves detailed info for all files from the database using the cache.
-func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
-	query := `SELECT id, path, content_hash, size_bytes, mod_time, added_at, tags_cache FROM locations ORDER BY path`
-
-	rows, err := s.Query(query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
+func scanBasicFileInfos(rows *sql.Rows) ([]types.FileInfo, error) {
 	var files []types.FileInfo
 	for rows.Next() {
 		var file types.FileInfo
@@ -826,6 +817,19 @@ func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
 	return files, rows.Err()
 }
 
+// GetAllFilesInfo retrieves detailed info for all files from the database using the cache.
+func (s *Store) GetAllFilesInfo() ([]types.FileInfo, error) {
+	query := `SELECT id, path, content_hash, size_bytes, mod_time, added_at, tags_cache FROM locations ORDER BY path`
+
+	rows, err := s.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanBasicFileInfos(rows)
+}
+
 // GetAllFilesInfoPage retrieves one bounded page of file info from the database.
 func (s *Store) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, error) {
 	query := `SELECT id, path, content_hash, size_bytes, mod_time, added_at, tags_cache FROM locations ORDER BY path LIMIT ? OFFSET ?`
@@ -836,17 +840,7 @@ func (s *Store) GetAllFilesInfoPage(limit int, offset int) ([]types.FileInfo, er
 	}
 	defer rows.Close()
 
-	var files []types.FileInfo
-	for rows.Next() {
-		var file types.FileInfo
-		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
-			return nil, err
-		}
-		file.Tags = splitTags(tagsCache)
-		files = append(files, file)
-	}
-	return files, rows.Err()
+	return scanBasicFileInfos(rows)
 }
 
 // GetFileInfoByLocationID retrieves detailed info for one tracked file location.
@@ -903,17 +897,7 @@ func (s *Store) GetFilesInfoByTag(key, value string) ([]types.FileInfo, error) {
 	}
 	defer rows.Close()
 
-	var files []types.FileInfo
-	for rows.Next() {
-		var file types.FileInfo
-		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
-			return nil, err
-		}
-		file.Tags = splitTags(tagsCache)
-		files = append(files, file)
-	}
-	return files, rows.Err()
+	return scanBasicFileInfos(rows)
 }
 
 // GetFilesInfoByTagsAnd retrieves info for all files matching all `tags` but none of the `notTags`.
@@ -978,17 +962,7 @@ func (s *Store) GetFilesInfoByTagsAnd(tags []types.ParsedTag, notTags []types.Pa
 	}
 	defer rows.Close()
 
-	var files []types.FileInfo
-	for rows.Next() {
-		var file types.FileInfo
-		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
-			return nil, err
-		}
-		file.Tags = splitTags(tagsCache)
-		files = append(files, file)
-	}
-	return files, rows.Err()
+	return scanBasicFileInfos(rows)
 }
 
 // GetAllTags retrieves all unique tags from the database.
@@ -1865,17 +1839,7 @@ func (s *Store) GetFilesInfoByContentQuery(query string, args []interface{}) ([]
 	}
 	defer rows.Close()
 
-	var files []types.FileInfo
-	for rows.Next() {
-		var file types.FileInfo
-		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
-			return nil, err
-		}
-		file.Tags = splitTags(tagsCache)
-		files = append(files, file)
-	}
-	return files, rows.Err()
+	return scanBasicFileInfos(rows)
 }
 
 // GetFilesInfoByContentQueryPage executes a complex query and returns one bounded page.
@@ -1895,17 +1859,7 @@ func (s *Store) GetFilesInfoByContentQueryPage(query string, args []interface{},
 	}
 	defer rows.Close()
 
-	var files []types.FileInfo
-	for rows.Next() {
-		var file types.FileInfo
-		var tagsCache string
-		if err := rows.Scan(&file.ID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache); err != nil {
-			return nil, err
-		}
-		file.Tags = splitTags(tagsCache)
-		files = append(files, file)
-	}
-	return files, rows.Err()
+	return scanBasicFileInfos(rows)
 }
 
 // GetFilesInfoByLocationQueryPageSorted executes a location-ID query and returns one bounded keyset page.
