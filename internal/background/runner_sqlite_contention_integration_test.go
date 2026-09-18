@@ -37,6 +37,21 @@ func (s *leaseRenewalContentionStore) RenewBackgroundTaskLease(taskID, workerID 
 	return leaseUntil, err
 }
 
+type completionContentionStore struct {
+	*database.Store
+	contentionObserved chan struct{}
+	sawContention      bool
+}
+
+func (s *completionContentionStore) CompleteBackgroundTask(taskID, workerID string, finishedAt time.Time) error {
+	err := s.Store.CompleteBackgroundTask(taskID, workerID, finishedAt)
+	if database.IsTransientSQLiteContention(err) && !s.sawContention {
+		s.sawContention = true
+		close(s.contentionObserved)
+	}
+	return err
+}
+
 func TestRunnerSurvivesRealSQLiteWriterContention(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "gooru.db")
 	store, err := database.NewStore(dbPath, false)
@@ -189,7 +204,10 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 }
 
 func TestRunnerSurvivesRealSQLiteContentionDuringTaskCompletion(t *testing.T) {
-	store, writerDB, claimed := setupClaimedSQLiteContentionTask(t, "task-complete-contention", 500*time.Millisecond)
+	// Keep the setup lease comfortably longer than this test. Loaded CI can pause
+	// between the direct pre-claim and runClaimed; that delay must not turn this
+	// completion-contention test into a lease-expiry recovery test.
+	store, writerDB, claimed := setupClaimedSQLiteContentionTask(t, "task-complete-contention", 5*time.Second)
 
 	writerTx, err := writerDB.Begin()
 	if err != nil {
@@ -200,14 +218,24 @@ func TestRunnerSurvivesRealSQLiteContentionDuringTaskCompletion(t *testing.T) {
 		t.Fatalf("acquire writer lock: %v", err)
 	}
 
+	observedStore := &completionContentionStore{
+		Store:              store,
+		contentionObserved: make(chan struct{}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	releaseDone := make(chan error, 1)
 	go func() {
-		time.Sleep(30 * time.Millisecond)
-		releaseDone <- writerTx.Commit()
+		select {
+		case <-observedStore.contentionObserved:
+			releaseDone <- writerTx.Commit()
+		case <-ctx.Done():
+			releaseDone <- ctx.Err()
+		}
 	}()
 
 	runner, err := NewRunner(RunnerConfig{
-		Store:         store,
+		Store:         observedStore,
 		ResourceClass: "image",
 		WorkerID:      "worker-lifecycle",
 		LeaseDuration: 500 * time.Millisecond,
@@ -219,7 +247,7 @@ func TestRunnerSurvivesRealSQLiteContentionDuringTaskCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRunner: %v", err)
 	}
-	if err := runner.runClaimed(context.Background(), claimed); err != nil {
+	if err := runner.runClaimed(ctx, claimed); err != nil {
 		t.Fatalf("run claimed task through completion contention: %v", err)
 	}
 	if err := <-releaseDone; err != nil {
