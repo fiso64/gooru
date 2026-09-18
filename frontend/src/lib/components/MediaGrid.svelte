@@ -16,7 +16,7 @@
   let {
     sessionActive, isLoading, isError, error, files, retainedStartIndex, totalCount, displayTotalCount = totalCount, libraryCount,
     searchActive, selectedCount, bulkDownloadBusy = false, bulkDownloadError = '', isSelected, hasNextPage, isFetchingNextPage, hasPreviousPage,
-    isFetchingPreviousPage, pagedMode = false, prefetchEnabled = true, pageNumber = 1, pageCount = 1,
+    isFetchingPreviousPage, pagedMode = false, pageNumber = 1, pageCount = 1,
     loadMoreSentinel = $bindable<HTMLDivElement | undefined>(), onOpen,
     onToggleSelect, onExtendSelection, onSelectAll, onClearSelection, onBulkDownload, onBulkTag, onBulkUntag, onBulkUntrack,
     onBulkDelete, onLoadMore, onLoadPrevious, onPage, actions
@@ -26,7 +26,7 @@
     selectedCount: number; bulkDownloadBusy?: boolean; bulkDownloadError?: string;
     isSelected: (fileID: string) => boolean; hasNextPage: boolean;
     isFetchingNextPage: boolean; hasPreviousPage: boolean; isFetchingPreviousPage: boolean;
-    pagedMode?: boolean; prefetchEnabled?: boolean; pageNumber?: number; pageCount?: number;
+    pagedMode?: boolean; pageNumber?: number; pageCount?: number;
     loadMoreSentinel?: HTMLDivElement; onOpen: (file: FileItem, files: FileItem[]) => void;
     onToggleSelect: (file: FileItem, files: FileItem[], range: boolean) => void;
     onExtendSelection: (current: FileItem, target: FileItem, files: FileItem[]) => void; onSelectAll: () => void;
@@ -158,7 +158,7 @@
   });
 
   $effect(() => {
-    if (pagedMode || tileMode || !prefetchEnabled) return;
+    if (pagedMode || tileMode) return;
     const node = loadMoreSentinel; const root = mainHost;
     if (!node || !root || !hasNextPage || isFetchingNextPage) return;
     const observer = new IntersectionObserver((entries) => { if (entries.some((entry) => entry.isIntersecting)) onLoadMore(); }, { root, rootMargin: '900px 0px' });
@@ -166,12 +166,12 @@
   });
 
   $effect(() => {
-    if (pagedMode || !prefetchEnabled) return;
+    if (pagedMode) return;
     const needsPrevious = tileMode ? tileVirtual.needsPrevious : squareVirtual.needsPrevious;
     if (needsPrevious && hasPreviousPage && !isFetchingPreviousPage) onLoadPrevious();
   });
   $effect(() => {
-    if (pagedMode || !prefetchEnabled) return;
+    if (pagedMode) return;
     const needsNext = tileMode ? tileVirtual.needsNext : squareVirtual.needsNext;
     if (needsNext && hasNextPage && !isFetchingNextPage) onLoadMore();
   });
