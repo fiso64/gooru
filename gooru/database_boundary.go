@@ -40,6 +40,18 @@ func getDatabaseBackgroundOperation(client *Client, operationID string) (Backgro
 	return backgroundOperationStateFromDatabase(operation), true, nil
 }
 
+func getDatabaseBackgroundOperations(client *Client, operationIDs []string) (map[string]BackgroundOperationState, error) {
+	stored, err := client.store.GetBackgroundOperations(operationIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]BackgroundOperationState, len(stored))
+	for id, operation := range stored {
+		result[id] = backgroundOperationStateFromDatabase(operation)
+	}
+	return result, nil
+}
+
 func getDatabaseBackgroundOperationTask(client *Client, operationID string) (BackgroundTaskState, bool, error) {
 	task, found, err := client.store.GetBackgroundTaskForOperation(operationID)
 	if err != nil || !found {

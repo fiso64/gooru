@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -31,6 +32,45 @@ func (s *Store) GetBackgroundOperation(id string) (BackgroundOperation, bool, er
 		return BackgroundOperation{}, false, fmt.Errorf("read background operation: %w", err)
 	}
 	return operation, true, nil
+}
+
+// GetBackgroundOperations returns the durable states for the requested IDs.
+// Missing IDs are omitted. Callers that care about request order should rebuild
+// it from the returned map.
+func (s *Store) GetBackgroundOperations(ids []string) (map[string]BackgroundOperation, error) {
+	operations := make(map[string]BackgroundOperation, len(ids))
+	if len(ids) == 0 {
+		return operations, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		if id == "" {
+			return nil, errors.New("background operation id is required")
+		}
+		args[i] = id
+	}
+	rows, err := s.DB.Query(`
+		SELECT id, kind, visible, status, progress_total, progress_completed, progress_failed,
+		       created_at, started_at, finished_at, error_code, error_message
+		FROM background_operations
+		WHERE id IN (`+placeholders+`)
+	`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("read background operations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		operation, err := scanBackgroundOperation(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan background operation: %w", err)
+		}
+		operations[operation.ID] = operation
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate background operations: %w", err)
+	}
+	return operations, nil
 }
 
 // GetBackgroundTask returns one durable task by its stable task ID. The bool

@@ -20,6 +20,7 @@ type fakeBackgroundOperationReader struct {
 	listOptions core.BackgroundOperationListOptions
 	listErr     error
 	getErr      error
+	batchIDs    []string
 	resultErr   error
 	cancelErr   error
 	canceledID  string
@@ -32,6 +33,11 @@ func (f *fakeBackgroundOperationReader) GetBackgroundOperation(id string) (core.
 	}
 	operation, ok := f.byID[id]
 	return operation, ok, nil
+}
+
+func (f *fakeBackgroundOperationReader) GetBackgroundOperations(ids []string) (map[string]core.BackgroundOperationState, error) {
+	f.batchIDs = append([]string(nil), ids...)
+	return f.byID, nil
 }
 
 func (f *fakeBackgroundOperationReader) ListBackgroundOperations(options core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error) {
@@ -275,6 +281,7 @@ func TestHandleOperationsReportsReaderFailure(t *testing.T) {
 func TestHandleOperationsBatchesRequestedIDsWithCompletedResults(t *testing.T) {
 	finishedAt := time.Now().UTC()
 	reader := &fakeBackgroundOperationReader{
+		getErr: errors.New("single operation read should not be used"),
 		byID: map[string]core.BackgroundOperationState{
 			"operation-upload":  {ID: "operation-upload", Kind: "upload_import", Visible: true, Status: core.BackgroundWorkCompleted, CreatedAt: finishedAt.Add(-time.Second), FinishedAt: &finishedAt},
 			"operation-running": {ID: "operation-running", Kind: "upload_import", Visible: true, Status: core.BackgroundWorkRunning, CreatedAt: finishedAt.Add(-time.Second)},
@@ -292,6 +299,13 @@ func TestHandleOperationsBatchesRequestedIDsWithCompletedResults(t *testing.T) {
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if len(reader.batchIDs) != 4 ||
+		reader.batchIDs[0] != "operation-running" ||
+		reader.batchIDs[1] != "operation-upload" ||
+		reader.batchIDs[2] != "operation-hidden" ||
+		reader.batchIDs[3] != "missing" {
+		t.Fatalf("batch ids = %v", reader.batchIDs)
 	}
 	var payload BackgroundOperationListResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
