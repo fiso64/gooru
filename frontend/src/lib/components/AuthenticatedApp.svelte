@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import AppShell from '$lib/components/AppShell.svelte';
   import ActionDialog from '$lib/components/ActionDialog.svelte';
+  import FileTagDialog from '$lib/components/FileTagDialog.svelte';
   import GlobalFileDrop from '$lib/components/GlobalFileDrop.svelte';
   import Icon from '$lib/components/Icon.svelte';
   import JobsView from '$lib/components/JobsView.svelte';
@@ -12,7 +13,7 @@
   import TagsView from '$lib/components/TagsView.svelte';
   import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { ApiClient, ApiError } from '$lib/api/client';
-  import { createFileDownload } from '$lib/api/fileDownloads';
+  import { createFileDownload, type FileDownloadSelector } from '$lib/api/fileDownloads';
   import { createFileSelection, deleteFileSelection, fileSelectionMembers } from '$lib/api/fileSelections';
   import { authState } from '$lib/stores/auth';
   import { runtimeConfig, type PaginationMode } from '$lib/stores/runtimeConfig';
@@ -38,9 +39,10 @@
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
   import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
+  import { tagEditDelta } from '$lib/utils/tagEdit';
   import { previewNeighbor } from '$lib/utils/viewerNavigation';
   import { useQueryClient } from '@tanstack/svelte-query';
-  import type { Job, SavedSearchRequest } from '$lib/api/types';
+  import type { FileItem, Job, SavedSearchRequest } from '$lib/api/types';
 
   const paginationPreferenceKey = browserPersistenceRegistry.libraryPaginationMode.key;
   const uploadMetadataRefreshIntervalMs = 700;
@@ -93,6 +95,7 @@
     name: string;
     previousQuery: string;
   }>({ kind: 'none', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' });
+  let fileTagDialog = $state<{ file: FileItem | null; mode: 'add' | 'remove'; fromSelection: boolean; busy: boolean; error: string }>({ file: null, mode: 'add', fromSelection: false, busy: false, error: '' });
 
   const filesQuery = createFilesQuery(
     () => Boolean($authState.user),
@@ -175,6 +178,7 @@
     bulkDownloadURL = '';
     stopUploadMetadataRefresh();
     closeActionDialog();
+    closeFileTagDialog();
   });
 
   $effect(() => {
@@ -274,10 +278,100 @@
     };
   }
 
+  function libraryCursorFile(target: EventTarget | null) {
+    if (!(target instanceof Element)) return null;
+    const fileID = target.closest<HTMLElement>('.thumb-open[data-file-id]')?.dataset.fileId;
+    return fileID ? (loadedFiles.find((file) => file.id === fileID) ?? null) : null;
+  }
+
+  function singleSelectedFileID() {
+    if (selectedCount !== 1) return '';
+    const loaded = loadedFiles.find((file) => library.isSelected(file.id));
+    if (loaded) return loaded.id;
+    const selection = library.selection;
+    if (selection.mode === 'explicit') return [...selection.ids][0] ?? '';
+    const candidates = new Set([...selection.optimisticIDs, ...selection.knownMembers, ...selection.includedIDs]);
+    for (const excluded of selection.excludedIDs) candidates.delete(excluded);
+    return candidates.size === 1 ? ([...candidates][0] ?? '') : '';
+  }
+
+  function openFileTagDialog(file: FileItem, mode: 'add' | 'remove', fromSelection: boolean) {
+    fileTagDialog = { file, mode, fromSelection, busy: false, error: '' };
+  }
+
+  function closeFileTagDialog() {
+    const fileID = fileTagDialog.file?.id;
+    fileTagDialog = { file: null, mode: 'add', fromSelection: false, busy: false, error: '' };
+    if (!fileID) return;
+    void tick().then(() => {
+      const target = Array.from(document.querySelectorAll<HTMLElement>('.thumb-open[data-file-id]'))
+        .find((element) => element.dataset.fileId === fileID);
+      target?.focus();
+    });
+  }
+
+  async function openTagShortcut(mode: 'add' | 'remove', cursorFile: FileItem | null) {
+    if (selectedCount === 0) {
+      if (cursorFile) openFileTagDialog(cursorFile, mode, false);
+      return;
+    }
+    if (selectedCount > 1) {
+      if (mode === 'add') bulkTagSelected();
+      else bulkUntagSelected();
+      return;
+    }
+
+    const loaded = loadedFiles.find((file) => library.isSelected(file.id));
+    if (loaded) {
+      openFileTagDialog(loaded, mode, true);
+      return;
+    }
+
+    const fileID = singleSelectedFileID();
+    if (fileID) {
+      try {
+        openFileTagDialog(await new ApiClient().getFile(fileID), mode, true);
+        return;
+      } catch {
+        // Fall through to the existing selection modal when the sole row is not materializable.
+      }
+    }
+    if (mode === 'add') bulkTagSelected();
+    else bulkUntagSelected();
+  }
+
+  async function submitFileTagDialog(tags: string[], initialTags: string[]) {
+    const { file, fromSelection } = fileTagDialog;
+    if (!file || fileTagDialog.busy) return;
+    const { add: tagsToAdd, remove: tagsToRemove } = tagEditDelta(initialTags, tags);
+    if (!tagsToAdd.length && !tagsToRemove.length) {
+      closeFileTagDialog();
+      return;
+    }
+    fileTagDialog = { ...fileTagDialog, busy: true, error: '' };
+    try {
+      if (tagsToAdd.length) {
+        await tagMutation.mutateAsync({ operation: 'add', body: { file_ids: [file.id], tags: tagsToAdd } });
+        file.tags = Array.from(new Set([...file.tags, ...tagsToAdd]));
+      }
+      if (tagsToRemove.length) {
+        await tagMutation.mutateAsync({ operation: 'remove', body: { file_ids: [file.id], tags: tagsToRemove } });
+        const removedTags = new Set(tagsToRemove);
+        file.tags = file.tags.filter((tag) => !removedTags.has(tag));
+      }
+      if (fromSelection) library.clearSelection();
+      closeFileTagDialog();
+    } catch (error) {
+      fileTagDialog = { ...fileTagDialog, busy: false, error: errorMessage(error) };
+    }
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented) return;
     const editable = isEditableShortcutTarget(event.target);
     const modified = hasCommandModifier(event);
+    const altTagShortcut = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'Enter';
+    const cursorFile = selectedCount === 0 ? libraryCursorFile(event.target) : null;
     const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
     if (shortcutsKey && !modified && !editable) {
       event.preventDefault();
@@ -285,16 +379,28 @@
       return;
     }
 
-    if (!modified && !editable && library.route === 'library' && !library.activeFile && actionDialog.kind === 'none') {
-      const action = libraryShortcutAction(event.key, selectedCount, event.shiftKey);
+    if ((!modified || altTagShortcut) && !editable && library.route === 'library' && !library.activeFile && actionDialog.kind === 'none' && !fileTagDialog.file) {
+      const action = libraryShortcutAction(event.key, {
+        selectedCount,
+        cursorAvailable: Boolean(cursorFile),
+        shiftKey: event.shiftKey,
+        altKey: event.altKey
+      });
       if (action) {
         event.preventDefault();
         if (action === 'select-all') selectAllFiles();
-        else if (action === 'download-selected') void bulkDownloadSelected();
-        else if (action === 'tag-selected') bulkTagSelected();
-        else if (action === 'untag-selected') bulkUntagSelected();
-        else if (action === 'untrack-selected') bulkUntrackSelected();
-        else bulkDeleteSelected();
+        else if (action === 'download-selected') {
+          if (selectedCount > 0) void bulkDownloadSelected();
+          else if (cursorFile) void downloadCursorFile(cursorFile);
+        } else if (action === 'tag-selected') void openTagShortcut('add', cursorFile);
+        else if (action === 'untag-selected') void openTagShortcut('remove', cursorFile);
+        else if (action === 'untrack-selected') {
+          if (selectedCount > 0) bulkUntrackSelected();
+          else if (cursorFile) untrackPreview(cursorFile);
+        } else {
+          if (selectedCount > 0) bulkDeleteSelected();
+          else if (cursorFile) deletePreview(cursorFile);
+        }
         return;
       }
     }
@@ -420,18 +526,34 @@
     actionDialog = { kind: 'bulk-delete-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
   }
 
+  async function requestFileDownload(selector: FileDownloadSelector) {
+    const download = await createFileDownload($authState.csrfToken, selector);
+    const url = new URL(download.url, window.location.origin);
+    if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/v1/file-downloads/')) {
+      throw new Error('Server returned an invalid file download URL.');
+    }
+    bulkDownloadURL = url.href;
+  }
+
   async function bulkDownloadSelected() {
     if (bulkDownloadBusy || selectedCount <= 0) return;
     bulkDownloadBusy = true;
     bulkDownloadError = '';
     try {
-      const selector = await ensureSelectionReady();
-      const download = await createFileDownload($authState.csrfToken, selector);
-      const url = new URL(download.url, window.location.origin);
-      if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/v1/file-downloads/')) {
-        throw new Error('Server returned an invalid file download URL.');
-      }
-      bulkDownloadURL = url.href;
+      await requestFileDownload(await ensureSelectionReady());
+    } catch (error) {
+      bulkDownloadError = errorMessage(error);
+    } finally {
+      bulkDownloadBusy = false;
+    }
+  }
+
+  async function downloadCursorFile(file: FileItem) {
+    if (bulkDownloadBusy) return;
+    bulkDownloadBusy = true;
+    bulkDownloadError = '';
+    try {
+      await requestFileDownload({ file_ids: [file.id] });
     } catch (error) {
       bulkDownloadError = errorMessage(error);
     } finally {
@@ -917,6 +1039,18 @@
       onTagSearch={library.runTagSearch}
       onUntrack={untrackPreview}
       onDelete={deletePreview}
+    />
+  {/if}
+
+  {#if fileTagDialog.file}
+    <FileTagDialog
+      file={fileTagDialog.file}
+      tagCandidates={tagsQuery.data?.tags ?? []}
+      initialMode={fileTagDialog.mode}
+      busy={fileTagDialog.busy}
+      error={fileTagDialog.error}
+      onCancel={closeFileTagDialog}
+      onConfirm={submitFileTagDialog}
     />
   {/if}
 

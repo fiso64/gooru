@@ -64,17 +64,17 @@ describe('global shortcut target policy', () => {
   });
 
   it('maps library action shortcuts without enabling tag actions for an empty selection', () => {
-    expect(libraryShortcutAction('a', 0)).toBe('select-all');
-    expect(libraryShortcutAction('A', 3)).toBe('select-all');
-    expect(libraryShortcutAction('d', 2)).toBe('download-selected');
-    expect(libraryShortcutAction('D', 2)).toBe('download-selected');
-    expect(libraryShortcutAction('t', 2)).toBe('tag-selected');
-    expect(libraryShortcutAction('u', 2)).toBe('untag-selected');
-    expect(libraryShortcutAction('Delete', 2)).toBe('untrack-selected');
-    expect(libraryShortcutAction('Delete', 2, true)).toBe('delete-selected');
-    expect(libraryShortcutAction('d', 0)).toBeNull();
-    expect(libraryShortcutAction('t', 0)).toBeNull();
-    expect(libraryShortcutAction('u', 0)).toBeNull();
-    expect(libraryShortcutAction('Delete', 0)).toBeNull();
+    expect(libraryShortcutAction('a', { selectedCount: 0, cursorAvailable: false })).toBe('select-all');
+    expect(libraryShortcutAction('A', { selectedCount: 3, cursorAvailable: false })).toBe('select-all');
+    expect(libraryShortcutAction('d', { selectedCount: 2, cursorAvailable: false })).toBe('download-selected');
+    expect(libraryShortcutAction('D', { selectedCount: 2, cursorAvailable: false })).toBe('download-selected');
+    expect(libraryShortcutAction('t', { selectedCount: 2, cursorAvailable: false })).toBe('tag-selected');
+    expect(libraryShortcutAction('u', { selectedCount: 2, cursorAvailable: false })).toBe('untag-selected');
+    expect(libraryShortcutAction('Delete', { selectedCount: 2, cursorAvailable: false })).toBe('untrack-selected');
+    expect(libraryShortcutAction('Delete', { selectedCount: 2, cursorAvailable: false, shiftKey: true })).toBe('delete-selected');
+    expect(libraryShortcutAction('d', { selectedCount: 0, cursorAvailable: false })).toBeNull();
+    expect(libraryShortcutAction('t', { selectedCount: 0, cursorAvailable: false })).toBeNull();
+    expect(libraryShortcutAction('u', { selectedCount: 0, cursorAvailable: false })).toBeNull();
+    expect(libraryShortcutAction('Delete', { selectedCount: 0, cursorAvailable: false })).toBeNull();
   });
 });

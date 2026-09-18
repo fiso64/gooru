@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import Icon from './Icon.svelte';
   import ViewerSidebar from './ViewerSidebar.svelte';
   import ViewerStage from './ViewerStage.svelte';
@@ -182,6 +182,7 @@
       event.target.blur();
       if (event.key === 'ArrowLeft') stagePrev();
       else stageNext();
+      void tick().then(() => focusTagInput());
       return;
     }
 

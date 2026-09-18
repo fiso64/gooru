@@ -154,7 +154,7 @@
 
   function handleKeyboardAction(event: KeyboardEvent) {
     if (event.code === 'Space') { event.preventDefault(); event.stopPropagation(); onToggleSelect(file, false); return; }
-    if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); onOpen(file); }
+    if (event.key === 'Enter' && !event.altKey) { event.preventDefault(); event.stopPropagation(); onOpen(file); }
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -164,7 +164,7 @@
 </script>
 
 <article bind:this={cardHost} class={`thumb${fitMedia ? ' thumb-fit' : ''}${selected ? ' is-selected' : ''}${selectionActive ? ' is-selecting' : ''}`} style={`--thumb-media-inset:${mediaInset}px;${cardHeight !== cardWidth ? `height:${cardHeight}px;aspect-ratio:auto` : ''}`} onpointerenter={startHoverPreview} onpointerleave={stopHoverPreview}>
-  <button class="thumb-open" type="button" aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeydown}>
+  <button class="thumb-open" type="button" data-file-id={file.id} aria-label={selectionActive ? `${selected ? 'Deselect' : 'Select'} ${file.name}` : `Preview ${file.name}`} onclick={openOrSelect} onkeydown={handleKeydown}>
     {#if thumbnailActive}<img class:preview-covered={hoverPreviewActive && previewReady} src={thumbnailSource} alt={file.name} decoding="async" draggable="false" onload={reportThumbnailAspect} />{/if}
     {#if hoverPreviewActive && videoFile}
       <video class:contain-preview={fitMedia} class:is-ready={previewReady} class="hover-preview-media" data-testid="hover-video-preview" src={file.media_urls.content} muted autoplay loop playsinline preload="metadata" onloadeddata={markPreviewReady} ontimeupdate={updateVideoProgress} ondurationchange={updateVideoProgress}></video>

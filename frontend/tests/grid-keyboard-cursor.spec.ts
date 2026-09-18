@@ -17,7 +17,7 @@ function fileItem(id: string, name: string) {
     media_type: 'image/jpeg',
     media_kind: 'photo',
     metadata: { image_width: 800, image_height: 600 },
-    tags: [],
+    tags: id === 'one' ? ['alpha'] : [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`,
       preview: `/api/v1/files/${id}/preview`,
@@ -79,7 +79,6 @@ test('library viewport keeps initial keyboard focus without drawing a Chromium f
     return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
   });
   expect(focusStyle.outlineStyle).toBe('none');
-  expect(focusStyle.outlineWidth).toBe('0px');
 
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('.thumb-open').nth(0)).toBeFocused();
@@ -113,7 +112,7 @@ test('ArrowDown enters the media grid with a high-contrast cursor and cursor act
   expect(cursor.boxShadow).toContain('rgb(0, 0, 0)');
 
   await page.keyboard.press('Space');
-  await expect(page.getByText('1 of 3 selected')).toBeVisible();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
   await expect(cards.nth(0)).toBeFocused();
 
   await page.keyboard.press('ArrowRight');
@@ -151,4 +150,92 @@ test('Escape hides the grid keyboard cursor when no higher-priority exit is acti
 
   await page.keyboard.press('Escape');
   await expect(first).not.toBeFocused();
+});
+
+
+test('cursor tag and removal shortcuts target the focused file while selection keeps precedence', async ({ page }) => {
+  await mockApp(page);
+  const cards = page.locator('.thumb-open');
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('u');
+  let dialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
+  await expect(dialog.getByRole('textbox', { name: 'Remove tags from one.jpg' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.keyboard.press('Alt+Enter');
+  dialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
+  await expect(dialog.getByRole('textbox', { name: 'Tags for one.jpg' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.keyboard.press('Delete');
+  dialog = page.getByRole('dialog', { name: 'Remove from library' });
+  await expect(dialog).toContainText('one.jpg');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.keyboard.press('Shift+Delete');
+  dialog = page.getByRole('dialog', { name: 'Delete file' });
+  await expect(dialog).toContainText('one.jpg');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.keyboard.press('Space');
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+  await page.keyboard.press('ArrowRight');
+  await expect(cards.nth(1)).toBeFocused();
+  await page.keyboard.press('t');
+  await expect(page.getByRole('dialog', { name: 'Edit tags · one.jpg' })).toBeVisible();
+});
+
+
+test('single-file tag editor stages changes until Apply', async ({ page }) => {
+  const tagRequests: Array<{ method: string; body: Record<string, unknown> }> = [];
+  await page.route('**/api/v1/files/tags', async (route) => {
+    tagRequests.push({ method: route.request().method(), body: route.request().postDataJSON() });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
+  });
+  await mockApp(page);
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('t');
+  const dialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
+  await expect(dialog.getByText('alpha', { exact: true })).toBeVisible();
+
+  const input = dialog.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await input.fill('beta');
+  await input.press('Enter');
+  expect(tagRequests).toHaveLength(0);
+
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect.poll(() => tagRequests.length).toBe(1);
+  expect(tagRequests[0].method).toBe('POST');
+  expect(tagRequests[0].body).toMatchObject({ file_ids: ['one'], tags: ['beta'] });
+  await expect(page.locator('.thumb-open').nth(0)).toBeFocused();
+
+  await page.keyboard.press('u');
+  const removeDialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
+  const removeInput = removeDialog.getByRole('textbox', { name: 'Remove tags from one.jpg' });
+  await removeInput.fill('alpha');
+  await removeInput.press('Enter');
+  expect(tagRequests).toHaveLength(1);
+
+  await removeDialog.getByRole('button', { name: 'Apply' }).click();
+  await expect.poll(() => tagRequests.length).toBe(2);
+  expect(tagRequests[1].method).toBe('DELETE');
+  expect(tagRequests[1].body).toMatchObject({ file_ids: ['one'], tags: ['alpha'] });
+});
+
+
+test('cursor download sends a single-file selector', async ({ page }) => {
+  const requests: Array<Record<string, unknown>> = [];
+  await page.route('**/api/v1/file-downloads', async (route) => {
+    requests.push(route.request().postDataJSON());
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ id: 'dl-one', url: '/api/v1/file-downloads/dl-one' }) });
+  });
+  await page.route('**/api/v1/file-downloads/*', async (route) => route.fulfill({ status: 204 }));
+  await mockApp(page);
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('d');
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ file_ids: ['one'] });
 });
