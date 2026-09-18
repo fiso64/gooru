@@ -80,7 +80,6 @@ func TestBatchGetTagsRespectsVariableBudget(t *testing.T) {
 	}
 }
 
-
 func TestBatchGetTagCountsCrossesBindBoundary(t *testing.T) {
 	store := newMemoryTestStore(t)
 	const tagCount = maxVars/2 + 1
