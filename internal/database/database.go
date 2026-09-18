@@ -1976,80 +1976,65 @@ func (s *Store) BatchClearTagsByContentQueryTx(q Querier, subQuery string, args 
 
 // BatchAssociateTagsByContentQueryTx associates tags with content matching a subquery.
 func (s *Store) BatchAssociateTagsByContentQueryTx(q Querier, subQuery string, args []interface{}, tagIDs []int64) (int64, error) {
-	if len(tagIDs) == 0 {
-		return 0, nil
-	}
-
-	batchSize := maxVars - len(args)
-	if batchSize <= 0 {
-		return 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag association", len(args))
-	}
-
-	var totalAffected int64
-	for start := 0; start < len(tagIDs); start += batchSize {
-		end := start + batchSize
-		if end > len(tagIDs) {
-			end = len(tagIDs)
-		}
-		batch := tagIDs[start:end]
-
-		placeholders := strings.Repeat("(?),", len(batch)-1) + "(?)"
-		query := fmt.Sprintf(`WITH tag_ids(tag_id) AS (VALUES %s)
+	return batchTagIDsByContentQueryTx(
+		q,
+		subQuery,
+		args,
+		tagIDs,
+		"association",
+		"(?)",
+		`WITH tag_ids(tag_id) AS (VALUES %s)
 			INSERT OR IGNORE INTO content_tags (content_hash, tag_id)
 			SELECT selected_hashes.hash, tag_ids.tag_id
 			FROM (%s) AS selected_hashes
-			CROSS JOIN tag_ids`, placeholders, subQuery)
-
-		finalArgs := make([]interface{}, 0, len(args)+len(batch))
-		for _, tagID := range batch {
-			finalArgs = append(finalArgs, tagID)
-		}
-		finalArgs = append(finalArgs, args...)
-
-		res, err := q.Exec(query, finalArgs...)
-		if err != nil {
-			return 0, err
-		}
-		affected, _ := res.RowsAffected()
-		totalAffected += affected
-	}
-
-	return totalAffected, nil
+			CROSS JOIN tag_ids`,
+	)
 }
 
 // BatchDisassociateTagsByContentQueryTx disassociates tags from content matching a subquery.
 func (s *Store) BatchDisassociateTagsByContentQueryTx(q Querier, subQuery string, args []interface{}, tagIDs []int64) (int64, error) {
+	return batchTagIDsByContentQueryTx(
+		q,
+		subQuery,
+		args,
+		tagIDs,
+		"disassociation",
+		"?",
+		"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
+	)
+}
+
+func batchTagIDsByContentQueryTx(
+	q Querier,
+	subQuery string,
+	subQueryArgs []interface{},
+	tagIDs []int64,
+	operation string,
+	valuePlaceholder string,
+	queryFormat string,
+) (int64, error) {
 	if len(tagIDs) == 0 {
 		return 0, nil
 	}
 
-	batchSize := maxVars - len(args)
+	batchSize := maxVars - len(subQueryArgs)
 	if batchSize <= 0 {
-		return 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag disassociation", len(args))
+		return 0, fmt.Errorf("content query uses %d bind variables, leaving no room for tag %s", len(subQueryArgs), operation)
 	}
 
+	finalArgs := make([]interface{}, 0, len(subQueryArgs)+batchSize)
 	var totalAffected int64
 	for start := 0; start < len(tagIDs); start += batchSize {
-		end := start + batchSize
-		if end > len(tagIDs) {
-			end = len(tagIDs)
+		batch := tagIDs[start:min(start+batchSize, len(tagIDs))]
+		placeholders := strings.TrimSuffix(strings.Repeat(valuePlaceholder+",", len(batch)), ",")
+
+		finalArgs = finalArgs[:0]
+		for _, tagID := range batch {
+			finalArgs = append(finalArgs, tagID)
 		}
-		batch := tagIDs[start:end]
+		finalArgs = append(finalArgs, subQueryArgs...)
 
-		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
-		query := fmt.Sprintf(
-			"DELETE FROM content_tags WHERE tag_id IN (%s) AND content_hash IN (%s)",
-			placeholders,
-			subQuery,
-		)
-
-		finalArgs := make([]interface{}, 0, len(args)+len(batch))
-		for _, id := range batch {
-			finalArgs = append(finalArgs, id)
-		}
-		finalArgs = append(finalArgs, args...)
-
-		res, err := q.Exec(query, finalArgs...)
+		res, err := q.Exec(fmt.Sprintf(queryFormat, placeholders, subQuery), finalArgs...)
 		if err != nil {
 			return 0, err
 		}
