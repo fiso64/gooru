@@ -348,8 +348,8 @@
                 />
               </div>
               <div class="upload-initial-tag-actions" aria-label="Edit tags on staged files">
-                <button class="g-btn g-btn-sm g-btn-icon" type="button" disabled={stagedRows.length === 0} aria-label="Add tags to staged files" title="Add tags to staged files" onclick={() => openStagedTagDialog('add')}>+</button>
-                <button class="g-btn g-btn-sm g-btn-icon" type="button" disabled={stagedRows.length === 0} aria-label="Remove tags from staged files" title="Remove tags from staged files" onclick={() => openStagedTagDialog('remove')}>−</button>
+                <button class="g-btn g-btn-sm upload-initial-tag-symbol" type="button" disabled={stagedRows.length === 0} aria-label="Add tags to staged files" title="Add tags to staged files" onclick={() => openStagedTagDialog('add')}>+</button>
+                <button class="g-btn g-btn-sm upload-initial-tag-symbol" type="button" disabled={stagedRows.length === 0} aria-label="Remove tags from staged files" title="Remove tags from staged files" onclick={() => openStagedTagDialog('remove')}>-</button>
                 <button class="g-btn g-btn-sm" type="button" disabled={stagedRows.length === 0} title="Set staged files to the current initial tags" onclick={setStagedTagsFromInitial}>SET</button>
               </div>
             </div>
@@ -659,6 +659,14 @@
     flex: 0 0 auto;
     align-items: center;
     gap: 5px;
+  }
+
+  .upload-initial-tag-symbol {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    justify-content: center;
+    padding: 0;
   }
 
   .upload-initial-tags-note {
