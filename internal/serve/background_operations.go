@@ -22,6 +22,10 @@ type backgroundOperationReader interface {
 	GetBackgroundOperationResult(string, any) (bool, error)
 }
 
+type backgroundOperationBatchReader interface {
+	GetBackgroundOperations([]string) (map[string]core.BackgroundOperationState, error)
+}
+
 type backgroundOperationSummaryReader interface {
 	GetBackgroundOperationResultSummaries([]string) (map[string]core.BackgroundOperationResultSummary, error)
 }
@@ -81,6 +85,10 @@ func (l *GooruLibrary) GetBackgroundOperation(operationID string) (core.Backgrou
 
 func (l *GooruLibrary) ListBackgroundOperations(options core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error) {
 	return l.client.ListBackgroundOperations(options)
+}
+
+func (l *GooruLibrary) GetBackgroundOperations(operationIDs []string) (map[string]core.BackgroundOperationState, error) {
+	return l.client.GetBackgroundOperations(operationIDs)
 }
 
 func (l *GooruLibrary) GetBackgroundOperationResultSummaries(operationIDs []string) (map[string]core.BackgroundOperationResultSummary, error) {
