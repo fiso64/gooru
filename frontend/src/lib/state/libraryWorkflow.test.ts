@@ -76,3 +76,26 @@ describe('completion responsiveness', () => {
     }
   });
 });
+
+describe('keyboard range selection', () => {
+  it('starts from the cursor anchor, extends, and shrinks from the moving endpoint', () => {
+    const library = createLibraryWorkflow();
+    const files = [file('a'), file('b'), file('c'), file('d')];
+
+    library.extendSelection(files[0], files[1], files);
+    expect(library.selectedCount()).toBe(2);
+    expect(files.map((item) => library.isSelected(item.id))).toEqual([true, true, false, false]);
+
+    library.extendSelection(files[1], files[2], files);
+    expect(library.selectedCount()).toBe(3);
+    expect(files.map((item) => library.isSelected(item.id))).toEqual([true, true, true, false]);
+
+    library.extendSelection(files[2], files[1], files);
+    expect(library.selectedCount()).toBe(2);
+    expect(files.map((item) => library.isSelected(item.id))).toEqual([true, true, false, false]);
+
+    library.extendSelection(files[1], files[0], files);
+    expect(library.selectedCount()).toBe(1);
+    expect(files.map((item) => library.isSelected(item.id))).toEqual([true, false, false, false]);
+  });
+});

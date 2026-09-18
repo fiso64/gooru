@@ -186,18 +186,6 @@
       return;
     }
 
-    if (
-      (event.key === '+' || event.key === '-')
-      && event.target instanceof HTMLInputElement
-      && event.target.id === `tags-${file.id}`
-      && event.target.value === ''
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      tagMode = event.key === '-' ? 'remove' : 'add';
-      return;
-    }
-
     if (isEditableShortcutTarget(event.target)) return;
     const key = event.key.toLowerCase();
     if (key === 't' || key === 'u') {

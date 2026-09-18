@@ -31,9 +31,18 @@
 
   const candidates = $derived(mode === 'remove' ? existingTags.map((name: string) => ({ name })) : tags);
   const excluded = $derived(mode === 'remove' ? [] : existingTags);
+
+  function handleModeShortcut(event: KeyboardEvent) {
+    if (!onModeToggle || busy || draft || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key !== '+' && event.key !== '-') return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nextMode = event.key === '-' ? 'remove' : 'add';
+    if (nextMode !== mode) onModeToggle();
+  }
 </script>
 
-<div class="tag-editor">
+<div class="tag-editor" onkeydown={handleModeShortcut}>
   <div class="lightbox-tag-input" class:untag-mode={mode === 'remove'}>
     {#if onModeToggle}
       <button
@@ -77,6 +86,14 @@
 <style>
   .tag-editor .lightbox-tag-input {
     position: relative;
+  }
+
+  .tag-editor :global(.tag-autocomplete > input) {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font: inherit;
   }
 
   .tag-mode-toggle {
