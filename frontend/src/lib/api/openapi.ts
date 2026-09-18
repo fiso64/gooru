@@ -458,8 +458,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Stream a prepared bulk download as a ZIP archive.
-         * @description Streams selected originals directly into a ZIP using stored entries (no compression). The archive is generated incrementally and may omit Content-Length.
+         * Stream a prepared selected-file download.
+         * @description Streams a single selected original with the same semantics as the per-file download endpoint. Selections of two or more files stream directly into a ZIP using stored entries (no compression). ZIP archives are generated incrementally and may omit Content-Length.
          */
         get: {
             parameters: {
@@ -472,14 +472,14 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Streaming ZIP archive containing the selected originals. */
+                /** @description A direct original response for one selected file, or a streaming ZIP archive for multiple selected files. */
                 200: {
                     headers: {
                         "Content-Disposition"?: string;
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/zip": string;
+                        "*/*": string;
                     };
                 };
                 401: components["responses"]["Unauthorized"];
