@@ -1382,23 +1382,9 @@ func (s *Store) BatchAssociateTags(q Querier, pairs []ContentTagPair) (int64, er
 	if len(pairs) == 0 {
 		return 0, nil
 	}
-	const columns = 2
-	batchSize := maxVars / columns
-
 	var totalAffected int64
-	for i := 0; i < len(pairs); i += batchSize {
-		end := i + batchSize
-		if end > len(pairs) {
-			end = len(pairs)
-		}
-		batch := pairs[i:end]
-
-		placeholders := strings.Repeat("(?,?),", len(batch)-1) + "(?,?)"
+	for placeholders, args := range contentTagPairBindBatches(pairs) {
 		query := "INSERT OR IGNORE INTO content_tags (content_hash, tag_id) VALUES " + placeholders
-		args := make([]interface{}, 0, len(batch)*2)
-		for _, p := range batch {
-			args = append(args, p.ContentHash, p.TagID)
-		}
 
 		res, err := q.Exec(query, args...)
 		if err != nil {
@@ -1554,25 +1540,10 @@ func (s *Store) BatchDisassociateTags(q Querier, pairs []ContentTagPair) (int64,
 	if len(pairs) == 0 {
 		return 0, nil
 	}
-	const columns = 2
-	batchSize := maxVars / columns
-
 	var totalAffected int64
-	for i := 0; i < len(pairs); i += batchSize {
-		end := i + batchSize
-		if end > len(pairs) {
-			end = len(pairs)
-		}
-		batch := pairs[i:end]
-
+	for placeholders, args := range contentTagPairBindBatches(pairs) {
 		// Using row values `(content_hash, tag_id) IN (...)` is highly efficient.
-		placeholders := strings.Repeat("(?,?),", len(batch)-1) + "(?,?)"
 		query := "DELETE FROM content_tags WHERE (content_hash, tag_id) IN (VALUES " + placeholders + ")"
-
-		args := make([]interface{}, 0, len(batch)*2)
-		for _, p := range batch {
-			args = append(args, p.ContentHash, p.TagID)
-		}
 
 		res, err := q.Exec(query, args...)
 		if err != nil {
