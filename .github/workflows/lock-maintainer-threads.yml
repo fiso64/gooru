@@ -568,7 +568,14 @@ jobs:
             create|delete)
               incremental_branches
               ;;
-            issues|pull_request|issue_comment|pull_request_review|pull_request_review_comment)
+            issues)
+              if [[ "$EVENT_NUMBER" == "$STATE_ISSUE" ]]; then
+                full_reconcile
+              else
+                incremental_item "$EVENT_NUMBER"
+              fi
+              ;;
+            pull_request|issue_comment|pull_request_review|pull_request_review_comment)
               incremental_item "$EVENT_NUMBER"
               ;;
             *)
