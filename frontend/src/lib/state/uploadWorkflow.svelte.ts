@@ -5,6 +5,7 @@ import {
   itemsFromResult,
   markUploadItemTagSyncAppliedInPlace,
   markUploadItemTagSyncErrorInPlace,
+  normalizeUploadItemTags,
   queuedItem,
   rebaseUploadItemTagsFromRemoteInPlace,
   replaceUploadItemInPlace,
@@ -41,6 +42,7 @@ type CancelJob = (jobID: string) => Promise<Job>;
 type JobBatch = { items: Job[] };
 type JobApplyResult = { completed: boolean; changedFiles: boolean };
 type UploadClearScope = 'all' | 'staged' | 'done';
+export type UploadStagedTagOperation = 'add' | 'remove' | 'set';
 
 const doneUploadStatuses = new Set<UploadItemStatus>([
   'imported',
@@ -201,6 +203,32 @@ export function createUploadWorkflow() {
       stagedTagCounts.replace(previousStagedTags, current.tags ?? []);
       refreshStagedTagCandidates();
     }
+  }
+
+  function applyStagedTags(operation: UploadStagedTagOperation, rawTags: string[]) {
+    const operand = normalizeUploadItemTags(rawTags);
+    if (operation !== 'set' && operand.length === 0) return false;
+
+    const removed = operation === 'remove' ? new Set(operand) : null;
+    let changed = false;
+    for (let index = 0; index < items.length; index += 1) {
+      const current = items[index];
+      if (!current || current.status !== 'staged') continue;
+
+      const previous = normalizeUploadItemTags(current.tags ?? []);
+      const next = operation === 'set'
+        ? operand
+        : operation === 'add'
+          ? normalizeUploadItemTags([...previous, ...operand])
+          : previous.filter((tag) => !removed!.has(tag));
+      if (previous.length === next.length && previous.every((tag, tagIndex) => tag === next[tagIndex])) continue;
+
+      setUploadItemTagsInPlace(items, index, next);
+      stagedTagCounts.replace(previous, current.tags ?? []);
+      changed = true;
+    }
+    if (changed) refreshStagedTagCandidates();
+    return changed;
   }
 
   function itemTagSyncDelta(index: number) {
@@ -558,6 +586,7 @@ export function createUploadWorkflow() {
     clear,
     removeAt,
     setItemTags,
+    applyStagedTags,
     itemTagSyncDelta,
     markItemTagSyncApplied,
     rebaseItemTagsFromRemote,
