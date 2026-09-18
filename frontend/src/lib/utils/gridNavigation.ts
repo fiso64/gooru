@@ -33,6 +33,12 @@ export function nextGridIndex(
     const dx = x - currentX;
     const dy = y - currentY;
 
+    const horizontal = direction === 'ArrowLeft' || direction === 'ArrowRight';
+    if (options.wrapHorizontal && horizontal) {
+      const verticalOverlap = Math.min(current.top + current.height, rect.top + rect.height) - Math.max(current.top, rect.top);
+      if (verticalOverlap <= 1) continue;
+    }
+
     let major = 0;
     let minor = 0;
     if (direction === 'ArrowLeft' && dx < -1) {
