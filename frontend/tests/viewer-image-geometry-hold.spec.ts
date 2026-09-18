@@ -181,3 +181,24 @@ test('present unsupported file reports viewer capability without attempting medi
   await expect(page.locator('.viewer-visual-media')).toHaveCount(0);
   expect(unsupportedMediaRequestCount()).toBe(0);
 });
+
+
+test('empty viewer tag input keeps focus across file navigation', async ({ page }) => {
+  const { releaseLandscape } = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview portrait.jpg' }).click();
+
+  const portraitInput = page.getByRole('textbox', { name: 'Tags for portrait.jpg' });
+  await portraitInput.focus();
+  await expect(portraitInput).toBeFocused();
+
+  await portraitInput.press('ArrowRight');
+  await expect(page.getByRole('dialog', { name: 'landscape.jpg' })).toBeVisible();
+  const landscapeInput = page.getByRole('textbox', { name: 'Tags for landscape.jpg' });
+  await expect(landscapeInput).toBeFocused();
+
+  releaseLandscape();
+
+  await landscapeInput.press('ArrowLeft');
+  await expect(page.getByRole('dialog', { name: 'portrait.jpg' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Tags for portrait.jpg' })).toBeFocused();
+});
