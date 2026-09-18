@@ -236,8 +236,8 @@ paths:
           $ref: "#/components/responses/ServiceUnavailable"
   /file-downloads/{id}:
     get:
-      summary: Stream a prepared bulk download as a ZIP archive.
-      description: Streams selected originals directly into a ZIP using stored entries (no compression). The archive is generated incrementally and may omit Content-Length.
+      summary: Stream a prepared selected-file download.
+      description: Streams a single selected original with the same semantics as the per-file download endpoint. Selections of two or more files stream directly into a ZIP using stored entries (no compression). ZIP archives are generated incrementally and may omit Content-Length.
       security:
         - sessionAuth: []
       parameters:
@@ -248,13 +248,13 @@ paths:
             type: string
       responses:
         "200":
-          description: Streaming ZIP archive containing the selected originals.
+          description: A direct original response for one selected file, or a streaming ZIP archive for multiple selected files.
           headers:
             Content-Disposition:
               schema:
                 type: string
           content:
-            application/zip:
+            "*/*":
               schema:
                 type: string
                 format: binary
