@@ -176,6 +176,18 @@ func (c *Client) ListBackgroundTagMutationTargets(operationID string) ([]string,
 }
 
 func (c *Client) ExecuteBackgroundTagMutationQuery(operationID string) error {
+	return c.executeBackgroundTagMutationQuery(BackgroundTask{OperationID: operationID})
+}
+
+func (c *Client) ExecuteClaimedBackgroundTagMutationQuery(task BackgroundTask) error {
+	if task.ID == "" || task.OperationID == "" || task.claimAttempt < 1 {
+		return errors.New("claimed background tag mutation task generation is required")
+	}
+	return c.executeBackgroundTagMutationQuery(task)
+}
+
+func (c *Client) executeBackgroundTagMutationQuery(task BackgroundTask) error {
+	operationID := task.OperationID
 	state, found, err := c.GetBackgroundTagMutation(operationID)
 	if err != nil {
 		return err
@@ -210,10 +222,18 @@ func (c *Client) ExecuteBackgroundTagMutationQuery(operationID string) error {
 	if err := c.persistBackgroundTagMutationResultTx(tx, operationID, result); err != nil {
 		return err
 	}
+	if task.ID != "" {
+		if err := completeDatabaseBackgroundTaskAttemptTx(c, tx, task); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
 	c.notifyBackgroundOperationChange()
+	if task.ID != "" {
+		return backgroundTaskFinalizedByHandlerError()
+	}
 	return nil
 }
 
