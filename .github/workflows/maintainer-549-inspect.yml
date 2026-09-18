@@ -1,4 +1,4 @@
-name: Temporary #549 tag-filter inspection
+name: Temporary #549 validation
 
 on:
   push:
@@ -9,11 +9,17 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  validate:
     runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Find tag-filter call sites and tests
+      - name: Verify formatting
         run: |
-          set -euo pipefail
-          git grep -n -E 'ListFilesByTagsAnd|GetFilesInfoByTagsAnd' -- ':!internal/database/database.go' || true
+          gofmt -w internal/database/database.go
+          git diff --exit-code -- internal/database/database.go
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Build
+        run: go build ./...
