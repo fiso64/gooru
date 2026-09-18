@@ -89,6 +89,10 @@
     position: relative;
   }
 
+  .tag-editor .lightbox-tag-input:focus-within {
+    border-color: var(--accent);
+  }
+
   .tag-editor :global(.tag-autocomplete > input) {
     padding: 0;
     border: 0;
