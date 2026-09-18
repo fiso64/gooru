@@ -98,11 +98,16 @@ export interface LibraryShortcutContext {
   cursorAvailable: boolean;
   shiftKey?: boolean;
   altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
 }
 
 export function libraryShortcutAction(key: string, context: LibraryShortcutContext): LibraryShortcutAction {
-  const { selectedCount, cursorAvailable, shiftKey = false, altKey = false } = context;
+  const { selectedCount, cursorAvailable, shiftKey = false, altKey = false, ctrlKey = false, metaKey = false } = context;
   const targetAvailable = selectedCount > 0 || cursorAvailable;
+  if (ctrlKey || metaKey) {
+    return ctrlKey && !metaKey && !altKey && !shiftKey && key.toLowerCase() === 'a' ? 'select-all' : null;
+  }
   if (altKey) return key === 'Enter' && !shiftKey && targetAvailable ? 'tag-selected' : null;
 
   switch (key.toLowerCase()) {
