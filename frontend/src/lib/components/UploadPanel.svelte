@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import ActionDialog from './ActionDialog.svelte';
   import Icon from './Icon.svelte';
   import PageNav from './PageNav.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
@@ -11,6 +12,7 @@
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
+  import { editUploadTags, type UploadBulkTagOperation } from '$lib/state/uploadBulkTags';
   import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, summarizeUploadQueueBatch, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
   import { uploadItemCanOpenViewer, uploadViewerScope, type UploadViewerScope } from '$lib/state/uploadViewer';
 
@@ -77,6 +79,10 @@
   let dragActive = $state(false);
   let fileInput: HTMLInputElement | undefined;
   let tagDraft = $state('');
+  let stagedTagDialogMode = $state<'add' | 'remove' | null>(null);
+  let stagedTagDialogValue = $state('');
+  let initialTagsChangedWithStaged = $state(false);
+  let observedUploadTags = $state(uploadTags);
   let itemTagDrafts = $state<Record<number, string>>({});
   let stagedFilter = $state('');
   let stagedPage = $state(0);
@@ -133,6 +139,14 @@
     if (!queueBatches.length && Object.keys(queuePages).length) queuePages = {};
   });
 
+  $effect(() => {
+    if (uploadTags !== observedUploadTags) {
+      if (stagedRows.length > 0) initialTagsChangedWithStaged = true;
+      observedUploadTags = uploadTags;
+    }
+    if (stagedRows.length === 0) initialTagsChangedWithStaged = false;
+  });
+
   function chooseFiles() {
     fileInput?.click();
   }
@@ -173,6 +187,39 @@
 
   function removeInitialTag(tag: string) {
     onTagsInput(initialTags.filter((candidate) => candidate !== tag).join(' '));
+  }
+
+  function openStagedTagDialog(mode: 'add' | 'remove') {
+    if (stagedRows.length === 0) return;
+    stagedTagDialogValue = '';
+    stagedTagDialogMode = mode;
+  }
+
+  function closeStagedTagDialog() {
+    stagedTagDialogMode = null;
+    stagedTagDialogValue = '';
+  }
+
+  function bulkEditStagedTags(operation: UploadBulkTagOperation, operand: string[]) {
+    if (operation !== 'set' && operand.length === 0) return;
+    for (const row of stagedRows) {
+      const previous = row.item.tags ?? [];
+      const next = editUploadTags(previous, operation, operand);
+      if (previous.length === next.length && previous.every((tag, index) => tag === next[index])) continue;
+      onItemTagsInput(row.index, next);
+    }
+  }
+
+  function applyStagedTagDialog() {
+    if (!stagedTagDialogMode) return;
+    bulkEditStagedTags(stagedTagDialogMode, parseTags(stagedTagDialogValue));
+    closeStagedTagDialog();
+  }
+
+  function setStagedTagsFromInitial() {
+    if (stagedRows.length === 0) return;
+    bulkEditStagedTags('set', initialTags);
+    initialTagsChangedWithStaged = false;
   }
 
   function setItemTagDraft(index: number, value: string) {
@@ -272,31 +319,45 @@
 
         <div class="field-row">
           <span>Initial tags</span>
-          <div class="field-control upload-tags-control">
-            {#each initialTags as tag}
-              {@const separator = tag.indexOf(':')}
-              <span class="g-tag">
-                {#if separator > 0}
-                  <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
-                {:else}
-                  <span>{tag}</span>
-                {/if}
-                <button class="g-tag-x" type="button" aria-label={`Remove ${tag}`} onclick={() => removeInitialTag(tag)}>
-                  <Icon name="close" size={11} />
-                </button>
-              </span>
-            {/each}
+          <div class="field-control upload-initial-tags-field">
+            <div class="upload-initial-tags-row">
+              <div class="upload-tags-control">
+                {#each initialTags as tag}
+                  {@const separator = tag.indexOf(':')}
+                  <span class="g-tag">
+                    {#if separator > 0}
+                      <span class="g-tag-ns">{tag.slice(0, separator)}:</span><span>{tag.slice(separator + 1)}</span>
+                    {:else}
+                      <span>{tag}</span>
+                    {/if}
+                    <button class="g-tag-x" type="button" aria-label={`Remove ${tag}`} onclick={() => removeInitialTag(tag)}>
+                      <Icon name="close" size={11} />
+                    </button>
+                  </span>
+                {/each}
 
-            <TagAutocompleteInput
-              value={tagDraft}
-              tags={completionTags}
-              existing={initialTags}
-              placeholder="add tag — e.g. subject:portrait"
-              ariaLabel="Initial tags"
-              onInput={(value) => (tagDraft = value)}
-              onCommit={commitInitialTag}
-              onRemoveLast={removeInitialTag}
-            />
+                <TagAutocompleteInput
+                  value={tagDraft}
+                  tags={completionTags}
+                  existing={initialTags}
+                  placeholder="add tag — e.g. subject:portrait"
+                  ariaLabel="Initial tags"
+                  onInput={(value) => (tagDraft = value)}
+                  onCommit={commitInitialTag}
+                  onRemoveLast={removeInitialTag}
+                />
+              </div>
+              <div class="upload-initial-tag-actions" aria-label="Edit tags on staged files">
+                <button class="g-btn g-btn-sm g-btn-icon" type="button" disabled={stagedRows.length === 0} aria-label="Add tags to staged files" title="Add tags to staged files" onclick={() => openStagedTagDialog('add')}>+</button>
+                <button class="g-btn g-btn-sm g-btn-icon" type="button" disabled={stagedRows.length === 0} aria-label="Remove tags from staged files" title="Remove tags from staged files" onclick={() => openStagedTagDialog('remove')}>−</button>
+                <button class="g-btn g-btn-sm" type="button" disabled={stagedRows.length === 0} title="Set staged files to the current initial tags" onclick={setStagedTagsFromInitial}>SET</button>
+              </div>
+            </div>
+            {#if initialTagsChangedWithStaged}
+              <div class="upload-initial-tags-note">
+                Initial tag changes affect newly staged files only. Use SET to apply them to the {stagedRows.length} already staged {stagedRows.length === 1 ? 'file' : 'files'}.
+              </div>
+            {/if}
           </div>
         </div>
 
@@ -544,6 +605,21 @@
   </div>
 </main>
 
+{#if stagedTagDialogMode}
+  <ActionDialog
+    title={stagedTagDialogMode === 'add' ? 'Tag staged files' : 'Untag staged files'}
+    description={`${stagedTagDialogMode === 'add' ? 'Add tags to' : 'Remove tags from'} ${stagedRows.length} staged ${stagedRows.length === 1 ? 'file' : 'files'}.`}
+    label="Tags"
+    value={stagedTagDialogValue}
+    confirmText={stagedTagDialogMode === 'add' ? 'Add tags' : 'Remove tags'}
+    tagInput
+    tagCandidates={completionTags}
+    onInput={(value) => (stagedTagDialogValue = value)}
+    onCancel={closeStagedTagDialog}
+    onConfirm={applyStagedTagDialog}
+  />
+{/if}
+
 {#if viewerIndex != null}
   <UploadViewerDialog
     {uploadItems}
@@ -562,6 +638,37 @@
 {/if}
 
 <style>
+  .upload-initial-tags-field {
+    min-width: 0;
+  }
+
+  .upload-initial-tags-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .upload-initial-tags-row > .upload-tags-control {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .upload-initial-tag-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .upload-initial-tags-note {
+    margin-top: 5px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1.4;
+  }
+
   .upload-row {
     position: relative;
   }
