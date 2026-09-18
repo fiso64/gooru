@@ -78,7 +78,9 @@ func (c *Client) ExecuteBackgroundTagMutationFiles(operationID string, files []t
 			previousHash: previousHash,
 		})
 		analysis.allHashes = append(analysis.allHashes, hash)
-		analysis.locationsToUpsert[file.Path] = location
+		if file.Hash == "" || metadataChanged {
+			analysis.locationsToUpsert[file.Path] = location
+		}
 	}
 
 	if err := c.populateOrphanedTags(analysis.allFileData); err != nil {
