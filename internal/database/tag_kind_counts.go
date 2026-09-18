@@ -14,6 +14,22 @@ type TagFacetExclusion struct {
 	KeyOnly bool
 }
 
+func tagFacetConditions(alias string, facets ...TagFacetExclusion) (string, []interface{}) {
+	conditions := make([]string, len(facets))
+	args := make([]interface{}, 0, len(facets)*2)
+	for i, facet := range facets {
+		keyCondition := alias + ".key = ?"
+		if facet.KeyOnly {
+			conditions[i] = keyCondition
+			args = append(args, facet.Tag.Key)
+			continue
+		}
+		conditions[i] = "(" + keyCondition + " AND " + alias + ".value = ?)"
+		args = append(args, facet.Tag.Key, facet.Tag.Value)
+	}
+	return strings.Join(conditions, " OR "), args
+}
+
 func scanKindFacets(rows interface {
 	Next() bool
 	Scan(...interface{}) error
@@ -73,18 +89,7 @@ func (s *Store) KindFacetsForExcludedTags(exclusions []TagFacetExclusion) ([]typ
 		return nil, nil
 	}
 
-	conditions := make([]string, 0, len(exclusions))
-	args := make([]interface{}, 0, len(exclusions)*2)
-	for _, exclusion := range exclusions {
-		if exclusion.KeyOnly {
-			conditions = append(conditions, "t.key = ?")
-			args = append(args, exclusion.Tag.Key)
-			continue
-		}
-		conditions = append(conditions, "(t.key = ? AND t.value = ?)")
-		args = append(args, exclusion.Tag.Key, exclusion.Tag.Value)
-	}
-
+	conditions, args := tagFacetConditions("t", exclusions...)
 	query := fmt.Sprintf(`
 		WITH excluded_contents(content_hash) AS (
 			SELECT DISTINCT ct.content_hash
@@ -98,7 +103,7 @@ func (s *Store) KindFacetsForExcludedTags(exclusions []TagFacetExclusion) ([]typ
 		LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
 		GROUP BY kind
 		ORDER BY files_count DESC, kind ASC
-	`, strings.Join(conditions, " OR "), fileKindExpression())
+	`, conditions, fileKindExpression())
 
 	rows, err := s.Query(query, args...)
 	if err != nil {
