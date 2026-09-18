@@ -14,30 +14,43 @@ func (s *Store) AttachBackgroundTaskAndRevealOperation(operationID string, check
 	if s == nil || s.DB == nil {
 		return BackgroundTask{}, errors.New("background operation store is required")
 	}
-	if operationID == "" {
-		return BackgroundTask{}, errors.New("background operation id is required")
-	}
-
 	tx, err := s.Begin()
 	if err != nil {
 		return BackgroundTask{}, fmt.Errorf("begin background operation attachment: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Make the first statement a write. With SQLite WAL, reading first and then
-	// upgrading the snapshot to a writer can fail immediately with SQLITE_BUSY if
-	// an idle durable worker commits between the read and write; busy_timeout does
-	// not make that stale snapshot upgrade retryable. The checkpoint write acquires
-	// writer ownership up front, and any later reservation-validation failure rolls
-	// it back with the rest of this transaction.
-	if err := s.setBackgroundOperationCheckpoint(tx, operationID, checkpointJSON); err != nil {
+	attachedTask, err := s.attachBackgroundTaskAndRevealOperation(tx, operationID, checkpointJSON, task)
+	if err != nil {
+		return BackgroundTask{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return BackgroundTask{}, fmt.Errorf("commit background operation attachment: %w", err)
+	}
+	return attachedTask, nil
+}
+
+func (s *Store) attachBackgroundTaskAndRevealOperation(q Querier, operationID string, checkpointJSON []byte, task NewBackgroundTask) (BackgroundTask, error) {
+	if q == nil {
+		return BackgroundTask{}, errors.New("background operation querier is required")
+	}
+	if operationID == "" {
+		return BackgroundTask{}, errors.New("background operation id is required")
+	}
+
+	// Make the first statement a write for standalone attachment transactions.
+	// With SQLite WAL, reading first and then upgrading the snapshot to a writer
+	// can fail immediately with SQLITE_BUSY if another writer commits between
+	// the read and write. Atomic producer transactions may already own the writer
+	// slot; repeating this checkpoint write is still part of the same commit.
+	if err := s.setBackgroundOperationCheckpoint(q, operationID, checkpointJSON); err != nil {
 		return BackgroundTask{}, err
 	}
 
 	var visible int
 	var status string
 	var attached int
-	if err := tx.QueryRow(`
+	if err := q.QueryRow(`
 		SELECT visible, status,
 		       (SELECT count(*) FROM background_tasks WHERE operation_id = background_operations.id)
 		FROM background_operations
@@ -53,18 +66,15 @@ func (s *Store) AttachBackgroundTaskAndRevealOperation(operationID string, check
 	}
 
 	task.OperationID = operationID
-	attachedTask, created, err := s.EnqueueBackgroundTask(tx, task)
+	attachedTask, created, err := s.EnqueueBackgroundTask(q, task)
 	if err != nil {
 		return BackgroundTask{}, fmt.Errorf("attach background child task: %w", err)
 	}
 	if !created {
 		return BackgroundTask{}, errors.New("attach background child task: scoped dedupe key already active")
 	}
-	if err := s.setBackgroundOperationVisible(tx, operationID, true); err != nil {
+	if err := s.setBackgroundOperationVisible(q, operationID, true); err != nil {
 		return BackgroundTask{}, fmt.Errorf("reveal background operation: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return BackgroundTask{}, fmt.Errorf("commit background operation attachment: %w", err)
 	}
 	return attachedTask, nil
 }
