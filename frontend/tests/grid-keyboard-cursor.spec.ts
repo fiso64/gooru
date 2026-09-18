@@ -17,7 +17,7 @@ function fileItem(id: string, name: string) {
     media_type: 'image/jpeg',
     media_kind: 'photo',
     metadata: { image_width: 800, image_height: 600 },
-    tags: [],
+    tags: id === 'one' ? ['alpha'] : [],
     media_urls: {
       thumbnail: `/api/v1/files/${id}/thumbnail`,
       preview: `/api/v1/files/${id}/preview`,
@@ -185,4 +185,29 @@ test('cursor tag and removal shortcuts target the focused file while selection k
   await expect(cards.nth(1)).toBeFocused();
   await page.keyboard.press('t');
   await expect(page.getByRole('dialog', { name: 'Edit tags · one.jpg' })).toBeVisible();
+});
+
+
+test('single-file tag editor stages changes until Apply', async ({ page }) => {
+  const tagRequests: Array<{ method: string; body: Record<string, unknown> }> = [];
+  await page.route('**/api/v1/files/tags', async (route) => {
+    tagRequests.push({ method: route.request().method(), body: route.request().postDataJSON() });
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
+  });
+  await mockApp(page);
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('t');
+  const dialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
+  await expect(dialog.getByText('alpha', { exact: true })).toBeVisible();
+
+  const input = dialog.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await input.fill('beta');
+  await input.press('Enter');
+  expect(tagRequests).toHaveLength(0);
+
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect.poll(() => tagRequests.length).toBe(1);
+  expect(tagRequests[0].method).toBe('PUT');
+  expect(tagRequests[0].body).toMatchObject({ file_ids: ['one'], tags: ['alpha', 'beta'] });
 });
