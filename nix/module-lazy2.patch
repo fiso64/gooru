@@ -1,0 +1,69 @@
+diff --git a/nix/module.nix b/nix/module.nix
+--- a/nix/module.nix
++++ b/nix/module.nix
+@@ -13,8 +13,6 @@ let
+     builtins.stringLength value <= 64
+     && builtins.match "[A-Za-z0-9._-]+" value != null;
+ 
+-  enabledInstances = lib.filterAttrs (_: instance: instance.enable) cfg.instances;
+-
+   instanceType = lib.types.submodule ({ name, ... }: {
+     options = {
+       enable = lib.mkEnableOption "Gooru instance ${name}";
+@@ -105,9 +103,8 @@ let
+     };
+   });
+ 
+-  instanceAssertions = lib.concatMap (name:
++  mkInstanceAssertions = name: instance:
+     let
+-      instance = cfg.instances.${name};
+       adminDeclarationIDs = lib.attrNames instance.admins;
+     in [
+       {
+@@ -132,7 +129,7 @@ let
+         assertion = lib.all (declarationID: instance.admins.${declarationID}.passwordFile != "") adminDeclarationIDs;
+         message = "services.gooru.instances.${name}.admins passwordFile values must not be empty";
+       }
+-    ]) (lib.attrNames cfg.instances);
++    ];
+ 
+   mkInstanceConfig = name: instance:
+     let
+@@ -189,7 +186,11 @@ let
+           fi
+           mv "$admin_state_tmp" "$admin_state_file"
+         '') adminDeclarationIDs;
+-    in {
++    in lib.mkMerge [
++      {
++        assertions = mkInstanceAssertions name instance;
++      }
++      (lib.mkIf instance.enable {
+       users.users.${instance.user} = lib.mkIf (instance.user == defaultUser) {
+         isSystemUser = true;
+         group = instance.group;
+@@ -225,7 +226,8 @@ let
+       networking.firewall.allowedTCPPorts = lib.mkIf instance.openFirewall [
+         (lib.toInt (lib.last (lib.splitString ":" effectiveSettings.server.listen)))
+       ];
+-    };
++      })
++    ];
+ in {
+   options.services.gooru = {
+     package = lib.mkOption {
+@@ -242,12 +244,5 @@ in {
+     };
+   };
+ 
+-  config = lib.mkMerge (
+-    [
+-      {
+-        assertions = instanceAssertions;
+-      }
+-    ]
+-    ++ lib.mapAttrsToList mkInstanceConfig enabledInstances
+-  );
++  config = lib.mkMerge (lib.mapAttrsToList mkInstanceConfig cfg.instances);
+ }
