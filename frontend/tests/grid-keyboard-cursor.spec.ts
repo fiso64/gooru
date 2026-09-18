@@ -209,6 +209,7 @@ test('single-file tag editor stages changes until Apply', async ({ page }) => {
   await expect.poll(() => tagRequests.length).toBe(1);
   expect(tagRequests[0].method).toBe('POST');
   expect(tagRequests[0].body).toMatchObject({ file_ids: ['one'], tags: ['beta'] });
+  await expect(page.locator('.thumb-open').nth(0)).toBeFocused();
 
   await page.keyboard.press('u');
   const removeDialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
