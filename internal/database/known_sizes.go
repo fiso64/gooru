@@ -1,5 +1,7 @@
 package database
 
+import "strings"
+
 // GetKnownSizes returns the distinct logical file sizes currently tracked by the store.
 func (s *Store) GetKnownSizes() (map[int64]struct{}, error) {
 	rows, err := s.Query("SELECT DISTINCT size_bytes FROM locations")
@@ -20,4 +22,48 @@ func (s *Store) GetKnownSizes() (map[int64]struct{}, error) {
 		return nil, err
 	}
 	return sizes, nil
+}
+
+// GetHashesBySizes returns the distinct tracked content hashes for the requested logical sizes.
+func (s *Store) GetHashesBySizes(sizes []int64) (map[int64]map[string]struct{}, error) {
+	hashesBySize := make(map[int64]map[string]struct{})
+	for start := 0; start < len(sizes); start += maxVars {
+		end := min(start+maxVars, len(sizes))
+		batch := sizes[start:end]
+		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
+		args := make([]interface{}, len(batch))
+		for i, size := range batch {
+			args[i] = size
+		}
+
+		rows, err := s.Query(
+			"SELECT DISTINCT size_bytes, content_hash FROM locations WHERE size_bytes IN ("+placeholders+")",
+			args...,
+		)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var size int64
+			var hash string
+			if err := rows.Scan(&size, &hash); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			hashes := hashesBySize[size]
+			if hashes == nil {
+				hashes = make(map[string]struct{})
+				hashesBySize[size] = hashes
+			}
+			hashes[hash] = struct{}{}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return hashesBySize, nil
 }
