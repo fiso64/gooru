@@ -187,6 +187,7 @@ let
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ];
       path = [ pkgs.ffmpeg ];
+      restartTriggers = [ (configFileFor name instance) ];
       preStart = preStartFor name instance;
       serviceConfig = {
         User = instance.user;
