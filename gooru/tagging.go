@@ -462,7 +462,9 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 			previousHash: previousHash,
 		})
 		analysis.allHashes = append(analysis.allHashes, hash)
-		analysis.locationsToUpsert[absPath] = locInfo
+		if !existsInDb || wasHashed {
+			analysis.locationsToUpsert[absPath] = locInfo
+		}
 	}
 
 	// Orphaned tags are notification metadata, so preserve the previous
