@@ -1295,30 +1295,36 @@ func (s *Store) BatchUpsertLocations(q Querier, locations map[string]types.Locat
 		if _, err := q.Exec(query, args...); err != nil {
 			return err
 		}
-		managedPlaceholders := make([]string, 0, len(batch))
-		managedArgs := make([]interface{}, 0, len(batch)*2)
-		for _, loc := range batch {
-			if strings.TrimSpace(loc.StoragePath) == "" {
-				continue
-			}
-			managedPlaceholders = append(managedPlaceholders, "(?, ?)")
-			managedArgs = append(managedArgs, loc.StoragePath, loc.Path)
-		}
-		if len(managedPlaceholders) > 0 {
-			managedQuery := `WITH managed(physical_path, path) AS (VALUES ` +
-				strings.Join(managedPlaceholders, ",") +
-				`)
-				INSERT INTO managed_storage_locations (location_id, physical_path)
-				SELECT l.id, managed.physical_path
-				FROM managed
-				JOIN locations l ON l.path = managed.path
-				WHERE true
-				ON CONFLICT(location_id) DO UPDATE SET physical_path = excluded.physical_path`
-			if _, err := q.Exec(managedQuery, managedArgs...); err != nil {
-				return err
-			}
+		if err := s.upsertManagedStorageLocations(q, batch); err != nil {
+			return err
 		}
 		batchStart = batchEnd
+	}
+	return nil
+}
+
+func (s *Store) upsertManagedStorageLocations(q Querier, locations []types.LocationInfo) error {
+	managed := make([]types.LocationInfo, 0, len(locations))
+	for _, loc := range locations {
+		if strings.TrimSpace(loc.StoragePath) == "" {
+			continue
+		}
+		managed = append(managed, loc)
+	}
+
+	for placeholders, args := range bindPairBatches(managed, "(?, ?)", func(loc types.LocationInfo) (any, any) {
+		return loc.StoragePath, loc.Path
+	}) {
+		query := `WITH managed(physical_path, path) AS (VALUES ` + placeholders + `)
+			INSERT INTO managed_storage_locations (location_id, physical_path)
+			SELECT l.id, managed.physical_path
+			FROM managed
+			JOIN locations l ON l.path = managed.path
+			WHERE true
+			ON CONFLICT(location_id) DO UPDATE SET physical_path = excluded.physical_path`
+		if _, err := q.Exec(query, args...); err != nil {
+			return err
+		}
 	}
 	return nil
 }

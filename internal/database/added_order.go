@@ -17,28 +17,22 @@ func (s *Store) BatchUpsertLocationsWithAddedOrder(q Querier, locations map[stri
 		return nil
 	}
 	const columns = 7 // content_hash, path, size_bytes, mod_time, added_at, added_order, extension
-	batchSize := maxVars / columns
 
 	locs := make([]types.LocationInfo, 0, len(locations))
 	for _, loc := range locations {
 		locs = append(locs, loc)
 	}
 
-	for i := 0; i < len(locs); i += batchSize {
-		end := i + batchSize
-		if end > len(locs) {
-			end = len(locs)
-		}
-		batch := locs[i:end]
-
-		placeholders := make([]string, 0, len(batch))
-		args := make([]interface{}, 0, len(batch)*columns)
-		for _, loc := range batch {
-			placeholders = append(placeholders, "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?)")
-			args = append(args, loc.Hash, loc.Path, loc.Size, loc.ModTime, loc.AddedAt, addedOrderByPath[loc.Path], loc.Extension)
-		}
+	const rowPlaceholders = "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?)"
+	batchStart := 0
+	for placeholders, args := range bindRowBatches(locs, rowPlaceholders, columns, func(args []any, loc types.LocationInfo, _ int) {
+		args[0], args[1], args[2] = loc.Hash, loc.Path, loc.Size
+		args[3], args[4], args[5], args[6] = loc.ModTime, loc.AddedAt, addedOrderByPath[loc.Path], loc.Extension
+	}) {
+		batchEnd := batchStart + len(args)/columns
+		batch := locs[batchStart:batchEnd]
 		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, added_at, added_order, extension) VALUES ` +
-			strings.Join(placeholders, ",") +
+			placeholders +
 			` ON CONFLICT(path) DO UPDATE SET
 				content_hash=excluded.content_hash,
 				size_bytes=excluded.size_bytes,
@@ -47,30 +41,10 @@ func (s *Store) BatchUpsertLocationsWithAddedOrder(q Querier, locations map[stri
 		if _, err := q.Exec(query, args...); err != nil {
 			return err
 		}
-
-		managedPlaceholders := make([]string, 0, len(batch))
-		managedArgs := make([]interface{}, 0, len(batch)*2)
-		for _, loc := range batch {
-			if strings.TrimSpace(loc.StoragePath) == "" {
-				continue
-			}
-			managedPlaceholders = append(managedPlaceholders, "(?, ?)")
-			managedArgs = append(managedArgs, loc.StoragePath, loc.Path)
+		if err := s.upsertManagedStorageLocations(q, batch); err != nil {
+			return err
 		}
-		if len(managedPlaceholders) > 0 {
-			managedQuery := `WITH managed(physical_path, path) AS (VALUES ` +
-				strings.Join(managedPlaceholders, ",") +
-				`)
-				INSERT INTO managed_storage_locations (location_id, physical_path)
-				SELECT l.id, managed.physical_path
-				FROM managed
-				JOIN locations l ON l.path = managed.path
-				WHERE true
-				ON CONFLICT(location_id) DO UPDATE SET physical_path = excluded.physical_path`
-			if _, err := q.Exec(managedQuery, managedArgs...); err != nil {
-				return err
-			}
-		}
+		batchStart = batchEnd
 	}
 	return nil
 }
