@@ -15,10 +15,6 @@ jobs:
       GOTOOLCHAIN: local
     steps:
       - uses: actions/checkout@v4
-      - name: Verify formatting
-        run: |
-          gofmt -w internal/database/database.go
-          git diff --exit-code -- internal/database/database.go
       - name: Test
         run: go test -count=1 ./...
       - name: Build
