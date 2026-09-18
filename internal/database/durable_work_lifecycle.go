@@ -217,10 +217,6 @@ func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt 
 	return BackgroundWorkStatus(status) == BackgroundWorkPending && attemptNumber < maxAttempts, nil
 }
 
-// RecoverExpiredBackgroundTaskLeases abandons attempts whose worker lease expired. Tasks
-// with retry capacity return to pending immediately; exhausted tasks become failed. Every
-// transition is guarded by the still-expired running state so a concurrent completion or
-// lease replacement wins cleanly instead of being overwritten.
 type expiredBackgroundTask struct {
 	id            string
 	attemptNumber int
@@ -228,6 +224,10 @@ type expiredBackgroundTask struct {
 	status        BackgroundWorkStatus
 }
 
+// RecoverExpiredBackgroundTaskLeases abandons attempts whose worker lease expired. Tasks
+// with retry capacity return to pending immediately; exhausted tasks become failed. Every
+// transition is guarded by the still-expired running state so a concurrent completion or
+// lease replacement wins cleanly instead of being overwritten.
 func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 	if s == nil || s.DB == nil {
 		return 0, errors.New("background task store is required")
