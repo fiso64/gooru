@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 const (
@@ -42,33 +41,37 @@ func (s *Store) GetBackgroundOperations(ids []string) (map[string]BackgroundOper
 	if len(ids) == 0 {
 		return operations, nil
 	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
-	args := make([]any, len(ids))
-	for i, id := range ids {
+	for _, id := range ids {
 		if id == "" {
 			return nil, errors.New("background operation id is required")
 		}
-		args[i] = id
 	}
-	rows, err := s.DB.Query(`
-		SELECT id, kind, visible, status, progress_total, progress_completed, progress_failed,
-		       created_at, started_at, finished_at, error_code, error_message
-		FROM background_operations
-		WHERE id IN (`+placeholders+`)
-	`, args...)
-	if err != nil {
-		return nil, fmt.Errorf("read background operations: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		operation, err := scanBackgroundOperation(rows)
+
+	for start := 0; start < len(ids); start += maxVars {
+		end := min(start+maxVars, len(ids))
+		placeholders, args := stringBatchArgs(ids[start:end])
+		rows, err := s.Query(`
+			SELECT id, kind, visible, status, progress_total, progress_completed, progress_failed,
+			       created_at, started_at, finished_at, error_code, error_message
+			FROM background_operations
+			WHERE id IN (`+placeholders+`)
+		`, args...)
 		if err != nil {
-			return nil, fmt.Errorf("scan background operation: %w", err)
+			return nil, fmt.Errorf("read background operations: %w", err)
 		}
-		operations[operation.ID] = operation
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate background operations: %w", err)
+		for rows.Next() {
+			operation, err := scanBackgroundOperation(rows)
+			if err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan background operation: %w", err)
+			}
+			operations[operation.ID] = operation
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("iterate background operations: %w", err)
+		}
+		rows.Close()
 	}
 	return operations, nil
 }
