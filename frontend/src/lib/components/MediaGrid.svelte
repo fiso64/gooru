@@ -110,6 +110,7 @@
 
   function handleGridKeydown(event: KeyboardEvent) {
     if (!(event.target instanceof HTMLButtonElement) || !event.target.classList.contains('thumb-open')) return;
+    const currentButton = event.target;
     if (event.key === 'Escape') {
       if (selectedCount > 0) return;
       event.preventDefault();
@@ -119,14 +120,14 @@
     }
     if (!isGridDirection(event.key)) return;
     const buttons = Array.from(gridHost?.querySelectorAll<HTMLButtonElement>('.thumb-open') ?? []);
-    const currentIndex = buttons.indexOf(event.target);
+    const currentIndex = buttons.indexOf(currentButton);
     if (currentIndex < 0) return;
     const nextIndex = nextGridIndex(buttons.map((button) => button.getBoundingClientRect()), currentIndex, event.key, { wrapHorizontal: true });
     if (nextIndex === currentIndex) return;
     const nextButton = buttons[nextIndex];
     if (event.shiftKey) {
-      const currentFile = files.find((file) => file.id === event.target.dataset.fileId);
-      const targetFile = files.find((file) => file.id === nextButton?.dataset.fileId);
+      const currentFile = files.find((file: FileItem) => file.id === currentButton.dataset.fileId);
+      const targetFile = files.find((file: FileItem) => file.id === nextButton?.dataset.fileId);
       if (currentFile && targetFile) onExtendSelection(currentFile, targetFile, files);
     }
     event.preventDefault(); event.stopPropagation(); nextButton?.focus({ preventScroll: true });
