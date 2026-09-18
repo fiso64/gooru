@@ -125,7 +125,11 @@ func waitForDurableTagMutation(ctx context.Context, operations backgroundOperati
 			defer unsubscribe()
 		}
 	}
-	ticker := time.NewTicker(25 * time.Millisecond)
+	pollInterval := 25 * time.Millisecond
+	if changes != nil {
+		pollInterval = 500 * time.Millisecond
+	}
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
 		state, found, err := operations.GetBackgroundOperation(operationID)
