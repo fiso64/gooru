@@ -1193,22 +1193,8 @@ func (s *Store) BatchGetTags(q Querier, parsedTags []types.ParsedTag) (map[strin
 		return tagIDMap, nil
 	}
 
-	const columns = 2 // key, value
-	batchSize := maxVars / columns
-	for i := 0; i < len(parsedTags); i += batchSize {
-		end := i + batchSize
-		if end > len(parsedTags) {
-			end = len(parsedTags)
-		}
-		batch := parsedTags[i:end]
-
-		placeholders := make([]string, len(batch))
-		args := make([]interface{}, 0, len(batch)*columns)
-		for j, tag := range batch {
-			placeholders[j] = "(?, ?)"
-			args = append(args, tag.Key, tag.Value)
-		}
-		query := `WITH requested(key, value) AS (VALUES ` + strings.Join(placeholders, ",") + `)
+	for placeholders, args := range parsedTagBindBatches(parsedTags) {
+		query := `WITH requested(key, value) AS (VALUES ` + placeholders + `)
 			SELECT t.id, requested.key, requested.value
 			FROM requested
 			JOIN tags t ON t.key = requested.key AND t.value = requested.value`
@@ -1260,21 +1246,8 @@ func (s *Store) BatchGetOrCreateTags(q Querier, parsedTags []types.ParsedTag) (m
 		return tagIDMap, nil
 	}
 
-	const columns = 2 // key, value
-	batchSize := maxVars / columns
-	for i := 0; i < len(missing); i += batchSize {
-		end := i + batchSize
-		if end > len(missing) {
-			end = len(missing)
-		}
-		batch := missing[i:end]
-		placeholders := make([]string, len(batch))
-		args := make([]interface{}, 0, len(batch)*columns)
-		for j, tag := range batch {
-			placeholders[j] = "(?, ?)"
-			args = append(args, tag.Key, tag.Value)
-		}
-		query := "INSERT OR IGNORE INTO tags (key, value) VALUES " + strings.Join(placeholders, ",")
+	for placeholders, args := range parsedTagBindBatches(missing) {
+		query := "INSERT OR IGNORE INTO tags (key, value) VALUES " + placeholders
 		if _, err := q.Exec(query, args...); err != nil {
 			return nil, err
 		}
