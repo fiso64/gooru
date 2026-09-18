@@ -1,0 +1,107 @@
+name: Maintainer 549 public ID refactor
+
+on:
+  push:
+    branches:
+      - maintainer-549-public-id-scan-refactor
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: maintainer-549-public-id-scan-refactor
+          fetch-depth: 0
+
+      - name: Apply guarded refactor
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("internal/database/database.go")
+          src = path.read_text()
+
+          old_scan = """func scanStrings(rows *sql.Rows) ([]string, error) {
+          \tvar out []string
+          \tfor rows.Next() {
+          \t\tvar value string
+          \t\tif err := rows.Scan(&value); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tout = append(out, value)
+          \t}
+          \treturn out, rows.Err()
+          }"""
+          new_scan = """func scanStringsInto(rows *sql.Rows, out []string) ([]string, error) {
+          \tfor rows.Next() {
+          \t\tvar value string
+          \t\tif err := rows.Scan(&value); err != nil {
+          \t\t\treturn nil, err
+          \t\t}
+          \t\tout = append(out, value)
+          \t}
+          \treturn out, rows.Err()
+          }
+
+          func scanStrings(rows *sql.Rows) ([]string, error) {
+          \treturn scanStringsInto(rows, nil)
+          }"""
+          if src.count(old_scan) != 1:
+              raise SystemExit(f"expected one scanStrings block, got {src.count(old_scan)}")
+          src = src.replace(old_scan, new_scan)
+
+          loop = re.compile(
+              r"\tids := make\(\[\]string, 0\)\n"
+              r"\tfor rows\.Next\(\) \{\n"
+              r"\t\tvar id string\n"
+              r"\t\tif err := rows\.Scan\(&id\); err != nil \{\n"
+              r"\t\t\treturn nil, err\n"
+              r"\t\t\}\n"
+              r"\t\tids = append\(ids, id\)\n"
+              r"\t\}\n"
+              r"\treturn ids, rows\.Err\(\)"
+          )
+          src, count = loop.subn("\treturn scanStringsInto(rows, []string{})", src)
+          if count != 2:
+              raise SystemExit(f"expected two public-ID loops, got {count}")
+
+          old_tag = """\t\tvar tagStr string
+          \t\tif value == "" {
+          \t\t\ttagStr = key
+          \t\t} else {
+          \t\t\ttagStr = key + ":" + value
+          \t\t}
+          \t\tcounts[tagStr] = count"""
+          new_tag = """\t\tcounts[parsedTagString(types.ParsedTag{Key: key, Value: value})] = count"""
+          if src.count(old_tag) != 1:
+              raise SystemExit(f"expected one tag formatting block, got {src.count(old_tag)}")
+          src = src.replace(old_tag, new_tag)
+
+          path.write_text(src)
+          PY
+
+          gofmt -w internal/database/database.go
+          git diff --check
+          test "$(git diff --numstat -- internal/database/database.go | awk '{print $1}')" -lt "$(git diff --numstat -- internal/database/database.go | awk '{print $2}')"
+
+      - name: Validate database package
+        shell: bash
+        run: |
+          go test -count=1 ./internal/database
+          go vet -structtag=false ./internal/database
+
+      - name: Commit refactor and remove workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/maintainer-549-public-id-scan-refactor.yml
+          git add internal/database/database.go
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "refactor: share public ID scanning"
+          git push origin HEAD:maintainer-549-public-id-scan-refactor
