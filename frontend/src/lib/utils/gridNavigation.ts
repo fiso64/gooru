@@ -7,7 +7,16 @@ export type GridRect = {
   height: number;
 };
 
-export function nextGridIndex(rects: GridRect[], currentIndex: number, direction: GridDirection): number {
+export interface GridNavigationOptions {
+  wrapHorizontal?: boolean;
+}
+
+export function nextGridIndex(
+  rects: GridRect[],
+  currentIndex: number,
+  direction: GridDirection,
+  options: GridNavigationOptions = {}
+): number {
   const current = rects[currentIndex];
   if (!current) return currentIndex;
 
@@ -52,7 +61,14 @@ export function nextGridIndex(rects: GridRect[], currentIndex: number, direction
     }
   }
 
-  return bestIndex;
+  if (bestIndex !== currentIndex) return bestIndex;
+
+  if (options.wrapHorizontal) {
+    if (direction === 'ArrowRight' && currentIndex + 1 < rects.length) return currentIndex + 1;
+    if (direction === 'ArrowLeft' && currentIndex > 0) return currentIndex - 1;
+  }
+
+  return currentIndex;
 }
 
 export function isGridDirection(key: string): key is GridDirection {
