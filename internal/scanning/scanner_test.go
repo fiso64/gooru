@@ -9,6 +9,24 @@ import (
 	"gooru.local/types"
 )
 
+
+func TestPruneRedundantDirsKeepsIndependentRootsInOrder(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	sibling := t.TempDir()
+
+	got := PruneRedundantDirs([]string{root, nested, root, sibling})
+	want := []string{root, sibling}
+	if len(got) != len(want) {
+		t.Fatalf("pruned roots = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("pruned roots = %v, want %v", got, want)
+		}
+	}
+}
+
 func TestDirsConcurrentlyPrunesDuplicateAndNestedRoots(t *testing.T) {
 	root := t.TempDir()
 	nested := filepath.Join(root, "nested")
