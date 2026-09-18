@@ -93,10 +93,19 @@ async function mockLibrary(page: Page, uiConfig: Record<string, unknown> = {}) {
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
 }
 
-test('video and gif previews start after dwell, stop on leave, and only one is active', async ({ page }) => {
+async function mockLibraryWithHoverClock(page: Page, uiConfig: Record<string, unknown> = {}) {
   await page.clock.install({ time: controlledClockStart });
-  await mockLibrary(page);
+  await mockLibrary(page, uiConfig);
   await page.clock.pauseAt(controlledClockPause);
+}
+
+async function hoverPastDwell(page: Page, target: Locator) {
+  await target.hover();
+  await page.clock.fastForward(hoverDwellMs);
+}
+
+test('video and gif previews start after dwell, stop on leave, and only one is active', async ({ page }) => {
+  await mockLibraryWithHoverClock(page);
 
   const firstVideo = page.getByRole('button', { name: 'Preview video-one.mp4' });
   await firstVideo.hover();
@@ -110,8 +119,7 @@ test('video and gif previews start after dwell, stop on leave, and only one is a
   await expect(page.getByTestId('hover-video-progress')).toHaveCount(1);
 
   const gif = page.getByRole('button', { name: 'Preview gif-one.gif' });
-  await gif.hover();
-  await page.clock.fastForward(hoverDwellMs);
+  await hoverPastDwell(page, gif);
   await expect(page.getByTestId('hover-gif-preview')).toHaveCount(1);
   await expect(page.getByTestId('hover-video-preview')).toHaveCount(0);
 
@@ -120,19 +128,19 @@ test('video and gif previews start after dwell, stop on leave, and only one is a
 });
 
 test('hover previews keep the thumbnail visible until media is ready and restart gif sessions', async ({ page }) => {
-  await mockLibrary(page);
+  await mockLibraryWithHoverClock(page);
 
   const videoCard = page.getByRole('button', { name: 'Preview video-one.mp4' });
-  await videoCard.hover();
+  await hoverPastDwell(page, videoCard);
   const video = page.getByTestId('hover-video-preview');
-  await expect(video).toHaveCount(1, { timeout: 500 });
+  await expect(video).toHaveCount(1);
   await expect(video).toHaveCSS('opacity', '0');
   await expect(page.getByTestId('hover-video-progress')).toHaveCSS('opacity', '0');
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
-  await gifCard.hover();
+  await hoverPastDwell(page, gifCard);
   const firstGif = page.getByTestId('hover-gif-preview');
-  await expect(firstGif).toHaveCount(1, { timeout: 500 });
+  await expect(firstGif).toHaveCount(1);
   await expect(firstGif).toHaveCSS('opacity', '0');
   const firstSource = hoverSessionURL(await firstGif.getAttribute('src'));
   expect(firstSource.pathname).toBe('/api/v1/files/gif-one/content');
@@ -141,9 +149,9 @@ test('hover previews keep the thumbnail visible until media is ready and restart
 
   await page.getByRole('heading', { name: 'Library' }).hover();
   await expect(page.getByTestId('hover-gif-preview')).toHaveCount(0);
-  await gifCard.hover();
+  await hoverPastDwell(page, gifCard);
   const secondGif = page.getByTestId('hover-gif-preview');
-  await expect(secondGif).toHaveCount(1, { timeout: 500 });
+  await expect(secondGif).toHaveCount(1);
   const secondSource = hoverSessionURL(await secondGif.getAttribute('src'));
   expect(secondSource.pathname).toBe(firstSource.pathname);
   expect(secondSource.searchParams.get('gooru_hover_session')).toBe('2');
@@ -153,16 +161,16 @@ test('hover previews keep the thumbnail visible until media is ready and restart
 });
 
 test('ready transparent gif replaces the thumbnail backing layer', async ({ page }) => {
-  await mockLibrary(page);
+  await mockLibraryWithHoverClock(page);
   await page.route('**/api/v1/files/gif-one/content**', async (route) => route.fulfill({ contentType: 'image/gif', body: transparentGif }));
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
   const thumbnail = gifCard.locator('img').first();
   await expect(thumbnail).toHaveCSS('opacity', '1');
 
-  await gifCard.hover();
+  await hoverPastDwell(page, gifCard);
   const gif = page.getByTestId('hover-gif-preview');
-  await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
+  await expect(gif).toHaveClass(/is-ready/);
   await expect(gif).toHaveCSS('opacity', '1');
   await expect(thumbnail).toHaveClass(/preview-covered/);
   await expect(thumbnail).toHaveCSS('opacity', '0');
@@ -173,17 +181,14 @@ test('ready transparent gif replaces the thumbnail backing layer', async ({ page
 });
 
 test('gif playback leaves the normal card affordances above playback', async ({ page }) => {
-  await page.clock.install({ time: controlledClockStart });
-  await mockLibrary(page);
-  await page.clock.pauseAt(controlledClockPause);
+  await mockLibraryWithHoverClock(page);
   await page.route('**/api/v1/files/gif-one/content**', async (route) => route.fulfill({ contentType: 'image/gif', body: twoFrameGif }));
 
   const gifCard = page.getByRole('button', { name: 'Preview gif-one.gif' });
   const card = gifCard.locator('..');
-  await gifCard.hover();
-  await page.clock.fastForward(hoverDwellMs);
+  await hoverPastDwell(page, gifCard);
   const gif = page.getByTestId('hover-gif-preview');
-  await expect(gif).toHaveClass(/is-ready/, { timeout: 500 });
+  await expect(gif).toHaveClass(/is-ready/);
   await expect(gif).toHaveCSS('z-index', '1');
   await expect(gifCard.locator('.thumb-overlay')).toHaveCSS('z-index', '2');
   await expect(gifCard.locator('.thumb-meta')).toHaveCSS('z-index', '3');
@@ -194,27 +199,22 @@ test('gif playback leaves the normal card affordances above playback', async ({ 
 
 test('reduced motion and disabled media options suppress hover playback', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await mockLibrary(page, { hover_play_gifs: false });
+  await mockLibraryWithHoverClock(page, { hover_play_gifs: false });
 
-  await page.getByRole('button', { name: 'Preview video-one.mp4' }).hover();
-  await page.waitForTimeout(250);
+  await hoverPastDwell(page, page.getByRole('button', { name: 'Preview video-one.mp4' }));
   await expect(page.getByTestId('hover-video-preview')).toHaveCount(0);
 
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await page.getByRole('button', { name: 'Preview gif-one.gif' }).hover();
-  await page.waitForTimeout(250);
+  await hoverPastDwell(page, page.getByRole('button', { name: 'Preview gif-one.gif' }));
   await expect(page.getByTestId('hover-gif-preview')).toHaveCount(0);
 });
 
 test('square grid preview keeps the card box geometry stable', async ({ page }) => {
-  await page.clock.install({ time: controlledClockStart });
-  await mockLibrary(page);
-  await page.clock.pauseAt(controlledClockPause);
+  await mockLibraryWithHoverClock(page);
   const card = page.getByRole('button', { name: 'Preview video-one.mp4' });
   const before = await card.boundingBox();
-  await card.hover();
-  await page.clock.fastForward(hoverDwellMs);
-  await expect(page.getByTestId('hover-video-preview')).toHaveCount(1, { timeout: 500 });
+  await hoverPastDwell(page, card);
+  await expect(page.getByTestId('hover-video-preview')).toHaveCount(1);
   const after = await card.boundingBox();
   expect(after).toEqual(before);
 });
