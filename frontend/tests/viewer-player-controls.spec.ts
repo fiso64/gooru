@@ -115,6 +115,34 @@ test('keyboard playback shortcuts stay chrome-free and pointer proximity reveals
   await expect.poll(() => controlsOpacity(page)).toBeGreaterThan(0.9);
 });
 
+test('empty focused tag input keeps shifted arrows for video seeking and shows focus', async ({ page }) => {
+  const video = await mockApp(page);
+  const input = page.getByRole('textbox', { name: 'Tags for clip.mp4' });
+  await input.focus();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('');
+
+  const editor = page.locator('.lightbox-tag-input');
+  const [borderColor, accentColor] = await editor.evaluate((node) => {
+    const root = node.closest('.gooru-root') ?? document.documentElement;
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--accent)';
+    root.appendChild(probe);
+    const colors = [getComputedStyle(node).borderTopColor, getComputedStyle(probe).color];
+    probe.remove();
+    return colors;
+  });
+  expect(borderColor).toBe(accentColor);
+
+  await input.press('Shift+ArrowRight');
+  await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBe(35);
+  await expect(input).toBeFocused();
+
+  await input.press('Shift+ArrowLeft');
+  await expect.poll(() => video.evaluate((node) => (node as HTMLVideoElement).currentTime)).toBe(30);
+  await expect(input).toBeFocused();
+});
+
 test('seekbar drags live and clamps outside both ends', async ({ page }) => {
   const video = await mockApp(page);
   const progress = page.getByRole('button', { name: 'Seek video' });

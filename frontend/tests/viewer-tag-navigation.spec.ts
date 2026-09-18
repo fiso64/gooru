@@ -72,6 +72,10 @@ test('empty viewer tag field uses Left and Right to leave the editor and navigat
   await expect(twoTags).toBeFocused();
   await expect(twoTags).toHaveValue('');
 
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
+  await expect(twoTags).toBeFocused();
+
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('dialog', { name: 'three.jpg' })).toBeVisible();
   const threeTags = page.getByLabel('Tags for three.jpg');
