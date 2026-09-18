@@ -1,0 +1,29 @@
+name: Maintainer 817 push validated module
+
+on:
+  push:
+    branches: [maintainer-817-nixos-instances]
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Push validated module
+        shell: bash
+        run: |
+          if [[ ! -f nix/root-flake.nix || ! -f nix/module-v2.nix ]]; then exit 0; fi
+          cp nix/root-flake.nix flake.nix
+          cp nix/module-v2.nix nix/module.nix
+          sed -i 's/lib.mapAttrsToList (_: packageFor) enabledInstances/lib.mapAttrsToList (_: instance: packageFor instance) enabledInstances/' nix/module.nix
+          git diff --check
+          nix build .#checks.x86_64-linux.nixos-module --print-build-logs
+          rm nix/root-flake.nix nix/module-v2.nix
+          git config user.name gooru-maintainer
+          git config user.email 64778819+fiso64@users.noreply.github.com
+          git add flake.nix nix/module.nix nix/root-flake.nix nix/module-v2.nix
+          git commit -m 'refactor(nix): wire multi-instance module'
+          git push origin HEAD:maintainer-817-nixos-instances
