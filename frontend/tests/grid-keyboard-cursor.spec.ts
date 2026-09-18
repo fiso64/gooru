@@ -152,3 +152,37 @@ test('Escape hides the grid keyboard cursor when no higher-priority exit is acti
   await page.keyboard.press('Escape');
   await expect(first).not.toBeFocused();
 });
+
+
+test('cursor tag and removal shortcuts target the focused file while selection keeps precedence', async ({ page }) => {
+  await mockApp(page);
+  const cards = page.locator('.thumb-open');
+
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('u');
+  let dialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
+  await expect(dialog.getByRole('textbox', { name: 'Remove tags from one.jpg' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.keyboard.press('Alt+Enter');
+  dialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
+  await expect(dialog.getByRole('textbox', { name: 'Tags for one.jpg' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.keyboard.press('Delete');
+  dialog = page.getByRole('dialog', { name: 'Remove from library' });
+  await expect(dialog).toContainText('one.jpg');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.keyboard.press('Shift+Delete');
+  dialog = page.getByRole('dialog', { name: 'Delete file' });
+  await expect(dialog).toContainText('one.jpg');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+  await page.keyboard.press('Space');
+  await expect(page.getByText('1 of 3 selected')).toBeVisible();
+  await page.keyboard.press('ArrowRight');
+  await expect(cards.nth(1)).toBeFocused();
+  await page.keyboard.press('t');
+  await expect(page.getByRole('dialog', { name: 'Edit tags · one.jpg' })).toBeVisible();
+});
