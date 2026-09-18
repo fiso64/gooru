@@ -13,14 +13,22 @@ import (
 // buffer and one placeholder string across yields, so callers must consume each
 // args slice synchronously.
 func bindValueBatches[T any](values []T, valuePlaceholder string) iter.Seq2[string, []any] {
+	return bindValueBatchesReserved(values, valuePlaceholder, 0)
+}
+
+func bindValueBatchesReserved[T any](
+	values []T,
+	valuePlaceholder string,
+	reservedArgs int,
+) iter.Seq2[string, []any] {
 	return func(yield func(string, []any) bool) {
 		if len(values) == 0 {
 			return
 		}
 
-		batchSize := min(len(values), maxVars)
+		batchSize := min(len(values), maxVars-reservedArgs)
 		placeholders := strings.TrimSuffix(strings.Repeat(valuePlaceholder+",", batchSize), ",")
-		args := make([]any, batchSize)
+		args := make([]any, batchSize, batchSize+reservedArgs)
 
 		for start := 0; start < len(values); start += batchSize {
 			batch := values[start:min(start+batchSize, len(values))]
@@ -47,15 +55,24 @@ func bindPairBatches[T any](
 	rowPlaceholders string,
 	fields func(T) (any, any),
 ) iter.Seq2[string, []any] {
+	return bindPairBatchesReserved(values, rowPlaceholders, 0, fields)
+}
+
+func bindPairBatchesReserved[T any](
+	values []T,
+	rowPlaceholders string,
+	reservedArgs int,
+	fields func(T) (any, any),
+) iter.Seq2[string, []any] {
 	return func(yield func(string, []any) bool) {
 		if len(values) == 0 {
 			return
 		}
 
 		const columns = 2
-		batchSize := min(len(values), maxVars/columns)
+		batchSize := min(len(values), (maxVars-reservedArgs)/columns)
 		placeholders := strings.TrimSuffix(strings.Repeat(rowPlaceholders+",", batchSize), ",")
-		args := make([]any, batchSize*columns)
+		args := make([]any, batchSize*columns, batchSize*columns+reservedArgs)
 
 		for start := 0; start < len(values); start += batchSize {
 			batch := values[start:min(start+batchSize, len(values))]

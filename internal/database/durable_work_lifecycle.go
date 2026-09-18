@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -299,27 +298,14 @@ func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 }
 
 func abandonExpiredBackgroundTaskAttempts(q Querier, tasks []expiredBackgroundTask, finishedAt int64) error {
-	if len(tasks) == 0 {
-		return nil
-	}
-	const columns = 2 // task_id, attempt_number
-	batchSize := (maxVars - 1) / columns // reserve one bind for finished_at
-	for i := 0; i < len(tasks); i += batchSize {
-		end := i + batchSize
-		if end > len(tasks) {
-			end = len(tasks)
-		}
-		batch := tasks[i:end]
-		placeholders := make([]string, len(batch))
-		args := make([]interface{}, 0, len(batch)*columns+1)
-		for j, task := range batch {
-			placeholders[j] = "(?, ?)"
-			args = append(args, task.id, task.attemptNumber)
-		}
+	for placeholders, args := range bindPairBatchesReserved(tasks, "(?, ?)", 1, func(task expiredBackgroundTask) (any, any) {
+		return task.id, task.attemptNumber
+	}) {
+		batchSize := len(args) / 2
 		args = append(args, finishedAt)
 
 		res, err := q.Exec(`
-			WITH expired(task_id, attempt_number) AS (VALUES `+strings.Join(placeholders, ",")+`)
+			WITH expired(task_id, attempt_number) AS (VALUES `+placeholders+`)
 			UPDATE background_task_attempts
 			SET finished_at = ?, outcome = 'abandoned',
 			    error_code = 'lease_expired',
@@ -339,8 +325,8 @@ func abandonExpiredBackgroundTaskAttempts(q Querier, tasks []expiredBackgroundTa
 		if err != nil {
 			return fmt.Errorf("abandon expired background task attempts rows affected: %w", err)
 		}
-		if rows != int64(len(batch)) {
-			return fmt.Errorf("abandoned %d background task attempt rows, want %d", rows, len(batch))
+		if rows != int64(batchSize) {
+			return fmt.Errorf("abandoned %d background task attempt rows, want %d", rows, batchSize)
 		}
 	}
 	return nil
