@@ -323,6 +323,26 @@ export function createLibraryWorkflow(
     else if (selectionAnchorID === file.id) selectionAnchorID = '';
   }
 
+  function extendSelection(current: FileItem, target: FileItem, files: FileItem[]) {
+    const currentIndex = files.findIndex((candidate) => candidate.id === current.id);
+    const targetIndex = files.findIndex((candidate) => candidate.id === target.id);
+    if (currentIndex < 0 || targetIndex < 0) return;
+
+    let anchorIndex = selectionAnchorID ? files.findIndex((candidate) => candidate.id === selectionAnchorID) : -1;
+    if (anchorIndex < 0) {
+      selectionAnchorID = current.id;
+      anchorIndex = currentIndex;
+    }
+
+    const rangeIDs = (from: number, to: number) => {
+      const start = Math.min(from, to);
+      const end = Math.max(from, to);
+      return files.slice(start, end + 1).map((candidate) => candidate.id);
+    };
+    selection = setSelectionRange(selection, rangeIDs(anchorIndex, currentIndex), false);
+    selection = setSelectionRange(selection, rangeIDs(anchorIndex, targetIndex), true);
+  }
+
   function selectAll(optimisticCount: number, files: FileItem[] = []) {
     const requestID = ++selectionGeneration;
     selection = selectAllMatching(filterQuery(), optimisticCount, files.map((file) => file.id), requestID);
@@ -444,6 +464,7 @@ export function createLibraryWorkflow(
     runSavedSearch,
     applySuggestion,
     toggleSelect,
+    extendSelection,
     selectAll,
     applySnapshot,
     failSnapshot,
