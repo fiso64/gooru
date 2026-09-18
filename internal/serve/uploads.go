@@ -827,6 +827,18 @@ func removeStagedUploadPath(path, ownershipPath string) {
 }
 
 func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []types.LocationInfo, analysisPaths map[string]string) {
+	if err := ctx.Err(); err != nil || len(files) == 0 {
+		return
+	}
+	paths := make([]string, len(files))
+	for i, location := range files {
+		paths[i] = location.Path
+	}
+	filesByPath, err := l.client.GetFileInfosByPaths(paths)
+	if err != nil {
+		return
+	}
+
 	provider := l.metadata
 	if provider == nil {
 		provider = BasicMediaMetadataProvider{}
@@ -835,8 +847,8 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 		if err := ctx.Err(); err != nil {
 			return
 		}
-		file, err := l.client.GetFileInfoByPath(location.Path)
-		if err != nil {
+		file, ok := filesByPath[location.Path]
+		if !ok {
 			continue
 		}
 		mediaType := mediaTypeForPath(file.Path)
