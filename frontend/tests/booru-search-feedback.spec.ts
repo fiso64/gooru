@@ -139,3 +139,16 @@ test('text-mode suggestion insertion leaves a separator and empty Enter restores
   await expect(page.getByAltText('sample.png')).toBeVisible();
   await expect(page.getByAltText('other.png')).toBeVisible();
 });
+
+test('empty library does not advertise the unavailable import command', async ({ page }) => {
+  await mockDarkBooru(page);
+  await page.route('**/api/v1/files?**', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } })
+  }));
+  await page.reload();
+
+  const emptyState = page.locator('.empty-state');
+  await expect(emptyState).toContainText('Your library is empty. Drag files in.');
+  await expect(emptyState).not.toContainText('gooru import');
+});
