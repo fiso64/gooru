@@ -220,7 +220,7 @@
   {#if !sessionActive}<div class="empty-state"><p>Sign in to browse this library.</p></div>
   {:else if isLoading}<div class="grid skeleton-grid">{#each Array(18) as _}<div class="thumb skeleton"></div>{/each}</div>
   {:else if isError}<div class="empty-state error-state"><p>{errorMessage(error)}</p></div>
-  {:else if !files.length}<div class="empty-state"><div class="empty-state-inner"><div class="empty-icon"><Icon name="search" size={24} /></div><h2>No results</h2><p>{#if searchActive}Nothing matches your filters. Try removing a pill, or check the tag spelling.{:else}Your library is empty. Drag files in, or run <code>gooru import</code> from a terminal.{/if}</p></div></div>
+  {:else if !files.length}<div class="empty-state"><div class="empty-state-inner"><div class="empty-icon"><Icon name="search" size={24} /></div><h2>No results</h2><p>{#if searchActive}Nothing matches your filters. Try removing a pill, or check the tag spelling.{:else}Your library is empty. Drag files in.{/if}</p></div></div>
   {:else if !tileMode}
     <div bind:this={gridHost} class="virtual-grid" class:paged-virtual-grid={pagedMode} style={`height: ${squareVirtual.totalHeight}px;`}>
       <div class={`grid${fitMode ? ' fit-media-grid' : ''}`} role="group" aria-label="Media grid" data-testid="virtual-media-grid" data-grid-type={$runtimeConfig.gridType} style={`transform: translateY(${squareVirtual.offsetTop}px);`}>
