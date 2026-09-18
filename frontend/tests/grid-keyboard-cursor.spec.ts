@@ -122,6 +122,31 @@ test('ArrowDown enters the media grid with a high-contrast cursor and cursor act
   await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
 });
 
+test('modified arrows start, extend, and shrink the cursor selection range', async ({ page }) => {
+  await mockApp(page);
+  const cards = page.locator('.thumb-open');
+
+  await page.keyboard.press('ArrowDown');
+  await expect(cards.nth(0)).toBeFocused();
+
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect(cards.nth(1)).toBeFocused();
+  await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect(cards.nth(2)).toBeFocused();
+  await expect(page.getByText('3 selected', { exact: true })).toBeVisible();
+
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect(cards.nth(1)).toBeFocused();
+  await expect(page.getByText('2 selected', { exact: true })).toBeVisible();
+
+  await page.keyboard.press('Shift+ArrowLeft');
+  await expect(cards.nth(0)).toBeFocused();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
+});
+
+
 test('ArrowDown enters the tags grid without stealing arrows from the filter', async ({ page }) => {
   await mockApp(page);
 
