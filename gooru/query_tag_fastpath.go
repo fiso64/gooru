@@ -23,6 +23,18 @@ func parseSimpleUserTagFacetTerm(termTag string) (simpleUserTagFacetFilter, bool
 	return simpleUserTagFacetFilter{Tag: parsed, KeyOnly: !strings.Contains(termTag, ":")}, true
 }
 
+func simpleExactUserTag(ast *query.Expression) (types.ParsedTag, bool) {
+	if ast == nil || len(ast.Or) != 1 || len(ast.Or[0].And) != 1 {
+		return types.ParsedTag{}, false
+	}
+	term := ast.Or[0].And[0]
+	if term == nil || term.Not || term.Factor == nil || term.Factor.SubExpr != nil || term.Factor.Tag == nil {
+		return types.ParsedTag{}, false
+	}
+	filter, ok := parseSimpleUserTagFacetTerm(*term.Factor.Tag)
+	return filter.Tag, ok && !filter.KeyOnly
+}
+
 // parseSimpleUserTagFacetFilter recognizes one positive, non-virtual user tag.
 // Bare tags such as `hidden` are key-wide queries; explicit `key:value` terms
 // are exact tag queries. Compound, negative, meta, ext:, type:, and wildcard
