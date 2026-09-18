@@ -965,6 +965,7 @@
         bind:loadMoreSentinel
         onOpen={library.openPreview}
         onToggleSelect={library.toggleSelect}
+        onExtendSelection={library.extendSelection}
         onSelectAll={selectAllFiles}
         onClearSelection={library.clearSelection}
         onBulkDownload={bulkDownloadSelected}
