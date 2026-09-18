@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"gooru.local/internal/query"
 	"gooru.local/types"
 )
 
@@ -19,9 +18,10 @@ var (
 )
 
 func NormalizeSavedSearchSort(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
 	case "modified", "name", "size", "kind":
-		return strings.ToLower(strings.TrimSpace(value))
+		return normalized
 	default:
 		return "name"
 	}
@@ -39,14 +39,8 @@ func ValidateSavedSearchQuery(expression string) error {
 	if expression == "" {
 		return nil
 	}
-	ast, err := query.Parse(expression)
-	if err != nil {
-		return fmt.Errorf("%w: could not parse query: %v", ErrInvalidQuery, err)
-	}
-	if err := query.ValidateAST(ast); err != nil {
-		return fmt.Errorf("%w: invalid tag in query: %v", ErrInvalidQuery, err)
-	}
-	return nil
+	_, err := parseAndValidateQuery(expression)
+	return err
 }
 
 func (c *Client) SavedSearchUserID(username string) (string, error) {
