@@ -164,81 +164,68 @@ When packaging outside the source tree, ship the built frontend directory too an
 
 ## NixOS
 
-The repository flake exports `gooru.nixosModules.default`. The module maps `services.gooru.settings` directly to the normal YAML configuration, so [CONFIG.md](CONFIG.md) remains the server-setting reference. Its default `services.gooru.package` is the flake package, which is built with libvips image thumbnail support enabled.
+The flake exports `gooru.nixosModules.default`. Keep a shared default package at `services.gooru.package` and define deployments under `services.gooru.instances.<name>`. Each enabled instance must set `settings.server.listen` explicitly.
 
-### Flake setup
-
-A minimal automatic deployment can initialize the database and declaratively manage an administrator without putting the password in the Nix store:
+### Two-instance example
 
 ```nix
-{
-  inputs.gooru.url = "github:fiso64/gooru";
-
-  outputs = { nixpkgs, gooru, ... }: {
-    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        gooru.nixosModules.default
-        {
-          services.gooru = {
-            enable = true;
-            initialDatabase.hashingStrategy = "partial"; # or "full"
-            admins.primary = {
-              username = "admin";
-              passwordFile = "/run/agenix/gooru-admin";
-            };
-          };
-        }
-      ];
+services.gooru.instances = {
+  main = {
+    enable = true;
+    settings = {
+      server.listen = "127.0.0.1:5678";
+      uploads = {
+        enabled = true;
+        targets = [{
+          id = "default";
+          name = "Default";
+          path = "/srv/gooru/incoming";
+        }];
+      };
+    };
+    admins.primary = {
+      username = "admin";
+      passwordFile = "/run/gooru-main-admin";
     };
   };
-}
-```
 
-Server settings stay under the same module:
-
-```nix
-services.gooru.settings = {
-  server.listen = "127.0.0.1:5678";
-  uploads = {
-    enabled = true;
-    targets = [{
-      id = "default";
-      name = "Default";
-      path = "/srv/gooru/incoming";
-    }];
+  test = {
+    enable = true;
+    settings = {
+      server.listen = "127.0.0.1:5679";
+      encryption = {
+        enabled = true;
+        key_file = "/run/gooru-test-key";
+      };
+      ui.accent_color = "#2f80ed";
+    };
+    initialDatabase.hashingStrategy = "full";
   };
 };
 ```
 
-### First-boot database initialization
+Set `services.gooru.package` to change the shared default package. Set `services.gooru.instances.<name>.package` for an instance-specific override; its generated `server.frontend_dir` follows the effective package.
 
-`services.gooru.initialDatabase.hashingStrategy` accepts `"partial"` or `"full"` and is used only when the service creates a missing database. Once the database file exists, its stored hashing strategy is authoritative; changing the Nix option does not rewrite or reconcile an existing database.
+### First boot and administrators
 
-This is intentionally a first-boot setting rather than a general mirror of `gooru init` arguments.
+`services.gooru.instances.<name>.initialDatabase.hashingStrategy` accepts `"partial"` or `"full"` and applies only when that instance creates a missing database. Existing database state remains authoritative.
 
-### Declarative administrators
+`services.gooru.instances.<name>.admins` is ongoing declarative state. The attribute name is a stable declaration identity; `username` is mutable desired state. Password files are runtime paths loaded through namespaced systemd credentials and should not contain plaintext via Nix-store paths. Removing an admin declaration does not delete the Gooru user.
 
-`services.gooru.admins` is ongoing declarative state. The attribute name is a stable declaration identity, while `username` is mutable desired state:
+### Per-instance resources
 
-```nix
-services.gooru.admins.primary = {
-  username = "alice";
-  passwordFile = "/run/secrets/gooru-admin-alice";
-};
-```
+For an instance named `main`, the defaults are:
 
-If `username` changes, Gooru renames the same user while preserving its stable `usr_…` ID and associated per-user data. Changing the contents of `passwordFile` updates the actual password. An unchanged password performs one normal password verification during service startup and is not re-hashed.
+- unit, user, and group: `gooru-main`;
+- config: `/etc/gooru/main/serve.yaml`;
+- state/database: `/var/lib/gooru-main`;
+- media cache: `/var/cache/gooru-main`;
+- declarative-admin state below `/var/lib/gooru-main/declarative-admins`.
 
-Removing an `admins` entry does **not** delete the corresponding Gooru user. Do not reuse a declaration identity for a different account.
+Other names receive the same collision-free namespacing. If you override an instance's `user` or `group`, create it separately; the module automatically creates only the default `gooru-<name>` identity.
 
-`passwordFile` is a runtime path string loaded through a systemd credential. It is designed to compose with secret managers such as agenix or sops-nix: pass the runtime path they materialize. Do not use a Nix-store path containing plaintext credentials.
+Create upload directories with permissions appropriate for each instance. Set `services.gooru.instances.<name>.openFirewall = true` only when that instance's literal `HOST:PORT` listen address should be opened in the host firewall.
 
-### Service paths and network access
-
-The module defaults to a `gooru` system user, application state under `/var/lib/gooru`, media cache under `/var/cache/gooru`, and generated config at `/etc/gooru/serve.yaml`.
-
-Create configured upload directories with permissions appropriate for the service user. Open the firewall only when the configured listen address is intentionally reachable from the network.
 
 ## Troubleshooting
 
