@@ -3,19 +3,9 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"gooru.local/types"
 )
-
-func stringBatchArgs(values []string) (string, []interface{}) {
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
-	args := make([]interface{}, len(values))
-	for i, value := range values {
-		args[i] = value
-	}
-	return placeholders, args
-}
 
 // getFileInfosByColumn resolves tracked locations for a bounded set of values.
 // Column names are intentionally restricted here because the column itself is
@@ -35,12 +25,7 @@ func (s *Store) getFileInfosByColumn(values []string, column string) ([]types.Fi
 	}
 
 	files := make([]types.FileInfo, 0, len(values))
-	for start := 0; start < len(values); start += maxVars {
-		end := start + maxVars
-		if end > len(values) {
-			end = len(values)
-		}
-		placeholders, args := stringBatchArgs(values[start:end])
+	for placeholders, args := range stringBindBatches(values) {
 		query := `SELECT ` + fileInfoColumns() + `, msl.physical_path
 			FROM locations l
 			LEFT JOIN media_metadata mm ON mm.content_hash = l.content_hash
