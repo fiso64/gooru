@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"gooru.local/types"
 )
@@ -42,25 +41,13 @@ func (s *Store) BatchGetLocationSourcesByPaths(paths []string) (map[string]types
 		return locations, nil
 	}
 
-	const columns = 1
-	batchSize := maxVars / columns
-	for i := 0; i < len(paths); i += batchSize {
-		end := i + batchSize
-		if end > len(paths) {
-			end = len(paths)
-		}
-		batch := paths[i:end]
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
-		query := fmt.Sprintf(`
+	for placeholders, args := range stringBindBatches(paths) {
+		query := `
 			SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.extension, l.tags_cache,
 			       msl.physical_path
 			FROM locations l
 			LEFT JOIN managed_storage_locations msl ON msl.location_id = l.id
-			WHERE l.path IN (%s)`, placeholders)
-		args := make([]interface{}, len(batch))
-		for j, path := range batch {
-			args[j] = path
-		}
+			WHERE l.path IN (` + placeholders + `)`
 
 		rows, err := s.Query(query, args...)
 		if err != nil {
@@ -100,25 +87,13 @@ func (s *Store) BatchGetManagedLocationSourcesByPhysicalPaths(paths []string) (m
 		return locations, nil
 	}
 
-	const columns = 1
-	batchSize := maxVars / columns
-	for i := 0; i < len(paths); i += batchSize {
-		end := i + batchSize
-		if end > len(paths) {
-			end = len(paths)
-		}
-		batch := paths[i:end]
-		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(batch)), ",")
-		query := fmt.Sprintf(`
+	for placeholders, args := range stringBindBatches(paths) {
+		query := `
 			SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.extension, l.tags_cache,
 			       msl.physical_path
 			FROM managed_storage_locations msl
 			JOIN locations l ON l.id = msl.location_id
-			WHERE msl.physical_path IN (%s)`, placeholders)
-		args := make([]interface{}, len(batch))
-		for j, path := range batch {
-			args[j] = path
-		}
+			WHERE msl.physical_path IN (` + placeholders + `)`
 
 		rows, err := s.Query(query, args...)
 		if err != nil {
