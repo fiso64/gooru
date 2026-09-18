@@ -165,6 +165,13 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal_error", "failed to resolve selected files", nil)
 		return
 	}
+	if len(target.FileIDs) == 1 {
+		// A one-file selection must have exactly the same download semantics as the
+		// viewer's explicit download action: no ZIP wrapper, and all original-media
+		// MIME/range/cache/protected-mode handling stays at the existing owner.
+		s.handleOriginalMedia(w, r, target.FileIDs[0], "download")
+		return
+	}
 
 	started, err := s.streamFileDownloadArchive(w, r.Context(), target.FileIDs)
 	if err == nil {
