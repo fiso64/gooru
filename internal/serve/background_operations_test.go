@@ -35,6 +35,11 @@ func (f *fakeBackgroundOperationReader) GetBackgroundOperation(id string) (core.
 	return operation, ok, nil
 }
 
+func (f *fakeBackgroundOperationReader) GetBackgroundOperations(ids []string) (map[string]core.BackgroundOperationState, error) {
+	f.batchIDs = append([]string(nil), ids...)
+	return f.byID, nil
+}
+
 func (f *fakeBackgroundOperationReader) ListBackgroundOperations(options core.BackgroundOperationListOptions) ([]core.BackgroundOperationState, error) {
 	f.listOptions = options
 	if f.listErr != nil {
