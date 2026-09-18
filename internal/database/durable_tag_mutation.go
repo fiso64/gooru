@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 const (
@@ -95,38 +94,30 @@ func (s *Store) CreateBackgroundTagMutationSnapshot(
 	matched := 0
 	switch targetKind {
 	case BackgroundTagTargetFileID:
+		for index, targetID := range targetIDs {
+			if targetID == "" {
+				return 0, fmt.Errorf("background tag mutation target %d is blank", index)
+			}
+		}
+
 		const columns = 3 // operation_id, target_id, target_order
-		batchSize := maxVars / columns
-		for start := 0; start < len(targetIDs); start += batchSize {
-			end := start + batchSize
-			if end > len(targetIDs) {
-				end = len(targetIDs)
-			}
-			var query strings.Builder
-			query.WriteString(`INSERT OR IGNORE INTO background_tag_mutation_targets
+		batchStart := 0
+		for placeholders, args := range bindRowBatches(targetIDs, "(?, ?, ?)", columns, func(args []any, targetID string, index int) {
+			args[0], args[1], args[2] = operationID, targetID, index
+		}) {
+			batchEnd := batchStart + len(args)/columns
+			result, err := tx.Exec(`INSERT OR IGNORE INTO background_tag_mutation_targets
 				(operation_id, target_id, target_order)
-			VALUES `)
-			args := make([]interface{}, 0, (end-start)*columns)
-			for index := start; index < end; index++ {
-				targetID := targetIDs[index]
-				if targetID == "" {
-					return 0, fmt.Errorf("background tag mutation target %d is blank", index)
-				}
-				if index > start {
-					query.WriteString(", ")
-				}
-				query.WriteString("(?, ?, ?)")
-				args = append(args, operationID, targetID, index)
-			}
-			result, err := tx.Exec(query.String(), args...)
+			VALUES `+placeholders, args...)
 			if err != nil {
-				return 0, fmt.Errorf("insert background tag mutation targets %d-%d: %w", start, end-1, err)
+				return 0, fmt.Errorf("insert background tag mutation targets %d-%d: %w", batchStart, batchEnd-1, err)
 			}
 			inserted, err := result.RowsAffected()
 			if err != nil {
-				return 0, fmt.Errorf("count inserted background tag mutation targets %d-%d: %w", start, end-1, err)
+				return 0, fmt.Errorf("count inserted background tag mutation targets %d-%d: %w", batchStart, batchEnd-1, err)
 			}
 			matched += int(inserted)
+			batchStart = batchEnd
 		}
 	case BackgroundTagTargetContentHash:
 		if targetQuery != "" {
