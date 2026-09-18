@@ -798,7 +798,7 @@ func newAuthenticatedBrowseServer(t *testing.T) (*Server, AuthSession, func()) {
 	}
 }
 
-func newTestBrowseServerAt(t testing.TB, dir string, dbPath string) (*Server, *core.Client) {
+func newTestBrowseServerAt(t *testing.T, dir string, dbPath string) (*Server, *core.Client) {
 	t.Helper()
 	if err := core.Init(dbPath, types.StrategyFull, false); err != nil {
 		t.Fatalf("init db: %v", err)
@@ -822,7 +822,7 @@ func newTestBrowseServerAt(t testing.TB, dir string, dbPath string) (*Server, *c
 	return NewServerWithLibrary(cfg, NewGooruLibrary(client, false)), client
 }
 
-func listTestFiles(t testing.TB, server *Server, query string, limit int) FileListResponse {
+func listTestFiles(t *testing.T, server *Server, query string, limit int) FileListResponse {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	target := fmt.Sprintf("/api/v1/files?query=%s&limit=%d", url.QueryEscape(query), limit)
@@ -856,7 +856,7 @@ func facetCounts(facets []FacetValueDTO) map[string]int {
 	return out
 }
 
-func writeTestFile(t testing.TB, dir string, name string, body string) string {
+func writeTestFile(t *testing.T, dir string, name string, body string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
