@@ -370,17 +370,17 @@ func (s *Store) GetTagsForContent(hash string) ([]string, error) {
 	}
 	defer rows.Close()
 
+	return scanTagStrings(rows)
+}
+
+func scanTagStrings(rows *sql.Rows) ([]string, error) {
 	var tags []string
 	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
+		var tag types.ParsedTag
+		if err := rows.Scan(&tag.Key, &tag.Value); err != nil {
 			return nil, err
 		}
-		if value == "" {
-			tags = append(tags, key)
-		} else {
-			tags = append(tags, key+":"+value)
-		}
+		tags = append(tags, parsedTagString(tag))
 	}
 	return tags, rows.Err()
 }
@@ -979,19 +979,7 @@ func (s *Store) GetTags(limit int) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var tags []string
-	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
-			return nil, err
-		}
-		if value == "" {
-			tags = append(tags, key)
-		} else {
-			tags = append(tags, key+":"+value)
-		}
-	}
-	return tags, rows.Err()
+	return scanTagStrings(rows)
 }
 
 // GetAllTagsWithCounts retrieves all tags and their usage counts, sorted by count descending.
