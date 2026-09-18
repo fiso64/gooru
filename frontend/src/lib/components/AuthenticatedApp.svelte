@@ -370,7 +370,6 @@
     if (event.defaultPrevented) return;
     const editable = isEditableShortcutTarget(event.target);
     const modified = hasCommandModifier(event);
-    const altTagShortcut = event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'Enter';
     const cursorFile = selectedCount === 0 ? libraryCursorFile(event.target) : null;
     const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
     if (shortcutsKey && !modified && !editable) {
@@ -379,12 +378,14 @@
       return;
     }
 
-    if ((!modified || altTagShortcut) && !editable && library.route === 'library' && !library.activeFile && actionDialog.kind === 'none' && !fileTagDialog.file) {
+    if (!editable && library.route === 'library' && !library.activeFile && actionDialog.kind === 'none' && !fileTagDialog.file) {
       const action = libraryShortcutAction(event.key, {
         selectedCount,
         cursorAvailable: Boolean(cursorFile),
         shiftKey: event.shiftKey,
-        altKey: event.altKey
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey
       });
       if (action) {
         event.preventDefault();
