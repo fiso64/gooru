@@ -12,6 +12,7 @@
   import { formatBytes, parseTags } from '$lib/utils/format';
   import { uploadShortcutAction } from '$lib/utils/keyboard';
   import { effectiveUploadTargetID, type UploadItem, type UploadTargetOption } from '$lib/state/uploadItems';
+  import { editUploadTags, type UploadBulkTagOperation } from '$lib/state/uploadBulkTags';
   import { filterUploadRows, groupUploadQueueRows, paginateUploadRows, partitionUploadRows, summarizeUploadQueueBatch, type IndexedUploadRow, type UploadQueueBatch } from '$lib/state/uploadPanelRows';
   import { uploadItemCanOpenViewer, uploadViewerScope, type UploadViewerScope } from '$lib/state/uploadViewer';
 
@@ -199,16 +200,11 @@
     stagedTagDialogValue = '';
   }
 
-  function bulkEditStagedTags(operation: 'add' | 'remove' | 'set', operand: string[]) {
+  function bulkEditStagedTags(operation: UploadBulkTagOperation, operand: string[]) {
     if (operation !== 'set' && operand.length === 0) return;
-    const removed = new Set(operand);
     for (const row of stagedRows) {
       const previous = row.item.tags ?? [];
-      const next = operation === 'set'
-        ? [...operand]
-        : operation === 'add'
-          ? Array.from(new Set([...previous, ...operand]))
-          : previous.filter((tag) => !removed.has(tag));
+      const next = editUploadTags(previous, operation, operand);
       if (previous.length === next.length && previous.every((tag, index) => tag === next[index])) continue;
       onItemTagsInput(row.index, next);
     }
