@@ -210,6 +210,18 @@ test('single-file tag editor stages changes until Apply', async ({ page }) => {
   await expect.poll(() => tagRequests.length).toBe(1);
   expect(tagRequests[0].method).toBe('POST');
   expect(tagRequests[0].body).toMatchObject({ file_ids: ['one'], tags: ['beta'] });
+
+  await page.keyboard.press('u');
+  const removeDialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
+  const removeInput = removeDialog.getByRole('textbox', { name: 'Remove tags from one.jpg' });
+  await removeInput.fill('alpha');
+  await removeInput.press('Enter');
+  expect(tagRequests).toHaveLength(1);
+
+  await removeDialog.getByRole('button', { name: 'Apply' }).click();
+  await expect.poll(() => tagRequests.length).toBe(2);
+  expect(tagRequests[1].method).toBe('DELETE');
+  expect(tagRequests[1].body).toMatchObject({ file_ids: ['one'], tags: ['alpha'] });
 });
 
 
