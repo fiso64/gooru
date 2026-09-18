@@ -32,6 +32,46 @@ func createDatabaseBackgroundOperation(client *Client, q databaseQuerier, id str
 	return backgroundOperationFromDatabase(operation), nil
 }
 
+func createDatabaseBackgroundTagMutationWithTask(
+	client *Client,
+	operationID string,
+	taskID string,
+	operationRequest BackgroundOperationRequest,
+	maxPending int,
+	mutation string,
+	selectorJSON []byte,
+	tagsJSON []byte,
+	targetKind string,
+	targetIDs []string,
+	targetQuery string,
+	targetArgs []interface{},
+	checkpointJSON []byte,
+	taskRequest BackgroundTaskRequest,
+) (BackgroundOperation, bool, error) {
+	operation, created, err := client.store.CreateBackgroundTagMutationWithTask(
+		database.NewBackgroundOperation{
+			ID:            operationID,
+			Kind:          operationRequest.Kind,
+			Visible:       operationRequest.Visible,
+			ProgressTotal: operationRequest.ProgressTotal,
+		},
+		maxPending,
+		mutation,
+		selectorJSON,
+		tagsJSON,
+		targetKind,
+		targetIDs,
+		targetQuery,
+		targetArgs,
+		checkpointJSON,
+		databaseBackgroundTask(taskID, taskRequest),
+	)
+	if err != nil || !created {
+		return BackgroundOperation{}, created, err
+	}
+	return backgroundOperationFromDatabase(operation), true, nil
+}
+
 func getDatabaseBackgroundOperation(client *Client, operationID string) (BackgroundOperationState, bool, error) {
 	operation, found, err := client.store.GetBackgroundOperation(operationID)
 	if err != nil || !found {
