@@ -47,9 +47,7 @@ func (s *Store) GetBackgroundOperations(ids []string) (map[string]BackgroundOper
 		}
 	}
 
-	for start := 0; start < len(ids); start += maxVars {
-		end := min(start+maxVars, len(ids))
-		placeholders, args := stringBatchArgs(ids[start:end])
+	for placeholders, args := range stringBindBatches(ids) {
 		rows, err := s.Query(`
 			SELECT id, kind, visible, status, progress_total, progress_completed, progress_failed,
 			       created_at, started_at, finished_at, error_code, error_message
