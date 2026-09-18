@@ -195,13 +195,14 @@ func (s *Server) handleOperations(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		operationsByID, err := s.backgroundOperationsByID(ids)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operations", nil)
+			return
+		}
 		items := make([]BackgroundOperationDTO, 0, len(ids))
 		for _, id := range ids {
-			operation, found, err := s.backgroundOperations.GetBackgroundOperation(id)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal_error", "failed to load background operation", nil)
-				return
-			}
+			operation, found := operationsByID[id]
 			if !found || !operation.Visible {
 				continue
 			}
@@ -344,6 +345,23 @@ func (s *Server) handleOperation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, dto)
+}
+
+func (s *Server) backgroundOperationsByID(ids []string) (map[string]core.BackgroundOperationState, error) {
+	if reader, ok := s.backgroundOperations.(backgroundOperationBatchReader); ok {
+		return reader.GetBackgroundOperations(ids)
+	}
+	operations := make(map[string]core.BackgroundOperationState, len(ids))
+	for _, id := range ids {
+		operation, found, err := s.backgroundOperations.GetBackgroundOperation(id)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			operations[id] = operation
+		}
+	}
+	return operations, nil
 }
 
 func backgroundOperationDTO(operation core.BackgroundOperationState) BackgroundOperationDTO {
