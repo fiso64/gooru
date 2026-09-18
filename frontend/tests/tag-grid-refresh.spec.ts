@@ -59,7 +59,12 @@ test('tagging after deep infinite scroll does not refetch retained file pages', 
   }));
   await page.route('**/api/v1/files?**', async (route) => {
     const url = new URL(route.request().url());
-    const offset = Number(url.searchParams.get('page_token') ?? '0');
+    const token = url.searchParams.get('page_token') ?? '';
+    let offset = /^\d+$/.test(token) ? Number(token) : 0;
+    if (token && !/^\d+$/.test(token)) {
+      const decoded = atob(token.replace(/-/g, '+').replace(/_/g, '/'));
+      offset = Number(decoded.match(/^offset:(\d+)$/)?.[1] ?? '0');
+    }
     requestedOffsets.push(offset);
     const pageFiles = files.slice(offset, offset + 60);
     await route.fulfill({
@@ -68,7 +73,7 @@ test('tagging after deep infinite scroll does not refetch retained file pages', 
         files: pageFiles,
         total_count: files.length,
         library_count: files.length,
-        facets: offset === 0 ? { kind: [{ value: 'photo', count: files.length }] } : undefined,
+        facets: { kind: [{ value: 'photo', count: files.length }] },
         next_page_token: offset + 60 < files.length ? String(offset + 60) : undefined,
         previous_page_token: offset > 0 ? String(Math.max(0, offset - 60)) : undefined
       })
@@ -206,19 +211,16 @@ test('restored deep viewer does not page the background infinite grid forward', 
   await page.getByRole('button', { name: 'Preview perf-330.jpg' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect.poll(() => new URL(page.url()).searchParams.get('file')).toBe('file-330');
+  await expect.poll(() => new URL(page.url()).searchParams.get('page')).toBe('6');
 
   requestedOffsets.splice(0);
   await page.reload();
   await expect(page.getByRole('dialog')).toBeVisible();
-  await expect.poll(() => requestedOffsets.includes(0)).toBe(true);
-  await main.evaluate((node) => {
-    node.scrollTop = node.scrollHeight;
-    node.dispatchEvent(new Event('scroll'));
-  });
+  await expect.poll(() => requestedOffsets[0]).toBe(300);
   await page.waitForTimeout(300);
-  expect([...new Set(requestedOffsets)]).toEqual([0]);
+  expect([...new Set(requestedOffsets)]).toEqual([300]);
 
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect.poll(() => requestedOffsets.some((offset) => offset > 0)).toBe(true);
+  await expect.poll(() => new URL(page.url()).searchParams.get('page')).toBeNull();
 });
