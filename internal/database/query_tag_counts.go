@@ -57,17 +57,7 @@ func (s *Store) BatchGetQueryTagCounts(tagStrings []string) (map[string]int, err
 		return counts, nil
 	}
 
-	for start := 0; start < len(keys); start += maxVars {
-		end := start + maxVars
-		if end > len(keys) {
-			end = len(keys)
-		}
-		batch := keys[start:end]
-		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
-		args := make([]interface{}, len(batch))
-		for i, key := range batch {
-			args[i] = key
-		}
+	for placeholders, args := range stringBindBatches(keys) {
 		rows, err := s.Query("SELECT key, files_count FROM tag_key_counts WHERE key IN ("+placeholders+")", args...)
 		if err != nil {
 			return nil, err
