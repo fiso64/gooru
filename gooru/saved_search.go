@@ -143,14 +143,7 @@ func (c *Client) SearchSavedSearchForUsername(username, reference string, verbos
 	if err != nil {
 		return nil, err
 	}
-	count, err := c.CountFileLocationsByQuery(item.Query, verbose)
-	if err != nil {
-		return nil, err
-	}
-	if count == 0 {
-		return []types.FileInfo{}, nil
-	}
-	return c.GetFilesInfoByQueryPageSortedOffset(item.Query, count, 0, NormalizeSavedSearchSort(item.Sort), NormalizeSavedSearchOrder(item.Order), verbose)
+	return c.GetFilesInfoByQuerySorted(item.Query, NormalizeSavedSearchSort(item.Sort), NormalizeSavedSearchOrder(item.Order), verbose)
 }
 
 func newSavedSearchID() string {
