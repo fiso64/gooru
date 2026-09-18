@@ -85,4 +85,5 @@ func TestIssue841ScaledTagLatency(t *testing.T) {
 		}
 		t.Logf("issue841 scaled run %d: library=%d operations=%d avg=%s min=%s max=%s", run+1, librarySize, operationsPerRun, total/operationsPerRun, minDuration, maxDuration)
 	}
+	t.Fatalf("issue 841 diagnostic complete; scaled timings are logged above")
 }
