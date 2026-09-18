@@ -2,7 +2,6 @@ package database
 
 import (
 	"fmt"
-	"strings"
 
 	"gooru.local/types"
 )
@@ -27,16 +26,8 @@ func (s *Store) BatchGetTagsForContents(hashes []string) (map[string][]string, e
 	}
 
 	for start := 0; start < len(uniqueHashes); start += maxVars {
-		end := start + maxVars
-		if end > len(uniqueHashes) {
-			end = len(uniqueHashes)
-		}
-		batch := uniqueHashes[start:end]
-		placeholders := strings.Repeat("?,", len(batch)-1) + "?"
-		args := make([]interface{}, len(batch))
-		for i, hash := range batch {
-			args[i] = hash
-		}
+		end := min(start+maxVars, len(uniqueHashes))
+		placeholders, args := stringBatchArgs(uniqueHashes[start:end])
 
 		rows, err := s.Query(`
 			SELECT ct.content_hash, t.key, t.value
