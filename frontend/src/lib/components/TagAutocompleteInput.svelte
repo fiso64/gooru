@@ -15,7 +15,8 @@
     ariaLabel = 'Tag',
     onInput,
     onCommit,
-    onRemoveLast
+    onRemoveLast,
+    onKeydown
   } = $props<{
     id?: string;
     value: string;
@@ -29,6 +30,7 @@
     onInput: (value: string) => void;
     onCommit: (value: string) => void;
     onRemoveLast?: (tag: string) => void;
+    onKeydown?: (event: KeyboardEvent) => void;
   }>();
 
   let open = $state(false);
@@ -89,7 +91,8 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (readOnly || event.isComposing) return;
+    onKeydown?.(event);
+    if (event.defaultPrevented || readOnly || event.isComposing) return;
     if (event.key === 'ArrowDown' && suggestions.length) {
       event.preventDefault();
       open = true;
