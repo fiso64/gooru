@@ -16,6 +16,7 @@ import (
 
 
 
+// Temporary diagnostic: compare durable-result response latency with task lifecycle cost.
 func TestIssue841DirectHandlerLatency(t *testing.T) {
 	const operations = 20
 
