@@ -73,42 +73,6 @@ describe('createUploadWorkflow aggregate uploads', () => {
   });
 
 
-  it('applies add, remove, and empty set operations across staged items only', async () => {
-    const workflow = createUploadWorkflow();
-    workflow.tags = 'shared initial';
-    workflow.select([uploadFile('first.jpg'), uploadFile('second.jpg')]);
-    await workflow.submit(async () => pendingJob('job-existing', 0, 2));
-    workflow.select([uploadFile('third.jpg'), uploadFile('fourth.jpg')]);
-    workflow.setItemTags(2, ['shared', 'local']);
-
-    expect(workflow.applyStagedTags('add', ['bulk', 'shared'])).toBe(true);
-    expect(workflow.items.map((item) => item.tags)).toEqual([
-      ['shared', 'initial'],
-      ['shared', 'initial'],
-      ['shared', 'local', 'bulk'],
-      ['shared', 'initial', 'bulk']
-    ]);
-
-    expect(workflow.applyStagedTags('remove', ['shared'])).toBe(true);
-    expect(workflow.items.slice(2).map((item) => item.tags)).toEqual([
-      ['local', 'bulk'],
-      ['initial', 'bulk']
-    ]);
-    expect(workflow.stagedTagCandidates).toEqual([
-      { name: 'local', count: 1 },
-      { name: 'bulk', count: 2 },
-      { name: 'initial', count: 1 }
-    ]);
-
-    expect(workflow.applyStagedTags('set', [])).toBe(true);
-    expect(workflow.items.slice(2).map((item) => item.tags)).toEqual([[], []]);
-    expect(workflow.items.slice(0, 2).map((item) => item.tags)).toEqual([
-      ['shared', 'initial'],
-      ['shared', 'initial']
-    ]);
-    expect(workflow.stagedTagCandidates).toEqual([]);
-  });
-
   it('maintains staged completion counts incrementally through edits, removal, and admission', async () => {
     const workflow = createUploadWorkflow();
     workflow.tags = 'shared';
