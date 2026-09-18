@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import AppShell from '$lib/components/AppShell.svelte';
   import ActionDialog from '$lib/components/ActionDialog.svelte';
   import FileTagDialog from '$lib/components/FileTagDialog.svelte';
@@ -299,7 +299,14 @@
   }
 
   function closeFileTagDialog() {
+    const fileID = fileTagDialog.file?.id;
     fileTagDialog = { file: null, mode: 'add', fromSelection: false, busy: false, error: '' };
+    if (!fileID) return;
+    void tick().then(() => {
+      const target = Array.from(document.querySelectorAll<HTMLElement>('.thumb-open[data-file-id]'))
+        .find((element) => element.dataset.fileId === fileID);
+      target?.focus();
+    });
   }
 
   async function openTagShortcut(mode: 'add' | 'remove', cursorFile: FileItem | null) {
