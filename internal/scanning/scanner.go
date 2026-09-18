@@ -27,7 +27,7 @@ type result struct {
 // logical plaintext size matches a known file. Physical encrypted-container
 // size is never used for identity filtering.
 func DirsConcurrently(dirs []string, knownSizes map[int64]struct{}, hasher *hashing.Hasher) (map[string]types.LocationInfo, int, error) {
-	dirs = pruneRedundantDirs(dirs)
+	dirs = PruneRedundantDirs(dirs)
 	jobs := make(chan job)
 	results := make(chan result)
 	walkErrs := make(chan error, len(dirs))
@@ -96,7 +96,8 @@ func DirsConcurrently(dirs []string, knownSizes map[int64]struct{}, hasher *hash
 	return foundFiles, filesScanned, nil
 }
 
-func pruneRedundantDirs(dirs []string) []string {
+// PruneRedundantDirs removes exact duplicate and nested scan roots while preserving surviving caller order.
+func PruneRedundantDirs(dirs []string) []string {
 	if len(dirs) < 2 {
 		return dirs
 	}

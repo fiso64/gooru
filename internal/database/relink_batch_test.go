@@ -1,8 +1,12 @@
 package database
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"log"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"gooru.local/types"
@@ -60,5 +64,36 @@ func TestApplyRelinkAdditionsTxRespectsVariableBudget(t *testing.T) {
 	}
 	if counting.maxArgsSeen > maxVars {
 		t.Fatalf("largest relink insert used %d bind variables, max %d", counting.maxArgsSeen, maxVars)
+	}
+}
+
+
+func TestGetLocationsForDirsBatchesQueriesWithinVariableBudget(t *testing.T) {
+	store := newMemoryTestStore(t)
+	dirs := make([]string, maxVars+1)
+	for i := range dirs {
+		dirs[i] = filepath.Join("scope", fmt.Sprintf("root-%03d", i))
+	}
+
+	const hash = "relink-scope-hash"
+	if _, err := store.GetOrCreateContent(store, hash); err != nil {
+		t.Fatalf("seed content: %v", err)
+	}
+	path := filepath.Join(dirs[maxVars], "file.jpg")
+	if err := store.GetOrCreateLocation(store, hash, path, 1, 1, ".jpg"); err != nil {
+		t.Fatalf("seed location: %v", err)
+	}
+
+	var queries bytes.Buffer
+	store.logger = log.New(&queries, "", 0)
+	locations, err := store.GetLocationsForDirs(dirs)
+	if err != nil {
+		t.Fatalf("GetLocationsForDirs: %v", err)
+	}
+	if _, ok := locations[path]; !ok {
+		t.Fatalf("missing location from final root: %q", path)
+	}
+	if got := strings.Count(queries.String(), "WITH requested(pattern) AS"); got != 2 {
+		t.Fatalf("scope queries = %d, want 2; log: %s", got, queries.String())
 	}
 }

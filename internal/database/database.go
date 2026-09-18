@@ -523,32 +523,50 @@ func (s *Store) GetSizeToHashesMap() (map[int64][]string, error) {
 // GetLocationsForDirs retrieves a map of all known paths to their content hashes for the given directories.
 func (s *Store) GetLocationsForDirs(dirs []string) (map[string]types.LocationInfo, error) {
 	locations := make(map[string]types.LocationInfo)
-	for _, dir := range dirs {
-		pattern := escapeLikeLiteral(dir+string(filepath.Separator)) + "%"
-		err := func() error {
-			rows, err := s.Query("SELECT path, content_hash, size_bytes, mod_time, extension, tags_cache FROM locations WHERE path LIKE ? ESCAPE '~'", pattern)
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
+	for i := 0; i < len(dirs); i += maxVars {
+		end := i + maxVars
+		if end > len(dirs) {
+			end = len(dirs)
+		}
+		batch := dirs[i:end]
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch))
+		for j, dir := range batch {
+			placeholders[j] = "(?)"
+			args[j] = escapeLikeLiteral(dir+string(filepath.Separator)) + "%"
+		}
 
-			for rows.Next() {
-				var path string
-				var info types.LocationInfo
-				if err := rows.Scan(&path, &info.Hash, &info.Size, &info.ModTime, &info.Extension, &info.TagsCache); err != nil {
-					return err
-				}
-				locations[path] = info
-			}
-			return rows.Err()
-		}()
+		rows, err := s.Query(`
+			WITH requested(pattern) AS (VALUES `+strings.Join(placeholders, ",")+`)
+			SELECT l.path, l.content_hash, l.size_bytes, l.mod_time, l.extension, l.tags_cache
+			FROM locations l
+			WHERE EXISTS (
+				SELECT 1 FROM requested
+				WHERE l.path LIKE requested.pattern ESCAPE '~'
+			)
+		`, args...)
 		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var path string
+			var info types.LocationInfo
+			if err := rows.Scan(&path, &info.Hash, &info.Size, &info.ModTime, &info.Extension, &info.TagsCache); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			locations[path] = info
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := rows.Close(); err != nil {
 			return nil, err
 		}
 	}
 	return locations, nil
 }
-
 // ApplyRelinkAdditions transactionally adds new locations.
 func (s *Store) ApplyRelinkAdditions(toAdd map[string]types.LocationInfo) (int, error) {
 	if len(toAdd) == 0 {
