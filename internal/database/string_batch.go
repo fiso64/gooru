@@ -7,15 +7,6 @@ import (
 	"gooru.local/types"
 )
 
-func stringBatchArgs(values []string) (string, []any) {
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(values)), ",")
-	args := make([]any, len(values))
-	for i, value := range values {
-		args[i] = value
-	}
-	return placeholders, args
-}
-
 // bindBatches yields SQLite-sized placeholder and argument batches. It reuses
 // one argument buffer and one placeholder string across yields, so callers must
 // consume each args slice synchronously.
