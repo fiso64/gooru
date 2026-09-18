@@ -332,13 +332,13 @@
     else bulkUntagSelected();
   }
 
-  async function submitFileTagDialog(tags: string[]) {
+  async function submitFileTagDialog(tags: string[], initialTags: string[]) {
     const { file, fromSelection } = fileTagDialog;
     if (!file || fileTagDialog.busy) return;
     const desiredTags = new Set(tags);
-    const currentTags = new Set(file.tags);
-    const tagsToAdd = tags.filter((tag) => !currentTags.has(tag));
-    const tagsToRemove = file.tags.filter((tag) => !desiredTags.has(tag));
+    const initialTagSet = new Set(initialTags);
+    const tagsToAdd = tags.filter((tag) => !initialTagSet.has(tag));
+    const tagsToRemove = initialTags.filter((tag) => !desiredTags.has(tag));
     if (!tagsToAdd.length && !tagsToRemove.length) {
       closeFileTagDialog();
       return;
