@@ -54,24 +54,22 @@ func (c *Client) simpleUserTagCount(ast *query.Expression) (int, bool, error) {
 	return count, true, err
 }
 
-func (c *Client) buildQueryAST(ast *query.Expression) (string, []interface{}, error) {
-	// NEW: Intelligently build query using tag counts for optimization.
-	// 1. Extract all user-defined tags from the query AST.
-	userTags := query.ExtractTags(ast)
+type querySQLBuilder func(*query.Expression, map[string]int) (string, []interface{})
 
-	// 2. Batch-fetch the usage counts for these tags from the database.
-	tagCounts, err := c.store.BatchGetQueryTagCounts(userTags)
+func (c *Client) buildQueryASTWith(ast *query.Expression, builder querySQLBuilder) (string, []interface{}, error) {
+	tagCounts, err := c.store.BatchGetQueryTagCounts(query.ExtractTags(ast))
 	if err != nil {
 		return "", nil, fmt.Errorf("could not fetch tag statistics for query optimization: %w", err)
 	}
-
-	// 3. Build the SQL with the counts to inform the builder's strategy.
-	sqlQuery, args := query.Build(ast, tagCounts)
+	sqlQuery, args := builder(ast, tagCounts)
 	return sqlQuery, args, nil
 }
 
-// buildQuery is a helper to parse an expression, gather tag statistics, and build an optimized SQL subquery.
-func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
+func (c *Client) buildQueryAST(ast *query.Expression) (string, []interface{}, error) {
+	return c.buildQueryASTWith(ast, query.Build)
+}
+
+func (c *Client) buildQueryWith(expression string, builder querySQLBuilder) (string, []interface{}, error) {
 	if strings.TrimSpace(expression) == "" {
 		return "", nil, nil
 	}
@@ -79,26 +77,18 @@ func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	return c.buildQueryAST(ast)
+	return c.buildQueryASTWith(ast, builder)
+}
+
+// buildQuery parses an expression into a SQL subquery that returns matching content hashes.
+func (c *Client) buildQuery(expression string) (string, []interface{}, error) {
+	return c.buildQueryWith(expression, query.Build)
 }
 
 // buildLocationQuery parses an expression into a SQL subquery that returns
 // matching location IDs for browse/search endpoints.
 func (c *Client) buildLocationQuery(expression string) (string, []interface{}, error) {
-	if strings.TrimSpace(expression) == "" {
-		return "", nil, nil
-	}
-	ast, err := parseAndValidateQuery(expression)
-	if err != nil {
-		return "", nil, err
-	}
-	userTags := query.ExtractTags(ast)
-	tagCounts, err := c.store.BatchGetQueryTagCounts(userTags)
-	if err != nil {
-		return "", nil, fmt.Errorf("could not fetch tag statistics for query optimization: %w", err)
-	}
-	sqlQuery, args := query.BuildLocations(ast, tagCounts)
-	return sqlQuery, args, nil
+	return c.buildQueryWith(expression, query.BuildLocations)
 }
 
 // GetTagsForFile retrieves all tags for a given file, with a safety check and status.
