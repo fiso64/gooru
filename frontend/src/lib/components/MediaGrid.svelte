@@ -120,7 +120,7 @@
     const buttons = Array.from(gridHost?.querySelectorAll<HTMLButtonElement>('.thumb-open') ?? []);
     const currentIndex = buttons.indexOf(event.target);
     if (currentIndex < 0) return;
-    const nextIndex = nextGridIndex(buttons.map((button) => button.getBoundingClientRect()), currentIndex, event.key);
+    const nextIndex = nextGridIndex(buttons.map((button) => button.getBoundingClientRect()), currentIndex, event.key, { wrapHorizontal: true });
     if (nextIndex === currentIndex) return;
     event.preventDefault(); event.stopPropagation(); buttons[nextIndex]?.focus({ preventScroll: true });
     buttons[nextIndex]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
