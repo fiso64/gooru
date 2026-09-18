@@ -506,18 +506,34 @@
     actionDialog = { kind: 'bulk-delete-selected', value: '', error: '', busy: false, id: '', name: '', previousQuery: '' };
   }
 
+  async function requestFileDownload(selector: FileDownloadSelector) {
+    const download = await createFileDownload($authState.csrfToken, selector);
+    const url = new URL(download.url, window.location.origin);
+    if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/v1/file-downloads/')) {
+      throw new Error('Server returned an invalid file download URL.');
+    }
+    bulkDownloadURL = url.href;
+  }
+
   async function bulkDownloadSelected() {
     if (bulkDownloadBusy || selectedCount <= 0) return;
     bulkDownloadBusy = true;
     bulkDownloadError = '';
     try {
-      const selector = await ensureSelectionReady();
-      const download = await createFileDownload($authState.csrfToken, selector);
-      const url = new URL(download.url, window.location.origin);
-      if (url.origin !== window.location.origin || !url.pathname.startsWith('/api/v1/file-downloads/')) {
-        throw new Error('Server returned an invalid file download URL.');
-      }
-      bulkDownloadURL = url.href;
+      await requestFileDownload(await ensureSelectionReady());
+    } catch (error) {
+      bulkDownloadError = errorMessage(error);
+    } finally {
+      bulkDownloadBusy = false;
+    }
+  }
+
+  async function downloadCursorFile(file: FileItem) {
+    if (bulkDownloadBusy) return;
+    bulkDownloadBusy = true;
+    bulkDownloadError = '';
+    try {
+      await requestFileDownload({ file_ids: [file.id] });
     } catch (error) {
       bulkDownloadError = errorMessage(error);
     } finally {
@@ -1003,6 +1019,18 @@
       onTagSearch={library.runTagSearch}
       onUntrack={untrackPreview}
       onDelete={deletePreview}
+    />
+  {/if}
+
+  {#if fileTagDialog.file}
+    <FileTagDialog
+      file={fileTagDialog.file}
+      tagCandidates={tagsQuery.data?.tags ?? []}
+      initialMode={fileTagDialog.mode}
+      busy={fileTagDialog.busy}
+      error={fileTagDialog.error}
+      onCancel={closeFileTagDialog}
+      onConfirm={submitFileTagDialog}
     />
   {/if}
 
