@@ -2186,7 +2186,7 @@ export interface components {
         };
         FileDownloadCreateResponse: {
             id: string;
-            /** @description Same-origin URL that streams the prepared ZIP archive. */
+            /** @description Same-origin URL that streams the prepared selected-file response. */
             url: string;
         };
         FileRemovalSelector: {
