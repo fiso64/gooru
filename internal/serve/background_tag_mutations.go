@@ -117,7 +117,19 @@ func (s *Server) backgroundTagMutationHandler(ctx context.Context, task core.Bac
 }
 
 func waitForDurableTagMutation(ctx context.Context, operations backgroundOperationReader, operationID string) (TagMutationResponse, error) {
-	ticker := time.NewTicker(25 * time.Millisecond)
+	var changes <-chan struct{}
+	var unsubscribe func()
+	if subscriber, ok := operations.(backgroundOperationChangeSubscriber); ok {
+		changes, unsubscribe = subscriber.SubscribeBackgroundOperationChanges()
+		if unsubscribe != nil {
+			defer unsubscribe()
+		}
+	}
+	pollInterval := 25 * time.Millisecond
+	if changes != nil {
+		pollInterval = 500 * time.Millisecond
+	}
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
 		state, found, err := operations.GetBackgroundOperation(operationID)
@@ -149,6 +161,10 @@ func waitForDurableTagMutation(ctx context.Context, operations backgroundOperati
 		select {
 		case <-ctx.Done():
 			return TagMutationResponse{}, ctx.Err()
+		case _, open := <-changes:
+			if !open {
+				changes = nil
+			}
 		case <-ticker.C:
 		}
 	}

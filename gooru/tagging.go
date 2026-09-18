@@ -462,7 +462,9 @@ func (c *Client) analyzeFileStates(filePaths []string, progressCb func(filePath 
 			previousHash: previousHash,
 		})
 		analysis.allHashes = append(analysis.allHashes, hash)
-		analysis.locationsToUpsert[absPath] = locInfo
+		if !existsInDb || wasHashed {
+			analysis.locationsToUpsert[absPath] = locInfo
+		}
 	}
 
 	// Orphaned tags are notification metadata, so preserve the previous
@@ -647,8 +649,10 @@ func (c *Client) executeTaggingTransaction(analysis *fileStateAnalysis, tags []s
 	if err != nil {
 		return 0, nil, fmt.Errorf("classify file registration changes: %w", err)
 	}
-	if err := c.store.BatchInsertContents(tx, analysis.allHashes); err != nil {
-		return 0, nil, fmt.Errorf("failed to batch insert contents: %w", err)
+	if len(analysis.locationsToUpsert) > 0 {
+		if err := c.store.BatchInsertContents(tx, analysis.allHashes); err != nil {
+			return 0, nil, fmt.Errorf("failed to batch insert contents: %w", err)
+		}
 	}
 	if err := c.store.BatchUpsertLocations(tx, analysis.locationsToUpsert); err != nil {
 		return 0, nil, fmt.Errorf("failed to batch upsert locations: %w", err)
