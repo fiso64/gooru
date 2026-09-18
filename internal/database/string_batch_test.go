@@ -42,6 +42,43 @@ func TestStringBindBatchesRespectsBindBudget(t *testing.T) {
 	}
 }
 
+func TestValueBindBatchesSupportsRowPlaceholders(t *testing.T) {
+	values := make([]string, maxVars+2)
+	for i := range values {
+		values[i] = fmt.Sprintf("value-%04d", i)
+	}
+
+	offset := 0
+	batches := 0
+	for placeholders, args := range bindValueBatches(values, "(?)") {
+		batches++
+		wantSize := maxVars
+		if batches == 2 {
+			wantSize = 2
+		}
+		wantPlaceholders := strings.TrimSuffix(strings.Repeat("(?),", wantSize), ",")
+		if placeholders != wantPlaceholders {
+			t.Fatalf("batch %d placeholders differ: got length %d want length %d", batches, len(placeholders), len(wantPlaceholders))
+		}
+		if len(args) != wantSize {
+			t.Fatalf("batch %d args = %d, want %d", batches, len(args), wantSize)
+		}
+		for i, arg := range args {
+			if arg != values[offset+i] {
+				t.Fatalf("batch %d arg %d = %v, want %q", batches, i, arg, values[offset+i])
+			}
+		}
+		offset += len(args)
+	}
+
+	if batches != 2 {
+		t.Fatalf("batches = %d, want 2", batches)
+	}
+	if offset != len(values) {
+		t.Fatalf("consumed values = %d, want %d", offset, len(values))
+	}
+}
+
 func TestContentTagPairBindBatchesRespectsBindBudget(t *testing.T) {
 	const pairCount = maxVars/2 + 1
 	pairs := make([]ContentTagPair, pairCount)
