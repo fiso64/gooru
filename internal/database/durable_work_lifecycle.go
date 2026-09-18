@@ -150,6 +150,51 @@ func (s *Store) CompleteBackgroundTaskTx(tx *Tx, taskID, workerID string, finish
 	return nil
 }
 
+// CompleteBackgroundTaskAttemptTx applies completion for the exact live claim generation.
+// A recovered/reclaimed task increments attempt_count, so a stale handler cannot finalize
+// work after ownership has moved even though this transaction does not need the worker id.
+func (s *Store) CompleteBackgroundTaskAttemptTx(tx *Tx, taskID string, attemptNumber int, finishedAt time.Time) error {
+	if s == nil || s.DB == nil {
+		return errors.New("background task store is required")
+	}
+	if tx == nil {
+		return errors.New("background task completion transaction is required")
+	}
+	if taskID == "" || attemptNumber < 1 {
+		return errors.New("background task id and positive attempt number are required")
+	}
+	finishedAt = normalizeWorkTime(finishedAt)
+	var operationID sql.NullString
+	if err := tx.QueryRow(`
+		UPDATE background_tasks
+		SET status = 'completed', finished_at = ?, lease_owner = '', lease_expires_at = NULL,
+		    last_error_code = '', last_error_message = ''
+		WHERE id = ? AND status = 'running' AND attempt_count = ?
+		  AND lease_expires_at IS NOT NULL AND lease_expires_at > ?
+		RETURNING operation_id
+	`, workTimeValue(finishedAt), taskID, attemptNumber, workTimeValue(finishedAt)).Scan(&operationID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrBackgroundTaskLeaseLost
+		}
+		return fmt.Errorf("complete background task claim: %w", err)
+	}
+	res, err := tx.Exec(`
+		UPDATE background_task_attempts
+		SET finished_at = ?, outcome = 'completed', error_code = '', error_message = ''
+		WHERE task_id = ? AND attempt_number = ? AND outcome = 'running'
+	`, workTimeValue(finishedAt), taskID, attemptNumber)
+	if err != nil {
+		return fmt.Errorf("complete background task claim attempt: %w", err)
+	}
+	if err := requireOneBackgroundAttempt(res); err != nil {
+		return fmt.Errorf("complete background task claim attempt: %w", err)
+	}
+	if err := recordBackgroundOperationTaskTerminal(tx, operationID.String, finishedAt, 1, 0); err != nil {
+		return fmt.Errorf("advance background operation after task completion: %w", err)
+	}
+	return nil
+}
+
 // FailBackgroundTask closes the current attempt as failed iff workerID still owns a live
 // task lease. When retry capacity remains, the task returns to pending at retryAt;
 // otherwise it becomes terminally failed. Terminal compensation is enqueued in the same
