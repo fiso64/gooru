@@ -78,3 +78,66 @@ func (s *Store) attachBackgroundTaskAndRevealOperation(q Querier, operationID st
 	}
 	return attachedTask, nil
 }
+
+func (s *Store) CreateBackgroundTagMutationWithTask(
+	operation NewBackgroundOperation,
+	maxPending int,
+	mutation string,
+	selectorJSON []byte,
+	tagsJSON []byte,
+	targetKind string,
+	targetIDs []string,
+	targetQuery string,
+	targetArgs []interface{},
+	checkpointJSON []byte,
+	task NewBackgroundTask,
+) (BackgroundOperation, bool, error) {
+	if s == nil || s.DB == nil {
+		return BackgroundOperation{}, false, errors.New("background operation store is required")
+	}
+	if operation.Visible {
+		return BackgroundOperation{}, false, errors.New("background tag mutation must start hidden")
+	}
+	tx, err := s.Begin()
+	if err != nil {
+		return BackgroundOperation{}, false, fmt.Errorf("begin background tag mutation transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stored, created, err := s.createBackgroundOperationWithPendingLimit(
+		tx,
+		operation.ID,
+		operation.Kind,
+		false,
+		operation.ProgressTotal,
+		maxPending,
+	)
+	if err != nil || !created {
+		return BackgroundOperation{}, created, err
+	}
+	if _, err := s.createBackgroundTagMutationSnapshot(
+		tx,
+		stored.ID,
+		mutation,
+		selectorJSON,
+		tagsJSON,
+		targetKind,
+		targetIDs,
+		targetQuery,
+		targetArgs,
+	); err != nil {
+		return BackgroundOperation{}, false, err
+	}
+	if task.OperationID != "" && task.OperationID != stored.ID {
+		return BackgroundOperation{}, false, errors.New("background tag mutation task belongs to a different operation")
+	}
+	task.OperationID = stored.ID
+	if _, err := s.attachBackgroundTaskAndRevealOperation(tx, stored.ID, checkpointJSON, task); err != nil {
+		return BackgroundOperation{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return BackgroundOperation{}, false, fmt.Errorf("commit background tag mutation transaction: %w", err)
+	}
+	stored.Visible = true
+	return stored, true, nil
+}
