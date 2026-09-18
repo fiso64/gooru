@@ -42,6 +42,7 @@
     name: 'Library actions',
     items: [
       { keys: ['a'], description: 'Select all files in the current view' },
+      { keys: ['Ctrl', 'a'], description: 'Select all files in the current view' },
       { keys: ['d'], description: 'Download selection, or cursor file' },
       { keys: ['t'], description: 'Tag selection, or cursor file' },
       { keys: ['Alt', 'Enter'], description: 'Tag selection, or cursor file' },
