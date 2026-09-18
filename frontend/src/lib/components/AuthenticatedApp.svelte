@@ -39,6 +39,7 @@
   import { errorMessage } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
   import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
+  import { tagEditDelta } from '$lib/utils/tagEdit';
   import { previewNeighbor } from '$lib/utils/viewerNavigation';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { FileItem, Job, SavedSearchRequest } from '$lib/api/types';
@@ -342,10 +343,7 @@
   async function submitFileTagDialog(tags: string[], initialTags: string[]) {
     const { file, fromSelection } = fileTagDialog;
     if (!file || fileTagDialog.busy) return;
-    const desiredTags = new Set(tags);
-    const initialTagSet = new Set(initialTags);
-    const tagsToAdd = tags.filter((tag) => !initialTagSet.has(tag));
-    const tagsToRemove = initialTags.filter((tag) => !desiredTags.has(tag));
+    const { add: tagsToAdd, remove: tagsToRemove } = tagEditDelta(initialTags, tags);
     if (!tagsToAdd.length && !tagsToRemove.length) {
       closeFileTagDialog();
       return;
