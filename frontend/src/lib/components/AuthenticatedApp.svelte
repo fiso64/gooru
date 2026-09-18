@@ -960,6 +960,7 @@
         hasPreviousPage={Boolean(filesQuery.hasPreviousPage)}
         isFetchingPreviousPage={Boolean(filesQuery.isFetchingPreviousPage)}
         {pagedMode}
+        prefetchEnabled={!library.pendingPreviewID}
         pageNumber={library.page}
         pageCount={pagedPageCount}
         bind:loadMoreSentinel
