@@ -42,7 +42,6 @@ func TestStringBindBatchesRespectsBindBudget(t *testing.T) {
 	}
 }
 
-
 func TestContentTagPairBindBatchesRespectsBindBudget(t *testing.T) {
 	const pairCount = maxVars/2 + 1
 	pairs := make([]ContentTagPair, pairCount)
