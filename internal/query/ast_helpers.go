@@ -1,7 +1,5 @@
 package query
 
-import "gooru.local/types"
-
 // ExtractTags traverses a query AST and returns a unique list of all user-defined
 // tag strings (e.g., "key:value", "key"). It ignores virtual tags like "ext:".
 func ExtractTags(expr *Expression) []string {
@@ -43,13 +41,4 @@ func extract(expr *Expression, tags *[]string, seen map[string]struct{}) {
             }
         }
     }
-}
-
-// ToParsedTags converts a slice of tag strings to a slice of ParsedTag structs.
-func ToParsedTags(tags []string) []types.ParsedTag {
-    parsedTags := make([]types.ParsedTag, len(tags))
-    for i, t := range tags {
-        parsedTags[i] = ParseTag(t)
-    }
-    return parsedTags
 }
