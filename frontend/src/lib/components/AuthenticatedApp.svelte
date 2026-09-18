@@ -345,8 +345,15 @@
     }
     fileTagDialog = { ...fileTagDialog, busy: true, error: '' };
     try {
-      await tagMutation.mutateAsync({ operation: 'set', body: { file_ids: [file.id], tags } });
-      file.tags = [...tags];
+      if (tagsToAdd.length) {
+        await tagMutation.mutateAsync({ operation: 'add', body: { file_ids: [file.id], tags: tagsToAdd } });
+        file.tags = Array.from(new Set([...file.tags, ...tagsToAdd]));
+      }
+      if (tagsToRemove.length) {
+        await tagMutation.mutateAsync({ operation: 'remove', body: { file_ids: [file.id], tags: tagsToRemove } });
+        const removedTags = new Set(tagsToRemove);
+        file.tags = file.tags.filter((tag) => !removedTags.has(tag));
+      }
       if (fromSelection) library.clearSelection();
       closeFileTagDialog();
     } catch (error) {
