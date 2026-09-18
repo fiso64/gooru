@@ -100,6 +100,8 @@ forAllSystems (system:
       assert testService.serviceConfig.WorkingDirectory == "/var/lib/gooru-test";
       assert nixpkgs.lib.hasSuffix "/bin/gooru serve --config /etc/gooru/main/serve.yaml" mainService.serviceConfig.ExecStart;
       assert testService.serviceConfig.ExecStart == "${testPackage}/bin/gooru serve --config /etc/gooru/test/serve.yaml";
+      assert builtins.elem moduleEval.config.environment.etc."gooru/main/serve.yaml".source mainService.restartTriggers;
+      assert builtins.elem moduleEval.config.environment.etc."gooru/test/serve.yaml".source testService.restartTriggers;
       assert builtins.elem "gooru-main-admin-primary:/run/keys/gooru-main-admin-alice" mainService.serviceConfig.LoadCredential;
       assert builtins.elem "gooru-test-admin-primary:/run/keys/gooru-test-admin-bob" testService.serviceConfig.LoadCredential;
       assert nixpkgs.lib.hasInfix "hashing-strategy partial" mainService.preStart;
