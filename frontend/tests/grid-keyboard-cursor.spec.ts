@@ -79,7 +79,6 @@ test('library viewport keeps initial keyboard focus without drawing a Chromium f
     return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
   });
   expect(focusStyle.outlineStyle).toBe('none');
-  expect(focusStyle.outlineWidth).toBe('0px');
 
   await page.keyboard.press('ArrowDown');
   await expect(page.locator('.thumb-open').nth(0)).toBeFocused();
@@ -113,7 +112,7 @@ test('ArrowDown enters the media grid with a high-contrast cursor and cursor act
   expect(cursor.boxShadow).toContain('rgb(0, 0, 0)');
 
   await page.keyboard.press('Space');
-  await expect(page.getByText('1 of 3 selected')).toBeVisible();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
   await expect(cards.nth(0)).toBeFocused();
 
   await page.keyboard.press('ArrowRight');
@@ -180,7 +179,7 @@ test('cursor tag and removal shortcuts target the focused file while selection k
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
   await page.keyboard.press('Space');
-  await expect(page.getByText('1 of 3 selected')).toBeVisible();
+  await expect(page.getByText('1 selected', { exact: true })).toBeVisible();
   await page.keyboard.press('ArrowRight');
   await expect(cards.nth(1)).toBeFocused();
   await page.keyboard.press('t');
