@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"gooru.local/internal/database"
 	"gooru.local/internal/query"
@@ -132,19 +134,13 @@ func (c *Client) TagFilesByQuery(expression string, tags []string) (int, error) 
 	defer tx.Rollback()
 
 	// 1. Get or create the necessary tags to get their IDs.
-	parsedTags := make([]types.ParsedTag, len(tags))
-	for i, t := range tags {
-		parsedTags[i] = query.ParseTag(t)
-	}
+	parsedTags := query.ParseTags(tags)
 	tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get or create tags: %w", err)
 	}
 
-	tagIDs := make([]int64, 0, len(tagIDMap))
-	for _, id := range tagIDMap {
-		tagIDs = append(tagIDs, id)
-	}
+	tagIDs := slices.Collect(maps.Values(tagIDMap))
 
 	// 2. Directly associate tags with the content matching the query.
 	// This is a pure-SQL operation that avoids loading all hashes into application memory.
@@ -202,10 +198,7 @@ func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error
 	}
 
 	// Untag specific tags from content matching the query.
-	parsedTags := make([]types.ParsedTag, len(tags))
-	for i, t := range tags {
-		parsedTags[i] = query.ParseTag(t)
-	}
+	parsedTags := query.ParseTags(tags)
 	// Use BatchGetTags as we don't want to create tags that don't exist.
 	tagIDMap, err := c.store.BatchGetTags(tx, parsedTags)
 	if err != nil {
@@ -215,10 +208,7 @@ func (c *Client) UntagFilesByQuery(expression string, tags []string) (int, error
 		return 0, tx.Commit() // No matching tags found in the DB to remove.
 	}
 
-	tagIDs := make([]int64, 0, len(tagIDMap))
-	for _, id := range tagIDMap {
-		tagIDs = append(tagIDs, id)
-	}
+	tagIDs := slices.Collect(maps.Values(tagIDMap))
 
 	affected, err := c.store.BatchDisassociateTagsByContentQueryTx(tx, sqlQuery, args, tagIDs)
 	if err != nil {
@@ -275,19 +265,13 @@ func (c *Client) SetTagsForFilesByQuery(expression string, tags []string) (int, 
 
 	// 3. Add new tags for the same static list of hashes.
 	if len(tags) > 0 {
-		parsedTags := make([]types.ParsedTag, len(tags))
-		for i, t := range tags {
-			parsedTags[i] = query.ParseTag(t)
-		}
+		parsedTags := query.ParseTags(tags)
 		tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
 		if err != nil {
 			return 0, fmt.Errorf("failed to get or create new tags: %w", err)
 		}
 
-		tagIDs := make([]int64, 0, len(tagIDMap))
-		for _, id := range tagIDMap {
-			tagIDs = append(tagIDs, id)
-		}
+		tagIDs := slices.Collect(maps.Values(tagIDMap))
 
 		if _, err := c.store.BatchAssociateTagsByContentQueryTx(tx, "SELECT hash FROM hashes_to_update", nil, tagIDs); err != nil {
 			return 0, fmt.Errorf("failed to associate new tags: %w", err)
@@ -511,10 +495,7 @@ func (c *Client) associateTagsForContentHashes(tx *database.Tx, hashes []string,
 	if len(tags) == 0 {
 		return 0, nil
 	}
-	parsedTags := make([]types.ParsedTag, len(tags))
-	for i, t := range tags {
-		parsedTags[i] = query.ParseTag(t)
-	}
+	parsedTags := query.ParseTags(tags)
 	tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get or create tags: %w", err)
@@ -552,10 +533,7 @@ func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tag
 		affectedCount = cleared + associated
 	case opUntag:
 		if len(tags) > 0 {
-			parsedTags := make([]types.ParsedTag, len(tags))
-			for i, t := range tags {
-				parsedTags[i] = query.ParseTag(t)
-			}
+			parsedTags := query.ParseTags(tags)
 			tagIDMap, err := c.store.BatchGetTags(tx, parsedTags)
 			if err != nil {
 				return 0, fmt.Errorf("failed to look up tags: %w", err)
