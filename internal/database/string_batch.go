@@ -47,9 +47,7 @@ func bindBatches[T any](values []T) iter.Seq2[string, []any] {
 	return bindValueBatches(values, "?")
 }
 
-// bindPairBatches yields SQLite-sized two-column row batches. The row
-// placeholder string is supplied by the caller so existing SQL formatting can
-// remain unchanged while the chunking and argument-buffer logic is shared.
+// bindRowBatchesReserved yields SQLite-sized fixed-column row batches.
 func bindRowBatchesReserved[T any](
 	values []T,
 	rowPlaceholders string,
