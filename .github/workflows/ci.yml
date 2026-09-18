@@ -67,7 +67,7 @@ jobs:
         run: npx playwright install chromium
       - name: Browser regressions
         id: browser
-        run: npm run test:e2e -- booru-theme.spec.ts booru-search-feedback.spec.ts viewer-image-geometry-hold.spec.ts viewer-seekbar-scrub.spec.ts startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-bulk-tags.spec.ts upload-cancel-inflight.spec.ts upload-viewer.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-polling.spec.ts jobs-history-controls.spec.ts issue-606-followup.spec.ts build-identity.spec.ts grid-layout-config.spec.ts grid-keyboard-cursor.spec.ts selection-root-query.spec.ts tag-grid-refresh.spec.ts
+        run: npm run test:e2e -- booru-theme.spec.ts booru-search-feedback.spec.ts viewer-image-geometry-hold.spec.ts viewer-seekbar-scrub.spec.ts startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-bulk-tags.spec.ts upload-cancel-inflight.spec.ts upload-viewer.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-polling.spec.ts jobs-history-controls.spec.ts issue-606-followup.spec.ts build-identity.spec.ts grid-layout-config.spec.ts grid-keyboard-cursor.spec.ts selection-root-query.spec.ts tag-grid-refresh.spec.ts tag-input-behavior.spec.ts
       - name: Upload browser failure artifacts
         if: failure() && steps.browser.outcome == 'failure'
         uses: actions/upload-artifact@v4

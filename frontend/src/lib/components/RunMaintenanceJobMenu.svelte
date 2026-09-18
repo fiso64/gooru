@@ -79,6 +79,8 @@
 
 <div class="maintenance-control">
   <details class="maintenance-menu" bind:open={menuOpen}>
+    <!-- Explicit role preserves button semantics in Chromium's accessibility tree. -->
+    <!-- svelte-ignore a11y_no_redundant_roles -->
     <summary
       class="g-btn g-btn-sm"
       role="button"
