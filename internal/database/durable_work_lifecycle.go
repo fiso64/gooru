@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -220,6 +221,13 @@ func (s *Store) FailBackgroundTask(taskID, workerID string, finishedAt, retryAt 
 // with retry capacity return to pending immediately; exhausted tasks become failed. Every
 // transition is guarded by the still-expired running state so a concurrent completion or
 // lease replacement wins cleanly instead of being overwritten.
+type expiredBackgroundTask struct {
+	id            string
+	attemptNumber int
+	operationID   sql.NullString
+	status        BackgroundWorkStatus
+}
+
 func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 	if s == nil || s.DB == nil {
 		return 0, errors.New("background task store is required")
@@ -234,85 +242,108 @@ func (s *Store) RecoverExpiredBackgroundTaskLeases(now time.Time) (int, error) {
 	defer tx.Rollback()
 
 	rows, err := tx.Query(`
-		SELECT id, attempt_count, operation_id
-		FROM background_tasks
-		WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
-		ORDER BY lease_expires_at, id
-	`, nowValue)
+		UPDATE background_tasks
+		SET status = CASE WHEN attempt_count < max_attempts THEN 'pending' ELSE 'failed' END,
+		    available_at = CASE WHEN attempt_count < max_attempts THEN ? ELSE available_at END,
+		    finished_at = CASE WHEN attempt_count < max_attempts THEN NULL ELSE ? END,
+		    lease_owner = '',
+		    lease_expires_at = NULL,
+		    last_error_code = 'lease_expired',
+		    last_error_message = 'worker lease expired before task completion'
+		WHERE status = 'running'
+		  AND lease_expires_at IS NOT NULL
+		  AND lease_expires_at <= ?
+		RETURNING id, attempt_count, operation_id, status
+	`, nowValue, nowValue, nowValue)
 	if err != nil {
-		return 0, fmt.Errorf("list expired background task leases: %w", err)
+		return 0, fmt.Errorf("recover expired background task leases: %w", err)
 	}
-	type expiredTask struct {
-		id            string
-		attemptNumber int
-		operationID   sql.NullString
-	}
-	var expired []expiredTask
+	var expired []expiredBackgroundTask
 	for rows.Next() {
-		var task expiredTask
-		if err := rows.Scan(&task.id, &task.attemptNumber, &task.operationID); err != nil {
+		var task expiredBackgroundTask
+		var status string
+		if err := rows.Scan(&task.id, &task.attemptNumber, &task.operationID, &status); err != nil {
 			rows.Close()
-			return 0, fmt.Errorf("scan expired background task lease: %w", err)
+			return 0, fmt.Errorf("scan recovered background task lease: %w", err)
 		}
+		task.status = BackgroundWorkStatus(status)
 		expired = append(expired, task)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return 0, fmt.Errorf("iterate expired background task leases: %w", err)
+		return 0, fmt.Errorf("iterate recovered background task leases: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return 0, fmt.Errorf("close expired background task leases: %w", err)
+		return 0, fmt.Errorf("close recovered background task leases: %w", err)
 	}
 
-	recovered := 0
+	if err := abandonExpiredBackgroundTaskAttempts(tx, expired, nowValue); err != nil {
+		return 0, err
+	}
 	for _, task := range expired {
-		var status string
-		res := tx.QueryRow(`
-			UPDATE background_tasks
-			SET status = CASE WHEN attempt_count < max_attempts THEN 'pending' ELSE 'failed' END,
-			    available_at = CASE WHEN attempt_count < max_attempts THEN ? ELSE available_at END,
-			    finished_at = CASE WHEN attempt_count < max_attempts THEN NULL ELSE ? END,
-			    lease_owner = '',
-			    lease_expires_at = NULL,
-			    last_error_code = 'lease_expired',
-			    last_error_message = 'worker lease expired before task completion'
-			WHERE id = ? AND status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?
-			RETURNING status
-		`, nowValue, nowValue, task.id, nowValue)
-		if err := res.Scan(&status); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return 0, fmt.Errorf("recover expired background task %s: %w", task.id, err)
+		if task.status != BackgroundWorkFailed {
+			continue
 		}
-		attemptResult, err := tx.Exec(`
-			UPDATE background_task_attempts
-			SET finished_at = ?, outcome = 'abandoned',
-			    error_code = 'lease_expired',
-			    error_message = 'worker lease expired before task completion'
-			WHERE task_id = ? AND attempt_number = ? AND outcome = 'running'
-		`, nowValue, task.id, task.attemptNumber)
-		if err != nil {
-			return 0, fmt.Errorf("abandon expired background task attempt %s/%d: %w", task.id, task.attemptNumber, err)
+		if err := recordBackgroundOperationTaskTerminal(tx, task.operationID.String, now, 0, 1); err != nil {
+			return 0, fmt.Errorf("advance background operation after expired task %s: %w", task.id, err)
 		}
-		if err := requireOneBackgroundAttempt(attemptResult); err != nil {
-			return 0, fmt.Errorf("abandon expired background task attempt %s/%d: %w", task.id, task.attemptNumber, err)
+		if err := s.enqueueBackgroundTaskTerminalCleanup(tx, task.id, now); err != nil {
+			return 0, fmt.Errorf("enqueue expired background task %s terminal cleanup: %w", task.id, err)
 		}
-		if BackgroundWorkStatus(status) == BackgroundWorkFailed {
-			if err := recordBackgroundOperationTaskTerminal(tx, task.operationID.String, now, 0, 1); err != nil {
-				return 0, fmt.Errorf("advance background operation after expired task %s: %w", task.id, err)
-			}
-			if err := s.enqueueBackgroundTaskTerminalCleanup(tx, task.id, now); err != nil {
-				return 0, fmt.Errorf("enqueue expired background task %s terminal cleanup: %w", task.id, err)
-			}
-		}
-		recovered++
 	}
 
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit background task lease recovery: %w", err)
 	}
-	return recovered, nil
+	return len(expired), nil
+}
+
+func abandonExpiredBackgroundTaskAttempts(q Querier, tasks []expiredBackgroundTask, finishedAt int64) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+	const columns = 2 // task_id, attempt_number
+	batchSize := (maxVars - 1) / columns // reserve one bind for finished_at
+	for i := 0; i < len(tasks); i += batchSize {
+		end := i + batchSize
+		if end > len(tasks) {
+			end = len(tasks)
+		}
+		batch := tasks[i:end]
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, 0, len(batch)*columns+1)
+		for j, task := range batch {
+			placeholders[j] = "(?, ?)"
+			args = append(args, task.id, task.attemptNumber)
+		}
+		args = append(args, finishedAt)
+
+		res, err := q.Exec(`
+			WITH expired(task_id, attempt_number) AS (VALUES `+strings.Join(placeholders, ",")+`)
+			UPDATE background_task_attempts
+			SET finished_at = ?, outcome = 'abandoned',
+			    error_code = 'lease_expired',
+			    error_message = 'worker lease expired before task completion'
+			WHERE outcome = 'running'
+			  AND EXISTS (
+				SELECT 1
+				FROM expired
+				WHERE expired.task_id = background_task_attempts.task_id
+				  AND expired.attempt_number = background_task_attempts.attempt_number
+			  )
+		`, args...)
+		if err != nil {
+			return fmt.Errorf("abandon expired background task attempts: %w", err)
+		}
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("abandon expired background task attempts rows affected: %w", err)
+		}
+		if rows != int64(len(batch)) {
+			return fmt.Errorf("abandoned %d background task attempt rows, want %d", rows, len(batch))
+		}
+	}
+	return nil
 }
 
 func (s *Store) enqueueBackgroundTaskTerminalCleanup(tx *Tx, taskID string, availableAt time.Time) error {
