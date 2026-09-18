@@ -206,7 +206,9 @@ let
 
   defaultUserInstances = lib.filterAttrs (name: instance: instance.user == serviceName name) enabledInstances;
   defaultGroupInstances = lib.filterAttrs (name: instance: instance.group == serviceName name) enabledInstances;
-  firewallInstances = lib.filterAttrs (_: instance: instance.openFirewall && listenFor instance != null) enabledInstances;
+  firewallInstances = lib.filterAttrs (_: instance:
+    instance.openFirewall && listenFor instance != null && listenFor instance != ""
+  ) enabledInstances;
 in {
   options.services.gooru = {
     package = lib.mkOption {
