@@ -1,6 +1,12 @@
 package database
 
-import "testing"
+import (
+	"bytes"
+	"fmt"
+	"log"
+	"strings"
+	"testing"
+)
 
 func TestGetKnownSizesDeduplicatesLocations(t *testing.T) {
 	store := newMemoryTestStore(t)
@@ -32,5 +38,34 @@ func TestGetKnownSizesDeduplicatesLocations(t *testing.T) {
 		if _, ok := sizes[want]; !ok {
 			t.Fatalf("known sizes = %#v, missing %d", sizes, want)
 		}
+	}
+}
+
+func TestGetHashesBySizesRespectsBindBudget(t *testing.T) {
+	store := newMemoryTestStore(t)
+	sizes := make([]int64, maxVars+1)
+	for i := range sizes {
+		sizes[i] = int64(i + 1)
+	}
+
+	var queryLog bytes.Buffer
+	store.logger = log.New(&queryLog, "", 0)
+	hashes, err := store.GetHashesBySizes(sizes)
+	if err != nil {
+		t.Fatalf("GetHashesBySizes: %v", err)
+	}
+	if len(hashes) != 0 {
+		t.Fatalf("hashes = %#v, want empty result", hashes)
+	}
+
+	logged := queryLog.String()
+	if got := strings.Count(logged, "SELECT DISTINCT size_bytes, content_hash"); got != 2 {
+		t.Fatalf("size-hash queries = %d, want 2\n%s", got, logged)
+	}
+	if !strings.Contains(logged, fmt.Sprintf("-- ARGS: %d bound values redacted", maxVars)) {
+		t.Fatalf("missing max-sized batch in query log:\n%s", logged)
+	}
+	if !strings.Contains(logged, "-- ARGS: 1 bound values redacted") {
+		t.Fatalf("missing remainder batch in query log:\n%s", logged)
 	}
 }
