@@ -176,6 +176,7 @@
       && event.target instanceof HTMLInputElement
       && event.target.id === `tags-${file.id}`
       && event.target.value === ''
+      && !event.shiftKey
     ) {
       event.preventDefault();
       event.stopPropagation();
