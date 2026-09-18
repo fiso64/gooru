@@ -52,36 +52,15 @@ func (s *Store) getFileInfosByColumn(values []string, column string) ([]types.Fi
 			return nil, err
 		}
 		for rows.Next() {
-			var file types.FileInfo
-			var tagsCache string
-			var mediaKind, mimeType, storagePath sql.NullString
-			var imageWidth, imageHeight, videoWidth, videoHeight, frameCount, pageCount sql.NullInt64
-			var duration sql.NullFloat64
-			if err := rows.Scan(
-				&file.ID, &file.PublicID, &file.Path, &file.Hash, &file.Size, &file.ModTime, &file.AddedAt, &tagsCache,
-				&mediaKind, &mimeType, &imageWidth, &imageHeight, &videoWidth, &videoHeight, &duration, &frameCount, &pageCount,
-				&storagePath,
-			); err != nil {
+			var row fileInfoRow
+			var storagePath sql.NullString
+			if err := rows.Scan(row.scanTargets(&storagePath)...); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			file.Tags = splitTags(tagsCache)
+			file := row.value()
 			if storagePath.Valid {
 				file.StoragePath = storagePath.String
-			}
-			if mediaKind.Valid || mimeType.Valid {
-				file.Metadata = &types.MediaMetadata{
-					LocationID:      file.ID,
-					MediaKind:       mediaKind.String,
-					MimeType:        mimeType.String,
-					ImageWidth:      nullIntPtr(imageWidth),
-					ImageHeight:     nullIntPtr(imageHeight),
-					VideoWidth:      nullIntPtr(videoWidth),
-					VideoHeight:     nullIntPtr(videoHeight),
-					DurationSeconds: nullFloatPtr(duration),
-					FrameCount:      nullIntPtr(frameCount),
-					PageCount:       nullIntPtr(pageCount),
-				}
 			}
 			files = append(files, file)
 		}
