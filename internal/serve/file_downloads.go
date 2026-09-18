@@ -166,20 +166,6 @@ func (s *Server) handleFileDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(target.FileIDs) == 1 {
-		file, err := s.getFileByPublicID(r.Context(), target.FileIDs[0])
-		if errors.Is(err, ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "selected file is no longer available", nil)
-			return
-		}
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal_error", "failed to load selected file", nil)
-			return
-		}
-		s.media.serveOriginal(w, r, file, true)
-		return
-	}
-
 	started, err := s.streamFileDownloadArchive(w, r.Context(), target.FileIDs)
 	if err == nil {
 		return
