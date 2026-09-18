@@ -507,53 +507,47 @@ func (c *Client) populateOrphanedTags(data []fileData) error {
 	return nil
 }
 
+func (c *Client) associateTagsForContentHashes(tx *database.Tx, hashes []string, tags []string) (int64, error) {
+	if len(tags) == 0 {
+		return 0, nil
+	}
+	parsedTags := make([]types.ParsedTag, len(tags))
+	for i, t := range tags {
+		parsedTags[i] = query.ParseTag(t)
+	}
+	tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get or create tags: %w", err)
+	}
+	tagIDs := make([]int64, 0, len(tags))
+	for _, tagStr := range tags {
+		tagIDs = append(tagIDs, tagIDMap[tagStr])
+	}
+	affected, err := c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
+	if err != nil {
+		return 0, fmt.Errorf("failed to batch associate tags: %w", err)
+	}
+	return affected, nil
+}
+
 // applyTaggingOperationInTx contains the switch logic for tag, settags, and untag.
 func (c *Client) applyTaggingOperationInTx(tx *database.Tx, hashes []string, tags []string, kind opKind) (int64, error) {
 	var affectedCount int64
 	switch kind {
 	case opTag:
-		if len(tags) > 0 {
-			parsedTags := make([]types.ParsedTag, len(tags))
-			for i, t := range tags {
-				parsedTags[i] = query.ParseTag(t)
-			}
-			tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
-			if err != nil {
-				return 0, fmt.Errorf("failed to get or create tags: %w", err)
-			}
-			tagIDs := make([]int64, 0, len(tags))
-			for _, tagStr := range tags {
-				tagIDs = append(tagIDs, tagIDMap[tagStr])
-			}
-			affected, err := c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
-			if err != nil {
-				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
-			}
-			affectedCount = affected
+		affected, err := c.associateTagsForContentHashes(tx, hashes, tags)
+		if err != nil {
+			return 0, err
 		}
+		affectedCount = affected
 	case opSetTags:
 		cleared, err := c.store.BatchClearTagsForContent(tx, hashes)
 		if err != nil {
 			return 0, fmt.Errorf("failed to batch clear tags: %w", err)
 		}
-		var associated int64
-		if len(tags) > 0 {
-			parsedTags := make([]types.ParsedTag, len(tags))
-			for i, t := range tags {
-				parsedTags[i] = query.ParseTag(t)
-			}
-			tagIDMap, err := c.store.BatchGetOrCreateTags(tx, parsedTags)
-			if err != nil {
-				return 0, fmt.Errorf("failed to get or create tags: %w", err)
-			}
-			tagIDs := make([]int64, 0, len(tags))
-			for _, tagStr := range tags {
-				tagIDs = append(tagIDs, tagIDMap[tagStr])
-			}
-			associated, err = c.store.BatchAssociateTagsForContentHashes(tx, hashes, tagIDs)
-			if err != nil {
-				return 0, fmt.Errorf("failed to batch associate tags: %w", err)
-			}
+		associated, err := c.associateTagsForContentHashes(tx, hashes, tags)
+		if err != nil {
+			return 0, err
 		}
 		affectedCount = cleared + associated
 	case opUntag:
