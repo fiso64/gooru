@@ -946,7 +946,7 @@ func TestNewTagCompletionUsesComponentPrefixesThroughHTTP(t *testing.T) {
 	if added.Code != http.StatusOK {
 		t.Fatalf("tag mutation failed: %d: %s", added.Code, added.Body.String())
 	}
-	for _, prefix := range []string{"test", "name", "val", "more"} {
+	for _, prefix := range []string{"test", "name", "val", "more", "test_name:more"} {
 		rec := httptest.NewRecorder()
 		server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/search/suggestions?q="+prefix+"&limit=10"))
 		if rec.Code != http.StatusOK {
