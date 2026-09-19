@@ -1631,6 +1631,10 @@ components:
           type: string
         url:
           type: string
+        preview:
+          type: string
+        lossless:
+          type: string
     ComicManifest:
       type: object
       required: [pages]
