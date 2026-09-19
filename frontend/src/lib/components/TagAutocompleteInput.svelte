@@ -110,7 +110,17 @@
 
   function handleKeydown(event: KeyboardEvent) {
     if (readOnly || event.isComposing) return;
-    if (viewerFileID && isEmptyViewerTagShortcut(event, viewerFileID)) return;
+    if (viewerFileID && isEmptyViewerTagShortcut(event, viewerFileID)) {
+      // Escape belongs to this input even when other non-text keys route to the viewer.
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        open = false;
+        suppressBlurCommit = true;
+        inputRef?.blur();
+      }
+      return;
+    }
     onKeydown?.(event);
     if (event.defaultPrevented) return;
     if (event.key === 'ArrowDown' && suggestions.length) {

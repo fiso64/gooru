@@ -154,11 +154,13 @@ test('viewer +/- mode control supports mouse toggling while punctuation remains 
   await expect(input).toBeFocused();
 
   await input.press('-');
-  await expect(input).toHaveValue('-');
+  input = page.getByRole('textbox', { name: 'Remove tags from one.jpg' });
   await expect(input).toBeFocused();
+  await expect(input).toHaveValue('');
   await input.press('+');
-  await expect(input).toHaveValue('-+');
-  await input.fill('');
+  input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('');
 
   await input.fill('rating:safe');
   await input.press('-');

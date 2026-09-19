@@ -32,6 +32,13 @@
   const candidates = $derived(mode === 'remove' ? existingTags.map((name: string) => ({ name })) : tags);
   const excluded = $derived(mode === 'remove' ? [] : existingTags);
 
+  function handleInputKeydown(event: KeyboardEvent) {
+    if (!onModeToggle || busy || draft || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key !== '+' && event.key !== '-') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if ((event.key === '-' && mode === 'add') || (event.key === '+' && mode === 'remove')) onModeToggle();
+  }
 
 </script>
 
@@ -70,6 +77,7 @@
       {onInput}
       {onCommit}
       viewerFileID={fileID}
+      onKeydown={handleInputKeydown}
     />
     {#if !draft}
       <span class="tag-mode-hint" aria-hidden="true">add <u>t</u>ag · <u>u</u>ntag</span>
