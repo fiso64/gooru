@@ -2405,6 +2405,7 @@ export interface components {
         MediaURLs: {
             thumbnail: string;
             preview: string;
+            lossless?: string;
             content: string;
             download: string;
         };
