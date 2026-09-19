@@ -9,7 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  portable:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gooru]
     env:
       GOTOOLCHAIN: local
@@ -22,13 +23,15 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Validate tag and canonical version
+      - name: Validate tag, version and release notes
+        if: github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
           version="$(tr -d '\n' < VERSION)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$GITHUB_REF_NAME" == "v$version" ]]
+          node scripts/release-notes.mjs > /dev/null
       - name: Test Go
         run: go test -count=1 ./...
       - name: Build frontend
@@ -56,15 +59,9 @@ jobs:
           for artifact in dist/*.tar.gz dist/*.zip; do
             sha256sum -c "$artifact.sha256"
           done
-      - name: Render versioned release notes
-        run: node scripts/release-notes.mjs > dist/release-notes.md
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          version="$(tr -d '\n' < VERSION)"
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/gooru_${version}_linux_amd64.tar.gz" \
-            "dist/gooru_${version}_linux_amd64.tar.gz.sha256" \
-            --verify-tag --notes-file dist/release-notes.md --title "$GITHUB_REF_NAME"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-portable
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
