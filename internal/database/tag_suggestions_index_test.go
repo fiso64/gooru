@@ -43,7 +43,7 @@ func TestListTagSuggestionsPreservesPrefixSemantics(t *testing.T) {
 	for _, item := range items {
 		got = append(got, item.Tag)
 	}
-	want := []string{"article", "artist:alice", "artwork:modern", "artist:bob"}
+	want := []string{"series:artist", "article", "artist:alice", "artwork:modern", "artist:bob"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("ListTagSuggestions(ArT) = %v, want %v", got, want)
 	}
