@@ -29,7 +29,7 @@
           value={model.search}
           suggestions={model.suggestions}
           metaTags={model.metaTags}
-          tags={model.tags}
+          tags={[]}
           onDraftInput={actions.onSearchDraft}
           onCommit={actions.onSearchCommit}
         />
