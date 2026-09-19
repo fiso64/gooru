@@ -73,11 +73,11 @@
   let comicController: AbortController | undefined;
   let navigationDirection: -1 | 1 = 1;
 
+  const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
   const originalAvailable = $derived(comicEntered && currentComicPage ? Boolean(currentComicPage.preview) : canUseOriginalInViewer(file));
   const previewAvailable = $derived(hasRuntimeCapability($runtimeConfig, runtimeCapability.previewImages));
   const effectivePreferOriginal = $derived(!previewAvailable || preferOriginal);
   const comicAvailable = $derived(isComicFile(file));
-  const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
   const imageSource = $derived(comicEntered ? comicPageSource(currentComicPage, effectivePreferOriginal, $runtimeConfig.preferLosslessFullImage) : viewerImageSource(file, effectivePreferOriginal, $runtimeConfig.preferLosslessFullImage));
   const sidebarMetadata = $derived.by(() => {
     const dimensionLabel = mediaDimensions(file);
