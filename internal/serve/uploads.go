@@ -843,8 +843,15 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 	if provider == nil {
 		provider = BasicMediaMetadataProvider{}
 	}
+	metadataRows := make([]types.MediaMetadata, 0, len(files))
+	persistMetadata := func() {
+		if len(metadataRows) > 0 {
+			_ = l.client.BatchUpsertMediaMetadata(metadataRows)
+		}
+	}
 	for _, location := range files {
 		if err := ctx.Err(); err != nil {
+			persistMetadata()
 			return
 		}
 		file, ok := filesByPath[location.Path]
@@ -860,7 +867,7 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 		if metadata.ImageWidth == nil && metadata.ImageHeight == nil && metadata.VideoWidth == nil && metadata.VideoHeight == nil && metadata.VideoDuration == nil && metadata.FrameCount == nil && metadata.PageCount == nil {
 			continue
 		}
-		_ = l.client.UpsertMediaMetadata(types.MediaMetadata{
+		metadataRows = append(metadataRows, types.MediaMetadata{
 			LocationID:      file.ID,
 			MediaKind:       mediaKind,
 			MimeType:        mediaType,
@@ -873,4 +880,5 @@ func (l *GooruLibrary) cacheImportedMediaMetadata(ctx context.Context, files []t
 			PageCount:       metadata.PageCount,
 		})
 	}
+	persistMetadata()
 }

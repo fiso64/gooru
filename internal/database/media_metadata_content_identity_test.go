@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -236,5 +237,100 @@ func TestMediaMetadataContentIdentityMigrationDeduplicatesLegacyLocations(t *tes
 		if got != "video" {
 			t.Fatalf("location %d metadata kind = %q", id, got)
 		}
+	}
+}
+
+func TestBatchUpsertMediaMetadataCrossesBindLimit(t *testing.T) {
+	store := newMemoryTestStore(t)
+	const columns = 11
+	count := maxVars/columns + 1
+	hashes := make([]string, count)
+	paths := make([]string, count)
+	locations := make(map[string]types.LocationInfo, count)
+	for i := range count {
+		hashes[i] = fmt.Sprintf("batch-metadata-%03d", i)
+		paths[i] = fmt.Sprintf("/library/batch-metadata-%03d.jpg", i)
+		locations[paths[i]] = types.LocationInfo{
+			Path:      paths[i],
+			Hash:      hashes[i],
+			Size:      1,
+			ModTime:   1,
+			Extension: ".jpg",
+		}
+	}
+	if err := store.BatchInsertContents(store, hashes); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BatchUpsertLocations(store, locations); err != nil {
+		t.Fatal(err)
+	}
+	filesByPath, err := store.GetFileInfosByPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	metadata := make([]types.MediaMetadata, 0, count)
+	for i, path := range paths {
+		file, ok := filesByPath[path]
+		if !ok {
+			t.Fatalf("missing file info for %q", path)
+		}
+		width := 100 + i
+		metadata = append(metadata, types.MediaMetadata{
+			LocationID: file.ID,
+			MediaKind:  "photo",
+			MimeType:   "image/jpeg",
+			ImageWidth: &width,
+		})
+	}
+	if err := store.BatchUpsertMediaMetadata(metadata); err != nil {
+		t.Fatal(err)
+	}
+
+	var rows int
+	if err := store.QueryRow("SELECT COUNT(*) FROM media_metadata").Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != count {
+		t.Fatalf("metadata rows = %d, want %d", rows, count)
+	}
+	last, err := store.GetMediaMetadata(filesByPath[paths[count-1]].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last.ImageWidth == nil || *last.ImageWidth != 100+count-1 {
+		t.Fatalf("last metadata = %#v", last)
+	}
+}
+
+func TestBatchUpsertMediaMetadataLastDuplicateContentWins(t *testing.T) {
+	store := newMemoryTestStore(t)
+	const hash = "batch-metadata-shared"
+	if _, err := store.Exec("INSERT INTO contents (hash) VALUES (?)", hash); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/library/batch-a.bin", "/library/batch-b.bin"} {
+		if _, err := store.Exec(`INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension)
+			VALUES ('file_' || lower(hex(randomblob(16))), ?, ?, 1, 1, '.bin')`, hash, path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := store.GetFileInfosByPaths([]string{"/library/batch-a.bin", "/library/batch-b.bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstWidth, lastWidth := 320, 1920
+	if err := store.BatchUpsertMediaMetadata([]types.MediaMetadata{
+		{LocationID: files["/library/batch-a.bin"].ID, MediaKind: "photo", MimeType: "image/jpeg", ImageWidth: &firstWidth},
+		{LocationID: files["/library/batch-b.bin"].ID, MediaKind: "video", MimeType: "video/mp4", ImageWidth: &lastWidth},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetMediaMetadata(files["/library/batch-a.bin"].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MediaKind != "video" || got.MimeType != "video/mp4" || got.ImageWidth == nil || *got.ImageWidth != lastWidth {
+		t.Fatalf("metadata after duplicate-content batch = %#v", got)
 	}
 }

@@ -201,6 +201,10 @@ func (c *Client) Close() error {
 	return nil
 }
 
+func (c *Client) BatchUpsertMediaMetadata(metadata []types.MediaMetadata) error {
+	return c.store.BatchUpsertMediaMetadata(metadata)
+}
+
 // resolvePath canonicalizes a path. If it's a virtual path, it resolves it to a real one.
 // If it doesn't exist, it returns the absolute path of the input to allow for clean
 // "file not found" errors later.
