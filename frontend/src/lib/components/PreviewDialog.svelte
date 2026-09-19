@@ -78,7 +78,7 @@
   const effectivePreferOriginal = $derived(!previewAvailable || preferOriginal);
   const comicAvailable = $derived(isComicFile(file));
   const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
-  const imageSource = $derived(comicEntered && currentComicPage ? currentComicPage.url : viewerImageSource(file, effectivePreferOriginal));
+  const imageSource = $derived(comicEntered && currentComicPage ? currentComicPage.url : viewerImageSource(file, effectivePreferOriginal, $runtimeConfig.preferLosslessFullImage));
   const sidebarMetadata = $derived.by(() => {
     const dimensionLabel = mediaDimensions(file);
     const pageLabel = file.metadata.page_count
@@ -148,7 +148,7 @@
 
     const neighbor = navigationDirection < 0 ? preloadPrev : preloadNext;
     if (!neighbor) return;
-    void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, effectivePreferOriginal)).catch(() => undefined);
+    void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, effectivePreferOriginal, $runtimeConfig.preferLosslessFullImage)).catch(() => undefined);
   }
 
   function focusTagInput(mode: 'add' | 'remove' = 'add') {
