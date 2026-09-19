@@ -185,7 +185,7 @@ export function reconcileExplicitTagMutationCache(
 export function createTagMutation(getCSRFToken: () => string, queryClient: QueryClient) {
   return createMutation<TagMutationResponse, Error, TagMutationVariables>(() => ({
     mutationFn: ({ operation, body }) => new ApiClient(getCSRFToken()).mutateTags(operation, body),
-    onSuccess: async (response, variables) => {
+    onSuccess: (response, variables) => {
       const reconciledUnfilteredPages = reconcileExplicitTagMutationCache(queryClient, variables, response);
       const fileRefresh = reconciledUnfilteredPages
         ? queryClient.invalidateQueries({
@@ -193,11 +193,11 @@ export function createTagMutation(getCSRFToken: () => string, queryClient: Query
             predicate: (query) => !isUnfilteredFilePagesQueryKey(query.queryKey)
           })
         : queryClient.invalidateQueries({ queryKey: fileKeys.all });
-      await Promise.all([
+      void Promise.all([
         fileRefresh,
         queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot }),
         queryClient.invalidateQueries({ queryKey: libraryKeys.suggestionsRoot })
-      ]);
+      ]).catch(() => undefined);
     }
   }));
 }
