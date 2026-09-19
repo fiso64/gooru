@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import { createSuggestionsQuery } from '$lib/queries/library';
   import { authState } from '$lib/stores/auth';
-  import { plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
+  import { mergeTagCandidateOccurrenceCounts, plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
 
   let {
@@ -11,6 +11,7 @@
     tags,
     existing = [],
     localOnly = false,
+    stagedCandidates = [],
     placeholder = 'add tag',
     disabled = false,
     readOnly = false,
@@ -26,6 +27,7 @@
     tags: TagCandidate[];
     existing?: string[];
     localOnly?: boolean;
+    stagedCandidates?: TagCandidate[];
     placeholder?: string;
     disabled?: boolean;
     readOnly?: boolean;
@@ -48,7 +50,10 @@
     () => existing.join(' '),
     () => $authState.user?.username ?? ''
   );
-  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, localOnly || !$authState.user ? tags : (indexedSuggestions.data?.items ?? []), existing));
+  const completionCandidates = $derived(localOnly || !$authState.user
+    ? tags
+    : mergeTagCandidateOccurrenceCounts(indexedSuggestions.data?.items ?? [], stagedCandidates));
+  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, completionCandidates, existing));
 
   $effect(() => {
     if (active >= suggestions.length) active = 0;
