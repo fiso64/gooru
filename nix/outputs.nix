@@ -73,34 +73,3 @@ in {
     inherit self nixpkgs supportedSystems;
   };
 }
- -v ./internal/serve
-        '';
-        # The Nix wrapper provides JPEG conversion and PDF rendering tools.
-        postFixup = ''
-          wrapProgram $out/bin/gooru --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libjpeg_turbo pkgs.poppler-utils ]}
-        '';
-        buildInputs = [ pkgs.vips ];
-
-        postInstall = ''
-          mkdir -p $out/share/gooru/frontend
-          cp -r ${frontend}/. $out/share/gooru/frontend/
-          mkdir -p $out/share/doc/gooru
-          cp LICENSE THIRD_PARTY_NOTICES.md $out/share/doc/gooru/
-        '';
-
-        meta = {
-          description = "Content-centric tool for tagging and organizing local files";
-          homepage = "https://github.com/fiso64/gooru";
-          license = pkgs.lib.licenses.agpl3Only;
-          mainProgram = "gooru";
-          platforms = supportedSystems;
-        };
-      };
-    });
-
-  nixosModules.default = import ./module.nix { inherit self; };
-
-  checks = import ./checks.nix {
-    inherit self nixpkgs supportedSystems;
-  };
-}
