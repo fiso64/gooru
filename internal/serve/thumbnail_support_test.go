@@ -13,6 +13,7 @@ func TestThumbnailSupportDeclaresProtectedAccessForEverySupportedKind(t *testing
 	}{
 		{name: "jpeg", path: "photo.jpg", kind: "photo", access: protectedThumbnailSource},
 		{name: "gif", path: "animation.gif", kind: "gif", access: protectedThumbnailSource},
+		{name: "pdf", path: "document.pdf", kind: "pdf", access: protectedThumbnailSource},
 		{name: "mp4", path: "video.mp4", kind: "video", access: protectedThumbnailSeekableVideo},
 		{name: "webm", path: "video.webm", kind: "video", access: protectedThumbnailSeekableVideo},
 		{name: "mkv", path: "video.mkv", kind: "video", access: protectedThumbnailSeekableVideo},
@@ -38,7 +39,7 @@ func TestThumbnailSupportDeclaresProtectedAccessForEverySupportedKind(t *testing
 func TestThumbnailSupportRejectsUndeclaredMediaKind(t *testing.T) {
 	t.Parallel()
 
-	if support, ok := thumbnailSupportForPath("document.pdf"); ok {
+	if support, ok := thumbnailSupportForPath("notes.txt"); ok {
 		t.Fatalf("unexpected thumbnail support declaration: %+v", support)
 	}
 }
