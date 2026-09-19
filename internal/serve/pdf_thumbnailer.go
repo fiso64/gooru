@@ -66,7 +66,7 @@ func (t pdfThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writ
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	var probe bytes.Buffer
-	if err := t.render(ctx, src, &probe, pdfProbeEdge, "png", pdfProbeMaxBytes); err != nil {
+	if err := t.renderPage(ctx, src, &probe, 1, pdfProbeEdge, "png", pdfProbeMaxBytes); err != nil {
 		return err
 	}
 	dimensions, _, err := image.DecodeConfig(bytes.NewReader(probe.Bytes()))
@@ -86,14 +86,14 @@ func (t pdfThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writ
 	if targetLongEdge < size {
 		targetLongEdge = size
 	}
-	return t.render(ctx, src, dst, targetLongEdge, format, pdfThumbnailMaxBytes)
+	return t.renderPage(ctx, src, dst, 1, targetLongEdge, format, pdfThumbnailMaxBytes)
 }
 
-func (t pdfThumbnailer) render(ctx context.Context, src io.ReadSeeker, dst io.Writer, longEdge int, format string, byteLimit int64) error {
+func (t pdfThumbnailer) renderPage(ctx context.Context, src io.ReadSeeker, dst io.Writer, page, longEdge int, format string, byteLimit int64) error {
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	args := []string{"-f", "1", "-l", "1", "-singlefile", "-scale-to", strconv.Itoa(longEdge)}
+	args := []string{"-f", strconv.Itoa(page), "-l", strconv.Itoa(page), "-singlefile", "-scale-to", strconv.Itoa(longEdge)}
 	if format == "jpeg" {
 		args = append(args, "-jpeg")
 	} else {
