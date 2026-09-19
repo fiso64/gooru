@@ -48,10 +48,18 @@ func (t pdfThumbnailer) ThumbnailSource(_ string, src io.ReadSeeker, dst io.Writ
 	defer cancel()
 	cmd := exec.CommandContext(ctx, t.path, args...)
 	cmd.Stdin = src
-	cmd.Stdout = dst
+	output := &pdfOutputCounter{Writer: dst}
+	cmd.Stdout = output
 	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
 		return &UnsupportedMediaError{Backend: "pdftoppm", Reason: "first-page rendering failed", Err: err}
 	}
+	if output.written == 0 { return &UnsupportedMediaError{Backend: "pdftoppm", Reason: "PDF renderer produced no image", Err: ErrUnsupportedMedia} }
 	return nil
+}
+type pdfOutputCounter struct { io.Writer; written int64 }
+func (w *pdfOutputCounter) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	w.written += int64(n)
+	return n, err
 }
