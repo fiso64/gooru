@@ -165,6 +165,22 @@ func TestComponentCompletionRegression(t *testing.T) {
 	for _, prefix := range []string{"test", "name", "val", "more", "MORE"} {
 		check(prefix, "test_name:value_more")
 	}
+	// A qualified value can start at a component boundary after '_'.
+	qualified, err := store.ListTagValueSuggestions("test_name", "more", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(qualified) != 1 || qualified[0].Tag != "test_name:value_more" {
+		t.Fatalf("qualified value component not suggested: %+v", qualified)
+	}
+	// The namespace/key component must not count as a value match.
+	keyOnly, err := store.ListTagValueSuggestions("test_name", "name", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keyOnly) != 0 {
+		t.Fatalf("namespace component leaked into qualified value suggestions: %+v", keyOnly)
+	}
 	if _, err := db.Exec("UPDATE tags SET value = 'changed_piece' WHERE id = ?", id); err != nil {
 		t.Fatal(err)
 	}
