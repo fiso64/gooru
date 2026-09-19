@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"image"
+	_ "image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,4 +78,50 @@ func TestPDFViewerRejectsOutOfRangePages(t *testing.T) {
 		server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, url+"?page="+value))
 		if rec.Code != http.StatusBadRequest { t.Fatalf("page %q: status %d", value, rec.Code) }
 	}
+}
+
+func TestProtectedPDFViewerRealPopplerGoldenPath(t *testing.T) {
+    info, err := exec.LookPath("pdfinfo")
+    if err != nil { t.Skip("pdfinfo is not installed") }
+    renderer, err := exec.LookPath("pdftoppm")
+    if err != nil { t.Skip("pdftoppm is not installed") }
+
+    pdf := tinyPDFDocument()
+    path := writeNamedMediaFile(t, "encrypted.pdf", pdf)
+    file := types.FileInfo{ID: 193, Path: path, Hash: "protected-pdf-real-poppler", Size: int64(len(pdf))}
+    server := protectedMediaTestServer(t, file)
+    encryptMediaFixture(t, path, server.cfg.Encryption.Key)
+    server.media.pdfViewer = &pdfViewerService{
+        renderer: pdfThumbnailer{path: renderer, version: "real-poppler-test"},
+        infoPath: info,
+    }
+    url := "/api/v1/files/" + fallbackPublicFileID(file.ID) + "/pdf"
+    manifestResponse := httptest.NewRecorder()
+    server.Handler().ServeHTTP(manifestResponse, authedRequest(http.MethodGet, url))
+    if manifestResponse.Code != http.StatusOK {
+        t.Fatalf("real PDF manifest: %d %s", manifestResponse.Code, manifestResponse.Body.String())
+    }
+    var manifest pdfDocumentManifest
+    if err := json.Unmarshal(manifestResponse.Body.Bytes(), &manifest); err != nil { t.Fatal(err) }
+    if manifest.PageCount != 1 || manifest.PageURLPrefix != url+"?page=" {
+        t.Fatalf("real PDF manifest: %+v", manifest)
+    }
+    response := httptest.NewRecorder()
+    server.Handler().ServeHTTP(response, authedRequest(http.MethodGet, manifest.PageURLPrefix+"1"))
+    if response.Code != http.StatusOK {
+        t.Fatalf("real PDF raster: %d %s", response.Code, response.Body.String())
+    }
+    if response.Header().Get("Content-Type") != "image/png" || response.Header().Get("Cache-Control") != "private, no-store" {
+        t.Fatalf("unsafe PDF raster headers: %v", response.Header())
+    }
+    dimensions, format, err := image.DecodeConfig(bytes.NewReader(response.Body.Bytes()))
+    if err != nil { t.Fatalf("real PDF raster invalid: %v", err) }
+    if format != "png" || dimensions.Width < 1 || dimensions.Height < 1 {
+        t.Fatalf("real PDF raster format %q size %dx%d", format, dimensions.Width, dimensions.Height)
+    }
+    invalid := httptest.NewRecorder()
+    server.Handler().ServeHTTP(invalid, authedRequest(http.MethodGet, manifest.PageURLPrefix+"2"))
+    if invalid.Code == http.StatusOK {
+        t.Fatal("out-of-document page must not return a raster")
+    }
 }
