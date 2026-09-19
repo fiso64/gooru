@@ -118,6 +118,31 @@ test('viewer tag input dismisses completions before blur, does not commit on blu
 });
 
 
+test('confirmed viewer tag appears while tag-index refresh is pending', async ({ page }) => {
+  const requests = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  let finish: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { finish = () => resolve(); });
+  let refreshing = false;
+  await page.route('**/api/v1/tags?**', async (route) => {
+    if (requests.length) {
+      refreshing = true;
+      await gate;
+    }
+    await route.fallback();
+  });
+  try {
+    const input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+    await input.fill('fresh-tag');
+    await input.press('Enter');
+    await expect.poll(() => requests.length).toBe(1);
+    await expect.poll(() => refreshing).toBe(true);
+    await expect(page.getByRole('button', { name: 'Search for fresh-tag' })).toBeVisible();
+  } finally {
+    finish();
+  }
+});
+
 test('Tab inserts a highlighted viewer suggestion without committing it; Enter commits the draft', async ({ page }) => {
   const tagRequests = await mockApp(page);
   await page.getByRole('button', { name: 'Preview one.jpg' }).click();
