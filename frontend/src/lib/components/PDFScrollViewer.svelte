@@ -20,6 +20,7 @@
   let error = $state('');
   let sentinel = $state<HTMLDivElement | undefined>();
   let firstPagePresented = false;
+  let loadedPages = $state(new Set<number>());
   // The viewport, rather than the PDF document itself, owns scrolling.
 
   onMount(() => {
@@ -62,6 +63,7 @@
   });
 
   function presented(page: number) {
+    loadedPages = new Set([...loadedPages, page]);
     if (page !== 1 || firstPagePresented) return;
     firstPagePresented = true;
     onReady();
@@ -82,7 +84,7 @@
   {:else if pageCount}
     <div class="pdf-scroll-pages">
       {#each Array.from({ length: shownCount }, (_, index) => index + 1) as page (page)}
-        <figure class="pdf-scroll-page">
+        <figure class="pdf-scroll-page" class:loaded={loadedPages.has(page)}>
           <img
             src={`${pagePrefix}${page}`}
             alt={`${fileName}, page ${page} of ${pageCount}`}
@@ -105,6 +107,7 @@
   .pdf-scroll-viewport { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; padding: 20px 56px; background: #292929; }
   .pdf-scroll-pages { display: flex; flex-direction: column; align-items: center; gap: 18px; }
   .pdf-scroll-page { margin: 0; width: min(100%, 1200px); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .pdf-scroll-page:not(.loaded) { min-height: min(75vh, 900px); }
   .pdf-scroll-page img { display: block; max-width: 100%; height: auto; background: white; box-shadow: 0 2px 12px #0007; }
   .pdf-scroll-page figcaption { font-size: 12px; color: #eee; }
   .pdf-scroll-status, .pdf-scroll-next { color: #fff; text-align: center; }
