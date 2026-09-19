@@ -41,7 +41,7 @@ in {
         # The optional JPEG display derivative is enabled by default; ship the
         # coefficient-domain converter with the packaged server.
         postFixup = ''
-          wrapProgram $out/bin/gooru --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libjpeg_turbo ]}
+          wrapProgram $out/bin/gooru --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libjpeg_turbo pkgs.poppler-utils ]}
         '';
         buildInputs = [ pkgs.vips ];
 
