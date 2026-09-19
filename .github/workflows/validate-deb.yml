@@ -1,0 +1,94 @@
+name: Debian packages
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/validate-deb.yml'
+      - 'scripts/build-deb.sh'
+      - 'go.mod'
+      - 'go.sum'
+      - 'frontend/**'
+      - 'VERSION'
+      - 'systemd/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deb:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install native Debian build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvips-dev pkg-config dpkg-dev
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci --no-audit
+          npm run build
+      - name: Build native Debian package and verify dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-deb.sh
+          version="$(tr -d '\n' < VERSION)"
+          artifact="dist/gooru_${version}_linux_${{ matrix.arch }}.deb"
+          test "$(dpkg-deb -f "$artifact" Architecture)" = "${{ matrix.arch }}"
+          dpkg-deb -f "$artifact" Depends | grep -F libvips
+          sha256sum -c "$artifact.sha256"
+          dpkg-deb -c "$artifact" | grep -F '/usr/share/gooru/frontend/index.html'
+          dpkg-deb -c "$artifact" | grep -F '/lib/systemd/system/gooru@.service'
+          stage="$(mktemp -d)"
+          trap 'rm -rf "$stage"' EXIT
+          dpkg-deb -x "$artifact" "$stage"
+          ldd "$stage/usr/bin/gooru" | grep -F libvips.so
+          "$stage/usr/bin/gooru" version
+          # Exercise the extracted package, not the checkout frontend.
+          # A broken frontend_dir or missing runtime assets must fail packaging CI.
+          package_db="$stage/package-test.db"
+          "$stage/usr/bin/gooru" --database "$package_db" init --hashing-strategy partial
+          printf 'server:\n  frontend_dir: %s/usr/share/gooru/frontend\n' "$stage" > "$stage/package-serve.yaml"
+          (
+            cd "$stage"
+            "$stage/usr/bin/gooru" --database "$package_db" --config "$stage/package-serve.yaml" serve --listen 127.0.0.1:45734 >"$stage/serve.log" 2>&1 &
+            pid=$!
+            trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
+            ready=0
+            for _ in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:45734/ >"$stage/index.html" 2>/dev/null; then ready=1; break; fi
+              if ! kill -0 "$pid" 2>/dev/null; then break; fi
+              sleep 0.5
+            done
+            if (( ready == 0 )); then cat "$stage/serve.log"; exit 1; fi
+            grep -Eiq '<!doctype html|<html' "$stage/index.html"
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: |
+            dist/*.deb
+            dist/*.deb.sha256
+          if-no-files-found: error
+          retention-days: 7
