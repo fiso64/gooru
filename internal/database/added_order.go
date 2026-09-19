@@ -13,40 +13,19 @@ import (
 // Existing location identity keeps its original added timestamp/order on path
 // conflict, matching BatchUpsertLocations' historical insertion-time semantics.
 func (s *Store) BatchUpsertLocationsWithAddedOrder(q Querier, locations map[string]types.LocationInfo, addedOrderByPath map[string]int64) error {
-	if len(locations) == 0 {
-		return nil
-	}
 	const columns = 7 // content_hash, path, size_bytes, mod_time, added_at, added_order, extension
-
-	locs := make([]types.LocationInfo, 0, len(locations))
-	for _, loc := range locations {
-		locs = append(locs, loc)
-	}
-
 	const rowPlaceholders = "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?)"
-	batchStart := 0
-	for placeholders, args := range bindRowBatches(locs, rowPlaceholders, columns, func(args []any, loc types.LocationInfo, _ int) {
-		args[0], args[1], args[2] = loc.Hash, loc.Path, loc.Size
-		args[3], args[4], args[5], args[6] = loc.ModTime, loc.AddedAt, addedOrderByPath[loc.Path], loc.Extension
-	}) {
-		batchEnd := batchStart + len(args)/columns
-		batch := locs[batchStart:batchEnd]
-		query := `INSERT INTO locations (public_id, content_hash, path, size_bytes, mod_time, added_at, added_order, extension) VALUES ` +
-			placeholders +
-			` ON CONFLICT(path) DO UPDATE SET
-				content_hash=excluded.content_hash,
-				size_bytes=excluded.size_bytes,
-				mod_time=excluded.mod_time,
-				extension=excluded.extension`
-		if _, err := q.Exec(query, args...); err != nil {
-			return err
-		}
-		if err := s.upsertManagedStorageLocations(q, batch); err != nil {
-			return err
-		}
-		batchStart = batchEnd
-	}
-	return nil
+	return s.batchUpsertLocations(
+		q,
+		locations,
+		"public_id, content_hash, path, size_bytes, mod_time, added_at, added_order, extension",
+		rowPlaceholders,
+		columns,
+		func(args []any, loc types.LocationInfo) {
+			args[0], args[1], args[2] = loc.Hash, loc.Path, loc.Size
+			args[3], args[4], args[5], args[6] = loc.ModTime, loc.AddedAt, addedOrderByPath[loc.Path], loc.Extension
+		},
+	)
 }
 
 func (s *Store) addedOrderCursorClause(cursor *types.PageCursor, order string) (string, []interface{}, error) {
