@@ -127,7 +127,7 @@ func (m *MediaService) serveComicPageDerivative(w http.ResponseWriter, r *http.R
     w.Header().Set("X-Gooru-Cache", artifact.CacheStatus)
     w.Header().Set("X-Content-Type-Options", "nosniff")
     w.Header().Set("Content-Type", mimeForDerivative(format))
-    w.Header().Set("Cache-Control", artifact.CacheControl)
+    w.Header().Set("Cache-Control", "private, no-store")
     if artifact.CacheControl == "private, no-store" {
         w.Header().Set("Pragma", "no-cache")
         w.Header().Set("Expires", "0")
