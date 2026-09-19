@@ -2098,6 +2098,9 @@ components:
           type: string
         preview:
           type: string
+        lossless:
+          type: string
+          description: Optional lossless display derivative, absent when unavailable.
         content:
           type: string
         download:
