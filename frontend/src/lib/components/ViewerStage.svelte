@@ -5,7 +5,7 @@
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
   import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
-  import { preserveNativeViewerSize, type ViewerStageMedia } from '$lib/utils/media';
+  import { isPDFViewerMedia, preserveNativeViewerSize, type ViewerStageMedia } from '$lib/utils/media';
   import { recordViewerPresentation, recordViewerRequest } from '$lib/utils/viewerPerformance';
   import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerConfiguredFitMode, type ViewerFitMode } from '$lib/utils/viewer';
 
@@ -148,6 +148,7 @@
   const dragPanAvailable = $derived(
     renderedFile.media_kind !== 'video'
     && renderedFile.media_kind !== 'audio'
+    && !isPDFViewerMedia(renderedFile)
     && !renderedFile.media_type.startsWith('audio/')
     && (panLimits.x > 0.5 || panLimits.y > 0.5)
   );
@@ -239,7 +240,7 @@
     }
     if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
 
-    const rendersImage = viewerSupportsFile(targetFile) && targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(targetFile) && !isPDFViewerMedia(targetFile) && targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
       // Once rapid navigation has frozen a committed frame, keep that exact snapshot until the
       // latest requested target is presentable. Re-freezing from an in-flight <img> can capture
@@ -274,7 +275,7 @@
   $effect(() => {
     const nextFile = renderedFile;
     renderedImageSource;
-    const rendersImage = viewerSupportsFile(nextFile) && nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(nextFile) && !isPDFViewerMedia(nextFile) && nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
     // Image transitions install target metadata geometry while the presentation shield preserves old pixels separately.
     // Non-image media waits for its own metadata path and starts with no image geometry.
     if (!rendersImage) {
@@ -626,7 +627,7 @@
   }
 
   function handleViewerWheel(event: WheelEvent) {
-    if (renderedFile.media_kind === 'audio' || renderedFile.media_type.startsWith('audio/')) return;
+    if (renderedFile.media_kind === 'audio' || isPDFViewerMedia(renderedFile) || renderedFile.media_type.startsWith('audio/')) return;
     const stage = stageElement;
     const viewport = panViewportElement;
     if (!stage || !viewport) return;
