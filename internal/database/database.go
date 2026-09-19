@@ -1370,7 +1370,6 @@ func (s *Store) batchUpsertLocations(
 		}
 	}
 	return insertBatch(batch)
-
 }
 
 func (s *Store) upsertManagedStorageLocations(q Querier, locations []types.LocationInfo) error {
