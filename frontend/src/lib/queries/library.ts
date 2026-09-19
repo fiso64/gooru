@@ -66,7 +66,8 @@ export function createSuggestionsQuery(
       queryFn: ({ signal }) => new ApiClient().searchSuggestions(draft, 10, existing, signal),
       staleTime: 30_000,
       placeholderData: (previousData, previousQuery) =>
-        getAuthenticated() && previousQuery?.queryKey[2] === scope ? previousData : undefined
+        getAuthenticated() && previousQuery?.queryKey[2] === scope && previousQuery?.queryKey[4] === existing
+          ? previousData : undefined
     };
   });
 }
