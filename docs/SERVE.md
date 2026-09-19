@@ -139,7 +139,7 @@ See [CONFIG.md#encryption](CONFIG.md#encryption) for the complete rules.
 
 ## Media tooling
 
-A default source build includes a pure-Go image thumbnail path. Video thumbnails require `ffmpeg`; `ffprobe` is also used for media inspection/cache versioning.
+A default source build includes a pure-Go image thumbnail path. Video thumbnails require `ffmpeg`; `ffprobe` is also used for media inspection/cache versioning. PDF first-page thumbnails require the optional Poppler `pdftoppm` executable on the server's `PATH`; without it, PDFs remain available as original files but PDF thumbnail generation returns `unsupported_media`. PDF scrolling in the WebUI is not yet supported.
 
 To build with libvips as the primary image thumbnail backend:
 
