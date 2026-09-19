@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	"image/jpeg"
-	"image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -376,17 +373,5 @@ func thumbnailComicArchiveFirstPage(archive *comicArchive, dst io.Writer, size i
 		return err
 	}
 	defer reader.Close()
-	img, _, err := image.Decode(io.LimitReader(reader, maxComicPageBytes))
-	if err != nil {
-		return fmt.Errorf("%w: decode first comic page: %v", ErrUnsupportedMedia, err)
-	}
-	resized := scaleImage(img, size)
-	switch format {
-	case "jpeg":
-		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: derivativeJPEGQuality})
-	case "png":
-		return png.Encode(dst, resized)
-	default:
-		return fmt.Errorf("%w: thumbnail format %q", ErrUnsupportedMedia, format)
-	}
+	return encodeResizedImage(io.LimitReader(reader, maxComicPageBytes), dst, size, format, derivativeJPEGQuality)
 }

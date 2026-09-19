@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/jpeg"
-	"image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -77,19 +75,7 @@ func (GoImageThumbnailer) ThumbnailSourceQuality(name string, src io.ReadSeeker,
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	img, _, err := image.Decode(src)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrUnsupportedMedia, err)
-	}
-	resized := scaleImage(img, size)
-	switch format {
-	case "jpeg":
-		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: quality})
-	case "png":
-		return png.Encode(dst, resized)
-	default:
-		return fmt.Errorf("%w: thumbnail format %q", ErrUnsupportedMedia, format)
-	}
+	return encodeResizedImage(src, dst, size, format, quality)
 }
 
 type MediaService struct {

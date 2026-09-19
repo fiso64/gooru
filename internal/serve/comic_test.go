@@ -302,3 +302,28 @@ func TestMediaServiceGeneratesCBZDerivative(t *testing.T) {
 		t.Fatalf("thumbnail size = %v, want %v", got, want)
 	}
 }
+
+func TestComicCoverAndStandaloneStreamDerivativeParity(t *testing.T) {
+	source := tinyPNG(t, 48, 36, color.RGBA{R: 150, G: 80, B: 20, A: 255})
+	path := writeComic(t, map[string][]byte{"1.png": source})
+	archive, err := openComicArchive(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Close()
+
+	for _, format := range []string{"jpeg", "png"} {
+		t.Run(format, func(t *testing.T) {
+			var comicOutput, standaloneOutput bytes.Buffer
+			if err := thumbnailComicArchiveFirstPage(archive, &comicOutput, 16, format); err != nil {
+				t.Fatal(err)
+			}
+			if err := encodeResizedImage(bytes.NewReader(source), &standaloneOutput, 16, format, derivativeJPEGQuality); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(comicOutput.Bytes(), standaloneOutput.Bytes()) {
+				t.Fatal("comic and standalone image stream derivatives differ")
+			}
+		})
+	}
+}
