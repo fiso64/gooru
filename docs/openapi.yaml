@@ -526,6 +526,29 @@ paths:
           $ref: "#/components/responses/NotFound"
         "415":
           $ref: "#/components/responses/UnsupportedMedia"
+  /files/{id}/lossless:
+    get:
+      summary: Get the optional lossless baseline JPEG display derivative of a tracked progressive JPEG.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lossless JPEG display derivative retaining APP/COM metadata.
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /files/{id}/content:
     get:
       summary: Stream original content for a tracked file.
