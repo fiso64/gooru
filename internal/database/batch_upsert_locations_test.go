@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -110,5 +111,39 @@ func TestBatchUpsertLocationsBatchesManagedStorageWrites(t *testing.T) {
 	}
 	if _, exists := got[externalPath]; exists {
 		t.Fatalf("blank StoragePath unexpectedly created managed mapping for %q", externalPath)
+	}
+}
+
+func TestBatchUpsertLocationsManagedStorageAcrossBindBoundary(t *testing.T) {
+	store := newMemoryTestStore(t)
+	if err := store.BatchInsertContents(store.DB, []string{"hash"}); err != nil {
+		t.Fatalf("seed content: %v", err)
+	}
+
+	const columns = 6 // content_hash, path, size_bytes, mod_time, added_at, extension
+	const count = maxVars/columns + 1
+	locations := make(map[string]types.LocationInfo, count)
+	for i := 0; i < count; i++ {
+		path := fmt.Sprintf("/library/file-%03d.jpg", i)
+		locations[path] = types.LocationInfo{
+			Path: path, Hash: "hash", StoragePath: fmt.Sprintf("/managed/file-%03d.jpg", i),
+			Size: int64(i + 1), Extension: ".jpg",
+		}
+	}
+
+	counting := &managedStorageExecCountingQuerier{Querier: store.DB}
+	if err := store.BatchUpsertLocations(counting, locations); err != nil {
+		t.Fatalf("batch upsert over bind boundary: %v", err)
+	}
+	if counting.managedExecs != 2 {
+		t.Fatalf("managed storage Exec calls = %d, want 2 across bind boundary", counting.managedExecs)
+	}
+
+	var got int
+	if err := store.QueryRow("SELECT COUNT(*) FROM managed_storage_locations").Scan(&got); err != nil {
+		t.Fatalf("count managed mappings: %v", err)
+	}
+	if got != count {
+		t.Fatalf("managed mappings = %d, want %d", got, count)
 	}
 }
