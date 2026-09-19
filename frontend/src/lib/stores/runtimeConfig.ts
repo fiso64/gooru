@@ -22,6 +22,7 @@ export type RuntimeConfig = {
   uiTheme: UITheme;
   capabilities: string[];
   loadFullMediaByDefault: boolean;
+  preferLosslessFullImage: boolean;
   fullscreenMediaByDefault: boolean;
   hoverPlayVideos: boolean;
   hoverPlayGifs: boolean;
@@ -72,6 +73,7 @@ export const runtimeConfig = writable<RuntimeConfig>({
   uiTheme: 'default',
   capabilities: [runtimeCapability.previewImages],
   loadFullMediaByDefault: false,
+  preferLosslessFullImage: true,
   fullscreenMediaByDefault: false,
   hoverPlayVideos: true,
   hoverPlayGifs: true,
