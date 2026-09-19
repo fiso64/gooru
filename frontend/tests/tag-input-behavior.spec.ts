@@ -117,6 +117,49 @@ test('viewer tag input dismisses completions before blur, does not commit on blu
   expect(tagRequests[0]).toMatchObject({ method: 'POST', body: { file_ids: ['one'], tags: ['tech'] } });
 });
 
+
+test('Tab inserts a highlighted viewer suggestion without committing it; Enter commits the draft', async ({ page }) => {
+  const tagRequests = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+
+  const input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await input.fill('tech');
+  const suggestions = page.getByRole('listbox', { name: 'Tags for one.jpg suggestions' });
+  await expect(suggestions.getByRole('option').first()).toContainText('technology');
+
+  await input.press('Tab');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('technology');
+  await expect(suggestions).toBeHidden();
+  expect(tagRequests).toHaveLength(0);
+
+  await input.press('Enter');
+  await expect.poll(() => tagRequests.length).toBe(1);
+  expect(tagRequests[0]).toMatchObject({ method: 'POST', body: { file_ids: ['one'], tags: ['technology'] } });
+});
+
+test('Tab completes a bulk-tag suggestion in the editor, without staging or submitting it', async ({ page }) => {
+  const tagRequests = await mockApp(page);
+  await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();
+  await page.getByRole('button', { name: 'Tag…' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Tag selected files' });
+  const input = dialog.getByRole('textbox', { name: 'Tags' });
+  await input.fill('tech');
+  const suggestions = dialog.getByRole('listbox', { name: 'Tags suggestions' });
+  await expect(suggestions.getByRole('option').first()).toContainText('technology');
+
+  await input.press('Tab');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('technology');
+  await expect(suggestions).toBeHidden();
+  expect(tagRequests).toHaveLength(0);
+
+  await input.press('Enter');
+  await expect(dialog.getByText('technology', { exact: true })).toBeVisible();
+  expect(tagRequests).toHaveLength(0);
+});
+
 test('tag modal keeps open on first Escape and Space commits the literal prefix', async ({ page }) => {
   await mockApp(page);
   await page.getByRole('checkbox', { name: 'Select one.jpg' }).click();

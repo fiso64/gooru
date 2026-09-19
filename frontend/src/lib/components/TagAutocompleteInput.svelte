@@ -137,7 +137,13 @@
     }
     if ((event.key === 'Enter' || event.key === 'Tab') && open && suggestions[active]) {
       event.preventDefault();
-      selectSuggestion(suggestions[active]);
+      if (event.key === 'Tab') {
+        onInput(suggestions[active].name);
+        open = suggestions[active].kind === 'namespace';
+        active = 0;
+      } else {
+        selectSuggestion(suggestions[active]);
+      }
       return;
     }
     if ((event.key === 'Enter' || event.key === ' ') && value.trim()) {
