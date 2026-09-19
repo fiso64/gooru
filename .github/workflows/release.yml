@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   portable:
@@ -154,14 +154,34 @@ jobs:
       - name: Install Nix on native arm64
         if: matrix.system == 'aarch64-linux'
         uses: cachix/install-nix-action@v31
+      - name: Configure Cachix publication for release tags
+        if: github.event_name == 'push'
+        uses: cachix/cachix-action@v17
+        with:
+          name: ${{ vars.CACHIX_CACHE_NAME }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: true
       - name: Build native Nix package and module check
         run: |
-          nix build .#packages.${{ matrix.system }}.default --print-build-logs
-          nix build .#checks.${{ matrix.system }}.nixos-module --print-build-logs
+          nix build .#packages.${{ matrix.system }}.default --out-link result --print-build-logs
+          nix build .#checks.${{ matrix.system }}.nixos-module --no-link --print-build-logs
+      - name: Publish native package and runtime closure to Cachix
+        if: github.event_name == 'push'
+        env:
+          CACHIX_CACHE_NAME: ${{ vars.CACHIX_CACHE_NAME }}
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CACHIX_CACHE_NAME"
+          test -n "$CACHIX_AUTH_TOKEN"
+          cachix push "$CACHIX_CACHE_NAME" "$(readlink -f result)"
 
   assemble:
     needs: [portable, deb, nix]
     runs-on: [self-hosted, gooru]
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -180,3 +200,14 @@ jobs:
           node-version: 24
       - name: Render release notes
         run: node scripts/release-notes.mjs > "$RUNNER_TEMP/release-notes.md"
+      - name: Publish verified packages and checksums as GitHub Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\\n' < VERSION)"
+          [[ "$GITHUB_REF_NAME" == "v$version" ]]
+          gh release create "$GITHUB_REF_NAME" dist/* \\
+            --verify-tag --notes-file "$RUNNER_TEMP/release-notes.md" --title "$GITHUB_REF_NAME"
