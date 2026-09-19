@@ -9,6 +9,7 @@ import (
 
 // Eligibility is checked using the logical source, not a raw filesystem path.
 func (m *MediaService) losslessJPEGAvailable(file types.FileInfo) bool {
+	if m == nil { return false }
 	if !m.cfg.Media.LosslessJPEGTranscode || m.losslessJPEGTool == "" ||
 		file.Hash == "" || mediaTypeForPath(file.Path) != "image/jpeg" {
 		return false
