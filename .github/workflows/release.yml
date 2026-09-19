@@ -149,8 +149,21 @@ jobs:
           retention-days: 7
 
   nix:
-    runs-on: [self-hosted, gooru]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: [self-hosted, gooru]
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - name: Build Nix package
-        run: nix build .#packages.x86_64-linux.default --print-build-logs
+      - name: Install Nix on native arm64
+        if: matrix.system == 'aarch64-linux'
+        uses: cachix/install-nix-action@v31
+      - name: Build native Nix package and module check
+        run: |
+          nix build .#packages.${{ matrix.system }}.default --print-build-logs
+          nix build .#checks.${{ matrix.system }}.nixos-module --print-build-logs
