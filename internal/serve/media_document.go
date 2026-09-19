@@ -48,6 +48,10 @@ func applyOriginalDocumentContentPolicy(w http.ResponseWriter, file types.FileIn
 
 func setOriginalDocumentInlineHeaders(w http.ResponseWriter, file types.FileInfo, contentType string) {
 	w.Header().Set("Content-Type", contentType)
+	if contentType == "application/pdf" {
+		// Only PDFs may be framed by the same-origin document viewer.
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'; base-uri 'self'; form-action 'self'")
+	}
 	// ServeDownload installs attachment before delegating to ServeContent. Never
 	// overwrite it, otherwise the explicit download action would stop downloading.
 	if w.Header().Get("Content-Disposition") == "" {
