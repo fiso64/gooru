@@ -918,3 +918,24 @@ func (errorLibrary) GetFile(_ context.Context, _ int64) (types.FileInfo, error) 
 func (errorLibrary) ListTags(_ context.Context, _ bool, _ int) ([]TagDTO, error) {
 	return nil, nil
 }
+
+func TestNewTagCompletionUsesComponentPrefixesThroughHTTP(t *testing.T) {
+ server, cleanup := newTestBrowseServer(t)
+ defer cleanup()
+ page := listTestFiles(t, server, "kind:image", 1)
+ added := httptest.NewRecorder()
+ server.Handler().ServeHTTP(added, authedJSONRequest(http.MethodPost, "/api/v1/files/tags", `{"file_ids":["`+page.Files[0].ID+`"],"tags":["test_name:value_more"]}`))
+ if added.Code != http.StatusOK {
+  t.Fatalf("tag mutation failed: %d: %s", added.Code, added.Body.String())
+ }
+ for _, prefix := range []string{"test", "name", "val", "more"} {
+  rec := httptest.NewRecorder()
+  server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/search/suggestions?q="+prefix+"&limit=10"))
+  if rec.Code != http.StatusOK { t.Fatalf("lookup %q: %d: %s", prefix, rec.Code, rec.Body.String()) }
+  var response SuggestionsResponse
+  if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil { t.Fatal(err) }
+  if !containsString(tagNames(response.Items), "test_name:value_more") {
+   t.Fatalf("newly added tag absent from %q suggestions: %+v", prefix, response.Items)
+  }
+ }
+}
