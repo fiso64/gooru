@@ -38,6 +38,7 @@ in {
           "-X=gooru.local/internal/buildinfo.Development=true"
         ];
         nativeBuildInputs = [ pkgs.pkg-config pkgs.makeWrapper ];
+        nativeCheckInputs = [ pkgs.poppler-utils ];
         # The Nix wrapper provides JPEG conversion and PDF rendering tools.
         postFixup = ''
           wrapProgram $out/bin/gooru --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libjpeg_turbo pkgs.poppler-utils ]}
