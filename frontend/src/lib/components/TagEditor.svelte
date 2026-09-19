@@ -53,7 +53,7 @@
   const candidates = $derived(mode === 'remove'
     ? existingTags.map((name: string) => ({ name }))
     : remoteCandidates?.fileID === fileID && remoteCandidates?.draft === draft.trim()
-      ? remoteCandidates.items
+      ? remoteCandidates!.items
       : tags);
   const excluded = $derived(mode === 'remove' ? [] : existingTags);
 
