@@ -28,7 +28,7 @@ const file = {
 async function mockApp(page: Page, loadFullMediaByDefault: boolean, capabilities: string[] = ['preview_images'], lossless = false) {
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ load_full_media_by_default: loadFullMediaByDefault, capabilities })
+    body: JSON.stringify({ load_full_media_by_default: loadFullMediaByDefault, prefer_lossless_full_image: true, capabilities })
   }));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
