@@ -549,6 +549,56 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /files/{id}/pdf:
+    get:
+      summary: Get a PDF page manifest or a rendered page image for a tracked PDF.
+      description: When page is omitted, returns the bounded document page count and a URL prefix for page images. When page is supplied, returns a PNG raster of that page. Requires Poppler pdfinfo and pdftoppm on the server; logical media sources are used in protected mode. Responses are private and not stored by browsers in protected mode.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          description: One-based page number; omitting it requests the manifest.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10000
+      responses:
+        "200":
+          description: PDF page manifest when page is omitted, or a PNG image when page is present.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            X-Gooru-Cache:
+              description: Present for rendered page responses.
+              schema:
+                type: string
+                enum: [hit, miss]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PDFDocumentManifest"
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "415":
+          $ref: "#/components/responses/UnsupportedMedia"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /files/{id}/content:
     get:
       summary: Stream original content for a tracked file.
@@ -1620,6 +1670,17 @@ components:
             message:
               type: string
             details: {}
+    PDFDocumentManifest:
+      type: object
+      required: [page_count, page_url_prefix]
+      properties:
+        page_count:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        page_url_prefix:
+          type: string
+          description: Same-origin authenticated PDF image endpoint prefix ending in ?page=.
     ComicPage:
       type: object
       required: [index, name, url]
@@ -2128,6 +2189,9 @@ components:
         lossless:
           type: string
           description: Optional lossless display derivative, absent when unavailable.
+        pdf:
+          type: string
+          description: Optional authenticated PDF manifest/page endpoint, absent when the PDF viewer tools are unavailable.
         content:
           type: string
         download:
