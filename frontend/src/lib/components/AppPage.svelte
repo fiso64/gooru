@@ -19,7 +19,6 @@
     font_style?: FontStyle;
     font_style_configured?: boolean;
     load_full_media_by_default?: boolean;
-    prefer_lossless_full_image?: boolean;
     fullscreen_media_by_default?: boolean;
     hover_play_videos?: boolean;
     hover_play_gifs?: boolean;
@@ -67,7 +66,6 @@
       uiTheme: runtimeTheme,
       capabilities: Array.isArray(config.capabilities) ? config.capabilities : [runtimeCapability.previewImages],
       loadFullMediaByDefault: config.load_full_media_by_default ?? false,
-      preferLosslessFullImage: config.prefer_lossless_full_image ?? true,
       fullscreenMediaByDefault: config.fullscreen_media_by_default ?? false,
       hoverPlayVideos: config.hover_play_videos ?? false,
       hoverPlayGifs: config.hover_play_gifs ?? true,

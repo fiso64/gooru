@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -75,7 +77,19 @@ func (GoImageThumbnailer) ThumbnailSourceQuality(name string, src io.ReadSeeker,
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	return encodeResizedImage(src, dst, size, format, quality)
+	img, _, err := image.Decode(src)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUnsupportedMedia, err)
+	}
+	resized := scaleImage(img, size)
+	switch format {
+	case "jpeg":
+		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: quality})
+	case "png":
+		return png.Encode(dst, resized)
+	default:
+		return fmt.Errorf("%w: thumbnail format %q", ErrUnsupportedMedia, format)
+	}
 }
 
 type MediaService struct {
@@ -87,7 +101,6 @@ type MediaService struct {
 	sourceResolverErr          error
 	derivatives                derivativeStore
 	derivativeStoreErr         error
-	losslessJPEGTool           string
 	comicMu                    sync.Mutex
 	comicCache                 map[string]*cachedComicArchive
 	comicTick                  uint64

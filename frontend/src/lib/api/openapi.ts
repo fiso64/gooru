@@ -818,46 +818,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/files/{id}/lossless": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get the optional lossless baseline JPEG display derivative of a tracked progressive JPEG. */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    id: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Lossless JPEG display derivative retaining APP/COM metadata. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "image/jpeg": string;
-                    };
-                };
-                401: components["responses"]["Unauthorized"];
-                404: components["responses"]["NotFound"];
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/files/{id}/content": {
         parameters: {
             query?: never;
@@ -2196,8 +2156,6 @@ export interface components {
             index: number;
             name: string;
             url: string;
-            preview?: string;
-            lossless?: string;
         };
         ComicManifest: {
             pages: components["schemas"]["ComicPage"][];
@@ -2418,7 +2376,7 @@ export interface components {
             modified_time: string;
             media_type: string;
             /** @enum {string} */
-            media_kind: "photo" | "video" | "gif" | "audio" | "comic" | "pdf" | "other";
+            media_kind: "photo" | "video" | "gif" | "audio" | "comic" | "other";
             /**
              * @description Backend-owned indication of whether the built-in viewer supports this media type.
              * @enum {string}
@@ -2447,8 +2405,6 @@ export interface components {
         MediaURLs: {
             thumbnail: string;
             preview: string;
-            /** @description Optional lossless display derivative, absent when unavailable. */
-            lossless?: string;
             content: string;
             download: string;
         };

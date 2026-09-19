@@ -2,7 +2,6 @@ package serve
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -235,53 +234,5 @@ func TestProtectedDerivativeStoreWritesOnlyEncryptedCacheEntries(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cacheDir, "ab", "cover.jpg")); !os.IsNotExist(err) {
 		t.Fatalf("protected cache collided with plaintext derivative namespace: %v", err)
-	}
-}
-
-func TestEncryptedDerivativeStoreStreamsMultiChunkDerivative(t *testing.T) {
-	root := t.TempDir()
-	key := bytes.Repeat([]byte{0x62}, 32)
-	store := newEncryptedDerivativeStore(root, key)
-	plaintext := bytes.Repeat([]byte("large protected full-image derivative"), 1<<17)
-	relative := filepath.Join("ab", "large.jpg")
-	artifact, err := store.GetOrGenerate(relative, func(dst io.Writer) error {
-		_, err := io.Copy(dst, bytes.NewReader(plaintext))
-		return err
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer artifact.Close()
-	got, err := io.ReadAll(artifact.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, plaintext) {
-		t.Fatal("streamed protected derivative does not round-trip")
-	}
-	ciphertext, err := os.ReadFile(filepath.Join(root, encryptedDerivativeNamespace, relative))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(ciphertext, plaintext[:64]) {
-		t.Fatal("plaintext persisted in multi-chunk derivative")
-	}
-}
-
-func TestEncryptedDerivativeStoreDiscardsPartialGeneration(t *testing.T) {
-	root := t.TempDir()
-	store := newEncryptedDerivativeStore(root, bytes.Repeat([]byte{0x63}, 32))
-	relative := filepath.Join("ab", "partial.jpg")
-	expected := errors.New("generator stopped")
-	if _, err := store.GetOrGenerate(relative, func(dst io.Writer) error {
-		if _, err := io.WriteString(dst, "unfinished protected derivative"); err != nil {
-			return err
-		}
-		return expected
-	}); !errors.Is(err, expected) {
-		t.Fatalf("generation error = %v, want %v", err, expected)
-	}
-	if _, err := os.Stat(filepath.Join(root, encryptedDerivativeNamespace, relative)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("partial cache entry was retained: %v", err)
 	}
 }

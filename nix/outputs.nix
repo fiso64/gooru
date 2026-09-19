@@ -37,12 +37,7 @@ in {
           "-X=gooru.local/internal/buildinfo.Dirty=${dirty}"
           "-X=gooru.local/internal/buildinfo.Development=true"
         ];
-        nativeBuildInputs = [ pkgs.pkg-config pkgs.makeWrapper ];
-        # The optional JPEG display derivative is enabled by default; ship the
-        # coefficient-domain converter with the packaged server.
-        postFixup = ''
-          wrapProgram $out/bin/gooru --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libjpeg_turbo ]}
-        '';
+        nativeBuildInputs = [ pkgs.pkg-config ];
         buildInputs = [ pkgs.vips ];
 
         postInstall = ''
