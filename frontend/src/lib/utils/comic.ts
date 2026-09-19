@@ -13,7 +13,7 @@ export function comicPageAt(manifest: ComicManifest | null, index: number): Comi
 
 export function comicPageSource(page: ComicPage | null, preferOriginal: boolean, preferLossless = true): string {
   if (!page) return '';
-  if (!preferOriginal && page.preview) return page.preview;
+  if (!preferOriginal) return page.preview || page.url;
   return preferLossless && page.lossless ? page.lossless : page.url;
 }
 
