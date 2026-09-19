@@ -74,6 +74,7 @@
   }
 </script>
 
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="pdf-scroll-viewport" role="region" aria-label={`PDF document: ${fileName}`} tabindex="0">
   {#if error}<p role="alert" class="pdf-scroll-status">{error}</p>{/if}
   {#if !pageCount && !error}
