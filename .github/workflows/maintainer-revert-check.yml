@@ -3,9 +3,10 @@ on:
   push:
     branches: [maintenance-rollback-open-priority3]
 permissions:
-  contents: read
+  contents: write
 jobs:
   analyze:
+    if: github.event.head_commit.message == 'ci: apply priority gate rollbacks'
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -16,4 +17,6 @@ jobs:
           git config user.email maintainer@example.invalid
           git config user.name Maintainer
           git revert --no-commit e0dc1d66 7e32c294 c3bcf741 d6ca282b 6dc3c334
-          git diff --stat
+          git diff --cached --stat
+          git commit -m 'revert: remove changes for open priority 3+ issues'
+          git push origin HEAD:maintenance-rollback-open-priority3
