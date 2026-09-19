@@ -65,6 +65,25 @@ jobs:
           dpkg-deb -x "$artifact" "$stage"
           ldd "$stage/usr/bin/gooru" | grep -F libvips.so
           "$stage/usr/bin/gooru" version
+          # Exercise the extracted package, not the checkout frontend.
+          # A broken frontend_dir or missing runtime assets must fail packaging CI.
+          package_db="$stage/package-test.db"
+          "$stage/usr/bin/gooru" --database "$package_db" init --hashing-strategy partial
+          printf 'server:\n  frontend_dir: %s/usr/share/gooru/frontend\n' "$stage" > "$stage/package-serve.yaml"
+          (
+            cd "$stage"
+            "$stage/usr/bin/gooru" --database "$package_db" --config "$stage/package-serve.yaml" serve --listen 127.0.0.1:45734 >"$stage/serve.log" 2>&1 &
+            pid=$!
+            trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
+            ready=0
+            for _ in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:45734/ >"$stage/index.html" 2>/dev/null; then ready=1; break; fi
+              if ! kill -0 "$pid" 2>/dev/null; then break; fi
+              sleep 0.5
+            done
+            if (( ready == 0 )); then cat "$stage/serve.log"; exit 1; fi
+            grep -Eiq '<!doctype html|<html' "$stage/index.html"
+          )
       - uses: actions/upload-artifact@v4
         with:
           name: deb-${{ matrix.arch }}
