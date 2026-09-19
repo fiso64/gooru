@@ -6,7 +6,7 @@ permissions:
   contents: write
 jobs:
   analyze:
-    if: github.event.head_commit.message == 'ci: apply priority gate rollbacks'
+    if: github.event.head_commit.message == 'ci-apply-rollback'
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
