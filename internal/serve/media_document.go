@@ -15,7 +15,7 @@ import (
 func isOriginalDocumentNavigation(r *http.Request) bool {
 	destination := strings.TrimSpace(r.Header.Get("Sec-Fetch-Dest"))
 	if destination != "" {
-		return strings.EqualFold(destination, "document")
+		return strings.EqualFold(destination, "document") || strings.EqualFold(destination, "iframe")
 	}
 
 	// Fetch Metadata is widely supported, but fall back to the normal browser
