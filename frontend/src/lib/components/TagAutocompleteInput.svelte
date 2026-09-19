@@ -1,5 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import { createSuggestionsQuery } from '$lib/queries/library';
+  import { authState } from '$lib/stores/auth';
   import { plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
 
@@ -8,6 +10,7 @@
     value,
     tags,
     existing = [],
+    localOnly = false,
     placeholder = 'add tag',
     disabled = false,
     readOnly = false,
@@ -22,6 +25,7 @@
     value: string;
     tags: TagCandidate[];
     existing?: string[];
+    localOnly?: boolean;
     placeholder?: string;
     disabled?: boolean;
     readOnly?: boolean;
@@ -38,7 +42,13 @@
   let inputRef = $state<HTMLInputElement | undefined>();
   let suggestionsRef = $state<HTMLUListElement | undefined>();
   let suppressBlurCommit = false;
-  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, tags, existing));
+  const indexedSuggestions = createSuggestionsQuery(
+    () => Boolean($authState.user) && !localOnly && !readOnly,
+    () => value,
+    () => existing.join(' '),
+    () => $authState.user?.username ?? ''
+  );
+  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, localOnly || !$authState.user ? tags : (indexedSuggestions.data?.items ?? []), existing));
 
   $effect(() => {
     if (active >= suggestions.length) active = 0;
