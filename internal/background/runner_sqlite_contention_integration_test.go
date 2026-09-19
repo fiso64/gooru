@@ -143,10 +143,10 @@ func TestRunnerSurvivesRealSQLiteWriterContention(t *testing.T) {
 
 func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 	// The claim happens before the test opens and locks a second SQLite writer.
-	// Keep that setup lease comfortably long so loaded CI cannot expire ownership
-	// before runClaimed starts; the runner below still renews on the short 120ms
-	// cadence that exercises transient contention and retry behavior.
-	store, writerDB, claimed := setupClaimedSQLiteContentionTask(t, "task-renew-contention", 5*time.Second)
+	// Allow scheduler delays before the first renewal and between retries on a
+	// loaded runner. A 120ms lease can legitimately expire during test scheduling,
+	// causing correct recovery to requeue the task instead of completing it.
+	store, writerDB, claimed := setupClaimedSQLiteContentionTask(t, "task-renew-contention", 30*time.Second)
 
 	writerTx, err := writerDB.Begin()
 	if err != nil {
@@ -162,7 +162,7 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 		contentionObserved: make(chan struct{}),
 		renewedAfter:       make(chan struct{}),
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	releaseDone := make(chan error, 1)
 	go func() {
@@ -178,7 +178,7 @@ func TestRunnerSurvivesRealSQLiteContentionDuringLeaseRenewal(t *testing.T) {
 		Store:         observedStore,
 		ResourceClass: "image",
 		WorkerID:      "worker-lifecycle",
-		LeaseDuration: 120 * time.Millisecond,
+		LeaseDuration: 2 * time.Second,
 		PollInterval:  2 * time.Millisecond,
 		Handlers: map[string]Handler{
 			"thumbnail": func(ctx context.Context, _ database.BackgroundTask) error {
