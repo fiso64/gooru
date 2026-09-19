@@ -132,3 +132,17 @@ func TestTagSuggestionPrefixPlansUseTagKeyIndex(t *testing.T) {
 		ORDER BY files_count DESC, tag_str ASC
 		LIMIT ?`, "artist", "a%", 20)
 }
+
+func TestComponentCompletionRegression(t *testing.T) {
+ db, err := sql.Open("sqlite3", ":memory:")
+ if err != nil { t.Fatal(err) }
+ defer db.Close()
+ if err := RunMigrations(db); err != nil { t.Fatal(err) }
+ store := &Store{DB: db, logger: log.New(io.Discard, "", 0)}
+ if _, err := db.Exec("INSERT INTO tags(key,value,files_count) VALUES('test_name','value_more',1)"); err != nil { t.Fatal(err) }
+ for _, prefix := range []string{"test", "name", "val", "more"} {
+  items, err := store.ListTagSuggestions(prefix, 10)
+  if err != nil { t.Fatal(err) }
+  if len(items) != 1 || items[0].Tag != "test_name:value_more" { t.Fatalf("prefix %q: %+v", prefix, items) }
+ }
+}
