@@ -32,7 +32,7 @@
       { keys: ['1'], description: 'Fit media to window' },
       { keys: ['2'], description: 'Show media at actual size' },
       { keys: ['o'], description: 'Open original in new tab' },
-      { keys: ['d'], description: 'Download original' },
+      { keys: ['d'], description: 'Download original' }, 
       { keys: ['Del'], description: 'Remove from library' },
       { keys: ['⇧', 'Del'], description: 'Delete file from disk' },
     ]
@@ -42,12 +42,12 @@
     name: 'Library actions',
     items: [
       { keys: ['(Ctrl)', 'a'], description: 'Select all files in the current view' },
-      { keys: ['d'], description: 'Download selection, or cursor file' },
-      { keys: ['t'], description: 'Tag selection, or cursor file' },
-      { keys: ['Alt', 'Enter'], description: 'Tag selection, or cursor file' },
-      { keys: ['u'], description: 'Untag selection, or cursor file' },
-      { keys: ['Del'], description: 'Remove selection, or cursor file' },
-      { keys: ['⇧', 'Del'], description: 'Delete selection, or cursor file from disk' }
+      { keys: ['d'], description: 'Download selection' },
+      { keys: ['t'], description: 'Tag selection' },
+      { keys: ['Alt', 'Enter'], description: 'Tag selection' },
+      { keys: ['u'], description: 'Untag selection' },
+      { keys: ['Del'], description: 'Remove selection from library' },
+      { keys: ['⇧', 'Del'], description: 'Delete selection from disk' }
     ]
   } as const;
 
