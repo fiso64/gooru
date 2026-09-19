@@ -10,6 +10,7 @@
   import { errorMessage, formatBytes, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
   import { canUseOriginalInViewer, viewerImageSource } from '$lib/utils/media';
   import { clearViewerPreloadCache, preloadViewerMediaSource } from '$lib/utils/viewerPreload';
   import type { ComicManifest, FileItem } from '$lib/api/types';
@@ -171,11 +172,11 @@
 
   function handleViewerKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event)) return;
+    const viewerTagShortcut = isEmptyViewerTagShortcut(event, file.id);
     if (
       (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      && viewerTagShortcut
       && event.target instanceof HTMLInputElement
-      && event.target.id === `tags-${file.id}`
-      && event.target.value === ''
       && !event.shiftKey
     ) {
       event.preventDefault();
@@ -187,7 +188,7 @@
       return;
     }
 
-    if (isEditableShortcutTarget(event.target)) return;
+    if (isEditableShortcutTarget(event.target) && !viewerTagShortcut) return;
     const key = event.key.toLowerCase();
     if (key === 't' || key === 'u') {
       event.preventDefault();
