@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - develop
+      - feat-pdf-viewer-thumbnails
 
 permissions:
   contents: read
