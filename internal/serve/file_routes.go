@@ -24,7 +24,7 @@ func (s *Server) fileRouteHandler() http.Handler {
 			}
 			s.handleOriginalMedia(w, r, parts[0], parts[1])
 			return
-		case "thumbnail", "preview":
+		case "thumbnail", "preview", "lossless":
 			if r.Method != http.MethodGet {
 				w.Header().Set("Allow", "GET")
 				writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", nil)
