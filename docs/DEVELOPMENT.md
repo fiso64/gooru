@@ -84,3 +84,5 @@ Requires libvips development files at build time and the shared library at runti
 ## Release policy
 
 `VERSION` defines the canonical version. Tag reviewed releases on `main` using `vMAJOR.MINOR.PATCH`. Maintain `CHANGELOG.md` as changes land, moving the Unreleased notes to a matching version heading before tagging. The tag-triggered release workflow validates the version and notes; ordinary push/PR CI does not require release notes.
+
+Official native Linux Debian and Nix packages dynamically link libvips. Portable Linux archives and the Windows zip are built without libvips; these builds do not include optional libvips-backed thumbnail support. To enable it in a source build, install libvips development files and build with `go build -tags govips -o gooru ./cmd/gooru` as shown above.
