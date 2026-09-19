@@ -1,0 +1,13 @@
+[Unit]
+Description=Gooru instance %i
+After=network.target
+
+[Service]
+DynamicUser=true
+StateDirectory=gooru-%i
+CacheDirectory=gooru-%i
+ExecStart=/usr/bin/gooru serve --config /etc/gooru/%i/serve.yaml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
