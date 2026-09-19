@@ -875,6 +875,11 @@
 <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
   <!-- Drag panning supplements native viewport scrolling; an interactive ARIA role would misdescribe this surface. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  {#if renderedFile.media_kind === 'pdf' && renderedFile.media_urls.pdf}
+    {#key renderedFile.id}
+      <PDFScrollViewer url={renderedFile.media_urls.pdf} fileName={renderedFile.name} onReady={syncPDFPresented} onError={(message) => { mediaError = message; waitingForTarget = false; }} />
+    {/key}
+  {:else}
   <div
     bind:this={panViewportElement}
     class="viewer-pan-viewport"
