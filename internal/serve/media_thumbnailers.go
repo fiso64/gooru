@@ -51,6 +51,7 @@ type MediaThumbnailer struct {
 	imagePrimary  Thumbnailer
 	imageFallback Thumbnailer
 	video         Thumbnailer
+	pdf           Thumbnailer
 	version       string
 }
 
@@ -58,15 +59,18 @@ func NewMediaThumbnailer(cfg Config) Thumbnailer {
 	imagePrimary := newPrimaryImageThumbnailer()
 	imageFallback := GoImageThumbnailer{}
 	video := NewFFmpegVideoThumbnailer(cfg.Tools.FFmpegPath, cfg.Tools.FFprobePath)
+	pdf := newPDFThumbnailer()
 	return &MediaThumbnailer{
 		imagePrimary:  imagePrimary,
 		imageFallback: imageFallback,
 		video:         video,
+		pdf:           pdf,
 		version: strings.Join([]string{
 			"media-chain-v1",
 			imagePrimary.BackendVersion(),
 			imageFallback.BackendVersion(),
 			video.BackendVersion(),
+			pdf.BackendVersion(),
 		}, "|"),
 	}
 }
@@ -104,6 +108,11 @@ func (t *MediaThumbnailer) Thumbnail(src string, dst io.Writer, size int, format
 			return t.imageFallback.Thumbnail(src, dst, size, format)
 		}
 		return &UnsupportedMediaError{Backend: "image", Reason: "no image thumbnail backend is configured", Err: ErrUnsupportedMedia}
+	case "pdf":
+		if t.pdf == nil {
+			return &UnsupportedMediaError{Backend: "pdftoppm", Reason: "PDF thumbnail backend is not configured", Err: ErrUnsupportedMedia}
+		}
+		return t.pdf.Thumbnail(src, dst, size, format)
 	case "video":
 		if t.video == nil {
 			return &UnsupportedMediaError{Backend: "ffmpeg", Reason: "video thumbnail backend is not configured", Err: ErrUnsupportedMedia}
@@ -133,6 +142,11 @@ func (t *MediaThumbnailer) ThumbnailSource(name string, src io.ReadSeeker, dst i
 			return sourceThumbnailer.ThumbnailSource(name, src, dst, size, format)
 		}
 		return &UnsupportedMediaError{Backend: "image", Reason: "image backend cannot read protected media sources", Err: ErrUnsupportedMedia}
+	case "pdf":
+		if sourceThumbnailer, ok := t.pdf.(SourceThumbnailer); ok {
+			return sourceThumbnailer.ThumbnailSource(name, src, dst, size, format)
+		}
+		return &UnsupportedMediaError{Backend: "pdftoppm", Reason: "PDF backend cannot read logical media sources", Err: ErrUnsupportedMedia}
 	case "video":
 		if sourceThumbnailer, ok := t.video.(SourceThumbnailer); ok {
 			return sourceThumbnailer.ThumbnailSource(name, src, dst, size, format)
