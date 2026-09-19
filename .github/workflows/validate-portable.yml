@@ -1,0 +1,78 @@
+name: Portable release artifacts
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/validate-portable.yml'
+      - 'scripts/build-portable.sh'
+      - 'go.mod'
+      - 'go.sum'
+      - 'VERSION'
+      - 'frontend/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archives:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, gooru]
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci --prefer-offline --no-audit
+          npm run build
+      - name: Build all portable targets and verify archive contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\n' < VERSION)"
+          for target in linux/amd64 linux/arm64 windows/amd64; do
+            read -r os arch <<< "${target//\// }"
+            bash scripts/build-portable.sh "$os" "$arch"
+            prefix="gooru_${version}_${os}_${arch}"
+            extension=tar.gz
+            if [[ "$os" == windows ]]; then extension=zip; fi
+            artifact="dist/$prefix.$extension"
+            sha256sum -c "$artifact.sha256"
+            if [[ "$os" == windows ]]; then
+              unzip -Z1 "$artifact" | grep -Fx "$prefix/gooru.exe"
+              unzip -Z1 "$artifact" | grep -Fx "$prefix/frontend/build/index.html"
+              unzip -Z1 "$artifact" | grep -Fx "$prefix/LICENSE"
+            else
+              tar -tzf "$artifact" | grep -Fx "$prefix/gooru"
+              tar -tzf "$artifact" | grep -Fx "$prefix/frontend/build/index.html"
+              tar -tzf "$artifact" | grep -Fx "$prefix/LICENSE"
+            fi
+          done
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          tar -xzf "dist/gooru_${version}_linux_amd64.tar.gz" -C "$tmp"
+          package_root="$tmp/gooru_${version}_linux_amd64"
+          "$package_root/gooru" version
+          # Reproduce an extracted archive run, not a source checkout run.
+          (
+            cd "$package_root"
+            ./gooru --database "$tmp/package-test.db" init --hashing-strategy partial
+            ./gooru --database "$tmp/package-test.db" serve --listen 127.0.0.1:45733 >"$tmp/serve.log" 2>&1 &
+            pid=$!
+            trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
+            ready=0
+            for _ in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:45733/ >"$tmp/index.html" 2>/dev/null; then ready=1; break; fi
+              sleep 0.5
+            done
+            if (( ready == 0 )); then cat "$tmp/serve.log"; exit 1; fi
+            grep -Eiq '<!doctype html|<html' "$tmp/index.html"
+          )
