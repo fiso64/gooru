@@ -2,7 +2,7 @@
 set -euo pipefail
 
 os="${1:?usage: build-portable.sh OS ARCH}"
-arch="${2:?usage: package-portable.sh OS ARCH}"
+arch="${2:?usage: build-portable.sh OS ARCH}"
 case "$os/$arch" in
   linux/amd64|linux/arm64|windows/amd64) ;;
   *) echo "unsupported target: $os/$arch" >&2; exit 2 ;;
