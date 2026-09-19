@@ -2077,7 +2077,7 @@ components:
           type: string
         media_kind:
           type: string
-          enum: [photo, video, gif, audio, comic, other]
+          enum: [photo, video, gif, audio, comic, pdf, other]
         viewer_support:
           type: string
           enum: [supported, unsupported_media_type]

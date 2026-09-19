@@ -753,6 +753,12 @@ func TestListTagsWithoutCountsHonorsLimit(t *testing.T) {
 	}
 }
 
+func TestMediaKindForPDFType(t *testing.T) {
+	if got := mediaKindForType("application/pdf"); got != "pdf" {
+		t.Fatalf("expected PDF media kind, got %q", got)
+	}
+}
+
 func TestMediaKindForAudioType(t *testing.T) {
 	if got := mediaKindForType("audio/mpeg"); got != "audio" {
 		t.Fatalf("expected audio media kind, got %q", got)
