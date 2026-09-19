@@ -141,3 +141,24 @@ test('newly tagged image contributes viewer suggestions on the next image', asyn
     .getByRole('option', { name: /tag1/ })).toBeVisible();
   expect(state.indexedLookups).toBeGreaterThanOrEqual(2);
 });
+
+test('new namespaced tags complete by value prefix in viewer and main search', async ({ page }) => {
+  const state = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  const first = page.getByLabel('Tags for one.jpg');
+  await first.fill('test:value');
+  await first.press('Space');
+  await expect.poll(() => state.namespacedTagCreated).toBe(true);
+  await first.fill('val');
+  await expect(page.getByRole('listbox', { name: 'Tags for one.jpg suggestions' })
+    .getByRole('option', { name: /test:value/ })).toBeVisible();
+  await first.press('ArrowRight');
+  const second = page.getByLabel('Tags for two.jpg');
+  await second.fill('val');
+  await expect(page.getByRole('listbox', { name: 'Tags for two.jpg suggestions' })
+    .getByRole('option', { name: /test:value/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Close preview' }).click();
+  await page.getByLabel('Search library').fill('val');
+  await expect(page.getByRole('listbox', { name: 'Search suggestions' })
+    .getByRole('option', { name: /test:value/ })).toBeVisible();
+});
