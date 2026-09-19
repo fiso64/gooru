@@ -404,6 +404,7 @@ type MediaURLs struct {
 	Thumbnail string `json:"thumbnail"`
 	Preview   string `json:"preview"`
 	Lossless  string `json:"lossless,omitempty"`
+	PDF       string `json:"pdf,omitempty"`
 	Content   string `json:"content"`
 	Download  string `json:"download"`
 }
@@ -781,6 +782,10 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 		}
 	}
 	dto.ViewerSupport = viewerSupportForMediaKind(dto.MediaKind)
+	if dto.MediaKind == "pdf" && s.media.pdfViewer != nil && s.media.pdfViewer.renderer.path != "" && s.media.pdfViewer.infoPath != "" {
+		dto.MediaURLs.PDF = "/api/v1/files/" + id + "/pdf"
+		dto.ViewerSupport = "supported"
+	}
 	return dto
 }
 
