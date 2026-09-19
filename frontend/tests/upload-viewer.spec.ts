@@ -38,7 +38,7 @@ async function mockUploadApp(page: Page, options: {
     body: JSON.stringify({ ui_theme: options.uiTheme ?? 'default' })
   }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files: [], total_count: 0, library_count: 0, facets: { kind: [] } }) }));
-  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ name: 'artist:alice', count: 8 }, { name: 'artist:alina', count: 5 }, { name: 'artist:alex', count: 3 }, { name: 'artist:amelia', count: 2 }] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ id: 'default', name: 'Default inbox' }] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
     contentType: 'application/json',
