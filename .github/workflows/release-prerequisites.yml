@@ -1,0 +1,35 @@
+name: Release build environment
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/release-prerequisites.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prerequisites:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect non-sensitive release tool availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -m
+          cat /etc/os-release
+          for tool in dpkg-deb dpkg-shlibdeps dpkg-gencontrol pkg-config cc zip unzip nix cachix gh go; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              printf 'AVAILABLE: %s\n' "$tool"
+            else
+              printf 'MISSING: %s\n' "$tool"
+            fi
+          done
+          if command -v pkg-config >/dev/null 2>&1; then
+            if pkg-config --exists vips; then echo 'AVAILABLE: native libvips pkg-config'; else echo 'MISSING: native libvips pkg-config'; fi
+          fi
+          if command -v nix >/dev/null 2>&1; then nix --version; fi
+          go version
