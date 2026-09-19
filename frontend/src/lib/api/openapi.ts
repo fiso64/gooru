@@ -2405,6 +2405,7 @@ export interface components {
         MediaURLs: {
             thumbnail: string;
             preview: string;
+            /** @description Optional lossless display derivative, absent when unavailable. */
             lossless?: string;
             content: string;
             download: string;
