@@ -62,3 +62,17 @@ func TestProtectedPDFViewerHTTPManifestAndPage(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if !strings.Contains(string(args), "-f 2 -l 2") { t.Fatalf("renderer selected wrong page: %q", args) }
 }
+
+func TestPDFViewerRejectsOutOfRangePages(t *testing.T) {
+	pdf := tinyPDFDocument()
+	path := writeNamedMediaFile(t, "invalid.pdf", pdf)
+	file := types.FileInfo{ID: 192, Path: path, Hash: "invalid-pdf-page", Size: int64(len(pdf))}
+	server := protectedMediaTestServer(t, file)
+	server.media.pdfViewer = &pdfViewerService{renderer: pdfThumbnailer{path: "renderer"}, infoPath: "pdfinfo"}
+	url := "/api/v1/files/" + fallbackPublicFileID(file.ID) + "/pdf"
+	for _, value := range []string{"0", "-1", "10001", "not-an-integer"} {
+		rec := httptest.NewRecorder()
+		server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, url+"?page="+value))
+		if rec.Code != http.StatusBadRequest { t.Fatalf("page %q: status %d", value, rec.Code) }
+	}
+}
