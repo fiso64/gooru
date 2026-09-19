@@ -5,11 +5,15 @@ import (
 	"fmt"
 	"image"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gooru.local/types"
 )
 
 func tinyPDFDocument() []byte {
@@ -87,4 +91,37 @@ func TestPDFThumbnailerDoesNotCacheEmptyOutput(t *testing.T) {
 	var imageBytes bytes.Buffer
 	err := (pdfThumbnailer{path: path}).ThumbnailSource("document.pdf", bytes.NewReader(tinyPDFDocument()), &imageBytes, 16, "png")
 	if err == nil { t.Fatal("empty successful renderer output must not enter the derivative cache") }
+}
+
+func TestProtectedPDFThumbnailUsesLogicalEncryptedSource(t *testing.T) {
+	pdf := tinyPDFDocument()
+	sourcePath := writeNamedMediaFile(t, "private.pdf", pdf)
+	file := types.FileInfo{ID: 190, Path: sourcePath, Hash: "protected-pdf-thumb", Size: int64(len(pdf))}
+	server := protectedMediaTestServer(t, file)
+	encryptMediaFixture(t, sourcePath, server.cfg.Encryption.Key)
+	rendered := []byte("pretend rendered bytes")
+	outputFile := filepath.Join(t.TempDir(), "image")
+	if err := os.WriteFile(outputFile, rendered, 0600); err != nil { t.Fatal(err) }
+	rendererPath := filepath.Join(t.TempDir(), "pdf-renderer")
+	script := "#!/bin/sh\nIFS= read -r header\n[ \"$header\" = '%PDF-1.4' ] || exit 3\ncat \"" + outputFile + "\"\n"
+	if err := os.WriteFile(rendererPath, []byte(script), 0700); err != nil { t.Fatal(err) }
+	server.media.thumbnailer.(*MediaThumbnailer).pdf = pdfThumbnailer{path: rendererPath, version: "test"}
+
+	for index, wantCache := range []string{"miss", "hit"} {
+		rec := httptest.NewRecorder()
+		req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(file.ID)+"/thumbnail?size=16")
+		server.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d status %d: %s", index, rec.Code, rec.Body.String())
+		}
+		if got := rec.Header().Get("X-Gooru-Cache"); got != wantCache {
+			t.Fatalf("request %d cache = %q, want %q", index, got, wantCache)
+		}
+		if !bytes.Equal(rec.Body.Bytes(), rendered) {
+			t.Fatalf("request %d logical source output differs", index)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "private, no-store" {
+			t.Fatalf("protected PDF cache-control = %q", got)
+		}
+	}
 }
