@@ -149,7 +149,9 @@ test('new namespaced tags complete by value prefix in viewer and main search', a
   await first.fill('test:value');
   await first.press('Space');
   await expect.poll(() => state.namespacedTagCreated).toBe(true);
+  await expect(first).toHaveValue('');
   await first.press('ArrowRight');
+  await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
   const second = page.getByLabel('Tags for two.jpg');
   await second.fill('val');
   await expect(page.getByRole('listbox', { name: 'Tags for two.jpg suggestions' })
