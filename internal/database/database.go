@@ -1054,10 +1054,21 @@ func (s *Store) ListTagSuggestions(prefix string, limit int) ([]types.TagWithCou
 				UNION ALL
 				SELECT key || ':' || value AS tag_str, files_count FROM tags
 				WHERE value != '' AND key LIKE ?
+				UNION ALL
+				-- Use the maintained component index for names separated by ':' or '_'.
+				-- An IN subquery yields each tag once even when multiple components match.
+				SELECT CASE WHEN t.value = '' THEN t.key ELSE t.key || ':' || t.value END AS tag_str,
+				       CASE WHEN t.value = '' THEN COALESCE(k.files_count, t.files_count) ELSE t.files_count END AS files_count
+				FROM tags t
+				LEFT JOIN tag_key_counts k ON t.value = '' AND k.key = t.key
+				WHERE t.files_count > 0 AND NOT (t.key LIKE ?)
+				  AND t.id IN (
+				      SELECT tag_id FROM tag_completion_components WHERE component LIKE ?
+				  )
 			)
 			ORDER BY files_count DESC, tag_str ASC
 			LIMIT ?
-		`, like, like, like, limit)
+		`, like, like, like, like, like, limit)
 	}
 	if err != nil {
 		return nil, err
