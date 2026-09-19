@@ -1,0 +1,22 @@
+name: Viewer tag Escape regression
+on:
+  push:
+    branches: [fix-viewer-tag-escape-mode]
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Test viewer tag Escape and mode behavior
+        working-directory: frontend
+        run: |
+          npm ci --prefer-offline --no-audit
+          npx playwright install chromium
+          npx playwright test viewer-tag-escape-mode.spec.ts
