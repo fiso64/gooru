@@ -147,3 +147,10 @@ jobs:
             dist/*.deb.sha256
           if-no-files-found: error
           retention-days: 7
+
+  nix:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Nix package
+        run: nix build .#packages.x86_64-linux.default --print-build-logs
