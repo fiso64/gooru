@@ -45,18 +45,17 @@ jobs:
           npm run test:e2e -- startup-query-churn.spec.ts upload-metadata-refresh.spec.ts upload-concurrency.spec.ts upload-cancel-inflight.spec.ts hover-media-preview.spec.ts saved-search-completions.spec.ts jobs-layout.spec.ts jobs-pagination.spec.ts jobs-history-controls.spec.ts issue-606-followup.spec.ts build-identity.spec.ts
       - name: Validate Nix package
         run: nix build .#packages.x86_64-linux.default --print-build-logs
-      - name: Build release binary
+      - name: Build all three portable release archives
         shell: bash
         run: |
           set -euo pipefail
-          version="$(tr -d '\n' < VERSION)"
-          mkdir -p dist
-          go build -trimpath \
-            -ldflags "-X=gooru.local/internal/buildinfo.Version=$version -X=gooru.local/internal/buildinfo.Revision=$GITHUB_SHA -X=gooru.local/internal/buildinfo.Dirty=false -X=gooru.local/internal/buildinfo.Development=false" \
-            -o dist/gooru-linux-amd64 ./cmd/gooru
-          dist/gooru-linux-amd64 version
-          tar -C dist -czf "dist/gooru_${version}_linux_amd64.tar.gz" gooru-linux-amd64
-          sha256sum "dist/gooru_${version}_linux_amd64.tar.gz" > "dist/gooru_${version}_linux_amd64.tar.gz.sha256"
+          for target in linux/amd64 linux/arm64 windows/amd64; do
+            IFS=/ read -r os arch <<< "$target"
+            bash scripts/build-portable.sh "$os" "$arch"
+          done
+          for artifact in dist/*.tar.gz dist/*.zip; do
+            sha256sum -c "$artifact.sha256"
+          done
       - name: Render versioned release notes
         run: node scripts/release-notes.mjs > dist/release-notes.md
       - name: Create GitHub Release
