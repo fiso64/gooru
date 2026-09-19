@@ -80,3 +80,11 @@ func TestPDFThumbnailerStreamsLogicalSourceAndRejectsMissingBackend(t *testing.T
 		t.Fatalf("logical PDF rendering returned %q", got)
 	}
 }
+
+func TestPDFThumbnailerDoesNotCacheEmptyOutput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "silent-renderer")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil { t.Fatal(err) }
+	var imageBytes bytes.Buffer
+	err := (pdfThumbnailer{path: path}).ThumbnailSource("document.pdf", bytes.NewReader(tinyPDFDocument()), &imageBytes, 16, "png")
+	if err == nil { t.Fatal("empty successful renderer output must not enter the derivative cache") }
+}
