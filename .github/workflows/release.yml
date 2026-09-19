@@ -158,3 +158,25 @@ jobs:
         run: |
           nix build .#packages.${{ matrix.system }}.default --print-build-logs
           nix build .#checks.${{ matrix.system }}.nixos-module --print-build-logs
+
+  assemble:
+    needs: [portable, deb, nix]
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-portable
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-deb-*
+          merge-multiple: true
+          path: dist
+      - name: Verify complete five-package release
+        run: bash scripts/verify-release-assets.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Render release notes
+        run: node scripts/release-notes.mjs > "$RUNNER_TEMP/release-notes.md"
