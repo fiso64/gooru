@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
+	"image/jpeg"
 	"testing"
 
 	"gooru.local/types"
@@ -66,4 +68,31 @@ func TestLosslessJPEGUnavailableWhenNotProgressiveOrNoTool(t *testing.T) {
 	server.media.losslessJPEGTool = writeJPEGTranscodeStub(t, "cat")
 	server.media.losslessJPEGTool = ""
 	if server.media.losslessJPEGAvailable(file) { t.Fatal("missing converter should disable derivative") }
+}
+
+func TestRealCoefficientJPEGConversionWhenInstalled(t *testing.T) {
+	binary, err := exec.LookPath("jpegtran")
+	if err != nil { t.Skip("jpegtran is not installed on this runner") }
+	sourceBytes := progressiveJPEGFixture(t)
+	original, err := jpeg.Decode(bytes.NewReader(sourceBytes))
+	if err != nil { t.Fatalf("fixture decode: %v", err) }
+	path := writeNamedMediaFile(t, "progressive.jpg", sourceBytes)
+	file := types.FileInfo{ID: 933, Path: path, Hash: "real-jpegtran-test", Size: int64(len(sourceBytes))}
+	server := newMediaTestServer(t, file)
+	server.media.losslessJPEGTool = binary
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(file.ID)+"/lossless"))
+	if rec.Code != http.StatusOK { t.Fatalf("jpegtran route %d: %s", rec.Code, rec.Body.String()) }
+	progressive, err := jpegFrameIsProgressive(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil || progressive { t.Fatalf("converted JPEG was not baseline: progressive=%v err=%v", progressive, err) }
+	converted, err := jpeg.Decode(bytes.NewReader(rec.Body.Bytes()))
+	if err != nil { t.Fatalf("converted JPEG decode: %v", err) }
+	if converted.Bounds() != original.Bounds() { t.Fatalf("image dimensions changed: %v vs %v", converted.Bounds(), original.Bounds()) }
+	for y := original.Bounds().Min.Y; y < original.Bounds().Max.Y; y++ {
+		for x := original.Bounds().Min.X; x < original.Bounds().Max.X; x++ {
+			a, b, c, d := original.At(x, y).RGBA()
+			e, f, g, h := converted.At(x, y).RGBA()
+			if a != e || b != f || c != g || d != h { t.Fatalf("pixel (%d,%d) differs: %v vs %v", x, y, original.At(x,y), converted.At(x,y)) }
+		}
+	}
 }
