@@ -14,6 +14,7 @@ export const libraryKeys = {
   tags: (scope: number) => ['library', 'tags', 'common', scope] as const,
   allTags: (username: string) => ['library', 'tags', 'all', username] as const,
   uploadTargets: (scope: number) => ['library', 'upload-targets', scope] as const,
+  suggestionsRoot: ['library', 'suggestions'] as const,
   suggestions: (scope: number, q: string, existing: string) => ['library', 'suggestions', scope, q, existing] as const
 };
 
@@ -157,6 +158,7 @@ export function createUploadMutation(getCSRFToken: () => string) {
 export async function refreshUploadQueries(queryClient: QueryClient) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ['files'] }),
-    queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
+    queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot }),
+    queryClient.invalidateQueries({ queryKey: libraryKeys.suggestionsRoot })
   ]);
 }
