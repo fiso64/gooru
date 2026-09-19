@@ -116,3 +116,21 @@
 .gooru-root .login-v2-foot-links a:hover {
   text-decoration: underline;
 }
+
+/* Keep long tag suggestions inside the popup on narrow viewer and upload inputs. */
+.gooru-root .tag-autocomplete .tag-autocomplete-list {
+  overflow-x: hidden;
+}
+
+.gooru-root .tag-autocomplete-list button > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gooru-root .tag-autocomplete-list button > .count {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
