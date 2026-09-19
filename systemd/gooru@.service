@@ -5,9 +5,13 @@ After=network.target
 [Service]
 DynamicUser=true
 StateDirectory=gooru-%i
+StateDirectoryMode=0700
 CacheDirectory=gooru-%i
+CacheDirectoryMode=0700
 ExecStart=/usr/bin/gooru serve --config /etc/gooru/%i/serve.yaml
 Restart=on-failure
+NoNewPrivileges=yes
+PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target
