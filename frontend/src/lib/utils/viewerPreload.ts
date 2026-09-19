@@ -1,4 +1,4 @@
-import { viewerImageSource, type ViewerMedia } from './media';
+import { isPDFViewerMedia, viewerImageSource, type ViewerMedia } from './media';
 
 export type PreloadableViewerMedia = ViewerMedia & { id: string };
 
@@ -141,7 +141,9 @@ function preloadMedia(source: string, kind: 'video' | 'audio'): PreloadEntry {
 }
 
 export function preloadViewerMediaSource(file: PreloadableViewerMedia, source: string): Promise<ViewerPreloadResult> {
-  if (typeof window === 'undefined' || !source) return Promise.resolve({});
+  // The browser's native PDF viewer streams the original on demand. Never
+  // speculatively fetch a potentially large document through Image preloading.
+  if (typeof window === 'undefined' || !source || isPDFViewerMedia(file)) return Promise.resolve({});
   const key = `${file.id}|${source}`;
   const cached = preloadCache.get(key);
   if (cached) return cached.promise;
