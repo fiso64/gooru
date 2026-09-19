@@ -6,4 +6,5 @@
 
 ### Added
 
-- Initial release.
+- Media-library browsing, search, tags, saved searches, and file uploads via WebUI and CLI.
+- Content-aware file identity, optional encryption, and named NixOS service instances.
