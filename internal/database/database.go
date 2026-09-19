@@ -627,44 +627,39 @@ func (s *Store) ApplyRelinkAdditionsTx(q Querier, toAdd map[string]types.Locatio
 		return 0, nil
 	}
 
-	var locationsAdded int
 	const columns = 5 // content_hash, path, size_bytes, mod_time, extension
-	batchSize := maxVars / columns
-	var args []interface{}
-	var queryBuilder strings.Builder
-	// The tags_cache is now populated by triggers, so we don't insert it here.
-	queryBuilder.WriteString("INSERT OR IGNORE INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ")
-
-	itemsInBatch := 0
-	for path, info := range toAdd {
-		if itemsInBatch > 0 {
-			queryBuilder.WriteString(", ")
-		}
-		queryBuilder.WriteString("('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?)")
-		args = append(args, info.Hash, path, info.Size, info.ModTime, info.Extension)
-		itemsInBatch++
-
-		if itemsInBatch >= batchSize {
-			res, err := q.Exec(queryBuilder.String(), args...)
+	const rowPlaceholders = "('file_' || lower(hex(randomblob(16))), ?, ?, ?, ?, ?)"
+	var locationsAdded int
+	insertBatch := func(batch []types.LocationInfo) error {
+		for placeholders, args := range bindRowBatches(batch, rowPlaceholders, columns, func(args []any, info types.LocationInfo, _ int) {
+			args[0], args[1], args[2] = info.Hash, info.Path, info.Size
+			args[3], args[4] = info.ModTime, info.Extension
+		}) {
+			query := "INSERT OR IGNORE INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES " + placeholders
+			res, err := q.Exec(query, args...)
 			if err != nil {
-				return 0, err
+				return err
 			}
 			added, _ := res.RowsAffected()
 			locationsAdded += int(added)
-			itemsInBatch = 0
-			args = nil
-			queryBuilder.Reset()
-			queryBuilder.WriteString("INSERT OR IGNORE INTO locations (public_id, content_hash, path, size_bytes, mod_time, extension) VALUES ")
 		}
+		return nil
 	}
 
-	if itemsInBatch > 0 {
-		res, err := q.Exec(queryBuilder.String(), args...)
-		if err != nil {
-			return 0, err
+	// Bound the temporary row buffer even when a relink contains millions of files.
+	batch := make([]types.LocationInfo, 0, min(len(toAdd), maxVars/columns))
+	for path, info := range toAdd {
+		info.Path = path
+		batch = append(batch, info)
+		if len(batch) == cap(batch) {
+			if err := insertBatch(batch); err != nil {
+				return 0, err
+			}
+			batch = batch[:0]
 		}
-		added, _ := res.RowsAffected()
-		locationsAdded += int(added)
+	}
+	if err := insertBatch(batch); err != nil {
+		return 0, err
 	}
 
 	return locationsAdded, nil
