@@ -23,6 +23,10 @@ export function isAnimatedGif(file: ViewerMedia): boolean {
   return file.media_type.trim().toLowerCase() === 'image/gif';
 }
 
+export function isPDFViewerMedia(file: ViewerMedia): boolean {
+  return file.media_kind === 'pdf' || file.media_type.split(';')[0].trim().toLowerCase() === 'application/pdf';
+}
+
 export function isImageViewerMedia(file: ViewerMedia): boolean {
   return file.media_kind === 'photo' || file.media_kind === 'gif' || file.media_kind === 'image' || file.media_type.startsWith('image/');
 }
