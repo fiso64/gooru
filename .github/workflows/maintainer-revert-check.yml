@@ -1,0 +1,19 @@
+name: Maintainer rollback preparation
+on:
+  push:
+    branches: [maintenance-rollback-open-priority3]
+permissions:
+  contents: read
+jobs:
+  analyze:
+    runs-on: [self-hosted, gooru]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check revert conflicts
+        run: |
+          git config user.email maintainer@example.invalid
+          git config user.name Maintainer
+          git revert --no-commit e0dc1d66 7e32c294 c3bcf741 d6ca282b 6dc3c334
+          git diff --stat
