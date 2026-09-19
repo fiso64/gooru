@@ -895,6 +895,9 @@ func mediaTypeForPath(path string) string {
 	if extension == ".cbz" {
 		return "application/vnd.comicbook+zip"
 	}
+	if extension == ".pdf" {
+		return "application/pdf"
+	}
 	if typ := mime.TypeByExtension(extension); typ != "" {
 		return typ
 	}
