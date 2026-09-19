@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjacentComicPages, comicPageAt, isComicFile, moveComicPage } from './comic';
+import { adjacentComicPages, comicPageAt, comicPageSource, isComicFile, moveComicPage } from './comic';
 import type { ComicManifest } from '$lib/api/types';
 
 const manifest: ComicManifest = {
@@ -27,6 +27,23 @@ describe('comic viewer policy', () => {
   it('returns only real adjacent pages for preloading', () => {
     expect(adjacentComicPages(manifest, 0).map((page) => page.index)).toEqual([1]);
     expect(adjacentComicPages(manifest, 1).map((page) => page.index)).toEqual([0, 2]);
+  });
+
+  it('selects preview, optional lossless full image and always preserves the actual original', () => {
+    const page = {
+      index: 0,
+      name: 'page.jpg',
+      url: '/api/v1/comics/book/0',
+      preview: '/api/v1/comics/book/0?variant=preview',
+      lossless: '/api/v1/comics/book/0?variant=lossless'
+    };
+    expect(comicPageSource(page, false, true)).toBe(page.preview);
+    expect(comicPageSource(page, true, true)).toBe(page.lossless);
+    expect(comicPageSource(page, true, false)).toBe(page.url);
+    expect(comicPageSource({ ...page, lossless: undefined }, true, true)).toBe(page.url);
+    expect(comicPageSource({ ...page, preview: undefined }, false, true)).toBe(page.url);
+    expect(comicPageSource({ ...page, preview: undefined, lossless: undefined }, true, true)).toBe(page.url);
+    expect(comicPageSource(null, true, true)).toBe('');
   });
 
   it('returns null for unavailable pages', () => {
