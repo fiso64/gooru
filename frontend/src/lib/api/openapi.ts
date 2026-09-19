@@ -2416,7 +2416,7 @@ export interface components {
             modified_time: string;
             media_type: string;
             /** @enum {string} */
-            media_kind: "photo" | "video" | "gif" | "audio" | "comic" | "other";
+            media_kind: "photo" | "video" | "gif" | "audio" | "comic" | "pdf" | "other";
             /**
              * @description Backend-owned indication of whether the built-in viewer supports this media type.
              * @enum {string}
