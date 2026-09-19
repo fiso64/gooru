@@ -4,6 +4,7 @@ export type ViewerMedia = {
   media_urls: {
     content: string;
     preview: string;
+    lossless?: string;
   };
 };
 
@@ -31,7 +32,10 @@ export function canUseOriginalInViewer(file: ViewerMedia): boolean {
   return isImageViewerMedia(file) && Boolean(file.media_urls.content);
 }
 
-export function viewerImageSource(file: ViewerMedia, preferOriginal: boolean): string {
+export function viewerImageSource(file: ViewerMedia, preferOriginal: boolean, preferLossless = true): string {
+  if (preferOriginal && canUseOriginalInViewer(file) && preferLossless && file.media_urls.lossless) {
+    return file.media_urls.lossless;
+  }
   if ((preferOriginal && canUseOriginalInViewer(file)) || isAnimatedGif(file)) {
     return file.media_urls.content || file.media_urls.preview;
   }
