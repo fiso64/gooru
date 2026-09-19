@@ -80,3 +80,7 @@ go build -tags govips -o gooru ./cmd/gooru
 ```
 
 Requires libvips development files at build time and the shared library at runtime.
+
+## Release policy
+
+`VERSION` defines the canonical version. Tag reviewed releases on `main` using `vMAJOR.MINOR.PATCH`. Maintain `CHANGELOG.md` as changes land, moving the Unreleased notes to a matching version heading before tagging. CI validates that entry; the tag workflow publishes it.
