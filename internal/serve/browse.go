@@ -898,6 +898,8 @@ func mediaKindForType(mediaType string) string {
 	switch {
 	case strings.EqualFold(baseType, "application/vnd.comicbook+zip"):
 		return "comic"
+	case strings.EqualFold(baseType, "application/pdf"):
+		return "pdf"
 	case mediaType == "image/gif":
 		return "gif"
 	case strings.HasPrefix(mediaType, "image/"):
