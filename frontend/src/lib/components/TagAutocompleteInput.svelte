@@ -4,6 +4,7 @@
   import { authState } from '$lib/stores/auth';
   import { mergeTagCandidateOccurrenceCounts, plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
+  import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
 
   let {
     id,
@@ -11,6 +12,7 @@
     tags,
     existing = [],
     localOnly = false,
+    viewerFileID,
     stagedCandidates = [],
     placeholder = 'add tag',
     disabled = false,
@@ -27,6 +29,7 @@
     tags: TagCandidate[];
     existing?: string[];
     localOnly?: boolean;
+    viewerFileID?: string;
     stagedCandidates?: TagCandidate[];
     placeholder?: string;
     disabled?: boolean;
@@ -107,6 +110,7 @@
 
   function handleKeydown(event: KeyboardEvent) {
     if (readOnly || event.isComposing) return;
+    if (viewerFileID && isEmptyViewerTagShortcut(event, viewerFileID)) return;
     onKeydown?.(event);
     if (event.defaultPrevented) return;
     if (event.key === 'ArrowDown' && suggestions.length) {
