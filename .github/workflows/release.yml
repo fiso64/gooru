@@ -57,6 +57,8 @@ jobs:
           dist/gooru-linux-amd64 version
           tar -C dist -czf "dist/gooru_${version}_linux_amd64.tar.gz" gooru-linux-amd64
           sha256sum "dist/gooru_${version}_linux_amd64.tar.gz" > "dist/gooru_${version}_linux_amd64.tar.gz.sha256"
+      - name: Render versioned release notes
+        run: node scripts/release-notes.mjs > dist/release-notes.md
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -66,4 +68,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "dist/gooru_${version}_linux_amd64.tar.gz" \
             "dist/gooru_${version}_linux_amd64.tar.gz.sha256" \
-            --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+            --verify-tag --notes-file dist/release-notes.md --title "$GITHUB_REF_NAME"
