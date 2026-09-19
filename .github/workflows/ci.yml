@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - develop
-      - refactor-shared-image-stream-derivatives
 
 permissions:
   contents: read
