@@ -136,6 +136,7 @@ Tool paths may be executable names resolved through `PATH` or explicit paths app
 | `ui.viewer_actual_size_fit_cap` | `true` | When enabled, `actual`/1:1 mode starts no larger than fit-window size for oversized media. Manual zoom remains available above that fitted baseline. Disable this to preserve an uncapped intrinsic 1:1 starting size. |
 | `ui.viewer_scaling` | `smooth` | Browser-side image interpolation: `smooth` uses normal browser filtering and `nearest` uses nearest-neighbor/pixelated scaling. Press `S` in the viewer to toggle it for the current browser session. |
 | `ui.load_full_media_by_default` | `false` | Start image viewers on the original/full media instead of the derived preview when an original is available. The viewer button remains available to switch back to the preview for the current viewer session. |
+| `ui.prefer_lossless_full_image` | `true` | In full-image mode, display an available lossless JPEG derivative instead of original content. When disabled or unavailable, use the original. Download and open-original actions always use original content; preview mode is unchanged. |
 | `ui.fullscreen_media_by_default` | `false` | Request browser fullscreen for the media viewer whenever a file is opened. Browsers may deny fullscreen when the opening interaction does not provide user activation; the viewer remains usable normally in that case. |
 | `ui.hover_play_videos` | `false` | Play muted, inline, looping video previews after the grid hover dwell. Playback stops when the pointer leaves, is limited to near-viewport media, and is disabled when the browser requests reduced motion. |
 | `ui.hover_play_gifs` | `true` | Play animated GIF previews after the grid hover dwell. Playback stops when the pointer leaves, is limited to near-viewport media, and is disabled when the browser requests reduced motion. |
@@ -193,6 +194,7 @@ media:
   preview_size: 1280
   preview_enabled: true
   preview_jpeg_quality: 92
+  lossless_jpeg_transcode: true
 
 
 tools:
@@ -215,6 +217,7 @@ ui:
   viewer_actual_size_fit_cap: true
   viewer_scaling: smooth
   load_full_media_by_default: false
+  prefer_lossless_full_image: true
   fullscreen_media_by_default: false
   hover_play_videos: false
   hover_play_gifs: true
