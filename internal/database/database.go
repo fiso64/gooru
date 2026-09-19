@@ -234,27 +234,69 @@ func (s *Store) ContentExists(hash string) (bool, error) {
 }
 
 func (s *Store) UpsertMediaMetadata(meta types.MediaMetadata) error {
-	_, err := s.Exec(`
-        INSERT INTO media_metadata (
-  content_hash, media_kind, mime_type, image_width, image_height,
-  video_width, video_height, duration_seconds, frame_count, page_count, updated_at
-        )
-        SELECT content_hash, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
-        FROM locations
-        WHERE id = ?
-        ON CONFLICT(content_hash) DO UPDATE SET
-  media_kind=excluded.media_kind,
-  mime_type=excluded.mime_type,
-  image_width=excluded.image_width,
-  image_height=excluded.image_height,
-  video_width=excluded.video_width,
-  video_height=excluded.video_height,
-  duration_seconds=excluded.duration_seconds,
-  frame_count=excluded.frame_count,
-  page_count=excluded.page_count,
-  updated_at=CURRENT_TIMESTAMP
-    `, meta.MediaKind, meta.MimeType, meta.ImageWidth, meta.ImageHeight, meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds, meta.FrameCount, meta.PageCount, meta.LocationID)
-	return err
+	return s.BatchUpsertMediaMetadata([]types.MediaMetadata{meta})
+}
+
+// BatchUpsertMediaMetadata persists metadata in bounded multi-row statements.
+// Input order remains significant when multiple locations resolve to the same
+// content hash: the last metadata row wins, matching repeated single upserts.
+func (s *Store) BatchUpsertMediaMetadata(metadata []types.MediaMetadata) error {
+	const columns = 11 // ordinal, location_id, and nine metadata values
+	const rowPlaceholders = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+
+	for placeholders, args := range bindRowBatches(metadata, rowPlaceholders, columns, func(args []any, meta types.MediaMetadata, index int) {
+		args[0], args[1], args[2] = index, meta.LocationID, meta.MediaKind
+		args[3], args[4], args[5] = meta.MimeType, meta.ImageWidth, meta.ImageHeight
+		args[6], args[7], args[8] = meta.VideoWidth, meta.VideoHeight, meta.DurationSeconds
+		args[9], args[10] = meta.FrameCount, meta.PageCount
+	}) {
+		query := `
+			WITH input (
+				ordinal, location_id, media_kind, mime_type, image_width, image_height,
+				video_width, video_height, duration_seconds, frame_count, page_count
+			) AS (VALUES ` + placeholders + `),
+			resolved AS (
+				SELECT input.ordinal, l.content_hash, input.media_kind, input.mime_type,
+					input.image_width, input.image_height, input.video_width, input.video_height,
+					input.duration_seconds, input.frame_count, input.page_count
+				FROM input
+				JOIN locations l ON l.id = input.location_id
+			),
+			latest AS (
+				SELECT resolved.*
+				FROM resolved
+				WHERE NOT EXISTS (
+					SELECT 1
+					FROM resolved newer
+					WHERE newer.content_hash = resolved.content_hash
+					  AND newer.ordinal > resolved.ordinal
+				)
+			)
+			INSERT INTO media_metadata (
+				content_hash, media_kind, mime_type, image_width, image_height,
+				video_width, video_height, duration_seconds, frame_count, page_count, updated_at
+			)
+			SELECT content_hash, media_kind, mime_type, image_width, image_height,
+				video_width, video_height, duration_seconds, frame_count, page_count, CURRENT_TIMESTAMP
+			FROM latest
+			WHERE true
+			ON CONFLICT(content_hash) DO UPDATE SET
+				media_kind=excluded.media_kind,
+				mime_type=excluded.mime_type,
+				image_width=excluded.image_width,
+				image_height=excluded.image_height,
+				video_width=excluded.video_width,
+				video_height=excluded.video_height,
+				duration_seconds=excluded.duration_seconds,
+				frame_count=excluded.frame_count,
+				page_count=excluded.page_count,
+				updated_at=CURRENT_TIMESTAMP
+		`
+		if _, err := s.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) GetMediaMetadata(locationID int64) (types.MediaMetadata, error) {
