@@ -633,6 +633,8 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 			s.media.ServeDerivative(w, r, file, "preview")
 		case "lossless":
 			s.media.ServeLosslessJPEG(w, r, file)
+		case "pdf":
+			s.media.ServePDF(w, r, file, parts[0])
 		default:
 			writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		}
