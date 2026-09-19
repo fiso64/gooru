@@ -80,3 +80,14 @@ test('disabled preview capability forces original media and removes the viewer t
   await page.keyboard.press('q');
   await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', '/api/v1/files/one/content');
 });
+
+test('an unavailable optional lossless image falls back to original full media', async ({ page }) => {
+  const requested: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/v1/files/one/lossless')) requested.push(request.url());
+  });
+  await mockApp(page, true, ['preview_images'], true);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', '/api/v1/files/one/content');
+  expect(requested.length).toBeGreaterThan(0);
+});
