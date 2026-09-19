@@ -195,7 +195,8 @@ export function createTagMutation(getCSRFToken: () => string, queryClient: Query
         : queryClient.invalidateQueries({ queryKey: fileKeys.all });
       await Promise.all([
         fileRefresh,
-        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot })
+        queryClient.invalidateQueries({ queryKey: libraryKeys.tagsRoot }),
+        queryClient.invalidateQueries({ queryKey: libraryKeys.suggestionsRoot })
       ]);
     }
   }));

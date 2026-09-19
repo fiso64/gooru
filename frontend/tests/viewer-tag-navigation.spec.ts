@@ -30,6 +30,8 @@ function fileItem(id: string, name: string) {
 async function mockApp(page: Page) {
   const files = [fileItem('one', 'one.jpg'), fileItem('two', 'two.jpg'), fileItem('three', 'three.jpg')];
   let loggedIn = false;
+  let tagCreated = false;
+  let indexedLookups = 0;
 
   await page.route('**/api/v1/auth/me', async (route) => {
     await route.fulfill({
@@ -45,7 +47,18 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
-  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    if (query === 'tag') indexedLookups += 1;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      items: tagCreated && query === 'tag' ? [{ name: 'tag1', count: 1 }] : []
+    }) });
+  });
+  await page.route('**/api/v1/files/tags', async (route) => {
+    const request = route.request().postDataJSON() as { tags: string[] };
+    if (request.tags.includes('tag1')) tagCreated = true;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
+  });
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })
@@ -59,6 +72,7 @@ async function mockApp(page: Page) {
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
+  return { get tagCreated() { return tagCreated; }, get indexedLookups() { return indexedLookups; } };
 }
 
 test('empty viewer tag field uses Left and Right to leave the editor and navigate', async ({ page }) => {
@@ -79,14 +93,14 @@ test('empty viewer tag field uses Left and Right to leave the editor and navigat
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('dialog', { name: 'three.jpg' })).toBeVisible();
   const threeTags = page.getByLabel('Tags for three.jpg');
-  await expect(threeTags).not.toBeFocused();
+  await expect(threeTags).toBeFocused();
 
   await threeTags.focus();
   await expect(threeTags).toBeFocused();
   await page.keyboard.press('ArrowLeft');
 
   await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
-  await expect(page.getByLabel('Tags for two.jpg')).not.toBeFocused();
+  await expect(page.getByLabel('Tags for two.jpg')).toBeFocused();
 });
 
 test('non-empty viewer tag field keeps Left and Right for caret movement', async ({ page }) => {
@@ -105,4 +119,23 @@ test('non-empty viewer tag field keeps Left and Right for caret movement', async
   await page.keyboard.press('ArrowRight');
   await expect(dialog).toBeVisible();
   await expect.poll(() => tagInput.evaluate((node) => (node as HTMLInputElement).selectionStart)).toBe(4);
+});
+
+test('newly tagged image contributes viewer suggestions on the next image', async ({ page }) => {
+  const state = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  const first = page.getByLabel('Tags for one.jpg');
+  await first.fill('tag');
+  await expect.poll(() => state.indexedLookups).toBeGreaterThan(0);
+  await first.fill('tag1');
+  await first.press('Space');
+  await expect.poll(() => state.tagCreated).toBe(true);
+  await expect(first).toHaveValue('');
+
+  await first.press('ArrowRight');
+  await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
+  await page.getByLabel('Tags for two.jpg').fill('tag');
+  await expect(page.getByRole('listbox', { name: 'Tags for two.jpg suggestions' })
+    .getByRole('option', { name: /tag1/ })).toBeVisible();
+  expect(state.indexedLookups).toBeGreaterThanOrEqual(2);
 });
