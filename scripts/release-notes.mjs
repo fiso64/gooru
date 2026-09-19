@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 const version = readFileSync('VERSION', 'utf8').trim();
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('VERSION must be MAJOR.MINOR.PATCH');
 const changelog = readFileSync('CHANGELOG.md', 'utf8');
-const heading = `## [${version}]`;
 const entries = changelog.split(/^## \[([^\]]+)\]\s*$/m);
 const versions = entries.slice(1).filter((_, i) => i % 2 === 0);
 if (versions.filter((entry) => entry === version).length !== 1) {
