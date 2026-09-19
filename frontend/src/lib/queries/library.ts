@@ -64,6 +64,13 @@ export function createSuggestionsQuery(
       queryKey: libraryKeys.suggestions(scope, draft, existing),
       enabled: getAuthenticated() && draft.length > 0,
       queryFn: ({ signal }) => new ApiClient().searchSuggestions(draft, 10, existing, signal),
+      // Keep the visible list mounted across keystrokes when the previous
+      // candidates still match the new text. Never reuse results across users
+      // or a changed excluded-tag set.
+      placeholderData: (previous, previousQuery) =>
+        getAuthenticated() && previousQuery?.queryKey[2] === scope && previousQuery?.queryKey[4] === existing
+          ? previous
+          : undefined,
       staleTime: 30_000
     };
   });
