@@ -64,7 +64,10 @@ export function createSuggestionsQuery(
       queryKey: libraryKeys.suggestions(scope, draft, existing),
       enabled: getAuthenticated() && draft.length > 0,
       queryFn: ({ signal }) => new ApiClient().searchSuggestions(draft, 10, existing, signal),
-      staleTime: 30_000
+      staleTime: 30_000,
+      placeholderData: (previousData, previousQuery) =>
+        getAuthenticated() && previousQuery?.queryKey[2] === scope && previousQuery?.queryKey[4] === existing
+          ? previousData : undefined
     };
   });
 }
