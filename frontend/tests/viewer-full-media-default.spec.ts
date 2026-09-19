@@ -91,3 +91,15 @@ test('an unavailable optional lossless image falls back to original full media',
   await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', '/api/v1/files/one/content');
   expect(requested.length).toBeGreaterThan(0);
 });
+
+test('full-image viewer selects lossless display URL while original controls stay canonical', async ({ page }) => {
+  await page.route('**/api/v1/files/one/lossless', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"/>'
+  }));
+  await mockApp(page, true, ['preview_images'], true);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', '/api/v1/files/one/lossless');
+  await expect(page.getByTitle('Download original (D)')).toHaveAttribute('href', '/api/v1/files/one/download');
+  await expect(page.getByTitle('Open original in new tab (O)')).toHaveAttribute('href', '/api/v1/files/one/content');
+});
