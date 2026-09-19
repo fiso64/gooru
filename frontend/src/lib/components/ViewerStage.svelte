@@ -943,6 +943,8 @@
     </div>
   </div>
 
+  {/if}
+
   {#if comicAvailable && !comicEntered}
     <button class="comic-read-button" type="button" style={comicReadStyle} disabled={comicLoading} aria-label="Read comic" onclick={(event) => { onToggleComic?.(); restoreStageFocusAfterPointer(event); }}>
       <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.55" aria-hidden="true">
