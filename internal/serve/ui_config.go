@@ -10,6 +10,7 @@ type UIConfigResponse struct {
 	FontStyle                string   `json:"font_style"`
 	FontStyleConfigured      bool     `json:"font_style_configured"`
 	LoadFullMediaByDefault   bool     `json:"load_full_media_by_default"`
+	PreferLosslessFullImage  bool     `json:"prefer_lossless_full_image"`
 	FullscreenMediaByDefault bool     `json:"fullscreen_media_by_default"`
 	HoverPlayVideos          bool     `json:"hover_play_videos"`
 	HoverPlayGIFs            bool     `json:"hover_play_gifs"`
@@ -37,6 +38,7 @@ func (s *Server) handleUIConfig(w http.ResponseWriter, r *http.Request) {
 		FontStyle:                s.cfg.UI.FontStyle,
 		FontStyleConfigured:      s.cfg.UI.FontStyleConfigured,
 		LoadFullMediaByDefault:   s.cfg.UI.LoadFullMediaByDefault,
+		PreferLosslessFullImage:  s.cfg.UI.PreferLosslessFullImage,
 		FullscreenMediaByDefault: s.cfg.UI.FullscreenMediaByDefault,
 		HoverPlayVideos:          s.cfg.UI.HoverPlayVideos,
 		HoverPlayGIFs:            s.cfg.UI.HoverPlayGIFs,
