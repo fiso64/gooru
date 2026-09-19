@@ -4,6 +4,7 @@
   import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation, type ViewerScaling } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
+  import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
   import { preserveNativeViewerSize, type ViewerStageMedia } from '$lib/utils/media';
   import { recordViewerPresentation, recordViewerRequest } from '$lib/utils/viewerPerformance';
   import { normalizeViewerRotation, rotateViewer, viewerGeometry, viewerMediaStyle, type ViewerConfiguredFitMode, type ViewerFitMode } from '$lib/utils/viewer';
@@ -686,7 +687,8 @@
     const emptyViewerTagInput = target instanceof HTMLInputElement
       && target.id === 'tags-' + renderedFile.id
       && target.value === '';
-    if (isEditableShortcutTarget(target) && !(shiftedArrow && emptyViewerTagInput)) return;
+    const delegatedTagKey = isEmptyViewerTagShortcut(event, renderedFile.id);
+    if (isEditableShortcutTarget(target) && !(shiftedArrow && emptyViewerTagInput) && !delegatedTagKey) return;
     const targetInsideStage = target instanceof Node && Boolean(stageElement?.contains(target));
     if (targetInsideStage && isInteractiveShortcutTarget(target)) return;
 
@@ -698,7 +700,7 @@
     }
 
     if (onPrimaryAction && (event.code === 'Space' || event.key === 'Enter')) {
-      if (isInteractiveShortcutTarget(target)) return;
+      if (isInteractiveShortcutTarget(target) && !delegatedTagKey) return;
       event.preventDefault();
       event.stopPropagation();
       onPrimaryAction();
