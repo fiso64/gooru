@@ -108,6 +108,7 @@ uploads:
 | `media.preview_size` | `1280` | Requested long-edge size for image previews. Must be greater than zero. |
 | `media.preview_enabled` | `true` | Generate and serve derived viewer previews. When disabled, preview requests fall back to original media and the WebUI treats original media as the only viewer source. Grid thumbnails remain enabled. |
 | `media.preview_jpeg_quality` | `92` | JPEG quality for generated viewer previews, from `1` to `100`. This does not change grid-thumbnail JPEG quality. |
+| `media.lossless_jpeg_transcode` | `true` | Expose an optional coefficient-domain baseline JPEG derivative for eligible progressive JPEGs when `jpegtran` is installed on the server. The original content/download remains unchanged. `jpegtran -copy all` preserves APP/COM metadata, including EXIF/ICC markers, without re-encoding image coefficients. Without the tool, the optional derivative URL is omitted. |
 
 
 ## `tools`
