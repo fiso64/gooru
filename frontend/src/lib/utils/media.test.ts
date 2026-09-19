@@ -22,21 +22,6 @@ describe('viewer media source policy', () => {
     expect(viewerImageSource(media(), true)).toBe('/content/original');
   });
 
-  it('prefers an available lossless display derivative only in configured full-image mode', () => {
-    const file = media({ media_urls: {
-      content: '/content/original',
-      preview: '/preview/derived',
-      lossless: '/lossless/display'
-    } });
-    expect(viewerImageSource(file, true, true)).toBe('/lossless/display');
-    expect(viewerImageSource(file, true, false)).toBe('/content/original');
-    expect(viewerImageSource(file, false, true)).toBe('/preview/derived');
-  });
-
-  it('uses original content if the lossless derivative is unavailable', () => {
-    expect(viewerImageSource(media(), true, true)).toBe('/content/original');
-  });
-
   it('always uses original GIF content so animation is preserved without restricting fit scaling', () => {
     const gif = media({ media_kind: 'gif', media_type: 'image/gif' });
     expect(viewerImageSource(gif, false)).toBe('/content/original');

@@ -31,7 +31,7 @@ func thumbnailSupportForPath(path string) (thumbnailSupport, bool) {
 
 	kind := mediaKindForType(mediaTypeForPath(path))
 	switch kind {
-	case "photo", "gif", "pdf":
+	case "photo", "gif":
 		return thumbnailSupport{kind: kind, protectedAccess: protectedThumbnailSource}, true
 	case "video":
 		// All video containers use the same seek-capable ffmpeg contract. Clear

@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -29,8 +32,6 @@ type comicPage struct {
 	Index int    `json:"index"`
 	Name  string `json:"name"`
 	URL   string `json:"url"`
-	Preview string `json:"preview,omitempty"`
-	Lossless string `json:"lossless,omitempty"`
 }
 
 type comicManifest struct {
@@ -38,7 +39,6 @@ type comicManifest struct {
 }
 
 type comicArchive struct {
-	version string
 	reader *zip.Reader
 	pages  []*zip.File
 	close  func() error
@@ -113,7 +113,6 @@ func (m *MediaService) acquireComicArchive(file types.FileInfo) (*comicArchive, 
 		_ = source.Close()
 		return nil, nil, err
 	}
-	archive.version = key
 	entry := &cachedComicArchive{key: key, path: file.Path, archive: archive, refs: 1}
 
 	m.comicMu.Lock()
@@ -310,20 +309,11 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 	if rawPage == "" {
 		pages := make([]comicPage, 0, len(archive.pages))
 		for index, page := range archive.pages {
-			item := comicPage{
+			pages = append(pages, comicPage{
 				Index: index,
 				Name:  filepath.Base(page.Name),
 				URL:   "/api/v1/comics/" + publicID + "/" + strconv.Itoa(index),
-			}
-			if m.cfg.Media.TranscodeCBZPages {
-				if m.cfg.Media.PreviewEnabled && comicPreviewEligible(page) {
-					item.Preview = item.URL + "?variant=preview"
-				}
-				if m.comicPageLosslessAvailable(file, archive, index) {
-					item.Lossless = item.URL + "?variant=lossless"
-				}
-			}
-			pages = append(pages, item)
+			})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(comicManifest{Pages: pages})
@@ -333,15 +323,6 @@ func (m *MediaService) ServeComic(w http.ResponseWriter, r *http.Request, file t
 	index, err := strconv.Atoi(rawPage)
 	if err != nil || index < 0 {
 		writeError(w, http.StatusBadRequest, "invalid_request", "page must be a non-negative integer", nil)
-		return
-	}
-	variant := strings.TrimSpace(r.URL.Query().Get("variant"))
-	if variant != "" && variant != "original" {
-		if variant != "preview" && variant != "lossless" {
-			writeError(w, http.StatusBadRequest, "invalid_request", "unsupported comic page variant", nil)
-			return
-		}
-		m.serveComicPageDerivative(w, r, file, archive, index, variant)
 		return
 	}
 	reader, page, err := archive.openPage(index)
@@ -395,5 +376,17 @@ func thumbnailComicArchiveFirstPage(archive *comicArchive, dst io.Writer, size i
 		return err
 	}
 	defer reader.Close()
-	return encodeResizedImage(io.LimitReader(reader, maxComicPageBytes), dst, size, format, derivativeJPEGQuality)
+	img, _, err := image.Decode(io.LimitReader(reader, maxComicPageBytes))
+	if err != nil {
+		return fmt.Errorf("%w: decode first comic page: %v", ErrUnsupportedMedia, err)
+	}
+	resized := scaleImage(img, size)
+	switch format {
+	case "jpeg":
+		return jpeg.Encode(dst, resized, &jpeg.Options{Quality: derivativeJPEGQuality})
+	case "png":
+		return png.Encode(dst, resized)
+	default:
+		return fmt.Errorf("%w: thumbnail format %q", ErrUnsupportedMedia, format)
+	}
 }

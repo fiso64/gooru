@@ -6,7 +6,7 @@
   import { ApiClient } from '$lib/api/client';
   import { hasRuntimeCapability, runtimeCapability, runtimeConfig } from '$lib/stores/runtimeConfig';
   import { readViewerSessionPreferences, updateViewerSessionPreferences } from '$lib/state/viewerSessionPreferences';
-  import { comicPageAt, comicPageSource, isComicFile, moveComicPage } from '$lib/utils/comic';
+  import { comicPageAt, isComicFile, moveComicPage } from '$lib/utils/comic';
   import { errorMessage, formatBytes, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
@@ -73,12 +73,12 @@
   let comicController: AbortController | undefined;
   let navigationDirection: -1 | 1 = 1;
 
-  const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
-  const originalAvailable = $derived(comicEntered && currentComicPage ? Boolean(currentComicPage.preview) : canUseOriginalInViewer(file));
+  const originalAvailable = $derived(canUseOriginalInViewer(file));
   const previewAvailable = $derived(hasRuntimeCapability($runtimeConfig, runtimeCapability.previewImages));
   const effectivePreferOriginal = $derived(!previewAvailable || preferOriginal);
   const comicAvailable = $derived(isComicFile(file));
-  const imageSource = $derived(comicEntered ? comicPageSource(currentComicPage, effectivePreferOriginal, $runtimeConfig.preferLosslessFullImage) : viewerImageSource(file, effectivePreferOriginal, $runtimeConfig.preferLosslessFullImage));
+  const currentComicPage = $derived(comicPageAt(comicManifest, comicPageIndex));
+  const imageSource = $derived(comicEntered && currentComicPage ? currentComicPage.url : viewerImageSource(file, effectivePreferOriginal));
   const sidebarMetadata = $derived.by(() => {
     const dimensionLabel = mediaDimensions(file);
     const pageLabel = file.metadata.page_count
@@ -142,13 +142,13 @@
     if (comicEntered && comicManifest) {
       const targetIndex = comicPageIndex + navigationDirection;
       const page = comicPageAt(comicManifest, targetIndex);
-      if (page) void preloadViewerMediaSource(file, comicPageSource(page, effectivePreferOriginal, $runtimeConfig.preferLosslessFullImage)).catch(() => undefined);
+      if (page) void preloadViewerMediaSource(file, page.url).catch(() => undefined);
       return;
     }
 
     const neighbor = navigationDirection < 0 ? preloadPrev : preloadNext;
     if (!neighbor) return;
-    void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, effectivePreferOriginal, $runtimeConfig.preferLosslessFullImage)).catch(() => undefined);
+    void preloadViewerMediaSource(neighbor, viewerImageSource(neighbor, effectivePreferOriginal)).catch(() => undefined);
   }
 
   function focusTagInput(mode: 'add' | 'remove' = 'add') {

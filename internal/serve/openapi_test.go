@@ -25,10 +25,6 @@ func TestOpenAPIDocumentsCurrentDTOFields(t *testing.T) {
 		}
 	}
 	fileProps := stringMap(t, fileSchema["properties"])
-	mediaKinds := stringSlice(t, stringMap(t, fileProps["media_kind"])["enum"])
-	if !containsString(mediaKinds, mediaKindForType("application/pdf")) {
-		t.Fatalf("OpenAPI File media_kind enum omits PDF: %v", mediaKinds)
-	}
 	if _, ok := fileProps["safe_display_path"]; !ok {
 		t.Fatal("File schema missing safe_display_path")
 	}

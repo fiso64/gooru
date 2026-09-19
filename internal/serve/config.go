@@ -95,8 +95,6 @@ type MediaConfig struct {
 	PreviewSize        int    `yaml:"preview_size"`
 	PreviewEnabled     bool   `yaml:"preview_enabled"`
 	PreviewJPEGQuality int    `yaml:"preview_jpeg_quality"`
-	LosslessJPEGTranscode bool `yaml:"lossless_jpeg_transcode"`
-	TranscodeCBZPages bool `yaml:"transcode_cbz_pages"`
 }
 
 type ToolsConfig struct {
@@ -117,7 +115,6 @@ type UIConfig struct {
 	GridType                 string   `yaml:"grid_type"`
 	HiddenTags               []string `yaml:"hidden_tags"`
 	LoadFullMediaByDefault   bool     `yaml:"load_full_media_by_default"`
-	PreferLosslessFullImage bool     `yaml:"prefer_lossless_full_image"`
 	FullscreenMediaByDefault bool     `yaml:"fullscreen_media_by_default"`
 	HoverPlayVideos          bool     `yaml:"hover_play_videos"`
 	HoverPlayGIFs            bool     `yaml:"hover_play_gifs"`
@@ -175,8 +172,6 @@ func DefaultConfig(dbPath string) Config {
 			PreviewSize:        1280,
 			PreviewEnabled:     true,
 			PreviewJPEGQuality: derivativeJPEGQuality,
-			LosslessJPEGTranscode: true,
-			TranscodeCBZPages: true,
 		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},
@@ -190,7 +185,6 @@ func DefaultConfig(dbPath string) Config {
 			ViewerFitMode:          "fit_window",
 			ViewerActualSizeFitCap: true,
 			ViewerScaling:          "smooth",
-			PreferLosslessFullImage: true,
 			PaginationMode:         DefaultPaginationMode,
 			ItemsPerPage:           DefaultItemsPerPage,
 		},
