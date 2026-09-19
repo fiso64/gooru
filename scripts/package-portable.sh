@@ -3,16 +3,21 @@ set -euo pipefail
 
 os="${1:?usage: package-portable.sh OS ARCH}"
 arch="${2:?usage: package-portable.sh OS ARCH}"
+case "$os/$arch" in
+  linux/amd64|linux/arm64|windows/amd64) ;;
+  *) echo "unsupported target: $os/$arch" >&2; exit 2 ;;
+esac
 version="$(tr -d '\n' < VERSION)"
 revision="${GITHUB_SHA:-$(git rev-parse HEAD)}"
 mkdir -p dist
+[[ -d frontend/build ]] || { echo "build frontend first" >&2; exit 1; }
 
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 root="$stage/gooru_${version}_${os}_${arch}"
 mkdir -p "$root/frontend"
 cp -R frontend/build/. "$root/frontend/"
-cp LICENSE THIRD_PARTY_NOTICES.md "$root/"
+cp LICENSE THIRD_PARTY_NOTICES.md docs/DEVELOPMENT.md "$root/"
 
 suffix=""
 if [[ "$os" == windows ]]; then suffix=".exe"; fi
