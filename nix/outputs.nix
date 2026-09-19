@@ -42,7 +42,8 @@ in {
         preCheck = ''
           command -v pdfinfo
           command -v pdftoppm
-          go test -run '^TestProtectedPDFViewerRealPopplerGoldenPath
+          go test -run TestProtectedPDFViewerRealPopplerGoldenPath -v ./internal/serve
+        '';
         # The Nix wrapper provides JPEG conversion and PDF rendering tools.
         postFixup = ''
           wrapProgram $out/bin/gooru --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libjpeg_turbo pkgs.poppler-utils ]}
