@@ -184,7 +184,7 @@
             onmouseenter={() => (active = index)}
             onclick={() => selectSuggestion(suggestion)}
           >
-            <span>
+            <span class="name" title={suggestion.name}>
               {#if suggestion.name.includes(':')}
                 <span class="ns">{suggestion.name.slice(0, suggestion.name.indexOf(':'))}:</span>{suggestion.name.slice(suggestion.name.indexOf(':') + 1)}
               {:else}
@@ -232,7 +232,8 @@
     width: min(360px, 100%);
     max-height: 260px;
     box-sizing: border-box;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
     margin: 0;
     padding: 4px;
     list-style: none;
@@ -244,6 +245,7 @@
 
   .tag-autocomplete-list button {
     width: 100%;
+    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -263,11 +265,20 @@
     color: var(--text);
   }
 
+  .tag-autocomplete-list .name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .tag-autocomplete-list .ns {
     color: var(--accent);
   }
 
   .tag-autocomplete-list .count {
+    flex: 0 0 auto;
     color: var(--text-4);
     font-family: var(--font-mono);
     font-size: 10.5px;

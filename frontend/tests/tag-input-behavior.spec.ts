@@ -165,3 +165,66 @@ test('viewer +/- mode control supports mouse toggling and keeps keyboard switchi
   await expect(input).toHaveValue('rating:safe-');
   await expect(page.getByRole('textbox', { name: 'Tags for one.jpg' })).toBeFocused();
 });
+
+
+test('tag completion remains mounted while the next matching query is pending', async ({ page }) => {
+  await mockApp(page);
+  await page.unroute('**/api/v1/search/suggestions?**');
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let pending = false;
+  await page.route('**/api/v1/search/suggestions?**', async (route) => {
+    const query = new URL(route.request().url()).searchParams.get('q');
+    if (query === 'techn') { pending = true; await gate; }
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ name: 'technology', count: 8 }] }) });
+  });
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  const input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+  const list = page.getByRole('listbox', { name: 'Tags for one.jpg suggestions' });
+  await input.fill('tech');
+  await expect(list.getByRole('option').first()).toContainText('technology');
+  await list.evaluate((node) => { (node as HTMLElement).dataset.popupIdentity = 'first'; });
+  await input.press('n');
+  await expect.poll(() => pending).toBe(true);
+  await expect(list).toHaveAttribute('data-popup-identity', 'first');
+  await expect(list.getByRole('option').first()).toContainText('technology');
+  release();
+});
+
+
+test('viewer tag completions ellipsize long names without horizontal scrolling', async ({ page }) => {
+  await mockApp(page);
+  await page.unroute('**/api/v1/search/suggestions?**');
+  const longTag = `character:${'very_long_unbroken_name_'.repeat(12)}`;
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ items: [{ name: longTag, count: 123456 }] })
+  }));
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  const input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await input.locator('..').evaluate((node) => {
+    const element = node as HTMLElement;
+    element.style.width = '170px';
+    element.style.maxWidth = '170px';
+    element.style.flex = '0 0 170px';
+  });
+  await input.fill('character:v');
+  const list = page.getByRole('listbox', { name: 'Tags for one.jpg suggestions' });
+  await expect(list.getByRole('option').first()).toBeVisible();
+  await expect(list.locator('.name').first()).toHaveAttribute('title', longTag);
+  const result = await list.evaluate((node) => {
+    const label = node.querySelector<HTMLElement>('.name')!;
+    return {
+      listWidth: node.clientWidth,
+      scrollWidth: node.scrollWidth,
+      labelWidth: label.clientWidth,
+      labelScrollWidth: label.scrollWidth,
+      textOverflow: getComputedStyle(label).textOverflow,
+      countWidth: node.querySelector<HTMLElement>('.count')?.getBoundingClientRect().width ?? 0
+    };
+  });
+  expect(result.scrollWidth).toBeLessThanOrEqual(result.listWidth);
+  expect(result.labelScrollWidth).toBeGreaterThan(result.labelWidth);
+  expect(result.textOverflow).toBe('ellipsis');
+  expect(result.countWidth).toBeGreaterThan(0);
+});
