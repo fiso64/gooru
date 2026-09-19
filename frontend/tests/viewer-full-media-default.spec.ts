@@ -37,7 +37,7 @@ async function mockApp(page: Page, loadFullMediaByDefault: boolean, capabilities
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ files: [file], total_count: 1, library_count: 1, facets: { kind: [] } })
+    body: JSON.stringify({ files: [lossless ? { ...file, media_urls: { ...file.media_urls, lossless: '/api/v1/files/one/lossless' } } : file], total_count: 1, library_count: 1, facets: { kind: [] } })
   }));
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64"/></svg>';
   await page.route('**/api/v1/files/one/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: svg }));
