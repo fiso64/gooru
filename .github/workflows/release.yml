@@ -155,13 +155,25 @@ jobs:
       - name: Install Nix on native arm64
         if: matrix.system == 'aarch64-linux'
         uses: cachix/install-nix-action@v31
+      - name: Resolve Cachix CLI from pinned nixpkgs
+        if: github.event_name != 'pull_request'
+        id: cachix-cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          client="$(nix build --impure --no-link --print-out-paths --expr 'let flake = builtins.getFlake (toString ./.); in flake.inputs.nixpkgs.legacyPackages.${{ matrix.system }}.cachix')"
+          test -x "$client/bin/cachix"
+          echo "bin=$client/bin/cachix" >> "$GITHUB_OUTPUT"
+          echo "$client/bin" >> "$GITHUB_PATH"
       - name: Configure Cachix publication for release tags
         if: github.event_name != 'pull_request'
         uses: cachix/cachix-action@v17
         with:
           name: ${{ vars.CACHIX_CACHE_NAME }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachixBin: ${{ steps.cachix-cli.outputs.bin }}
           skipPush: true
+          skipAddingSubstituter: true
       - name: Build native Nix package and module check
         run: |
           nix build .#packages.${{ matrix.system }}.default --out-link result --print-build-logs
