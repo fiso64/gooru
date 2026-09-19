@@ -20,7 +20,8 @@ CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
   -ldflags "-X=gooru.local/internal/buildinfo.Version=$version -X=gooru.local/internal/buildinfo.Revision=$revision -X=gooru.local/internal/buildinfo.Dirty=false -X=gooru.local/internal/buildinfo.Development=false" \
   -o "$root/gooru$suffix" ./cmd/gooru
 if [[ "$os" == windows ]]; then
-  (cd "$stage" && zip -qr "$OLDPWD/dist/gooru_${version}_${os}_${arch}.zip" "${root##*/}")
+  output_dir="$(pwd)/dist"
+  (cd "$stage" && zip -qr "$output_dir/gooru_${version}_${os}_${arch}.zip" "${root##*/}")
 else
   tar -C "$stage" -czf "dist/gooru_${version}_${os}_${arch}.tar.gz" "${root##*/}"
 fi
