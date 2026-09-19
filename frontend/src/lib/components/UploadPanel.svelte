@@ -465,6 +465,7 @@
                         <TagAutocompleteInput
                           value={itemTagDrafts[row.index] ?? ''}
                           tags={completionTags}
+                   stagedCandidates={stagedTagCandidates}
                           existing={item.tags ?? []}
                           placeholder="add tag"
                           ariaLabel={`Add tag to ${item.name}`}
@@ -571,6 +572,7 @@
                           <TagAutocompleteInput
                             value={itemTagDrafts[row.index] ?? ''}
                             tags={completionTags}
+                           stagedCandidates={stagedTagCandidates}
                             existing={item.tags ?? []}
                             placeholder="add tag"
                             ariaLabel={`Add tag to ${item.name}`}
