@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-os="${1:?usage: package-portable.sh OS ARCH}"
+os="${1:?usage: build-portable.sh OS ARCH}"
 arch="${2:?usage: package-portable.sh OS ARCH}"
 case "$os/$arch" in
   linux/amd64|linux/arm64|windows/amd64) ;;
@@ -15,8 +15,8 @@ mkdir -p dist
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 root="$stage/gooru_${version}_${os}_${arch}"
-mkdir -p "$root/frontend"
-cp -R frontend/build/. "$root/frontend/"
+mkdir -p "$root/frontend/build"
+cp -R frontend/build/. "$root/frontend/build/"
 cp LICENSE THIRD_PARTY_NOTICES.md docs/DEVELOPMENT.md "$root/"
 
 suffix=""

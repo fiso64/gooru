@@ -83,4 +83,4 @@ Requires libvips development files at build time and the shared library at runti
 
 ## Release policy
 
-`VERSION` defines the canonical version. Tag reviewed releases on `main` using `vMAJOR.MINOR.PATCH`. Maintain `CHANGELOG.md` as changes land, moving the Unreleased notes to a matching version heading before tagging. CI validates that entry; the tag workflow publishes it.
+`VERSION` defines the canonical version. Tag reviewed releases on `main` using `vMAJOR.MINOR.PATCH`. Maintain `CHANGELOG.md` as changes land, moving the Unreleased notes to a matching version heading before tagging. The tag-triggered release workflow validates the version and notes; ordinary push/PR CI does not require release notes.
