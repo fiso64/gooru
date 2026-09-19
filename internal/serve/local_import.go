@@ -48,6 +48,28 @@ func (s *Server) ImportLocalFiles(ctx context.Context, targetID string, paths []
         return UploadImportResponse{}, err
     }
     request.Header.Set("Content-Type", form.FormDataContentType())
+    // Production libraries must use the recoverable HTTP producer/worker protocol;
+    // the immediate importer is only for embedders without a durable task store.
+    if _, durable := s.backgroundOperations.(durableUploadOperationStore); durable {
+        response, importErr := s.importDurableLocalUpload(ctx, request, reader)
+        _ = reader.CloseWithError(importErr)
+        producerErr := <-produced
+        if producerErr != nil && !errors.Is(producerErr, io.ErrClosedPipe) {
+            return UploadImportResponse{}, producerErr
+        }
+        if importErr != nil {
+            return UploadImportResponse{}, importErr
+        }
+        if producerErr != nil {
+            return UploadImportResponse{}, producerErr
+        }
+        return response, nil
+    }
+    if s.cfg.Encryption.Enabled {
+        _ = reader.CloseWithError(errors.New("durable import service is required for protected storage"))
+        <-produced
+        return UploadImportResponse{}, errors.New("durable import service is required for protected storage")
+    }
     tags, saved, stageErr := s.stageMultipartUpload(request)
     _ = reader.CloseWithError(stageErr)
     producerErr := <-produced
