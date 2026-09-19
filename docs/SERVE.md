@@ -162,6 +162,30 @@ gooru serve --config serve.yaml
 
 When packaging outside the source tree, ship the built frontend directory too and point `server.frontend_dir` at it.
 
+## systemd (Linux)
+
+The Linux package includes a `gooru@.service` template. Install the binary at
+`/usr/bin/gooru` and the template under the systemd system-unit directory. For
+an instance named `main`, create `/etc/gooru/main/serve.yaml` with unique
+`server.listen`, `database.path: /var/lib/gooru-main/gooru.db`,
+`media.cache_dir: /var/cache/gooru-main/media`, and
+`server.frontend_dir: /usr/share/gooru/frontend`. Start it using
+`systemctl enable --now gooru@main.service`.
+
+The template creates separate, private state/cache directories and a dynamic
+service identity for each instance, initializes a missing database on first
+start with the partial hashing strategy, and does not put credentials in the
+unit or YAML. Provision the first admin through the CLI using the instance
+config and a password supplied privately. If using encryption, load the key
+with a systemd `LoadCredential` drop-in and set
+`GOORU_ENCRYPTION_KEY_FILE=%d/encryption-key` in that drop-in; keep the
+plaintext key out of configuration files and service logs. External libraries
+and upload targets require explicit read/write access for the service identity;
+use a dedicated static per-instance user and matching unit override where
+stable filesystem ACLs or group membership are required. Each instance needs
+its own listen address and should not share a database or mutable cache with
+another instance.
+
 ## NixOS
 
 The flake exports `gooru.nixosModules.default`. Keep a shared default package at `services.gooru.package` and define deployments under `services.gooru.instances.<name>`. Each enabled instance must set `settings.server.listen` explicitly.
