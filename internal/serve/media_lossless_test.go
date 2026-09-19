@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"image/jpeg"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"gooru.local/types"
@@ -95,4 +97,26 @@ func TestRealCoefficientJPEGConversionWhenInstalled(t *testing.T) {
 			if a != e || b != f || c != g || d != h { t.Fatalf("pixel (%d,%d) differs: %v vs %v", x, y, original.At(x,y), converted.At(x,y)) }
 		}
 	}
+}
+
+func TestProtectedLosslessJPEGUsesLogicalSourceAndEncryptedCache(t *testing.T) {
+	original := progressiveJPEGFixture(t)
+	path := writeNamedMediaFile(t, "private.jpg", original)
+	file := types.FileInfo{ID: 934, Path: path, Hash: "protected-lossless-test", Size: int64(len(original))}
+	server := protectedMediaTestServer(t, file)
+	encryptMediaFixture(t, path, server.cfg.Encryption.Key)
+	server.media.losslessJPEGTool = writeJPEGTranscodeStub(t, "cat")
+	id := fallbackPublicFileID(file.ID)
+	dto := server.fileDTO(nil, file, false)
+	if dto.MediaURLs.Lossless == "" { t.Fatal("protected progressive JPEG omitted lossless URL") }
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/files/"+id+"/lossless"))
+	if rec.Code != http.StatusOK { t.Fatalf("protected derivative %d: %s", rec.Code, rec.Body.String()) }
+	if got := rec.Header().Get("Cache-Control"); got != "private, no-store" { t.Fatalf("protected cache control %q", got) }
+	if !bytes.Equal(rec.Body.Bytes(), original) { t.Fatal("protected derivative bytes changed") }
+	cachePath := filepath.Join(server.cfg.Media.CacheDir, encryptedDerivativeNamespace, server.media.derivativeRelativePath(file, "lossless", 0, "jpeg"))
+	ciphertext, err := os.ReadFile(cachePath)
+	if err != nil { t.Fatal(err) }
+	if bytes.Contains(ciphertext, original[:32]) { t.Fatal("plaintext leaked to protected cache") }
+	if got, err := os.ReadFile(path); err != nil || bytes.Equal(got, original) { t.Fatalf("protected source was exposed or lost: %v", err) }
 }
