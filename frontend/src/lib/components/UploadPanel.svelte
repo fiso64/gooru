@@ -633,7 +633,6 @@
     activeIndex={viewerIndex}
     scope={viewerScope}
     tags={completionTags}
-    stagedCandidates={stagedTagCandidates}
     onIndex={(index) => (viewerIndex = index)}
     onClose={closeViewer}
     {onItemTagsInput}
