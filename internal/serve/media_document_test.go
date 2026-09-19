@@ -105,3 +105,33 @@ func TestOriginalDocumentNavigationFallsBackToBrowserAcceptHeader(t *testing.T) 
 		t.Fatal("explicit non-document Fetch Metadata must override Accept fallback")
 	}
 }
+
+func TestEmbeddedPDFUsesInlineDocumentPolicyWithoutEnablingActiveContent(t *testing.T) {
+	for _, tc := range []struct {
+		name, contents, wantType string
+	}{
+		{name: "document.pdf", contents: "%PDF-1.7\n", wantType: "application/pdf"},
+		{name: "active.html", contents: "<script>alert(1)</script>", wantType: "text/plain; charset=utf-8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeNamedMediaFile(t, tc.name, []byte(tc.contents))
+			server := newMediaTestServer(t, types.FileInfo{ID: 122, Path: path, Hash: "embedded-document", Size: int64(len(tc.contents))})
+			req := authedRequest(http.MethodGet, "/api/v1/files/"+fallbackPublicFileID(122)+"/content")
+			req.Header.Set("Sec-Fetch-Dest", "iframe")
+			rec := httptest.NewRecorder()
+			server.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Content-Type"); got != tc.wantType {
+				t.Fatalf("Content-Type = %q, want %q", got, tc.wantType)
+			}
+			if got := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline;") {
+				t.Fatalf("embedded content disposition = %q", got)
+			}
+			if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+				t.Fatalf("X-Content-Type-Options = %q", got)
+			}
+		})
+	}
+}
