@@ -2196,6 +2196,8 @@ export interface components {
             index: number;
             name: string;
             url: string;
+            preview?: string;
+            lossless?: string;
         };
         ComicManifest: {
             pages: components["schemas"]["ComicPage"][];
