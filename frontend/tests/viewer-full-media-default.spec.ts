@@ -25,10 +25,10 @@ const file = {
   }
 };
 
-async function mockApp(page: Page, loadFullMediaByDefault: boolean, capabilities: string[] = ['preview_images']) {
+async function mockApp(page: Page, loadFullMediaByDefault: boolean, capabilities: string[] = ['preview_images'], lossless = false, preferLossless = true) {
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ load_full_media_by_default: loadFullMediaByDefault, capabilities })
+    body: JSON.stringify({ load_full_media_by_default: loadFullMediaByDefault, prefer_lossless_full_image: preferLossless, capabilities })
   }));
   await page.route('**/api/v1/auth/me', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
@@ -37,7 +37,7 @@ async function mockApp(page: Page, loadFullMediaByDefault: boolean, capabilities
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
     contentType: 'application/json',
-    body: JSON.stringify({ files: [file], total_count: 1, library_count: 1, facets: { kind: [] } })
+    body: JSON.stringify({ files: [lossless ? { ...file, media_urls: { ...file.media_urls, lossless: '/api/v1/files/one/lossless' } } : file], total_count: 1, library_count: 1, facets: { kind: [] } })
   }));
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64"/></svg>';
   await page.route('**/api/v1/files/one/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: svg }));
@@ -79,4 +79,27 @@ test('disabled preview capability forces original media and removes the viewer t
 
   await page.keyboard.press('q');
   await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', '/api/v1/files/one/content');
+});
+
+test('an unavailable optional lossless image falls back to original full media', async ({ page }) => {
+  const requested: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/v1/files/one/lossless')) requested.push(request.url());
+  });
+  await mockApp(page, true, ['preview_images'], true);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', '/api/v1/files/one/content');
+  expect(requested.length).toBeGreaterThan(0);
+});
+
+test('full-image viewer selects lossless display URL while original controls stay canonical', async ({ page }) => {
+  await page.route('**/api/v1/files/one/lossless', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"/>'
+  }));
+  await mockApp(page, true, ['preview_images'], true);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  await expect(page.locator('.viewer-visual-media')).toHaveAttribute('src', '/api/v1/files/one/lossless');
+  await expect(page.getByTitle('Download original (D)')).toHaveAttribute('href', '/api/v1/files/one/download');
+  await expect(page.getByTitle('Open original in new tab (O)')).toHaveAttribute('href', '/api/v1/files/one/content');
 });

@@ -75,6 +75,7 @@
   let audioElement = $state<HTMLAudioElement | undefined>();
   let displayedFile = $state<ViewerStageMedia | undefined>();
   let displayedImageSource = $state('');
+  let failedLosslessFileID = $state('');
   let waitingForTarget = $state(false);
   let mediaError = $state('');
   let waitingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -217,7 +218,9 @@
 
   $effect(() => {
     const targetFile = file;
-    const targetImageSource = imageSource;
+    const requestedImageSource = imageSource;
+    const targetImageSource = failedLosslessFileID === targetFile.id && requestedImageSource === targetFile.media_urls.lossless
+      ? targetFile.media_urls.content : requestedImageSource;
     const generation = ++transitionGeneration;
     recordViewerRequest(generation);
     clearWaitingTimer();
@@ -351,6 +354,12 @@
   function syncImageError(event: Event) {
     const image = event.currentTarget;
     if (!(image instanceof HTMLImageElement) || !imageMatchesCurrentSource(image)) return;
+    // A failed optional derivative must not strand full-image mode: retry the
+    // canonical original once, retaining the transition shield until it loads.
+    if (renderedImageSource && renderedImageSource === renderedFile.media_urls.lossless && renderedFile.media_urls.content) {
+      failedLosslessFileID = renderedFile.id;
+      return;
+    }
     // A failed/unsupported latest target has no paint event that can release the frozen frame.
     // End this handoff explicitly so stale pixels never stand in for the current file.
     clearWaitingTimer();

@@ -101,6 +101,7 @@ type MediaService struct {
 	sourceResolverErr          error
 	derivatives                derivativeStore
 	derivativeStoreErr         error
+	losslessJPEGTool           string
 	comicMu                    sync.Mutex
 	comicCache                 map[string]*cachedComicArchive
 	comicTick                  uint64

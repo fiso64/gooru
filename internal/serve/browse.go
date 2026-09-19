@@ -403,6 +403,7 @@ type FileDTO struct {
 type MediaURLs struct {
 	Thumbnail string `json:"thumbnail"`
 	Preview   string `json:"preview"`
+	Lossless  string `json:"lossless,omitempty"`
 	Content   string `json:"content"`
 	Download  string `json:"download"`
 }
@@ -630,6 +631,8 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 			s.media.ServeDerivative(w, r, file, "thumbnail")
 		case "preview":
 			s.media.ServeDerivative(w, r, file, "preview")
+		case "lossless":
+			s.media.ServeLosslessJPEG(w, r, file)
 		default:
 			writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		}
@@ -740,6 +743,9 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 			Download:  "/api/v1/files/" + id + "/download",
 		},
 		CanDelete: s.canDeleteFilePath(fileStoragePath(file)),
+	}
+	if s.media.losslessJPEGAvailable(file) {
+		dto.MediaURLs.Lossless = "/api/v1/files/" + id + "/lossless"
 	}
 	if s.cfg.Server.ExposePaths {
 		dto.Path = file.Path

@@ -187,22 +187,34 @@ func (s *encryptedDerivativeStore) GetOrGenerate(relativePath string, generate d
 		return nil, err
 	}
 
-	// Derivatives are bounded outputs. Buffer plaintext in memory so the encrypted
-	// file format can authenticate its declared size without ever materializing a
-	// plaintext cache file on disk.
-	var plain bytes.Buffer
-	if err := generate(&plain); err != nil {
-		return nil, err
-	}
+	// A lossless full-image derivative can be as large as its source. Stream the
+	// generator into an encrypted temporary file without ever persisting plaintext
+	// or holding the entire derivative in memory. EncryptStream authenticates the
+	// final size after the producer completes.
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".gooru-derivative-encrypted-*")
 	if err != nil {
 		return nil, err
 	}
 	tmpPath := tmp.Name()
-	encryptErr := encryptedfile.Encrypt(tmp, bytes.NewReader(plain.Bytes()), int64(plain.Len()), s.key)
+	reader, writer := io.Pipe()
+	produced := make(chan error, 1)
+	go func() {
+		genErr := generate(writer)
+		_ = writer.CloseWithError(genErr)
+		produced <- genErr
+	}()
+	_, encryptErr := encryptedfile.EncryptStream(tmp, reader, s.key)
+	if encryptErr != nil {
+		_ = reader.CloseWithError(encryptErr)
+	}
+	genErr := <-produced
+	_ = reader.Close()
 	closeErr := tmp.Close()
-	if encryptErr != nil || closeErr != nil {
+	if genErr != nil || encryptErr != nil || closeErr != nil {
 		_ = os.Remove(tmpPath)
+		if genErr != nil {
+			return nil, genErr
+		}
 		if encryptErr != nil {
 			return nil, encryptErr
 		}
