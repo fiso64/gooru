@@ -30,3 +30,7 @@ if [[ "$os" == windows ]]; then
 else
   tar -C "$stage" -czf "dist/gooru_${version}_${os}_${arch}.tar.gz" "${root##*/}"
 fi
+
+artifact="dist/gooru_${version}_${os}_${arch}.tar.gz"
+if [[ "$os" == windows ]]; then artifact="dist/gooru_${version}_${os}_${arch}.zip"; fi
+sha256sum "$artifact" > "$artifact.sha256"
