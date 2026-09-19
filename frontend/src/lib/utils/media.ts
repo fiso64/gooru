@@ -36,6 +36,7 @@ export function canUseOriginalInViewer(file: ViewerMedia): boolean {
 }
 
 export function viewerImageSource(file: ViewerMedia, preferOriginal: boolean): string {
+  if (isPDFViewerMedia(file)) return file.media_urls.content;
   if ((preferOriginal && canUseOriginalInViewer(file)) || isAnimatedGif(file)) {
     return file.media_urls.content || file.media_urls.preview;
   }
