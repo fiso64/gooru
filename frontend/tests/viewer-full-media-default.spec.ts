@@ -25,7 +25,7 @@ const file = {
   }
 };
 
-async function mockApp(page: Page, loadFullMediaByDefault: boolean, capabilities: string[] = ['preview_images']) {
+async function mockApp(page: Page, loadFullMediaByDefault: boolean, capabilities: string[] = ['preview_images'], lossless = false) {
   await page.route('**/api/v1/ui-config', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ load_full_media_by_default: loadFullMediaByDefault, capabilities })
