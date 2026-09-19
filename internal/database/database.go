@@ -1330,34 +1330,41 @@ func (s *Store) batchUpsertLocations(
 		return nil
 	}
 
-	locs := make([]types.LocationInfo, 0, len(locations))
+	// Avoid copying the entire location map when a batch can contain only
+	// maxVars/columns rows. Managed mappings use the same bounded row group.
+	batch := make([]types.LocationInfo, 0, min(len(locations), maxVars/columns))
+	insertBatch := func(locs []types.LocationInfo) error {
+		for placeholders, args := range bindRowBatches(locs, rowPlaceholders, columns, func(args []any, loc types.LocationInfo, _ int) {
+			fill(args, loc)
+		}) {
+			query := `INSERT INTO locations (` + insertColumns + `) VALUES ` +
+				placeholders +
+				` ON CONFLICT(path) DO UPDATE SET
+					content_hash=excluded.content_hash,
+					size_bytes=excluded.size_bytes,
+					mod_time=excluded.mod_time,
+					extension=excluded.extension`
+
+			if _, err := q.Exec(query, args...); err != nil {
+				return err
+			}
+			if err := s.upsertManagedStorageLocations(q, locs); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	for _, loc := range locations {
-		locs = append(locs, loc)
-	}
-
-	batchStart := 0
-	for placeholders, args := range bindRowBatches(locs, rowPlaceholders, columns, func(args []any, loc types.LocationInfo, _ int) {
-		fill(args, loc)
-	}) {
-		batchEnd := batchStart + len(args)/columns
-		batch := locs[batchStart:batchEnd]
-		query := `INSERT INTO locations (` + insertColumns + `) VALUES ` +
-			placeholders +
-			` ON CONFLICT(path) DO UPDATE SET
-				content_hash=excluded.content_hash,
-				size_bytes=excluded.size_bytes,
-				mod_time=excluded.mod_time,
-				extension=excluded.extension`
-
-		if _, err := q.Exec(query, args...); err != nil {
-			return err
+		batch = append(batch, loc)
+		if len(batch) == cap(batch) {
+			if err := insertBatch(batch); err != nil {
+				return err
+			}
+			batch = batch[:0]
 		}
-		if err := s.upsertManagedStorageLocations(q, batch); err != nil {
-			return err
-		}
-		batchStart = batchEnd
 	}
-	return nil
+	return insertBatch(batch)
 }
 
 func (s *Store) upsertManagedStorageLocations(q Querier, locations []types.LocationInfo) error {
