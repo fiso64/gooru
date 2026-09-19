@@ -142,7 +142,7 @@ test('tag modal keeps open on first Escape and Space commits the literal prefix'
   await expect(dialog).toHaveCount(0);
 });
 
-test('viewer +/- mode control supports mouse toggling and keeps keyboard switching while empty', async ({ page }) => {
+test('viewer +/- mode control supports mouse toggling while punctuation remains tag text', async ({ page }) => {
   await mockApp(page);
   await page.getByRole('button', { name: 'Preview one.jpg' }).click();
 
@@ -154,11 +154,11 @@ test('viewer +/- mode control supports mouse toggling and keeps keyboard switchi
   await expect(input).toBeFocused();
 
   await input.press('-');
-  input = page.getByRole('textbox', { name: 'Remove tags from one.jpg' });
+  await expect(input).toHaveValue('-');
   await expect(input).toBeFocused();
   await input.press('+');
-  input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
-  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('-+');
+  await input.fill('');
 
   await input.fill('rating:safe');
   await input.press('-');
