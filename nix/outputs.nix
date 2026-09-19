@@ -38,10 +38,15 @@ in {
           "-X=gooru.local/internal/buildinfo.Development=true"
         ];
         nativeBuildInputs = [ pkgs.pkg-config pkgs.makeWrapper ];
-        # The optional JPEG display derivative is enabled by default; ship the
-        # coefficient-domain converter with the packaged server.
+        nativeCheckInputs = [ pkgs.poppler-utils ];
+        preCheck = ''
+          command -v pdfinfo
+          command -v pdftoppm
+          go test -run TestProtectedPDFViewerRealPopplerGoldenPath -v ./internal/serve
+        '';
+        # The Nix wrapper provides JPEG conversion and PDF rendering tools.
         postFixup = ''
-          wrapProgram $out/bin/gooru --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libjpeg_turbo ]}
+          wrapProgram $out/bin/gooru --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libjpeg_turbo pkgs.poppler-utils ]}
         '';
         buildInputs = [ pkgs.vips ];
 

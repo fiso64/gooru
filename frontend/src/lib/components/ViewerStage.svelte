@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
+  import PDFScrollViewer from './PDFScrollViewer.svelte';
   import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation, type ViewerScaling } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
@@ -242,7 +243,7 @@
     }
     if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
 
-    const rendersImage = viewerSupportsFile(targetFile) && targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(targetFile) && targetFile.media_kind !== 'pdf' && targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
       // Once rapid navigation has frozen a committed frame, keep that exact snapshot until the
       // latest requested target is presentable. Re-freezing from an in-flight <img> can capture
@@ -277,7 +278,7 @@
   $effect(() => {
     const nextFile = renderedFile;
     renderedImageSource;
-    const rendersImage = viewerSupportsFile(nextFile) && nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(nextFile) && nextFile.media_kind !== 'pdf' && nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
     // Image transitions install target metadata geometry while the presentation shield preserves old pixels separately.
     // Non-image media waits for its own metadata path and starts with no image geometry.
     if (!rendersImage) {
@@ -328,6 +329,14 @@
     } catch {
       return image.currentSrc === renderedImageSource;
     }
+  }
+
+  function syncPDFPresented() {
+    clearWaitingTimer();
+    waitingForTarget = false;
+    freezeVisible = false;
+    mediaError = '';
+    onPresented?.(renderedImageSource);
   }
 
   function syncImage(event: Event) {
@@ -866,6 +875,11 @@
 <div bind:this={stageElement} class:fullscreen={isFullscreen} class:waiting={waitingForTarget} class:cursor-idle={isFullscreen && cursorIdle} class:comic-reading={comicEntered} class:entering={comicTransition === 'entering'} class:exiting={comicTransition === 'exiting'} class:nearest-scaling={scaling === 'nearest'} class="lightbox-stage viewer-stage" tabindex="-1" aria-busy={waitingForTarget} onpointermove={handleStagePointerMove}>
   <!-- Drag panning supplements native viewport scrolling; an interactive ARIA role would misdescribe this surface. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  {#if renderedFile.media_kind === 'pdf' && renderedFile.media_urls.pdf}
+    {#key renderedFile.id}
+      <PDFScrollViewer url={renderedFile.media_urls.pdf} fileName={renderedFile.name} onReady={syncPDFPresented} onError={(message) => { mediaError = message; waitingForTarget = false; }} />
+    {/key}
+  {:else}
   <div
     bind:this={panViewportElement}
     class="viewer-pan-viewport"
@@ -928,6 +942,8 @@
       {/if}
     </div>
   </div>
+
+  {/if}
 
   {#if comicAvailable && !comicEntered}
     <button class="comic-read-button" type="button" style={comicReadStyle} disabled={comicLoading} aria-label="Read comic" onclick={(event) => { onToggleComic?.(); restoreStageFocusAfterPointer(event); }}>

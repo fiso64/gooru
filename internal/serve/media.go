@@ -88,6 +88,7 @@ type MediaService struct {
 	derivatives                derivativeStore
 	derivativeStoreErr         error
 	losslessJPEGTool           string
+	pdfViewer                 *pdfViewerService
 	comicMu                    sync.Mutex
 	comicCache                 map[string]*cachedComicArchive
 	comicTick                  uint64

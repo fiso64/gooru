@@ -858,6 +858,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/files/{id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a PDF page manifest or a rendered page image for a tracked PDF.
+         * @description When page is omitted, returns the bounded document page count and a URL prefix for page images. When page is supplied, returns a PNG raster of that page. Requires Poppler pdfinfo and pdftoppm on the server; logical media sources are used in protected mode. Responses are private and not stored by browsers in protected mode.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description One-based page number; omitting it requests the manifest. */
+                    page?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description PDF page manifest when page is omitted, or a PNG image when page is present. */
+                200: {
+                    headers: {
+                        "Cache-Control"?: string;
+                        /** @description Present for rendered page responses. */
+                        "X-Gooru-Cache"?: "hit" | "miss";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PDFDocumentManifest"];
+                        "image/png": string;
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                415: components["responses"]["UnsupportedMedia"];
+                503: components["responses"]["ServiceUnavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files/{id}/content": {
         parameters: {
             query?: never;
@@ -2192,6 +2245,11 @@ export interface components {
                 details?: unknown;
             };
         };
+        PDFDocumentManifest: {
+            page_count: number;
+            /** @description Same-origin authenticated PDF image endpoint prefix ending in ?page=. */
+            page_url_prefix: string;
+        };
         ComicPage: {
             index: number;
             name: string;
@@ -2449,6 +2507,8 @@ export interface components {
             preview: string;
             /** @description Optional lossless display derivative, absent when unavailable. */
             lossless?: string;
+            /** @description Optional authenticated PDF manifest/page endpoint, absent when the PDF viewer tools are unavailable. */
+            pdf?: string;
             content: string;
             download: string;
         };

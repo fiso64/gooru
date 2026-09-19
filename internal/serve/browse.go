@@ -404,6 +404,7 @@ type MediaURLs struct {
 	Thumbnail string `json:"thumbnail"`
 	Preview   string `json:"preview"`
 	Lossless  string `json:"lossless,omitempty"`
+	PDF       string `json:"pdf,omitempty"`
 	Content   string `json:"content"`
 	Download  string `json:"download"`
 }
@@ -633,6 +634,8 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 			s.media.ServeDerivative(w, r, file, "preview")
 		case "lossless":
 			s.media.ServeLosslessJPEG(w, r, file)
+		case "pdf":
+			s.media.ServePDF(w, r, file, parts[0])
 		default:
 			writeError(w, http.StatusNotFound, "not_found", "file not found", nil)
 		}
@@ -779,6 +782,10 @@ func (s *Server) fileDTO(ctx context.Context, file types.FileInfo, includeMetada
 		}
 	}
 	dto.ViewerSupport = viewerSupportForMediaKind(dto.MediaKind)
+	if dto.MediaKind == "pdf" && s.media.pdfViewer != nil && s.media.pdfViewer.renderer.path != "" && s.media.pdfViewer.infoPath != "" {
+		dto.MediaURLs.PDF = "/api/v1/files/" + id + "/pdf"
+		dto.ViewerSupport = "supported"
+	}
 	return dto
 }
 
@@ -892,6 +899,9 @@ func mediaTypeForPath(path string) string {
 	extension := strings.ToLower(filepath.Ext(path))
 	if extension == ".cbz" {
 		return "application/vnd.comicbook+zip"
+	}
+	if extension == ".pdf" {
+		return "application/pdf"
 	}
 	if typ := mime.TypeByExtension(extension); typ != "" {
 		return typ

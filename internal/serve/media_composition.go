@@ -44,5 +44,6 @@ func newComposedMediaService(cfg Config, resolver *filesource.Resolver, resolver
 		derivatives:                store,
 		derivativeStoreErr:         storeErr,
 		losslessJPEGTool:           jpegTool,
+		pdfViewer:                 newPDFViewerService(),
 	}
 }
