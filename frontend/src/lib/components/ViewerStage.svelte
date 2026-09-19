@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import Icon from './Icon.svelte';
+  import PDFScrollViewer from './PDFScrollViewer.svelte';
   import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation, type ViewerScaling } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
