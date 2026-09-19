@@ -11,6 +11,12 @@ export function comicPageAt(manifest: ComicManifest | null, index: number): Comi
   return manifest.pages[index] ?? null;
 }
 
+export function comicPageSource(page: ComicPage | null, preferOriginal: boolean, preferLossless = true): string {
+  if (!page) return '';
+  if (!preferOriginal) return page.preview || page.url;
+  return preferLossless && page.lossless ? page.lossless : page.url;
+}
+
 export function moveComicPage(index: number, delta: number, pageCount: number): number {
   if (pageCount <= 0) return 0;
   return Math.min(pageCount - 1, Math.max(0, index + delta));

@@ -96,6 +96,7 @@ type MediaConfig struct {
 	PreviewEnabled     bool   `yaml:"preview_enabled"`
 	PreviewJPEGQuality int    `yaml:"preview_jpeg_quality"`
 	LosslessJPEGTranscode bool `yaml:"lossless_jpeg_transcode"`
+	TranscodeCBZPages bool `yaml:"transcode_cbz_pages"`
 }
 
 type ToolsConfig struct {
@@ -175,6 +176,7 @@ func DefaultConfig(dbPath string) Config {
 			PreviewEnabled:     true,
 			PreviewJPEGQuality: derivativeJPEGQuality,
 			LosslessJPEGTranscode: true,
+			TranscodeCBZPages: true,
 		},
 		Tools:   ToolsConfig{FFmpegPath: "ffmpeg", FFprobePath: "ffprobe"},
 		Logging: LoggingConfig{Level: "info"},

@@ -109,6 +109,7 @@ uploads:
 | `media.preview_enabled` | `true` | Generate and serve derived viewer previews. When disabled, preview requests fall back to original media and the WebUI treats original media as the only viewer source. Grid thumbnails remain enabled. |
 | `media.preview_jpeg_quality` | `92` | JPEG quality for generated viewer previews, from `1` to `100`. This does not change grid-thumbnail JPEG quality. |
 | `media.lossless_jpeg_transcode` | `true` | Expose an optional coefficient-domain baseline JPEG derivative for eligible progressive JPEGs when `jpegtran` is installed on the server. The original content/download remains unchanged. `jpegtran -copy all` preserves APP/COM metadata, including EXIF/ICC markers, without re-encoding image coefficients. Without the tool, the optional derivative URL is omitted. |
+| `media.transcode_cbz_pages` | `true` | Generate bounded per-page CBZ preview and eligible lossless JPEG display derivatives; when disabled, comic pages use the original extracted images. |
 
 
 ## `tools`
@@ -195,6 +196,7 @@ media:
   preview_enabled: true
   preview_jpeg_quality: 92
   lossless_jpeg_transcode: true
+  transcode_cbz_pages: true
 
 
 tools:
