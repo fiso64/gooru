@@ -331,6 +331,14 @@
     }
   }
 
+  function syncPDFPresented() {
+    clearWaitingTimer();
+    waitingForTarget = false;
+    freezeVisible = false;
+    mediaError = '';
+    onPresented?.(renderedImageSource);
+  }
+
   function syncImage(event: Event) {
     const image = event.currentTarget;
     if (!(image instanceof HTMLImageElement) || !imageMatchesCurrentSource(image)) return;
