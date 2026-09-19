@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { ApiClient } from '$lib/api/client';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
 
@@ -29,7 +30,31 @@
     onModeToggle?: () => void;
   }>();
 
-  const candidates = $derived(mode === 'remove' ? existingTags.map((name: string) => ({ name })) : tags);
+  // Popular tags are not the full tag vocabulary. Fetch indexed suggestions for
+  // each active add-mode draft, without retaining stale results across files.
+  let remoteCandidates = $state<{ fileID: string; draft: string; items: TagCandidate[] } | null>(null);
+  $effect(() => {
+    const activeFile = fileID;
+    const prefix = draft.trim();
+    const existing = existingTags.join(' ');
+    remoteCandidates = null;
+    if (mode !== 'add' || busy || !prefix) return;
+    const controller = new AbortController();
+    void new ApiClient().searchSuggestions(prefix, 20, existing, controller.signal)
+      .then(({ items }) => {
+        if (!controller.signal.aborted) remoteCandidates = { fileID: activeFile, draft: prefix, items };
+      })
+      .catch(() => {
+        // Leave common tags available if this optional lookup fails.
+      });
+    return () => controller.abort();
+  });
+
+  const candidates = $derived(mode === 'remove'
+    ? existingTags.map((name: string) => ({ name }))
+    : remoteCandidates?.fileID === fileID && remoteCandidates?.draft === draft.trim()
+      ? remoteCandidates.items
+      : tags);
   const excluded = $derived(mode === 'remove' ? [] : existingTags);
 
   function handleModeShortcut(event: KeyboardEvent) {
