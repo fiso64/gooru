@@ -32,14 +32,7 @@
   const candidates = $derived(mode === 'remove' ? existingTags.map((name: string) => ({ name })) : tags);
   const excluded = $derived(mode === 'remove' ? [] : existingTags);
 
-  function handleModeShortcut(event: KeyboardEvent) {
-    if (!onModeToggle || busy || draft || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-    if (event.key !== '+' && event.key !== '-') return;
-    event.preventDefault();
-    event.stopPropagation();
-    const nextMode = event.key === '-' ? 'remove' : 'add';
-    if (nextMode !== mode) onModeToggle();
-  }
+
 </script>
 
 <div class="tag-editor">
@@ -76,7 +69,7 @@
       ariaLabel={`${mode === 'remove' ? 'Remove tags from' : 'Tags for'} ${fileName}`}
       {onInput}
       {onCommit}
-      onKeydown={handleModeShortcut}
+      viewerFileID={fileID}
     />
     {#if !draft}
       <span class="tag-mode-hint" aria-hidden="true">add <u>t</u>ag · <u>u</u>ntag</span>
