@@ -897,6 +897,8 @@
           <div class="audio-art"><Icon name="audio" size={42} /></div>
           <audio bind:this={audioElement} src={renderedFile.media_urls.content} controls preload="auto" onloadedmetadata={syncAudioPresented} onerror={syncPlayableError}></audio>
         </div>
+      {:else if isPDFViewerMedia(renderedFile)}
+        <iframe class="viewer-pdf-frame" title={`PDF document: ${renderedFile.name}`} src={renderedFile.media_urls.content} onload={syncPDFPresented}></iframe>
       {:else}
         <canvas
           bind:this={freezeCanvasElement}
