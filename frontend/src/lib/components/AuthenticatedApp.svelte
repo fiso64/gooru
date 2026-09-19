@@ -1035,7 +1035,7 @@
       tagDraft={tagWorkflow.drafts[library.activeFile.id] ?? ''}
       tagBusy={Boolean(tagWorkflow.busy[library.activeFile.id])}
       tagError={tagWorkflow.errors[library.activeFile.id] ?? ''}
-      tags={[...(tagsQuery.data?.tags ?? []), ...(viewerSuggestionsQuery.data?.items ?? [])]}
+      tags={viewerSuggestionsQuery.data?.items ?? []}
       onClose={library.closePreview}
       onPrev={() => library.movePreview(-1, files)}
       onNext={() => library.movePreview(1, files)}
