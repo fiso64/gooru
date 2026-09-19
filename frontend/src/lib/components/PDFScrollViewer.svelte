@@ -20,6 +20,7 @@
   let error = $state('');
   let sentinel = $state<HTMLDivElement | undefined>();
   let firstPagePresented = false;
+  // The viewport, rather than the PDF document itself, owns scrolling.
 
   onMount(() => {
     const controller = new AbortController();
