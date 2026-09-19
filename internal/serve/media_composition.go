@@ -1,6 +1,10 @@
 package serve
 
-import "gooru.local/internal/filesource"
+import (
+	"os/exec"
+
+	"gooru.local/internal/filesource"
+)
 
 // newComposedMediaServiceFromConfig is the server composition boundary for
 // logical media access. Raw encryption key material is consumed here to build
@@ -20,6 +24,14 @@ func newComposedMediaService(cfg Config, resolver *filesource.Resolver, resolver
 	store, storeErr := newDerivativeStore(cfg)
 	thumbnailGeneration := newThumbnailGenerationPolicy(cfg.Encryption.Enabled)
 	thumbnailQualityGeneration := newThumbnailQualityGenerationPolicy(cfg.Encryption.Enabled)
+	jpegTool := ""
+	if cfg.Media.LosslessJPEGTranscode {
+		// A derivative is advertised only when the coefficient-domain tool is
+		// available; missing optional tools must not break ordinary media serving.
+		if resolved, err := exec.LookPath("jpegtran"); err == nil {
+			jpegTool = resolved
+		}
+	}
 	runtimeCfg := cfg
 	runtimeCfg.Encryption.Key = nil
 	return &MediaService{
@@ -31,5 +43,6 @@ func newComposedMediaService(cfg Config, resolver *filesource.Resolver, resolver
 		sourceResolverErr:          resolverErr,
 		derivatives:                store,
 		derivativeStoreErr:         storeErr,
+		losslessJPEGTool:           jpegTool,
 	}
 }
