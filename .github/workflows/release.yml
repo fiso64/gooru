@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,7 +25,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Validate tag, version and release notes
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -155,7 +156,7 @@ jobs:
         if: matrix.system == 'aarch64-linux'
         uses: cachix/install-nix-action@v31
       - name: Configure Cachix publication for release tags
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         uses: cachix/cachix-action@v17
         with:
           name: ${{ vars.CACHIX_CACHE_NAME }}
@@ -166,7 +167,7 @@ jobs:
           nix build .#packages.${{ matrix.system }}.default --out-link result --print-build-logs
           nix build .#checks.${{ matrix.system }}.nixos-module --no-link --print-build-logs
       - name: Publish native package and runtime closure to Cachix
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         env:
           CACHIX_CACHE_NAME: ${{ vars.CACHIX_CACHE_NAME }}
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -201,7 +202,7 @@ jobs:
       - name: Render release notes
         run: node scripts/release-notes.mjs > "$RUNNER_TEMP/release-notes.md"
       - name: Publish verified packages and checksums as GitHub Release
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
