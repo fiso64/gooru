@@ -32,4 +32,7 @@ jobs:
             if pkg-config --exists vips; then echo 'AVAILABLE: native libvips pkg-config'; else echo 'MISSING: native libvips pkg-config'; fi
           fi
           if command -v nix >/dev/null 2>&1; then nix --version; fi
+          for tool in docker podman qemu-aarch64-static debootstrap; do
+            if command -v "$tool" >/dev/null 2>&1; then echo "AVAILABLE: $tool"; else echo "MISSING: $tool"; fi
+          done
           go version
