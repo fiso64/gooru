@@ -1100,14 +1100,32 @@ func (s *Store) ListTagValueSuggestions(namespace string, valuePrefix string, li
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	like := strings.TrimSpace(valuePrefix) + "%"
-	rows, err := s.Query(`
-		SELECT key || ':' || value AS tag_str, files_count
-		FROM tags
-		WHERE value != '' AND key = ? AND value LIKE ?
-		ORDER BY files_count DESC, tag_str ASC
-		LIMIT ?
-	`, strings.TrimSpace(namespace), like, limit)
+	namespace = strings.TrimSpace(namespace)
+	valuePrefix = strings.TrimSpace(valuePrefix)
+	like := valuePrefix + "%"
+	var rows *sql.Rows
+	var err error
+	if strings.ContainsAny(valuePrefix, "%_") {
+		// Preserve the established raw-LIKE wildcard behavior.
+		rows, err = s.Query(`
+			SELECT key || ':' || value AS tag_str, files_count FROM tags
+			WHERE value != '' AND key = ? AND value LIKE ?
+			ORDER BY files_count DESC, tag_str ASC LIMIT ?
+		`, namespace, like, limit)
+	} else {
+		rows, err = s.Query(`
+			SELECT tag_str, files_count FROM (
+				SELECT key || ':' || value AS tag_str, files_count FROM tags
+				WHERE value != '' AND key = ? AND value LIKE ?
+				UNION ALL
+				SELECT t.key || ':' || t.value AS tag_str, t.files_count FROM tags t
+				WHERE t.value != '' AND t.key = ? AND NOT (t.value LIKE ?)
+				  AND t.id IN (SELECT tag_id FROM tag_completion_components WHERE component LIKE ?)
+				  AND instr(lower('_' || replace(t.value, ':', '_')), '_' || lower(?)) > 0
+			)
+			ORDER BY files_count DESC, tag_str ASC LIMIT ?
+		`, namespace, like, namespace, like, like, valuePrefix, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
