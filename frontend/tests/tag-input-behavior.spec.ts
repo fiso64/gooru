@@ -121,8 +121,8 @@ test('viewer tag input dismisses completions before blur, does not commit on blu
 test('confirmed viewer tag appears while tag-index refresh is pending', async ({ page }) => {
   const requests = await mockApp(page);
   await page.getByRole('button', { name: 'Preview one.jpg' }).click();
-  let finish = () => undefined;
-  const gate = new Promise<void>((resolve) => { finish = resolve; });
+  let finish: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { finish = () => resolve(); });
   let refreshing = false;
   await page.route('**/api/v1/tags?**', async (route) => {
     if (requests.length) {
