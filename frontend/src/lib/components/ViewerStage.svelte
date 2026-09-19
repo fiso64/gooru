@@ -243,7 +243,7 @@
     }
     if (displayedFile.id === targetFile.id && displayedImageSource === targetImageSource) return;
 
-    const rendersImage = viewerSupportsFile(targetFile) && targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(targetFile) && targetFile.media_kind !== 'pdf' && targetFile.media_kind !== 'video' && targetFile.media_kind !== 'audio' && !targetFile.media_type.startsWith('audio/');
     if (rendersImage) {
       // Once rapid navigation has frozen a committed frame, keep that exact snapshot until the
       // latest requested target is presentable. Re-freezing from an in-flight <img> can capture
@@ -278,7 +278,7 @@
   $effect(() => {
     const nextFile = renderedFile;
     renderedImageSource;
-    const rendersImage = viewerSupportsFile(nextFile) && nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
+    const rendersImage = viewerSupportsFile(nextFile) && nextFile.media_kind !== 'pdf' && nextFile.media_kind !== 'video' && nextFile.media_kind !== 'audio' && !nextFile.media_type.startsWith('audio/');
     // Image transitions install target metadata geometry while the presentation shield preserves old pixels separately.
     // Non-image media waits for its own metadata path and starts with no image geometry.
     if (!rendersImage) {
