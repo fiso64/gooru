@@ -31,6 +31,7 @@ async function mockApp(page: Page) {
   const files = [fileItem('one', 'one.jpg'), fileItem('two', 'two.jpg'), fileItem('three', 'three.jpg')];
   let loggedIn = false;
   let tagCreated = false;
+  let namespacedTagCreated = false;
   let indexedLookups = 0;
 
   await page.route('**/api/v1/auth/me', async (route) => {
@@ -51,12 +52,13 @@ async function mockApp(page: Page) {
     const query = new URL(route.request().url()).searchParams.get('q');
     if (query === 'tag') indexedLookups += 1;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
-      items: tagCreated && query === 'tag' ? [{ name: 'tag1', count: 1 }] : []
+      items: tagCreated && query === 'tag' ? [{ name: 'tag1', count: 1 }] : namespacedTagCreated && query === 'val' ? [{ name: 'test:value', count: 1 }] : []
     }) });
   });
   await page.route('**/api/v1/files/tags', async (route) => {
     const request = route.request().postDataJSON() as { tags: string[] };
     if (request.tags.includes('tag1')) tagCreated = true;
+    if (request.tags.includes('test:value')) namespacedTagCreated = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
   });
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
@@ -72,7 +74,7 @@ async function mockApp(page: Page) {
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
-  return { get tagCreated() { return tagCreated; }, get indexedLookups() { return indexedLookups; } };
+  return { get tagCreated() { return tagCreated; }, get namespacedTagCreated() { return namespacedTagCreated; }, get indexedLookups() { return indexedLookups; } };
 }
 
 test('empty viewer tag field uses Left and Right to leave the editor and navigate', async ({ page }) => {
