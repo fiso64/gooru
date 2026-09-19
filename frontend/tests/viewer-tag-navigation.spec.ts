@@ -31,6 +31,7 @@ async function mockApp(page: Page) {
   const files = [fileItem('one', 'one.jpg'), fileItem('two', 'two.jpg'), fileItem('three', 'three.jpg')];
   let loggedIn = false;
   let tagCreated = false;
+  let namespacedTagCreated = false;
   let indexedLookups = 0;
 
   await page.route('**/api/v1/auth/me', async (route) => {
@@ -51,12 +52,13 @@ async function mockApp(page: Page) {
     const query = new URL(route.request().url()).searchParams.get('q');
     if (query === 'tag') indexedLookups += 1;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
-      items: tagCreated && query === 'tag' ? [{ name: 'tag1', count: 1 }] : []
+      items: tagCreated && query === 'tag' ? [{ name: 'tag1', count: 1 }] : namespacedTagCreated && query === 'val' ? [{ name: 'test:value', count: 1 }] : []
     }) });
   });
   await page.route('**/api/v1/files/tags', async (route) => {
     const request = route.request().postDataJSON() as { tags: string[] };
     if (request.tags.includes('tag1')) tagCreated = true;
+    if (request.tags.includes('test:value')) namespacedTagCreated = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
   });
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
@@ -72,7 +74,7 @@ async function mockApp(page: Page) {
   await page.getByLabel('Password').fill('correct horse');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
-  return { get tagCreated() { return tagCreated; }, get indexedLookups() { return indexedLookups; } };
+  return { get tagCreated() { return tagCreated; }, get namespacedTagCreated() { return namespacedTagCreated; }, get indexedLookups() { return indexedLookups; } };
 }
 
 test('empty viewer tag field uses Left and Right to leave the editor and navigate', async ({ page }) => {
@@ -138,4 +140,24 @@ test('newly tagged image contributes viewer suggestions on the next image', asyn
   await expect(page.getByRole('listbox', { name: 'Tags for two.jpg suggestions' })
     .getByRole('option', { name: /tag1/ })).toBeVisible();
   expect(state.indexedLookups).toBeGreaterThanOrEqual(2);
+});
+
+test('new namespaced tags complete by value prefix in viewer and main search', async ({ page }) => {
+  const state = await mockApp(page);
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  const first = page.getByLabel('Tags for one.jpg');
+  await first.fill('test:value');
+  await first.press('Space');
+  await expect.poll(() => state.namespacedTagCreated).toBe(true);
+  await expect(first).toHaveValue('');
+  await first.press('ArrowRight');
+  await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
+  const second = page.getByLabel('Tags for two.jpg');
+  await second.fill('val');
+  await expect(page.getByRole('listbox', { name: 'Tags for two.jpg suggestions' })
+    .getByRole('option', { name: /test:value/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Close preview' }).click();
+  await page.getByLabel('Search library').fill('val');
+  await expect(page.getByRole('listbox', { name: 'Search suggestions' })
+    .getByRole('option', { name: /test:value/ })).toBeVisible();
 });

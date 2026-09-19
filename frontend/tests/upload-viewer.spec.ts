@@ -51,7 +51,16 @@ async function mockUploadApp(page: Page, options: {
       ]
     })
   }));
-  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => {
+    const prefix = new URL(route.request().url()).searchParams.get('q')?.toLowerCase() ?? '';
+    const candidates = [
+      { name: 'artist:alice', count: 8 }, { name: 'artist:alina', count: 5 },
+      { name: 'artist:alex', count: 3 }, { name: 'artist:amelia', count: 2 }
+    ];
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      items: candidates.filter((candidate) => candidate.name.toLowerCase().includes(prefix))
+    }) });
+  });
   await page.route('**/api/v1/files/file-existing', async (route) => {
     const request = route.request();
     if (request.method() === 'DELETE') {

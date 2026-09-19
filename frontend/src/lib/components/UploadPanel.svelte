@@ -339,6 +339,7 @@
                 <TagAutocompleteInput
                   value={tagDraft}
                   tags={completionTags}
+                  stagedCandidates={stagedTagCandidates}
                   existing={initialTags}
                   placeholder="add tag — e.g. subject:portrait"
                   ariaLabel="Initial tags"
@@ -465,6 +466,7 @@
                         <TagAutocompleteInput
                           value={itemTagDrafts[row.index] ?? ''}
                           tags={completionTags}
+                          stagedCandidates={stagedTagCandidates}
                           existing={item.tags ?? []}
                           placeholder="add tag"
                           ariaLabel={`Add tag to ${item.name}`}
@@ -571,6 +573,7 @@
                           <TagAutocompleteInput
                             value={itemTagDrafts[row.index] ?? ''}
                             tags={completionTags}
+                            stagedCandidates={stagedTagCandidates}
                             existing={item.tags ?? []}
                             placeholder="add tag"
                             ariaLabel={`Add tag to ${item.name}`}

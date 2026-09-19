@@ -68,6 +68,7 @@
       id={`tags-${fileID}`}
       value={draft}
       tags={candidates}
+      localOnly={mode === 'remove'}
       existing={excluded}
       placeholder=""
       readOnly={busy}

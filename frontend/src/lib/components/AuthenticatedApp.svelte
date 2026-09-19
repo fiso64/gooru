@@ -118,12 +118,6 @@
   const tagsQuery = createTagsQuery(() => Boolean($authState.user), () => authScope);
   const uploadTargetsQuery = createUploadTargetsQuery(() => Boolean($authState.user), () => authScope);
   const suggestionsQuery = createSuggestionsQuery(() => Boolean($authState.user), () => $suggestionSearch, () => $submittedSearch, () => authScope);
-  const viewerSuggestionsQuery = createSuggestionsQuery(
-    () => Boolean($authState.user) && Boolean(library.activeFile),
-    () => library.activeFile ? (tagWorkflow.drafts[library.activeFile.id] ?? '') : '',
-    () => library.activeFile?.tags.join(' ') ?? '',
-    () => authScope
-  );
 
   const tagMutation = createTagMutation(() => $authState.csrfToken, queryClient);
   const fileRemovalMutation = createFileRemovalMutation(() => $authState.csrfToken, queryClient);
@@ -1035,7 +1029,7 @@
       tagDraft={tagWorkflow.drafts[library.activeFile.id] ?? ''}
       tagBusy={Boolean(tagWorkflow.busy[library.activeFile.id])}
       tagError={tagWorkflow.errors[library.activeFile.id] ?? ''}
-      tags={[...(tagsQuery.data?.tags ?? []), ...(viewerSuggestionsQuery.data?.items ?? [])]}
+      tags={[]}
       onClose={library.closePreview}
       onPrev={() => library.movePreview(-1, files)}
       onNext={() => library.movePreview(1, files)}

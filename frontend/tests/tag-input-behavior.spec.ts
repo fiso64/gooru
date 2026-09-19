@@ -48,7 +48,7 @@ async function mockApp(page: Page) {
   });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [{ name: 'technology', count: 8 }, { name: 'technique', count: 3 }, { name: 'rating:safe', count: 4 }] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ tags: [

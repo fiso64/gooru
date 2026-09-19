@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
+  import { createSuggestionsQuery } from '$lib/queries/library';
+  import { authState } from '$lib/stores/auth';
+  import { mergeTagCandidateOccurrenceCounts, plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
 
   let {
@@ -8,6 +10,8 @@
     value,
     tags,
     existing = [],
+    localOnly = false,
+    stagedCandidates = [],
     placeholder = 'add tag',
     disabled = false,
     readOnly = false,
@@ -22,6 +26,8 @@
     value: string;
     tags: TagCandidate[];
     existing?: string[];
+    localOnly?: boolean;
+    stagedCandidates?: TagCandidate[];
     placeholder?: string;
     disabled?: boolean;
     readOnly?: boolean;
@@ -38,7 +44,16 @@
   let inputRef = $state<HTMLInputElement | undefined>();
   let suggestionsRef = $state<HTMLUListElement | undefined>();
   let suppressBlurCommit = false;
-  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, tags, existing));
+  const indexedSuggestions = createSuggestionsQuery(
+    () => Boolean($authState.user) && !localOnly && !readOnly,
+    () => value,
+    () => existing.join(' '),
+    () => $authState.user?.username ?? ''
+  );
+  const completionCandidates = $derived(localOnly || !$authState.user
+    ? tags
+    : mergeTagCandidateOccurrenceCounts(indexedSuggestions.data?.items ?? [], stagedCandidates));
+  const suggestions = $derived(readOnly ? [] : plainTagSuggestions(value, completionCandidates, existing));
 
   $effect(() => {
     if (active >= suggestions.length) active = 0;
