@@ -172,10 +172,10 @@ If this is the first time you have configured the cache on the host, apply these
 Add Gooru to your NixOS flake inputs:
 
 ```nix
-inputs.gooru.url = "github:fiso64/gooru/release";
+inputs.gooru.url = "github:fiso64/gooru/main";
 ```
 
-The `release` branch advances only after Gooru's released packages have been published to Cachix. Your `flake.lock` pins the revision in use; to upgrade Gooru, run `nix flake update gooru` in your system flake directory and rebuild your NixOS system. Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.default` to the host's `nixosSystem.modules`. In that host's NixOS configuration, enable an instance:
+The `main` branch contains the latest merged changes, which can be newer than the latest tagged release. Gooru publishes Cachix binaries for `main` on x86_64 and aarch64 Linux; if you update before that revision's cache build finishes, Nix may build the package locally. Your `flake.lock` pins the revision in use; to upgrade Gooru, run `nix flake update gooru` in your system flake directory and rebuild your NixOS system. Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.default` to the host's `nixosSystem.modules`. In that host's NixOS configuration, enable an instance:
 
 ```nix
 services.gooru.instances.main = {

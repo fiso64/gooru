@@ -224,13 +224,3 @@ jobs:
           [[ "$GITHUB_REF_NAME" == "v$version" ]]
           gh release create "$GITHUB_REF_NAME" dist/* \
             --verify-tag --notes-file "$RUNNER_TEMP/release-notes.md" --title "$GITHUB_REF_NAME"
-      - name: Advance the released Nix flake ref
-        if: github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # This job needs successful native Cachix uploads and verified release publication.
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/release" \
-            -f sha="${GITHUB_SHA}" -F force=false

@@ -11,26 +11,18 @@ on:
       - 'internal/buildinfo/**'
       - '.github/workflows/nix-package.yml'
   push:
-    branches: [develop]
-    paths:
-      - 'frontend/**'
-      - 'flake.nix'
-      - 'nix/**'
-      - 'flake.lock'
-      - 'VERSION'
-      - 'internal/buildinfo/**'
-      - '.github/workflows/nix-package.yml'
+    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
   group: nix-package-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   package:
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, gooru]
     steps:
       - uses: actions/checkout@v4
@@ -38,3 +30,53 @@ jobs:
         run: nix build .#packages.x86_64-linux.default --print-build-logs
       - name: Validate NixOS module
         run: nix build .#checks.x86_64-linux.nixos-module --print-build-logs
+
+  publish-main:
+    name: Cache main (${{ matrix.system }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            runner: [self-hosted, gooru]
+          - system: aarch64-linux
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Nix on native arm64
+        if: matrix.system == 'aarch64-linux'
+        uses: cachix/install-nix-action@v31
+      - name: Resolve Cachix CLI from pinned nixpkgs
+        id: cachix-cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          client="$(nix build --impure --no-link --print-out-paths --expr 'let flake = builtins.getFlake (toString ./.); in flake.inputs.nixpkgs.legacyPackages.${{ matrix.system }}.cachix')"
+          test -x "$client/bin/cachix"
+          echo "bin=$client/bin/cachix" >> "$GITHUB_OUTPUT"
+          echo "$client/bin" >> "$GITHUB_PATH"
+      - name: Configure Cachix for main package publication
+        uses: cachix/cachix-action@v17
+        with:
+          name: ${{ vars.CACHIX_CACHE_NAME }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          cachixBin: ${{ steps.cachix-cli.outputs.bin }}
+          skipPush: true
+          skipAddingSubstituter: true
+      - name: Build native package and validate NixOS module
+        shell: bash
+        run: |
+          nix build .#packages.${{ matrix.system }}.default --out-link result --print-build-logs
+          nix build .#checks.${{ matrix.system }}.nixos-module --no-link --print-build-logs
+      - name: Publish native package and runtime closure to Cachix
+        env:
+          CACHIX_CACHE_NAME: ${{ vars.CACHIX_CACHE_NAME }}
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CACHIX_CACHE_NAME"
+          test -n "$CACHIX_AUTH_TOKEN"
+          cachix push "$CACHIX_CACHE_NAME" "$(readlink -f result)"
