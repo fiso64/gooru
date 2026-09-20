@@ -17,8 +17,9 @@ func resolveImplicitUploadDefaults(c *Config, src []byte, configPath ...string) 
  if !enabled{c.Uploads.Enabled=c.Auth.Enabled&&(!targets||len(c.Uploads.Targets)>0)}
  auto:=c.Uploads.Enabled&&!targets&&len(c.Uploads.Targets)==0
  if auto{
-  path,err:=defaultUploadPathForConfig("")
-  if len(configPath)>0 {path,err=defaultUploadPathForConfig(configPath[0])}
+  resolvedPath := ""
+  if len(configPath) > 0 { resolvedPath = configPath[0] }
+  path, err := defaultUploadPathForConfig(resolvedPath)
   if err!=nil{return false,fmt.Errorf("resolve default upload target: %w",err)}
   c.Uploads.Targets=[]UploadTarget{{ID:"default",Name:"Default",Path:path}}
  }
