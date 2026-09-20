@@ -24,6 +24,7 @@ func TestConfigUploadTargetAddedAtStrategyDefaultsAndValidates(t *testing.T) {
 }
 
 func TestLoadConfigDefaultsAreValid(t *testing.T) {
+	testDefaultUploadRoot(t)
 	cfg, err := LoadConfig("", filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
 	if err != nil {
 		t.Fatalf("LoadConfig default failed: %v", err)
@@ -67,6 +68,7 @@ func TestUIPaginationConfigDefaultsAndValidates(t *testing.T) {
 }
 
 func TestLoadConfigEncryptionKeyFile(t *testing.T) {
+	testDefaultUploadRoot(t)
 	keyPath := filepath.Join(t.TempDir(), "encryption.key")
 	if err := os.WriteFile(keyPath, []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"), 0600); err != nil {
 		t.Fatalf("write encryption key: %v", err)
@@ -275,6 +277,7 @@ uploads:
 }
 
 func TestDefaultYAMLParses(t *testing.T) {
+	testDefaultUploadRoot(t)
 	data, err := DefaultYAML(filepath.Join(t.TempDir(), "gooru.db"))
 	if err != nil {
 		t.Fatalf("DefaultYAML failed: %v", err)
