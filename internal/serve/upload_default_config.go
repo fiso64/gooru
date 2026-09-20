@@ -5,7 +5,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
-func resolveImplicitUploadDefaults(c *Config,src []byte, configPath ...string)(bool,error){
+
+func resolveImplicitUploadDefaults(c *Config, src []byte, configPath ...string) (bool, error) {
  var root map[string]yaml.Node
  if err:=yaml.Unmarshal(src,&root);err!=nil{return false,err}
  var enabled,targets bool
