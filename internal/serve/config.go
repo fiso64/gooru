@@ -192,22 +192,28 @@ func DefaultConfig(dbPath string) Config {
 }
 
 func DefaultYAML(dbPath string) ([]byte, error) {
-    // Omitted upload fields retain their auth-aware runtime defaults.
-    data, err := yaml.Marshal(DefaultConfig(dbPath))
-    if err != nil { return nil, err }
-    var node yaml.Node
-    if err := yaml.Unmarshal(data, &node); err != nil { return nil, err }
-    root := node.Content[0]
-    for i := 0; i+1 < len(root.Content); i += 2 {
-        if root.Content[i].Value != "uploads" { continue }
-        uploadFields := root.Content[i+1]
-        for j := len(uploadFields.Content)-2; j >= 0; j -= 2 {
-            if uploadFields.Content[j].Value == "enabled" || uploadFields.Content[j].Value == "targets" {
-                uploadFields.Content = append(uploadFields.Content[:j], uploadFields.Content[j+2:]...)
-            }
-        }
-    }
-    return yaml.Marshal(&node)
+	// Omitted upload fields retain their auth-aware runtime defaults.
+	data, err := yaml.Marshal(DefaultConfig(dbPath))
+	if err != nil {
+		return nil, err
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return nil, err
+	}
+	root := node.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "uploads" {
+			continue
+		}
+		uploadFields := root.Content[i+1]
+		for j := len(uploadFields.Content) - 2; j >= 0; j -= 2 {
+			if uploadFields.Content[j].Value == "enabled" || uploadFields.Content[j].Value == "targets" {
+				uploadFields.Content = append(uploadFields.Content[:j], uploadFields.Content[j+2:]...)
+			}
+		}
+	}
+	return yaml.Marshal(&node)
 }
 
 func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error) {
