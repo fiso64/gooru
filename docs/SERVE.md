@@ -14,25 +14,27 @@ Download the `.deb` for your architecture (amd64 or arm64) and install it:
 sudo apt install ./gooru_*.deb
 ```
 
-Run this in the download directory with just the Gooru package matching your system. The package includes the WebUI and a `gooru@.service` template. To configure an instance, create an administrator, and run Gooru in the background, follow the [Debian/Ubuntu service setup](#systemd-linux) below. If you prefer to run it manually, set `server.frontend_dir: /usr/share/gooru/frontend` in your config and follow [First run](#first-run).
+The package includes the WebUI and a `gooru@.service` template. To configure an instance, create an administrator, and run Gooru in the background, follow the [Debian/Ubuntu service setup](#systemd-linux) below. If you prefer to run it manually, set `server.frontend_dir: /usr/share/gooru/frontend` in your config and follow [First run](#first-run).
 
 ### NixOS via Cachix
 
-Use the prebuilt Gooru package from [Cachix](https://gooru.cachix.org/) with the declarative [NixOS deployment](#nixos-deployment). That guide includes the cache settings, flake input, and service configuration.
+Use the prebuilt Gooru package from [Cachix](https://gooru.cachix.org/) with the declarative [NixOS deployment](#nixos-deployment).
 
 ### Linux tarball
 
-Download the `.tar.gz` for your architecture, extract it, and run `./gooru` from the extracted directory. Keep the included `frontend/build` directory beside the binary; Gooru uses it to serve the WebUI.
+Download the `.tar.gz` for your architecture, extract it, and run `./gooru` from the extracted directory.
 
 ### Windows
 
-Download and extract the Windows ZIP. Open PowerShell in the extracted directory and run `.\gooru.exe`. Keep the included `frontend/build` directory alongside the executable.
+Download and extract the Windows ZIP. Open PowerShell in the extracted directory and run `gooru.exe`.
+
+### Build differences
 
 Debian and Nix builds use libvips for thumbnails; portable Linux and Windows builds do not. To enable libvips in your own build, see [building from source](DEVELOPMENT.md#build-from-source).
 
 ## First run
 
-For manually run Debian, Linux tarball, or Windows ZIP installations, initialize the database, generate a config, and create an administrator. For the Debian/Ubuntu `gooru@.service`, use the [managed service setup](#systemd-linux) instead; do not initialize a separate database with these commands:
+For manually run Debian, Linux tarball, or Windows ZIP installations, initialize the database, generate a config, and create an administrator. Do not initialize a separate database with these commands:
 
 ```bash
 gooru init
@@ -41,11 +43,10 @@ gooru user create-admin --username alice --config serve.yaml
 gooru serve --config serve.yaml
 ```
 
-For NixOS, use the [declarative module configuration](#nixos-deployment) instead of these manual commands.
+For the **Debian/Ubuntu** `gooru@.service`, use the [managed service setup](#systemd-linux) instead.  
+For **NixOS**, use the [declarative module configuration](#nixos-deployment) instead of these manual commands.
 
-Use `./gooru` for a Linux tarball or `.\gooru.exe` for the Windows ZIP instead of `gooru` above. On Windows PowerShell 5, generate `serve.yaml` with `cmd /c ".\gooru.exe serve --print-default-config > serve.yaml"` so the file is UTF-8.
-
-Set `server.frontend_dir` to `/usr/share/gooru/frontend` for a Debian install. The extracted Linux and Windows archives work with the default `frontend/build` when run from their directory. When using a different database path, use it for both initialization and serving.
+Set `server.frontend_dir` to `/usr/share/gooru/frontend` for a manual Debian install. The extracted Linux and Windows archives work with the default `frontend/build` when run from their directory. When using a different database path, use it for both initialization and serving.
 
 Open <http://127.0.0.1:5678>. By default Gooru listens only on your computer, requires login, and disables uploads. See [CONFIG.md](CONFIG.md) for other settings and [CLI.md](CLI.md) for library commands.
 
@@ -65,7 +66,7 @@ uploads:
 
 Upload target paths must be absolute. Gooru exposes target IDs and display names to clients, not the configured filesystem paths.
 
-Uploads are staged before being committed to their final names. Same-name uploads are renamed by default; API clients may explicitly request `conflict_policy=error` to reject the request when a destination path collides.
+Same-name uploads are renamed if their content does not exist in the library, otherwise skipped.
 
 ## Network access
 
@@ -89,14 +90,6 @@ auth:
 Gooru refuses unauthenticated non-loopback serving unless `auth.allow_unsafe_no_auth_non_loopback` is deliberately enabled.
 
 `gooru serve` does not terminate TLS. Use a reverse proxy, VPN, SSH tunnel, or another trusted network layer for access beyond a trusted LAN.
-
-## Authentication and cookies
-
-Authentication uses DB-backed users and server-side sessions. The browser receives an HttpOnly session cookie. Mutating cookie-authenticated API requests also require a CSRF token in `X-Gooru-CSRF`.
-
-`auth.cookie_secure: auto` is the normal choice; configure the cookie and proxy/public URL settings to match your deployment.
-
-Legacy token-auth options (`auth.token`, `auth.token_env`, `auth.token_file`, and `--auth-token`) are intentionally rejected.
 
 ## Encryption at rest
 
@@ -173,10 +166,6 @@ sudo systemctl status --no-pager gooru@main.service
 
 Open <http://127.0.0.1:5678> on the server and sign in as `alice`. If startup fails, inspect `sudo journalctl -u gooru@main.service -e`. The example listens only on the host; see [Network access](#network-access) for other deployments and [CONFIG.md](CONFIG.md) for configuration options.
 
-Each named instance receives a separate `gooru-<name>` system account, `/var/lib/gooru-<name>` state directory and `/var/cache/gooru-<name>` cache directory. For another instance, run `sudo gooru-instance-setup <name>`, create its own `/etc/gooru/<name>/serve.yaml`, choose a different listen port, and substitute its name in the commands above. Do not share database or mutable cache paths between instances. For everyday local tagging and queries, run `sudo gooru-instance main tag /srv/photos/cat.jpg favorite` or `sudo gooru-instance main count favorite`; the wrapper runs the CLI as `gooru-main` with the instance's configuration and does not need to stop the service for normal tagging. The instance account must be able to read the target file. Stop an instance before maintenance commands that require exclusive database access.
-
-For access to external library or upload directories, grant the instance account the necessary read/write permissions explicitly. For encrypted storage, keep plaintext keys out of the YAML and logs; use a systemd `LoadCredential` drop-in and `GOORU_ENCRYPTION_KEY_FILE=%d/encryption-key` for the service, and make the same key accessible securely to the instance CLI. A credential loaded only into the service is not automatically available to `gooru-instance`; use a key file readable by that instance account or supply the same key using an explicitly managed secure CLI environment.
-
 ## NixOS deployment
 
 Use [Gooru's Cachix cache](https://gooru.cachix.org/) as the binary source for NixOS. Add its substituter and public signing key to your NixOS configuration:
@@ -198,7 +187,9 @@ Add Gooru to your NixOS flake inputs:
 inputs.gooru.url = "github:fiso64/gooru/main";
 ```
 
-The `main` branch is the stable release branch; development and unreleased changes remain on `develop`. Your `flake.lock` pins a specific `main` revision. To upgrade after a new release is published, run `nix flake update gooru` in your system flake directory and rebuild your NixOS system. Gooru publishes Cachix binaries for each release on x86_64 and aarch64 Linux. **Current exception:** earlier maintenance moved `main` beyond the published v0.1.0 tag before its updated Debian package was released. Until a subsequent release reconciles those revisions, the current `main` source and latest downloadable `.deb` do not represent the same release; do not treat `main` as a completed new release. Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.default` to the host's `nixosSystem.modules`. In that host's NixOS configuration, enable an instance:
+The `main` branch is the stable release branch; development and unreleased changes remain on `develop`. To upgrade after a new release is published, run `nix flake update gooru` in your system flake directory and rebuild your NixOS system. Gooru publishes Cachix binaries for each release on x86_64 and aarch64 Linux.
+
+Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.default` to the host's `nixosSystem.modules`. In that host's NixOS configuration, enable an instance:
 
 ```nix
 services.gooru.instances.main = {
@@ -207,7 +198,9 @@ services.gooru.instances.main = {
 };
 ```
 
-Your `flake.lock` pins the selected revision. When the matching substitute is available, Nix downloads Gooru from Cachix instead of building it locally. The module sets the bundled WebUI path, initializes a missing database, and manages the service. No per-user installation or manual server startup is needed. Once the NixOS configuration is applied, local CLI operations use the same wrapper as Debian: `sudo gooru-instance main tag /srv/photos/cat.jpg favorite` (or `sudo gooru-instance main count favorite`). The NixOS wrapper selects the instance's configured service user, generated YAML and effective package, including per-instance package overrides. The service account needs read access to the file; a systemd-only encryption credential is not automatically available to CLI invocations.
+<!-- TODO: Document this in a separate small section that applies to both debian and nixos.  -->
+<!-- 
+Once the NixOS configuration is applied, local CLI operations use the same wrapper as Debian: `sudo gooru-instance main tag /srv/photos/cat.jpg favorite` (or `sudo gooru-instance main count favorite`). -->
 
 To create the first administrator, configure `services.gooru.instances.main.admins` with a runtime `passwordFile`, as shown below. Keep secrets out of the Nix store.
 

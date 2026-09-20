@@ -115,7 +115,7 @@
 
   .shortcut-modal {
     width: min(780px, calc(100vw - 64px));
-    max-height: min(760px, calc(100vh - 64px));
+    max-height: min(780px, calc(100vh - 64px));
     overflow: auto;
     padding: 28px 30px 32px;
     border: 1px solid var(--border-strong);

@@ -20,14 +20,6 @@ Gooru is intended primarily for personal and private multi-user libraries rather
 - Many UI styling options.
 - An ergonomic CLI.
 
-## Project status
-
-Under development. Back up your data!
-
-This project is fully maintained by an LLM (aka vibecoded); don't be surprised if there are rough edges. I only request features, test, and report bugs. Of course, if you decide to contribute with a bug report or a PR, I will look at it and ensure the bug is fixed/the feature is working correctly before replying myself (you will **never** get an automated response). 
-
-My unironic proudest contribution is the name Gooru, which sounds like the word "guru", and is also for a booru written in go.
-
 ## Getting started
 
 Get a Debian package, Linux tarball, or Windows ZIP from the [latest release](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [Gooru Cachix binary cache and NixOS module](docs/SERVE.md#nixos-deployment). Each package includes the WebUI; Debian and Nix builds also support libvips.
@@ -45,6 +37,14 @@ See [running and deploying Gooru](docs/SERVE.md) for installation and first-run 
 | Frontend development | [frontend/README.md](frontend/README.md) |
 
 [Read the full documentation](docs)
+
+## Project status
+
+Under development. Back up your data!
+
+This project is fully maintained by an LLM (aka vibecoded); don't be surprised if there are rough edges. I only request features, test, and report bugs. Of course, if you decide to contribute with a bug report or a PR, I will look at it and ensure the bug is fixed/the feature is working correctly before replying myself (you will **never** get an automated response). 
+
+My unironic proudest contribution is the name Gooru, which sounds like the word "guru", and is also for a booru written in go.
 
 ## More pictures
 
