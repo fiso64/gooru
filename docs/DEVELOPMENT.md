@@ -1,5 +1,23 @@
 # Development
 
+## Build from source
+
+Prebuilt Debian, Nix, Linux, and Windows packages are the [recommended installation path](SERVE.md#install-a-release). Build from source when developing Gooru or when you need a custom binary or build tags.
+
+From the repository root, with Go 1.25 and Node.js 24 installed:
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
+go build -o gooru ./cmd/gooru
+./gooru serve --print-default-config > serve.yaml
+./gooru serve --config serve.yaml
+```
+
+Run from the repository root so the default `server.frontend_dir: frontend/build` resolves. The built frontend is intentionally not checked into Git; rebuild it after frontend changes. To initialize a library and create the first admin, follow the [first-run guide](SERVE.md#first-run). For a custom libvips-enabled binary, install the libvips development files and use the `govips` build tag below.
+
 ## Backend
 
 ```bash
