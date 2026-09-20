@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  # A version-bump PR is a release candidate: build/verify all five packages
+  # and both Nix platforms without publishing or requiring release credentials.
+  pull_request:
+    branches: [develop]
+    paths: [VERSION]
   workflow_dispatch:
 
 permissions:
@@ -107,6 +112,7 @@ jobs:
           artifact="dist/gooru_$(printf '%s' "$version")_linux_${{ matrix.arch }}.deb"
           test "$(dpkg-deb -f "$artifact" Architecture)" = "${{ matrix.arch }}"
           dpkg-deb -f "$artifact" Depends | grep -F libvips
+          dpkg-deb -f "$artifact" Depends | grep -Eq '(^|, )ffmpeg(,|[[:space:]]|$)'
           sha256sum -c "$artifact.sha256"
           dpkg-deb -c "$artifact" | grep -F '/usr/share/gooru/frontend/index.html'
           dpkg-deb -c "$artifact" | grep -F '/lib/systemd/system/gooru@.service'
@@ -156,7 +162,7 @@ jobs:
         if: matrix.system == 'aarch64-linux'
         uses: cachix/install-nix-action@v31
       - name: Resolve Cachix CLI from pinned nixpkgs
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/v')
         id: cachix-cli
         shell: bash
         run: |
@@ -166,7 +172,7 @@ jobs:
           echo "bin=$client/bin/cachix" >> "$GITHUB_OUTPUT"
           echo "$client/bin" >> "$GITHUB_PATH"
       - name: Configure Cachix publication for release tags
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: cachix/cachix-action@v17
         with:
           name: ${{ vars.CACHIX_CACHE_NAME }}
@@ -179,7 +185,7 @@ jobs:
           nix build .#packages.${{ matrix.system }}.default --out-link result --print-build-logs
           nix build .#checks.${{ matrix.system }}.nixos-module --no-link --print-build-logs
       - name: Publish native package and runtime closure to Cachix
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           CACHIX_CACHE_NAME: ${{ vars.CACHIX_CACHE_NAME }}
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -214,7 +220,7 @@ jobs:
       - name: Render release notes
         run: node scripts/release-notes.mjs > "$RUNNER_TEMP/release-notes.md"
       - name: Publish verified packages and checksums as GitHub Release
-        if: github.event_name != 'pull_request'
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
