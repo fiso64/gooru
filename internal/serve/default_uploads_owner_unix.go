@@ -9,6 +9,19 @@ import (
 	"syscall"
 )
 
+// An upload target is not private if another account can rename its parent.
+func verifyDefaultUploadParentOwner(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect default upload parent %q: %w", path, err)
+	}
+	metadata, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || !ok || metadata.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0022 != 0 {
+		return fmt.Errorf("default upload parent %q must be an owner-controlled, non-group-writable directory", path)
+	}
+	return nil
+}
+
 func verifyDefaultUploadDirectoryOwner(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
