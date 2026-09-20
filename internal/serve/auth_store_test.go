@@ -307,6 +307,11 @@ func TestFirstRunConfigAdminLoginUploadsFile(t *testing.T) {
  if err:=json.Unmarshal(login.Body.Bytes(),&session);err!=nil {t.Fatal(err)}
  cookies:=login.Result().Cookies()
  if session.CSRFToken=="" || len(cookies)!=1 {t.Fatal("login did not establish session and CSRF token")}
+ noCSRF:=uploadRequest(t,map[string]string{"first.txt":"hello"},nil)
+ noCSRF.AddCookie(cookies[0])
+ forbidden:=httptest.NewRecorder()
+ server.Handler().ServeHTTP(forbidden,noCSRF)
+ assertAPIError(t,forbidden,http.StatusForbidden,"csrf_required")
  request:=uploadRequest(t,map[string]string{"first.txt":"hello"},nil)
  request.AddCookie(cookies[0])
  request.Header.Set("X-Gooru-CSRF",session.CSRFToken)
