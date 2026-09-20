@@ -6,7 +6,7 @@ import (
 )
 
 func TestDefaultUploadDirectoryPrivate(t *testing.T) {
- t.Setenv("STATE_DIRECTORY", t.TempDir())
+ testDefaultUploadRoot(t)
  path, err := defaultUploadPath()
  if err != nil { t.Fatal(err) }
  if err := prepareDefaultUploadDir(path); err != nil { t.Fatal(err) }
