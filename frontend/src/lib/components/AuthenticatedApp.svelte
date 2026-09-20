@@ -40,7 +40,7 @@
   import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
   import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
   import { tagEditDelta } from '$lib/utils/tagEdit';
-  import { previewNeighbor } from '$lib/utils/viewerNavigation';
+  import { previewAfterRemoval, previewNeighbor } from '$lib/utils/viewerNavigation';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { FileItem, Job, SavedSearchRequest } from '$lib/api/types';
 
@@ -603,8 +603,14 @@
         });
         library.clearSelection();
       } else if (actionDialog.kind === 'untrack-file' || actionDialog.kind === 'delete-file') {
-        await fileRemovalMutation.mutateAsync({ id: actionDialog.id, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });
-        if (library.activeFile?.id === actionDialog.id) library.closePreview();
+        const removedID = actionDialog.id;
+        const wasViewingRemovedFile = library.activeFile?.id === removedID;
+        const replacement = wasViewingRemovedFile ? previewAfterRemoval(removedID, loadedFiles) : null;
+        await fileRemovalMutation.mutateAsync({ id: removedID, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });
+        if (wasViewingRemovedFile && library.activeFile?.id === removedID) {
+          if (replacement) library.openPreview(replacement);
+          else library.closePreview();
+        }
         for (let index = upload.items.length - 1; index >= 0; index -= 1) {
           if (upload.items[index]?.remoteFileID === actionDialog.id) upload.removeAt(index);
         }
