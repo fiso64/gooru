@@ -15,6 +15,7 @@ on:
       - 'systemd/**'
       - 'scripts/build-deb.sh'
       - 'scripts/gooru-instance-setup.sh'
+      - 'scripts/gooru-instance.sh'
       - 'scripts/test-deb-service.sh'
       - '.github/workflows/deb-service-package.yml'
 
