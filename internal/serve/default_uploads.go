@@ -46,7 +46,7 @@ func defaultUploadPath() (string, error) {
 
 // systemd exports STATE_DIRECTORY; the packaged CLI uses its config path.
 func defaultUploadPathForConfig(configPath string) (string, error) {
-	if runtime.GOOS == "linux" && strings.TrimSpace(os.Getenv("STATE_DIRECTORY")) == "" {
+	if runtime.GOOS == "linux" {
 		if stateDir, ok := managedStateDirectoryFromConfig(configPath); ok {
 			return filepath.Join(stateDir, "uploads"), nil
 		}
