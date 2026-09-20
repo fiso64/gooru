@@ -47,11 +47,11 @@ Use `./gooru` for a Linux tarball or `.\gooru.exe` for the Windows ZIP instead o
 
 Set `server.frontend_dir` to `/usr/share/gooru/frontend` for a Debian install. The extracted Linux and Windows archives work with the default `frontend/build` when run from their directory. When using a different database path, use it for both initialization and serving.
 
-Open <http://127.0.0.1:5678>. By default Gooru listens only on your computer, requires login, and disables uploads. See [CONFIG.md](CONFIG.md) for other settings and [CLI.md](CLI.md) for library commands.
+Open <http://127.0.0.1:5678>. By default Gooru listens only on your computer, requires login, and provisions one private persistent upload destination. Once signed in as an administrator, you can upload files in the WebUI without changing the generated configuration. See [CONFIG.md](CONFIG.md) for other settings and [CLI.md](CLI.md) for library commands.
 
 ## Uploads
 
-Uploads are off by default. Enable them only with an explicit target:
+Uploads are enabled by default for authenticated installations. When no targets are specified, Gooru prepares a private persistent upload directory for the account or managed service instance running it. You can upload after creating an administrator and signing in. To choose your own destination instead, configure an explicit target:
 
 ```yaml
 uploads:
@@ -63,7 +63,7 @@ uploads:
   max_file_size_bytes: 104857600
 ```
 
-Upload target paths must be absolute. Gooru exposes target IDs and display names to clients, not the configured filesystem paths.
+Set `uploads.enabled: false` to disable uploads. If authentication is disabled, uploads remain disabled unless `uploads.enabled: true` is explicitly configured, even on loopback. Setting `uploads.targets: []` explicitly suppresses the automatic target; enabling uploads with no target is rejected at startup. The automatic directory must be writable by the server account, and startup fails rather than falling back to a temporary location when it cannot be provisioned. Managed instances use their own private state directories (for example, `/var/lib/gooru-main/uploads`).\n\nUpload target paths must be absolute. Gooru exposes target IDs and display names to clients, not the configured filesystem paths.
 
 Uploads are staged before being committed to their final names. Same-name uploads are renamed by default; API clients may explicitly request `conflict_policy=error` to reject the request when a destination path collides.
 
@@ -269,7 +269,7 @@ For an instance named `main`, the defaults are:
 
 Other names receive the same collision-free namespacing. If you override an instance's `user` or `group`, create it separately; the module automatically creates only the default `gooru-<name>` identity.
 
-Create upload directories with permissions appropriate for each instance. Set `services.gooru.instances.<name>.openFirewall = true` only when that instance's literal `HOST:PORT` listen address should be opened in the host firewall.
+When upload settings are omitted, each instance uses its own private persistent upload directory under its managed state directory. Create any explicitly configured custom upload directories with permissions appropriate for each instance. Set `services.gooru.instances.<name>.openFirewall = true` only when that instance's literal `HOST:PORT` listen address should be opened in the host firewall.
 
 
 ## Troubleshooting
