@@ -1,0 +1,29 @@
+name: Temporary maintainer Cachix public-key check
+
+on:
+  push:
+    branches:
+      - docs-cachix-first-nixos-setup
+
+jobs:
+  read-public-key:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 4
+    steps:
+      - name: Check public cache metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          for endpoint in "https://cachix.org/api/v1/cache/gooru" "https://app.cachix.org/api/v1/cache/gooru"; do
+            echo "Public metadata endpoint: $endpoint"
+            if curl --max-time 15 -fsSL "$endpoint" -o cache.json; then
+              python3 - <<'PY'
+          import json
+          data = json.load(open("cache.json"))
+          print("Metadata fields:", sorted(data) if isinstance(data, dict) else type(data).__name__)
+          for key in ("publicSigningKey", "publicKey", "public_signing_key", "public_key", "signingKey"):
+              if isinstance(data, dict) and data.get(key):
+                  print("CACHE_PUBLIC_KEY:", data[key])
+          PY
+            fi
+          done
