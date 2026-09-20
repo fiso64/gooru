@@ -34,6 +34,7 @@ func TestLoadConfigImplicitUploadModes(t *testing.T) {
   {"anonymous omission","auth:\n  enabled: false\n",false,0,""},
   {"anonymous explicit opt-in","auth:\n  enabled: false\nuploads:\n  enabled: true\n",true,1,""},
   {"anonymous explicit disabled","auth:\n  enabled: false\nuploads:\n  enabled: false\n",false,0,""},
+  {"explicit disable with omitted targets","auth:\n  enabled: true\nuploads:\n  enabled: false\n",false,0,""},
  } {
   t.Run(tc.name,func(t *testing.T) {
    root:=testDefaultUploadRoot(t)
