@@ -195,6 +195,11 @@ Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.
 services.gooru.instances.main = {
   enable = true;
   settings.server.listen = "127.0.0.1:5678";
+
+  admins.primary = {
+    username = "admin";
+    passwordFile = "/var/lib/gooru-secrets/admin-password";
+  };
 };
 ```
 
