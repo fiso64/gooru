@@ -2,7 +2,7 @@
 
 ## Build from source
 
-From the repository root, with Go 1.25 and Node.js 24 installed:
+From the repository root, with Go, Node.js, and npm installed:
 
 ```bash
 cd frontend
