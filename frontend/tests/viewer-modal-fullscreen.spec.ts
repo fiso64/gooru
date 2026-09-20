@@ -62,4 +62,6 @@ test('viewer action dialog blocks background shortcuts and fullscreen renders ov
   await expect(page.getByRole('dialog', { name: 'one.jpg' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(shortcuts).toHaveCount(0);
+  await page.keyboard.press('j');
+  await expect(page.getByRole('dialog', { name: 'two.jpg' })).toBeVisible();
 });
