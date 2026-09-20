@@ -44,13 +44,13 @@ The extracted directory contains the `gooru` binary and `frontend/build` WebUI. 
 
 ### Windows (amd64)
 
-Download `gooru_0.1.0_windows_amd64.zip`, extract it, and open a terminal **inside** the extracted `gooru_0.1.0_windows_amd64` directory. Run `gooru.exe` from there (PowerShell: `\.\gooru.exe`) so the included `frontend/build` remains available. If you move the executable elsewhere, configure `server.frontend_dir` to the full path of the extracted WebUI. Do not use only the `.exe` without the bundled frontend for the web app.
+Download `gooru_0.1.0_windows_amd64.zip`, extract it, and open a terminal **inside** the extracted `gooru_0.1.0_windows_amd64` directory. Run `gooru.exe` from there (PowerShell: `.\gooru.exe`) so the included `frontend/build` remains available. If you move the executable elsewhere, configure `server.frontend_dir` to the full path of the extracted WebUI. Do not use only the `.exe` without the bundled frontend for the web app.
 
 Portable Linux and Windows archives omit optional libvips-backed thumbnails; Debian and Nix packages enable libvips. See [media tooling](#media-tooling) for optional dependencies and [building from source](DEVELOPMENT.md#build-from-source) for custom builds.
 
 ## First run
 
-Run these commands using the installed `gooru` binary (`./gooru` for a Linux tarball or `\.\gooru.exe` in Windows PowerShell), from the working directory described above:
+Run these commands using the installed `gooru` binary (`./gooru` for a Linux tarball or `.\gooru.exe` in Windows PowerShell), from the working directory described above:
 
 ```bash
 gooru init
@@ -69,6 +69,7 @@ gooru serve --config serve.yaml
 Open `http://127.0.0.1:5678` unless you changed `server.listen` or `server.public_url`. For non-interactive admin provisioning, supply the password through `GOORU_ADMIN_PASSWORD`; do not put passwords in YAML or command-line arguments.
 
 See [CONFIG.md](CONFIG.md) for all settings, and [CLI.md](CLI.md) for library and user-management commands. [Building from source](DEVELOPMENT.md#build-from-source) is an alternative for development or custom builds, not a prerequisite for getting started.
+
 ## Uploads
 
 Uploads are off by default. Enable them only with an explicit target:
@@ -149,33 +150,18 @@ See [CONFIG.md#encryption](CONFIG.md#encryption) for the complete rules.
 
 ## Media tooling
 
-A default source build includes a pure-Go image thumbnail path. Video thumbnails require `ffmpeg`; `ffprobe` is also used for media inspection/cache versioning.
+The official Debian and Nix builds dynamically link libvips for image thumbnails. Portable Linux and Windows archives use the pure-Go image path without the optional libvips backend. For a custom libvips build from source, see [DEVELOPMENT.md](DEVELOPMENT.md#optional-build-tags).
 
-To build with libvips as the primary image thumbnail backend:
+Video thumbnails require `ffmpeg`; `ffprobe` is also used for media inspection/cache versioning. If an optional media tool is missing, core browse/tag/upload/original-media functionality remains available; derivative requests can return `unsupported_media`.
 
-```bash
-go build -tags govips -o gooru ./cmd/gooru
-```
+## Frontend paths in packaged installations
 
-That build requires libvips development files at build time and the shared library at runtime. The repository's Nix package enables this libvips backend by default because Nix supplies and tracks the native dependency reproducibly.
-
-If an optional media tool is missing, core browse/tag/upload/original-media functionality remains available; derivative requests can return `unsupported_media`.
-
-## Production packaging
-
-Build and run a specific binary so you do not accidentally execute an older `gooru` from `PATH`:
-
-```bash
-go build -o gooru ./cmd/gooru
-gooru serve --config serve.yaml
-```
-
-When packaging outside the source tree, ship the built frontend directory too and point `server.frontend_dir` at it.
+The `.deb` installs its built WebUI at `/usr/share/gooru/frontend`, and Nix packages include it under `share/gooru/frontend` within the package store path. Set `server.frontend_dir` accordingly for a standalone server; the supplied systemd template and NixOS module configurations use the packaged frontend path as described below. Linux tarballs and the Windows zip include `frontend/build` alongside the binary; start Gooru from the extracted directory or configure its absolute path. Building or running the server from a source checkout is optional; see [DEVELOPMENT.md](DEVELOPMENT.md#build-from-source).
 
 ## systemd (Linux)
 
-The Linux package includes a `gooru@.service` template. Install the binary at
-`/usr/bin/gooru` and the template under the systemd system-unit directory. For
+The Debian package installs the `gooru@.service` template and binary under
+`/usr/bin/gooru`; no source build or manual unit installation is required. For
 an instance named `main`, create `/etc/gooru/main/serve.yaml` with unique
 `server.listen`, `database.path: /var/lib/gooru-main/gooru.db`,
 `media.cache_dir: /var/cache/gooru-main/media`, and
@@ -198,7 +184,7 @@ another instance.
 
 ## NixOS
 
-The flake exports `gooru.nixosModules.default`. Keep a shared default package at `services.gooru.package` and define deployments under `services.gooru.instances.<name>`. Each enabled instance must set `settings.server.listen` explicitly.
+Use the released flake as a pinned input, for example `inputs.gooru.url = "github:fiso64/gooru/v0.1.0";`, and include `gooru.nixosModules.default` in your NixOS configuration's `modules` list. Configure the `gooru` Cachix substituter and its public signing key in your NixOS settings if you want published binaries instead of local builds. The module chooses the matching flake package automatically, including the WebUI and libvips. Keep a shared default package at `services.gooru.package` and define deployments under `services.gooru.instances.<name>`. Each enabled instance must set `settings.server.listen` explicitly.
 
 ### Two-instance example
 
