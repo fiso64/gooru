@@ -32,7 +32,7 @@ Debian and Nix builds use libvips for thumbnails; portable Linux and Windows bui
 
 ## First run
 
-For Debian, Linux tarball, or Windows ZIP installations, initialize the database, generate a config, and create an administrator. On NixOS, the module manages initialization and the service; follow the [NixOS setup](#nixos) instead:
+For Debian, Linux tarball, or Windows ZIP installations, initialize the database, generate a config, and create an administrator:
 
 ```bash
 gooru init
@@ -40,6 +40,8 @@ gooru serve --print-default-config > serve.yaml
 gooru user create-admin --username alice --config serve.yaml
 gooru serve --config serve.yaml
 ```
+
+For NixOS, use the [declarative module configuration](#nixos) instead of these manual commands.
 
 Use `./gooru` for a Linux tarball or `.\gooru.exe` for the Windows ZIP instead of `gooru` above. On Windows PowerShell 5, generate `serve.yaml` with `cmd /c ".\gooru.exe serve --print-default-config > serve.yaml"` so the file is UTF-8.
 
