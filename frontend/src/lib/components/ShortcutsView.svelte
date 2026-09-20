@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Icon from './Icon.svelte';
   import { claimFocus } from '$lib/utils/focus';
+  import { placeModalInFullscreenViewer } from '$lib/utils/modal';
 
   let { onClose = () => undefined } = $props<{ onClose?: () => void }>();
   let dialogElement = $state<HTMLDivElement | undefined>();
@@ -64,7 +65,7 @@
   });
 </script>
 
-<div class="shortcut-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+<div use:placeModalInFullscreenViewer class="shortcut-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
   <div bind:this={dialogElement} class="shortcut-modal" role="dialog" aria-modal="true" aria-labelledby="shortcut-title" tabindex="-1">
     <div class="shortcut-head">
       <div>

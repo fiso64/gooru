@@ -12,6 +12,7 @@
   import { runtimeConfig } from '$lib/stores/runtimeConfig';
   import { readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { hasBlockingModal } from '$lib/utils/modal';
   import { replaceSidebarKind } from '$lib/utils/sidebarKinds';
 
   const commonTagsCollapsedKey = 'common-tags.collapsed';
@@ -229,19 +230,20 @@
 
   function handleShellKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || hasCommandModifier(event) || isEditableShortcutTarget(event.target)) return;
-    const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
-    if (shortcutsKey) {
-      event.preventDefault();
-      event.stopPropagation();
-      openShortcuts();
-      return;
-    }
     if (shortcutsOpen) {
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
         closeShortcuts();
       }
+      return;
+    }
+    if (hasBlockingModal()) return;
+    const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
+    if (shortcutsKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      openShortcuts();
       return;
     }
     if (event.key.toLowerCase() === 'b' && route === 'library' && !document.querySelector('[role="dialog"]')) {

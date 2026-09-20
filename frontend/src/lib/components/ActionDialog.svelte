@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import TagAutocompleteInput from './TagAutocompleteInput.svelte';
   import { parseTags } from '$lib/utils/format';
+  import { placeModalInFullscreenViewer } from '$lib/utils/modal';
   import type { TagCandidate } from '$lib/utils/tagSuggestions';
 
   let {
@@ -133,7 +134,7 @@
   });
 </script>
 
-<div class="modal-backdrop" role="presentation">
+<div use:placeModalInFullscreenViewer class="modal-backdrop" role="presentation">
   <div bind:this={dialogRef} class="action-dialog" role="dialog" aria-modal="true" aria-labelledby="action-dialog-title" tabindex="-1">
     <h2 id="action-dialog-title">{title}</h2>
     <p>{description}</p>
