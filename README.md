@@ -30,7 +30,7 @@ My unironic proudest contribution is the name Gooru, which sounds like the word 
 
 ## Getting started
 
-Get a Debian package, Linux tarball, or Windows ZIP from the [latest release](https://github.com/fiso64/gooru/releases/latest), or enable the [NixOS module](docs/SERVE.md#nixos) in your system configuration. The public Cachix cache is optional for NixOS. Each package includes the WebUI; Debian and Nix builds also support libvips.
+Get a Debian package, Linux tarball, or Windows ZIP from the [latest release](https://github.com/fiso64/gooru/releases/latest). On NixOS, use the [Gooru Cachix binary cache and NixOS module](docs/SERVE.md#nixos-deployment). Each package includes the WebUI; Debian and Nix builds also support libvips.
 
 See [running and deploying Gooru](docs/SERVE.md) for installation and first-run instructions. You can also [build from source](docs/DEVELOPMENT.md#build-from-source).
 
