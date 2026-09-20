@@ -23,7 +23,6 @@ in {
           runHook postInstall
         '';
       };
-    in {
       mkGooruPackage = development: pkgs.buildGoModule {
         pname = "gooru";
         version = version;
