@@ -34,13 +34,13 @@ Download the `.tar.gz` for your architecture, extract it, and run `./gooru` from
 
 ### Windows
 
-Download and extract the Windows ZIP. Open PowerShell in the extracted directory and run `.\\gooru.exe`. Keep the included `frontend/build` directory alongside the executable.
+Download and extract the Windows ZIP. Open PowerShell in the extracted directory and run `.\gooru.exe`. Keep the included `frontend/build` directory alongside the executable.
 
 Debian and Nix builds use libvips for thumbnails; portable Linux and Windows builds do not. To enable libvips in your own build, see [building from source](DEVELOPMENT.md#build-from-source).
 
 ## First run
 
-After installing, create a library and config, then add an administrator:
+After installing, initialize the database, generate a config, and create an administrator:
 
 ```bash
 gooru init
@@ -49,7 +49,7 @@ gooru user create-admin --username alice --config serve.yaml
 gooru serve --config serve.yaml
 ```
 
-Use `./gooru` for a Linux tarball or `.\\gooru.exe` for the Windows ZIP instead of `gooru` above. On Windows PowerShell 5, generate `serve.yaml` with `cmd /c ".\\gooru.exe serve --print-default-config > serve.yaml"` so the file is UTF-8.
+Use `./gooru` for a Linux tarball or `.\gooru.exe` for the Windows ZIP instead of `gooru` above. On Windows PowerShell 5, generate `serve.yaml` with `cmd /c ".\gooru.exe serve --print-default-config > serve.yaml"` so the file is UTF-8.
 
 Set `server.frontend_dir` to `/usr/share/gooru/frontend` for a Debian install, or to the Nix package's `share/gooru/frontend` directory for a manual Nix install. The extracted Linux and Windows archives work with the default `frontend/build` when run from their directory. When using a different database path, use it for both initialization and serving.
 
