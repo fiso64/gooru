@@ -3,6 +3,7 @@ package serve
 import (
  "path/filepath"
  "testing"
+ "gopkg.in/yaml.v3"
 )
 
 func TestImplicitUploadDefaultDecision(t *testing.T) {
@@ -22,6 +23,7 @@ func TestImplicitUploadDefaultDecision(t *testing.T) {
   t.Run(tc.name,func(t *testing.T){
    cfg:=DefaultConfig(filepath.Join(t.TempDir(),"gooru.db"))
    cfg.Auth.Enabled=tc.auth
+   if err:=yaml.Unmarshal([]byte(tc.source), &cfg);err!=nil {t.Fatal(err)}
    automatic,err:=resolveImplicitUploadDefaults(&cfg,[]byte(tc.source))
    if err!=nil {t.Fatal(err)}
    if cfg.Uploads.Enabled!=tc.enabled || len(cfg.Uploads.Targets)!=tc.targets || automatic!=(tc.enabled&&tc.targets==1) {
