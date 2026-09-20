@@ -1,5 +1,20 @@
 # Development
 
+## Build from source
+
+From the repository root, with Go, Node.js, and npm installed:
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
+go build -o gooru ./cmd/gooru
+./gooru serve --print-default-config > serve.yaml
+```
+
+Run Gooru from the repository root so it finds `frontend/build`. Rebuild the frontend after making changes to it. See [first run](SERVE.md#first-run) to create a library and admin account, or [optional build tags](#optional-build-tags) for libvips support.
+
 ## Backend
 
 ```bash
