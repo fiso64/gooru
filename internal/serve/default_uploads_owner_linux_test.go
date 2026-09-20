@@ -11,7 +11,7 @@ import (
 
 func TestManagedUploadProvisioningRejectsMissingState(t *testing.T) {
 	// No test may create a managed state directory under /var/lib.
-	path := "/etc/gooru/gooru-ownership-regression-test/serve.yaml"
+	path := "/etc/gooru/owntest-zz916/serve.yaml"
 	state, managed := managedStateDirectoryFromConfig(path)
 	if !managed {
 		t.Fatal("expected managed configuration")
