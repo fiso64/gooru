@@ -222,5 +222,5 @@ ui:
 For deployment and API behavior, see [SERVE.md](SERVE.md). The generated default remains the quickest way to verify defaults for the exact binary being run:
 
 ```bash
-go run ./cmd/gooru serve --print-default-config
+gooru serve --print-default-config
 ```
