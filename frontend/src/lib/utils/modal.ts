@@ -42,7 +42,9 @@ export function placeModalInFullscreenViewer(node: HTMLElement) {
     destroy() {
       document.removeEventListener('keydown', interceptBackgroundKeys, true);
       document.removeEventListener('fullscreenchange', sync);
-      if (anchor.parentNode) anchor.parentNode.insertBefore(node, anchor);
+      // The owner may remove its original DOM range before action teardown.
+      // A reparented node lies outside that range and must be detached here.
+      node.remove();
       anchor.remove();
     }
   };
