@@ -199,7 +199,7 @@ Add Gooru to your NixOS flake inputs:
 inputs.gooru.url = "github:fiso64/gooru/main";
 ```
 
-The `main` branch contains the latest merged changes, which can be newer than the latest tagged release. Gooru publishes Cachix binaries for `main` on x86_64 and aarch64 Linux; if you update before that revision's cache build finishes, Nix may build the package locally. Your `flake.lock` pins the revision in use; to upgrade Gooru, run `nix flake update gooru` in your system flake directory and rebuild your NixOS system. Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.default` to the host's `nixosSystem.modules`. In that host's NixOS configuration, enable an instance:
+The `main` branch is the stable release branch; development and unreleased changes remain on `develop`. Your `flake.lock` pins a specific `main` revision. To upgrade after a new release is published, run `nix flake update gooru` in your system flake directory and rebuild your NixOS system. Gooru publishes Cachix binaries for each release on x86_64 and aarch64 Linux. **Current exception:** earlier maintenance moved `main` beyond the published v0.1.0 tag before its updated Debian package was released. Until a subsequent release reconciles those revisions, the current `main` source and latest downloadable `.deb` do not represent the same release; do not treat `main` as a completed new release. Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.default` to the host's `nixosSystem.modules`. In that host's NixOS configuration, enable an instance:
 
 ```nix
 services.gooru.instances.main = {
