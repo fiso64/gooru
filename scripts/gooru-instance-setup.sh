@@ -11,11 +11,11 @@ if (( $# != 1 )) || [[ ! "$1" =~ ^[a-z][a-z0-9_-]{0,16}$ ]]; then
   fail "instance name must begin with a lowercase letter and contain only lowercase letters, digits, _ or - (up to 17 characters)"
 fi
 name="$1"
-account="_gooru-$name"
+account="gooru-$name"
 state="/var/lib/gooru-$name"
 cache="/var/cache/gooru-$name"
 
-# An existing instance must be stopped before changing its database ownership.
+# An existing instance must be stopped before changing its account settings.
 if systemctl is-active --quiet "gooru@$name.service"; then
   fail "stop gooru@$name.service before changing its account settings"
 fi

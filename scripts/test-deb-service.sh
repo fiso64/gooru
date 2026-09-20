@@ -11,9 +11,9 @@ sudo apt-get install -y "./$1"
 sudo gooru-instance-setup citest
 sudo gooru-instance-setup citest
 sudo gooru-instance-setup second
-test "$(stat -c '%U:%G:%a' /var/lib/gooru-citest)" = "_gooru-citest:_gooru-citest:700"
-test "$(stat -c '%U:%G:%a' /var/cache/gooru-citest)" = "_gooru-citest:_gooru-citest:700"
-if sudo -u _gooru-second test -r /var/lib/gooru-citest; then
+test "$(stat -c '%U:%G:%a' /var/lib/gooru-citest)" = "gooru-citest:gooru-citest:700"
+test "$(stat -c '%U:%G:%a' /var/cache/gooru-citest)" = "gooru-citest:gooru-citest:700"
+if sudo -u gooru-second test -r /var/lib/gooru-citest; then
   echo "second instance can access first instance's state" >&2
   exit 1
 fi
@@ -26,10 +26,10 @@ sudo systemctl daemon-reload
 sudo systemctl start gooru@citest.service
 trap 'sudo systemctl stop gooru@citest.service || true' EXIT
 sudo systemctl is-active --quiet gooru@citest.service
-test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "_gooru-citest:_gooru-citest:600"
+test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "gooru-citest:gooru-citest:600"
 
 sudo systemctl stop gooru@citest.service
-sudo -u _gooru-citest env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
+sudo -u gooru-citest env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
   /usr/bin/gooru --config /etc/gooru/citest/serve.yaml user create-admin --username ci-admin
 sudo systemctl start gooru@citest.service
 ready=no
