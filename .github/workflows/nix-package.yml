@@ -67,6 +67,8 @@ jobs:
           cachixBin: ${{ steps.cachix-cli.outputs.bin }}
           skipPush: true
           skipAddingSubstituter: true
+      - name: Require release build on main
+        run: test "$(nix eval --json --expr 'import ./nix/build-channel.nix')" = "false"
       - name: Build native package and validate NixOS module
         shell: bash
         run: |
