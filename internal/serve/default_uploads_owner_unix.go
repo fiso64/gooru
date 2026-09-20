@@ -5,7 +5,6 @@ package serve
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"syscall"
 )
