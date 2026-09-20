@@ -99,6 +99,7 @@ forAllSystems (system:
       assert mainService.serviceConfig.CacheDirectory == "gooru-main";
       assert testService.serviceConfig.CacheDirectory == "gooru-test";
       assert mainService.serviceConfig.StateDirectoryMode == "0700";
+      assert testService.serviceConfig.StateDirectoryMode == "0700";
       assert mainService.serviceConfig.WorkingDirectory == "/var/lib/gooru-main";
       assert testService.serviceConfig.WorkingDirectory == "/var/lib/gooru-test";
       assert nixpkgs.lib.hasSuffix "/bin/gooru serve --config /etc/gooru/main/serve.yaml" mainService.serviceConfig.ExecStart;
