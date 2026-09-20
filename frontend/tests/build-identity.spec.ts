@@ -22,6 +22,7 @@ test('release login identity links docs to the version tag and source to the exa
 
   await page.goto('/');
   await expect(page.getByText('v1.2.3', { exact: true })).toBeVisible();
+  await expect(page.locator('.login-v2-first-run').getByRole('link', { name: 'docs' })).toHaveAttribute('href', 'https://github.com/fiso64/gooru/blob/v1.2.3/docs/SERVE.md');
   await expect(page.locator('.login-v2-foot-links').getByRole('link', { name: 'docs' })).toHaveAttribute('href', 'https://github.com/fiso64/gooru/tree/v1.2.3/docs');
   await expect(page.getByRole('link', { name: 'source' })).toHaveAttribute('href', `https://github.com/fiso64/gooru/tree/${revision}`);
 });
