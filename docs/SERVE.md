@@ -167,6 +167,8 @@ nix.settings = {
 };
 ```
 
+If this is the first time you have configured the cache on the host, apply these settings in a system rebuild before enabling the Gooru instance so the Nix daemon can use Cachix for the first Gooru build.
+
 Add Gooru to your NixOS flake inputs, replacing `<release-tag>` with the tag shown on the [latest release](https://github.com/fiso64/gooru/releases/latest):
 
 ```nix
