@@ -112,6 +112,9 @@ func prepareDefaultUploadDir(path string) error {
 	if err := rejectSymlinkedUploadAncestors(path); err != nil {
 		return err
 	}
+	if err := verifyDefaultUploadParentOwner(filepath.Dir(path)); err != nil {
+		return err
+	}
 	if err := os.Mkdir(path, 0700); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("prepare default upload directory: %w", err)
 	}
