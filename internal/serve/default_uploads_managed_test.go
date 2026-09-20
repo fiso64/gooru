@@ -14,7 +14,7 @@ func TestManagedDefaultUploadPathMatchesService(t *testing.T) {
     if err != nil { t.Fatal(err) }
     want := filepath.Join("/var/lib", "gooru-main", "uploads")
     if cliPath != want { t.Fatalf("CLI: %q, want %q", cliPath, want) }
-    t.Setenv("STATE_DIRECTORY", "/var/lib/gooru-main")
+    t.Setenv("STATE_DIRECTORY", filepath.Join(t.TempDir(), "unrelated"))
     servicePath, err := defaultUploadPathForConfig(config)
     if err != nil { t.Fatal(err) }
     if servicePath != cliPath { t.Fatalf("service: %q; CLI: %q", servicePath, cliPath) }
