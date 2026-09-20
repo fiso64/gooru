@@ -14,7 +14,6 @@ cp -R frontend/build/. "$root/usr/share/gooru/frontend/"
 cp LICENSE THIRD_PARTY_NOTICES.md "$root/usr/share/doc/gooru/"
 install -m 0644 'systemd/gooru@.service' "$root/lib/systemd/system/"
 install -m 0755 scripts/gooru-instance-setup.sh "$root/usr/sbin/gooru-instance-setup"
-install -m 0755 scripts/gooru-deb-postinst.sh "$root/DEBIAN/postinst"
 CGO_ENABLED=1 go build -tags govips -trimpath -ldflags "-X=gooru.local/internal/buildinfo.Version=$version -X=gooru.local/internal/buildinfo.Revision=$revision -X=gooru.local/internal/buildinfo.Dirty=false -X=gooru.local/internal/buildinfo.Development=false" -o "$root/usr/bin/gooru" ./cmd/gooru
 ldd "$root/usr/bin/gooru" | grep -F 'libvips.so'
 printf 'Source: gooru\nSection: web\nPriority: optional\nMaintainer: Gooru project <noreply@github.com>\nStandards-Version: 4.6.2\n\nPackage: gooru\nArchitecture: any\nDepends: ${shlibs:Depends}\nDescription: personal media library\n' > "$stage/work/debian/control"
