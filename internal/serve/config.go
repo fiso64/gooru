@@ -249,11 +249,15 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 		return Config{}, errors.New("--auth-token is no longer supported; create a DB-backed admin with 'gooru user create-admin'")
 	}
 	automatic, err := resolveImplicitUploadDefaults(&cfg, uploadSource, path)
-	if err != nil { return Config{}, fmt.Errorf("parse upload defaults: %w", err) }
+	if err != nil {
+		return Config{}, fmt.Errorf("parse upload defaults: %w", err)
+	}
 	if err := cfg.ResolveSecrets(); err != nil {
 		return Config{}, err
 	}
-	if err := cfg.Validate(); err != nil { return Config{}, err }
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
 	if automatic {
 		if err := prepareDefaultUploadDir(cfg.Uploads.Targets[0].Path); err != nil { return Config{}, err }
 		if err := cfg.Validate(); err != nil { return Config{}, fmt.Errorf("validate default upload target: %w", err) }
