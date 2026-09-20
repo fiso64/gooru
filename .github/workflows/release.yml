@@ -37,6 +37,7 @@ jobs:
           version="$(tr -d '\n' < VERSION)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$GITHUB_REF_NAME" == "v$version" ]]
+          [[ "$(nix eval --json --expr 'import ./nix/build-channel.nix')" == "false" ]]
           node scripts/release-notes.mjs > /dev/null
       - name: Test Go
         run: go test -count=1 ./...
