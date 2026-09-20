@@ -7,7 +7,7 @@ import (
 )
 
 func resolveImplicitUploadDefaults(c *Config, src []byte, configPath ...string) (bool, error) {
- var root map[string]yaml.Node
+	var root map[string]yaml.Node
 	if err := yaml.Unmarshal(src, &root); err != nil {
 		return false, err
 	}
@@ -20,9 +20,11 @@ func resolveImplicitUploadDefaults(c *Config, src []byte, configPath ...string) 
 		case "targets":
 			targets = true
 		}
- }
- if !enabled{c.Uploads.Enabled=c.Auth.Enabled&&(!targets||len(c.Uploads.Targets)>0)}
- auto:=c.Uploads.Enabled&&!targets&&len(c.Uploads.Targets)==0
+	}
+	if !enabled {
+		c.Uploads.Enabled = c.Auth.Enabled && (!targets || len(c.Uploads.Targets) > 0)
+	}
+	auto := c.Uploads.Enabled && !targets && len(c.Uploads.Targets) == 0
  if auto{
   resolvedPath := ""
   if len(configPath) > 0 { resolvedPath = configPath[0] }
