@@ -26,7 +26,7 @@ sudo systemctl daemon-reload
 sudo systemctl start gooru@citest.service
 trap 'sudo systemctl stop gooru@citest.service || true' EXIT
 sudo systemctl is-active --quiet gooru@citest.service
-test "$(stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "_gooru-citest:_gooru-citest:600"
+test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "_gooru-citest:_gooru-citest:600"
 
 sudo systemctl stop gooru@citest.service
 sudo -u _gooru-citest env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
