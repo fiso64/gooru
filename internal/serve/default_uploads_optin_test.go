@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -20,10 +21,11 @@ func TestUnauthenticatedExplicitUploadOptIn(t *testing.T) {
 		t.Fatalf("explicit unauthenticated opt-in lost its default target: %+v", cfg.Uploads)
 	}
 	want := filepath.Join(root, "uploads")
+	if runtime.GOOS == "windows" {
+		want = filepath.Join(root, "Gooru", "uploads")
+	}
 	if cfg.Uploads.Targets[0].Path != want {
-		if _, err := os.Stat(want); err == nil {
-			t.Fatalf("unexpected upload target %q rather than %q", cfg.Uploads.Targets[0].Path, want)
-		}
+		t.Fatalf("unexpected upload target %q rather than %q", cfg.Uploads.Targets[0].Path, want)
 	}
 	srv := NewServerWithLibrary(cfg, &recordingUploadLibrary{})
 	rec := httptest.NewRecorder()
