@@ -298,3 +298,30 @@ test('viewer tag completions ellipsize long names without horizontal scrolling',
   expect(result.textOverflow).toBe('ellipsis');
   expect(result.countWidth).toBeGreaterThan(0);
 });
+
+
+test('search and viewer tag suggestion menus wrap at both ends', async ({ page }) => {
+  await mockApp(page);
+
+  const search = page.getByRole('textbox', { name: 'Search library' });
+  await search.fill('tech');
+  const searchOptions = page.getByRole('listbox', { name: 'Search suggestions' }).getByRole('option');
+  await expect(searchOptions.last()).toBeVisible();
+  await expect(searchOptions.first()).toHaveAttribute('aria-selected', 'true');
+  await search.press('ArrowUp');
+  await expect(searchOptions.last()).toHaveAttribute('aria-selected', 'true');
+  await search.press('ArrowDown');
+  await expect(searchOptions.first()).toHaveAttribute('aria-selected', 'true');
+
+  await search.fill('');
+  await page.getByRole('button', { name: 'Preview one.jpg' }).click();
+  const input = page.getByRole('textbox', { name: 'Tags for one.jpg' });
+  await input.fill('tech');
+  const tagOptions = page.getByRole('listbox', { name: 'Tags for one.jpg suggestions' }).getByRole('option');
+  await expect(tagOptions.last()).toBeVisible();
+  await expect(tagOptions.first()).toHaveAttribute('aria-selected', 'true');
+  await input.press('ArrowUp');
+  await expect(tagOptions.last()).toHaveAttribute('aria-selected', 'true');
+  await input.press('ArrowDown');
+  await expect(tagOptions.first()).toHaveAttribute('aria-selected', 'true');
+});

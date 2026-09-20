@@ -4,6 +4,7 @@
   import { authState } from '$lib/stores/auth';
   import { mergeTagCandidateOccurrenceCounts, plainTagSuggestions, plainTagsFromInput, type PlainTagSuggestion, type TagCandidate } from '$lib/utils/tagSuggestions';
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
+  import { moveCompletionIndex } from '$lib/utils/completionNavigation';
   import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
 
   let {
@@ -126,13 +127,13 @@
     if (event.key === 'ArrowDown' && suggestions.length) {
       event.preventDefault();
       open = true;
-      active = Math.min(active + 1, suggestions.length - 1);
+      active = moveCompletionIndex(active, suggestions.length, 1);
       return;
     }
     if (event.key === 'ArrowUp' && suggestions.length) {
       event.preventDefault();
       open = true;
-      active = Math.max(active - 1, 0);
+      active = moveCompletionIndex(active, suggestions.length, -1);
       return;
     }
     if ((event.key === 'Enter' || event.key === 'Tab') && open && suggestions[active]) {
