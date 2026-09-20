@@ -2,7 +2,6 @@ package serve
 
 import (
  "os"
- "path/filepath"
  "testing"
 )
 
