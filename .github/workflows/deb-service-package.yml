@@ -56,12 +56,7 @@ jobs:
           test "$(dpkg-deb -f "$artifact" Architecture)" = amd64
           dpkg-deb -f "$artifact" Depends | grep -F passwd
           dpkg-deb -c "$artifact" | grep -F '/usr/sbin/gooru-instance-setup'
-          dpkg-deb -c "$artifact" | grep -E '/usr/sbin/gooru-instance
-          dpkg-deb -e "$artifact" /tmp/gooru-deb-control
-          test ! -e /tmp/gooru-deb-control/postinst
-          sha256sum -c "$artifact.sha256"
-          bash scripts/test-deb-service.sh "$artifact"
-
+          dpkg-deb -c "$artifact" | grep -F './usr/sbin/gooru-instance'
           dpkg-deb -e "$artifact" /tmp/gooru-deb-control
           test ! -e /tmp/gooru-deb-control/postinst
           sha256sum -c "$artifact.sha256"
