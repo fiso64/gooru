@@ -41,6 +41,7 @@
   import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
   import { tagEditDelta } from '$lib/utils/tagEdit';
   import { previewAfterRemoval, previewNeighbor } from '$lib/utils/viewerNavigation';
+  import { offsetPageToken } from '$lib/utils/pagination';
   import { useQueryClient } from '@tanstack/svelte-query';
   import type { FileItem, Job, SavedSearchRequest } from '$lib/api/types';
 
@@ -606,9 +607,33 @@
         const removedID = actionDialog.id;
         const wasViewingRemovedFile = library.activeFile?.id === removedID;
         const replacement = wasViewingRemovedFile ? previewAfterRemoval(removedID, loadedFiles) : null;
+        const visibleIndex = wasViewingRemovedFile ? loadedFiles.findIndex((file) => file.id === removedID) : -1;
+        const absoluteIndex = (pagedMode ? (library.page - 1) * $runtimeConfig.itemsPerPage : retainedStartIndex) + visibleIndex;
+        const needsNeighborLookup = visibleIndex >= 0 && ((visibleIndex === 0 && absoluteIndex > 0) || (!replacement && gridSnapshotTotalCount > 1));
+        const queryAtRemoval = library.filterQuery();
+        const sortAtRemoval = library.sort;
+        const orderAtRemoval = library.order;
         await fileRemovalMutation.mutateAsync({ id: removedID, mode: actionDialog.kind === 'delete-file' ? 'delete' : 'untrack' });
         if (wasViewingRemovedFile && library.activeFile?.id === removedID) {
-          if (replacement) library.openPreview(replacement);
+          let nextFile = replacement;
+          if (needsNeighborLookup) {
+            // The preferred preceding file may be on the previous page; the next
+            // file can also be outside the currently loaded window.
+            const offset = Math.max(0, absoluteIndex - 1);
+            try {
+              const page = await new ApiClient().listFiles({
+                query: queryAtRemoval, sort: sortAtRemoval, order: orderAtRemoval,
+                limit: 1, pageToken: offsetPageToken(offset, 1)
+              });
+              if (page.files[0]) {
+                nextFile = page.files[0];
+                if (pagedMode) library.page = Math.floor(offset / $runtimeConfig.itemsPerPage) + 1;
+              }
+            } catch {
+              // Keep an already loaded fallback; otherwise return to the grid.
+            }
+          }
+          if (nextFile) library.openPreview(nextFile);
           else library.closePreview();
         }
         for (let index = upload.items.length - 1; index >= 0; index -= 1) {
