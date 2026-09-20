@@ -1,0 +1,52 @@
+name: Temporary release-ref validation
+
+on:
+  push:
+    branches:
+      - fix-nixos-flake-update-release-ref
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: [self-hosted, gooru]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate NixOS flake update and release ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix --version
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          cat > "$tmp/flake.nix" <<'NIX'
+          {
+            inputs.gooru.url = "github:fiso64/gooru/release";
+            outputs = { self, gooru }: { };
+          }
+          NIX
+          nix flake lock --flake "$tmp"
+          nix flake update gooru --flake "$tmp"
+          python3 - "$tmp/flake.lock" <<'PY'
+          import json
+          import sys
+          locked = json.load(open(sys.argv[1]))["nodes"]["gooru"]["locked"]
+          expected = "aab686b6f5279677a9d568b6977d5d16c45a6579"
+          assert locked["rev"] == expected, (locked["rev"], expected)
+          print("Release input locked to published release revision:", locked["rev"])
+          PY
+      - name: Check release workflow publication order
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          contents = Path(".github/workflows/release.yml").read_text()
+          assert "needs: [portable, deb, nix]" in contents
+          assert contents.index("Publish native package and runtime closure to Cachix") < contents.index("  assemble:")
+          assert contents.index("Publish verified packages and checksums as GitHub Release") < contents.index("Advance the released Nix flake ref")
+          assert "-F force=false" in contents
+          assert "contents: write" in contents
+          print("Release-ref advancement follows package publication, non-forced.")
+          PY
