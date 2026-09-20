@@ -156,6 +156,7 @@ The service creates its private state and cache directories automatically. Do no
 Start and then stop the service once to let it initialize the database before creating the first administrator:
 
 ```bash
+sudo systemctl daemon-reload
 sudo systemctl start gooru@main.service
 sudo systemctl stop gooru@main.service
 ```
