@@ -63,7 +63,9 @@ uploads:
   max_file_size_bytes: 104857600
 ```
 
-Set `uploads.enabled: false` to disable uploads. If authentication is disabled, uploads remain disabled unless `uploads.enabled: true` is explicitly configured, even on loopback. Setting `uploads.targets: []` explicitly suppresses the automatic target; enabling uploads with no target is rejected at startup. The automatic directory must be writable by the server account, and startup fails rather than falling back to a temporary location when it cannot be provisioned. Managed instances use their own private state directories (for example, `/var/lib/gooru-main/uploads`).\n\nUpload target paths must be absolute. Gooru exposes target IDs and display names to clients, not the configured filesystem paths.
+Set `uploads.enabled: false` to disable uploads. If authentication is disabled, uploads remain disabled unless `uploads.enabled: true` is explicitly configured, even on loopback. Setting `uploads.targets: []` explicitly suppresses the automatic target; enabling uploads with no target is rejected at startup. The automatic directory must be writable by the server account, and startup fails rather than falling back to a temporary location when it cannot be provisioned. Managed instances use their own private state directories (for example, `/var/lib/gooru-main/uploads`).
+
+Upload target paths must be absolute. Gooru exposes target IDs and display names to clients, not the configured filesystem paths.
 
 Uploads are staged before being committed to their final names. Same-name uploads are renamed by default; API clients may explicitly request `conflict_policy=error` to reject the request when a destination path collides.
 
