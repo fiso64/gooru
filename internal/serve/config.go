@@ -259,8 +259,12 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 		return Config{}, err
 	}
 	if automatic {
-		if err := prepareDefaultUploadDir(cfg.Uploads.Targets[0].Path); err != nil { return Config{}, err }
-		if err := cfg.Validate(); err != nil { return Config{}, fmt.Errorf("validate default upload target: %w", err) }
+		if err := prepareDefaultUploadDir(cfg.Uploads.Targets[0].Path); err != nil {
+			return Config{}, err
+		}
+		if err := cfg.Validate(); err != nil {
+			return Config{}, fmt.Errorf("validate default upload target: %w", err)
+		}
 	}
 	return cfg, nil
 }
