@@ -1,64 +1,74 @@
-# Serve the web app
+# Install and run Gooru
 
 `gooru serve` runs the HTTP API, authenticated media endpoints, uploads, background jobs, and the static SvelteKit frontend in one Go process.
 
-For every YAML field and default, see [CONFIG.md](CONFIG.md). For endpoint-level integration, see [openapi.yaml](openapi.yaml).
+Install a published package first; you do **not** need a source checkout, Go, or Node to run Gooru. For every YAML field and default, see [CONFIG.md](CONFIG.md). For endpoint-level integration, see [openapi.yaml](openapi.yaml).
 
-## From a source checkout
+## Install a release
 
-### 1. Build the frontend
+Get the appropriate archive or package and its matching `.sha256` file from the [latest GitHub Release](https://github.com/fiso64/gooru/releases/latest). The examples below use v0.1.0; substitute the filenames from the release you downloaded when installing another version. On Linux, verify a downloaded asset from the directory containing both files with `sha256sum -c <asset-name>.sha256` before installing or extracting it.
 
-```bash
-cd frontend
-npm ci
-npm run build
-cd ..
-```
+### Debian or Ubuntu (amd64 / arm64)
 
-The generated static site is written to `frontend/build`. Node is not required at runtime once the frontend has been built. Because `frontend/build` is intentionally ignored by Git, pulling newer source does not refresh an existing build directory; rerun `npm run build` after frontend source changes before restarting `gooru serve`, otherwise the new backend can serve an older WebUI bundle.
-
-### 2. Build the Go binary
+Download `gooru_0.1.0_linux_amd64.deb` or `gooru_0.1.0_linux_arm64.deb` to match your machine, then install the local package (change the filename for arm64):
 
 ```bash
-go build -o gooru ./cmd/gooru
+sudo apt install ./gooru_0.1.0_linux_amd64.deb
 ```
 
-### 3. Initialize the database if needed
+The package installs `gooru` at `/usr/bin/gooru`, the WebUI at `/usr/share/gooru/frontend`, and the `gooru@.service` systemd template. It uses the system's dynamically linked libvips runtime; APT installs its declared shared-library dependencies. For an interactive first run, set `server.frontend_dir` to `/usr/share/gooru/frontend` in your server config below. For a managed service instead, follow [systemd (Linux)](#systemd-linux).
+
+### Nix / NixOS (x86_64-linux / aarch64-linux)
+
+The versioned flake contains the Gooru binary, bundled WebUI, and dynamically linked libvips. Optionally configure the public `gooru` Cachix binary cache (for example, with `cachix use gooru` on a machine where the Cachix CLI and cache trust are configured) to substitute published builds. The cache is optional; Nix can build the package if a substitute is unavailable. No write token is needed to download public cache artifacts.
+
+For a standalone Nix installation:
+
+```bash
+nix profile install 'github:fiso64/gooru/v0.1.0'
+```
+
+For a standalone `gooru serve` process, set `server.frontend_dir` to `<package-store-path>/share/gooru/frontend`; `nix path-info 'github:fiso64/gooru/v0.1.0'` prints the package store path. NixOS users should instead use the [flake module](#nixos), which configures the bundled frontend and per-instance state paths automatically. Pin the flake input to the release tag rather than a moving branch.
+
+### Other Linux (amd64 / arm64)
+
+Download the matching `gooru_0.1.0_linux_amd64.tar.gz` or `gooru_0.1.0_linux_arm64.tar.gz` and extract it. For amd64:
+
+```bash
+tar -xzf gooru_0.1.0_linux_amd64.tar.gz
+cd gooru_0.1.0_linux_amd64
+./gooru version
+```
+
+The extracted directory contains the `gooru` binary and `frontend/build` WebUI. **Run Gooru from that directory** so the default relative frontend path resolves, or set `server.frontend_dir` to the absolute path of the extracted `frontend/build`. Keep that directory with the binary when moving or upgrading the installation.
+
+### Windows (amd64)
+
+Download `gooru_0.1.0_windows_amd64.zip`, extract it, and open a terminal **inside** the extracted `gooru_0.1.0_windows_amd64` directory. Run `gooru.exe` from there (PowerShell: `\.\gooru.exe`) so the included `frontend/build` remains available. If you move the executable elsewhere, configure `server.frontend_dir` to the full path of the extracted WebUI. Do not use only the `.exe` without the bundled frontend for the web app.
+
+Portable Linux and Windows archives omit optional libvips-backed thumbnails; Debian and Nix packages enable libvips. See [media tooling](#media-tooling) for optional dependencies and [building from source](DEVELOPMENT.md#build-from-source) for custom builds.
+
+## First run
+
+Run these commands using the installed `gooru` binary (`./gooru` for a Linux tarball or `\.\gooru.exe` in Windows PowerShell), from the working directory described above:
 
 ```bash
 gooru init
-```
-
-If you use a non-default database, pass the same `--database` path when initializing it or set `database.path` in the server config.
-
-### 4. Generate a config
-
-```bash
 gooru serve --print-default-config > serve.yaml
 ```
 
-For local use, the most important defaults are already conservative:
+If you use a non-default database, select the same database path when initializing it or set `database.path` in the server config. For the Debian package, set `server.frontend_dir: /usr/share/gooru/frontend` in `serve.yaml`; for standalone Nix, set it to the package's `share/gooru/frontend` directory. Portable archive users can keep the default `frontend/build` when running from the extracted directory. On Windows, save the generated YAML as UTF-8 (older Windows PowerShell redirects output as UTF-16).
 
-- listen on `127.0.0.1:5678`;
-- authentication enabled;
-- uploads disabled;
-
-### 5. Create the first admin
+Conservative defaults bind to `127.0.0.1:5678`, require authentication, and disable uploads. Create an administrator and start the server:
 
 ```bash
 gooru user create-admin --username alice --config serve.yaml
-```
-
-For non-interactive provisioning, supply the password through `GOORU_ADMIN_PASSWORD`; do not put normal usernames or passwords in YAML and avoid command-line password arguments.
-
-### 6. Start the server
-
-```bash
 gooru serve --config serve.yaml
 ```
 
-Open `http://127.0.0.1:5678` unless you changed `server.listen` or `server.public_url`.
+Open `http://127.0.0.1:5678` unless you changed `server.listen` or `server.public_url`. For non-interactive admin provisioning, supply the password through `GOORU_ADMIN_PASSWORD`; do not put passwords in YAML or command-line arguments.
 
+See [CONFIG.md](CONFIG.md) for all settings, and [CLI.md](CLI.md) for library and user-management commands. [Building from source](DEVELOPMENT.md#build-from-source) is an alternative for development or custom builds, not a prerequisite for getting started.
 ## Uploads
 
 Uploads are off by default. Enable them only with an explicit target:
