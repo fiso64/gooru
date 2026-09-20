@@ -7,6 +7,7 @@
   import { plainTagSuggestions } from '$lib/utils/tagSuggestions';
   import { hasCommandModifier, searchShortcutAction } from '$lib/utils/keyboard';
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
+  import { moveCompletionIndex } from '$lib/utils/completionNavigation';
 
   type TagLike = { name?: string; tag?: string; namespace?: string; value?: string; count?: number };
   type SuggestionLike = { name: string; value?: string; count?: number };
@@ -335,14 +336,14 @@
     if (event.key === 'ArrowDown') {
       if (!fragment.trim()) return;
       event.preventDefault();
-      active = Math.min(active + 1, Math.max(flat.length - 1, 0));
+      active = moveCompletionIndex(active, flat.length, 1);
       open = true;
       return;
     }
     if (event.key === 'ArrowUp') {
       if (!fragment.trim()) return;
       event.preventDefault();
-      active = Math.max(active - 1, 0);
+      active = moveCompletionIndex(active, flat.length, -1);
       open = true;
       return;
     }
