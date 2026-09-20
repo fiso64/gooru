@@ -212,11 +212,13 @@ func DefaultYAML(dbPath string) ([]byte, error) {
 
 func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error) {
 	cfg := DefaultConfig(dbPath)
+	var uploadSource []byte
 	if path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return Config{}, fmt.Errorf("read config %q: %w", path, err)
 		}
+		uploadSource = data
 		if err := rejectDeprecatedAuthTokenConfig(data); err != nil {
 			return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 		}
@@ -240,11 +242,13 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 	if overrides.AuthToken != "" {
 		return Config{}, errors.New("--auth-token is no longer supported; create a DB-backed admin with 'gooru user create-admin'")
 	}
-	if err := cfg.ResolveSecrets(); err != nil {
-		return Config{}, err
-	}
-	if err := cfg.Validate(); err != nil {
-		return Config{}, err
+	automatic, err := resolveImplicitUploadDefaults(&cfg, uploadSource)
+	if err != nil { return Config{}, fmt.Errorf("parse upload defaults: %w", err) }
+	if err := cfg.ResolveSecrets(); err != nil { return Config{}, err }
+	if err := cfg.Validate(); err != nil { return Config{}, err }
+	if automatic {
+		if err := prepareDefaultUploadDir(cfg.Uploads.Targets[0].Path); err != nil { return Config{}, err }
+		if err := cfg.Validate(); err != nil { return Config{}, fmt.Errorf("validate default upload target: %w", err) }
 	}
 	return cfg, nil
 }
