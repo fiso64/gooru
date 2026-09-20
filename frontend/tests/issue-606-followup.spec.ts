@@ -36,7 +36,7 @@ test('login footer links underline on hover', async ({ page }) => {
   }));
 
   await page.goto('/');
-  const docs = page.getByRole('link', { name: 'docs' });
+  const docs = page.locator('.login-v2-foot-links').getByRole('link', { name: 'docs' });
   await expect(docs).toBeVisible();
   await docs.hover();
   await expect(docs).toHaveCSS('text-decoration-line', 'underline');
