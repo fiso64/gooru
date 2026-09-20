@@ -225,6 +225,7 @@ let
         let instance = enabledInstances.${name}; in ''
           ${lib.escapeShellArg name})
             instance_user=${lib.escapeShellArg instance.user}
+            instance_group=${lib.escapeShellArg instance.group}
             instance_binary=${lib.escapeShellArg "${packageFor instance}/bin/gooru"}
             instance_config=${lib.escapeShellArg (configPath name)}
             ;;
@@ -234,7 +235,7 @@ let
         exit 1
         ;;
     esac
-    exec ${pkgs.util-linux}/bin/runuser -u "$instance_user" -- "$instance_binary" --config "$instance_config" "$@"
+    exec ${pkgs.util-linux}/bin/runuser -u "$instance_user" -g "$instance_group" -- "$instance_binary" --config "$instance_config" "$@"
   '';
 
   defaultUserInstances = lib.filterAttrs (name: instance: instance.user == serviceName name) enabledInstances;
