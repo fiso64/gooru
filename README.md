@@ -30,14 +30,9 @@ My unironic proudest contribution is the name Gooru, which sounds like the word 
 
 ## Getting started
 
-Install a packaged build from the [latest release](https://github.com/fiso64/gooru/releases/latest), then follow the [installation and first-run guide](docs/SERVE.md#install-a-release). You do not need to build the frontend or Go binary yourself.
+Download Gooru from the [latest release](https://github.com/fiso64/gooru/releases/latest). Choose the Debian package, Nix package, Linux tarball, or Windows ZIP for your system. Each includes the WebUI; the Debian and Nix builds also include libvips support.
 
-- **Debian/Ubuntu:** Install the Linux amd64 or arm64 `.deb`. It includes the WebUI, a systemd template, and the libvips-enabled binary.
-- **Nix/NixOS:** Install the flake package and optionally use the `gooru` Cachix binary cache; NixOS users can enable the [multi-instance service module](docs/SERVE.md#nixos).
-- **Other Linux:** Download the amd64 or arm64 `.tar.gz`; it includes the binary and the built WebUI.
-- **Windows:** Download the amd64 `.zip`, extract it, and run the included `gooru.exe` alongside the bundled WebUI.
-
-[Building from source](docs/DEVELOPMENT.md#build-from-source) remains an alternative for development or custom builds. See [server configuration](docs/CONFIG.md) for all options.
+See [running and deploying Gooru](docs/SERVE.md) for installation and first-run instructions. You can also [build from source](docs/DEVELOPMENT.md#build-from-source).
 
 ## Documentation
 
