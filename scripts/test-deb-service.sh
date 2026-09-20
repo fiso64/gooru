@@ -31,6 +31,8 @@ test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "gooru-citest
 sudo systemctl stop gooru@citest.service
 sudo env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
   gooru-instance citest user create-admin --username ci-admin
+# Run the CLI against the instance while its service is online.
+sudo systemctl start gooru@citest.service
 sudo install -d -m 0755 /srv/gooru-ci
 printf 'ci test file\n' | sudo tee /srv/gooru-ci/note.txt >/dev/null
 sudo chmod 0644 /srv/gooru-ci/note.txt
@@ -44,7 +46,6 @@ if gooru-instance citest count favorite; then
   echo "unprivileged CLI wrapper call unexpectedly succeeded" >&2
   exit 1
 fi
-sudo systemctl start gooru@citest.service
 ready=no
 for _ in $(seq 1 40); do
   if curl -fsS http://127.0.0.1:45738/ >/tmp/gooru-citest-index.html 2>/dev/null; then
