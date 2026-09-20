@@ -30,7 +30,7 @@ My unironic proudest contribution is the name Gooru, which sounds like the word 
 
 ## Getting started
 
-Download Gooru from the [latest release](https://github.com/fiso64/gooru/releases/latest). Choose the Debian package, Nix package, Linux tarball, or Windows ZIP for your system. Each includes the WebUI; the Debian and Nix builds also include libvips support.
+Get a Debian package, Linux tarball, or Windows ZIP from the [latest release](https://github.com/fiso64/gooru/releases/latest), or install Gooru with Nix and the Cachix binary cache. Each package includes the WebUI; Debian and Nix builds also support libvips.
 
 See [running and deploying Gooru](docs/SERVE.md) for installation and first-run instructions. You can also [build from source](docs/DEVELOPMENT.md#build-from-source).
 
