@@ -18,18 +18,25 @@ function file(id: string) {
   };
 }
 
-async function mockApp(page: Page, ids: string[], failRemoval = false) {
+async function mockApp(page: Page, ids: string[], failRemoval = false, paged = false) {
   let available = ids.map(file);
   const removalModes: string[] = [];
-  await page.route('**/api/v1/ui-config', (route) => route.fulfill({ json: {} }));
+  await page.route('**/api/v1/ui-config', (route) => route.fulfill({ json: paged ? { pagination_mode: 'paged', items_per_page: 1 } : {} }));
   await page.route('**/api/v1/auth/me', (route) => route.fulfill({ json: session }));
   await page.route('**/api/v1/saved-searches', (route) => route.fulfill({ json: { items: [] } }));
   await page.route('**/api/v1/upload-targets', (route) => route.fulfill({ json: { items: [] } }));
   await page.route('**/api/v1/tags?**', (route) => route.fulfill({ json: { tags: [] } }));
   await page.route('**/api/v1/search/suggestions?**', (route) => route.fulfill({ json: { items: [] } }));
-  await page.route('**/api/v1/files?**', (route) => route.fulfill({
-    json: { files: available, total_count: available.length, library_count: available.length, facets: { kind: [] } }
-  }));
+  await page.route('**/api/v1/files?**', (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    const token = params.get('page_token');
+    const offset = token ? Number(Buffer.from(token, 'base64url').toString().replace('offset:', '')) : 0;
+    const limit = Number(params.get('limit') ?? available.length);
+    return route.fulfill({ json: {
+      files: available.slice(offset, offset + limit), total_count: available.length,
+      library_count: available.length, facets: { kind: [] }
+    } });
+  });
   await page.route(/\/api\/v1\/files\/[^/?]+$/, (route) => {
     if (route.request().method() !== 'DELETE') return route.continue();
     const id = route.request().url().split('/').at(-1)!;
@@ -88,4 +95,13 @@ test('a failed removal leaves the viewer on the original file', async ({ page })
   await removeViewedFile(page, 'one', 'delete');
   await expect(page.getByRole('dialog', { name: 'one.jpg' })).toBeVisible();
   await expect(page.getByText('Removal refused')).toBeVisible();
+});
+
+test('paged viewer resolves the preceding item across a page boundary', async ({ page }) => {
+  await mockApp(page, ['one', 'two'], false, true);
+  await page.getByRole('button', { name: 'Page 2' }).first().click();
+  await page.getByRole('button', { name: 'Preview two.jpg' }).click();
+  await removeViewedFile(page, 'two', 'untrack');
+  await expect(page.getByRole('dialog', { name: 'one.jpg' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Page 1' }).first()).toHaveAttribute('aria-current', 'page');
 });
