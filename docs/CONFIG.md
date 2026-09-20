@@ -10,7 +10,7 @@ gooru serve --print-default-config
 
 Unknown YAML fields are rejected, so misspelled options fail fast. Paths documented as absolute are validated as such.
 
-The safest starting point is the default configuration: loopback-only listening, authentication enabled, uploads disabled, and encryption disabled until a key is explicitly configured.
+The safest starting point is the default configuration: loopback-only listening, authentication enabled, uploads enabled with a private default destination, and encryption disabled until a key is explicitly configured.
 
 ## `server`
 
@@ -62,10 +62,12 @@ The obsolete `auth.token`, `auth.token_env`, and `auth.token_file` options are r
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `uploads.enabled` | `false` | Enable browser/API uploads. Enabling uploads requires at least one valid target. |
-| `uploads.targets` | empty list | Allowed upload destinations. Each target has `id`, `name`, `path`, and optional `added_at_strategy`. |
+| `uploads.enabled` | `true` when authentication is enabled; `false` otherwise | Browser/API uploads require at least one valid target. Explicit `false` disables uploads, even if targets are configured. An unauthenticated deployment must explicitly opt in, including on loopback. |
+| `uploads.targets` | one automatically provisioned private target when enabled and omitted | Allowed upload destinations. Each target has `id`, `name`, `path`, and optional `added_at_strategy`. Explicitly setting `targets: []` prevents automatic target creation; if uploads are explicitly enabled at the same time, startup rejects the missing target. |
 | `uploads.max_file_size_bytes` | `0` | Optional upload per-file size setting. A zero value leaves the upload-specific size limit unset; set this explicitly when deployments need a hard upload cap. The generic `server.max_request_body_bytes` limit does not cap `/uploads`. |
 | `uploads.preserve_modtime` | `true` | Preserve each browser-uploaded file's source modification timestamp on the stored destination. Source timestamps are still carried through upload processing when disabled. |
+
+When uploads are enabled and `uploads.targets` is omitted, Gooru prepares one private persistent `default` target under the current user's application data: `$XDG_DATA_HOME/gooru/uploads` (or `~/.local/share/gooru/uploads`) on Linux, `~/Library/Application Support/Gooru/uploads` on macOS, and `%LOCALAPPDATA%\\Gooru\\uploads` on Windows. A managed Linux/systemd instance uses its private state directory's `uploads` subdirectory (for example, `/var/lib/gooru-main/uploads`). A configured target list always takes precedence. Gooru fails startup if it cannot safely create and write the default target; it does not select a temporary fallback. Keep any explicitly configured targets outside application-owned paths.
 
 Upload throughput concurrency is not currently configurable through YAML or a `serve` flag. The upload worker keeps mutation/protected-storage transitions serialized for correctness, while the safe per-file analysis/read/hash/status stage uses an internal bounded pool of four workers.
 

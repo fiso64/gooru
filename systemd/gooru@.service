@@ -6,6 +6,7 @@ After=network.target
 User=gooru-%i
 Group=gooru-%i
 StateDirectory=gooru-%i
+# Gooru provisions its private default uploads directory inside this instance state directory.
 StateDirectoryMode=0700
 CacheDirectory=gooru-%i
 CacheDirectoryMode=0700

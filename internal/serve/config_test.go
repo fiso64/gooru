@@ -24,6 +24,7 @@ func TestConfigUploadTargetAddedAtStrategyDefaultsAndValidates(t *testing.T) {
 }
 
 func TestLoadConfigDefaultsAreValid(t *testing.T) {
+	testDefaultUploadRoot(t)
 	cfg, err := LoadConfig("", filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
 	if err != nil {
 		t.Fatalf("LoadConfig default failed: %v", err)
@@ -31,8 +32,11 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Server.Listen != DefaultListenAddress {
 		t.Fatalf("unexpected listen address %q", cfg.Server.Listen)
 	}
-	if cfg.Uploads.Enabled {
-		t.Fatal("uploads should default disabled until a target is configured")
+	if !cfg.Uploads.Enabled || len(cfg.Uploads.Targets) != 1 {
+		t.Fatalf("authenticated defaults should provide one upload target: %+v", cfg.Uploads)
+	}
+	if !filepath.IsAbs(cfg.Uploads.Targets[0].Path) {
+		t.Fatalf("default upload target must be absolute: %+v", cfg.Uploads.Targets[0])
 	}
 	if cfg.Server.ExposePaths {
 		t.Fatal("server.expose_paths should default false")
@@ -64,6 +68,7 @@ func TestUIPaginationConfigDefaultsAndValidates(t *testing.T) {
 }
 
 func TestLoadConfigEncryptionKeyFile(t *testing.T) {
+	testDefaultUploadRoot(t)
 	keyPath := filepath.Join(t.TempDir(), "encryption.key")
 	if err := os.WriteFile(keyPath, []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"), 0600); err != nil {
 		t.Fatalf("write encryption key: %v", err)
@@ -272,6 +277,7 @@ uploads:
 }
 
 func TestDefaultYAMLParses(t *testing.T) {
+	testDefaultUploadRoot(t)
 	data, err := DefaultYAML(filepath.Join(t.TempDir(), "gooru.db"))
 	if err != nil {
 		t.Fatalf("DefaultYAML failed: %v", err)

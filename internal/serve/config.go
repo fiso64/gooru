@@ -192,17 +192,39 @@ func DefaultConfig(dbPath string) Config {
 }
 
 func DefaultYAML(dbPath string) ([]byte, error) {
-	cfg := DefaultConfig(dbPath)
-	return yaml.Marshal(cfg)
+	// Omitted upload fields retain their auth-aware runtime defaults.
+	data, err := yaml.Marshal(DefaultConfig(dbPath))
+	if err != nil {
+		return nil, err
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return nil, err
+	}
+	root := node.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value != "uploads" {
+			continue
+		}
+		uploadFields := root.Content[i+1]
+		for j := len(uploadFields.Content) - 2; j >= 0; j -= 2 {
+			if uploadFields.Content[j].Value == "enabled" || uploadFields.Content[j].Value == "targets" {
+				uploadFields.Content = append(uploadFields.Content[:j], uploadFields.Content[j+2:]...)
+			}
+		}
+	}
+	return yaml.Marshal(&node)
 }
 
 func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error) {
 	cfg := DefaultConfig(dbPath)
+	var uploadSource []byte
 	if path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return Config{}, fmt.Errorf("read config %q: %w", path, err)
 		}
+		uploadSource = data
 		if err := rejectDeprecatedAuthTokenConfig(data); err != nil {
 			return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 		}
@@ -226,11 +248,28 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 	if overrides.AuthToken != "" {
 		return Config{}, errors.New("--auth-token is no longer supported; create a DB-backed admin with 'gooru user create-admin'")
 	}
+	automatic, err := resolveImplicitUploadDefaults(&cfg, uploadSource, path)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse upload defaults: %w", err)
+	}
+	if automatic {
+		if err := verifyManagedUploadStateOwner(path); err != nil {
+			return Config{}, err
+		}
+	}
 	if err := cfg.ResolveSecrets(); err != nil {
 		return Config{}, err
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
+	}
+	if automatic {
+		if err := prepareDefaultUploadDir(cfg.Uploads.Targets[0].Path); err != nil {
+			return Config{}, err
+		}
+		if err := cfg.Validate(); err != nil {
+			return Config{}, fmt.Errorf("validate default upload target: %w", err)
+		}
 	}
 	return cfg, nil
 }

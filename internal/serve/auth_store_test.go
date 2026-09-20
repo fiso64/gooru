@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -283,4 +284,57 @@ func sessionExists(t *testing.T, store *AuthStore, id string) bool {
 		t.Fatalf("count sessions: %v", err)
 	}
 	return count > 0
+}
+
+func TestFirstRunConfigAdminLoginUploadsFile(t *testing.T) {
+	testDefaultUploadRoot(t)
+	cfgFile := filepath.Join(t.TempDir(), "serve.yaml")
+	writeConfig(t, cfgFile, "{}")
+	cfg, err := LoadConfig(cfgFile, filepath.Join(t.TempDir(), "gooru.db"), Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := newAuthTestStore(t)
+	if _, err := store.CreateAdmin(context.Background(), "alice", "correct horse"); err != nil {
+		t.Fatal(err)
+	}
+	library := &recordingUploadLibrary{}
+	server := NewServerWithLibrary(cfg, library)
+	server.SetAuthStore(store)
+	unauthenticated := httptest.NewRecorder()
+	server.Handler().ServeHTTP(unauthenticated, uploadRequest(t, map[string]string{"first.txt": "hello"}, nil))
+	assertAPIError(t, unauthenticated, http.StatusUnauthorized, "unauthorized")
+	login := httptest.NewRecorder()
+	server.Handler().ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"alice","password":"correct horse"}`)))
+	if login.Code != http.StatusOK {
+		t.Fatalf("admin login %d: %s", login.Code, login.Body.String())
+	}
+	var session authMeResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	cookies := login.Result().Cookies()
+	if session.CSRFToken == "" || len(cookies) != 1 {
+		t.Fatal("login did not establish session and CSRF token")
+	}
+	noCSRF := uploadRequest(t, map[string]string{"first.txt": "hello"}, nil)
+	noCSRF.AddCookie(cookies[0])
+	forbidden := httptest.NewRecorder()
+	server.Handler().ServeHTTP(forbidden, noCSRF)
+	assertAPIError(t, forbidden, http.StatusForbidden, "csrf_required")
+	request := uploadRequest(t, map[string]string{"first.txt": "hello"}, nil)
+	request.AddCookie(cookies[0])
+	request.Header.Set("X-Gooru-CSRF", session.CSRFToken)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("admin upload %d: %s", response.Code, response.Body.String())
+	}
+	content, err := os.ReadFile(filepath.Join(cfg.Uploads.Targets[0].Path, "first.txt"))
+	if err != nil || string(content) != "hello" {
+		t.Fatalf("uploaded file=%q err=%v", content, err)
+	}
+	if len(library.files) != 1 {
+		t.Fatalf("upload was not passed to importer: %+v", library.files)
+	}
 }

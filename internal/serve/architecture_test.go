@@ -24,6 +24,7 @@ func TestServeStorageArchitectureBoundaries(t *testing.T) {
 		"background_file_removals.go": {
 			"(*stagedFileDeletion).stage": true,
 		},
+		"default_uploads.go": {"prepareDefaultUploadDir": true},
 		"derivative_store.go": {
 			"(*persistentDerivativeStore).GetOrGenerate": true,
 			"(*encryptedDerivativeStore).GetOrGenerate":  true,
