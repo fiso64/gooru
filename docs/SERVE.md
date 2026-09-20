@@ -148,13 +148,15 @@ YAML
 sudo chmod 0644 /etc/gooru/main/serve.yaml
 ```
 
-Start and stop the service once so its normal initialization creates the database, then create the administrator as the instance's dedicated account. Gooru prompts privately for the password:
+Create the database, then create the administrator as the instance's dedicated account. Gooru prompts privately for the password:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl start gooru@main.service
-sudo systemctl stop gooru@main.service
-sudo gooru-instance main user create-admin --username alice
+sudo gooru-instance main init \
+  --if-missing \
+  --hashing-strategy partial
+
+sudo gooru-instance main user create-admin \
+  --username alice
 ```
 
 Enable the service at boot and start it:
