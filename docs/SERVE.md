@@ -133,9 +133,13 @@ Debian and Nix packages enable libvips; portable Linux and Windows builds use th
 
 ## systemd (Linux)
 
-The Debian/Ubuntu package includes the `gooru@.service` template. The example below sets up an instance named `main`; choose another name if you need a separate instance.
+The Debian/Ubuntu package includes a `gooru@.service` template and a `gooru-instance-setup` command. This setup is for **new installations**. For an instance named `main`, create its dedicated system account and private state/cache directories:
 
-Create a configuration file readable by the service:
+```bash
+sudo gooru-instance-setup main
+```
+
+Create the instance config, pointing to the packaged frontend and the instance-owned database and cache:
 
 ```bash
 sudo install -d -m 0755 /etc/gooru/main
@@ -151,42 +155,28 @@ YAML
 sudo chmod 0644 /etc/gooru/main/serve.yaml
 ```
 
-The service creates its private state and cache directories automatically. Do not create `/var/lib/gooru-main` yourself or put passwords or encryption keys in `serve.yaml`. The example listens only on the host; for remote access, see [Network access](#network-access).
-
-Start and then stop the service once to let it initialize the database before creating the first administrator:
+Start and stop the service once so its normal initialization creates the database, then create the administrator as the instance's dedicated account. Gooru prompts privately for the password:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl start gooru@main.service
 sudo systemctl stop gooru@main.service
+sudo -u _gooru-main /usr/bin/gooru --config /etc/gooru/main/serve.yaml \
+  user create-admin --username alice
 ```
 
-Create the administrator with the same private state directory and dynamic-user isolation as the service. Run this from a terminal so Gooru can ask for the password without displaying it:
-
-```bash
-sudo systemd-run --pty --wait --collect \
-  --property=DynamicUser=yes \
-  --property=StateDirectory=gooru-main \
-  --property=StateDirectoryMode=0700 \
-  --property=CacheDirectory=gooru-main \
-  --property=CacheDirectoryMode=0700 \
-  --property=WorkingDirectory=/var/lib/gooru-main \
-  /usr/bin/gooru user create-admin --username alice \
-  --config /etc/gooru/main/serve.yaml
-```
-
-Now enable the instance at boot and start it:
+Enable the service at boot and start it:
 
 ```bash
 sudo systemctl enable --now gooru@main.service
 sudo systemctl status --no-pager gooru@main.service
 ```
 
-Open <http://127.0.0.1:5678> on the server and sign in as `alice`. To inspect startup errors, run `sudo journalctl -u gooru@main.service -e`. For configuration options, see [CONFIG.md](CONFIG.md).
+Open <http://127.0.0.1:5678> on the server and sign in as `alice`. If startup fails, inspect `sudo journalctl -u gooru@main.service -e`. The example listens only on the host; see [Network access](#network-access) for other deployments and [CONFIG.md](CONFIG.md) for configuration options.
 
-The service initializes a missing database with the partial hashing strategy. Each additional instance needs its own `/etc/gooru/<name>/serve.yaml`, `database.path`, `media.cache_dir`, and listen address; the template supplies separate private state/cache directories and a dynamic identity. To provision another instance, substitute its name and paths throughout the commands above. Stop an instance before running the transient administrator command against its database.
+Each named instance receives a separate `_gooru-<name>` system account, `/var/lib/gooru-<name>` state directory and `/var/cache/gooru-<name>` cache directory. For another instance, run `sudo gooru-instance-setup <name>`, create its own `/etc/gooru/<name>/serve.yaml`, choose a different listen port, and substitute its name in the commands above. Do not share database or mutable cache paths between instances. Stop an instance before running CLI commands that modify its database.
 
-For encrypted storage, use a systemd `LoadCredential` drop-in and set `GOORU_ENCRYPTION_KEY_FILE=%d/encryption-key` in the service; do not put the plaintext key in the unit, YAML, or logs. External libraries and upload targets need explicit filesystem access for the service identity. Where stable filesystem ACLs or group membership are needed, configure a dedicated static per-instance user with the corresponding unit override.
+For access to external library or upload directories, grant the instance account the necessary read/write permissions explicitly. For encrypted storage, keep plaintext keys out of the YAML and logs; use a systemd `LoadCredential` drop-in and `GOORU_ENCRYPTION_KEY_FILE=%d/encryption-key` for the service, and provide the same key securely when running administrator CLI commands against an encrypted database.
 
 ## NixOS deployment
 

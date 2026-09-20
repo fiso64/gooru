@@ -1,0 +1,60 @@
+name: Debian service package
+
+on:
+  pull_request:
+    paths:
+      - 'systemd/**'
+      - 'scripts/build-deb.sh'
+      - 'scripts/gooru-instance-setup.sh'
+      - 'scripts/test-deb-service.sh'
+      - '.github/workflows/deb-service-package.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'systemd/**'
+      - 'scripts/build-deb.sh'
+      - 'scripts/gooru-instance-setup.sh'
+      - 'scripts/test-deb-service.sh'
+      - '.github/workflows/deb-service-package.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deb-service:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Native Debian build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvips-dev pkg-config dpkg-dev
+      - name: Build packaged frontend
+        working-directory: frontend
+        run: |
+          npm ci --no-audit
+          npm run build
+      - name: Build and smoke-test installable package
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/gooru-instance-setup.sh scripts/test-deb-service.sh scripts/build-deb.sh
+          bash scripts/build-deb.sh
+          artifact="dist/gooru_$(tr -d '\n' < VERSION)_linux_amd64.deb"
+          test "$(dpkg-deb -f "$artifact" Architecture)" = amd64
+          dpkg-deb -f "$artifact" Depends | grep -F passwd
+          dpkg-deb -c "$artifact" | grep -F '/usr/sbin/gooru-instance-setup'
+          dpkg-deb -e "$artifact" /tmp/gooru-deb-control
+          test ! -e /tmp/gooru-deb-control/postinst
+          sha256sum -c "$artifact.sha256"
+          bash scripts/test-deb-service.sh "$artifact"
