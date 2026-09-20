@@ -195,7 +195,9 @@ let
         ExecStart = "${package}/bin/gooru serve --config ${configPath name}";
         Restart = "on-failure";
         StateDirectory = unitName;
+        StateDirectoryMode = "0700";
         CacheDirectory = unitName;
+        CacheDirectoryMode = "0700";
         WorkingDirectory = stateDir name;
         NoNewPrivileges = true;
         PrivateTmp = true;
