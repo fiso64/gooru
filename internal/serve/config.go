@@ -259,6 +259,9 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 		return Config{}, err
 	}
 	if automatic {
+		if err := verifyManagedUploadStateOwner(path); err != nil {
+			return Config{}, err
+		}
 		if err := prepareDefaultUploadDir(cfg.Uploads.Targets[0].Path); err != nil {
 			return Config{}, err
 		}
