@@ -30,7 +30,7 @@ jobs:
         run: nix build .#packages.x86_64-linux.default --print-build-logs
       - name: Validate NixOS module
         run: nix build .#checks.x86_64-linux.nixos-module --print-build-logs
-      - name: Validate release and development build identity
+      - name: Validate default package build identity
         run: nix build .#checks.x86_64-linux.build-identity --print-build-logs
 
   publish-main:
