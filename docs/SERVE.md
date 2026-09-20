@@ -139,7 +139,7 @@ The Debian/Ubuntu package includes a `gooru@.service` template and a `gooru-inst
 sudo gooru-instance-setup main
 ```
 
-Create the instance config, with the installed frontend and paths owned by that account:
+Create the instance config, pointing to the packaged frontend and the instance-owned database and cache:
 
 ```bash
 sudo install -d -m 0755 /etc/gooru/main
