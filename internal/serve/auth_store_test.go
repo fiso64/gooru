@@ -297,6 +297,9 @@ func TestFirstRunConfigAdminLoginUploadsFile(t *testing.T) {
  library:=&recordingUploadLibrary{}
  server:=NewServerWithLibrary(cfg,library)
  server.SetAuthStore(store)
+ unauthenticated:=httptest.NewRecorder()
+ server.Handler().ServeHTTP(unauthenticated,uploadRequest(t,map[string]string{"first.txt":"hello"},nil))
+ assertAPIError(t,unauthenticated,http.StatusUnauthorized,"unauthorized")
  login:=httptest.NewRecorder()
  server.Handler().ServeHTTP(login,httptest.NewRequest(http.MethodPost,"/api/v1/auth/login",bytes.NewBufferString(`{"username":"alice","password":"correct horse"}`)))
  if login.Code!=http.StatusOK {t.Fatalf("admin login %d: %s",login.Code,login.Body.String())}
