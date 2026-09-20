@@ -27,6 +27,13 @@ sudo systemctl start gooru@citest.service
 trap 'sudo systemctl stop gooru@citest.service || true' EXIT
 sudo systemctl is-active --quiet gooru@citest.service
 test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "gooru-citest:gooru-citest:600"
+test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/uploads)" = "gooru-citest:gooru-citest:700"
+if sudo -u gooru-second /usr/bin/gooru --config /etc/gooru/citest/serve.yaml count >/tmp/gooru-wrong-user.log 2>&1; then
+  echo "another account unexpectedly loaded the instance upload state" >&2
+  exit 1
+fi
+grep -q "must belong to the current service user" /tmp/gooru-wrong-user.log
+test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/uploads)" = "gooru-citest:gooru-citest:700"
 
 sudo systemctl stop gooru@citest.service
 sudo env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
