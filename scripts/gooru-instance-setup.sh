@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Provision a stable, separate Debian/Ubuntu account for one Gooru instance.
-# Never delete a system account or an existing library during package removal.
+# Provision new Debian/Ubuntu instances; never alter an existing owner's files.
 set -euo pipefail
 umask 077
 
@@ -17,7 +17,7 @@ cache="/var/cache/gooru-$name"
 
 # An existing instance must be stopped before changing its database ownership.
 if systemctl is-active --quiet "gooru@$name.service"; then
-  fail "stop gooru@$name.service before provisioning or migrating its files"
+  fail "stop gooru@$name.service before changing its account settings"
 fi
 
 entry="$(getent passwd "$account" || true)"
@@ -33,38 +33,17 @@ else
 fi
 
 prepare_dir() {
-  local public="$1" private="$2" owner uid target
-  uid="$(id -u "$account")"
-  if [[ -L "$public" ]]; then
-    # The only accepted symlink is systemd's previous DynamicUser= layout.
-    target="$(readlink "$public")"
-    if [[ "$target" != "private/$(basename "$public")" && "$target" != "$private" ]] \
-        || [[ ! -d "$private" || -L "$private" ]]; then
-      fail "unexpected legacy symlink at $public; do not replace it automatically"
-    fi
-    rm -- "$public"
-    mv -T -- "$private" "$public"
-    chown -hR -- "$account:$account" "$public"
-  elif [[ -e "$public" ]]; then
-    if [[ ! -d "$public" || -L "$public" || -e "$private" || -L "$private" ]]; then
-      fail "conflicting state directories at $public and $private; inspect them before proceeding"
-    fi
-    owner="$(stat -c '%u' -- "$public")"
-    if [[ "$owner" != "$uid" ]]; then
-      if [[ "$owner" != 0 ]] || [[ -n "$(find "$public" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
-        fail "existing directory $public is not owned by $account; refusing to change its contents"
-      fi
-    fi
-  elif [[ -d "$private" && ! -L "$private" ]]; then
-    # Safe retry if an earlier migration removed the public link before move.
-    mv -T -- "$private" "$public"
-    chown -hR -- "$account:$account" "$public"
-  elif [[ -e "$private" || -L "$private" ]]; then
-    fail "unexpected private directory at $private"
+  local path="$1" expected
+  expected="$(id -u "$account"):$(id -g "$account")"
+  if [[ -L "$path" || ( -e "$path" && ! -d "$path" ) ]]; then
+    fail "unexpected instance path $path; only new installations are supported"
   fi
-  install -d -m 0700 -o "$account" -g "$account" -- "$public"
+  if [[ -d "$path" && "$(stat -c '%u:%g' "$path")" != "$expected" ]]; then
+    fail "existing directory $path belongs to another account; refusing to change existing data"
+  fi
+  install -d -m 0700 -o "$account" -g "$account" -- "$path"
 }
 
-prepare_dir "$state" "/var/lib/private/gooru-$name"
-prepare_dir "$cache" "/var/cache/private/gooru-$name"
+prepare_dir "$state"
+prepare_dir "$cache"
 printf 'Gooru instance %s uses account %s (state: %s)\n' "$name" "$account" "$state"
