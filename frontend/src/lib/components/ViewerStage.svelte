@@ -4,6 +4,7 @@
   import { readViewerSessionPreferences, updateViewerSessionPreferences, type ViewerRotation, type ViewerScaling } from '$lib/state/viewerSessionPreferences';
   import { mediaDuration } from '$lib/utils/format';
   import { hasCommandModifier, isEditableShortcutTarget, isInteractiveShortcutTarget } from '$lib/utils/keyboard';
+  import { hasBlockingModal } from '$lib/utils/modal';
   import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
   import { preserveNativeViewerSize, type ViewerStageMedia } from '$lib/utils/media';
   import { recordViewerPresentation, recordViewerRequest } from '$lib/utils/viewerPerformance';
@@ -681,7 +682,7 @@
   }
 
   function handleViewerKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasCommandModifier(event)) return;
+    if (event.defaultPrevented || hasBlockingModal() || hasCommandModifier(event)) return;
     const target = event.target;
     const shiftedArrow = event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
     const emptyViewerTagInput = target instanceof HTMLInputElement
