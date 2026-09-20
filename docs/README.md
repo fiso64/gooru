@@ -2,7 +2,7 @@
 
 | Topic | Documentation |
 | --- | --- |
-| Install released packages and run Gooru | [SERVE.md](SERVE.md) |
+| Run and deploy Gooru | [SERVE.md](SERVE.md) |
 | Server configuration | [CONFIG.md](CONFIG.md) |
 | Search and query syntax | [QUERY.md](QUERY.md) |
 | Command-line interface | [CLI.md](CLI.md) |
