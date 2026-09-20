@@ -45,6 +45,31 @@ func defaultUploadPath() (string, error) {
     return filepath.Join(data, "gooru", "uploads"), nil
 }
 
+
+ // Use the same per-instance state root for packaged CLI commands and systemd.
+ // systemd exports STATE_DIRECTORY; the packaged CLI does not.
+ func defaultUploadPathForConfig(configPath string) (string, error) {
+     if runtime.GOOS == "linux" && strings.TrimSpace(os.Getenv("STATE_DIRECTORY")) == "" {
+         if stateDir, ok := managedStateDirectoryFromConfig(configPath); ok {
+             return filepath.Join(stateDir, "uploads"), nil
+         }
+     }
+     return defaultUploadPath()
+ }
+
+ func managedStateDirectoryFromConfig(configPath string) (string, bool) {
+     if !filepath.IsAbs(configPath) { return "", false }
+     relative, err := filepath.Rel("/etc/gooru", filepath.Clean(configPath))
+     if err != nil { return "", false }
+     parts := strings.Split(relative, string(filepath.Separator))
+     if len(parts) != 2 || parts[1] != "serve.yaml" { return "", false }
+     name := parts[0]
+     if len(name) == 0 || len(name) > 24 || strings.ToLower(name) != name || !validUploadTargetID(name) {
+         return "", false
+     }
+     return filepath.Join("/var/lib", "gooru-" + name), true
+ }
+
 // prepareDefaultUploadDir is called only after configured protected-path
 // validation. A persistent target must be private and immediately writable.
 func prepareDefaultUploadDir(path string) error {
