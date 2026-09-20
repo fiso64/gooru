@@ -30,7 +30,7 @@ jobs:
         run: nix build .#packages.x86_64-linux.default --print-build-logs
       - name: Validate NixOS module
         run: nix build .#checks.x86_64-linux.nixos-module --print-build-logs
-      - name: Validate release and development build identity
+      - name: Validate default package build identity
         run: nix build .#checks.x86_64-linux.build-identity --print-build-logs
 
   publish-main:
@@ -67,6 +67,8 @@ jobs:
           cachixBin: ${{ steps.cachix-cli.outputs.bin }}
           skipPush: true
           skipAddingSubstituter: true
+      - name: Require release build on main
+        run: test "$(nix eval --json --expr 'import ./nix/build-channel.nix')" = "false"
       - name: Build native package and validate NixOS module
         shell: bash
         run: |

@@ -87,16 +87,16 @@ forAllSystems (system:
     missingListenAssertions = missingListenEval.config.assertions;
 
     buildIdentityCheck = pkgs.runCommand "gooru-nix-build-identity-check" { } ''
-      release_output="$("${self.packages.${system}.default}/bin/gooru" --version)"
-      development_output="$("${self.packages.${system}.development}/bin/gooru" --version)"
-
-      case "$release_output" in
-        *", development)"*) echo "default Nix package must not be development-stamped: $release_output" >&2; exit 1 ;;
+      output="$("${self.packages.${system}.default}/bin/gooru" --version)"
+      expected="${if import ./build-channel.nix then "development" else "release"}"
+      case "$output" in
+        *", development)"*) actual=development ;;
+        *) actual=release ;;
       esac
-      case "$development_output" in
-        *", development)"*|*", dirty)"*) ;;
-        *) echo "development Nix package must be development-stamped: $development_output" >&2; exit 1 ;;
-      esac
+      if [ "$actual" != "$expected" ]; then
+        echo "Expected $expected build identity, got: $output" >&2
+        exit 1
+      fi
       touch "$out"
     '';
 
