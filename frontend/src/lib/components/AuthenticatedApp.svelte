@@ -995,7 +995,7 @@
         pageNumber={library.page}
         pageCount={pagedPageCount}
         bind:loadMoreSentinel
-        onOpen={(file, files) => library.openPreview(file, files, retainedStartIndex, $runtimeConfig.itemsPerPage)}
+        onOpen={(file, files) => library.openPreview(file, files, pagedMode ? (library.page - 1) * $runtimeConfig.itemsPerPage : retainedStartIndex, $runtimeConfig.itemsPerPage)}
         onToggleSelect={library.toggleSelect}
         onExtendSelection={library.extendSelection}
         onSelectAll={selectAllFiles}
