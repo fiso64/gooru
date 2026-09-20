@@ -205,6 +205,38 @@ let
       };
     };
 
+  # A root-only dispatcher for local CLI operations on a configured instance.
+  # Resolve the selected instance at evaluation time, including its custom
+  # service account and package override. Never execute CLI commands as root.
+  instanceCli = pkgs.writeShellScriptBin "gooru-instance" ''
+    set -euo pipefail
+    if (( EUID != 0 )); then
+      echo "gooru-instance: run as root: sudo gooru-instance NAME COMMAND [ARGS...]" >&2
+      exit 1
+    fi
+    if (( $# < 2 )); then
+      echo "gooru-instance: usage: sudo gooru-instance NAME COMMAND [ARGS...]" >&2
+      exit 1
+    fi
+    name="$1"
+    shift
+    case "$name" in
+      ${lib.concatMapStringsSep "\n" (name:
+        let instance = enabledInstances.${name}; in ''
+          ${lib.escapeShellArg name})
+            instance_user=${lib.escapeShellArg instance.user}
+            instance_binary=${lib.escapeShellArg "${packageFor instance}/bin/gooru"}
+            instance_config=${lib.escapeShellArg (configPath name)}
+            ;;
+        '') (lib.attrNames enabledInstances)}
+      *)
+        echo "gooru-instance: unknown or disabled Gooru instance" >&2
+        exit 1
+        ;;
+    esac
+    exec ${pkgs.util-linux}/bin/runuser -u "$instance_user" -- "$instance_binary" --config "$instance_config" "$@"
+  '';
+
   defaultUserInstances = lib.filterAttrs (name: instance: instance.user == serviceName name) enabledInstances;
   defaultGroupInstances = lib.filterAttrs (name: instance: instance.group == serviceName name) enabledInstances;
   firewallInstances = lib.filterAttrs (_: instance:
@@ -241,7 +273,8 @@ in {
       lib.nameValuePair instance.group { }
     ) defaultGroupInstances;
 
-    environment.systemPackages = lib.mapAttrsToList (_: instance: packageFor instance) enabledInstances;
+    environment.systemPackages = (lib.mapAttrsToList (_: instance: packageFor instance) enabledInstances)
+      ++ lib.optional (enabledInstances != { }) instanceCli;
 
     environment.etc = lib.mapAttrs' (name: instance:
       lib.nameValuePair (configRelativePath name) {
