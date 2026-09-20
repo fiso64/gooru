@@ -27,8 +27,11 @@ jobs:
             outputs = { self, gooru }: { };
           }
           NIX
-          nix flake lock --flake "$tmp"
-          nix flake update gooru --flake "$tmp"
+          (
+            cd "$tmp"
+            nix flake lock
+            nix flake update gooru
+          )
           python3 - "$tmp/flake.lock" <<'PY'
           import json
           import sys
