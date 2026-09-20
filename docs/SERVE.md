@@ -24,7 +24,7 @@ To install the flake package with Nix:
 nix profile install github:fiso64/gooru
 ```
 
-The public `gooru` [Cachix](https://gooru.cachix.org/) cache provides prebuilt packages; configure it with `cachix use gooru` if you want to use it. For a fixed version, use the tag shown on the release page in your flake reference. NixOS users can use the [NixOS module](#nixos).
+To use prebuilt packages, enable the public `gooru` [Cachix](https://gooru.cachix.org/) cache with `cachix use gooru`. For a released build, append its tag from the release page to the flake URL (`github:fiso64/gooru/<release-tag>`). NixOS users can use the [NixOS module](#nixos).
 
 When running the Nix package manually, set `server.frontend_dir` to the package's `share/gooru/frontend` directory. Find its store path with `nix path-info github:fiso64/gooru`.
 
