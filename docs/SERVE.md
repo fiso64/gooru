@@ -166,7 +166,9 @@ Create the administrator with the same private state directory and dynamic-user 
 sudo systemd-run --pty --wait --collect \
   --property=DynamicUser=yes \
   --property=StateDirectory=gooru-main \
+  --property=StateDirectoryMode=0700 \
   --property=CacheDirectory=gooru-main \
+  --property=CacheDirectoryMode=0700 \
   --property=WorkingDirectory=/var/lib/gooru-main \
   /usr/bin/gooru user create-admin --username alice \
   --config /etc/gooru/main/serve.yaml
