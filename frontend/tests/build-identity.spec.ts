@@ -22,7 +22,7 @@ test('release login identity links docs to the version tag and source to the exa
 
   await page.goto('/');
   await expect(page.getByText('v1.2.3', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'docs' })).toHaveAttribute('href', 'https://github.com/fiso64/gooru/tree/v1.2.3/docs');
+  await expect(page.locator('.login-v2-foot-links').getByRole('link', { name: 'docs' })).toHaveAttribute('href', 'https://github.com/fiso64/gooru/tree/v1.2.3/docs');
   await expect(page.getByRole('link', { name: 'source' })).toHaveAttribute('href', `https://github.com/fiso64/gooru/tree/${revision}`);
 });
 
@@ -32,6 +32,6 @@ test('development login identity links docs to the exact revision', async ({ pag
 
   await page.goto('/');
   await expect(page.getByText('v0.1.0', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'docs' })).toHaveAttribute('href', `https://github.com/fiso64/gooru/tree/${revision}/docs`);
+  await expect(page.locator('.login-v2-foot-links').getByRole('link', { name: 'docs' })).toHaveAttribute('href', `https://github.com/fiso64/gooru/tree/${revision}/docs`);
   await expect(page.getByRole('link', { name: 'source' })).toHaveAttribute('href', `https://github.com/fiso64/gooru/tree/${revision}`);
 });
