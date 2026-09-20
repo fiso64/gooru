@@ -1,6 +1,6 @@
 package serve
 import("fmt";"gopkg.in/yaml.v3")
-func resolveImplicitUploadDefaults(c *Config,src []byte)(bool,error){
+func resolveImplicitUploadDefaults(c *Config,src []byte, configPath ...string)(bool,error){
  var root map[string]yaml.Node
  if err:=yaml.Unmarshal(src,&root);err!=nil{return false,err}
  var enabled,targets bool
@@ -11,7 +11,8 @@ func resolveImplicitUploadDefaults(c *Config,src []byte)(bool,error){
  if !enabled{c.Uploads.Enabled=c.Auth.Enabled&&(!targets||len(c.Uploads.Targets)>0)}
  auto:=c.Uploads.Enabled&&!targets&&len(c.Uploads.Targets)==0
  if auto{
-  path,err:=defaultUploadPath()
+  path,err:=defaultUploadPathForConfig("")
+  if len(configPath)>0 {path,err=defaultUploadPathForConfig(configPath[0])}
   if err!=nil{return false,fmt.Errorf("resolve default upload target: %w",err)}
   c.Uploads.Targets=[]UploadTarget{{ID:"default",Name:"Default",Path:path}}
  }
