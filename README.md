@@ -42,7 +42,7 @@ See [running and deploying Gooru](docs/SERVE.md) for installation and first-run 
 
 Under development. Back up your data!
 
-This project is fully maintained by an LLM (aka vibecoded); don't be surprised if there are rough edges. I only request features, test, and report bugs. Of course, if you decide to contribute with a bug report or a PR, I will look at it and ensure the bug is fixed/the feature is working correctly before replying myself (you will **never** get an automated response). 
+This project is fully maintained by an LLM (aka vibecoded); don't be surprised if there are rough edges. I only request features, test, and report bugs. Obviously, if you contribute with a bug report or a PR, I will look at it and ensure the bug is fixed/the feature is working correctly and reply myself (you will **never** get an automated response). 
 
 My unironic proudest contribution is the name Gooru, which sounds like the word "guru", and is also for a booru written in go.
 
