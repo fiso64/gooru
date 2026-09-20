@@ -35,6 +35,6 @@ func resolveImplicitUploadDefaults(c *Config, src []byte, configPath ...string) 
 			return false, fmt.Errorf("resolve default upload target: %w", err)
 		}
 		c.Uploads.Targets = []UploadTarget{{ID: "default", Name: "Default", Path: path}}
- }
+	}
 	return auto, nil
 }
