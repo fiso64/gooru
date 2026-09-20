@@ -3,8 +3,8 @@ Description=Gooru instance %i
 After=network.target
 
 [Service]
-User=_gooru-%i
-Group=_gooru-%i
+User=gooru-%i
+Group=gooru-%i
 StateDirectory=gooru-%i
 StateDirectoryMode=0700
 CacheDirectory=gooru-%i

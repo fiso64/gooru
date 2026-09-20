@@ -80,12 +80,14 @@ forAllSystems (system:
       ];
     };
 
+    instanceWrapper = nixpkgs.lib.findFirst (package: nixpkgs.lib.getName package == "gooru-instance") null moduleEval.config.environment.systemPackages;
     mainService = moduleEval.config.systemd.services.gooru-main;
     testService = moduleEval.config.systemd.services.gooru-test;
     invalidUsernameAssertions = invalidUsernameEval.config.assertions;
     missingListenAssertions = missingListenEval.config.assertions;
 
     moduleCheck =
+      assert instanceWrapper != null;
       assert moduleEval.config.services.gooru.instances.main.admins.primary.username == "alice";
       assert moduleEval.config.services.gooru.instances.test.settings.ui.grid_type == "tile";
       assert builtins.hasAttr "gooru/main/serve.yaml" moduleEval.config.environment.etc;
@@ -114,6 +116,11 @@ forAllSystems (system:
       assert nixpkgs.lib.any (entry: !entry.assertion && nixpkgs.lib.hasInfix "64 characters or fewer" entry.message) invalidUsernameAssertions;
       assert nixpkgs.lib.any (entry: !entry.assertion && nixpkgs.lib.hasInfix "server.listen must be set explicitly" entry.message) missingListenAssertions;
       pkgs.runCommand "gooru-nixos-module-check" { } ''
+        ${pkgs.bash}/bin/bash -n ${instanceWrapper}/bin/gooru-instance
+        grep -F "gooru-main" ${instanceWrapper}/bin/gooru-instance
+        grep -F "/etc/gooru/main/serve.yaml" ${instanceWrapper}/bin/gooru-instance
+        grep -F "${testPackage}/bin/gooru" ${instanceWrapper}/bin/gooru-instance
+        grep -F "${pkgs.util-linux}/bin/runuser" ${instanceWrapper}/bin/gooru-instance
         touch $out
       '';
   in {

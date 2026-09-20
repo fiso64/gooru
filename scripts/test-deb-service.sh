@@ -11,9 +11,9 @@ sudo apt-get install -y "./$1"
 sudo gooru-instance-setup citest
 sudo gooru-instance-setup citest
 sudo gooru-instance-setup second
-test "$(stat -c '%U:%G:%a' /var/lib/gooru-citest)" = "_gooru-citest:_gooru-citest:700"
-test "$(stat -c '%U:%G:%a' /var/cache/gooru-citest)" = "_gooru-citest:_gooru-citest:700"
-if sudo -u _gooru-second test -r /var/lib/gooru-citest; then
+test "$(stat -c '%U:%G:%a' /var/lib/gooru-citest)" = "gooru-citest:gooru-citest:700"
+test "$(stat -c '%U:%G:%a' /var/cache/gooru-citest)" = "gooru-citest:gooru-citest:700"
+if sudo -u gooru-second test -r /var/lib/gooru-citest; then
   echo "second instance can access first instance's state" >&2
   exit 1
 fi
@@ -26,12 +26,26 @@ sudo systemctl daemon-reload
 sudo systemctl start gooru@citest.service
 trap 'sudo systemctl stop gooru@citest.service || true' EXIT
 sudo systemctl is-active --quiet gooru@citest.service
-test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "_gooru-citest:_gooru-citest:600"
+test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "gooru-citest:gooru-citest:600"
 
 sudo systemctl stop gooru@citest.service
-sudo -u _gooru-citest env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
-  /usr/bin/gooru --config /etc/gooru/citest/serve.yaml user create-admin --username ci-admin
+sudo env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
+  gooru-instance citest user create-admin --username ci-admin
+# Run the CLI against the instance while its service is online.
 sudo systemctl start gooru@citest.service
+sudo install -d -m 0755 /srv/gooru-ci
+printf 'ci test file\n' | sudo tee /srv/gooru-ci/note.txt >/dev/null
+sudo chmod 0644 /srv/gooru-ci/note.txt
+sudo gooru-instance citest tag /srv/gooru-ci/note.txt favorite
+test "$(sudo gooru-instance citest count favorite)" = 1
+if sudo gooru-instance absent count favorite; then
+  echo "unknown instance unexpectedly accepted by wrapper" >&2
+  exit 1
+fi
+if gooru-instance citest count favorite; then
+  echo "unprivileged CLI wrapper call unexpectedly succeeded" >&2
+  exit 1
+fi
 ready=no
 for _ in $(seq 1 40); do
   if curl -fsS http://127.0.0.1:45738/ >/tmp/gooru-citest-index.html 2>/dev/null; then
