@@ -118,6 +118,10 @@ func prepareDefaultUploadDir(path string) error {
 	if err := rejectSymlinkedUploadAncestors(path); err != nil {
 		return err
 	}
+	// chmod would otherwise modify an existing directory owned by another account.
+	if err := verifyDefaultUploadDirectoryOwner(path); err != nil {
+		return err
+	}
 	if err := os.Chmod(path, 0700); err != nil {
 		return fmt.Errorf("make default upload directory private: %w", err)
 	}
