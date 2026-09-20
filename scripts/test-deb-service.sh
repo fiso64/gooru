@@ -8,6 +8,9 @@ fi
 test "$#" = 1
 trap 'rc=$?; echo "Debian service smoke test failed at line $LINENO: $BASH_COMMAND" >&2; sudo systemctl status gooru@citest.service --no-pager || :; sudo journalctl -u gooru@citest.service -n 70 --no-pager || :; exit "$rc"' ERR
 sudo apt-get install -y "./$1"
+# The installed .deb must pull in FFmpeg, not merely mention it in metadata.
+test "$(dpkg-query -W -f='${Status}' ffmpeg)" = "install ok installed"
+command -v ffmpeg >/dev/null
 
 sudo gooru-instance-setup citest
 sudo gooru-instance-setup citest
