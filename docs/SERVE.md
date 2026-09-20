@@ -16,17 +16,9 @@ sudo apt install ./gooru_*.deb
 
 Run this in the download directory with just the Gooru package matching your system. The package includes the WebUI and a `gooru@.service` template. For manual serving, set `server.frontend_dir: /usr/share/gooru/frontend` in your config; for a managed service, see [systemd](#systemd-linux).
 
-### Nix / NixOS
+### NixOS
 
-To install the flake package with Nix:
-
-```bash
-nix profile install github:fiso64/gooru
-```
-
-To use prebuilt packages, enable the public `gooru` [Cachix](https://gooru.cachix.org/) cache with `cachix use gooru`. For a released build, append its tag from the release page to the flake URL (`github:fiso64/gooru/<release-tag>`). NixOS users can use the [NixOS module](#nixos).
-
-When running the Nix package manually, set `server.frontend_dir` to the package's `share/gooru/frontend` directory. Find its store path with `nix path-info github:fiso64/gooru`.
+Add Gooru to your NixOS flake and enable a service instance in your system configuration. The [NixOS setup](#nixos) below shows the declarations. The public [Gooru Cachix cache](https://gooru.cachix.org/) provides prebuilt packages if you configure it in NixOS.
 
 ### Linux tarball
 
@@ -40,7 +32,7 @@ Debian and Nix builds use libvips for thumbnails; portable Linux and Windows bui
 
 ## First run
 
-After installing, initialize the database, generate a config, and create an administrator:
+For Debian, Linux tarball, or Windows ZIP installations, initialize the database, generate a config, and create an administrator:
 
 ```bash
 gooru init
@@ -49,9 +41,11 @@ gooru user create-admin --username alice --config serve.yaml
 gooru serve --config serve.yaml
 ```
 
+For NixOS, use the [declarative module configuration](#nixos) instead of these manual commands.
+
 Use `./gooru` for a Linux tarball or `.\gooru.exe` for the Windows ZIP instead of `gooru` above. On Windows PowerShell 5, generate `serve.yaml` with `cmd /c ".\gooru.exe serve --print-default-config > serve.yaml"` so the file is UTF-8.
 
-Set `server.frontend_dir` to `/usr/share/gooru/frontend` for a Debian install, or to the Nix package's `share/gooru/frontend` directory for a manual Nix install. The extracted Linux and Windows archives work with the default `frontend/build` when run from their directory. When using a different database path, use it for both initialization and serving.
+Set `server.frontend_dir` to `/usr/share/gooru/frontend` for a Debian install. The extracted Linux and Windows archives work with the default `frontend/build` when run from their directory. When using a different database path, use it for both initialization and serving.
 
 Open <http://127.0.0.1:5678>. By default Gooru listens only on your computer, requires login, and disables uploads. See [CONFIG.md](CONFIG.md) for other settings and [CLI.md](CLI.md) for library commands.
 
@@ -162,7 +156,24 @@ another instance.
 
 ## NixOS
 
-Add Gooru as a flake input (pin its URL to a release tag if needed) and include `gooru.nixosModules.default` in your NixOS configuration's `modules` list. The module sets the packaged WebUI path and uses libvips. You can configure the public `gooru` Cachix cache to use prebuilt packages. Keep a shared default package at `services.gooru.package` and define deployments under `services.gooru.instances.<name>`. Each enabled instance must set `settings.server.listen` explicitly.
+Add Gooru to the inputs of your NixOS flake:
+
+```nix
+inputs.gooru.url = "github:fiso64/gooru";
+```
+
+Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.default` to the host's `nixosSystem.modules`. In that host's NixOS configuration, enable an instance:
+
+```nix
+services.gooru.instances.main = {
+  enable = true;
+  settings.server.listen = "127.0.0.1:5678";
+};
+```
+
+Your `flake.lock` pins the Gooru revision; update the lock file when you want to upgrade. The module installs the package, sets the bundled WebUI path, initializes a missing database, and manages the service. For prebuilt packages, add the public [Gooru Cachix cache](https://gooru.cachix.org/) as a substituter with its signing key in your NixOS `nix.settings`. No per-user package installation or manual server startup is needed.
+
+To create the first administrator, configure `services.gooru.instances.main.admins` with a runtime `passwordFile`, as shown below. Keep secrets out of the Nix store.
 
 ### Two-instance example
 
