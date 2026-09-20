@@ -10,6 +10,7 @@
   import { errorMessage, formatBytes, mediaDimensions, mediaDuration } from '$lib/utils/format';
   import { claimFocus } from '$lib/utils/focus';
   import { hasCommandModifier, isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { hasBlockingModal } from '$lib/utils/modal';
   import { isEmptyViewerTagShortcut } from '$lib/utils/viewerTagKeyRouting';
   import { canUseOriginalInViewer, viewerImageSource } from '$lib/utils/media';
   import { clearViewerPreloadCache, preloadViewerMediaSource } from '$lib/utils/viewerPreload';
@@ -171,7 +172,7 @@
   }
 
   function handleViewerKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented || hasCommandModifier(event)) return;
+    if (event.defaultPrevented || hasBlockingModal() || hasCommandModifier(event)) return;
     const viewerTagShortcut = isEmptyViewerTagShortcut(event, file.id);
     if (
       (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
