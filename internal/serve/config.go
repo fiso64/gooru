@@ -252,6 +252,11 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 	if err != nil {
 		return Config{}, fmt.Errorf("parse upload defaults: %w", err)
 	}
+	if automatic {
+		if err := verifyManagedUploadStateOwner(path); err != nil {
+			return Config{}, err
+		}
+	}
 	if err := cfg.ResolveSecrets(); err != nil {
 		return Config{}, err
 	}
@@ -259,9 +264,6 @@ func LoadConfig(path string, dbPath string, overrides Overrides) (Config, error)
 		return Config{}, err
 	}
 	if automatic {
-		if err := verifyManagedUploadStateOwner(path); err != nil {
-			return Config{}, err
-		}
 		if err := prepareDefaultUploadDir(cfg.Uploads.Targets[0].Path); err != nil {
 			return Config{}, err
 		}
