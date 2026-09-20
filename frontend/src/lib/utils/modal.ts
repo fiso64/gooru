@@ -22,11 +22,25 @@ export function placeModalInFullscreenViewer(node: HTMLElement) {
     }
   }
 
+  // Allow dialog editing and button activation, but prevent window-level
+  // shortcuts from reaching the underlying viewer or library.
+  function interceptBackgroundKeys(event: KeyboardEvent) {
+    if (event.key === 'Escape' || event.key === 'Tab' || event.key === 'Enter') return;
+    const target = event.target;
+    if (target instanceof Element && node.contains(target)) {
+      if (target.closest('input, textarea, select, [contenteditable], [role="textbox"]')) return;
+      if ((event.code === 'Space' || event.key === ' ') && target.closest('button, a, [role="button"]')) return;
+    }
+    event.stopPropagation();
+  }
+
+  document.addEventListener('keydown', interceptBackgroundKeys, true);
   document.addEventListener('fullscreenchange', sync);
   sync();
 
   return {
     destroy() {
+      document.removeEventListener('keydown', interceptBackgroundKeys, true);
       document.removeEventListener('fullscreenchange', sync);
       if (anchor.parentNode) anchor.parentNode.insertBefore(node, anchor);
       anchor.remove();
