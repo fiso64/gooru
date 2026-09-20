@@ -31,8 +31,11 @@ func TestLoadConfigDefaultsAreValid(t *testing.T) {
 	if cfg.Server.Listen != DefaultListenAddress {
 		t.Fatalf("unexpected listen address %q", cfg.Server.Listen)
 	}
-	if cfg.Uploads.Enabled {
-		t.Fatal("uploads should default disabled until a target is configured")
+	if !cfg.Uploads.Enabled || len(cfg.Uploads.Targets) != 1 {
+		t.Fatalf("authenticated defaults should provide one upload target: %+v", cfg.Uploads)
+	}
+	if !filepath.IsAbs(cfg.Uploads.Targets[0].Path) {
+		t.Fatalf("default upload target must be absolute: %+v", cfg.Uploads.Targets[0])
 	}
 	if cfg.Server.ExposePaths {
 		t.Fatal("server.expose_paths should default false")
