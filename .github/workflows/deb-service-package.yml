@@ -6,6 +6,7 @@ on:
       - 'systemd/**'
       - 'scripts/build-deb.sh'
       - 'scripts/gooru-instance-setup.sh'
+      - 'scripts/gooru-instance.sh'
       - 'scripts/test-deb-service.sh'
       - '.github/workflows/deb-service-package.yml'
   push:
@@ -48,12 +49,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash -n scripts/gooru-instance-setup.sh scripts/test-deb-service.sh scripts/build-deb.sh
+          bash -n scripts/gooru-instance-setup.sh scripts/gooru-instance.sh scripts/test-deb-service.sh scripts/build-deb.sh
           bash scripts/build-deb.sh
           artifact="dist/gooru_$(tr -d '\n' < VERSION)_linux_amd64.deb"
           test "$(dpkg-deb -f "$artifact" Architecture)" = amd64
           dpkg-deb -f "$artifact" Depends | grep -F passwd
           dpkg-deb -c "$artifact" | grep -F '/usr/sbin/gooru-instance-setup'
+          dpkg-deb -c "$artifact" | grep -F '/usr/sbin/gooru-instance'
           dpkg-deb -e "$artifact" /tmp/gooru-deb-control
           test ! -e /tmp/gooru-deb-control/postinst
           sha256sum -c "$artifact.sha256"

@@ -161,8 +161,7 @@ Start and stop the service once so its normal initialization creates the databas
 sudo systemctl daemon-reload
 sudo systemctl start gooru@main.service
 sudo systemctl stop gooru@main.service
-sudo -u _gooru-main /usr/bin/gooru --config /etc/gooru/main/serve.yaml \
-  user create-admin --username alice
+sudo gooru-instance main user create-admin --username alice
 ```
 
 Enable the service at boot and start it:
@@ -174,9 +173,9 @@ sudo systemctl status --no-pager gooru@main.service
 
 Open <http://127.0.0.1:5678> on the server and sign in as `alice`. If startup fails, inspect `sudo journalctl -u gooru@main.service -e`. The example listens only on the host; see [Network access](#network-access) for other deployments and [CONFIG.md](CONFIG.md) for configuration options.
 
-Each named instance receives a separate `_gooru-<name>` system account, `/var/lib/gooru-<name>` state directory and `/var/cache/gooru-<name>` cache directory. For another instance, run `sudo gooru-instance-setup <name>`, create its own `/etc/gooru/<name>/serve.yaml`, choose a different listen port, and substitute its name in the commands above. Do not share database or mutable cache paths between instances. Stop an instance before running CLI commands that modify its database.
+Each named instance receives a separate `gooru-<name>` system account, `/var/lib/gooru-<name>` state directory and `/var/cache/gooru-<name>` cache directory. For another instance, run `sudo gooru-instance-setup <name>`, create its own `/etc/gooru/<name>/serve.yaml`, choose a different listen port, and substitute its name in the commands above. Do not share database or mutable cache paths between instances. For everyday local tagging and queries, run `sudo gooru-instance main tag /srv/photos/cat.jpg favorite` or `sudo gooru-instance main count favorite`; the wrapper runs the CLI as `gooru-main` with the instance's configuration and does not need to stop the service for normal tagging. The instance account must be able to read the target file. Stop an instance before maintenance commands that require exclusive database access.
 
-For access to external library or upload directories, grant the instance account the necessary read/write permissions explicitly. For encrypted storage, keep plaintext keys out of the YAML and logs; use a systemd `LoadCredential` drop-in and `GOORU_ENCRYPTION_KEY_FILE=%d/encryption-key` for the service, and provide the same key securely when running administrator CLI commands against an encrypted database.
+For access to external library or upload directories, grant the instance account the necessary read/write permissions explicitly. For encrypted storage, keep plaintext keys out of the YAML and logs; use a systemd `LoadCredential` drop-in and `GOORU_ENCRYPTION_KEY_FILE=%d/encryption-key` for the service, and make the same key accessible securely to the instance CLI. A credential loaded only into the service is not automatically available to `gooru-instance`; use a key file readable by that instance account or supply the same key using an explicitly managed secure CLI environment.
 
 ## NixOS deployment
 
@@ -208,7 +207,7 @@ services.gooru.instances.main = {
 };
 ```
 
-Your `flake.lock` pins the selected revision. When the matching substitute is available, Nix downloads Gooru from Cachix instead of building it locally. The module sets the bundled WebUI path, initializes a missing database, and manages the service. No per-user installation or manual server startup is needed.
+Your `flake.lock` pins the selected revision. When the matching substitute is available, Nix downloads Gooru from Cachix instead of building it locally. The module sets the bundled WebUI path, initializes a missing database, and manages the service. No per-user installation or manual server startup is needed. Once the NixOS configuration is applied, local CLI operations use the same wrapper as Debian: `sudo gooru-instance main tag /srv/photos/cat.jpg favorite` (or `sudo gooru-instance main count favorite`). The NixOS wrapper selects the instance's configured service user, generated YAML and effective package, including per-instance package overrides. The service account needs read access to the file; a systemd-only encryption credential is not automatically available to CLI invocations.
 
 To create the first administrator, configure `services.gooru.instances.main.admins` with a runtime `passwordFile`, as shown below. Keep secrets out of the Nix store.
 

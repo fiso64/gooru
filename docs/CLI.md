@@ -13,6 +13,20 @@ gooru --database /absolute/path/library.db init
 gooru --database /absolute/path/library.db list
 ```
 
+## Managed Debian and NixOS instances
+
+After provisioning a named systemd instance, use `gooru-instance` for server-local CLI commands. The wrapper runs Gooru as the instance's system account with its own configuration and database rather than your login account's default database. For example, for an instance named `main` on either platform:
+
+```bash
+sudo gooru-instance main tag /srv/photos/cat.jpg favorite
+sudo gooru-instance main count favorite
+sudo gooru-instance main user create-admin --username alice
+```
+
+On Debian, `gooru-instance-setup main` creates the `gooru-main` system account before the wrapper can be used. On NixOS, the enabled instance's declarative configuration creates its account and installs a wrapper that uses that instance's effective package (including overrides). The service account needs filesystem access to the source files. Normal tagging and queries may run while the server is active; stop the service before CLI maintenance that requires exclusive database access.
+
+The wrapper is intended for local administration with root/sudo privileges; it does not call the server's HTTP API and does not automatically gain access to systemd-only encryption credentials. An encrypted instance needs the same key available securely to its CLI process, such as through a key file readable by the service account.
+
 ## Initialize a library
 
 ```bash

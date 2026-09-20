@@ -29,8 +29,21 @@ sudo systemctl is-active --quiet gooru@citest.service
 test "$(sudo stat -c '%U:%G:%a' /var/lib/gooru-citest/gooru.db)" = "gooru-citest:gooru-citest:600"
 
 sudo systemctl stop gooru@citest.service
-sudo -u gooru-citest env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
-  /usr/bin/gooru --config /etc/gooru/citest/serve.yaml user create-admin --username ci-admin
+sudo env GOORU_ADMIN_PASSWORD='ephemeral-ci-password' \
+  gooru-instance citest user create-admin --username ci-admin
+sudo install -d -m 0755 /srv/gooru-ci
+printf 'ci test file\n' | sudo tee /srv/gooru-ci/note.txt >/dev/null
+sudo chmod 0644 /srv/gooru-ci/note.txt
+sudo gooru-instance citest tag /srv/gooru-ci/note.txt favorite
+test "$(sudo gooru-instance citest count favorite)" = 1
+if sudo gooru-instance absent count favorite; then
+  echo "unknown instance unexpectedly accepted by wrapper" >&2
+  exit 1
+fi
+if gooru-instance citest count favorite; then
+  echo "unprivileged CLI wrapper call unexpectedly succeeded" >&2
+  exit 1
+fi
 sudo systemctl start gooru@citest.service
 ready=no
 for _ in $(seq 1 40); do
