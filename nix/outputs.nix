@@ -23,8 +23,7 @@ in {
           runHook postInstall
         '';
       };
-    in {
-      default = pkgs.buildGoModule {
+      mkGooruPackage = development: pkgs.buildGoModule {
         pname = "gooru";
         version = version;
         src = ../.;
@@ -35,7 +34,7 @@ in {
           "-X=gooru.local/internal/buildinfo.Version=${version}"
           "-X=gooru.local/internal/buildinfo.Revision=${revision}"
           "-X=gooru.local/internal/buildinfo.Dirty=${dirty}"
-          "-X=gooru.local/internal/buildinfo.Development=true"
+          "-X=gooru.local/internal/buildinfo.Development=${if development then "true" else "false"}"
         ];
         nativeBuildInputs = [ pkgs.pkg-config ];
         buildInputs = [ pkgs.vips ];
@@ -55,6 +54,9 @@ in {
           platforms = supportedSystems;
         };
       };
+    in {
+      default = mkGooruPackage false;
+      development = mkGooruPackage true;
     });
 
   nixosModules.default = import ./module.nix { inherit self; };

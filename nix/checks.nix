@@ -86,6 +86,20 @@ forAllSystems (system:
     invalidUsernameAssertions = invalidUsernameEval.config.assertions;
     missingListenAssertions = missingListenEval.config.assertions;
 
+    buildIdentityCheck = pkgs.runCommand "gooru-nix-build-identity-check" { } ''
+      release_output="$("${self.packages.${system}.default}/bin/gooru" --version)"
+      development_output="$("${self.packages.${system}.development}/bin/gooru" --version)"
+
+      case "$release_output" in
+        *", development)"*) echo "default Nix package must not be development-stamped: $release_output" >&2; exit 1 ;;
+      esac
+      case "$development_output" in
+        *", development)"*|*", dirty)"*) ;;
+        *) echo "development Nix package must be development-stamped: $development_output" >&2; exit 1 ;;
+      esac
+      touch "$out"
+    '';
+
     moduleCheck =
       assert instanceWrapper != null;
       assert moduleEval.config.services.gooru.instances.main.admins.primary.username == "alice";
@@ -127,5 +141,6 @@ forAllSystems (system:
       '';
   in {
     package = self.packages.${system}.default;
+    build-identity = buildIdentityCheck;
     nixos-module = moduleCheck;
   })

@@ -193,6 +193,8 @@ inputs.gooru.url = "github:fiso64/gooru/main";
 
 The `main` branch is the stable release branch; development and unreleased changes remain on `develop`. To upgrade after a new release is published, run `nix flake update gooru` in your system flake directory and rebuild your NixOS system. Gooru publishes Cachix binaries for each release on x86_64 and aarch64 Linux.
 
+The Nix flake's `packages.<system>.default` is release-stamped, including when the source is pinned to a development commit. For an explicitly development-stamped binary, select `packages.<system>.development` as `services.gooru.package` (or for an individual instance). The development variant is built separately and is not the published release Cachix package.
+
 Include `gooru` in your flake's `outputs` arguments and add `gooru.nixosModules.default` to the host's `nixosSystem.modules`. In that host's NixOS configuration, enable an instance:
 
 ```nix
