@@ -21,7 +21,7 @@ printf 'Source: gooru\nSection: web\nPriority: optional\nMaintainer: Gooru proje
 substvars="$(cd "$stage/work" && dpkg-shlibdeps -O -e"$root/usr/bin/gooru")"
 depends="$(printf '%s\n' "$substvars" | sed -n 's/^shlibs:Depends=//p')"
 [[ -n "$depends" && "$depends" == *libvips* ]]
-printf 'Package: gooru\nVersion: %s\nSection: web\nPriority: optional\nArchitecture: %s\nMaintainer: Gooru project <noreply@github.com>\nHomepage: https://github.com/fiso64/gooru\nDepends: %s, passwd, util-linux\nDescription: personal media library with WebUI and CLI\n' "$version" "$arch" "$depends" > "$root/DEBIAN/control"
+printf 'Package: gooru\nVersion: %s\nSection: web\nPriority: optional\nArchitecture: %s\nMaintainer: Gooru project <noreply@github.com>\nHomepage: https://github.com/fiso64/gooru\nDepends: %s, passwd, util-linux, ffmpeg\nDescription: personal media library with WebUI and CLI\n' "$version" "$arch" "$depends" > "$root/DEBIAN/control"
 mkdir -p dist
 artifact="dist/gooru_${version}_linux_${arch}.deb"
 dpkg-deb --build --root-owner-group "$root" "$artifact"
