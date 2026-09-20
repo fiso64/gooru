@@ -14,7 +14,7 @@ Download the `.deb` for your architecture (amd64 or arm64) and install it:
 sudo apt install ./gooru_*.deb
 ```
 
-Run this in the download directory with just the Gooru package matching your system. The package includes the WebUI and a `gooru@.service` template. For manual serving, set `server.frontend_dir: /usr/share/gooru/frontend` in your config; for a managed service, see [systemd](#systemd-linux).
+Run this in the download directory with just the Gooru package matching your system. The package includes the WebUI and a `gooru@.service` template. To configure an instance, create an administrator, and run Gooru in the background, follow the [Debian/Ubuntu service setup](#systemd-linux) below. If you prefer to run it manually, set `server.frontend_dir: /usr/share/gooru/frontend` in your config and follow [First run](#first-run).
 
 ### NixOS via Cachix
 
@@ -32,7 +32,7 @@ Debian and Nix builds use libvips for thumbnails; portable Linux and Windows bui
 
 ## First run
 
-For Debian, Linux tarball, or Windows ZIP installations, initialize the database, generate a config, and create an administrator:
+For manually run Debian, Linux tarball, or Windows ZIP installations, initialize the database, generate a config, and create an administrator. For the Debian/Ubuntu `gooru@.service`, use the [managed service setup](#systemd-linux) instead; do not initialize a separate database with these commands:
 
 ```bash
 gooru init
@@ -133,26 +133,60 @@ Debian and Nix packages enable libvips; portable Linux and Windows builds use th
 
 ## systemd (Linux)
 
-The Debian package installs the `gooru@.service` template and `/usr/bin/gooru`. For
-an instance named `main`, create `/etc/gooru/main/serve.yaml` with unique
-`server.listen`, `database.path: /var/lib/gooru-main/gooru.db`,
-`media.cache_dir: /var/cache/gooru-main/media`, and
-`server.frontend_dir: /usr/share/gooru/frontend`. Start it using
-`systemctl enable --now gooru@main.service`.
+The Debian/Ubuntu package includes the `gooru@.service` template. The example below sets up an instance named `main`; choose another name if you need a separate instance.
 
-The template creates separate, private state/cache directories and a dynamic
-service identity for each instance, initializes a missing database on first
-start with the partial hashing strategy, and does not put credentials in the
-unit or YAML. Provision the first admin through the CLI using the instance
-config and a password supplied privately. If using encryption, load the key
-with a systemd `LoadCredential` drop-in and set
-`GOORU_ENCRYPTION_KEY_FILE=%d/encryption-key` in that drop-in; keep the
-plaintext key out of configuration files and service logs. External libraries
-and upload targets require explicit read/write access for the service identity;
-use a dedicated static per-instance user and matching unit override where
-stable filesystem ACLs or group membership are required. Each instance needs
-its own listen address and should not share a database or mutable cache with
-another instance.
+Create a configuration file readable by the service:
+
+```bash
+sudo install -d -m 0755 /etc/gooru/main
+sudo tee /etc/gooru/main/serve.yaml > /dev/null <<'YAML'
+server:
+  listen: 127.0.0.1:5678
+  frontend_dir: /usr/share/gooru/frontend
+database:
+  path: /var/lib/gooru-main/gooru.db
+media:
+  cache_dir: /var/cache/gooru-main/media
+YAML
+sudo chmod 0644 /etc/gooru/main/serve.yaml
+```
+
+The service creates its private state and cache directories automatically. Do not create `/var/lib/gooru-main` yourself or put passwords or encryption keys in `serve.yaml`. The example listens only on the host; for remote access, see [Network access](#network-access).
+
+Start and then stop the service once to let it initialize the database before creating the first administrator:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start gooru@main.service
+sudo systemctl stop gooru@main.service
+```
+
+Create the administrator with the same private state directory and dynamic-user isolation as the service. Run this from a terminal so Gooru can ask for the password without displaying it:
+
+```bash
+sudo systemd-run --pty --wait --collect \
+  --property=DynamicUser=yes \
+  --property=StateDirectory=gooru-main \
+  --property=StateDirectoryMode=0700 \
+  --property=CacheDirectory=gooru-main \
+  --property=CacheDirectoryMode=0700 \
+  --property=WorkingDirectory=/var/lib/gooru-main \
+  /usr/bin/gooru user create-admin --username alice \
+  --config /etc/gooru/main/serve.yaml
+```
+
+Now enable the instance at boot and start it:
+
+```bash
+sudo systemctl enable --now gooru@main.service
+sudo systemctl status --no-pager gooru@main.service
+```
+
+Open <http://127.0.0.1:5678> on the server and sign in as `alice`. To inspect startup errors, run `sudo journalctl -u gooru@main.service -e`. For configuration options, see [CONFIG.md](CONFIG.md).
+
+The service initializes a missing database with the partial hashing strategy. Each additional instance needs its own `/etc/gooru/<name>/serve.yaml`, `database.path`, `media.cache_dir`, and listen address; the template supplies separate private state/cache directories and a dynamic identity. To provision another instance, substitute its name and paths throughout the commands above. Stop an instance before running the transient administrator command against its database.
+
+For encrypted storage, use a systemd `LoadCredential` drop-in and set `GOORU_ENCRYPTION_KEY_FILE=%d/encryption-key` in the service; do not put the plaintext key in the unit, YAML, or logs. External libraries and upload targets need explicit filesystem access for the service identity. Where stable filesystem ACLs or group membership are needed, configure a dedicated static per-instance user with the corresponding unit override.
 
 ## NixOS deployment
 
