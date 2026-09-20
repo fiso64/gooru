@@ -35,6 +35,7 @@
     return `https://github.com/fiso64/gooru/tree/${buildInfo.revision}`;
   }
   function docsHref(): string { return `https://github.com/fiso64/gooru/tree/${buildRef()}/docs`; }
+  function setupHref(): string { return `https://github.com/fiso64/gooru/blob/${buildRef()}/docs/SERVE.md`; }
 
   onMount(() => {
     usernameInput?.focus();
@@ -85,7 +86,7 @@
     </form>
 
     <div class="login-v2-foot">
-      <div><span class="mono">first run?</span><span> on the server: </span><code>gooru user create-admin</code></div>
+      <div class="login-v2-first-run"><span class="mono">first run?</span><span>see the first-time setup</span><a href={setupHref()} target="_blank" rel="noreferrer">docs</a></div>
       <div class="login-v2-foot-links">
         <a href={docsHref()} target="_blank" rel="noreferrer">docs</a>
         <span class="sep">&middot;</span>
@@ -117,6 +118,8 @@
 </div>
 
 <style>
+  .login-v2-first-run a { text-decoration: underline; }
+
   .login-v2-foot-links a {
     color: var(--text-3);
   }
