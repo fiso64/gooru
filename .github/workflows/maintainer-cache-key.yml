@@ -21,7 +21,7 @@ jobs:
           import json
           data = json.load(open("cache.json"))
           print("Metadata fields:", sorted(data) if isinstance(data, dict) else type(data).__name__)
-          for key in ("publicSigningKey", "publicKey", "public_signing_key", "public_key", "signingKey"):
+          for key in ("publicSigningKeys", "publicSigningKey", "publicKey", "public_signing_key", "public_key", "signingKey"):
               if isinstance(data, dict) and data.get(key):
                   print("CACHE_PUBLIC_KEY:", data[key])
           PY
