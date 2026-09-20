@@ -27,7 +27,7 @@ func testDefaultUploadRoot(t *testing.T) string {
 
 func TestLoadConfigImplicitUploadModes(t *testing.T) {
  for _,tc:=range []struct{name, source string; enabled bool; targets int; errPart string}{
-  {"authenticated omission","",true,1,""},
+  {"authenticated omission","{}",true,1,""},
   {"explicit disabled","uploads:\n  enabled: false\n",false,0,""},
   {"explicit empty targets","uploads:\n  targets: []\n",false,0,""},
   {"explicit enabled empty targets","uploads:\n  enabled: true\n  targets: []\n",false,0,"uploads.enabled requires"},
