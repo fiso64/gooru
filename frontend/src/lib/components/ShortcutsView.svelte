@@ -28,7 +28,7 @@
       { keys: ['t'], description: 'Focus tag input in tag mode' },
       { keys: ['u'], description: 'Focus tag input in untag mode' },
       { keys: ['+', '−'], description: 'Switch tag input mode when empty' },
-      { keys: ['Space'], description: 'Play/pause media or enter/exit comic (also from empty tag input)' },
+      { keys: ['Space'], description: 'Play/pause media or enter/exit comic' },
       { keys: ['q'], description: 'Toggle original / preview media' },
       { keys: ['v'], description: 'Cycle viewer fit mode' },
       { keys: ['s'], description: 'Toggle smooth / nearest-neighbor scaling' },
