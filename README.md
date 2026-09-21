@@ -14,7 +14,7 @@ Gooru is intended primarily for personal and private multi-user libraries rather
 
 - Webui library with search, tags, saved searches, and bulk actions.
 - View supported media, including images, videos, gifs, and `.cbz` comic archives. 
-- Fast file uploads to configurable upload target dirs.
+- Tag external files without importing, or upload to configurable target dirs.
 - Content-based file identity that survives renames and moves.
 - Optional encryption for the database and uploads.
 - Many UI styling options.
