@@ -9,35 +9,44 @@ and executes the same automatically discovered frontend regression suite for
 external PRs without granting repository write credentials or using self-hosted
 runners.
 
-## Browser test discovery
+## Browser test discovery and test tiers
 
-`frontend/playwright.config.ts` discovers all `frontend/tests/*.spec.ts`.
-The credentialed, destructive `smoke-upload-library.spec.ts` is excluded by
-`testIgnore` and runs **only** via `playwright.smoke.config.ts` and the
-manual [E2E Smoke](workflows/e2e-smoke.yml) workflow. New ordinary browser tests
-run in CI automatically: do not add filenames to workflow commands.
+New ordinary browser specs go in `frontend/tests/*.spec.ts` and are **automatically
+included** in the normal PR and community CI gate; no workflow filename list
+needs updating. The destructive, credentialed upload benchmark is only run
+via `playwright.smoke.config.ts` and the dedicated manual
+[E2E Smoke](workflows/e2e-smoke.yml) workflow.
+
+The 53 older specs that were *never* in the previous CI allowlist live in
+`frontend/tests/extended/`. Several have stale assertions or missing mock API
+routes, so they remain **explicitly non-gating** rather than breaking every
+unrelated PR. They are not deleted or represented as passing. Run or repair
+them using `playwright.extended.config.ts`; move a repaired spec back into
+`frontend/tests/` to make it part of every PR gate automatically. This is a
+finite migration queue, not a second allowlist of files to maintain.
 
 CI builds the frontend once, checks its CSP, and passes
 `GOORU_E2E_PREBUILT=1` to Playwright to use that built output. A standalone
-local `npm run test:e2e` still builds before starting the preview server. If
-testing an existing build locally, run `npm run build` first and explicitly
-set `GOORU_E2E_PREBUILT=1`. CI chooses a free preview port via
+local `npm run test:e2e` still builds before starting the preview server. To
+test an existing build locally, run `npm run build` first and explicitly set
+`GOORU_E2E_PREBUILT=1`. CI chooses a free preview port via
 `GOORU_E2E_PORT` because the self-hosted runners share loopback ports.
-
-To run the ordinary browser suite:
 
 ```sh
 cd frontend
 npm ci
 npx playwright install chromium
 npm run test:e2e
+# The historical, non-gating suite; known to contain failing tests:
+npx playwright test --config=playwright.extended.config.ts
+# The isolated destructive upload benchmark uses playwright.smoke.config.ts
 ```
 
-To inspect only one regression, pass the test filename to `npm run test:e2e --`.
-A genuine backend integration run sets `GOORU_E2E_BASE_URL` to the isolated
-server instead of starting Playwright's mocked preview web server. The normal
-CI gate uses `--max-failures=3` to limit wasted time when a shared fixture
-breaks; a clean run still executes **every** ordinary test.
+Pass a filename after `npm run test:e2e --` to run one maintained regression.
+A real-server integration run sets `GOORU_E2E_BASE_URL` to the isolated
+server instead of starting Playwright's mocked preview server. Normal CI uses
+`--max-failures=3` to prevent one broken shared fixture from consuming the
+entire runner budget; a clean run still executes every maintained spec.
 
 ## Package / release validation
 
