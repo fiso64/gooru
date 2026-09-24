@@ -221,6 +221,9 @@
   $effect(() => {
     const targetFile = file;
     const targetImageSource = imageSource;
+    // Only a new requested file/source starts a transition. Internal presentation
+    // state must not rerun this effect and cancel its pending-media timer.
+    return untrack(() => {
     const generation = ++transitionGeneration;
     recordViewerRequest(generation);
     clearWaitingTimer();
@@ -272,6 +275,7 @@
     }
     armWaitingTimer(generation);
     return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
+    });
   });
 
   $effect(() => {
