@@ -29,6 +29,7 @@
     comicPage = 0,
     comicPages = 0,
     comicError = '',
+    navigationError = '',
     onToggleComic,
     onComicPageSelect,
     onPresented
@@ -51,6 +52,7 @@
     comicPage?: number;
     comicPages?: number;
     comicError?: string;
+    navigationError?: string;
     onToggleComic?: () => void;
     onComicPageSelect?: (index: number) => void;
     onPresented?: (source: string) => void;
@@ -219,6 +221,9 @@
   $effect(() => {
     const targetFile = file;
     const targetImageSource = imageSource;
+    // Only a new requested file/source starts a transition. Internal presentation
+    // state must not rerun this effect and cancel its pending-media timer.
+    return untrack(() => {
     const generation = ++transitionGeneration;
     recordViewerRequest(generation);
     clearWaitingTimer();
@@ -270,6 +275,7 @@
     }
     armWaitingTimer(generation);
     return () => { if (generation === transitionGeneration) clearWaitingTimer(); };
+    });
   });
 
   $effect(() => {
@@ -963,6 +969,7 @@
 
   {#if waitingForTarget}<div class="viewer-loading-indicator" role="status" aria-live="polite">Loading media…</div>{/if}
   {#if mediaError}<div class="viewer-media-error" role="alert">{mediaError}</div>{/if}
+  {#if navigationError}<div class="viewer-media-error" role="alert">Unable to navigate: {navigationError}</div>{/if}
   {#if fitModeFeedback}<div class="viewer-mode-feedback" role="status" aria-live="polite">{fitModeFeedback}</div>{/if}
 
   <div class="viewer-mode-controls" aria-label="Viewer display controls">

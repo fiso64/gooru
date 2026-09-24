@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -27,6 +28,7 @@ async function mockApp(page: Page, ids: string[], failRemoval = false, paged = f
   await page.route('**/api/v1/upload-targets', (route) => route.fulfill({ json: { items: [] } }));
   await page.route('**/api/v1/tags?**', (route) => route.fulfill({ json: { tags: [] } }));
   await page.route('**/api/v1/search/suggestions?**', (route) => route.fulfill({ json: { items: [] } }));
+  await mockFileAround(page, () => available);
   await page.route('**/api/v1/files?**', (route) => {
     const params = new URL(route.request().url()).searchParams;
     const token = params.get('page_token');
@@ -38,7 +40,9 @@ async function mockApp(page: Page, ids: string[], failRemoval = false, paged = f
     } });
   });
   await page.route(/\/api\/v1\/files\/[^/?]+$/, (route) => {
-    if (route.request().method() !== 'DELETE') return route.continue();
+    // The URL pattern also matches POST /files/around. Let the neighbor
+    // fixture handle those requests instead of proxying them to a live daemon.
+    if (route.request().method() !== 'DELETE') return route.fallback();
     const id = route.request().url().split('/').at(-1)!;
     removalModes.push(route.request().postDataJSON().mode);
     if (failRemoval) return route.fulfill({ status: 500, json: { error: { code: 'removal_failed', message: 'Removal refused' } } });

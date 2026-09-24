@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page, type Route } from '@playwright/test';
 
 const session = {
@@ -66,11 +67,12 @@ async function mockApp(page: Page) {
     loggedIn = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(session) });
   });
-  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
+  await page.route('**/api/v1/ui-config', async (route) => route.fulfill({ json: { load_full_media_by_default: false, capabilities: ['preview_images'] } }));
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tags: [] }) }));
   await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  await mockFileAround(page, () => files);
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } }) }));
   await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />' }));
   await page.route('**/api/v1/files/*/preview', async (route) => {

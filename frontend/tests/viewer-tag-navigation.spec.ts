@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -61,6 +62,7 @@ async function mockApp(page: Page) {
     if (request.tags.includes('test:value')) namespacedTagCreated = true;
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) });
   });
+  await mockFileAround(page, () => files);
   await page.route('**/api/v1/files?**', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ files, total_count: files.length, library_count: files.length, facets: { kind: [] } })

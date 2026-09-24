@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 type Kind = 'comic' | 'video';
@@ -57,6 +58,7 @@ async function openViewer(page: Page, kind: Kind) {
   } else {
     await page.route('**/api/v1/files/one/content', async (route) => route.fulfill({ status: 204, body: '' }));
   }
+  await mockFileAround(page, () => [file]);
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('test-password');

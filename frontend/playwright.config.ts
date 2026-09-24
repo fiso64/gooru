@@ -10,6 +10,8 @@ const previewBaseURL = `http://127.0.0.1:${previewPort}`;
 
 export default defineConfig({
   testDir: './tests',
+  // The destructive, credentialed upload benchmark has its own smoke config.
+  testIgnore: 'smoke-upload-library.spec.ts',
   timeout: 30_000,
   use: {
     baseURL: externalBaseURL || previewBaseURL,

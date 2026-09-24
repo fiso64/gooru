@@ -169,3 +169,7 @@ func (l *hiddenTagLibrary) KindFacets(ctx context.Context, queryText string) ([]
 	}
 	return l.GooruLibrary.KindFacets(ctx, l.policy.apply(queryText))
 }
+
+func (l *hiddenTagLibrary) ListFilesAround(ctx context.Context, queryText string, id string, sort, order string, count int) ([]types.FileInfo, []types.FileInfo, error) {
+	return l.GooruLibrary.ListFilesAround(ctx, l.policy.apply(queryText), id, sort, order, count)
+}

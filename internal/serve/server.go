@@ -113,6 +113,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/api/v1/files/tags", s.adminProtected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleMutateTags))))
 	mux.Handle("/api/v1/files/", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, s.fileRouteHandler())))
 	mux.Handle("/api/v1/files", s.protected(requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFiles))))
+	mux.Handle("/api/v1/files/around", authMiddleware(s.cfg, s.auth, requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFilesAround))))
 	mux.Handle("/api/v1/files/search", authMiddleware(s.cfg, s.auth, requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleFileSearch))))
 	mux.Handle("/api/v1/comics/", s.protected(http.HandlerFunc(s.handleComic)))
 	mux.Handle("/api/v1/search/suggestions", authMiddleware(s.cfg, s.auth, requestBodyLimitMiddleware(metadataRequestBodyLimit, http.HandlerFunc(s.handleSearchSuggestions))))

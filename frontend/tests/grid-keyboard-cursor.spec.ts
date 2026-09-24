@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -62,6 +63,7 @@ async function mockApp(page: Page) {
   await page.route('**/api/v1/files/*/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#fff"/></svg>' }));
   await page.route('**/api/v1/files/*/preview', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64"><rect width="96" height="64"/></svg>' }));
 
+  await mockFileAround(page, () => files);
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
