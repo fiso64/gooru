@@ -635,6 +635,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/files/around": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get bounded nearest-first neighbors of a tracked file in the complete filtered and sorted listing.
+         * @description Read-only POST keeps private query expressions out of URLs. The current file must match the query; the lists wrap at global listing boundaries and omit repeated IDs within each direction.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FileAroundRequest"];
+                };
+            };
+            responses: {
+                /** @description Up to count nearest files on either side of the anchor. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FileAroundResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                /** @description Anchor does not belong to this filtered listing. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/files/{id}": {
         parameters: {
             query?: never;
@@ -2340,6 +2392,19 @@ export interface components {
             /** @enum {string} */
             order?: "asc" | "desc";
             file_id?: string;
+        };
+        FileAroundRequest: {
+            file_id: string;
+            query?: string;
+            /** @enum {string} */
+            sort?: "added" | "name" | "modified" | "size" | "kind";
+            /** @enum {string} */
+            order?: "asc" | "desc";
+            count: number;
+        };
+        FileAroundResponse: {
+            before: components["schemas"]["File"][];
+            after: components["schemas"]["File"][];
         };
         FileListResponse: {
             files: components["schemas"]["File"][];
