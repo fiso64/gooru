@@ -13,8 +13,10 @@ const usePrebuiltFrontend = process.env.GOORU_E2E_PREBUILT === '1';
 
 export default defineConfig({
   testDir: './tests',
-  // The destructive, credentialed upload benchmark has its own smoke config.
-  testIgnore: 'smoke-upload-library.spec.ts',
+  // New ordinary specs are automatically included. The pre-existing, historically
+  // ungated suite is explicit under tests/extended and has its own opt-in config.
+  // The destructive credentialed upload benchmark has a separate smoke config.
+  testIgnore: ['smoke-upload-library.spec.ts', '**/extended/**'],
   timeout: 30_000,
   use: {
     baseURL: externalBaseURL || previewBaseURL,
