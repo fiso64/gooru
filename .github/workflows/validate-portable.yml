@@ -8,8 +8,12 @@ on:
       - 'scripts/build-portable.sh'
       - 'go.mod'
       - 'go.sum'
-      - 'VERSION'
-      - 'frontend/**'
+      # Version bumps are covered by release.yml; frontend source changes
+      # are checked by normal CI and should not rebuild every archive.
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/vite.config.ts'
+      - 'frontend/svelte.config.js'
   workflow_dispatch:
 
 permissions:
