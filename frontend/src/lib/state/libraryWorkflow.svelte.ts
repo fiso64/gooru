@@ -13,7 +13,7 @@ import {
   searchForLibraryURLState,
   type AppRoute
 } from '$lib/utils/appRoute';
-import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+import { isEditableShortcutTarget, matchesShortcut } from '$lib/utils/keyboard';
 import { replaceSidebarKind } from '$lib/utils/sidebarKinds';
 import { advanceViewerWindow, windowNeighbor, type ViewerWindow } from '$lib/utils/viewerWindow';
 import { onNavigationInvalidated } from '$lib/utils/navigationInvalidation';
@@ -583,17 +583,17 @@ export function createLibraryWorkflow(
   function handleKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented || isEditableShortcutTarget(event.target)) return;
 
-    if (event.key === 'Escape') {
+    if (matchesShortcut(event, 'Escape')) {
       if (activeFile) closePreview();
       else if (selectionActive(selection)) clearSelection();
       return;
     }
-    if (activeFile && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'k')) {
+    if (activeFile && (matchesShortcut(event, 'ArrowLeft') || matchesShortcut(event, 'k'))) {
       event.preventDefault();
       movePreview(-1);
       return;
     }
-    if (activeFile && !event.shiftKey && (event.key === 'ArrowRight' || event.key === 'j')) {
+    if (activeFile && (matchesShortcut(event, 'ArrowRight') || matchesShortcut(event, 'j'))) {
       event.preventDefault();
       movePreview(1);
     }

@@ -5,7 +5,7 @@
   import { parseSearchQuery, parseSearchToken, searchTokensToQuery, searchTokenToString, type SearchToken } from '$lib/search/tokens';
   import { rankCompletionCandidates } from '$lib/utils/completionRanking';
   import { plainTagSuggestions } from '$lib/utils/tagSuggestions';
-  import { hasCommandModifier, searchShortcutAction } from '$lib/utils/keyboard';
+  import { hasCommandModifier, matchesShortcutModifiers, searchShortcutAction } from '$lib/utils/keyboard';
   import { keepActiveCompletionVisible } from '$lib/utils/completionVisibility';
   import { moveCompletionIndex } from '$lib/utils/completionNavigation';
 
@@ -332,6 +332,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if (!matchesShortcutModifiers(event)) return;
     const fragment = textMode ? plainTextCompletionContext(draft).fragment : draft;
     if (event.key === 'ArrowDown') {
       if (!fragment.trim()) return;

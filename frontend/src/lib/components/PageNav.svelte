@@ -1,6 +1,6 @@
 <script lang="ts">
   import { paginationWindow } from '$lib/utils/pagination';
-  import { isEditableShortcutTarget } from '$lib/utils/keyboard';
+  import { matchesShortcutModifiers, isEditableShortcutTarget } from '$lib/utils/keyboard';
 
   let {
     page,
@@ -53,7 +53,7 @@
   }
 
   function handlePageShortcut(event: KeyboardEvent) {
-    if (event.defaultPrevented || pageCount <= 1 || !event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.defaultPrevented || pageCount <= 1 || !matchesShortcutModifiers(event, { shift: true })) return;
     if (event.key !== 'PageUp' && event.key !== 'PageDown') return;
     if (isEditableShortcutTarget(event.target)) return;
     if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;

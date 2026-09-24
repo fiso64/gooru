@@ -37,7 +37,7 @@
   import { createUploadTagReconciliationWave } from '$lib/state/uploadTagReconciliation';
   import { browserPersistenceRegistry, readBrowserPreference, writeBrowserPreference } from '$lib/utils/browserStorage';
   import { errorMessage } from '$lib/utils/format';
-  import { hasCommandModifier, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
+  import { matchesShortcut, matchesShortcutCode, isEditableShortcutTarget, libraryShortcutAction } from '$lib/utils/keyboard';
   import { queryWithoutSidebarKind } from '$lib/utils/sidebarKinds';
   import { tagEditDelta } from '$lib/utils/tagEdit';
   import { useQueryClient } from '@tanstack/svelte-query';
@@ -368,10 +368,9 @@
   function handleKeydown(event: KeyboardEvent) {
     if (event.defaultPrevented) return;
     const editable = isEditableShortcutTarget(event.target);
-    const modified = hasCommandModifier(event);
     const cursorFile = selectedCount === 0 ? libraryCursorFile(event.target) : null;
-    const shortcutsKey = event.key === '?' || (event.code === 'Slash' && event.shiftKey);
-    if (shortcutsKey && !modified && !editable) {
+    const shortcutsKey = matchesShortcut(event, '?') || matchesShortcut(event, '?', { shift: true }) || matchesShortcutCode(event, 'Slash', { shift: true });
+    if (shortcutsKey && !editable) {
       event.preventDefault();
       setRoute('shortcuts');
       return;
