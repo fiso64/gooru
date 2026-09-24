@@ -222,10 +222,17 @@ test('single-file tag editor stages changes until Apply', async ({ page }) => {
   });
   await mockApp(page);
 
+  // The heading can render before the media grid receives its initial focus.
+  // Wait for the cursor target before dispatching shortcuts to it.
+  const first = page.getByRole('button', { name: 'Preview one.jpg' });
+  await expect(first).toBeVisible();
+  await expect(page.getByTestId('library-viewport')).toBeFocused();
   await page.keyboard.press('ArrowDown');
+  await expect(first).toBeFocused();
   await page.keyboard.press('t');
   const dialog = page.getByRole('dialog', { name: 'Edit tags · one.jpg' });
-  await expect(dialog.getByText('alpha', { exact: true })).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Stage removal of alpha' })).toBeVisible();
 
   const input = dialog.getByRole('textbox', { name: 'Tags for one.jpg' });
   await input.fill('beta');
