@@ -7,6 +7,9 @@ if (!Number.isInteger(previewPort) || previewPort < 1024 || previewPort > 65535)
   throw new Error('GOORU_E2E_PORT must be an integer between 1024 and 65535');
 }
 const previewBaseURL = `http://127.0.0.1:${previewPort}`;
+// CI builds once before running browser tests; local `npm run test:e2e` still
+// builds automatically so it cannot silently exercise stale assets.
+const usePrebuiltFrontend = process.env.GOORU_E2E_PREBUILT === '1';
 
 export default defineConfig({
   testDir: './tests',
@@ -20,7 +23,7 @@ export default defineConfig({
   },
   ...(externalBaseURL ? {} : {
     webServer: {
-      command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${previewPort} --strictPort`,
+      command: `${usePrebuiltFrontend ? '' : 'npm run build && '}npm run preview -- --host 127.0.0.1 --port ${previewPort} --strictPort`,
       url: previewBaseURL,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000
