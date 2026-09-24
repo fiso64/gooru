@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test } from '@playwright/test';
 
 const session = { user: { id: 'usr_test', username: 'mac', role: 'admin' }, capabilities: { upload: true, tag: true, delete: true, admin: true }, csrf_token: 'csrf-one' };
@@ -20,6 +21,7 @@ test('empty viewer tag input preserves printable punctuation and delegates Delet
   await page.route('**/api/v1/files/tags', async (route) => { committed = true; await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ updated_files: 1 }) }); });
   await page.route('**/api/v1/files/one/thumbnail', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" />' }));
   await page.route('**/api/v1/files/one/preview', async (route) => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64" />' }));
+  await mockFileAround(page, () => [file]);
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');

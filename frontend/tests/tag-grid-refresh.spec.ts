@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -201,6 +202,7 @@ test('restored deep viewer does not page the background infinite grid forward', 
     body: imageBody
   }));
 
+  await mockFileAround(page, () => files);
   await page.goto('/');
   await expect(page.getByText('360 files')).toBeVisible();
   const main = page.locator('.main');

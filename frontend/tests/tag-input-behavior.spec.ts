@@ -1,3 +1,4 @@
+import { mockFileAround } from './helpers/mockFileAround';
 import { expect, test, type Page } from '@playwright/test';
 
 const session = {
@@ -75,6 +76,7 @@ async function mockApp(page: Page) {
     body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" />'
   }));
 
+  await mockFileAround(page, () => [file]);
   await page.goto('/');
   await page.getByLabel('Username').fill('mac');
   await page.getByLabel('Password').fill('correct horse');
