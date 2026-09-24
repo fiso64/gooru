@@ -47,7 +47,13 @@ async function mockApp(page: Page) {
   });
   await page.route('**/api/v1/saved-searches', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
   await page.route('**/api/v1/upload-targets', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
-  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }));
+  // The authenticated autocomplete queries the suggestions endpoint, not the tags sidebar list.
+  await page.route('**/api/v1/search/suggestions?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [
+    { name: 'rating:safe', namespace: 'rating', value: 'safe', count: 3 },
+    { name: 'blue', count: 2 },
+    { name: 'character:alice', namespace: 'character', value: 'alice', count: 100 },
+    { name: 'technology', count: 2 }
+  ] }) }));
   await page.route('**/api/v1/tags?**', async (route) => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ tags: [

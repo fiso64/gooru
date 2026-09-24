@@ -107,7 +107,9 @@ test('shortcut underlines do not create visual spaces inside button labels', asy
   await expect(page.locator('.selection-bar')).toBeVisible();
 
   const shortcutButtons = page.locator('.selection-bar button.g-btn:has(> u)');
-  await expect(shortcutButtons).toHaveCount(2);
-  expect(await gapAfterShortcut(shortcutButtons.nth(0))).toBeLessThanOrEqual(1);
-  expect(await gapAfterShortcut(shortcutButtons.nth(1))).toBeLessThanOrEqual(1);
+  // Every selection action with an underlined shortcut must keep its label tight.
+  await expect(shortcutButtons).toHaveCount(3);
+  for (const button of await shortcutButtons.all()) {
+    expect(await gapAfterShortcut(button)).toBeLessThanOrEqual(1);
+  }
 });
